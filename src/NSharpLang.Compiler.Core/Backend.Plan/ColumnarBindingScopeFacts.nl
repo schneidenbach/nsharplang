@@ -1,0 +1,3332 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Collections.Generic
+import System.IO
+import NSharpLang.Compiler
+
+class ColumnarBindingNameSet {
+    Names: HashSet<string>
+
+    constructor() {
+        Names = new HashSet<string>(StringComparer.Ordinal)
+    }
+}
+
+class ColumnarSourceBindingFacts {
+    AliasNames: HashSet<string>
+    NamespaceAliasTargets: Dictionary<string, string>
+    FileAliasPaths: Dictionary<string, string>
+    FileAliasSourceFileIds: Dictionary<string, int>
+    UnaliasedNamespaceImports: List<string>
+    UnaliasedFileImportPaths: List<string>
+    // The SOURCE FILE IDS those unaliased `import "./other.nl"` directives resolved to, in import
+    // order. A file import binds the imported file's exported declarations into THIS file's scope —
+    // nearer than any namespace — so an owner resolving a bare name has to know which files those
+    // are, not merely which names arrived. Aliased file imports are absent: they are qualifications.
+    UnaliasedFileImportSourceFileIds: List<int>
+    ImportedNames: HashSet<string>
+    ImportedSourceTypeNames: Dictionary<string, string>
+    ImportedTypeSourceFileIds: Dictionary<string, int>
+    DeclaredNames: HashSet<string>
+    ExportedNames: HashSet<string>
+    // KEYED BY IDENTITY: `Box``1 for a generic declaration, `Box` for a non-generic one. Every
+    // question of the form "is THIS type declared here?" reads it.
+    DeclaredTypeNames: HashSet<string>
+
+    // The same declarations under their WRITTEN names. Questions of the form "does this name mean a
+    // type at all?" — the unqualified-root guards, a dotted name's root segment — read this one,
+    // because the asker has a spelling and no arity to offer.
+    DeclaredTypeBaseNames: HashSet<string>
+    TypeAliasTargets: Dictionary<string, string>
+    NestedNamesByOwner: Dictionary<string, ColumnarBindingNameSet>
+    HasUnresolvedFileImport: bool
+    HasPackageName: bool
+    NamespaceName: string
+    ScanComplete: bool
+
+    constructor() {
+        AliasNames = new HashSet<string>(StringComparer.Ordinal)
+        NamespaceAliasTargets = new Dictionary<string, string>(StringComparer.Ordinal)
+        FileAliasPaths = new Dictionary<string, string>(StringComparer.Ordinal)
+        FileAliasSourceFileIds = new Dictionary<string, int>(StringComparer.Ordinal)
+        UnaliasedNamespaceImports = new List<string>()
+        UnaliasedFileImportPaths = new List<string>()
+        UnaliasedFileImportSourceFileIds = new List<int>()
+        ImportedNames = new HashSet<string>(StringComparer.Ordinal)
+        ImportedSourceTypeNames = new Dictionary<string, string>(StringComparer.Ordinal)
+        ImportedTypeSourceFileIds = new Dictionary<string, int>(StringComparer.Ordinal)
+        DeclaredNames = new HashSet<string>(StringComparer.Ordinal)
+        ExportedNames = new HashSet<string>(StringComparer.Ordinal)
+        DeclaredTypeNames = new HashSet<string>(StringComparer.Ordinal)
+        DeclaredTypeBaseNames = new HashSet<string>(StringComparer.Ordinal)
+        TypeAliasTargets = new Dictionary<string, string>(StringComparer.Ordinal)
+        NestedNamesByOwner = new Dictionary<string, ColumnarBindingNameSet>(StringComparer.Ordinal)
+        HasUnresolvedFileImport = false
+        HasPackageName = false
+        NamespaceName = ""
+        ScanComplete = true
+    }
+}
+
+class ColumnarTypeBindingFacts {
+    IsInterface: bool
+    IsReference: bool
+    IsRecord: bool
+    IsAmbiguous: bool
+
+    constructor(isInterface: bool, isReference: bool, isRecord: bool) {
+        IsInterface = isInterface
+        IsReference = isReference
+        IsRecord = isRecord
+        IsAmbiguous = false
+    }
+}
+
+class ColumnarExternalBaseBinding {
+    Name: string
+    SourceFileId: int
+
+    constructor(name: string, sourceFileId: int) {
+        Name = name
+        SourceFileId = sourceFileId
+    }
+}
+
+// Shared by the program scope and every file-specific view. Resolution is lazy and cached by
+// source file and spelling, so later member and call owners can consume the same canonical
+// assembly order without extending a feature whitelist.
+class ColumnarExternalTypeCatalog {
+    resolvedOwners: Dictionary<string, ExternalAssemblyTypeResolution>
+    fileFactsById: Dictionary<int, ColumnarSourceBindingFacts>
+    referenceAssemblyPaths: string[]
+    extensionIndex: ColumnarExtensionMethodIndex?
+    extensionIndexBuilt: bool
+    // The canonical scan is IMMUTABLE for the life of a prepared catalog: its entries are decided
+    // by the reference path list alone, and `Prepare` already performs every `Assembly.LoadFrom`
+    // side effect a later scan could observe. Retaining it is what keeps a per-file owner lookup
+    // from rebuilding a whole MetadataLoadContext over every referenced assembly.
+    preparedScan: ExternalAssemblyScanResult?
+    IsPrepared: bool
+    holdersByNamespace: Dictionary<string, List<Type>>
+
+    constructor() {
+        resolvedOwners = new Dictionary<string, ExternalAssemblyTypeResolution>(StringComparer.Ordinal)
+        fileFactsById = new Dictionary<int, ColumnarSourceBindingFacts>()
+        referenceAssemblyPaths = new string[](0)
+        extensionIndex = null
+        extensionIndexBuilt = false
+        preparedScan = null
+        IsPrepared = false
+        holdersByNamespace = new Dictionary<string, List<Type>>(StringComparer.Ordinal)
+    }
+
+    // Extension-method discovery rides the same referenced-assembly scan the owner resolver uses.
+    // The name-keyed index is built once from the runtime scan (the exact emittable handles) and
+    // cached; owner lookups and extension lookups then share the canonical assembly order without a
+    // per-feature whitelist. A not-selected result is a normal decline, not an error.
+    func TryResolveExtension(receiverType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out selection: ColumnarExtensionMethodSelection): bool {
+        selection = ColumnarExtensionMethodSelection.None()
+        if !IsPrepared {
+            return false
+        }
+        if !extensionIndexBuilt {
+            if preparedScan == null {
+                return false
+            }
+            extensionIndex = ColumnarExtensionMethodResolver.BuildIndex(preparedScan)
+            extensionIndexBuilt = true
+        }
+        if extensionIndex == null {
+            return false
+        }
+        selection = ColumnarExtensionMethodResolver.Resolve(extensionIndex, receiverType, memberName, argumentTypes, argumentFacts)
+        return true
+    }
+
+    // THE RAW CANDIDATES UNDER ONE NAME, for the caller that cannot state its argument types yet.
+    // A lambda argument has no type until the delegate it targets is known, and the delegate is one
+    // of the things inference decides, so the contextual resolver runs the phases itself and needs
+    // the unfiltered bucket rather than a selection. The index is the SAME one `TryResolveExtension`
+    // builds and caches: there is no second scan and no second discovery rule.
+    func ExtensionCandidates(memberName: string): List<ColumnarExtensionMethodCandidate> {
+        if !IsPrepared {
+            return new List<ColumnarExtensionMethodCandidate>()
+        }
+        if !extensionIndexBuilt {
+            if preparedScan == null {
+                return new List<ColumnarExtensionMethodCandidate>()
+            }
+            extensionIndex = ColumnarExtensionMethodResolver.BuildIndex(preparedScan)
+            extensionIndexBuilt = true
+        }
+        return ColumnarContextualExtensionInference.Candidates(extensionIndex, memberName)
+    }
+
+    // THE SELECTION FOR A SITE THAT WROTE ITS TYPE ARGUMENTS. Same index, same discovery rule; the
+    // type arguments come from the site instead of from inference, which is the only difference.
+    func TryResolveExplicitExtension(receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[]?, argumentFacts: ColumnarDirectCallArgumentFacts?, argumentCount: int, out selection: ColumnarExtensionMethodSelection): bool {
+        selection = ColumnarExtensionMethodSelection.None()
+        if !IsPrepared {
+            return false
+        }
+        if !extensionIndexBuilt {
+            if preparedScan == null {
+                return false
+            }
+            extensionIndex = ColumnarExtensionMethodResolver.BuildIndex(preparedScan)
+            extensionIndexBuilt = true
+        }
+        if extensionIndex == null {
+            return false
+        }
+        if argumentTypes == null || argumentFacts == null {
+            selection = ColumnarExtensionMethodResolver.ResolveExplicitUnique(extensionIndex, receiverType, memberName, typeArguments, argumentCount)
+        } else {
+            selection = ColumnarExtensionMethodResolver.ResolveExplicit(extensionIndex, receiverType, memberName, typeArguments, argumentTypes, argumentFacts)
+        }
+        return selection.IsSelected
+    }
+
+    func Prepare(referenceAssemblyPaths: IReadOnlyList<string>?, sourceFactsById: Dictionary<int, ColumnarSourceBindingFacts>) {
+        resolvedOwners.Clear()
+        holdersByNamespace.Clear()
+        fileFactsById = sourceFactsById
+        referenceCount := 0
+        if referenceAssemblyPaths != null {
+            referenceCount = referenceAssemblyPaths.Count
+        }
+        this.referenceAssemblyPaths = new string[](referenceCount)
+        referenceIndex := 0
+        while referenceIndex < referenceCount {
+            this.referenceAssemblyPaths[referenceIndex] = referenceAssemblyPaths[referenceIndex]
+            referenceIndex = referenceIndex + 1
+        }
+
+        // Signature emission resolves runtime Type handles before any expression planner asks
+        // this catalog for an owner. Open the canonical scan once here so every exact runtime
+        // implementation is admitted up front, and KEEP it: owner lookup stays lazy and cached,
+        // but it now reads this scan instead of rebuilding an identical one per cache miss.
+        previousScan := preparedScan
+        preparedScan = ExternalAssemblyScan.OpenWithReferences(this.referenceAssemblyPaths)
+        if previousScan != null {
+            previousScan.Dispose()
+        }
+        IsPrepared = true
+    }
+
+    func TryGet(sourceFileId: int, ownerName: string, out resolution: ExternalAssemblyTypeResolution): bool {
+        resolution = new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        if !IsPrepared || ownerName == null || ownerName.Length == 0 {
+            return false
+        }
+        key := Key(sourceFileId, ownerName)
+        if resolvedOwners.TryGetValue(key, out resolution) {
+            return true
+        }
+        facts := new ColumnarSourceBindingFacts()
+        if !fileFactsById.TryGetValue(sourceFileId, out facts) || !facts.ScanComplete {
+            return false
+        }
+
+        if preparedScan == null {
+            return false
+        }
+        resolution = ResolveOwner(facts, ownerName)
+        resolvedOwners[key] = resolution
+        return true
+    }
+
+    // THE IMPORT-QUALIFIED HALF OF `ResolveOwner`, with no exported-name scan behind it: does an
+    // EXPLICITLY imported namespace declare this spelling? The two are different questions — an
+    // import is something the file asked for, the scan is a project-wide guess — and the answer to
+    // this one decides whether a source type in an unrelated namespace may claim the name. Cached
+    // under its own key so it never stands in for the ordered probe's answer.
+    func TryGetImported(sourceFileId: int, ownerName: string, out resolution: ExternalAssemblyTypeResolution): bool {
+        resolution = new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        if !IsPrepared || ownerName == null || ownerName.Length == 0 {
+            return false
+        }
+
+        key := "imported:" + Key(sourceFileId, ownerName)
+        if resolvedOwners.TryGetValue(key, out resolution) {
+            return true
+        }
+
+        facts := new ColumnarSourceBindingFacts()
+        if !fileFactsById.TryGetValue(sourceFileId, out facts) || !facts.ScanComplete {
+            return false
+        }
+
+        if preparedScan == null {
+            return false
+        }
+
+        resolution = ResolveImportedOwner(facts, ownerName)
+        resolvedOwners[key] = resolution
+        return true
+    }
+
+    // The import tier on its own. ONE import supplying the spelling answers; a SECOND one is a tie
+    // and answers Unknown — never the first import written. An import that names a lexical namespace
+    // was already asked by the chain and is not a rival. An uninspectable reference met BEFORE any
+    // import answered is Unknown, as it always was; met after one did, it cannot prove a rival.
+    func ResolveImportedOwner(facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
+        matched := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Missing, "", typeof(object), false)
+        selection := SimpleNamePrecedence.Select(facts.NamespaceName, facts.UnaliasedNamespaceImports)
+        while !selection.IsSettled {
+            candidate := selection.Current
+            declaresMetadata := false
+            if candidate.IsImport {
+                resolution := FindInNamespaceCached(candidate.Namespace, ownerName)
+                if resolution.Status == ExternalAssemblyTypeLookupStatus.Unknown && matched.Status == ExternalAssemblyTypeLookupStatus.Missing {
+                    return resolution
+                }
+                declaresMetadata = resolution.Status == ExternalAssemblyTypeLookupStatus.Found
+                if declaresMetadata && matched.Status == ExternalAssemblyTypeLookupStatus.Missing {
+                    matched = resolution
+                }
+            }
+
+            selection.Answer(false, declaresMetadata)
+        }
+
+        if selection.Kind == SimpleNameSelectionKind.Ambiguous {
+            return new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        }
+
+        return matched
+    }
+
+    // THE METADATA HALF OF `SimpleNamePrecedence`, for a spelling no source declaration claimed.
+    //
+    // The file's LEXICAL chain first — its own namespace, each enclosing one, and the global one,
+    // where the spelling is read as written (so an absolute full name answers there): a referenced
+    // assembly's `NSharpLang.Compiler.TypeInfo` is a member of the file's enclosing namespace and
+    // outranks every import, and a qualified `Ast.Node` names `NSharpLang.Compiler.Ast.Node`. Then
+    // the imports as ONE tier: exactly one import supplying the spelling is the answer, and two are a
+    // tie the analyzer reports as NL209 — here an UNKNOWN answer, which every caller declines, because
+    // "the first import written" is not a binding (`nlc format` sorts imports). Only then the
+    // exported-name scan, the project-wide guess.
+    //
+    // AN UNINSPECTABLE REFERENCE PROVES NOTHING ABOUT A NAMESPACE, so an Unknown answer from the
+    // lexical chain is not a member there and the walk goes on — except for a DOTTED spelling read
+    // absolutely, the one reading this resolver made before the chain existed, which keeps its old
+    // "cannot prove identity" answer.
+    func ResolveOwner(facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
+        lexical := SimpleNamePrecedence.LexicalNamespaces(facts.NamespaceName)
+        for lexicalNamespace in lexical {
+            resolution := FindInNamespaceCached(lexicalNamespace, ownerName)
+            if resolution.Status == ExternalAssemblyTypeLookupStatus.Found {
+                return resolution
+            }
+            if resolution.Status == ExternalAssemblyTypeLookupStatus.Unknown && lexicalNamespace == null && ownerName.Contains(".") {
+                return resolution
+            }
+        }
+
+        imported := ResolveImportedOwner(facts, ownerName)
+        if imported.Status != ExternalAssemblyTypeLookupStatus.Missing {
+            return imported
+        }
+
+        key := "visible:" + ownerName
+        visible := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        scan := preparedScan
+        if scan != null && !resolvedOwners.TryGetValue(key, out visible) {
+            visible = ExternalAssemblyScan.FindFirstVisibleType(scan, ownerName)
+            resolvedOwners[key] = visible
+        }
+        return visible
+    }
+
+    // ONE NAMESPACE'S MEMBER OF ONE SPELLING, ASKED ONCE PER PREPARED SCAN. The answer is a function of
+    // the scan and the two strings alone -- not of the file asking -- and the scan is immutable while
+    // the catalog is prepared, so every file shares it. The per-file owner cache above keys on the
+    // FILE as well, because the precedence walk that consumes these answers is the file's; before
+    // this, each of a project's files walked its lexical chain and its imports and re-asked every
+    // referenced assembly `GetType("<namespace>.<name>")` for the same pairs. Measured on
+    // Compiler.Core's tests-included emit once Compiler.Model was carved out of it: `FindExactType`
+    // was 55% of the emit thread at the base and grew by 29 of 94 samples when Model's types became
+    // referenced ones -- most of it misses, where a MetadataLoadContext formats a type-load message
+    // for every assembly it asks.
+    func FindInNamespaceCached(namespaceName: string?, name: string): ExternalAssemblyTypeResolution {
+        resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        key := "namespace:" + (namespaceName ?? "") + ":" + name
+        scan := preparedScan
+        if scan != null && !resolvedOwners.TryGetValue(key, out resolution) {
+            resolution = FindInNamespace(scan, namespaceName, name)
+            resolvedOwners[key] = resolution
+        }
+
+        return resolution
+    }
+
+    // ONE namespace's member of this spelling: `<namespace>.<name>` exactly, then with the SPELLING's
+    // own trailing dots read as nesting (`Outer.Inner` is `Outer+Inner`) — a dot of the namespace is
+    // never read as nesting, because a namespace is not a type. A type this emission cannot name is
+    // not a member it can bind (`InternalsVisibleToEmissionScope.CanNameType`), exactly as the
+    // analyzer's probe refuses it.
+    static func FindInNamespace(scan: ExternalAssemblyScanResult, namespaceName: string?, name: string): ExternalAssemblyTypeResolution {
+        prefix := ""
+        if namespaceName != null && namespaceName.Length > 0 {
+            prefix = namespaceName + "."
+        }
+
+        resolution := NameableOnly(ExternalAssemblyScan.FindExactType(scan, prefix + name))
+        if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
+            return resolution
+        }
+
+        candidate := name
+        searchEnd := candidate.Length
+        while searchEnd > 0 {
+            separator := candidate.LastIndexOf('.', searchEnd - 1)
+            if separator <= 0 {
+                return resolution
+            }
+
+            candidate = candidate.Substring(0, separator) + "+" + candidate.Substring(separator + 1)
+            resolution = NameableOnly(ExternalAssemblyScan.FindExactType(scan, prefix + candidate))
+            if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
+                return resolution
+            }
+
+            searchEnd = separator
+        }
+
+        return resolution
+    }
+
+    static func NameableOnly(resolution: ExternalAssemblyTypeResolution): ExternalAssemblyTypeResolution {
+        if resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType && !InternalsVisibleToEmissionScope.CanNameType(resolution.RuntimeType) {
+            return new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Missing, "", typeof(object), false)
+        }
+
+        return resolution
+    }
+
+    // Does a referenced assembly declare this spelling in this ONE namespace? The metadata answer a
+    // `SimpleNamePrecedence` selection asks of each candidate. Cached with the owner lookups.
+    func DeclaresInNamespace(namespaceName: string?, name: string): bool {
+        if !IsPrepared || preparedScan == null || name == null || name.Length == 0 {
+            return false
+        }
+
+        resolution := FindInNamespaceCached(namespaceName, name)
+        return resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType
+    }
+
+    // The runtime type `DeclaresInNamespace` found.
+    func TryResolveInNamespace(namespaceName: string?, name: string, out runtimeType: Type): bool {
+        runtimeType = typeof(object)
+        if !DeclaresInNamespace(namespaceName, name) {
+            return false
+        }
+
+        runtimeType = resolvedOwners["namespace:" + (namespaceName ?? "") + ":" + name].RuntimeType
+        return true
+    }
+
+    // THE FREE-FUNCTION HOLDERS THE REFERENCED ASSEMBLIES DECLARE IN ONE NAMESPACE, one per assembly
+    // that declares one, in reference order. The holder is the type an N# assembly puts that
+    // namespace's free functions on (`ColumnarFreeFunctionScope`): `<Program>` where the namespace
+    // declares a type named `Program` itself -- that name is then the user's type, not the holder --
+    // and `Program` otherwise. EVERY assembly is asked, not the first that answers: two referenced
+    // assemblies may each hold free functions of one namespace (the global one above all), and a
+    // type lookup's first-wins answer would hide the second one's functions entirely. A holder this
+    // emission cannot name is not one it can call into, and an uninspectable reference holds nothing
+    // it can call. Cached per namespace for the prepared scan.
+    func FreeFunctionHolders(namespaceName: string?, rootHolderTypeName: string): List<Type> {
+        holders := new List<Type>()
+        scan := preparedScan
+        if !IsPrepared || scan == null {
+            return holders
+        }
+
+        key := (namespaceName ?? "") + ":" + rootHolderTypeName
+        cached: List<Type>? = null
+        if holdersByNamespace.TryGetValue(key, out cached) {
+            return cached
+        }
+
+        prefix := ""
+        if namespaceName != null && namespaceName.Length > 0 {
+            prefix = namespaceName + "."
+        }
+        reservedName := prefix + ColumnarFreeFunctionScope.ReservedHolderTypeName(rootHolderTypeName)
+        ordinaryName := prefix + rootHolderTypeName
+        for entry in scan.Entries {
+            if entry == null || !entry.IsInspectable || entry.MetadataAssembly == null {
+                continue
+            }
+
+            try {
+                candidate := entry.MetadataAssembly.GetType(reservedName)
+                if candidate == null {
+                    ordinary := entry.MetadataAssembly.GetType(ordinaryName)
+                    if ordinary != null && ordinary.IsClass {
+                        candidate = ordinary
+                    }
+                }
+                if candidate != null {
+                    resolution := NameableOnly(ExternalAssemblyScan.FoundResolution(entry, candidate))
+                    if resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType {
+                        holders.Add(resolution.RuntimeType)
+                    }
+                }
+            } catch {
+                continue
+            }
+        }
+
+        holdersByNamespace[key] = holders
+        return holders
+    }
+
+    static func Key(sourceFileId: int, ownerName: string): string {
+        return sourceFileId.ToString() + ":" + ownerName
+    }
+}
+
+// Immutable program binding facts stamped onto every body node table. They are intentionally
+// reusable across expression planners: C# never computes a shadowing boolean or reconstructs
+// source/import/type scope inside an emitter.
+class ColumnarBindingScopeFacts: ColumnarBindingScope {
+    projectRoot: string
+    sourceTypeNames: HashSet<string>
+    exportedSourceTypeNames: HashSet<string>
+    ambiguousSourceTypeNames: HashSet<string>
+    sourceTypeAliasFileIds: Dictionary<string, int>
+    exportedSourceTypeAliasNames: HashSet<string>
+    ambiguousSourceTypeAliasNames: HashSet<string>
+    memberNamesByType: Dictionary<string, ColumnarBindingNameSet>
+    currentLexicalNamesByType: Dictionary<string, ColumnarBindingNameSet>
+    classBaseNameByType: Dictionary<string, string>
+    // The base each `classBaseNameByType` owner WROTE, and the file it wrote it in: what the
+    // precedence rule is asked again once referenced assemblies can answer it.
+    classBaseWrittenByType: Dictionary<string, ColumnarExternalBaseBinding>
+    externalBaseBindingByType: Dictionary<string, ColumnarExternalBaseBinding>
+    invalidClassBaseOwners: HashSet<string>
+    sourceTypeKindsByExactName: Dictionary<string, ColumnarTypeBindingFacts>
+
+    // A BARE SPELLING TO THE ONE ARITY THAT ANSWERS IT. Keyed by unqualified written name; the value
+    // is the single generic arity every declaration of that name has, or -1 when they disagree. It
+    // exists so a reference written without type arguments still reaches a declaration that has only
+    // a generic form — the same "no arity-0 candidate, so take the one there is" rule the analyzer
+    // applies, and the reason a program full of `Box<T>` keeps compiling now that its identity is
+    // `Box``1.
+    uniqueSourceTypeArities: Dictionary<string, int>
+    fileFactsById: Dictionary<int, ColumnarSourceBindingFacts>
+    activeImportAliasNames: HashSet<string>
+    activeUnaliasedNamespaceImports: List<string>
+    activeImportedNames: HashSet<string>
+    activeImportedSourceTypeNames: Dictionary<string, string>
+    activeDeclaredNames: HashSet<string>
+    activeDeclaredTypeNames: HashSet<string>
+    activeTypeAliasTargets: Dictionary<string, string>
+    // `import System.IO as Io` -> `Io` : `System.IO`. A namespace alias is a QUALIFICATION rather
+    // than a binding, so an owner spelled through one expands to the aliased namespace before any
+    // owner lookup runs — the same expansion the type-name resolution above already performs.
+    activeNamespaceAliasTargets: Dictionary<string, string>
+    hasActiveUnresolvedFileImport: bool
+    activeNamespaceName: string
+    assemblyCatalog: ColumnarExternalTypeCatalog
+    hasActiveFileFacts: bool
+    activeSourceFileId: int
+    sourceScanComplete: bool
+
+    constructor() {
+        projectRoot = Path.GetFullPath(".")
+        sourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
+        exportedSourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
+        ambiguousSourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
+        sourceTypeAliasFileIds = new Dictionary<string, int>(StringComparer.Ordinal)
+        exportedSourceTypeAliasNames = new HashSet<string>(StringComparer.Ordinal)
+        ambiguousSourceTypeAliasNames = new HashSet<string>(StringComparer.Ordinal)
+        memberNamesByType = new Dictionary<string, ColumnarBindingNameSet>(StringComparer.Ordinal)
+        currentLexicalNamesByType = new Dictionary<string, ColumnarBindingNameSet>(StringComparer.Ordinal)
+        classBaseNameByType = new Dictionary<string, string>(StringComparer.Ordinal)
+        classBaseWrittenByType = new Dictionary<string, ColumnarExternalBaseBinding>(StringComparer.Ordinal)
+        externalBaseBindingByType = new Dictionary<string, ColumnarExternalBaseBinding>(StringComparer.Ordinal)
+        invalidClassBaseOwners = new HashSet<string>(StringComparer.Ordinal)
+        sourceTypeKindsByExactName = new Dictionary<string, ColumnarTypeBindingFacts>(StringComparer.Ordinal)
+        uniqueSourceTypeArities = new Dictionary<string, int>(StringComparer.Ordinal)
+        fileFactsById = new Dictionary<int, ColumnarSourceBindingFacts>()
+        activeImportAliasNames = new HashSet<string>(StringComparer.Ordinal)
+        activeUnaliasedNamespaceImports = new List<string>()
+        activeImportedNames = new HashSet<string>(StringComparer.Ordinal)
+        activeImportedSourceTypeNames = new Dictionary<string, string>(StringComparer.Ordinal)
+        activeDeclaredNames = new HashSet<string>(StringComparer.Ordinal)
+        activeDeclaredTypeNames = new HashSet<string>(StringComparer.Ordinal)
+        activeTypeAliasTargets = new Dictionary<string, string>(StringComparer.Ordinal)
+        activeNamespaceAliasTargets = new Dictionary<string, string>(StringComparer.Ordinal)
+        hasActiveUnresolvedFileImport = false
+        activeNamespaceName = ""
+        assemblyCatalog = new ColumnarExternalTypeCatalog()
+        hasActiveFileFacts = false
+        activeSourceFileId = -1
+        sourceScanComplete = true
+    }
+
+    // The facts a body's node table was stamped with, or null when the table carries none. The table
+    // holds them as `ColumnarBindingScope` because it sits in the syntax slice, below this model;
+    // this is the one place a planner reads them back as what they are.
+    static func Of(nodes: ColumnarNodeTable): ColumnarBindingScopeFacts? {
+        return nodes.BindingScope as ColumnarBindingScopeFacts
+    }
+
+    static func Create(sources: ColumnarSourceFile[], enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, projectRootValue: string? = null): ColumnarBindingScopeFacts {
+        if sources == null || enums == null || structs == null || unions == null || interfaces == null {
+            throw new InvalidOperationException("Binding-scope inputs cannot be null.")
+        }
+
+        result := new ColumnarBindingScopeFacts()
+        result.projectRoot = ResolveProjectRoot(sources, projectRootValue)
+        for sourceFile in sources {
+            if sourceFile == null || sourceFile.Source == null || result.fileFactsById.ContainsKey(sourceFile.FileId) {
+                result.sourceScanComplete = false
+                continue
+            }
+            fileFacts := new ColumnarSourceBindingFacts()
+            result.fileFactsById.Add(sourceFile.FileId, fileFacts)
+            if !result.CollectSourceNames(sourceFile.Source, fileFacts) || !fileFacts.ScanComplete {
+                fileFacts.ScanComplete = false
+                result.sourceScanComplete = false
+            } else {
+                for sourceTypeName in fileFacts.DeclaredTypeNames {
+                    exactSourceTypeName := sourceTypeName
+                    if fileFacts.NamespaceName.Length > 0 {
+                        exactSourceTypeName = fileFacts.NamespaceName + "." + sourceTypeName
+                    }
+                    if result.sourceTypeNames.Contains(exactSourceTypeName) {
+                        result.ambiguousSourceTypeNames.Add(exactSourceTypeName)
+                    } else {
+                        result.AddSourceType(exactSourceTypeName)
+                    }
+                    if fileFacts.ExportedNames.Contains(sourceTypeName) {
+                        result.exportedSourceTypeNames.Add(exactSourceTypeName)
+                    }
+                }
+                for typeAlias in fileFacts.TypeAliasTargets {
+                    exactAliasName := typeAlias.Key
+                    if fileFacts.NamespaceName.Length > 0 {
+                        exactAliasName = fileFacts.NamespaceName + "." + typeAlias.Key
+                    }
+                    existingAliasFileId := -1
+                    if result.sourceTypeAliasFileIds.TryGetValue(exactAliasName, out existingAliasFileId) {
+                        result.ambiguousSourceTypeAliasNames.Add(exactAliasName)
+                    } else {
+                        result.sourceTypeAliasFileIds.Add(exactAliasName, sourceFile.FileId)
+                    }
+                    if fileFacts.ExportedNames.Contains(typeAlias.Key) {
+                        result.exportedSourceTypeAliasNames.Add(exactAliasName)
+                    }
+                }
+            }
+        }
+        result.ResolveFileImports(sources)
+
+        for enumItem in enums {
+            result.AddSourceType(result.ExactTypeNameForFile(enumItem.Name, enumItem.SourceFileId))
+        }
+
+        for unionInput in unions {
+            result.AddSourceType(result.ExactUnionTypeName(unionInput))
+        }
+
+        structIndex := 0
+        while structIndex < structs.Count {
+            exactStructName := result.ExactStructTypeName(structs[structIndex])
+            result.RegisterStructKind(structs[structIndex])
+            result.AddSourceType(exactStructName)
+            if structs[structIndex].EnclosingTypeName.Length > 0 && structs[structIndex].NestedVisibilityAttributes == 2 {
+                result.exportedSourceTypeNames.Add(exactStructName)
+            }
+            result.AddStructScope(structs[structIndex])
+            structIndex = structIndex + 1
+        }
+
+        for interfaceItem in interfaces {
+            result.RegisterInterfaceKind(interfaceItem)
+            result.AddSourceType(result.ExactInterfaceTypeName(interfaceItem))
+            result.AddInterfaceScope(interfaceItem)
+        }
+        structIndex = 0
+        while structIndex < structs.Count {
+            result.AddClassBaseScope(structs[structIndex])
+            structIndex = structIndex + 1
+        }
+        result.BuildUniqueSourceTypeArities()
+        return result
+    }
+
+    // One pass over every exact source-type identity, after they are all known. A bare name with two
+    // arities has no unique answer and is recorded as -1 rather than left out, so a later reference
+    // cannot silently pick one of them.
+    func BuildUniqueSourceTypeArities() {
+        for exactName in sourceTypeNames {
+            bareName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(TypeArityNames.Display(exactName))
+            if bareName.Length == 0 {
+                continue
+            }
+            arity := TypeArityNames.ArityOf(exactName)
+            existing := 0
+            if uniqueSourceTypeArities.TryGetValue(bareName, out existing) {
+                if existing != arity {
+                    uniqueSourceTypeArities[bareName] = -1
+                }
+                continue
+            }
+            uniqueSourceTypeArities.Add(bareName, arity)
+        }
+    }
+
+    // The arity a bare spelling resolves to when it has exactly one, and 0 when it does not (0 is
+    // also the answer for an ordinary non-generic type, which needs no retry).
+    func UniqueArityFor(canonical: string): int {
+        bareName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(canonical)
+        arity := 0
+        if !uniqueSourceTypeArities.TryGetValue(bareName, out arity) || arity <= 0 {
+            return 0
+        }
+        return arity
+    }
+
+    // Alias and namespace-import binding is file scoped. ProgramInput retains the shared immutable
+    // source/member graph, but stamps each body with this view selected by its SourceFileId.
+    func ForSourceFile(sourceFileId: int): ColumnarBindingScopeFacts {
+        view := new ColumnarBindingScopeFacts()
+        view.projectRoot = projectRoot
+        view.sourceTypeNames = sourceTypeNames
+        view.exportedSourceTypeNames = exportedSourceTypeNames
+        view.ambiguousSourceTypeNames = ambiguousSourceTypeNames
+        view.sourceTypeAliasFileIds = sourceTypeAliasFileIds
+        view.exportedSourceTypeAliasNames = exportedSourceTypeAliasNames
+        view.ambiguousSourceTypeAliasNames = ambiguousSourceTypeAliasNames
+        view.memberNamesByType = memberNamesByType
+        view.currentLexicalNamesByType = currentLexicalNamesByType
+        view.classBaseNameByType = classBaseNameByType
+        view.classBaseWrittenByType = classBaseWrittenByType
+        view.externalBaseBindingByType = externalBaseBindingByType
+        view.invalidClassBaseOwners = invalidClassBaseOwners
+        view.sourceTypeKindsByExactName = sourceTypeKindsByExactName
+        view.uniqueSourceTypeArities = uniqueSourceTypeArities
+        view.fileFactsById = fileFactsById
+        view.sourceScanComplete = sourceScanComplete
+
+        fileFacts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out fileFacts) {
+            view.activeImportAliasNames = fileFacts.AliasNames
+            view.activeUnaliasedNamespaceImports = fileFacts.UnaliasedNamespaceImports
+            view.activeImportedNames = fileFacts.ImportedNames
+            view.activeImportedSourceTypeNames = fileFacts.ImportedSourceTypeNames
+            view.activeDeclaredNames = fileFacts.DeclaredNames
+            view.activeDeclaredTypeNames = fileFacts.DeclaredTypeBaseNames
+            view.activeTypeAliasTargets = fileFacts.TypeAliasTargets
+            view.activeNamespaceAliasTargets = fileFacts.NamespaceAliasTargets
+            view.hasActiveUnresolvedFileImport = fileFacts.HasUnresolvedFileImport
+            view.activeNamespaceName = fileFacts.NamespaceName
+            view.assemblyCatalog = assemblyCatalog
+            view.hasActiveFileFacts = true
+            view.activeSourceFileId = sourceFileId
+            if !fileFacts.ScanComplete {
+                view.sourceScanComplete = false
+            }
+        } else {
+            view.sourceScanComplete = false
+        }
+        return view
+    }
+
+    func PrepareExternalTypeBindings(referenceAssemblyPaths: IReadOnlyList<string>?) {
+        assemblyCatalog.Prepare(referenceAssemblyPaths, fileFactsById)
+        ReselectClassBasesWithMetadata()
+    }
+
+    // A CLASS BASE IS A SIMPLE TYPE NAME, SO THE PRECEDENCE RULE IS ASKED OF METADATA TOO.
+    // `AddClassBaseScope` runs while the scope is built, before any referenced assembly can be asked,
+    // so it resolves a base from source alone -- and where the enclosing namespace's type of that name
+    // comes from a referenced assembly, the source type an IMPORT supplies is all it can find. The
+    // emitted parent is selected by `SimpleNamePrecedence` over source and metadata, which binds the
+    // enclosing namespace's referenced type; so once the scan exists the rule is asked again here, and
+    // a base it settles on lexical metadata moves to the external-base fence. Without this the member
+    // fence walks a base the class does not have: the rival's members shadow names inside the class
+    // (a rival member `Environment` refusing `Environment.NewLine`), and the rival is not its parent.
+    func ReselectClassBasesWithMetadata() {
+        if !assemblyCatalog.IsPrepared {
+            return
+        }
+
+        owners := new List<string>(classBaseWrittenByType.Keys)
+        for owner in owners {
+            written := classBaseWrittenByType[owner]
+            facts := new ColumnarSourceBindingFacts()
+            if !fileFactsById.TryGetValue(written.SourceFileId, out facts) {
+                continue
+            }
+
+            selection := written.Name.Contains('.') ? SelectQualifiedName(facts.NamespaceName, written.Name) : SelectSimpleName(facts.NamespaceName, facts.UnaliasedNamespaceImports, written.Name)
+            if selection.IsLexicalMetadata {
+                classBaseNameByType.Remove(owner)
+                classBaseWrittenByType.Remove(owner)
+                externalBaseBindingByType[owner] = written
+            }
+        }
+    }
+
+    // Member-style calls whose receiver declares no matching instance method may bind to an external
+    // extension method exported by a referenced assembly. Selection is delegated to the shared
+    // external-type catalog so the extension index is built once and reused across every file view.
+    func TryResolveExtensionMethod(receiverType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out selection: ColumnarExtensionMethodSelection): bool {
+        selection = ColumnarExtensionMethodSelection.None()
+        if !assemblyCatalog.IsPrepared {
+            return false
+        }
+        return assemblyCatalog.TryResolveExtension(receiverType, memberName, argumentTypes, argumentFacts, out selection)
+    }
+
+    // The extension candidates exported under one name, for contextual (lambda-carrying) resolution.
+    // Delegated to the shared catalog so the index is built once and reused across every file view.
+    func ExtensionCandidates(memberName: string): List<ColumnarExtensionMethodCandidate> {
+        return assemblyCatalog.ExtensionCandidates(memberName)
+    }
+
+    // The extension selected by a site that WROTE its type arguments, through the same shared index.
+    func TryResolveExplicitExtensionMethod(receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[]?, argumentFacts: ColumnarDirectCallArgumentFacts?, argumentCount: int, out selection: ColumnarExtensionMethodSelection): bool {
+        selection = ColumnarExtensionMethodSelection.None()
+        if !assemblyCatalog.IsPrepared {
+            return false
+        }
+        return assemblyCatalog.TryResolveExplicitExtension(receiverType, memberName, typeArguments, argumentTypes, argumentFacts, argumentCount, out selection)
+    }
+
+    // Declared-type positions have their own exact binding rules. This resolver deliberately
+    // does not reuse expression-owner lookup or the historical typeof resolver: neither value
+    // shadowing nor qualified-tail stripping may change an explicit construction type identity.
+    // The recursive shape owner admits simple types, repeated SZ-array suffixes, nullable
+    // annotations, tuples, and constructed generic types. Union and byref shapes remain with
+    // their dedicated owners.
+    func TryResolveExactExplicitType(canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        claimed := false
+        return TryResolveExactExplicitType(canonical, bindings, out result, out claimed)
+    }
+
+    func TryResolveExactExplicitType(canonical: string, bindings: ColumnarFragmentBindings, out result: Type, out claimed: bool): bool {
+        result = typeof(object)
+        claimed = false
+        if canonical == null || bindings == null || !hasActiveFileFacts || activeSourceFileId < 0 || !sourceScanComplete {
+            return false
+        }
+        activeAliases := new HashSet<string>(StringComparer.Ordinal)
+        return TryResolveExactExplicitTypeAtFile(activeSourceFileId, canonical, true, bindings, activeAliases, 0, out result, out claimed)
+    }
+
+    // Nested types participate in the lexical type scope of their owner and every ancestor
+    // owner. Resolve those exact source identities before ordinary file/import lookup so a bare
+    // `Sibling` inside `Outer.Middle.Inner` selects `Outer.Sibling` without creating a global
+    // short-name alias.
+    func TryResolveExactExplicitTypeInContext(enclosingTypeName: string, canonical: string, bindings: ColumnarFragmentBindings, out result: Type, out claimed: bool): bool {
+        result = typeof(object)
+        claimed = false
+        if canonical == null || canonical.Length == 0 || enclosingTypeName == null || enclosingTypeName.Length == 0 {
+            return TryResolveExactExplicitType(canonical, bindings, out result, out claimed)
+        }
+
+        if !canonical.Contains(".") {
+            ownerName := enclosingTypeName
+            activeAliases := new HashSet<string>(StringComparer.Ordinal)
+            while ownerName.Length > 0 {
+                candidateName := ownerName + "." + canonical
+                candidateClaimed := false
+                if TryResolveExactSourceBinding(candidateName, false, bindings, activeAliases, 0, out result, out candidateClaimed) {
+                    claimed = true
+                    return true
+                }
+                if candidateClaimed {
+                    claimed = true
+                    return false
+                }
+
+                separator := ownerName.Length - 1
+                while separator >= 0 && ownerName[separator] != '.' {
+                    separator = separator - 1
+                }
+                if separator < 0 {
+                    ownerName = ""
+                } else {
+                    ownerName = ownerName.Substring(0, separator)
+                }
+            }
+        }
+
+        // A COMPOSED SPELLING CARRIES THE SAME LEXICAL SCOPE ITS SIMPLE NAMES DO. The owner walk
+        // above answers `Cached`; `List<Cached>`, `Cached[]` and `(Left: Cached, Right: int)` name
+        // the same declaration in the same place, so each POSITION inside the spelling is rewritten
+        // to its exact source identity before the per-file walk — which sees only file and import
+        // scope — assembles the CLR shape.
+        contextualCanonical := RewriteLexicalCanonicalInContext(enclosingTypeName, canonical, 0)
+        if contextualCanonical != canonical {
+            contextualClaimed := false
+            if TryResolveExactExplicitType(contextualCanonical, bindings, out result, out contextualClaimed) {
+                claimed = true
+                return true
+            }
+            if contextualClaimed {
+                claimed = true
+                return false
+            }
+        }
+        return TryResolveExactExplicitType(canonical, bindings, out result, out claimed)
+    }
+
+    // Rewrite every simple name inside a type spelling that the enclosing declaration's owner walk
+    // claims as one of its own nested declarations. A position no owner claims is left exactly as
+    // written, so a spelling with nothing to rewrite produces no contextual attempt at all.
+    func RewriteLexicalCanonicalInContext(enclosingTypeName: string, canonical: string, depth: int): string {
+        if canonical == null || canonical.Length == 0 || depth > 200 {
+            return canonical
+        }
+
+        if canonical.EndsWith("[]", StringComparison.Ordinal) {
+            return RewriteLexicalCanonicalInContext(enclosingTypeName, canonical.Substring(0, canonical.Length - 2), depth + 1) + "[]"
+        }
+        if canonical.EndsWith("?", StringComparison.Ordinal) {
+            return RewriteLexicalCanonicalInContext(enclosingTypeName, canonical.Substring(0, canonical.Length - 1), depth + 1) + "?"
+        }
+        if canonical.StartsWith("&", StringComparison.Ordinal) {
+            return "&" + RewriteLexicalCanonicalInContext(enclosingTypeName, canonical.Substring(1), depth + 1)
+        }
+
+        genericOpen := canonical.IndexOf("<", StringComparison.Ordinal)
+        if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
+            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+                canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+            )
+            writtenHead := canonical.Substring(0, genericOpen)
+            rewrittenHead := writtenHead
+            exactGenericHead := ""
+            argumentCount := 0
+            for _argument in argumentCanonicals {
+                argumentCount += 1
+            }
+            if TryFindLexicalOwnedSourceTypeName(enclosingTypeName, TypeArityNames.Key(writtenHead, argumentCount), out exactGenericHead) {
+                rewrittenHead = FileRelativeExactTypeName(activeSourceFileId, exactGenericHead)
+            }
+            rewrittenArguments := new string[](argumentCanonicals.Count)
+            argumentIndex := 0
+            while argumentIndex < argumentCanonicals.Count {
+                rewrittenArguments[argumentIndex] = RewriteLexicalCanonicalInContext(enclosingTypeName, argumentCanonicals[argumentIndex], depth + 1)
+                argumentIndex = argumentIndex + 1
+            }
+            return rewrittenHead + "<" + string.Join(",", rewrittenArguments) + ">"
+        }
+
+        if canonical.Length >= 2 && canonical[0] == '(' && canonical[canonical.Length - 1] == ')' {
+            elementCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+                canonical.Substring(1, canonical.Length - 2)
+            )
+            rewrittenElements := new string[](elementCanonicals.Count)
+            elementIndex := 0
+            while elementIndex < elementCanonicals.Count {
+                element := elementCanonicals[elementIndex]
+                colon := element.IndexOf(":", StringComparison.Ordinal)
+                if colon > 0 && ColumnarTypeCanonicalizer.IsBareIdentifier(element.Substring(0, colon)) {
+                    rewrittenElements[elementIndex] = element.Substring(0, colon + 1) + RewriteLexicalCanonicalInContext(enclosingTypeName, element.Substring(colon + 1), depth + 1)
+                } else {
+                    rewrittenElements[elementIndex] = RewriteLexicalCanonicalInContext(enclosingTypeName, element, depth + 1)
+                }
+                elementIndex = elementIndex + 1
+            }
+            return "(" + string.Join(",", rewrittenElements) + ")"
+        }
+
+        exactName := ""
+        if TryFindLexicalOwnedSourceTypeName(enclosingTypeName, canonical, out exactName) {
+            return FileRelativeExactTypeName(activeSourceFileId, exactName)
+        }
+        return canonical
+    }
+
+    // The name-level half of the owner walk: does an enclosing declaration (or one of ITS owners)
+    // declare a source type this spelling names? The spelling may be PARTIALLY qualified — `Mid.Leaf`
+    // written inside `Deep` names `Deep.Mid.Leaf`, exactly as C# reads it — so the walk appends the
+    // whole spelling to each owner rather than only a simple name. Only the identity is selected
+    // here: resolving it stays with the ordinary explicit-type walk, so aliases, arity retries and
+    // ambiguity keep one owner.
+    func TryFindLexicalOwnedSourceTypeName(enclosingTypeName: string, canonical: string, out exactName: string): bool {
+        exactName = ""
+        if canonical == null || canonical.Length == 0 || enclosingTypeName == null || enclosingTypeName.Length == 0 {
+            return false
+        }
+
+        ownerName := enclosingTypeName
+        while ownerName.Length > 0 {
+            candidateName := ownerName + "." + canonical
+            if sourceTypeNames.Contains(candidateName) || sourceTypeAliasFileIds.ContainsKey(candidateName) {
+                exactName = candidateName
+                return true
+            }
+
+            separator := ownerName.Length - 1
+            while separator >= 0 && ownerName[separator] != '.' {
+                separator = separator - 1
+            }
+            if separator < 0 {
+                ownerName = ""
+            } else {
+                ownerName = ownerName.Substring(0, separator)
+            }
+        }
+        return false
+    }
+
+    // Return the exact source declaration selected by an explicit type spelling. Unlike the CLR
+    // resolver above, this result preserves source identity after erasure (for example two
+    // string-backed enums) and follows type aliases in the file where each alias is declared.
+    // A claimed-but-unresolved result is terminal for later runtime/mechanical lookup.
+    func TryResolveExactSourceDeclarationName(canonical: string, out exactName: string, out claimed: bool): bool {
+        exactName = ""
+        claimed = false
+        if canonical == null || !hasActiveFileFacts || activeSourceFileId < 0 || !sourceScanComplete {
+            return false
+        }
+        activeAliases := new HashSet<string>(StringComparer.Ordinal)
+        return TryResolveExactSourceDeclarationNameAtFile(activeSourceFileId, canonical, activeAliases, 0, out exactName, out claimed)
+    }
+
+    func TryResolveExactSourceDeclarationNameInContext(enclosingTypeName: string, canonical: string, out exactName: string, out claimed: bool): bool {
+        exactName = ""
+        claimed = false
+        if canonical == null || canonical.Length == 0 || canonical.Contains(".") || enclosingTypeName == null || enclosingTypeName.Length == 0 {
+            return TryResolveExactSourceDeclarationName(canonical, out exactName, out claimed)
+        }
+
+        ownerName := enclosingTypeName
+        activeAliases := new HashSet<string>(StringComparer.Ordinal)
+        while ownerName.Length > 0 {
+            candidateName := ownerName + "." + canonical
+            candidateClaimed := false
+            if TryResolveExactSourceDeclarationNameAtFile(activeSourceFileId, candidateName, activeAliases, 0, out exactName, out candidateClaimed) {
+                claimed = true
+                return true
+            }
+            if candidateClaimed {
+                claimed = true
+                return false
+            }
+
+            separator := ownerName.Length - 1
+            while separator >= 0 && ownerName[separator] != '.' {
+                separator -= 1
+            }
+            ownerName = separator < 0 ? "" : ownerName.Substring(0, separator)
+        }
+        return TryResolveExactSourceDeclarationName(canonical, out exactName, out claimed)
+    }
+
+    // A BARE SPELLING GETS ONE RETRY AT THE ARITY ITS NAME UNIQUELY HAS. `Box` written where the only
+    // `Box` in the program is `Box<T>` resolves to `Box``1; where a non-generic `Box` also exists, the
+    // exact probe below has already answered with it and no retry happens.
+    func TryResolveExactSourceDeclarationNameAtFile(sourceFileId: int, canonical: string, activeAliases: HashSet<string>, depth: int, out exactName: string, out claimed: bool): bool {
+        if canonical != null && depth <= 200 && !TypeArityNames.HasArity(canonical) {
+            exactArity := UniqueArityFor(canonical)
+            if exactArity > 0 {
+                arityClaimed := false
+                if TryResolveExactSourceDeclarationNameCore(sourceFileId, TypeArityNames.Key(canonical, exactArity), activeAliases, depth + 1, out exactName, out arityClaimed) {
+                    claimed = true
+                    return true
+                }
+            }
+        }
+
+        return TryResolveExactSourceDeclarationNameCore(sourceFileId, canonical, activeAliases, depth, out exactName, out claimed)
+    }
+
+    func TryResolveExactSourceDeclarationNameCore(sourceFileId: int, canonical: string, activeAliases: HashSet<string>, depth: int, out exactName: string, out claimed: bool): bool {
+        exactName = ""
+        claimed = false
+        facts := new ColumnarSourceBindingFacts()
+        if depth > 200 || canonical == null || canonical.Length == 0 || !fileFactsById.TryGetValue(sourceFileId, out facts) || !facts.ScanComplete || facts.HasUnresolvedFileImport || !IsExactExplicitSimpleName(canonical) {
+            return false
+        }
+
+        aliasTarget := ""
+        if facts.TypeAliasTargets.TryGetValue(canonical, out aliasTarget) {
+            claimed = true
+            aliasKey := sourceFileId.ToString() + ":" + canonical
+            if !activeAliases.Add(aliasKey) {
+                return false
+            }
+            aliasClaimed := false
+            resolved := TryResolveExactSourceDeclarationNameAtFile(sourceFileId, aliasTarget, activeAliases, depth + 1, out exactName, out aliasClaimed)
+            activeAliases.Remove(aliasKey)
+            return resolved
+        }
+
+        firstDot := canonical.IndexOf(".", StringComparison.Ordinal)
+        if firstDot > 0 {
+            rootName := canonical.Substring(0, firstDot)
+            tailName := canonical.Substring(firstDot + 1)
+            namespaceTarget := ""
+            if facts.NamespaceAliasTargets.TryGetValue(rootName, out namespaceTarget) {
+                claimed = true
+                requireAliasedExport := namespaceTarget != facts.NamespaceName
+                return TrySelectExactSourceDeclarationName(namespaceTarget + "." + tailName, requireAliasedExport, activeAliases, depth + 1, out exactName)
+            }
+
+            aliasedFileId := -1
+            if facts.FileAliasSourceFileIds.TryGetValue(rootName, out aliasedFileId) {
+                claimed = true
+                if tailName.Contains(".") || aliasedFileId < 0 {
+                    return false
+                }
+                return TryResolveExportedSourceDeclarationNameAtFile(aliasedFileId, tailName, activeAliases, depth + 1, out exactName)
+            }
+            if facts.DeclaredTypeBaseNames.Contains(rootName) {
+                claimed = true
+                exactNestedName := ExactNameInFacts(facts, canonical)
+                return TrySelectExactSourceDeclarationName(exactNestedName, false, activeAliases, depth + 1, out exactName)
+            }
+            importedRootName := ""
+            if facts.ImportedSourceTypeNames.TryGetValue(rootName, out importedRootName) {
+                claimed = true
+                return TrySelectExactSourceDeclarationName(importedRootName + "." + tailName, true, activeAliases, depth + 1, out exactName)
+            }
+            lexicalNestedName := ""
+            if TryFindLexicalNestedSourceName(facts, canonical, out lexicalNestedName) {
+                claimed = true
+                return TrySelectExactSourceDeclarationName(lexicalNestedName, true, activeAliases, depth + 1, out exactName)
+            }
+            if facts.AliasNames.Contains(rootName) || facts.TypeAliasTargets.ContainsKey(rootName) {
+                claimed = true
+                return false
+            }
+
+            requireExported := true
+            separator := canonical.Length - 1
+            while separator >= 0 && canonical[separator] != '.' {
+                separator = separator - 1
+            }
+            if separator > 0 && canonical.Substring(0, separator) == facts.NamespaceName {
+                requireExported = false
+            }
+            concreteClaim := sourceTypeNames.Contains(canonical) || ambiguousSourceTypeNames.Contains(canonical)
+            aliasClaim := sourceTypeAliasFileIds.ContainsKey(canonical) || ambiguousSourceTypeAliasNames.Contains(canonical)
+            claimed = concreteClaim || aliasClaim
+            if !claimed {
+                return false
+            }
+            return TrySelectExactSourceDeclarationName(canonical, requireExported, activeAliases, depth + 1, out exactName)
+        }
+
+        if facts.DeclaredTypeNames.Contains(canonical) {
+            claimed = true
+            return TrySelectExactSourceDeclarationName(ExactNameInFacts(facts, canonical), false, activeAliases, depth + 1, out exactName)
+        }
+
+        importedFileId := -1
+        if facts.ImportedTypeSourceFileIds.TryGetValue(canonical, out importedFileId) {
+            claimed = true
+            if importedFileId < 0 {
+                return false
+            }
+            return TryResolveExportedSourceDeclarationNameAtFile(importedFileId, canonical, activeAliases, depth + 1, out exactName)
+        }
+
+        // A referenced assembly's type the precedence rule selects first is no source declaration's
+        // name; a tie between imports is claimed and refused.
+        declarationSelection := SelectSimpleName(facts.NamespaceName, facts.UnaliasedNamespaceImports, canonical)
+        if declarationSelection.IsLexicalMetadata {
+            return false
+        }
+        if declarationSelection.Kind == SimpleNameSelectionKind.Ambiguous {
+            claimed = true
+            return false
+        }
+
+        currentExactName := ExactNameInFacts(facts, canonical)
+        if sourceTypeNames.Contains(currentExactName) || ambiguousSourceTypeNames.Contains(currentExactName) || sourceTypeAliasFileIds.ContainsKey(currentExactName) || ambiguousSourceTypeAliasNames.Contains(currentExactName) {
+            claimed = true
+            return TrySelectExactSourceDeclarationName(currentExactName, false, activeAliases, depth + 1, out exactName)
+        }
+
+        enclosingSourceName := ""
+        if TryFindEnclosingNamespaceSourceName(facts, canonical, out enclosingSourceName) {
+            claimed = true
+            return TrySelectExactSourceDeclarationName(enclosingSourceName, true, activeAliases, depth + 1, out exactName)
+        }
+
+        for unaliasedNamespaceImport2 in facts.UnaliasedNamespaceImports {
+            importedExactName := unaliasedNamespaceImport2 + "." + canonical
+            if exportedSourceTypeNames.Contains(importedExactName) || exportedSourceTypeAliasNames.Contains(importedExactName) {
+                claimed = true
+                return TrySelectExactSourceDeclarationName(importedExactName, true, activeAliases, depth + 1, out exactName)
+            }
+        }
+
+        uniqueClaimed := false
+        if !HasImportedExternalTypeAtFile(sourceFileId, canonical) {
+            if TrySelectUniqueExportedSourceDeclarationName(canonical, activeAliases, depth + 1, out exactName, out uniqueClaimed) {
+                claimed = true
+                return true
+            }
+            if uniqueClaimed {
+                claimed = true
+                return false
+            }
+        }
+        if facts.AliasNames.Contains(canonical) {
+            claimed = true
+        }
+        return false
+    }
+
+    func TryResolveExportedSourceDeclarationNameAtFile(sourceFileId: int, name: string, activeAliases: HashSet<string>, depth: int, out exactName: string): bool {
+        exactName = ""
+        facts := new ColumnarSourceBindingFacts()
+        if sourceFileId < 0 || !fileFactsById.TryGetValue(sourceFileId, out facts) || !facts.ScanComplete || !facts.ExportedNames.Contains(name) || (!facts.DeclaredTypeNames.Contains(name) && !facts.TypeAliasTargets.ContainsKey(name)) {
+            return false
+        }
+        claimed := false
+        return TryResolveExactSourceDeclarationNameAtFile(sourceFileId, name, activeAliases, depth + 1, out exactName, out claimed)
+    }
+
+    func TrySelectExactSourceDeclarationName(selectedName: string, requireExported: bool, activeAliases: HashSet<string>, depth: int, out exactName: string): bool {
+        exactName = ""
+        concreteClaim := sourceTypeNames.Contains(selectedName) || ambiguousSourceTypeNames.Contains(selectedName)
+        aliasClaim := sourceTypeAliasFileIds.ContainsKey(selectedName) || ambiguousSourceTypeAliasNames.Contains(selectedName)
+        if !concreteClaim && !aliasClaim || requireExported && !exportedSourceTypeNames.Contains(selectedName) && !exportedSourceTypeAliasNames.Contains(selectedName) || concreteClaim && aliasClaim || ambiguousSourceTypeNames.Contains(selectedName) || ambiguousSourceTypeAliasNames.Contains(selectedName) {
+            return false
+        }
+        if concreteClaim {
+            exactName = selectedName
+            return true
+        }
+
+        aliasFileId := -1
+        if !sourceTypeAliasFileIds.TryGetValue(selectedName, out aliasFileId) {
+            return false
+        }
+        aliasFacts := new ColumnarSourceBindingFacts()
+        declarationName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(selectedName)
+        aliasTarget := ""
+        if !fileFactsById.TryGetValue(aliasFileId, out aliasFacts) || !aliasFacts.ScanComplete || !aliasFacts.TypeAliasTargets.TryGetValue(declarationName, out aliasTarget) {
+            return false
+        }
+        aliasKey := aliasFileId.ToString() + ":" + declarationName
+        if !activeAliases.Add(aliasKey) {
+            return false
+        }
+        claimed := false
+        resolved := TryResolveExactSourceDeclarationNameAtFile(aliasFileId, aliasTarget, activeAliases, depth + 1, out exactName, out claimed)
+        activeAliases.Remove(aliasKey)
+        return resolved
+    }
+
+    // Analyzer-visible exported declarations are available by a bare name when exactly one
+    // project declaration has that name, even when it lives in another named namespace. Preserve
+    // that product rule while returning the declaration's exact namespace-qualified identity.
+    func TrySelectUniqueExportedSourceDeclarationName(name: string, activeAliases: HashSet<string>, depth: int, out exactName: string, out claimed: bool): bool {
+        exactName = ""
+        selectedName := ""
+        if !TryFindUniqueExportedSourceName(name, out selectedName, out claimed) {
+            return false
+        }
+        return TrySelectExactSourceDeclarationName(selectedName, true, activeAliases, depth + 1, out exactName)
+    }
+
+    func TryFindUniqueExportedSourceName(name: string, out selectedName: string, out claimed: bool): bool {
+        selectedName = ""
+        claimed = false
+        for candidate in exportedSourceTypeNames {
+            if ColumnarTypeCanonicalizer.UnqualifiedTypeName(candidate) != name {
+                continue
+            }
+            claimed = true
+            if selectedName.Length > 0 && selectedName != candidate {
+                return false
+            }
+            selectedName = candidate
+        }
+        for candidate in exportedSourceTypeAliasNames {
+            if ColumnarTypeCanonicalizer.UnqualifiedTypeName(candidate) != name {
+                continue
+            }
+            claimed = true
+            if selectedName.Length > 0 && selectedName != candidate {
+                return false
+            }
+            selectedName = candidate
+        }
+        if selectedName.Length == 0 {
+            return false
+        }
+        return true
+    }
+
+    func TryResolveExactExplicitTypeAtFile(sourceFileId: int, canonical: string, allowTypeParameters: bool, bindings: ColumnarFragmentBindings, activeAliases: HashSet<string>, depth: int, out result: Type): bool {
+        claimed := false
+        return TryResolveExactExplicitTypeAtFile(sourceFileId, canonical, allowTypeParameters, bindings, activeAliases, depth, out result, out claimed)
+    }
+
+    // A BARE SPELLING GETS ONE RETRY AT THE ARITY ITS NAME UNIQUELY HAS, exactly as the declaration-name
+    // walk does: a source declaration's identity carries its arity, so `Option` written where the only
+    // `Option` is `Option<T>` must still reach the open definition it names. The retry cannot loop —
+    // the key it asks for already carries an arity.
+    func TryResolveExactExplicitTypeAtFile(sourceFileId: int, canonical: string, allowTypeParameters: bool, bindings: ColumnarFragmentBindings, activeAliases: HashSet<string>, depth: int, out result: Type, out claimed: bool): bool {
+        if TryResolveExactExplicitTypeAtFileCore(sourceFileId, canonical, allowTypeParameters, bindings, activeAliases, depth, out result, out claimed) {
+            return true
+        }
+
+        if canonical == null || depth > 200 || TypeArityNames.HasArity(canonical) || !IsExactExplicitSimpleName(canonical) {
+            return false
+        }
+
+        exactArity := UniqueArityFor(canonical)
+        if exactArity <= 0 {
+            return false
+        }
+
+        coreClaimed := claimed
+        arityClaimed := false
+        arityResult := typeof(object)
+        if TryResolveExactExplicitTypeAtFileCore(sourceFileId, TypeArityNames.Key(canonical, exactArity), allowTypeParameters, bindings, activeAliases, depth + 1, out arityResult, out arityClaimed) {
+            result = arityResult
+            claimed = true
+            return true
+        }
+
+        claimed = coreClaimed || arityClaimed
+        return false
+    }
+
+    func TryResolveExactExplicitTypeAtFileCore(sourceFileId: int, canonical: string, allowTypeParameters: bool, bindings: ColumnarFragmentBindings, activeAliases: HashSet<string>, depth: int, out result: Type, out claimed: bool): bool {
+        result = typeof(object)
+        claimed = false
+        facts := new ColumnarSourceBindingFacts()
+        if depth > 200 || canonical == null || canonical.Length == 0 || !fileFactsById.TryGetValue(sourceFileId, out facts) || !facts.ScanComplete || facts.HasUnresolvedFileImport {
+            return false
+        }
+
+        if canonical.EndsWith("[]", StringComparison.Ordinal) {
+            if canonical.Length <= 2 {
+                return false
+            }
+            elementType := typeof(object)
+            elementClaimed := false
+            if !TryResolveExactExplicitTypeAtFile(sourceFileId, canonical.Substring(0, canonical.Length - 2), allowTypeParameters, bindings, activeAliases, depth + 1, out elementType, out elementClaimed) {
+                claimed = elementClaimed
+                return false
+            }
+            claimed = elementClaimed
+            try {
+                result = elementType.MakeArrayType()
+                return true
+            } catch {
+                result = typeof(object)
+                return false
+            }
+        }
+
+        if canonical.EndsWith("?", StringComparison.Ordinal) {
+            if canonical.Length <= 1 {
+                return false
+            }
+            elementType := typeof(object)
+            elementClaimed := false
+            if !TryResolveExactExplicitTypeAtFile(sourceFileId, canonical.Substring(0, canonical.Length - 1), allowTypeParameters, bindings, activeAliases, depth + 1, out elementType, out elementClaimed) {
+                claimed = elementClaimed
+                return false
+            }
+            claimed = elementClaimed
+            if !elementType.IsValueType {
+                result = elementType
+                return true
+            }
+            nullableDefinition := Type.GetType("System.Nullable`1")
+            if nullableDefinition == null {
+                return false
+            }
+            try {
+                nullableArguments := new Type[](1)
+                nullableArguments[0] = elementType
+                result = nullableDefinition.MakeGenericType(nullableArguments)
+                return true
+            } catch {
+                result = typeof(object)
+                return false
+            }
+        }
+
+        if canonical.Length >= 2 && canonical[0] == '(' && canonical[canonical.Length - 1] == ')' {
+            tupleCanonical := ColumnarTypeCanonicalizer.StripTupleElementNames(canonical).Canonical
+            elementCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(tupleCanonical.Substring(1, tupleCanonical.Length - 2))
+            if elementCanonicals.Count < 2 || elementCanonicals.Count > 7 {
+                return false
+            }
+            elementTypes := new Type[](elementCanonicals.Count)
+            elementIndex := 0
+            while elementIndex < elementCanonicals.Count {
+                elementType := typeof(object)
+                elementClaimed := false
+                if !TryResolveExactExplicitTypeAtFile(sourceFileId, elementCanonicals[elementIndex], allowTypeParameters, bindings, activeAliases, depth + 1, out elementType, out elementClaimed) {
+                    claimed = claimed || elementClaimed
+                    return false
+                }
+                elementTypes[elementIndex] = elementType
+                claimed = claimed || elementClaimed
+                elementIndex = elementIndex + 1
+            }
+            tupleDefinition := Type.GetType("System.ValueTuple`" + elementCanonicals.Count.ToString())
+            if tupleDefinition == null || !tupleDefinition.IsGenericTypeDefinition {
+                return false
+            }
+            try {
+                result = tupleDefinition.MakeGenericType(elementTypes)
+                return true
+            } catch {
+                result = typeof(object)
+                return false
+            }
+        }
+
+        genericOpen := canonical.IndexOf("<", StringComparison.Ordinal)
+        if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
+            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2))
+            headType := typeof(object)
+            headClaimed := false
+            headResolved := TryResolveExactExplicitTypeAtFile(sourceFileId, canonical.Substring(0, genericOpen), allowTypeParameters, bindings, activeAliases, depth + 1, out headType, out headClaimed)
+            headHasExpectedArity := headResolved && headType.IsGenericTypeDefinition && headType.GetGenericArguments().Length == argumentCanonicals.Count
+            if !headHasExpectedArity {
+                if headClaimed && !NamespaceAliasHeadAllowsMetadataArityRetry(sourceFileId, canonical.Substring(0, genericOpen)) && !SourceHeadDeclaredAtArity(sourceFileId, canonical.Substring(0, genericOpen), argumentCanonicals.Count) {
+                    claimed = true
+                    return false
+                }
+                arityHeadClaimed := false
+                headResolved = TryResolveExactExplicitTypeAtFile(sourceFileId, canonical.Substring(0, genericOpen) + "`" + argumentCanonicals.Count.ToString(), allowTypeParameters, bindings, activeAliases, depth + 1, out headType, out arityHeadClaimed)
+                headClaimed = headClaimed || arityHeadClaimed
+                if !headResolved {
+                    claimed = headClaimed
+                    return false
+                }
+            }
+            claimed = headClaimed
+            if !headType.IsGenericTypeDefinition {
+                return false
+            }
+            headArguments := headType.GetGenericArguments()
+            if headArguments.Length != argumentCanonicals.Count {
+                return false
+            }
+            argumentTypes := new Type[](argumentCanonicals.Count)
+            argumentIndex := 0
+            while argumentIndex < argumentCanonicals.Count {
+                argumentClaimed := false
+                argumentType := typeof(object)
+                if !TryResolveExactExplicitTypeAtFile(sourceFileId, argumentCanonicals[argumentIndex], allowTypeParameters, bindings, activeAliases, depth + 1, out argumentType, out argumentClaimed) {
+                    claimed = claimed || argumentClaimed
+                    return false
+                }
+                argumentTypes[argumentIndex] = argumentType
+                claimed = claimed || argumentClaimed
+                argumentIndex = argumentIndex + 1
+            }
+            try {
+                result = headType.MakeGenericType(argumentTypes)
+                return true
+            } catch {
+                result = typeof(object)
+                return false
+            }
+        }
+
+        if !IsExactExplicitSimpleName(canonical) {
+            return false
+        }
+
+        if allowTypeParameters && bindings.TryGetTypeParameter(canonical, out result) {
+            claimed = true
+            return true
+        }
+        if TryResolveExplicitBuiltin(canonical, out result) {
+            return true
+        }
+
+        aliasTarget := ""
+        if facts.TypeAliasTargets.TryGetValue(canonical, out aliasTarget) {
+            claimed = true
+            return TryResolveExplicitAliasTarget(sourceFileId, canonical, aliasTarget, bindings, activeAliases, depth, out result)
+        }
+
+        firstDot := canonical.IndexOf(".", StringComparison.Ordinal)
+        if firstDot > 0 {
+            rootName := canonical.Substring(0, firstDot)
+            tailName := canonical.Substring(firstDot + 1)
+            rootTypeParameter := typeof(object)
+            if allowTypeParameters && bindings.TryGetTypeParameter(rootName, out rootTypeParameter) {
+                claimed = true
+                return false
+            }
+            namespaceTarget := ""
+            if facts.NamespaceAliasTargets.TryGetValue(rootName, out namespaceTarget) {
+                claimed = true
+                exactAliasedName := namespaceTarget + "." + tailName
+                requireAliasedExport := namespaceTarget != facts.NamespaceName
+                sourceClaimed := false
+                if TryResolveExactSourceBinding(exactAliasedName, requireAliasedExport, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
+                    return true
+                }
+                if sourceClaimed {
+                    return false
+                }
+                return TryResolveExactExternalAtFile(sourceFileId, exactAliasedName, out result)
+            }
+
+            aliasedFileId := -1
+            if facts.FileAliasSourceFileIds.TryGetValue(rootName, out aliasedFileId) {
+                claimed = true
+                if tailName.Contains(".") || aliasedFileId < 0 {
+                    return false
+                }
+                return TryResolveExplicitFileImportType(aliasedFileId, tailName, bindings, activeAliases, depth + 1, out result)
+            }
+            if facts.DeclaredTypeBaseNames.Contains(rootName) {
+                claimed = true
+                exactNestedName := ExactNameInFacts(facts, canonical)
+                nestedClaimed := false
+                return TryResolveExactSourceBinding(exactNestedName, false, bindings, activeAliases, depth + 1, out result, out nestedClaimed)
+            }
+            importedRootName := ""
+            if facts.ImportedSourceTypeNames.TryGetValue(rootName, out importedRootName) {
+                claimed = true
+                importedNestedClaimed := false
+                return TryResolveExactSourceBinding(importedRootName + "." + tailName, true, bindings, activeAliases, depth + 1, out result, out importedNestedClaimed)
+            }
+            // A QUALIFIER READ THROUGH THE LEXICAL CHAIN names a namespace's member whichever
+            // assembly declares it: `Ast.Node` inside `NSharpLang.Compiler` is
+            // `NSharpLang.Compiler.Ast.Node` from a referenced assembly exactly as from source, and a
+            // nearer referenced-assembly candidate outranks a farther source one.
+            qualifiedSelection := SelectQualifiedName(facts.NamespaceName, canonical)
+            if qualifiedSelection.Kind == SimpleNameSelectionKind.Metadata {
+                claimed = true
+                return TryResolveSelectedMetadata(qualifiedSelection, canonical, out result)
+            }
+            lexicalNestedName := ""
+            if TryFindLexicalNestedSourceName(facts, canonical, out lexicalNestedName) {
+                claimed = true
+                lexicalNestedClaimed := false
+                return TryResolveExactSourceBinding(lexicalNestedName, true, bindings, activeAliases, depth + 1, out result, out lexicalNestedClaimed)
+            }
+            if facts.AliasNames.Contains(rootName) || facts.TypeAliasTargets.ContainsKey(rootName) {
+                claimed = true
+                return false
+            }
+
+            sourceClaimed := false
+            requireExported := true
+            separator := canonical.Length - 1
+            while separator >= 0 && canonical[separator] != '.' {
+                separator = separator - 1
+            }
+            if separator > 0 && canonical.Substring(0, separator) == facts.NamespaceName {
+                requireExported = false
+            }
+            if TryResolveExactSourceBinding(canonical, requireExported, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
+                claimed = true
+                return true
+            }
+            if sourceClaimed {
+                claimed = true
+                return false
+            }
+            return TryResolveExactExternalAtFile(sourceFileId, canonical, out result)
+        }
+
+        if facts.DeclaredTypeNames.Contains(canonical) {
+            claimed = true
+            exactLocalName := ExactNameInFacts(facts, canonical)
+            sourceClaimed := false
+            return TryResolveExactSourceBinding(exactLocalName, false, bindings, activeAliases, depth + 1, out result, out sourceClaimed)
+        }
+
+        importedFileId := -1
+        if facts.ImportedTypeSourceFileIds.TryGetValue(canonical, out importedFileId) {
+            claimed = true
+            if importedFileId < 0 {
+                return false
+            }
+            return TryResolveExplicitFileImportType(importedFileId, canonical, bindings, activeAliases, depth + 1, out result)
+        }
+
+        // `SimpleNamePrecedence` over source AND metadata: a referenced assembly's type in this
+        // file's own or an enclosing namespace is nearer than every import, and two imports that
+        // each supply the spelling are a tie this walk refuses (the analyzer's NL209) rather than
+        // binding whichever import was written first. A SOURCE selection is the source walk below's
+        // own answer, in the same order.
+        simpleSelection := SelectSimpleName(facts.NamespaceName, facts.UnaliasedNamespaceImports, canonical)
+        if simpleSelection.IsLexicalMetadata {
+            return TryResolveSelectedMetadata(simpleSelection, canonical, out result)
+        }
+        if simpleSelection.Kind == SimpleNameSelectionKind.Ambiguous {
+            claimed = true
+            RecordAmbiguousName(simpleSelection, canonical)
+            return false
+        }
+
+        currentNamespaceName := ExactNameInFacts(facts, canonical)
+        sourceClaimed := false
+        if TryResolveExactSourceBinding(currentNamespaceName, false, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
+            claimed = true
+            return true
+        }
+        if sourceClaimed {
+            claimed = true
+            return false
+        }
+
+        enclosingSourceName := ""
+        if TryFindEnclosingNamespaceSourceName(facts, canonical, out enclosingSourceName) {
+            claimed = true
+            if TryResolveExactSourceBinding(enclosingSourceName, true, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
+                return true
+            }
+            return false
+        }
+
+        for unaliasedNamespaceImport2 in facts.UnaliasedNamespaceImports {
+            importedExactName := unaliasedNamespaceImport2 + "." + canonical
+            if exportedSourceTypeNames.Contains(importedExactName) || exportedSourceTypeAliasNames.Contains(importedExactName) {
+                claimed = true
+                if TryResolveExactSourceBinding(importedExactName, true, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
+                    return true
+                }
+                return false
+            }
+        }
+
+        uniqueSourceName := ""
+        uniqueSourceClaimed := false
+        if !HasImportedExternalTypeAtFile(sourceFileId, canonical) {
+            if TryFindUniqueExportedSourceName(canonical, out uniqueSourceName, out uniqueSourceClaimed) {
+                claimed = true
+                if TryResolveExactSourceBinding(uniqueSourceName, true, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
+                    return true
+                }
+                return false
+            }
+            if uniqueSourceClaimed {
+                claimed = true
+                return false
+            }
+        }
+
+        // An alias root is a namespace/file owner, not a constructible type by itself.
+        if facts.AliasNames.Contains(canonical) {
+            claimed = true
+            return false
+        }
+        // THE REFERENCED ASSEMBLIES ARE ASKED BEFORE THE KNOWN-RUNTIME SPELLINGS, AND THAT ORDER IS
+        // THE FIX FOR A DRIFT. `TryResolveExplicitKnownRuntime` used to run first, so `Range` meant
+        // `System.Range` in the emitter whatever the file imported — while the ANALYZER resolved the
+        // same spelling through the file's imports in order and answered a referenced assembly's
+        // `Range`. The two walks disagreed, which is exactly the failure `SimpleNamePrecedence`
+        // exists to prevent: analysis accepted the program and emission then declined it (NL103) for
+        // a member the type it had chosen does not have. An `import` is something the file asked for
+        // and it now outranks the known-runtime table, which stays as the LAST resort — what a file
+        // that imported nothing still means by `DateTime`.
+        if TryResolveExactExternalAtFile(sourceFileId, canonical, out result) {
+            return true
+        }
+        return TryResolveExplicitKnownRuntime(canonical, out result)
+    }
+
+    // THE HEAD ANSWERED, BUT WITH THE WRONG ARITY. `Subscription<int>` written where both
+    // `Subscription` and `Subscription<T>` are declared resolves its head to the NON-generic sibling,
+    // which claims the name and would otherwise end the walk. A source declaration at the written
+    // arity is a second candidate and the metadata-arity retry is what reaches it.
+    func SourceHeadDeclaredAtArity(sourceFileId: int, head: string, arity: int): bool {
+        if arity <= 0 || head == null || head.Length == 0 || TypeArityNames.HasArity(head) {
+            return false
+        }
+        exactName := ""
+        headClaimed := false
+        activeAliases := new HashSet<string>(StringComparer.Ordinal)
+        return TryResolveExactSourceDeclarationNameCore(sourceFileId, TypeArityNames.Key(head, arity), activeAliases, 1, out exactName, out headClaimed)
+    }
+
+    func NamespaceAliasHeadAllowsMetadataArityRetry(sourceFileId: int, canonical: string): bool {
+        facts := new ColumnarSourceBindingFacts()
+        if !fileFactsById.TryGetValue(sourceFileId, out facts) {
+            return false
+        }
+        separator := canonical.IndexOf(".", StringComparison.Ordinal)
+        return separator > 0 && facts.NamespaceAliasTargets.ContainsKey(canonical.Substring(0, separator))
+    }
+
+    func TryResolveExplicitAliasTarget(sourceFileId: int, aliasName: string, aliasTarget: string, bindings: ColumnarFragmentBindings, activeAliases: HashSet<string>, depth: int, out result: Type): bool {
+        result = typeof(object)
+        aliasKey := sourceFileId.ToString() + ":" + aliasName
+        if !activeAliases.Add(aliasKey) {
+            return false
+        }
+        resolved := TryResolveExactExplicitTypeAtFile(sourceFileId, aliasTarget, false, bindings, activeAliases, depth + 1, out result)
+        activeAliases.Remove(aliasKey)
+        return resolved
+    }
+
+    func TryResolveExplicitFileImportType(importedFileId: int, importedName: string, bindings: ColumnarFragmentBindings, activeAliases: HashSet<string>, depth: int, out result: Type): bool {
+        result = typeof(object)
+        importedFacts := new ColumnarSourceBindingFacts()
+        if importedFileId < 0 || !fileFactsById.TryGetValue(importedFileId, out importedFacts) || !importedFacts.ScanComplete || !importedFacts.ExportedNames.Contains(importedName) || (!importedFacts.DeclaredTypeNames.Contains(importedName) && !importedFacts.TypeAliasTargets.ContainsKey(importedName)) {
+            return false
+        }
+        return TryResolveExactExplicitTypeAtFile(importedFileId, importedName, false, bindings, activeAliases, depth + 1, out result)
+    }
+
+    func TryResolveExactSourceBinding(exactName: string, requireExported: bool, bindings: ColumnarFragmentBindings, activeAliases: HashSet<string>, depth: int, out result: Type, out claimed: bool): bool {
+        result = typeof(object)
+        concreteClaim := sourceTypeNames.Contains(exactName) || ambiguousSourceTypeNames.Contains(exactName)
+        aliasClaim := sourceTypeAliasFileIds.ContainsKey(exactName) || ambiguousSourceTypeAliasNames.Contains(exactName)
+        claimed = concreteClaim || aliasClaim
+        if !claimed {
+            return false
+        }
+        if requireExported && !exportedSourceTypeNames.Contains(exactName) && !exportedSourceTypeAliasNames.Contains(exactName) {
+            return false
+        }
+        if (concreteClaim && aliasClaim) || ambiguousSourceTypeNames.Contains(exactName) || ambiguousSourceTypeAliasNames.Contains(exactName) {
+            return false
+        }
+        declarationName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(exactName)
+        if concreteClaim {
+            return bindings.TryResolveSelectedSourceType(exactName, declarationName, out result)
+        }
+
+        aliasFileId := -1
+        if !sourceTypeAliasFileIds.TryGetValue(exactName, out aliasFileId) {
+            return false
+        }
+        aliasFacts := new ColumnarSourceBindingFacts()
+        aliasTarget := ""
+        if !fileFactsById.TryGetValue(aliasFileId, out aliasFacts) || !aliasFacts.ScanComplete || !aliasFacts.TypeAliasTargets.TryGetValue(declarationName, out aliasTarget) {
+            return false
+        }
+        return TryResolveExplicitAliasTarget(aliasFileId, declarationName, aliasTarget, bindings, activeAliases, depth + 1, out result)
+    }
+
+    // `SimpleNamePrecedence.Select` ANSWERED FROM THIS PROGRAM: the SOURCE answer from the declared
+    // name tables — the file's own namespace takes any declaration, every other namespace only an
+    // exported one — and the METADATA answer from the prepared assembly scan, asked only where no
+    // source declaration answered. The emitter's walks ask it before their source import walk, so a
+    // referenced assembly's type in an enclosing namespace binds ahead of every import, and a tie
+    // between two imports declines instead of binding whichever import was written first. The
+    // analyzer's project discovery drives the same selection from its own index
+    // (`AnalyzerProjectTypeDiscovery.SelectVisibleType`), so the two walks cannot disagree about it.
+    func SelectSimpleName(namespaceName: string, unaliasedImports: List<string>, name: string): SimpleNameSelection {
+        selection := SimpleNamePrecedence.Select(namespaceName, unaliasedImports)
+        while !selection.IsSettled {
+            candidate := selection.Current
+            declaresSource := DeclaresSourceTypeInNamespace(candidate.Namespace, name, candidate.RequiresExport)
+            declaresMetadata := false
+            if !declaresSource {
+                declaresMetadata = assemblyCatalog.DeclaresInNamespace(candidate.Namespace, name)
+            }
+
+            selection.Answer(declaresSource, declaresMetadata)
+        }
+
+        return selection
+    }
+
+    // The same rule for a QUALIFIED spelling: `Ast.Node` inside `NSharpLang.Compiler` asks
+    // `NSharpLang.Compiler.Ast`, then outward, whichever assembly declares the leaf. The written
+    // qualifier read absolutely is left to the callers' own absolute channels for metadata.
+    func SelectQualifiedName(namespaceName: string, qualifiedName: string): SimpleNameSelection {
+        separator := qualifiedName.LastIndexOf('.')
+        if separator <= 0 || separator >= qualifiedName.Length - 1 {
+            return new SimpleNameSelection(new List<SimpleNameCandidate>())
+        }
+
+        leafName := qualifiedName.Substring(separator + 1)
+        selection := SimpleNamePrecedence.SelectQualified(namespaceName, qualifiedName.Substring(0, separator))
+        while !selection.IsSettled {
+            candidate := selection.Current
+            declaresSource := DeclaresSourceTypeInNamespace(candidate.Namespace, leafName, candidate.RequiresExport)
+            declaresMetadata := false
+            if !declaresSource && !candidate.IsWrittenSpelling {
+                declaresMetadata = assemblyCatalog.DeclaresInNamespace(candidate.LexicalBase, qualifiedName)
+            }
+
+            selection.Answer(declaresSource, declaresMetadata)
+        }
+
+        return selection
+    }
+
+    // The source half of the selection: is a type or type alias of this spelling declared in this ONE
+    // namespace, in a form this file may bind (`requireExport` for every namespace but its own)?
+    func DeclaresSourceTypeInNamespace(namespaceName: string?, name: string, requireExport: bool): bool {
+        exactName := name
+        if namespaceName != null && namespaceName.Length > 0 {
+            exactName = namespaceName + "." + name
+        }
+
+        if requireExport {
+            return exportedSourceTypeNames.Contains(exactName) || exportedSourceTypeAliasNames.Contains(exactName)
+        }
+
+        return sourceTypeNames.Contains(exactName) || ambiguousSourceTypeNames.Contains(exactName) || sourceTypeAliasFileIds.ContainsKey(exactName) || ambiguousSourceTypeAliasNames.Contains(exactName)
+    }
+
+    // A tie is a decline, and the decline says which two types tie and how to settle it, in the
+    // analyzer's NL209 words — an emit-only build (the compiler's own source) has no analyzer to say
+    // it for this walk.
+    static func RecordAmbiguousName(selection: SimpleNameSelection, name: string) {
+        written := TypeArityNames.Display(name)
+        ColumnarDeclineTrace.Record("emit.names.ambiguous-import", "'" + written + "' is ambiguous between '" + selection.QualifiedName(written) + "' and '" + selection.SecondQualifiedName(written) + "': both are imported (NL209); write the one you mean in full", -1, 0, ColumnarDeclineTrace.CurrentMemberName())
+    }
+
+    // The referenced assemblies' free-function holders in one namespace -- see
+    // `ColumnarExternalTypeCatalog.FreeFunctionHolders`.
+    func ExternalFreeFunctionHolders(namespaceName: string, rootHolderTypeName: string): List<Type> {
+        return assemblyCatalog.FreeFunctionHolders(namespaceName, rootHolderTypeName)
+    }
+
+    // The runtime type a METADATA selection bound.
+    func TryResolveSelectedMetadata(selection: SimpleNameSelection, name: string, out result: Type): bool {
+        return assemblyCatalog.TryResolveInNamespace(selection.LexicalBase, name, out result)
+    }
+
+    // A SOURCE TYPE IN AN ENCLOSING NAMESPACE IS PART OF THIS FILE'S OWN SCOPE. The file's own
+    // namespace is answered by the callers before this; a file in `A.B.C` also sits inside `A.B`,
+    // `A` and the global namespace, and an exported declaration there is in scope without an import,
+    // exactly as C# reads it. So this runs BEFORE the callers' import walk (`SimpleNamePrecedence`
+    // rule 2 outranks rule 3), and it is NOT the project-wide unique-exported fallback they reach
+    // last: that one finds a declaration in an UNRELATED namespace and deliberately loses to an
+    // imported external type (the shadowing hazard), while an enclosing namespace is lexically
+    // nearer than any import. Without this step the SAME spelling resolved two ways inside one file
+    // — a signature saw the enclosing declaration and a body local saw the imported external type of
+    // that name.
+    //
+    // The namespace chain itself is `SimpleNamePrecedence`'s, the same owner the analyzer's
+    // `VisibleTypeNamespaces` reads, so the two walks cannot drift.
+    // A DOTTED SPELLING READ THROUGH THE FILE'S LEXICAL CHAIN. `Ast.Node` inside `A.B` names
+    // `A.B.Ast.Node`, then `A.Ast.Node`; the absolute `Ast.Node` is the callers' own next step, so the
+    // global end of the chain is skipped here. This is the emitter's half of the analyzer's
+    // qualified-name channel, and both read the chain from `SimpleNamePrecedence`.
+    func TryFindLexicalNestedSourceName(facts: ColumnarSourceBindingFacts, canonical: string, out exactName: string): bool {
+        exactName = ""
+        lexical := SimpleNamePrecedence.LexicalNamespaces(facts.NamespaceName)
+        index := 0
+        while index < lexical.Count {
+            lexicalNamespace := lexical[index]
+            index = index + 1
+            if lexicalNamespace == null || lexicalNamespace.Length == 0 {
+                continue
+            }
+
+            candidateName := lexicalNamespace + "." + canonical
+            if sourceTypeNames.Contains(candidateName) || ambiguousSourceTypeNames.Contains(candidateName) {
+                exactName = candidateName
+                return true
+            }
+        }
+        return false
+    }
+
+    func TryFindEnclosingNamespaceSourceName(facts: ColumnarSourceBindingFacts, canonical: string, out exactName: string): bool {
+        exactName = ""
+        if canonical == null || canonical.Length == 0 || canonical.Contains(".") {
+            return false
+        }
+
+        enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(facts.NamespaceName)
+        for enclosingNamespace in enclosing {
+            candidateName := enclosingNamespace.Length == 0 ? canonical : enclosingNamespace + "." + canonical
+            if exportedSourceTypeNames.Contains(candidateName) || exportedSourceTypeAliasNames.Contains(candidateName) {
+                exactName = candidateName
+                return true
+            }
+        }
+        return false
+    }
+
+    // AN EXPLICIT IMPORT IS NOT A LAST RESORT, AND THE UNIQUE-EXPORTED SOURCE FALLBACK IS. The
+    // fallback matches by UNQUALIFIED name across every exported source declaration in the program,
+    // whatever namespace it lives in and whether or not this file imported it — so without this
+    // guard a source `class Version` in an unrelated namespace claimed the name `Version` that
+    // `import System` brought in, and emission then declined rather than binding `System.Version`.
+    // The analyzer applies the same precedence (`AnalyzerProjectTypeDiscovery`), and the two must
+    // agree or a program passes analysis and fails to emit.
+    //
+    // Only a BARE simple spelling can be claimed by the fallback, so nothing dotted or constructed
+    // is asked about.
+    func HasImportedExternalTypeAtFile(sourceFileId: int, canonical: string): bool {
+        if canonical == null || canonical.Length == 0 || canonical.Contains(".") || canonical.Contains("<") {
+            return false
+        }
+
+        resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        return assemblyCatalog.IsPrepared && assemblyCatalog.TryGetImported(sourceFileId, canonical, out resolution) && resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType
+    }
+
+    func TryResolveExactExternalAtFile(sourceFileId: int, canonical: string, out result: Type): bool {
+        result = typeof(object)
+        resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        if !assemblyCatalog.IsPrepared || !assemblyCatalog.TryGet(sourceFileId, canonical, out resolution) || resolution.Status != ExternalAssemblyTypeLookupStatus.Found || !resolution.HasRuntimeType {
+            return false
+        }
+        result = resolution.RuntimeType
+        return true
+    }
+
+    // The inverse of `ExactNameInFacts`: the spelling a FILE writes for one of its own exact
+    // declaration identities. The per-file walk recognises a declaration of this file by the ROOT
+    // SEGMENT of a name written relative to the file's namespace, so a lexical rewrite hands back
+    // the relative spelling rather than the global one. The two name the same declaration, and only
+    // the relative one keeps the walk inside the file that owns it — a global identity would be
+    // held to the export rule that guards names arriving from elsewhere.
+    func FileRelativeExactTypeName(sourceFileId: int, exactName: string): string {
+        facts := new ColumnarSourceBindingFacts()
+        if exactName == null || exactName.Length == 0 || !fileFactsById.TryGetValue(sourceFileId, out facts) || facts.NamespaceName.Length == 0 {
+            return exactName
+        }
+        prefix := facts.NamespaceName + "."
+        if !exactName.StartsWith(prefix, StringComparison.Ordinal) {
+            return exactName
+        }
+        return exactName.Substring(prefix.Length)
+    }
+
+    static func ExactNameInFacts(facts: ColumnarSourceBindingFacts, name: string): string {
+        if facts.NamespaceName.Length > 0 {
+            return facts.NamespaceName + "." + name
+        }
+        return name
+    }
+
+    static func IsExactExplicitSimpleName(canonical: string): bool {
+        if canonical.Length == 0 {
+            return false
+        }
+        segmentStart := 0
+        metadataArity := false
+        index := 0
+        while index < canonical.Length {
+            value := canonical[index]
+            if value == '.' {
+                if index == segmentStart || metadataArity {
+                    return false
+                }
+                segmentStart = index + 1
+            } else if value == '`' {
+                if metadataArity || index == segmentStart || index == canonical.Length - 1 {
+                    return false
+                }
+                metadataArity = true
+            } else if metadataArity {
+                if !char.IsDigit(value) {
+                    return false
+                }
+            } else if index == segmentStart {
+                if !char.IsLetter(value) && value != '_' {
+                    return false
+                }
+            } else if !char.IsLetterOrDigit(value) && value != '_' {
+                return false
+            }
+            index = index + 1
+        }
+        return segmentStart < canonical.Length
+    }
+
+    static func TryResolveExplicitBuiltin(canonical: string, out result: Type): bool {
+        result = typeof(object)
+        if canonical == "int" {
+            result = typeof(int)
+        } else if canonical == "long" {
+            result = typeof(long)
+        } else if canonical == "uint" {
+            result = typeof(uint)
+        } else if canonical == "ulong" {
+            result = typeof(ulong)
+        } else if canonical == "short" {
+            result = typeof(short)
+        } else if canonical == "ushort" {
+            result = typeof(ushort)
+        } else if canonical == "byte" {
+            result = typeof(byte)
+        } else if canonical == "sbyte" {
+            result = typeof(sbyte)
+        } else if canonical == "bool" {
+            result = typeof(bool)
+        } else if canonical == "char" {
+            result = typeof(char)
+        } else if canonical == "double" {
+            result = typeof(double)
+        } else if canonical == "float" {
+            result = typeof(float)
+        } else if canonical == "decimal" {
+            result = typeof(decimal)
+        } else if canonical == "string" {
+            result = typeof(string)
+        } else if canonical == "object" {
+            result = typeof(object)
+        } else if canonical == "nint" {
+            result = typeof(IntPtr)
+        } else if canonical == "nuint" {
+            result = typeof(UIntPtr)
+        } else {
+            return false
+        }
+        return true
+    }
+
+    // These are ordinary visible type names, not reserved language keywords. Source/imported
+    // declarations therefore get the first opportunity to bind the spelling.
+    static func TryResolveExplicitKnownRuntime(canonical: string, out result: Type): bool {
+        result = typeof(object)
+        if canonical == "IntPtr" {
+            result = typeof(IntPtr)
+        } else if canonical == "UIntPtr" {
+            result = typeof(UIntPtr)
+        } else if canonical == "DateTime" {
+            result = typeof(DateTime)
+        } else if canonical == "Index" {
+            result = typeof(Index)
+        } else if canonical == "Range" {
+            result = typeof(Range)
+        } else {
+            return false
+        }
+        return true
+    }
+
+    UnaliasedNamespaceImportCount: int => activeUnaliasedNamespaceImports.Count
+
+    func UnaliasedNamespaceImportAt(index: int): string {
+        return activeUnaliasedNamespaceImports[index]
+    }
+
+    // Import-alias member/call trees are a distinct semantic owner form. Expression planners
+    // that do not own alias-member binding can defer the whole subtree without mistaking the
+    // alias for a runtime or source type name.
+    func IsImportAliasRoot(name: string): bool {
+        return hasActiveFileFacts && name != null && name.Length > 0 && activeImportAliasNames.Contains(name)
+    }
+
+    // A FILE-import alias root, which is what the call planners' alias gates always meant. The alias
+    // table above holds BOTH kinds — `import "./x.nl" as A` and `import System.IO as Io` — and only
+    // the first is a semantic owner form. A namespace alias is a QUALIFICATION: `Io.Path` names the
+    // type `System.IO.Path`, so deferring the whole subtree for it refused an owner that resolves
+    // perfectly well once the root is expanded.
+    func IsFileImportAliasRoot(name: string): bool {
+        return IsImportAliasRoot(name) && !activeNamespaceAliasTargets.ContainsKey(name)
+    }
+
+    // A direct type-alias owner (Alias.Run) can be resolved to its source/runtime target. Once
+    // another member appears between the alias and the call (Alias.Shared.Run), the receiver is
+    // a value-or-nested-type chain whose binding belongs to the composed-expression owner.
+    func IsTypeAliasRoot(name: string): bool {
+        return hasActiveFileFacts && name != null && name.Length > 0 && activeTypeAliasTargets.ContainsKey(name)
+    }
+
+    // THE FILE'S OWN NAMESPACE, as the binding scope holds it: `""` is the global namespace. Free
+    // functions are declared on a per-namespace holder type, so their owner asks this rather than
+    // rebuilding the namespace off a compilation unit.
+    func NamespaceNameForFile(sourceFileId: int): string {
+        facts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out facts) {
+            return facts.NamespaceName
+        }
+        return ""
+    }
+
+    // The file's unaliased `import` list, in IMPORT ORDER, which is what `SimpleNamePrecedence` rule
+    // 3 arbitrates between. Aliased imports are qualifications rather than bindings and never bring
+    // a bare name into scope, so they are deliberately absent.
+    func NamespaceImportsForFile(sourceFileId: int): List<string> {
+        facts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out facts) {
+            return facts.UnaliasedNamespaceImports
+        }
+        return new List<string>()
+    }
+
+    // "DOES THE PROGRAM DECLARE A TYPE OF EXACTLY THIS NAME?", asked with the CLR identity the
+    // emitter would write. Ambiguous names (two files declaring one spelling) count: the name is
+    // taken either way. The free-function holder asks this before it claims `Program`.
+    func DeclaresSourceTypeNamed(exactName: string): bool {
+        return exactName.Length > 0 && (sourceTypeNames.Contains(exactName) || ambiguousSourceTypeNames.Contains(exactName))
+    }
+
+    // The files this one pulled in whole with `import "./other.nl"`, in import order.
+    func FileImportSourceFileIdsForFile(sourceFileId: int): List<int> {
+        facts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out facts) {
+            return facts.UnaliasedFileImportSourceFileIds
+        }
+        return new List<int>()
+    }
+
+    func ExactTypeNameForFile(name: string, sourceFileId: int): string {
+        if name == null || name.Length == 0 || name.Contains(".") {
+            return name
+        }
+        facts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out facts) && facts.NamespaceName.Length > 0 {
+            return facts.NamespaceName + "." + name
+        }
+        return name
+    }
+
+    // A nested declaration name is relative to its source file's namespace even though it
+    // contains dots. Keep that distinction explicit rather than guessing whether a dotted name
+    // is already namespace-qualified.
+    func ExactRelativeTypeNameForFile(name: string, sourceFileId: int): string {
+        if name == null || name.Length == 0 {
+            return name
+        }
+        facts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out facts) && facts.NamespaceName.Length > 0 {
+            return facts.NamespaceName + "." + name
+        }
+        return name
+    }
+
+    // A DECLARATION'S EXACT NAME IS ITS CLR IDENTITY, arity included. A generic declaration's exact
+    // name carries the metadata suffix (`Probe.Box``1`), which is what the emitter writes into
+    // metadata, what every definition registry is keyed by, and what lets `Subscription` and
+    // `Subscription<T>` occupy two entries instead of colliding on one.
+    func ExactStructTypeName(input: ColumnarStructInput): string {
+        if input == null {
+            return ""
+        }
+        arity := 0
+        typeParamNames := input.TypeParamNames
+        if typeParamNames != null {
+            arity = typeParamNames.Length
+        }
+        if input.EnclosingTypeName.Length == 0 {
+            // Existing program-input callers may already supply a namespace-qualified top-level
+            // name. Preserve that exact identity; only parser-identified nested declarations are
+            // namespace-relative even though their owner path contains dots.
+            return TypeArityNames.Key(ExactTypeNameForFile(input.Name, input.SourceFileId), arity)
+        }
+        relativeName := input.EnclosingTypeName + "." + TypeArityNames.Key(input.Name, arity)
+        return ExactRelativeTypeNameForFile(relativeName, input.SourceFileId)
+    }
+
+    func ExactInterfaceTypeName(input: ColumnarInterfaceInput): string {
+        if input == null {
+            return ""
+        }
+        arity := 0
+        typeParamNames := input.TypeParamNames
+        if typeParamNames != null {
+            arity = typeParamNames.Length
+        }
+        return TypeArityNames.Key(ExactTypeNameForFile(input.Name, input.SourceFileId), arity)
+    }
+
+    func ExactUnionTypeName(input: ColumnarUnionInput): string {
+        if input == null {
+            return ""
+        }
+        arity := 0
+        typeParamNames := input.TypeParamNames
+        if typeParamNames != null {
+            arity = typeParamNames.Length
+        }
+        return TypeArityNames.Key(ExactTypeNameForFile(input.Name, input.SourceFileId), arity)
+    }
+
+    // Mirrors Analyzer.TryResolveExternalType: ordered namespace imports first, then the first
+    // simple/full-name match in deterministic assembly order. An incomplete reference scan cannot
+    // prove identity and therefore declines.
+    func TryResolveExternalType(ownerName: string, expectedDeclaringTypeIdentity: string, out expectedDeclaringType: Type): bool {
+        expectedDeclaringType = typeof(object)
+        builtinType := typeof(object)
+        if TryResolveBuiltinOwner(ownerName, out builtinType) {
+            if ExternalAssemblyScan.HasExactTypeIdentity(builtinType, expectedDeclaringTypeIdentity) {
+                expectedDeclaringType = builtinType
+                return true
+            }
+            return false
+        }
+        resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        if !hasActiveFileFacts || activeSourceFileId < 0 || !sourceScanComplete || !assemblyCatalog.IsPrepared || ownerName == null || ownerName.Length == 0 || expectedDeclaringTypeIdentity == null || expectedDeclaringTypeIdentity.Length == 0 || !assemblyCatalog.TryGet(activeSourceFileId, ownerName, out resolution) {
+            return false
+        }
+        if resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType && ExternalAssemblyScan.SemanticIdentityMatches(resolution.SemanticTypeIdentity, expectedDeclaringTypeIdentity) {
+            expectedDeclaringType = resolution.RuntimeType
+            return true
+        }
+
+        expectedRuntimeType := Type.GetType(expectedDeclaringTypeIdentity)
+        if expectedRuntimeType == null || !expectedRuntimeType.IsGenericType {
+            return false
+        }
+        genericArguments := expectedRuntimeType.GetGenericArguments()
+        genericResolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        if !assemblyCatalog.TryGet(activeSourceFileId, ownerName + "`" + genericArguments.Length.ToString(), out genericResolution) || genericResolution.Status != ExternalAssemblyTypeLookupStatus.Found || !genericResolution.HasRuntimeType || genericResolution.RuntimeType != expectedRuntimeType.GetGenericTypeDefinition() {
+            return false
+        }
+        expectedDeclaringType = expectedRuntimeType
+        return true
+    }
+
+    func TryResolveExternalStaticOwner(enclosingTypeName: string, visibleFunctionTypeParameterNames: string[], rootName: string, ownerName: string, expectedDeclaringTypeIdentity: string, out expectedDeclaringType: Type): bool {
+        expectedDeclaringType = typeof(object)
+        aliasTarget := ""
+        if ownerName == rootName && activeTypeAliasTargets.TryGetValue(rootName, out aliasTarget) {
+            if BlocksUnqualifiedRootCore(enclosingTypeName, visibleFunctionTypeParameterNames, rootName, true) || !TryResolveExternalCanonical(aliasTarget, out expectedDeclaringType) || !ExternalAssemblyScan.HasExactTypeIdentity(expectedDeclaringType, expectedDeclaringTypeIdentity) {
+                expectedDeclaringType = typeof(object)
+                return false
+            }
+            return true
+        }
+        aliasedOwnerName := ownerName
+        aliasedRootName := rootName
+        ExpandNamespaceAliasOwner(rootName, ownerName, out aliasedRootName, out aliasedOwnerName)
+        if BlocksQualifiedSourceOwner(aliasedOwnerName) || BlocksUnqualifiedRootCore(enclosingTypeName, visibleFunctionTypeParameterNames, aliasedRootName, false) {
+            return false
+        }
+        return TryResolveExternalType(aliasedOwnerName, expectedDeclaringTypeIdentity, out expectedDeclaringType)
+    }
+
+    // A NAMESPACE ALIAS IN OWNER POSITION. `import System.IO as Io` makes `Io.Path` name the type
+    // `System.IO.Path`, which is exactly what the Analyzer binds it to, so emission expands the root
+    // before it asks any owner table — the assembly catalog and the source-type index are both keyed
+    // by real namespaces and neither has ever heard of the alias.
+    //
+    // THE ROOT IS REPLACED TOO, and that is the point: every shadowing fence downstream tests the
+    // ROOT of the owner, and the alias name is in `activeImportAliasNames` (it holds file aliases and
+    // namespace aliases alike), so testing the unexpanded root refused every alias-qualified owner.
+    // The expanded root is the aliased namespace's own first segment, which is the name that can
+    // legitimately be shadowed.
+    //
+    // A BARE ALIAS IS NOT AN OWNER: `Io` alone names a namespace, not a type, so an owner equal to
+    // its own root is left untouched.
+    func ExpandNamespaceAliasOwner(rootName: string, ownerName: string, out expandedRootName: string, out expandedOwnerName: string) {
+        expandedRootName = rootName
+        expandedOwnerName = ownerName
+        if !hasActiveFileFacts || rootName == null || rootName.Length == 0 || ownerName == null || ownerName.Length == rootName.Length {
+            return
+        }
+
+        aliasTarget := ""
+        if !activeNamespaceAliasTargets.TryGetValue(rootName, out aliasTarget) || aliasTarget.Length == 0 {
+            return
+        }
+
+        expandedOwnerName = aliasTarget + ownerName.Substring(rootName.Length)
+        separator := aliasTarget.IndexOf(".", StringComparison.Ordinal)
+        if separator > 0 {
+            expandedRootName = aliasTarget.Substring(0, separator)
+        } else {
+            expandedRootName = aliasTarget
+        }
+    }
+
+    // Resolve a static source owner to the exact emitted type identity. A false result with
+    // blocked=true is terminal: a lexical binding, source declaration, ambiguity, or incomplete
+    // scope prevents any later tier from reinterpreting the spelling as a runtime type.
+    func TryResolveSourceStaticOwner(enclosingTypeName: string, visibleFunctionTypeParameterNames: string[], rootName: string, ownerName: string, out exactOwnerName: string, out blocked: bool): bool {
+        exactOwnerName = ""
+        blocked = true
+        if !sourceScanComplete || !hasActiveFileFacts || hasActiveUnresolvedFileImport || rootName == null || rootName.Length == 0 || ownerName == null || ownerName.Length == 0 {
+            return false
+        }
+        if ContainsName(visibleFunctionTypeParameterNames, rootName) {
+            return false
+        }
+
+        aliasTarget := ""
+        if ownerName == rootName && activeTypeAliasTargets.TryGetValue(rootName, out aliasTarget) {
+            aliasBlocked := false
+            if TryResolveVisibleSourceTypeName(aliasTarget, out exactOwnerName, out aliasBlocked) {
+                blocked = false
+                return true
+            }
+            blocked = aliasBlocked
+            return false
+        }
+        aliasedSourceOwnerName := ownerName
+        aliasedSourceRootName := rootName
+        ExpandNamespaceAliasOwner(rootName, ownerName, out aliasedSourceRootName, out aliasedSourceOwnerName)
+        if aliasedSourceOwnerName != ownerName {
+            // The alias expanded, so this owner is a QUALIFIED name in the aliased namespace. A
+            // project type there is this tier's answer; anything else hands off to the external tier
+            // rather than going terminal, which is what a file-import alias below does.
+            if TryResolveQualifiedSourceTypeName(aliasedSourceOwnerName, out exactOwnerName) {
+                blocked = false
+                return true
+            }
+
+            blocked = BlocksQualifiedSourceOwner(aliasedSourceOwnerName)
+            return false
+        }
+
+        if activeImportAliasNames.Contains(rootName) {
+            return false
+        }
+
+        if ownerName.Contains(".") {
+            // A value/function/type imported or declared at the root changes this into member
+            // lookup on that binding; it is never a namespace-qualified source owner.
+            //
+            // NOT BLOCKED, and the difference is the whole answer for `Catalog.Codes.TryGetValue(...)`.
+            // `blocked` means "a source type owns this spelling and no later tier may reinterpret it",
+            // which is the opposite of what this arm just decided: the spelling is a MEMBER of a
+            // binding, so the value tier is exactly who should read `Catalog.Codes` and call an
+            // instance method on it. Reporting it blocked made the direct-call planner claim the call
+            // and reject it terminally, which took the whole subtree away from the owner that can
+            // emit it.
+            if activeDeclaredNames.Contains(rootName) || activeImportedNames.Contains(rootName) {
+                blocked = false
+                return false
+            }
+            // A namespace-qualified project source type IS an owner: the Analyzer binds
+            // `MyApp.Models.Person.Create()` to the declared type, so emission resolves the same
+            // exact identity rather than leaving the namespace root undefined. The export rule is
+            // `TryResolveQualifiedSourceTypeName`'s: a type outside the active namespace must be
+            // exported. Anything the qualified spelling shadows but cannot resolve stays terminal.
+            if TryResolveQualifiedSourceTypeName(ownerName, out exactOwnerName) {
+                blocked = false
+                return true
+            }
+            blocked = BlocksQualifiedSourceOwner(ownerName)
+            return false
+        }
+
+        activeBlocked := false
+        if TryResolveActiveSourceTypeName(ownerName, out exactOwnerName, out activeBlocked) {
+            blocked = false
+            return true
+        }
+        if activeBlocked || BlocksLexicalOrMemberRoot(enclosingTypeName, rootName) {
+            blocked = true
+            return false
+        }
+        return TryResolveProjectSourceTypeName(ownerName, out exactOwnerName, out blocked)
+    }
+
+    func TryResolveVisibleSourceTypeName(name: string, out exactName: string, out blocked: bool): bool {
+        exactName = ""
+        blocked = false
+        if name == null || name.Length == 0 {
+            blocked = true
+            return false
+        }
+        if name.Contains(".") {
+            if TryResolveQualifiedSourceTypeName(name, out exactName) {
+                return true
+            }
+            blocked = BlocksQualifiedSourceOwner(name)
+            return false
+        }
+
+        if TryResolveActiveSourceTypeName(name, out exactName, out blocked) || blocked {
+            return exactName.Length > 0
+        }
+        return TryResolveProjectSourceTypeName(name, out exactName, out blocked)
+    }
+
+    func TryResolveActiveSourceTypeName(name: string, out exactName: string, out blocked: bool): bool {
+        exactName = ""
+        blocked = false
+
+        if activeDeclaredNames.Contains(name) && !activeDeclaredTypeNames.Contains(name) {
+            blocked = true
+            return false
+        }
+        if activeDeclaredNames.Contains(name) && activeImportedNames.Contains(name) {
+            blocked = true
+            return false
+        }
+
+        if activeDeclaredTypeNames.Contains(name) {
+            activeExactName := name
+            if activeNamespaceName.Length > 0 {
+                activeExactName = activeNamespaceName + "." + name
+            }
+            if ambiguousSourceTypeNames.Contains(activeExactName) || !sourceTypeNames.Contains(activeExactName) {
+                blocked = true
+                return false
+            }
+            exactName = activeExactName
+            return true
+        }
+
+        importedExactName := ""
+        if activeImportedSourceTypeNames.TryGetValue(name, out importedExactName) {
+            if importedExactName.Length == 0 || ambiguousSourceTypeNames.Contains(importedExactName) || !sourceTypeNames.Contains(importedExactName) {
+                blocked = true
+                return false
+            }
+            exactName = importedExactName
+            return true
+        }
+        if activeImportedNames.Contains(name) {
+            blocked = true
+            return false
+        }
+        return false
+    }
+
+    // THE OWNER-POSITION HALF OF THE SAME PRECEDENCE RULE. `Owner.Member` asks this about `Owner`,
+    // and it must answer exactly what a simple type name resolves to: the file's own namespace, then
+    // each ENCLOSING namespace outward (ending at the global namespace), then the file's imports in
+    // import order. Enclosing before imports is `SimpleNamePrecedence` rule 2 before rule 3 — the
+    // global-namespace probe used to sit AFTER the import walk here, which is a second spelling of
+    // the order and drifted from it. Source types in UNRELATED named namespaces are still not
+    // consulted: they are the auto-discovery fallback and do not shadow a runtime import.
+    //
+    // A REFERENCED ASSEMBLY'S TYPE THAT THE SAME RULE SELECTS IS NOT A SOURCE OWNER AND NOT A BLOCK:
+    // this tier answers false, unblocked, and the external tier — which climbs the same chain first
+    // (`ColumnarExternalTypeCatalog.ResolveOwner`) — binds it. Two imports that each supply the name
+    // block: a tie is not an owner.
+    func TryResolveProjectSourceTypeName(name: string, out exactName: string, out blocked: bool): bool {
+        exactName = ""
+        blocked = false
+        selection := SelectSimpleName(activeNamespaceName, activeUnaliasedNamespaceImports, name)
+        if selection.IsLexicalMetadata {
+            return false
+        }
+        if selection.Kind == SimpleNameSelectionKind.Ambiguous {
+            RecordAmbiguousName(selection, name)
+            blocked = true
+            return false
+        }
+
+        activeExactName := name
+        if activeNamespaceName.Length > 0 {
+            activeExactName = activeNamespaceName + "." + name
+        }
+        if sourceTypeNames.Contains(activeExactName) {
+            if ambiguousSourceTypeNames.Contains(activeExactName) {
+                blocked = true
+                return false
+            }
+            exactName = activeExactName
+            return true
+        }
+
+        enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(activeNamespaceName)
+        for enclosingNamespace in enclosing {
+            enclosingName := enclosingNamespace.Length == 0 ? name : enclosingNamespace + "." + name
+            if exportedSourceTypeNames.Contains(enclosingName) {
+                if ambiguousSourceTypeNames.Contains(enclosingName) {
+                    blocked = true
+                    return false
+                }
+                exactName = enclosingName
+                return true
+            }
+        }
+
+        for activeUnaliasedNamespaceImport in activeUnaliasedNamespaceImports {
+            importedName := activeUnaliasedNamespaceImport + "." + name
+            if exportedSourceTypeNames.Contains(importedName) {
+                if ambiguousSourceTypeNames.Contains(importedName) {
+                    blocked = true
+                    return false
+                }
+                exactName = importedName
+                return true
+            }
+        }
+        return false
+    }
+
+    // A QUALIFIED SOURCE OWNER, READ THROUGH THE FILE'S LEXICAL CHAIN. `Ast.Node` written inside
+    // `App` names `App.Ast.Node` before it can name a global `Ast.Node`, because the leftmost segment
+    // of a qualified name is looked up by the same rule a simple name is (`SimpleNamePrecedence`) —
+    // which is how the analyzer's qualified-name channel reads it, and the two must agree.
+    func TryResolveQualifiedSourceTypeName(ownerName: string, out exactName: string): bool {
+        exactName = ""
+        // A nearer REFERENCED-ASSEMBLY candidate is the external tier's owner, not this one's.
+        if SelectQualifiedName(activeNamespaceName, ownerName).Kind == SimpleNameSelectionKind.Metadata {
+            return false
+        }
+
+        candidates := SimpleNamePrecedence.QualifierNamespaces(activeNamespaceName, ownerName)
+        index := 0
+        while index < candidates.Count {
+            candidateName := candidates[index]
+            index = index + 1
+            if !sourceTypeNames.Contains(candidateName) || ambiguousSourceTypeNames.Contains(candidateName) {
+                continue
+            }
+
+            separator := candidateName.Length - 1
+            while separator >= 0 && candidateName[separator] != '.' {
+                separator = separator - 1
+            }
+            if separator <= 0 {
+                continue
+            }
+            candidateNamespace := candidateName.Substring(0, separator)
+            if candidateNamespace != activeNamespaceName && !exportedSourceTypeNames.Contains(candidateName) {
+                continue
+            }
+            exactName = candidateName
+            return true
+        }
+        return false
+    }
+
+    // Direct-call selection discovers the exact method identity from the resolved runtime owner,
+    // so it cannot supply a declaring-type identity before lookup. Preserve the same alias,
+    // source-shadowing, import-order, and type-parameter fences as the identity-pinned static
+    // member path while returning the semantically resolved owner itself.
+    func TryResolveExternalStaticOwnerType(enclosingTypeName: string, visibleFunctionTypeParameterNames: string[], rootName: string, ownerName: string, out ownerType: Type): bool {
+        ownerType = typeof(object)
+        aliasTarget := ""
+        if ownerName == rootName && activeTypeAliasTargets.TryGetValue(rootName, out aliasTarget) {
+            if BlocksUnqualifiedRootCore(enclosingTypeName, visibleFunctionTypeParameterNames, rootName, true) || !TryResolveExternalCanonical(aliasTarget, out ownerType) {
+                ownerType = typeof(object)
+                return false
+            }
+            return true
+        }
+        aliasedOwnerName := ownerName
+        aliasedRootName := rootName
+        ExpandNamespaceAliasOwner(rootName, ownerName, out aliasedRootName, out aliasedOwnerName)
+        if BlocksQualifiedSourceOwner(aliasedOwnerName) || BlocksUnqualifiedRootCore(enclosingTypeName, visibleFunctionTypeParameterNames, aliasedRootName, false) {
+            return false
+        }
+        return TryResolveExternalCanonical(aliasedOwnerName, out ownerType)
+    }
+
+    func BlocksQualifiedSourceOwner(ownerName: string): bool {
+        candidate := ownerName
+        while candidate.Contains(".") {
+            if sourceTypeNames.Contains(candidate) {
+                return true
+            }
+            separator := candidate.Length - 1
+            while separator >= 0 && candidate[separator] != '.' {
+                separator = separator - 1
+            }
+            if separator <= 0 {
+                return false
+            }
+            candidate = candidate.Substring(0, separator)
+        }
+        return false
+    }
+
+    func TryResolveExternalCanonical(canonical: string, out runtimeType: Type): bool {
+        runtimeType = typeof(object)
+        if TryResolveBuiltinOwner(canonical, out runtimeType) {
+            return true
+        }
+        genericStart := canonical.IndexOf("<", StringComparison.Ordinal)
+        if genericStart > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
+            arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(canonical.Substring(genericStart + 1, canonical.Length - genericStart - 2))
+            if arguments.Count == 0 {
+                return false
+            }
+            argumentTypes := new Type[](arguments.Count)
+            argumentIndex := 0
+            while argumentIndex < arguments.Count {
+                argumentType := typeof(object)
+                if !TryResolveExternalCanonical(arguments[argumentIndex], out argumentType) {
+                    return false
+                }
+                argumentTypes[argumentIndex] = argumentType
+                argumentIndex = argumentIndex + 1
+            }
+            definition := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+            if !assemblyCatalog.TryGet(activeSourceFileId, canonical.Substring(0, genericStart) + "`" + arguments.Count.ToString(), out definition) || definition.Status != ExternalAssemblyTypeLookupStatus.Found || !definition.HasRuntimeType || !definition.RuntimeType.IsGenericTypeDefinition {
+                return false
+            }
+            runtimeType = definition.RuntimeType.MakeGenericType(argumentTypes)
+            return true
+        }
+        resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        if !assemblyCatalog.TryGet(activeSourceFileId, canonical, out resolution) || resolution.Status != ExternalAssemblyTypeLookupStatus.Found || !resolution.HasRuntimeType {
+            return false
+        }
+        runtimeType = resolution.RuntimeType
+        return true
+    }
+
+    static func TryResolveBuiltinOwner(name: string, out runtimeType: Type): bool {
+        runtimeType = typeof(object)
+        if name == "int" || name == "Int32" || name == "System.Int32" {
+            runtimeType = typeof(int)
+        } else if name == "long" || name == "Int64" || name == "System.Int64" {
+            runtimeType = typeof(long)
+        } else if name == "uint" || name == "UInt32" || name == "System.UInt32" {
+            runtimeType = typeof(uint)
+        } else if name == "ulong" || name == "UInt64" || name == "System.UInt64" {
+            runtimeType = typeof(ulong)
+        } else if name == "short" || name == "Int16" || name == "System.Int16" {
+            runtimeType = typeof(short)
+        } else if name == "ushort" || name == "UInt16" || name == "System.UInt16" {
+            runtimeType = typeof(ushort)
+        } else if name == "byte" || name == "Byte" || name == "System.Byte" {
+            runtimeType = typeof(byte)
+        } else if name == "sbyte" || name == "SByte" || name == "System.SByte" {
+            runtimeType = typeof(sbyte)
+        } else if name == "float" || name == "Single" || name == "System.Single" {
+            runtimeType = typeof(float)
+        } else if name == "double" || name == "Double" || name == "System.Double" {
+            runtimeType = typeof(double)
+        } else if name == "decimal" || name == "Decimal" || name == "System.Decimal" {
+            runtimeType = typeof(decimal)
+        } else if name == "bool" || name == "Boolean" || name == "System.Boolean" {
+            runtimeType = typeof(bool)
+        } else if name == "char" || name == "Char" || name == "System.Char" {
+            runtimeType = typeof(char)
+        } else if name == "string" || name == "String" || name == "System.String" {
+            runtimeType = typeof(string)
+        } else if name == "object" || name == "Object" || name == "System.Object" {
+            runtimeType = typeof(object)
+        } else {
+            return false
+        }
+        return true
+    }
+
+    func BlocksUnqualifiedRoot(enclosingTypeName: string, visibleFunctionTypeParameterNames: string[], rootName: string): bool {
+        return BlocksUnqualifiedRootCore(enclosingTypeName, visibleFunctionTypeParameterNames, rootName, false)
+    }
+
+    func BlocksUnqualifiedRootCore(enclosingTypeName: string, visibleFunctionTypeParameterNames: string[], rootName: string, allowMatchingTypeAlias: bool): bool {
+        if !sourceScanComplete || !hasActiveFileFacts || hasActiveUnresolvedFileImport || rootName.Length == 0 || activeImportedNames.Contains(rootName) || BlocksSourceType(rootName, allowMatchingTypeAlias) || activeImportAliasNames.Contains(rootName) || ContainsName(visibleFunctionTypeParameterNames, rootName) {
+            return true
+        }
+
+        return BlocksLexicalOrMemberRoot(enclosingTypeName, rootName)
+    }
+
+    func BlocksLexicalOrMemberRoot(enclosingTypeName: string, rootName: string): bool {
+        if enclosingTypeName.Length == 0 {
+            return false
+        }
+
+        if currentLexicalNamesByType.ContainsKey(enclosingTypeName) && currentLexicalNamesByType[enclosingTypeName].Names.Contains(rootName) {
+            return true
+        }
+
+        pending := new List<string>()
+        visited := new HashSet<string>(StringComparer.Ordinal)
+        pending.Add(enclosingTypeName)
+        index := 0
+        while index < pending.Count {
+            typeName := pending[index]
+            index = index + 1
+            if !visited.Add(typeName) {
+                continue
+            }
+            if invalidClassBaseOwners.Contains(typeName) {
+                return true
+            }
+            if memberNamesByType.ContainsKey(typeName) && memberNamesByType[typeName].Names.Contains(rootName) {
+                return true
+            }
+            if classBaseNameByType.ContainsKey(typeName) {
+                pending.Add(classBaseNameByType[typeName])
+            } else if externalBaseBindingByType.ContainsKey(typeName) {
+                externalBase := externalBaseBindingByType[typeName]
+                resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+                if !assemblyCatalog.TryGet(externalBase.SourceFileId, externalBase.Name, out resolution) || resolution.Status != ExternalAssemblyTypeLookupStatus.Found || !resolution.HasRuntimeType {
+                    return true
+                }
+                if HasVisibleExternalMember(resolution.RuntimeType, rootName) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    func BlocksSourceType(rootName: string, allowMatchingTypeAlias: bool): bool {
+        if allowMatchingTypeAlias && activeTypeAliasTargets.ContainsKey(rootName) {
+            return false
+        }
+        if activeDeclaredNames.Contains(rootName) {
+            return true
+        }
+        // The chain and import vetoes below are `SimpleNamePrecedence` asked of source alone; asked
+        // of source and metadata together, a referenced assembly's type in a lexical namespace wins
+        // before any of them is reached, so it does not block the external owner that binds it —
+        // and a tie between imports always does.
+        rootSelection := SelectSimpleName(activeNamespaceName, activeUnaliasedNamespaceImports, rootName)
+        if rootSelection.IsLexicalMetadata {
+            return false
+        }
+        if rootSelection.Kind == SimpleNameSelectionKind.Ambiguous {
+            return true
+        }
+        if activeNamespaceName.Length == 0 && sourceTypeNames.Contains(rootName) {
+            return true
+        }
+        if exportedSourceTypeNames.Contains(rootName) || exportedSourceTypeAliasNames.Contains(rootName) {
+            return true
+        }
+        if activeNamespaceName.Length > 0 && sourceTypeNames.Contains(activeNamespaceName + "." + rootName) {
+            return true
+        }
+        // The veto must cover every namespace `TryResolveProjectSourceTypeName` would answer from, or
+        // an enclosing-namespace source type resolves there while an external owner of the same
+        // spelling binds here. The global namespace is already covered above.
+        enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(activeNamespaceName)
+        for enclosingNamespace in enclosing {
+            if enclosingNamespace.Length > 0 {
+                enclosingName := enclosingNamespace + "." + rootName
+                if exportedSourceTypeNames.Contains(enclosingName) || exportedSourceTypeAliasNames.Contains(enclosingName) {
+                    return true
+                }
+            }
+        }
+        for activeUnaliasedNamespaceImport in activeUnaliasedNamespaceImports {
+            importedName := activeUnaliasedNamespaceImport + "." + rootName
+            if exportedSourceTypeNames.Contains(importedName) || exportedSourceTypeAliasNames.Contains(importedName) {
+                return true
+            }
+        }
+        return false
+    }
+
+    func AddStructScope(input: ColumnarStructInput) {
+        exactName := ExactStructTypeName(input)
+        members := GetOrAddNames(memberNamesByType, exactName)
+        AddNames(members.Names, input.FieldNames)
+        for method2 in input.Methods {
+            members.Names.Add(method2.Name)
+        }
+        for property2 in input.Properties {
+            members.Names.Add(property2.Name)
+        }
+        lexical := GetOrAddNames(currentLexicalNamesByType, exactName)
+        AddNames(lexical.Names, input.TypeParamNames)
+        for constructor in input.Constructors {
+            if constructor.IsSynthesizedInitializer {
+                AddNames(lexical.Names, constructor.Body.ParamNames)
+            }
+        }
+        fileFacts := new ColumnarSourceBindingFacts()
+        ownerShortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(input.Name)
+        if fileFactsById.TryGetValue(input.SourceFileId, out fileFacts) && fileFacts.NestedNamesByOwner.ContainsKey(ownerShortName) {
+            nestedNames := fileFacts.NestedNamesByOwner[ownerShortName]
+            for nestedName in nestedNames.Names {
+                members.Names.Add(nestedName)
+            }
+        }
+    }
+
+    func AddInterfaceScope(input: ColumnarInterfaceInput) {
+        exactName := ExactInterfaceTypeName(input)
+        members := GetOrAddNames(memberNamesByType, exactName)
+        AddNames(members.Names, input.MethodNames)
+        AddNames(GetOrAddNames(currentLexicalNamesByType, exactName).Names, input.TypeParamNames)
+    }
+
+    func RegisterStructKind(input: ColumnarStructInput) {
+        RegisterTypeKind(ExactStructTypeName(input), false, input.IsReference, input.IsRecord)
+    }
+
+    func RegisterInterfaceKind(input: ColumnarInterfaceInput) {
+        RegisterTypeKind(ExactInterfaceTypeName(input), true, true, false)
+    }
+
+    func RegisterTypeKind(name: string, isInterface: bool, isReference: bool, isRecord: bool) {
+        if name.Length == 0 {
+            sourceScanComplete = false
+            return
+        }
+        existing := new ColumnarTypeBindingFacts(false, false, false)
+        if sourceTypeKindsByExactName.TryGetValue(name, out existing) {
+            existing.IsAmbiguous = true
+            return
+        }
+        sourceTypeKindsByExactName.Add(name, new ColumnarTypeBindingFacts(isInterface, isReference, isRecord))
+    }
+
+    // Analyzer records the first colon-list entry as a class's lexical BaseClass even when that
+    // entry is an interface. Later interface entries do not participate in unqualified lookup.
+    func AddClassBaseScope(input: ColumnarStructInput) {
+        if !input.IsReference || input.BaseNames.Length == 0 {
+            return
+        }
+        ownerName := ExactStructTypeName(input)
+        baseName := ResolveSourceBaseName(ownerName, input.SourceFileId, input.BaseNames[0])
+        if baseName.Length == 0 {
+            externalBaseBinding := new ColumnarExternalBaseBinding(input.BaseNames[0], input.SourceFileId)
+            externalBaseBindingByType[ownerName] = externalBaseBinding
+            return
+        }
+        baseKind := new ColumnarTypeBindingFacts(false, false, false)
+        if !sourceTypeKindsByExactName.TryGetValue(baseName, out baseKind) || baseKind.IsAmbiguous || !baseKind.IsReference || String.Equals(ownerName, baseName, StringComparison.Ordinal) {
+            invalidClassBaseOwners.Add(ownerName)
+            return
+        }
+        classBaseNameByType[ownerName] = baseName
+        classBaseWrittenByType[ownerName] = new ColumnarExternalBaseBinding(input.BaseNames[0], input.SourceFileId)
+    }
+
+    func ResolveSourceBaseName(ownerName: string, sourceFileId: int, baseName: string): string {
+        if sourceTypeKindsByExactName.ContainsKey(baseName) {
+            return baseName
+        }
+        separator := -1
+        scan := ownerName.Length - 1
+        while scan >= 0 && separator < 0 {
+            if ownerName.Substring(scan, 1) == "." {
+                separator = scan
+            }
+            scan--
+        }
+        ownerNamespace := separator >= 0 ? ownerName.Substring(0, separator) : ""
+        if separator >= 0 {
+            sameNamespace := ownerNamespace + "." + baseName
+            if sourceTypeKindsByExactName.ContainsKey(sameNamespace) {
+                return sameNamespace
+            }
+        }
+        // An ENCLOSING namespace outranks an import here too (`SimpleNamePrecedence` rule 2 before
+        // rule 3): a base name is a simple type name and resolves by the one precedence rule.
+        enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(ownerNamespace)
+        for enclosingNamespace in enclosing {
+            enclosingName := enclosingNamespace.Length == 0 ? baseName : enclosingNamespace + "." + baseName
+            if sourceTypeKindsByExactName.ContainsKey(enclosingName) {
+                return enclosingName
+            }
+        }
+        fileFacts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out fileFacts) {
+            for unaliasedNamespaceImport2 in fileFacts.UnaliasedNamespaceImports {
+                importedName := unaliasedNamespaceImport2 + "." + baseName
+                if sourceTypeKindsByExactName.ContainsKey(importedName) {
+                    return importedName
+                }
+            }
+        }
+        return ""
+    }
+
+    func AddSourceType(name: string) {
+        if name.Length > 0 {
+            sourceTypeNames.Add(name)
+        }
+    }
+
+    func CollectSourceNames(source: string, fileFacts: ColumnarSourceBindingFacts): bool {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawLengths := new int[](capacity)
+        compactKinds := new int[](capacity)
+        compactStarts := new int[](capacity)
+        compactLengths := new int[](capacity)
+        counts := new int[](2)
+        compactCount := TokenizeColumnarSourceInto(source, rawKinds, rawStarts, rawLengths, compactKinds, compactStarts, compactLengths, counts)
+        if compactCount < 0 || compactCount > compactKinds.Length || counts[0] < 0 || counts[0] > rawKinds.Length {
+            return false
+        }
+
+        braceDepth := 0
+        bracketDepth := 0
+        parenDepth := 0
+        inWhereClause := false
+        pendingOwner := ""
+        currentOwner := ""
+        ownerBraceDepth := 0
+        pendingVisibilityModifiers := 0
+        index := 0
+        while index < compactCount {
+            kind := compactKinds[index]
+            atTopLevel := braceDepth == 0 && bracketDepth == 0 && parenDepth == 0
+            if atTopLevel {
+                visibilityFlag := VisibilityModifierFlag(kind)
+                if visibilityFlag != 0 {
+                    pendingVisibilityModifiers = pendingVisibilityModifiers | visibilityFlag
+                }
+            }
+            if atTopLevel && kind == 17 {
+                CollectImportFacts(source, compactKinds, compactStarts, compactLengths, compactCount, index, fileFacts)
+                pendingVisibilityModifiers = 0
+            }
+            if atTopLevel && (kind == 15 || kind == 18) {
+                CollectNamespaceFact(source, compactKinds, compactStarts, compactLengths, compactCount, index, kind == 18, fileFacts)
+                pendingVisibilityModifiers = 0
+            }
+            if atTopLevel && kind == 53 {
+                inWhereClause = true
+            } else if atTopLevel && kind == 120 {
+                inWhereClause = false
+            } else if !inWhereClause && TypeDeclarationHeadKind(source, compactKinds, compactStarts, compactLengths, compactCount, index) != 0 && !IsRecordStructTailToken(compactKinds, index) {
+                nameIndex := index + 1
+                if kind == 13 && nameIndex < compactCount && compactKinds[nameIndex] == 9 {
+                    nameIndex = nameIndex + 1
+                }
+                if nameIndex < compactCount && compactKinds[nameIndex] == 0 {
+                    declarationName := source.Substring(compactStarts[nameIndex], compactLengths[nameIndex])
+                    if atTopLevel {
+                        fileFacts.DeclaredNames.Add(declarationName)
+                        // The declaration's IDENTITY is its name and its type-parameter count, so
+                        // `Subscription` and `Subscription<T>` written in one file are two entries.
+                        // A type alias has no type parameters and keeps its bare name.
+                        declarationKey := TypeArityNames.Key(declarationName, DeclarationGenericArity(compactKinds, compactCount, nameIndex))
+                        isTypeKeyword := TypeDeclarationHeadKind(source, compactKinds, compactStarts, compactLengths, compactCount, index) == Convert.ToInt32(TokenType.Type)
+                        if isTypeKeyword && !IsNewtypeDeclaration(compactKinds, compactCount, nameIndex) {
+                            declarationKey = declarationName
+                            if !CollectTypeAliasFact(source, compactKinds, compactStarts, compactLengths, compactCount, nameIndex, declarationName, fileFacts) {
+                                return false
+                            }
+                        } else {
+                            fileFacts.DeclaredTypeNames.Add(declarationKey)
+                            fileFacts.DeclaredTypeBaseNames.Add(declarationName)
+                        }
+                        if VisibilityConventions.IsExportedIdentifier(declarationName, pendingVisibilityModifiers) {
+                            fileFacts.ExportedNames.Add(declarationKey)
+                        }
+                        pendingOwner = declarationName
+                        pendingVisibilityModifiers = 0
+                    } else if currentOwner.Length > 0 {
+                        nestedNames := GetOrAddNames(fileFacts.NestedNamesByOwner, currentOwner)
+                        nestedNames.Names.Add(declarationName)
+                    }
+                }
+            }
+            if atTopLevel && kind == 7 && index + 1 < compactCount && compactKinds[index + 1] == 0 {
+                declarationName := source.Substring(compactStarts[index + 1], compactLengths[index + 1])
+                fileFacts.DeclaredNames.Add(declarationName)
+                if VisibilityConventions.IsExportedIdentifier(declarationName, pendingVisibilityModifiers) {
+                    fileFacts.ExportedNames.Add(declarationName)
+                }
+                pendingVisibilityModifiers = 0
+            }
+
+            if kind == 129 {
+                if atTopLevel && pendingOwner.Length > 0 {
+                    currentOwner = pendingOwner
+                    ownerBraceDepth = braceDepth + 1
+                    pendingOwner = ""
+                }
+                braceDepth = braceDepth + 1
+                inWhereClause = false
+            } else if kind == 130 {
+                braceDepth = braceDepth - 1
+                if braceDepth < 0 {
+                    braceDepth = 0
+                }
+                if currentOwner.Length > 0 && braceDepth < ownerBraceDepth {
+                    currentOwner = ""
+                    ownerBraceDepth = 0
+                }
+            } else if kind == 131 {
+                bracketDepth = bracketDepth + 1
+            } else if kind == 132 {
+                bracketDepth = bracketDepth - 1
+                if bracketDepth < 0 {
+                    bracketDepth = 0
+                }
+            } else if kind == 127 {
+                parenDepth = parenDepth + 1
+            } else if kind == 128 {
+                parenDepth = parenDepth - 1
+                if parenDepth < 0 {
+                    parenDepth = 0
+                }
+            }
+            index = index + 1
+        }
+        return true
+    }
+
+    // THE TYPE-PARAMETER COUNT WRITTEN AFTER A DECLARATION NAME, off the compact token stream.
+    //
+    // The list is what sits between the `<` that IMMEDIATELY follows the name and its matching `>`;
+    // the count is its top-level commas plus one. `>>` closes two levels at once (`Box<List<int>>`),
+    // so the right-shift token subtracts two. A brace before the list closes means the source is not
+    // a generic header at all and the answer is 0.
+    static func DeclarationGenericArity(kinds: int[], count: int, nameIndex: int): int {
+        i := nameIndex + 1
+        if i >= count || kinds[i] != Convert.ToInt32(TokenType.Less) {
+            return 0
+        }
+
+        depth := 0
+        arity := 1
+        while i < count {
+            kind := kinds[i]
+            if kind == Convert.ToInt32(TokenType.Less) {
+                depth = depth + 1
+            } else if kind == Convert.ToInt32(TokenType.Greater) {
+                depth = depth - 1
+                if depth <= 0 {
+                    return arity
+                }
+            } else if kind == Convert.ToInt32(TokenType.RightShift) {
+                depth = depth - 2
+                if depth <= 0 {
+                    return arity
+                }
+            } else if kind == Convert.ToInt32(TokenType.Comma) && depth == 1 {
+                arity = arity + 1
+            } else if kind == Convert.ToInt32(TokenType.LeftBrace) || kind == Convert.ToInt32(TokenType.RightBrace) {
+                return 0
+            }
+
+            i = i + 1
+        }
+
+        return 0
+    }
+
+    static func IsNewtypeDeclaration(kinds: int[], count: int, nameIndex: int): bool {
+        assignIndex := nameIndex + 1
+        newtypeIndex := nameIndex + 2
+        underlyingIndex := nameIndex + 3
+        return underlyingIndex < count && kinds[assignIndex] == Convert.ToInt32(TokenType.Assign) && kinds[newtypeIndex] == Convert.ToInt32(TokenType.Newtype) && kinds[underlyingIndex] == Convert.ToInt32(TokenType.Identifier)
+    }
+
+    static func CollectTypeAliasFact(source: string, kinds: int[], starts: int[], lengths: int[], count: int, nameIndex: int, aliasName: string, fileFacts: ColumnarSourceBindingFacts): bool {
+        assignIndex := nameIndex + 1
+        targetIndex := nameIndex + 2
+        if targetIndex >= count || kinds[assignIndex] != Convert.ToInt32(TokenType.Assign) {
+            return false
+        }
+        tokens := new ParserDeclarationTokenTable(kinds, starts, lengths)
+        result := new ParserDeclarationResultTable(new int[](2))
+        if ParseDeclarationTypeSpanCore(tokens, count, targetIndex, result) < 0 {
+            return false
+        }
+        canonical := ParserDeclarationCanonicalTypeText(source, result.Values[0], result.Values[1])
+        if canonical.Length == 0 || fileFacts.TypeAliasTargets.ContainsKey(aliasName) {
+            return false
+        }
+        fileFacts.TypeAliasTargets.Add(aliasName, canonical)
+        return true
+    }
+
+    func CollectImportFacts(source: string, kinds: int[], starts: int[], lengths: int[], count: int, importIndex: int, fileFacts: ColumnarSourceBindingFacts) {
+        index := importIndex + 1
+        isNamespaceImport := index < count && kinds[index] == 0
+        namespaceName := ""
+        expectIdentifier := true
+        while isNamespaceImport && index < count {
+            if expectIdentifier && kinds[index] == 0 {
+                if namespaceName.Length > 0 {
+                    namespaceName = namespaceName + "."
+                }
+                namespaceName = namespaceName + source.Substring(starts[index], lengths[index])
+                expectIdentifier = false
+                index = index + 1
+                continue
+            }
+            if !expectIdentifier && kinds[index] == 124 {
+                expectIdentifier = true
+                index = index + 1
+                continue
+            }
+            break
+        }
+
+        isFileImport := !isNamespaceImport && index < count && kinds[index] == 4
+        fileImportPath := ""
+        if isFileImport {
+            fileImportPath = UnquoteStringLiteral(source.Substring(starts[index], lengths[index]))
+            index = index + 1
+        }
+
+        if index < count && kinds[index] == 48 && index + 1 < count && kinds[index + 1] == 0 {
+            aliasName := source.Substring(starts[index + 1], lengths[index + 1])
+            if fileFacts.AliasNames.Contains(aliasName) {
+                fileFacts.ScanComplete = false
+                return
+            }
+            fileFacts.AliasNames.Add(aliasName)
+            if isNamespaceImport && namespaceName.Length > 0 && !expectIdentifier {
+                fileFacts.NamespaceAliasTargets.Add(aliasName, namespaceName)
+            } else if isFileImport && fileImportPath.Length > 0 {
+                fileFacts.FileAliasPaths.Add(aliasName, fileImportPath)
+            } else {
+                fileFacts.ScanComplete = false
+                if isFileImport {
+                    fileFacts.HasUnresolvedFileImport = true
+                }
+            }
+            return
+        }
+        if index < count && kinds[index] == Convert.ToInt32(TokenType.As) {
+            fileFacts.ScanComplete = false
+            if isFileImport {
+                fileFacts.HasUnresolvedFileImport = true
+            }
+            return
+        }
+        if isNamespaceImport && namespaceName.Length > 0 && !expectIdentifier {
+            fileFacts.UnaliasedNamespaceImports.Add(namespaceName)
+        } else if isFileImport && fileImportPath.Length > 0 {
+            fileFacts.UnaliasedFileImportPaths.Add(fileImportPath)
+        } else if isFileImport {
+            fileFacts.HasUnresolvedFileImport = true
+        } else {
+            fileFacts.ScanComplete = false
+        }
+    }
+
+    func CollectNamespaceFact(source: string, kinds: int[], starts: int[], lengths: int[], count: int, namespaceIndex: int, isPackage: bool, fileFacts: ColumnarSourceBindingFacts) {
+        index := namespaceIndex + 1
+        namespaceName := ""
+        expectIdentifier := true
+        while index < count {
+            if expectIdentifier && kinds[index] == 0 {
+                if namespaceName.Length > 0 {
+                    namespaceName = namespaceName + "."
+                }
+                namespaceName = namespaceName + source.Substring(starts[index], lengths[index])
+                expectIdentifier = false
+                index = index + 1
+                continue
+            }
+            if !expectIdentifier && kinds[index] == 124 {
+                expectIdentifier = true
+                index = index + 1
+                continue
+            }
+            break
+        }
+        if namespaceName.Length == 0 || expectIdentifier {
+            fileFacts.ScanComplete = false
+            return
+        }
+        if isPackage {
+            if fileFacts.HasPackageName && fileFacts.NamespaceName != namespaceName {
+                fileFacts.ScanComplete = false
+                return
+            }
+            fileFacts.NamespaceName = namespaceName
+            fileFacts.HasPackageName = true
+            return
+        }
+        if !fileFacts.HasPackageName {
+            if fileFacts.NamespaceName.Length > 0 && fileFacts.NamespaceName != namespaceName {
+                fileFacts.ScanComplete = false
+                return
+            }
+            fileFacts.NamespaceName = namespaceName
+        }
+    }
+
+    func ResolveFileImports(sources: ColumnarSourceFile[]) {
+        factsByPath := new Dictionary<string, ColumnarSourceBindingFacts>(StringComparer.OrdinalIgnoreCase)
+        fileIdsByPath := new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        index := 0
+        while index < sources.Length {
+            sourceFile := sources[index]
+            facts := new ColumnarSourceBindingFacts()
+            if sourceFile == null || !fileFactsById.TryGetValue(sourceFile.FileId, out facts) {
+                sourceScanComplete = false
+                index = index + 1
+                continue
+            }
+            if sourceFile.FileName.Length == 0 {
+                index = index + 1
+                continue
+            }
+            fullPath := Path.GetFullPath(sourceFile.FileName)
+            if factsByPath.ContainsKey(fullPath) {
+                sourceScanComplete = false
+            } else {
+                factsByPath[fullPath] = facts
+                fileIdsByPath[fullPath] = sourceFile.FileId
+            }
+            index = index + 1
+        }
+
+        index = 0
+        while index < sources.Length {
+            sourceFile := sources[index]
+            facts := new ColumnarSourceBindingFacts()
+            if sourceFile == null || !fileFactsById.TryGetValue(sourceFile.FileId, out facts) {
+                index = index + 1
+                continue
+            }
+            if facts.UnaliasedFileImportPaths.Count == 0 && facts.FileAliasPaths.Count == 0 {
+                index = index + 1
+                continue
+            }
+            if sourceFile.FileName.Length == 0 {
+                facts.HasUnresolvedFileImport = true
+                index = index + 1
+                continue
+            }
+            sourcePath := Path.GetFullPath(sourceFile.FileName)
+            resolver := new FileResolver(projectRoot, sourcePath)
+            for unaliasedFileImportPath2 in facts.UnaliasedFileImportPaths {
+                importPath := resolver.ResolveFilePath(unaliasedFileImportPath2)
+                importedFacts := new ColumnarSourceBindingFacts()
+                importedFileId := -1
+                if factsByPath.TryGetValue(importPath, out importedFacts) && fileIdsByPath.TryGetValue(importPath, out importedFileId) && importedFacts.ScanComplete {
+                    facts.UnaliasedFileImportSourceFileIds.Add(importedFileId)
+                    for importedName in importedFacts.ExportedNames {
+                        facts.ImportedNames.Add(importedName)
+                        if importedFacts.DeclaredTypeNames.Contains(importedName) {
+                            exactImportedName := importedName
+                            if importedFacts.NamespaceName.Length > 0 {
+                                exactImportedName = importedFacts.NamespaceName + "." + importedName
+                            }
+                            AddImportedSourceType(facts, importedName, exactImportedName)
+                        }
+                        if importedFacts.DeclaredTypeNames.Contains(importedName) || importedFacts.TypeAliasTargets.ContainsKey(importedName) {
+                            AddImportedTypeSourceFile(facts, importedName, importedFileId)
+                        }
+                    }
+                } else {
+                    facts.HasUnresolvedFileImport = true
+                }
+            }
+
+            for fileAlias in facts.FileAliasPaths {
+                importPath := resolver.ResolveFilePath(fileAlias.Value)
+                importedFacts := new ColumnarSourceBindingFacts()
+                importedFileId := -1
+                if factsByPath.TryGetValue(importPath, out importedFacts) && fileIdsByPath.TryGetValue(importPath, out importedFileId) && importedFacts.ScanComplete {
+                    facts.FileAliasSourceFileIds[fileAlias.Key] = importedFileId
+                } else {
+                    facts.HasUnresolvedFileImport = true
+                }
+            }
+            index = index + 1
+        }
+    }
+
+    static func AddImportedTypeSourceFile(facts: ColumnarSourceBindingFacts, shortName: string, sourceFileId: int) {
+        existing := -1
+        if facts.ImportedTypeSourceFileIds.TryGetValue(shortName, out existing) {
+            // The analyzer rejects duplicate unaliased imported symbols. Retain an explicit
+            // negative marker even when both directives happen to resolve to the same file.
+            facts.ImportedTypeSourceFileIds[shortName] = -1
+            return
+        }
+        facts.ImportedTypeSourceFileIds.Add(shortName, sourceFileId)
+    }
+
+    static func AddImportedSourceType(facts: ColumnarSourceBindingFacts, shortName: string, exactName: string) {
+        existing := ""
+        if facts.ImportedSourceTypeNames.TryGetValue(shortName, out existing) {
+            if existing != exactName {
+                // An unaliased file-import collision is already a semantic error. Retain an
+                // explicit ambiguous marker so emission can only fail closed.
+                facts.ImportedSourceTypeNames[shortName] = ""
+            }
+            return
+        }
+        facts.ImportedSourceTypeNames.Add(shortName, exactName)
+    }
+
+    static func UnquoteStringLiteral(value: string): string {
+        if value.Length >= 2 && value.StartsWith("\"", StringComparison.Ordinal) && value.EndsWith("\"", StringComparison.Ordinal) {
+            return value.Substring(1, value.Length - 2)
+        }
+        return ""
+    }
+
+    static func ResolveProjectRoot(sources: ColumnarSourceFile[], projectRootValue: string?): string {
+        if projectRootValue != null && projectRootValue.Length > 0 {
+            return Path.GetFullPath(projectRootValue)
+        }
+        for sourceFile in sources {
+            if sourceFile != null && sourceFile.FileName.Length > 0 {
+                fullPath := Path.GetFullPath(sourceFile.FileName)
+                directory := Path.GetDirectoryName(fullPath)
+                if directory != null && directory.Length > 0 {
+                    return directory
+                }
+            }
+        }
+        return Path.GetFullPath(".")
+    }
+
+    // `type` (72) IS NOT HERE: it is a CONTEXTUAL keyword and the columnar lexer writes an ordinary
+    // identifier for it, so no token kind names a type alias on its own.
+    static func IsTypeDeclarationKeyword(kind: int): bool {
+        return kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14
+    }
+
+    // The declaration KIND of a type-declaration head, or 0 when the token opens none. A type ALIAS
+    // answers 72 — the ordinal this walker's alias arm already reads — although its token is an
+    // identifier, so the contextual reading enters this walker in exactly one place.
+    static func TypeDeclarationHeadKind(source: string, kinds: int[], starts: int[], lengths: int[], count: int, index: int): int {
+        kind := kinds[index]
+        if IsTypeDeclarationKeyword(kind) {
+            return kind
+        }
+
+        if TypeAliasKeywordFacts.IsAliasDeclarationHeadAt(source, kinds, starts, lengths, count, index) {
+            return 72
+        }
+
+        return 0
+    }
+
+    // THE ONE BIT SPACE IS `Modifiers` (DeclarationEnums.nl): Public 1, Private 2, Internal 4,
+    // Protected 8. This answered 4 for `protected` and 8 for `internal` — harmless while
+    // the only reader treated every non-`public` word alike, and a trap for the next one, because
+    // `MethodVisibilityAttributes` reads 8 as `family` and 4 as `assembly`.
+    static func VisibilityModifierFlag(kind: int): int {
+        if kind == Convert.ToInt32(TokenType.Public) {
+            return 1
+        }
+        if kind == Convert.ToInt32(TokenType.Private) {
+            return 2
+        }
+        if kind == Convert.ToInt32(TokenType.Internal) {
+            return 4
+        }
+        if kind == Convert.ToInt32(TokenType.Protected) {
+            return 8
+        }
+        return 0
+    }
+
+    static func IsRecordStructTailToken(kinds: int[], index: int): bool {
+        return kinds[index] == 9 && index > 0 && kinds[index - 1] == 13
+    }
+
+    static func GetOrAddNames(values: Dictionary<string, ColumnarBindingNameSet>, typeName: string): ColumnarBindingNameSet {
+        if values.ContainsKey(typeName) {
+            return values[typeName]
+        }
+        names := new ColumnarBindingNameSet()
+        values[typeName] = names
+        return names
+    }
+
+    static func AddNames(target: HashSet<string>, values: string[]) {
+        for value in values {
+            if value.Length > 0 {
+                target.Add(value)
+            }
+        }
+    }
+
+    static func ContainsName(values: string[], name: string): bool {
+        for value in values {
+            if String.Equals(value, name, StringComparison.Ordinal) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func HasVisibleExternalMember(externalType: Type, name: string): bool {
+        try {
+            if externalType.GetField(name) != null || externalType.GetProperty(name) != null {
+                return true
+            }
+            return externalType.GetMethod(name) != null
+        } catch {
+            return true
+        }
+    }
+}

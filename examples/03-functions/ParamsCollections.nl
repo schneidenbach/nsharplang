@@ -1,10 +1,10 @@
-// Example demonstrating params collections (C# 13 feature)
+// Example demonstrating params collections
 // Params can now work with Span<T>, ReadOnlySpan<T>, and collection types
 import System
 import System.Collections.Generic
 
 
-// 1. Basic params with array (original C# behavior)
+// 1. Basic params with array
 func SumArray(params numbers: int[]): int {
     total := 0
     for num in numbers {
@@ -73,28 +73,28 @@ func TransformAll(params numbers: int[]): int[] {
 }
 
 func Main() {
-    print "=== Params Collections (C# 13) Examples ==="
+    print "=== Params Collections Examples ==="
     print ""
 
-    // Array params (original behavior)
+    // Array params
     print "1. Array params:"
     sum1 := SumArray(1, 2, 3, 4, 5)
     print $"   Sum(1,2,3,4,5) = {sum1}"
     print ""
 
-    // ReadOnlySpan params (C# 13 - more efficient!)
+    // ReadOnlySpan params
     print "2. ReadOnlySpan<T> params (zero allocation):"
     sum2 := SumReadOnlySpan(10, 20, 30, 40)
     print $"   Sum(10,20,30,40) = {sum2}"
     print ""
 
-    // IEnumerable params (C# 13)
+    // IEnumerable params
     print "3. IEnumerable<T> params (flexible):"
     print "   Items:"
     PrintAll("Apple", "Banana", "Cherry", "Date")
     print ""
 
-    // IReadOnlyList params (C# 13)
+    // IReadOnlyList params
     print "4. IReadOnlyList<T> params with separator:"
     formatted := FormatItems(", ", "Alice", "Bob", "Charlie", "David")
     print $"   Result: {formatted}"
@@ -107,13 +107,13 @@ func Main() {
     print $"   Doubled: [{doubledStr}]"
     print ""
 
-    // List params (C# 13)
+    // List params
     print "6. List<T> params:"
     list := BuildList(100, 200, 300)
     print $"   Built list with {list.Count} items"
     print ""
 
-    print "=== Benefits of Params Collections (C# 13) ==="
+    print "=== Benefits of Params Collections ==="
     print "  - ReadOnlySpan/Span: Zero heap allocation, better performance"
     print "  - IEnumerable: Works with LINQ and any collection type"
     print "  - IReadOnlyList: Indexed access with read-only guarantee"

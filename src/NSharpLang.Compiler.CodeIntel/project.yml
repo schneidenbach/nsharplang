@@ -1,0 +1,11 @@
+name: NSharpLang.Compiler.CodeIntel
+backend: il
+outputType: library
+targetFramework: net10.0
+# CodeIntel carries its own estate (`*.tests.nl`); every build of it that does not pass
+# `-p:NSharpExcludeTests=false` is product-only, which is what the projects above it reference.
+excludeTests: true
+dependencies:
+  - project: ../NSharpLang.Compiler.Core/project.yml
+  - nuget: System.Reflection.MetadataLoadContext
+    version: 10.0.5

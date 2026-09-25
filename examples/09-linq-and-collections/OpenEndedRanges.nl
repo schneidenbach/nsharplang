@@ -1,5 +1,5 @@
 // N# Open-Ended Ranges Example
-// Demonstrates C# 8+ open-ended range operators
+// Demonstrates open-ended range operators
 func PrintArray(arr: int[]) {
     result := "["
     for i := 0; i < arr.Length; i++ {

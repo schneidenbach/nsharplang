@@ -1,0 +1,461 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.Reflection
+import NSharpLang.Compiler.Ast
+
+
+// WHAT A BARE NAME MEANS: the whole of the expression walk's identifier arm, as a RULE rather than a
+// walk.
+//
+// Every other expression family that has moved is a suspendable walk, because every other family has
+// operands and an operand is an expression the analyzer must analyse. An identifier has none. It is
+// a pure lookup — six ordered channels over the scope stack, the enclosing type's members, the
+// built-in metadata name table, project-wide type discovery, project-wide function discovery and the
+// referenced-assembly probe — so there is no request type, no state type, no phase and no driver
+// loop here. The two consumers call a method and get a `TypeInfo` back.
+//
+// THE SIX CHANNELS, IN ORDER, ARE THE WHOLE OF `TryResolveBindingTarget`, AND THE ORDER IS
+// BEHAVIOUR:
+//   1  the SCOPE STACK — locals, parameters and locally declared types, symbols before types. This
+//      is also where NARROWING pays off: `AnalyzerFlowNarrowing` writes the narrowed type into the
+//      scope's own symbol table, so `text` inside `if text != null { … }` answers `string` here
+//      without this rule naming narrowing at all. A symbol declared OUTSIDE the enclosing type — a
+//      free function of this file, in the global scope — does not answer when the type has a member
+//      of that name: a member hides a free function, as C# looks in the type before the namespace.
+//   2  the ENCLOSING TYPE's members, static ones included, so a field or property used bare inside
+//      its own type resolves without `this.`, and an inherited one wins over any free function.
+//   3  the BUILT-IN TYPE KEYWORDS, so `int.Parse`, `string.IsNullOrEmpty` and `int.TryParse` have a
+//      receiver.
+//   4  project-wide TYPE discovery, which also RECORDS the binding and the semantic-model type.
+//   5  project-wide FUNCTION discovery — the function half of auto-discovery.
+//   6  the referenced-assembly PROBE, so `Console` resolves. It is deliberately LAST, after the
+//      enclosing type's members, so an instance member wins over an imported type of the same name.
+// Channel 2 before channel 6 and channel 1 before channel 2 are the two orderings a developer feels
+// most directly, and swapping either one silently changes which declaration a name refers to.
+//
+// THE FOUR CODES IT OWNS: NL301 for a name that is not a variable, NL412 for a name that is not a
+// callable, NL308 for a project declaration that IS visible but is not exported, and NL314 for an
+// error-tuple result read before its error was checked. NL301 and NL412 each have TWO shapes — the
+// RICH `ErrorMessageBuilder` form with a snippet, an underline and did-you-mean suggestions, and a
+// bare fallback for a diagnostic that has no source line to point at (a synthesised node, or a
+// position the analysed text does not cover).
+//
+// WHAT IT DOES NOT OWN: the method-group, event and synthetic-SoA-operation reports. Those fire in
+// the dispatch host's common tail, AFTER this rule has answered, and they apply to every expression
+// form rather than to a name — so an identifier that resolves to a method group is answered here and
+// judged there.
+//
+// CONSTRUCTED ONCE, NEVER REBUILT. Two of its collaborators — member resolution and the well-known
+// type bag — ARE replaced when the analyzer opens or closes its metadata load context, so it is TOLD
+// about the replacements rather than being rebuilt with them. Rebuilding would drop the
+// unverified-result dedupe set mid-analysis, which is the same reason `AnalyzerTypeResolver` takes
+// its well-known types through a setter.
+class AnalyzerIdentifierResolution {
+    diagnosticsValue: AnalyzerDiagnosticSink
+    scopesValue: AnalyzerScopeStack
+    typeResolverValue: AnalyzerTypeResolver
+    projectDiscoveryValue: AnalyzerProjectTypeDiscovery
+    externalTypeProbeValue: AnalyzerExternalTypeProbe
+    functionTypeFactoryValue: AnalyzerFunctionTypeFactory
+    ambientValue: AnalyzerAmbientContext
+    nullFlowValue: AnalyzerNullFlow
+    extensionMethodsValue: List<FunctionDeclaration>
+    memberResolutionValue: AnalyzerMemberResolution
+    wellKnownTypesValue: AnalyzerWellKnownTypes?
+    importUsageCreditValue: AnalyzerImportUsageCredit?
+    semanticModelValue: SemanticModel
+    bindingsValue: BindingMap
+    compilationUnitValue: CompilationUnit?
+    suppressErrorTupleResultUseValue: bool
+    reportedUnverifiedResultsValue: Dictionary<(Line: int, Column: int, Name: string), bool>
+
+    // THE ERROR-TUPLE SUPPRESSION, saved and restored by the assignment arm exactly as
+    // `AnalyzerNullFlow.SuppressFlowType` is: writing INTO a result name is not a use of it, so a
+    // plain `result = …` must not be told the error was never checked. A compound assignment reads
+    // the target first, so it is NOT suppressed.
+    SuppressErrorTupleResultUse: bool => suppressErrorTupleResultUseValue
+
+    constructor(diagnostics: AnalyzerDiagnosticSink, scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, projectDiscovery: AnalyzerProjectTypeDiscovery, externalTypeProbe: AnalyzerExternalTypeProbe, functionTypeFactory: AnalyzerFunctionTypeFactory, ambient: AnalyzerAmbientContext, nullFlow: AnalyzerNullFlow, extensionMethods: List<FunctionDeclaration>, memberResolution: AnalyzerMemberResolution, semanticModel: SemanticModel, bindings: BindingMap) {
+        diagnosticsValue = diagnostics
+        scopesValue = scopes
+        typeResolverValue = typeResolver
+        projectDiscoveryValue = projectDiscovery
+        externalTypeProbeValue = externalTypeProbe
+        functionTypeFactoryValue = functionTypeFactory
+        ambientValue = ambient
+        nullFlowValue = nullFlow
+        extensionMethodsValue = extensionMethods
+        memberResolutionValue = memberResolution
+        wellKnownTypesValue = null
+        importUsageCreditValue = null
+        semanticModelValue = semanticModel
+        bindingsValue = bindings
+        compilationUnitValue = null
+        suppressErrorTupleResultUseValue = false
+        reportedUnverifiedResultsValue = new Dictionary<(Line: int, Column: int, Name: string), bool>()
+    }
+
+    // One call per analysis, from the analyzer's own reset block. The semantic model and the binding
+    // map are REPLACED per analysis rather than cleared, so they arrive here instead of being held
+    // from construction — the same door `AnalyzerTypeResolver` takes them through.
+    func BeginAnalysis(unit: CompilationUnit?, semanticModel: SemanticModel, bindings: BindingMap) {
+        compilationUnitValue = unit
+        semanticModelValue = semanticModel
+        bindingsValue = bindings
+        suppressErrorTupleResultUseValue = false
+        reportedUnverifiedResultsValue.Clear()
+    }
+
+    // Member resolution and the well-known-type bag are both REBUILT when the metadata load context
+    // opens and again when it closes. This rule is told about the new pair rather than being rebuilt
+    // itself: it holds the unverified-result dedupe set, and rebuilding would drop it mid-analysis.
+    func SetMetadataCollaborators(memberResolution: AnalyzerMemberResolution, wellKnownTypes: AnalyzerWellKnownTypes?) {
+        memberResolutionValue = memberResolution
+        wellKnownTypesValue = wellKnownTypes
+    }
+
+    // The import-usage ledger, told about rather than constructed, and optional: a harness that only
+    // asks what a name resolves to is not answering NL010.
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCreditValue = credit
+    }
+
+    func SetSuppressErrorTupleResultUse(value: bool) {
+        suppressErrorTupleResultUseValue = value
+    }
+
+    // THE RULE. `reportMissingAsFunction` selects which of the two report families a miss belongs to
+    // — a callee position wants NL412 and callable suggestions, every other position wants NL301 and
+    // variable suggestions — and it also opens the inaccessible-FUNCTION probe, which only a callee
+    // position asks.
+    //
+    // `<error>` is the parser's placeholder for a name it could not read. It answers unknown in
+    // silence: the syntax diagnostic has already been reported at that position, and a second
+    // "I can't find `<error>`" on top of it is noise.
+    func Resolve(name: string, line: int, column: int, reportMissingAsFunction: bool): TypeInfo {
+        if name == "<error>" {
+            return BuiltInTypes.Unknown
+        }
+
+        resolved: TypeInfo = BuiltInTypes.Unknown
+        if TryResolveBindingTarget(name, line, column, out resolved) {
+            ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
+            ReportCapturedByRefParameterIfNeeded(name, line, column)
+            return resolved
+        }
+
+        if reportMissingAsFunction && line > 0 {
+            inaccessibleFunctionFile: string? = null
+            if projectDiscoveryValue.TryFindInaccessibleVisibleFunction(name, UnitNamespace(), out inaccessibleFunctionFile) {
+                diagnosticsValue.ReportInaccessibleMember(name, inaccessibleFunctionFile, line, column)
+                return BuiltInTypes.Unknown
+            }
+        }
+
+        ReportUndefined(name, line, column, reportMissingAsFunction)
+        return BuiltInTypes.Unknown
+    }
+
+    // NL331: A LOCAL FUNCTION MAY NOT READ AN ENCLOSING FUNCTION'S `ref`, `out` OR `in` PARAMETER.
+    //
+    // A capturing local function's storage outlives the call that created it — the captured bindings
+    // live in a closure object on the heap — and a byref parameter is a managed pointer into the
+    // CALLER's frame. There is nowhere to put it, which is why C# refuses the same program as CS1628
+    // rather than choosing between a stale copy and a dangling pointer.
+    //
+    // It is reported at the READ, where the fix goes: copy the parameter into an ordinary local and
+    // capture that instead, then write the result back after the call.
+    private func ReportCapturedByRefParameterIfNeeded(name: string, line: int, column: int) {
+        if line <= 0 || !ambientValue.IsCapturedByRefParameter(name) {
+            return
+        }
+
+        diagnosticsValue.Report(
+            ErrorCode.ByRefParameterCapturedByLocalFunction,
+            "'" + name + "' is a 'ref', 'out' or 'in' parameter of the enclosing function, so a local function cannot use it",
+            line,
+            column,
+            "Copy '" + name + "' into an ordinary local before the local function, use that local inside it, and assign the result back to '" + name + "' afterwards.",
+            Math.Max(1, name.Length)
+        )
+    }
+
+    // THE CALLEE-POSITION FORM of the same rule, and the reason it lives here rather than in the call
+    // arm: it is the identifier answer plus the three things every identifier answer needs and the
+    // dispatch host does for its own arm — the null state, the flow type that state implies, and the
+    // two semantic-model records the IDE's hover reads. The call arm reaches its callee WITHOUT going
+    // through the dispatch host, so without this door it would have to repeat all four.
+    func CallTarget(identifier: IdentifierExpression): TypeInfo {
+        resolved := Resolve(identifier.Name, identifier.Line, identifier.Column, true)
+        nullState := nullFlowValue.GetExpressionNullState(identifier, resolved)
+        flowType := nullFlowValue.ApplyNullabilityFlowType(resolved, nullState)
+
+        semanticModelValue.RecordExpressionType(identifier.Line, identifier.Column, flowType)
+        semanticModelValue.RecordExpressionNullState(identifier.Line, identifier.Column, nullState)
+
+        return flowType
+    }
+
+    // A BARE NAME HAS NO WRITTEN RECEIVER, so the receiver is the enclosing instance and the
+    // `protected` receiver rule is satisfied by construction: what an external base declares
+    // `protected` is in scope here exactly as a source base's is.
+    private func ResolveEnclosingMember(currentType: TypeInfo, name: string): TypeInfo {
+        return memberResolutionValue.ResolveMember(currentType, name, true, ambientValue.CurrentTypeName, false, true)
+    }
+
+    // A MEMBER OF THE ENCLOSING TYPE HIDES A FREE FUNCTION OF THE SAME NAME, whatever file or assembly
+    // declared the function, as C# looks a simple name up in its type before its namespace. The type's
+    // OWN members already sit in the type scope, above the global scope that holds the file's own free
+    // functions, so they won there without this; an INHERITED member is not in any scope, and without
+    // this a free function in the same file beat it while the same function in another file lost to
+    // it. The emitter applies the same rule to its sibling table (`ColumnarSiblingHiding`).
+    private func EnclosingTypeHasMember(name: string): bool {
+        currentType := scopesValue.CurrentTypeScope()
+        return currentType != null && !BuiltInTypes.IsUnknown(ResolveEnclosingMember(currentType, name))
+    }
+
+    // The function half of project auto-discovery, mirroring the type half in
+    // `AnalyzerProjectTypeDiscovery`: exported (PascalCase) top-level functions are visible
+    // project-wide within visible namespaces without a file import, and a camelCase one is visible to
+    // every file of ITS OWN namespace — namespace-private, never file-private. A camelCase function
+    // named from another namespace falls through to the inaccessible probe, which reports NL308.
+    //
+    // PUBLISHED rather than private because the qualified-external-type probe asks the same question
+    // of a dotted name's ROOT before it will accept a CLR type of that name — a project function
+    // named `Log` must not be shadowed by `Log.Write` resolving to an assembly type.
+    //
+    // A REFERENCED ASSEMBLY'S FREE FUNCTION answers here too, when the walk settles on one: it is its
+    // holder's public static method, so it is typed as that reflected method and the call arm binds
+    // it the way it binds any reflected method -- applicability, conversions and the nullability a
+    // referenced signature states. It has no source declaration to record.
+    func TryResolveVisibleProjectFunction(name: string, out resolvedType: TypeInfo, out declaration: SymbolDeclaration?): bool {
+        declarationFile: string? = null
+        functionDeclaration: FunctionDeclaration? = null
+        functionSymbol: SymbolDeclaration? = null
+        externalFunctions := new List<MethodInfo>()
+        if projectDiscoveryValue.TryResolveVisibleFunction(name, UnitNamespace(), out declarationFile, out functionDeclaration, out functionSymbol, out externalFunctions) {
+            // Both nested guards are TOTAL on the source path — discovery only answers `true` with a
+            // declaration after it has matched an exported `FunctionDeclaration` in a named file —
+            // but the factory wants non-nullables, and a nested `if` is the only narrowing that holds.
+            if functionDeclaration != null && declarationFile != null {
+                resolvedType = functionTypeFactoryValue.CreateFromDeclarationInFile(functionDeclaration, declarationFile)
+                declaration = functionSymbol
+                return true
+            }
+
+            if externalFunctions.Count == 1 {
+                resolvedType = new ReflectionMethodInfo(externalFunctions[0])
+                declaration = null
+                return true
+            }
+        }
+
+        resolvedType = BuiltInTypes.Unknown
+        declaration = null
+        return false
+    }
+
+    // THE SIX CHANNELS. A miss answers `false` with `unknown`, which is what separates "this name is
+    // nothing" from "this name is something whose type we could not work out" — only the first
+    // reports.
+    func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo): bool {
+        // 1. Local symbols first, then local types. A symbol declared OUTSIDE the enclosing type — the
+        // file's own free functions live in the global scope — answers only when the type has no
+        // member of that name; otherwise channel 2 below answers with the member.
+        symbolFloor := 0
+        typeScopeIndex := scopesValue.TypeScopeIndex()
+        if typeScopeIndex > 0 && scopesValue.DeclaresSymbolBelow(name, typeScopeIndex) && EnclosingTypeHasMember(name) {
+            symbolFloor = typeScopeIndex
+        }
+
+        scopeBinding := scopesValue.ResolveBindingTarget(bindingsValue, diagnosticsValue.CurrentFilePath, name, line, column, symbolFloor)
+        if scopeBinding != null {
+            resolvedType = scopeBinding
+            return true
+        }
+
+        // 2. The enclosing type's members, static ones included.
+        currentType := scopesValue.CurrentTypeScope()
+        if currentType != null {
+            memberType := ResolveEnclosingMember(currentType, name)
+            if !BuiltInTypes.IsUnknown(memberType) {
+                resolvedType = memberType
+                return true
+            }
+        }
+
+        // 3. Built-in type keywords (`int`, `string`, `bool`, …) for static member access.
+        builtInClrType := AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(wellKnownTypesValue, name)
+        if builtInClrType != null {
+            resolvedType = new ReflectionTypeInfo(builtInClrType)
+            return true
+        }
+
+        // 3a. THE AMBIGUITY GATE, between the channels that cannot tie and the two that can. Every
+        // channel above answers from ONE place — a scope, the enclosing type, the built-in table — so
+        // a name that reached here is about to be resolved from an import, and an import is exactly
+        // where two declarations can supply one spelling. Reporting before either channel answers is
+        // what keeps the error at the reference rather than at whichever candidate happened to win.
+        if line > 0 {
+            ReportAmbiguousImportedTypeIfNeeded(name, line, column)
+        }
+
+        // 4. Project-wide type discovery. `line > 0` is the synthesised-node test: a node the parser
+        // never read has no position, so the inaccessible probe — which exists only to produce a
+        // diagnostic — is not worth running for it.
+        projectType: TypeInfo = BuiltInTypes.Unknown
+        projectDeclaration: SymbolDeclaration? = null
+        inaccessibleProjectFile: string? = null
+        if projectDiscoveryValue.ResolveVisibleProjectType(name, UnitNamespace(), line > 0, out projectType, out projectDeclaration, out inaccessibleProjectFile) {
+            resolvedType = projectType
+            // TOTAL on this path: discovery materialises the symbol before it answers `true`.
+            if projectDeclaration != null {
+                bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, line, column, name.Length, projectDeclaration)
+            }
+
+            semanticModelValue.RecordType(name, projectType)
+            return true
+        }
+
+        // A project type that EXISTS but is not exported is reported here and marked, so the type
+        // resolver's own NL201 does not report the same position a second time.
+        if inaccessibleProjectFile != null {
+            diagnosticsValue.ReportInaccessibleMember(name, inaccessibleProjectFile, line, column)
+            typeResolverValue.MarkUnresolvedTypeReported(name, line, column)
+        }
+
+        // 5. Project-wide function discovery.
+        projectFunctionType: TypeInfo = BuiltInTypes.Unknown
+        projectFunctionDeclaration: SymbolDeclaration? = null
+        if TryResolveVisibleProjectFunction(name, out projectFunctionType, out projectFunctionDeclaration) {
+            resolvedType = projectFunctionType
+            // TOTAL on this path, for the same reason.
+            if projectFunctionDeclaration != null {
+                bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, line, column, name.Length, projectFunctionDeclaration)
+            }
+
+            return true
+        }
+
+        // 6. An external type (static class access like `Console`). Deliberately after the
+        // enclosing-type member lookup so instance members win over imported type names.
+        //
+        // NL010 AND NL002 ARE BOTH ANSWERED FROM THIS CHANNEL. `Console.WriteLine(...)` writes no
+        // type ANNOTATION anywhere, so the type-position walk never sees `Console`; the import that
+        // supplies it is used here or nowhere, and a file whose only mention of `System` was a static
+        // receiver had its import reported dead until this credit existed.
+        externalType := externalTypeProbeValue.ResolveExternalType(name)
+        if externalType != null {
+            resolvedType = externalType
+            credit := importUsageCreditValue
+            if credit != null {
+                credit.CreditResolvedType(name, externalType)
+            }
+
+            return true
+        }
+
+        resolvedType = BuiltInTypes.Unknown
+        return false
+    }
+
+    // NL314. An error-tuple result name is only available once its error half has been checked; a
+    // read before that is told which guard to write. Deduped by (line, column, name) because one
+    // position can be resolved more than once — a write target is resolved again by the classifiers
+    // that follow it — and the developer must see the report once.
+    func ReportUnverifiedErrorTupleResultUseIfNeeded(name: string, line: int, column: int) {
+        if suppressErrorTupleResultUseValue {
+            return
+        }
+
+        guard := scopesValue.FindErrorTupleResultGuard(name)
+        if guard == null {
+            return
+        }
+
+        if scopesValue.IsErrorTupleResultAvailable(name) {
+            return
+        }
+
+        key := (Line: line, Column: column, Name: name)
+        if reportedUnverifiedResultsValue.ContainsKey(key) {
+            return
+        }
+
+        reportedUnverifiedResultsValue[key] = true
+        diagnosticsValue.Report(ErrorCode.UnverifiedErrorResult, "Result '" + name + "' may be unavailable because '" + guard.ErrorName + "' can be non-null", line, column, "Use '" + name + "' only after `if " + guard.ErrorName + " == null`, or return/throw from an `if " + guard.ErrorName + " != null` error branch before the result is used.", Math.Max(1, name.Length))
+    }
+
+    // NL301 / NL412, in the RICH shape when there is a source line to underline and a file to name it
+    // in, and in the bare shape otherwise. The suggestion list is drawn from a different pool for
+    // each: a callee position may mean an extension method, and no other position may.
+    func ReportUndefined(name: string, line: int, column: int, reportMissingAsFunction: bool) {
+        // Exactly ONE of the two pools is consulted, as the C# ternary did: they are separate walks
+        // over the scope stack and running both would be a second observation, not a tidier branch.
+        similarNames := new List<string>()
+        if reportMissingAsFunction {
+            extensionMethodNames := new List<string>()
+            for method in extensionMethodsValue {
+                extensionMethodNames.Add(method.Name)
+            }
+
+            similarNames = scopesValue.SuggestSimilarCallableNames(name, extensionMethodNames)
+        } else {
+            similarNames = scopesValue.SuggestSimilarVariableNames(name)
+        }
+
+        sourceSnippet := diagnosticsValue.SourceSnippet(line)
+        currentFilePath := diagnosticsValue.CurrentFilePath
+        if sourceSnippet != null && currentFilePath != null {
+            if reportMissingAsFunction {
+                diagnosticsValue.ReportBuilt(ErrorMessageBuilder.UndefinedFunction(currentFilePath, line, column, sourceSnippet, name.Length, name, similarNames))
+            } else {
+                diagnosticsValue.ReportBuilt(ErrorMessageBuilder.UndefinedVariable(currentFilePath, line, column, sourceSnippet, name.Length, name, similarNames))
+            }
+
+            return
+        }
+
+        if reportMissingAsFunction {
+            diagnosticsValue.Report(ErrorCode.UndefinedFunction, "Function '" + name + "' not found", line, column, null, name.Length)
+        } else {
+            diagnosticsValue.Report(ErrorCode.UndefinedVariable, "I can't find '" + name + "' — it hasn't been declared in this scope", line, column, null, 0)
+        }
+    }
+
+    // NL209's report site for a bare name in EXPRESSION position. It shares the type resolver's
+    // unresolved-reference dedupe set, which is what stops the same position being told twice — once
+    // here and once by the type resolver's own gate — and also stops an ambiguous name being
+    // reported a second time as unresolved.
+    func ReportAmbiguousImportedTypeIfNeeded(name: string, line: int, column: int) {
+        firstCandidate := ""
+        secondCandidate := ""
+        if projectDiscoveryValue.TryFindAmbiguousImportedType(name, UnitNamespace(), out firstCandidate, out secondCandidate) {
+            if typeResolverValue.MarkUnresolvedTypeReported(name, line, column) {
+                diagnosticsValue.ReportAmbiguousTypeReference(name, firstCandidate, secondCandidate, line, column)
+            }
+            return
+        }
+
+        // THE FUNCTION CHANNEL TIES THE SAME WAY. A free function is not auto-discovered across
+        // namespaces, so an import is the ONLY way one reaches this file from a sibling namespace —
+        // which makes two imports supplying one spelling exactly the NL209 tie, and makes reporting
+        // it the difference between a named ambiguity and a call that silently reaches whichever
+        // import was written first.
+        firstFunctionCandidate := ""
+        secondFunctionCandidate := ""
+        if !projectDiscoveryValue.TryFindAmbiguousImportedFunction(name, UnitNamespace(), out firstFunctionCandidate, out secondFunctionCandidate) {
+            return
+        }
+
+        if typeResolverValue.MarkUnresolvedTypeReported(name, line, column) {
+            diagnosticsValue.ReportAmbiguousFunctionReference(name, firstFunctionCandidate, secondFunctionCandidate, line, column)
+        }
+    }
+
+    func UnitNamespace(): string? {
+        return AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue)
+    }
+}

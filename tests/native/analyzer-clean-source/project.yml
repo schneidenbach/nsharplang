@@ -1,0 +1,22 @@
+name: NSharpLang.AnalyzerCleanSource.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# The Entity Framework fixture imports `Microsoft.EntityFrameworkCore` and binds the real
+# `DbContext`, `DbSet<T>`, and `DbContextOptions<T>` metadata. Both assemblies in the analyzer's
+# namespace mapping are declared here so the fixture does not depend on a global package cache
+# accidentally containing Entity Framework Core.
+dependencies:
+  - nuget: Microsoft.EntityFrameworkCore
+    version: 10.0.5
+  - nuget: Microsoft.EntityFrameworkCore.Abstractions
+    version: 10.0.5
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Model.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Syntax.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.CodeIntel.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Tooling.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Driver.dll

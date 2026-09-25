@@ -1,0 +1,10 @@
+name: NSharpLang.CensusOverloadResolution.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# The fixture library is a PROJECT reference, so its static fields reach `string.Join` as a
+# referenced assembly's members, qualified and bare from a derived class.
+dependencies:
+  - project: ../../fixtures/census-overload-resolution-library/project.yml

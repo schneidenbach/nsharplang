@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "case": "SPSC ring-buffer atomic primitives",
+  "expected": {
+    "hot": "pass",
+    "concurrencyPrimitive": true,
+    "errors": []
+  }
+}

@@ -1,0 +1,569 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.IO
+
+class ParserTokenCompactor {
+    static func TryCompact(tokens: List<Token>, out compactedTokens: List<Token>): bool {
+        compactedTokens = new List<Token>()
+        for token in tokens {
+            if token.Type != TokenType.Newline {
+                compactedTokens.Add(token)
+            }
+        }
+
+        return true
+    }
+}
+
+class SourceFileDeduplicator {
+    static func TryDeduplicateOrdinalIgnoreCase(sourceFiles: IReadOnlyList<string>, out deduplicatedSourceFiles: List<string>): bool {
+        deduplicatedSourceFiles = new List<string>()
+        for sourceFile in sourceFiles {
+            if sourceFile == null {
+                deduplicatedSourceFiles = new List<string>()
+                return false
+            }
+
+            if !ContainsOrdinalIgnoreCase(deduplicatedSourceFiles, sourceFile) {
+                deduplicatedSourceFiles.Add(sourceFile)
+            }
+        }
+
+        return true
+    }
+
+    static func ContainsOrdinalIgnoreCase(files: List<string>, value: string): bool {
+        for fileItem in files {
+            if String.Compare(fileItem, value, StringComparison.OrdinalIgnoreCase) == 0 {
+                return true
+            }
+        }
+
+        return false
+    }
+}
+
+// THE ORDER A COMPILATION READS ITS FILES IN IS A FUNCTION OF THE FILES, NOT OF WHERE THEY SIT.
+//
+// File ids are indices into `MultiFileCompiler`'s source list, and emission walks them in that
+// order, so the ORDER is part of the emitted bytes: type and member rows land in metadata slots by
+// it. Nothing used to decide it. `nlc build` handed over `ProjectConfig.GetSourceFiles`' directory
+// walk (a directory's files, then its subdirectories, in whatever order the file system returned
+// them), and the SDK handed over the `**/*.nl` glob's item order, so moving a file into another
+// directory - or building on another file system - changed the assembly without changing a line.
+//
+// Every compilation reaches `MultiFileCompilerInputBuilder.Build` - the CLI's project and explicit
+// lists, the SDK task's item list, `nlc check`, the language server's unsaved-buffer overlays - so
+// this is the one place the order is decided, and both entry points agree by construction.
+//
+// THE KEY IS THE FILE'S NAME, THEN ITS PATH. Ordinal on the basename is what makes the order
+// independent of the directory a file lives in; the full path breaks a tie between two files that
+// share a name. All of a compilation's files sit under one project root, so ordering the full paths
+// orders their paths relative to that root, and the tie-break does not depend on where the checkout
+// is. A project whose basenames are unique - the compiler's own projects are held to that by
+// `tests/native/canonical-source-order` - is therefore ordered identically in any directory layout;
+// one that repeats a name is still ordered deterministically, by where each copy sits.
+class CanonicalSourceOrder {
+    static func Sort(sourceFiles: IReadOnlyList<string>): List<string> {
+        keys := new string[](sourceFiles.Count)
+        i := 0
+        while i < sourceFiles.Count {
+            keys[i] = Key(sourceFiles[i])
+            i = i + 1
+        }
+
+        Array.Sort(keys, 0, keys.Length, StringComparer.Ordinal)
+
+        ordered := new List<string>(keys.Length)
+        for key in keys {
+            ordered.Add(key.Substring(key.IndexOf('\0') + 1))
+        }
+
+        return ordered
+    }
+
+    // NUL sorts below every character a file name can hold, so comparing `name + NUL + path`
+    // ordinally is exactly comparing `(name, path)` - a name that is a prefix of another still sorts
+    // first - and no path can contain one, so the first NUL is the separator and the path after it
+    // is recovered whole.
+    static func Key(sourceFile: string): string {
+        return Path.GetFileName(sourceFile) + "\u0000" + sourceFile
+    }
+}
+
+class MultiFileCompilerInputs {
+    SourceFiles: List<string>
+    SourceTextOverrides: Dictionary<string, string>
+    PreprocessorSymbols: HashSet<string>
+
+    constructor(sourceFiles: List<string>, sourceTextOverrides: Dictionary<string, string>, preprocessorSymbols: HashSet<string>) {
+        this.SourceFiles = sourceFiles
+        this.SourceTextOverrides = sourceTextOverrides
+        this.PreprocessorSymbols = preprocessorSymbols
+    }
+}
+
+class MultiFileCompilerInputBuilder {
+    static func Build(sourceFiles: IReadOnlyList<string>, config: ProjectConfig, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[]): MultiFileCompilerInputs {
+        normalizedOverrides := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        normalizedSourceFiles := NormalizeSourceFiles(sourceFiles, sourceTextOverridePaths, sourceTextOverrideTexts, normalizedOverrides)
+        preprocessorSymbols := BuildPreprocessorSymbols(config)
+        return new MultiFileCompilerInputs(normalizedSourceFiles, normalizedOverrides, preprocessorSymbols)
+    }
+
+    static func BuildFromProject(projectRoot: string, config: ProjectConfig, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[]): MultiFileCompilerInputs {
+        return Build(DiscoverSourceFiles(projectRoot, config, false), config, sourceTextOverridePaths, sourceTextOverrideTexts)
+    }
+
+    static func BuildFromProject(projectRoot: string, config: ProjectConfig, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[], includeTests: bool): MultiFileCompilerInputs {
+        return Build(DiscoverSourceFiles(projectRoot, config, includeTests), config, sourceTextOverridePaths, sourceTextOverrideTexts)
+    }
+
+    static func NormalizeSourceFiles(sourceFiles: IReadOnlyList<string>, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[], normalizedOverrides: Dictionary<string, string>): List<string> {
+        candidates := new List<string>()
+
+        i := 0
+        while i < sourceFiles.Count {
+            candidates.Add(Path.GetFullPath(sourceFiles[i]))
+            i = i + 1
+        }
+
+        i = 0
+        while i < sourceTextOverridePaths.Length {
+            fullPath := Path.GetFullPath(sourceTextOverridePaths[i])
+            sourceText := ""
+            if i < sourceTextOverrideTexts.Length {
+                sourceText = sourceTextOverrideTexts[i]
+            }
+
+            normalizedOverrides[fullPath] = sourceText
+            candidates.Add(fullPath)
+            i = i + 1
+        }
+
+        dogfoodSourceFiles := new List<string>()
+        if SourceFileDeduplicator.TryDeduplicateOrdinalIgnoreCase(CanonicalSourceOrder.Sort(candidates), out dogfoodSourceFiles) {
+            return dogfoodSourceFiles
+        }
+
+        throw new InvalidOperationException("N# source-file deduplication declined.")
+    }
+
+    static func BuildPreprocessorSymbols(config: ProjectConfig): HashSet<string> {
+        symbols := new HashSet<string>(StringComparer.Ordinal)
+        for define in config.Defines {
+            if !string.IsNullOrWhiteSpace(define) {
+                symbols.Add(define.Trim())
+            }
+        }
+
+        return symbols
+    }
+
+    // `includeTests` decides ONE thing: whether `*.tests.nl` joins the file list. It is the same switch
+    // `ProjectConfig.GetSourceFiles` takes, threaded out to the caller so `nlc check` and `nlc test`
+    // can agree on what a project's source IS instead of answering from two different file lists.
+    static func DiscoverSourceFiles(projectRoot: string, config: ProjectConfig, includeTests: bool): List<string> {
+        result := new List<string>()
+        if !Directory.Exists(projectRoot) {
+            return result
+        }
+
+        sourceFiles := config.GetSourceFiles(projectRoot, includeTests)
+        for sourceFile in sourceFiles {
+            result.Add(Path.GetFullPath(sourceFile))
+        }
+
+        return result
+    }
+}
+
+class ProjectSourceFileFilter {
+    static func Filter(files: string[], projectRoot: string, excludePatterns: string[], includeTests: bool): string[] {
+        relativePaths := new string[](files.Length)
+        resultIndices := new int[](files.Length)
+
+        i := 0
+        while i < files.Length {
+            relativePaths[i] = Path.GetRelativePath(projectRoot, files[i])
+            i = i + 1
+        }
+
+        keptCount := ProjectSourceFilterKeptIndices(relativePaths, excludePatterns, includeTests, resultIndices)
+        result := new string[](keptCount)
+
+        j := 0
+        while j < keptCount {
+            result[j] = files[resultIndices[j]]
+            j = j + 1
+        }
+
+        return result
+    }
+
+    static func ProjectSourceFilterKeptIndices(relativePaths: string[], excludePatterns: string[], includeTests: bool, resultIndices: int[]): int {
+        resultCount := 0
+        i := 0
+        while i < relativePaths.Length {
+            path := relativePaths[i]
+            keep := true
+
+            if !includeTests {
+                if ProjectSourceFilterIsTestFile(path) {
+                    keep = false
+                }
+            }
+
+            if keep {
+                if ProjectSourceFilterIsExcluded(path, excludePatterns) {
+                    keep = false
+                }
+            }
+
+            if keep {
+                if resultCount < resultIndices.Length {
+                    resultIndices[resultCount] = i
+                }
+
+                resultCount = resultCount + 1
+            }
+
+            i = i + 1
+        }
+
+        return resultCount
+    }
+
+    static func ProjectSourceFilterIsTestFile(path: string): bool {
+        suffixLength := 9
+        if path.Length < suffixLength {
+            return false
+        }
+
+        start := path.Length - suffixLength
+        if !ProjectSourceFilterCharEqualsIgnoreCase(path[start], '.') {
+            return false
+        }
+
+        if !ProjectSourceFilterCharEqualsIgnoreCase(path[start + 1], 't') {
+            return false
+        }
+
+        if !ProjectSourceFilterCharEqualsIgnoreCase(path[start + 2], 'e') {
+            return false
+        }
+
+        if !ProjectSourceFilterCharEqualsIgnoreCase(path[start + 3], 's') {
+            return false
+        }
+
+        if !ProjectSourceFilterCharEqualsIgnoreCase(path[start + 4], 't') {
+            return false
+        }
+
+        if !ProjectSourceFilterCharEqualsIgnoreCase(path[start + 5], 's') {
+            return false
+        }
+
+        if !ProjectSourceFilterCharEqualsIgnoreCase(path[start + 6], '.') {
+            return false
+        }
+
+        if !ProjectSourceFilterCharEqualsIgnoreCase(path[start + 7], 'n') {
+            return false
+        }
+
+        return ProjectSourceFilterCharEqualsIgnoreCase(path[start + 8], 'l')
+    }
+
+    static func ProjectSourceFilterIsExcluded(path: string, excludePatterns: string[]): bool {
+        for excludePattern in excludePatterns {
+            if ProjectSourceFilterMatchesPattern(path, excludePattern) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func ProjectSourceFilterMatchesPattern(path: string, pattern: string): bool {
+        return ProjectSourceFilterMatchFrom(path, 0, pattern, 0)
+    }
+
+    static func ProjectSourceFilterMatchFrom(path: string, pathIndex: int, pattern: string, patternIndex: int): bool {
+        pi := pathIndex
+        qi := patternIndex
+
+        while qi < pattern.Length {
+            pc := ProjectSourceFilterNormalizeSlash(pattern[qi])
+
+            if pc == '*' {
+                isDouble := false
+                if qi + 1 < pattern.Length {
+                    if ProjectSourceFilterNormalizeSlash(pattern[qi + 1]) == '*' {
+                        isDouble = true
+                    }
+                }
+
+                if isDouble {
+                    afterStars := qi + 2
+                    hasSlash := false
+                    if afterStars < pattern.Length {
+                        if ProjectSourceFilterNormalizeSlash(pattern[afterStars]) == '/' {
+                            hasSlash = true
+                        }
+                    }
+
+                    if hasSlash {
+                        nextPattern := afterStars + 1
+                        scan := pi
+                        while scan < path.Length {
+                            if path[scan] == '\n' {
+                                return false
+                            }
+
+                            crossedSlash := ProjectSourceFilterNormalizeSlash(path[scan]) == '/'
+                            scan = scan + 1
+                            if crossedSlash {
+                                if ProjectSourceFilterMatchFrom(path, scan, pattern, nextPattern) {
+                                    return true
+                                }
+                            }
+                        }
+
+                        return false
+                    }
+
+                    nextPattern := afterStars
+                    limit := pi
+                    while limit < path.Length {
+                        if path[limit] == '\n' {
+                            break
+                        }
+
+                        limit = limit + 1
+                    }
+
+                    k := limit
+                    while k >= pi {
+                        if ProjectSourceFilterMatchFrom(path, k, pattern, nextPattern) {
+                            return true
+                        }
+
+                        k = k - 1
+                    }
+
+                    return false
+                }
+
+                limit := pi
+                while limit < path.Length {
+                    if ProjectSourceFilterNormalizeSlash(path[limit]) == '/' {
+                        break
+                    }
+
+                    limit = limit + 1
+                }
+
+                nextPattern := qi + 1
+                k := limit
+                while k >= pi {
+                    if ProjectSourceFilterMatchFrom(path, k, pattern, nextPattern) {
+                        return true
+                    }
+
+                    k = k - 1
+                }
+
+                return false
+            }
+
+            if pc == '?' {
+                if pi >= path.Length {
+                    return false
+                }
+
+                if path[pi] == '\n' {
+                    return false
+                }
+
+                pi = pi + 1
+                qi = qi + 1
+                continue
+            }
+
+            if pi >= path.Length {
+                return false
+            }
+
+            if ProjectSourceFilterNormalizeSlash(path[pi]) != pc {
+                return false
+            }
+
+            pi = pi + 1
+            qi = qi + 1
+        }
+
+        if pi == path.Length {
+            return true
+        }
+
+        if pi == path.Length - 1 {
+            if path[pi] == '\n' {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func ProjectSourceFilterNormalizeSlash(ch: char): char {
+        if ch == '\\' {
+            return '/'
+        }
+
+        return ch
+    }
+
+    static func ProjectSourceFilterCharEqualsIgnoreCase(left: char, right: char): bool {
+        if left == right {
+            return true
+        }
+
+        if left >= 'A' {
+            if left <= 'Z' {
+                if right >= 'a' {
+                    if right <= 'z' {
+                        return left - 'A' == right - 'a'
+                    }
+                }
+            }
+        }
+
+        if left >= 'a' {
+            if left <= 'z' {
+                if right >= 'A' {
+                    if right <= 'Z' {
+                        return left - 'a' == right - 'A'
+                    }
+                }
+            }
+        }
+
+        return Char.ToUpperInvariant(left) == Char.ToUpperInvariant(right)
+    }
+}
+
+class AssemblyVersionKernels {
+    static func TryParseComponent(component: string, out value: int): bool {
+        value = 0
+        if component.Length == 0 {
+            return false
+        }
+
+        parsed := 0
+        for ch in component {
+            if ch < '0' || ch > '9' {
+                return false
+            }
+
+            digit := ch - '0'
+            if parsed > 214748364 {
+                return false
+            }
+
+            if parsed == 214748364 {
+                if digit > 7 {
+                    return false
+                }
+            }
+
+            parsed = parsed * 10 + digit
+        }
+
+        value = parsed
+        return true
+    }
+}
+
+class FormatterConfigKernels {
+    static func ParseInt(value: string): int? {
+        start := 0
+        end := value.Length
+        while start < end {
+            if !IsWhiteSpace(value[start]) {
+                break
+            }
+
+            start = start + 1
+        }
+
+        while end > start {
+            if !IsWhiteSpace(value[end - 1]) {
+                break
+            }
+
+            end = end - 1
+        }
+
+        if start >= end {
+            return null
+        }
+
+        negative := false
+        if value[start] == '+' || value[start] == '-' {
+            negative = value[start] == '-'
+            start = start + 1
+            if start >= end {
+                return null
+            }
+        }
+
+        parsed := 0
+        index := start
+        while index < end {
+            ch := value[index]
+            if ch < '0' || ch > '9' {
+                return null
+            }
+
+            digit := ch - '0'
+            if parsed > 214748364 {
+                return null
+            }
+
+            if parsed == 214748364 {
+                if negative {
+                    if digit == 8 && index == end - 1 {
+                        return 0 - 2147483647 - 1
+                    }
+
+                    return null
+                }
+
+                if digit > 7 {
+                    return null
+                }
+            }
+
+            parsed = parsed * 10 + digit
+            index = index + 1
+        }
+
+        if negative {
+            return 0 - parsed
+        }
+
+        return parsed
+    }
+
+    static func IsWhiteSpace(ch: char): bool {
+        if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' {
+            return true
+        }
+
+        return char.IsWhiteSpace(ch)
+    }
+}

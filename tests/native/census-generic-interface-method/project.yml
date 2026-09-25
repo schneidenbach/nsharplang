@@ -1,0 +1,12 @@
+name: NSharpLang.CensusGenericInterfaceMethod.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# `ILogger` is the shape the slice exists for: its `Log` member declares its OWN type parameter, so
+# the slot and the implementation write two different `TState`. The abstractions package is the
+# smallest real carrier of that shape and is already the version the language server uses.
+dependencies:
+  - nuget: Microsoft.Extensions.Logging.Abstractions
+    version: 9.0.0

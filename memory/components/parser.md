@@ -1,6 +1,10 @@
 # Parser Component
 
-**File:** `src/NSharpLang.Compiler/Parser.cs`
+**Owner:** `src/NSharpLang.Compiler.Syntax/ColumnarParserRecovery.nl` (N#)
+
+The parser is written in N#. The former C# `Parser.cs` was deleted at the end of the task-016 ownership
+arc; `ColumnarParserRecovery` is the sole parse and ordered-diagnostic authority for the compiler, the
+CLI, the analyzer, the formatter, the linter, code intelligence, the playground, and the language server.
 
 ## Responsibility
 
@@ -17,6 +21,29 @@ Converts token stream into an Abstract Syntax Tree (AST).
 - Natural mapping from grammar to code
 
 ## Key Design Decisions
+
+### Expression nesting is bounded at 512 levels (NL111)
+
+Every stage that reads an expression walks it recursively — this parser, `LinterWalk`, the formatter,
+the analyzer — so an expression's DEPTH is a multiplier on the CLR stack. Measured at `0bd1cf46d`:
+2,000 nested parentheses and 2,000 nested lambdas killed `nlc check`, `nlc build`, `nlc lint` and
+`nlc format` with a bare `Stack overflow.` and exit 134, and an 8,000-term `||` chain — which this
+parser folds ITERATIVELY and survived — killed the walkers downstream.
+
+`ColumnarParserRecovery.MaxExpressionNestingDepth` is the bound and carries the measurements. Two
+things deepen an expression and both are counted: entering a nested one (counted in `ParseExprValue`,
+which restores the counter on the way out so siblings do not accumulate) and folding one more operand
+onto a left-associative chain (counted in `ComposeBinary`, the single door every binary tier folds
+through). The count is an UPPER BOUND on tree depth — exact for plain nesting and for a chain of one
+operator, roughly double for a chain that mixes precedences — which is the safe direction for a bound
+whose job is to refuse before the stack does.
+
+512 is measured: the deepest expression in Compiler Core's own ~412K lines is 8 levels and the deepest
+in the machine-converted corpus at `nsharp-cs2nl/out` is 70, while this parser overflows between 1,800
+and 2,000 levels of descent and `LinterWalk.MaxRecursionDepth` refuses at 1,000 frames. Over the bound,
+`Report` emits NL111 at the offending token; `Report` sets panic, so one over-deep expression cannot
+become a thousand cascading diagnostics.
+
 
 ### Lambda Parsing
 **Critical detail:** Lambdas must be parsed at assignment-expression level, NOT at primary level.
@@ -60,9 +87,20 @@ From highest to lowest:
 
 ## AST Node Types
 
-See `src/NSharpLang.Compiler/Ast/` folder:
+The AST is N#-owned. The node families live in `src/NSharpLang.Compiler.Model/`
+(`Expressions.nl`, `Statements.nl`, `Declarations.nl`); the former C# `Ast/Declarations.cs`,
+`Ast/Expressions.cs`, `Ast/Statements.cs` and `Ast/AstChildren.cs` were deleted whole.
 
-### Expressions (`Expressions.cs`)
+**Adding an expression node or a new Expression-typed child?** Update
+`AstChildrenCore.Of` (`src/NSharpLang.Compiler.Model/AstChildrenCore.nl`) — the N#-owned
+shared exhaustive child enumeration that the linter, definite assignment, capture/escape scans and
+performance analyzers recurse through. It is called directly, with no C# adapter.
+`AstChildrenCore.tests.nl` fails until every Expression-typed slot (including slots inside
+`Argument`/`PropertyInitializer`/`TupleElement`/`MatchCase`/`InterpolatedStringHole`) is
+yielded; this exists because late-added children (`NewExpression.ArrayLengthExpression`,
+`StackAllocExpression.LengthExpression`) twice shipped invisible to every hand-rolled walker.
+
+### Expressions (`Expressions.nl`)
 - **BinaryExpression**: `a + b`, `a && b`
 - **UnaryExpression**: `!x`, `-n`, `^index`
 - **CallExpression**: `Foo(a, b)`
@@ -72,7 +110,9 @@ See `src/NSharpLang.Compiler/Ast/` folder:
 - **MatchExpression**: Pattern matching with guards
 - **LiteralExpression**: `42`, `"hello"`, `true`
 
-### Statements (`Statements.cs`)
+- **GenericTypeExpression**: `Vector<int>` in receiver position — see the disambiguation rule below
+
+### Statements (`Statements.nl`)
 - **VariableDeclarationStatement**: `let x = 42`, `x := 42`
 - **IfStatement**: `if cond { } else { }`
 - **ForStatement**: `for i := 0; i < 10; i++ { }`
@@ -80,11 +120,19 @@ See `src/NSharpLang.Compiler/Ast/` folder:
 - **WhileStatement**: `while cond { }`
 - **ReturnStatement**: `return expr`
 - **YieldStatement**: `yield value`, `yield break`
-- **TryCatchStatement**: `try { } catch e { }`
-- **UsingStatement**: `using resource { }`
+- **TryCatchStatement**: `try { } catch e { }`, and with an EXCEPTION FILTER
+  `try { } catch e: T when <expr> { }`. The guard is a **kind-84 `CatchFilterClause`** wrapper holding
+  one child, not a bare child of the kind-50 clause: a clause's optional binding is itself a kind-6
+  identifier and a guard may be one too, so wrapping is what lets every reader ask a child WHAT IT IS
+  instead of counting how many there are. A kind-50 clause's children are
+  `[binding (kind 6)?, filter (kind 84)?, block (kind 25)]`, the block is always LAST — which is why
+  every `ChildCount - 1` already written in the planners stayed correct — and
+  `ColumnarCatchClauseFacts` states the layout once for all of them
+- **UsingStatement**: `using resource { }`, `using x := e { }`, `using x: T = e { }`, `using x := e`
+  (no block — the using DECLARATION), and `await using` (`IsAsync`)
 - **LockStatement**: `lock obj { }`
 
-### Declarations (`Declarations.cs`)
+### Declarations (`Declarations.nl`)
 - **FunctionDeclaration**: Functions with modifiers (async, generator, etc.)
 - **ClassDeclaration**: Classes with members
 - **RecordDeclaration**: Records (reference or struct)
@@ -103,6 +151,321 @@ Order matters:
 2. Check for type keywords (`class`, `struct`, `record`, etc.)
 3. Fall back to field/property/method parsing
 
+### `throw` as an expression, and the three positions that admit one
+
+A `throw` produces no value, so it can only stand in value position where some OTHER operand already
+decides what the surrounding expression is worth. Both parsers admit exactly three positions — the
+right operand of `??`, either arm of a conditional, and an expression body (an arrow-bodied
+`func`/property, or a lambda's) — which is the C# rule.
+
+The two parsers enforce it differently, and each way suits its job:
+
+- **`ColumnarParserRecovery` (the AST parser)** still parses a `throw` wherever the unary tier meets
+  one, and DECIDES whether it belongs there by TOKEN INDEX. The three admitting callers set
+  `ThrowExpressionValuePosition = Position` immediately before descending into the operand, and the
+  unary tier's `Throw` arm compares the cursor against it, spending the permission on the way in.
+  A misplaced throw reports **NL340** and still builds its `ThrowExpression` node, so recovery keeps
+  the real tree and the reader gets one sentence instead of a hole. The index (rather than a mode
+  flag) is what makes nesting free: `1 + throw e` has consumed `1` and `+` by the time it arrives,
+  and `x ?? (throw e)` has consumed the `(` — which is why parentheses do not rescue a misplaced
+  throw, and why the message says so.
+- **the columnar parser kernels (the columnar table)** has no unary arm for `throw` at all. The three
+  positions call `ParseThrowExpressionNode` / `ParseValueOrThrowExpressionNode` (assignment level,
+  for conditional arms) / `ParseBodyValueOrThrowExpressionNode` (lambda level, for expression bodies)
+  BY NAME, so `1 + throw e` simply refuses (-1) and declines the program. It never has to: the
+  recovery parser reported NL340 first, and analysis fails before emission is asked.
+
+The node is **kind 83**, ONE child (the exception expression), NO value span, and a span running from
+the `throw` keyword through its operand. Statement-position `throw` stays kind 48, whose ZERO-child
+shape is the bare rethrow. `ParseDeclarationExpressionBodyEndCore` — the member-body END scan — goes
+through the same body-position entry as the body parser, because the two readings of where a member
+ends must agree or every member after it shifts.
+
+### The `<` disambiguation: comparison, generic call, or constructed generic type receiver
+
+A `<` after a name is ambiguous, and the parser resolves it with ONE bounded pure lookahead whose two
+callers differ only in their CLOSE TOKEN. `ColumnarParserRecovery.ScanTypeArgumentListClose` walks a
+candidate type-argument list from the `<` and answers the index of the token AFTER the matching close
+(or -1): identifiers, dots, commas, array brackets, nullable suffixes, tuple parentheses with their
+element-name colons, and nested `<` / `>` / `>>` with the `>>` split spending two levels of depth. It
+does not mutate the cursor and reports no diagnostic.
+
+Two admissions are deliberately narrow, both to keep ambiguous comparisons comparisons. A `(` group
+is admitted only as a TUPLE type, which needs a comma at its own paren depth, so
+`Method<(int, string)>(x)` is a call while `a < (b) > (c)` stays a comparison (Roslyn's
+`ScanTupleType` refuses a one-element group for the same reason). A `:` is admitted only INSIDE such
+a group, so `a < b ? c : d > (e)` stays a conditional.
+
+**THE SCAN USED TO HAVE NO DEPTH COUNTING ON THE CALL SIDE, AND THAT WAS THE LARGEST SINGLE
+DIAGNOSTIC SOURCE THE 2026-09-12 CENSUS FOUND.** `IsGenericMethodCall` returned at the FIRST `>` it
+met, so `Task.FromResult<List<int>?>(null)` — whose first `>` closes the inner `List<int` — was read
+as a comparison and reported `Unexpected token '?' in expression`, then NL411 "Method 'FromResult'
+must be called", NL301 "Variable 'List' not found", NL305 and every null-narrowing after it. In the
+converted LanguageServer that one shape produced roughly 270 of ~340 diagnostics. The `.`-closed twin
+already counted depth, which is why a constructed generic receiver did not have the bug; folding both
+onto one scan is what makes that impossible to reintroduce on one side only.
+
+| Close followed by | Reading | Node |
+|---|---|---|
+| `(` | generic method call | `CallExpression` with `TypeArguments` |
+| `.` | constructed generic type receiver | `GenericTypeExpression` |
+| anything else | comparison | `BinaryExpression` |
+
+`ColumnarParserRecovery.IsGenericTypeArgumentListBeforeDot` is the `.` half and `IsGenericMethodCall`
+is the `(` half; each is two lines over the shared scan. They are MUTUALLY EXCLUSIVE by their close
+token, so the order they are tried in is a reading convenience rather than a correctness requirement
+(the `.` half is still tried first in `ParsePostfix`). The receiver must also spell a plain dotted
+NAME, so `f(x)<int>.Y` and `a?.B<int>.Y` stay comparisons.
+
+One shape ON the boundary is a CALL and has always been one: `a < b > (c)` has its close followed
+directly by `(`, so it reads as `a<b>(c)` — which is also how C# reads it. Widening the scan did not
+move it, and `ColumnarParserTypeArgumentScan.tests.nl` pins it alongside the comparisons.
+
+`GenericTypeExpression` carries the `GenericTypeReference` that `ParseCallTypeArguments` /
+`ParseMaterializedTypeReference` build, so it is byte-identical to the reference an annotation in the
+same columns produces; the receiver then continues through the ordinary postfix loop (member access,
+call, assignment target, `?.`, index). It is a LEAF in `AstChildrenCore` — its only slot is a
+`TypeReference`, not an `Expression` — which is why `LinterWalk` tracks its type reference
+explicitly, exactly as it does for `typeof`.
+
+**The columnar backend re-parses source with its own kernels, so the rule exists twice.**
+`CompilerServices/ColumnarParserKernels.nl` carries `ScanTypeArgsClose` and the same two two-line
+predicates over it — `IsGenericTypeReceiverArgs`, the `.`-closed twin of `IsGenericCallTypeArgs` —
+and commits node kind **70** — byte-identical in shape to the kind-38
+generic callee: the full dotted head name in the value span, the TYPE-kernel type-argument roots as
+children. `ColumnarGenericTypeReceiverFacts` is the single owner that turns that node into a closed
+`System.Type`, reusing `ColumnarTypeOfPlanner.TryBuildTypeCanonical` and
+`ColumnarBindingScopeFacts.TryResolveExactExplicitTypeInContext`.
+
+### Tuple element naming is decided PER ELEMENT
+
+A tuple element's name is `Identifier :` in front of the element, and every element decides for
+itself — in a LITERAL (`ColumnarParserRecovery.ParseTupleOrParenthesizedExpression` /
+`TryParseTupleElementName`, and the columnar kernel's kind-17 arm with its kind-43 `NamedTupleElement`
+wrappers) and in a TYPE (`ParseParenthesizedOrTupleTypeReferenceRecovery`, and the kernel's kind-6 arm
+with its kind-7 wrappers) alike. `(null, last, IsConstructor: true)` and
+`(string?, string, IsConstructor: bool)` are ordinary three-element tuples whose third element is
+named.
+
+**Both parsers used to run in one of TWO MODES chosen by the first element**, and they disagreed about
+what to do when a later element broke the mode: the literal reported NL101 "Unexpected token ':' in
+expression" plus an NL301 for the name, while the tuple TYPE declined the whole enclosing declaration
+at `parse.function`. The name is looked for only AFTER the element expression is complete, so a
+conditional element keeps its own colon (`(a, c ? x : y)`).
+
+`TypeReferenceTupleElementNamesCore` answers one slot per element with the EMPTY string for a
+positional one — the same "no name here" that `ColumnarTupleElementNames` turns into the metadata null
+slot `TupleElementNamesAttribute` carries — and zero when nothing in the tuple is named. No shape is an
+error there any more.
+
+A bare typed local may be annotated with a tuple type (`pair: (Item: string, Count: int) = …`): the
+typed-declaration lookahead in `ParseExpressionStatement` admits a type starting with an identifier OR
+with the `(` of a tuple.
+
+A FIELD and a PROPERTY may be declared with one too. `ParseDeclarationTypeSpanCore` — the span reader
+every declared position shares — used to require the first token of a type to be an identifier, which
+is why `Pair: (Item: string, Count: int)` inside a class declined the WHOLE type at `parse.struct`
+while the same type on a local, a parameter or a return read fine. A leading `(` is now scanned by
+`ScanDeclarationTupleTypeCloseCore`, which admits the group only as a TUPLE — it must hold a comma at
+its own paren depth, the rule Roslyn's `ScanTupleType` applies for the same reason — and then falls
+into the shared `[]`/`?` suffix walk. `ParserDeclarationCanonicalTypeText` strips whitespace for a
+`(` head as well as a `<` one, because a canonical never contains a space.
+
+### The `using` statement, and the one `{` that is not an object initializer
+
+FIVE written forms reach ONE `UsingStatement` node. `using x := e { … }`, `using x: T = e { … }` (the
+annotated form also accepts `:=`) and `using let x := e { … }` fill `Declaration`; `using e { … }`
+fills `Expression`; and every BINDING form may omit the block, which is the using DECLARATION whose
+guarded region is the remainder of the ENCLOSING block. The node records which it is by carrying a
+null `Body`; `IsAsync` is the `await using` spelling, dispatched on the Await+Using token pair
+beside `await foreach`.
+
+**WHICH FORM IS WRITTEN IS DECIDED BEFORE ANY OF IT IS PARSED**, from two tokens
+(`IsUsingDeclarationForm`): a bare identifier followed by `:=` or `:` BINDS, and one followed by
+another identifier binds too — that is the `using r open()` slip, and taking the declaration arm
+there is what makes the parser say "Expected ':='" at the offending token instead of inventing a
+resource expression nobody wrote. Every other continuation is a resource EXPRESSION, whose block is
+REQUIRED: a resource nobody named and nobody scoped would be released where the reader cannot see it.
+
+**THE `{` AMBIGUITY IS SETTLED BY TOKEN INDEX, NOT BY A MODE FLAG.** `using r := new Res() { … }` is
+the shape it lives in: `new Res() { … }` is also a legal object initializer, so the same brace could
+close the resource or open the body. The rule is the one Go and C# reach for — the FIRST `{` at
+paren/bracket depth zero after the resource belongs to the statement, and an initializer in that
+position must be parenthesised (`using r := (new Res { A: 1 }) { … }`). Both parsers enforce it the
+same way: `ColumnarParserRecovery.UsingBodyBraceIndex` and `ParserState.UsingBodyBrace` name ONE
+token, and only the initializer gate standing at exactly that cursor yields. Nesting therefore needs
+no bookkeeping — a brace anywhere inside the expression sits at a different index and is untouched by
+construction.
+
+The columnar kernel takes node kind **77** (`using`) and **79** (`await using`); kind 78 is
+unassigned. Children are `[resource]` for the declaration form and `[resource, body]` for the block
+form, where the resource is a kind-24 or kind-40 local DECLARATION when the statement binds it and an
+ordinary expression when it does not — the two shapes the lowering already declares, reused rather
+than re-encoded, and told apart from an expression by node kind. The typed-local annotation scan now
+terminates at `:=` as well as `=`, which is what lets `x: T := e` reach the backend at all.
+
+### Tuple deconstruction has two spellings, and two operators
+
+`(a, b) := e` and the bare `a, b := e` are ONE statement, and `=` in place of `:=` makes it an
+ASSIGNMENT to names that already exist rather than a declaration. The columnar statement kernel used
+to read only the bare `:=` form, so the parenthesised spelling the language tour documents reached no
+kernel at all and declined its function at `parse.function` — even though the recovery parser (the
+analyser's front end) has parsed it since the beginning. The kernel now admits both, gated by
+`ScanTupleDeconstructionTargetList`, a PURE lookahead that commits to nothing so an ordinary
+parenthesised expression statement is still read as one. The OPERATOR token rides in the kind-30
+node's value span, because which one was written is meaning rather than style;
+`TupleDeconstructionStatement.IsAssignment` is the same fact on the AST side, and `FormatterWalk`
+prints the operator the source wrote.
+
+### A type's body is read TWICE, and a member may be written anywhere in it
+
+`ParseStructDeclarationCore` used to read a type's body once with a section boundary in the middle:
+the field scan STOPPED at the first `func`, conversion operator or constructor, and the member scan
+behind it refused anything that was not one of those. `field, func, field` therefore declined the
+WHOLE declaration at `parse.struct`, reported at the class header with nothing said about the member
+that caused it, and an `event` written after a method hit the same rule (stream EVENTS2 met it too).
+
+There are two passes now over the same token range, and `bodyStart` is what the second one rewinds
+to:
+
+1. **storage** — fields, properties and field-like events are recorded; methods, constructors and
+   nested types are stepped over.
+2. **methods and constructors** — recorded; the storage members are stepped over.
+
+TWO passes rather than one merged pass, because the synthesized instance constructor must be recorded
+BEFORE any written one and whether it is needed at all is not known until every field initializer has
+been seen (`hasInstanceInitializer`). Field order is declaration order in both readings, which is what
+a sequential-layout struct depends on.
+
+`ParseDeclarationMemberBodyEndCore` is the one answer to "where does this member END": scan to the
+first `{`, `=>` or `}`, then take the expression body's end or the balanced block's close. Both passes
+use it, which is what keeps their idea of a member's extent identical — a skip that disagreed with the
+record would silently shift every member after it.
+
+`ParseColumnarPrimaryConstructorInfoCore` (the synthesized instance-initializer body) carries the SAME
+walk, for the same reason: it used to stop at the first `func` too, so a field written after a method
+kept its declaration but silently lost its INITIALIZER — `N: int = 7` below a method left `N` at zero,
+with no diagnostic anywhere. Its header parse also read the base list as bare Identifiers, so
+`class Catalogue: Collection<Item>` left the scan on the `<` and the whole kernel answered -1: a type
+with a GENERIC base and any instance field initializer was refused outright. It reads the base list
+with `ParseDeclarationTypeSpanCore` and skips `where` clauses with `ParseDeclarationWhereClausesCore`
+now, exactly as the declaration parser does.
+
+### Field initializers, and the two synthesized bodies they become
+
+A field initializer is read by the ordinary expression parser, never as a literal token. The struct
+member scan (`ParseStructDeclarationCore`) calls `ParseDeclarationInitializerExpressionEndCore` to
+find the initializer's full extent and keeps the "simple" classification — a lone literal, a dotted
+name, `new T(...)` — only when `ParseDeclarationSimpleInitializerEndCore` covers exactly the same
+span. That classification is what `const` uses for its metadata literal; everything else is code.
+
+The initializers then become two synthesized bodies, both built from the same expression parser and
+both shaped as a block of `Name = <expression>` statements in textual order:
+
+- **Instance** initializers ride the synthesized zero-parameter initializer constructor the member
+  scan already schedules (`ParseColumnarPrimaryConstructorInfoCore`, which also carries a record's
+  or class's primary-constructor parameter assignments).
+- **Static** initializers become `ColumnarStructInput.StaticInitializer`, built by
+  `BuildColumnarStaticInitializerBodyCore` from the per-field initializer TOKEN index the
+  declaration table records (`StructDeclarationTable.FieldInitTokens`). `const` fields are excluded.
+
+Both bodies are stamped with their file's binding scope like every other body
+(`ColumnarProgramInput.StampBindingContexts`); without that stamp an external type name inside an
+initializer cannot resolve and the type declines at emit.
+
+### A type ANNOTATION is delimited structurally, and `?[` is one token
+
+A typed local (`name: Type = init`) and an annotated loop variable (`for name: Type in xs`) carry
+their type as a SOURCE SPAN in the columnar node's value slot rather than as a type tree: type trees
+cannot share the statement node table, because the type kernel's kind space collides with the
+expression kinds. Each span is found by a delimiter walk in `ColumnarParserKernels` — balanced angles
+(`>>` closes two) and `()`/`[]` groups, ending at the first depth-0 `=` for a local and at the first
+depth-0 `in` for a loop variable.
+
+The walk must therefore agree with the LEXER about what opens a group. `string?[]` lexes as
+`string` + `?[` (one `QuestionBracket` token, the null-conditional indexer's spelling) + `]`, so a
+walk that counted only `[` saw the closing `]` with nothing open, drove its depth negative and
+refused the whole FUNCTION — while the same spelling in a parameter or a return type, which the type
+kernel scans rather than this walk, parsed. Any future multi-character token that contains a bracket
+or a paren has to be added to both walks.
+
+### A MEMBER NAME MAY BE QUALIFIED, AND THREE WALKS OF A TYPE'S BODY HAVE TO AGREE ABOUT IT
+
+An EXPLICIT INTERFACE IMPLEMENTATION is spelled `Interface.Member` in a type body —
+`func IEnumerable.GetEnumerator(): IEnumerator { … }`, `IReadOnlyCollection<string>.Count: int => …`.
+The qualifier may itself be dotted (`System.Collections.IEnumerable.GetEnumerator`) and a generic
+interface is written CLOSED, so the shape is a LOOP and the member's own name is whatever follows the
+LAST dot. `ExplicitInterfaceMemberNameEnd` answers the extent PURELY BY TOKEN KIND, which is what lets
+the member scan, the signature kernel and the property kernel all ask it of their own token columns.
+
+**IT ANSWERS -1 RATHER THAN `start` WHEN THE NAME IS AN ORDINARY ONE, and that is load-bearing.** A
+generic METHOD is `Compare<T>(` — an argument list with no dot behind it — so the scan consumes the
+`<T>` while looking for a dot, finds none, and reports that it consumed NOTHING. The type-parameter
+list behind it is then parsed by the owner that has always parsed it.
+
+**A TYPE'S BODY IS READ THREE TIMES, NOT TWICE.** The two passes of `ParseStructDeclarationCore` are
+documented above; the third is the SYNTHESIZED INSTANCE-INITIALIZER CONSTRUCTOR's own walk, which
+collects field initializers. All three used to find a storage member's `:` at `memberStart + 1`, and
+all three now ask `ParseDeclarationMemberNameEnd`. The third one is the one that bit: a qualified value
+member matched no arm in it at all, so the whole declaration declined at `parse.struct` — and only
+when the type ALSO had a field with an initializer, because that is what makes the synthesized
+constructor exist. A walk that disagrees with the record shifts every member after it.
+
+The name TEXT is canonicalised the way a composed type text is (`ParserDeclarationMemberNameText`): a
+canonical name never contains a space, so `IEnumerable < string > . GetEnumerator` and
+`IEnumerable<string>.GetEnumerator` are one name. An ordinary one-token name carries no punctuation at
+all and is returned exactly as written, so nothing on the hot path allocates that did not before.
+
+The recovery parser reads the same shape over its `List<Token>` through
+`ExplicitInterfaceMemberFacts.QualifiedMemberNameEnd`, which mirrors the columnar scan token for
+token, and builds the text from the tokens' own values — so the two pipelines produce the SAME string
+for the same declaration. Both the method arm (`ParseMethodMember`) and the value-member arm
+(`ParseFieldMember`) consume the tail after their ordinary `ConsumeIdentifier`/`ConsumeDeclarationName`
+call, so an `<error>` name still reports what it reported before.
+
+### `type` IS A CONTEXTUAL KEYWORD, AND ONE OWNER SAYS WHAT ITS HEAD LOOKS LIKE
+
+`type` was a HARD keyword, so no N# type could expose a member named `type` — which is the name
+`nlc query type` and a converted `QueryCommand` both wanted (`FABLE-COMPILER-CORE-AUDIT` D2). It now
+opens exactly one production, a TOP-LEVEL type-alias declaration head, and is an ordinary identifier
+everywhere else: a member, a property, a parameter, a local, a `for type in …` loop variable, the
+member of `x.type`, and a declaration's own name.
+
+The demotion is the same one `file` had: `Lexer.KeywordTextForType` has no arm for `TokenType.Type`,
+and `Lexer.IsReservedKeyword` is DEFINED as "that table answers", so NL109 and the round-13
+`for <keyword> in` report both stop firing on it while still firing for every word that is reserved.
+`TokenType.Type` stays in the enum because every ordinal above it is the columnar pipeline's
+token-kind currency; it moved into the NON-keyword table beside `Test` and `File`.
+
+**THE HEAD IS THREE TOKENS — the word, a NAME, and `=` — and two of them are what tells a declaration
+from a use.** `type = 6` assigns to a local of that name and `type: string` declares a member of it;
+reading either as a declaration head would silently swallow the statement. `TypeAliasKeywordFacts`
+owns that rule ONCE, in two readings, because the two pipelines carry tokens differently and a word
+that is a keyword in one reading and an identifier in the other is exactly the drift worth preventing:
+
+* `IsAliasDeclarationHead(tokens, index)` for the tree parsers' `List<Token>`;
+* `IsAliasDeclarationHeadAt(source, kinds, starts, lengths, count, index)` for the columnar walkers,
+  which carry token KINDS as bare ints beside the source text.
+
+**THE COLUMNAR WALKERS STILL SPEAK KIND 72.** `IsTopLevelDeclarationKeyword` lost its `72` arm —
+no token kind names an alias any more — and `TopLevelDeclarationHeadKind` answers beside it: it
+returns the token's own kind for a real declaration keyword, `72` for an alias head, and `0`
+otherwise. That keeps `TopLevelDeclarationKindsCore`, `TopLevelDeclarationNameSpansCore`,
+`TopLevelDeclarationModifiersCore` and every downstream whitelist (`kind != 72` among them) exactly
+as they were, and it is the ONE place the contextual reading enters them, so all three cannot drift
+into disagreeing about where a declaration begins. `ColumnarBindingScopeFacts.TypeDeclarationHeadKind`
+is the same shape for the binding-scope walker. The three walkers took a `source` parameter and a
+`ParserDeclarationTokenTable` in place of the kinds-only `ParserDeclarationKindStream` for this: the
+question genuinely needs the text.
+
+The recovery parser's TOP-LEVEL dispatch uses the LOOSE reading — the word alone, not the whole head
+— on purpose. The identifier-led declarations it could be confused with (`soa record`, `test "…"`)
+are tried above it, nothing else at that position begins with a bare identifier, and a MALFORMED
+alias must still reach `ParseTypeAliasName` so `type`, `type class` and `type 5` keep reporting the
+alias-name diagnostics they report today. Every other site — `IsBlockClosingDeclarationStart`,
+`SynchronizeToNextStatement`, `IsTypeLevelReadonlyModifierAhead` — uses the strict head, because in
+those positions `type` really can be a local.
+
 ### Nested Type Support
 `ParseMemberDeclaration` handles nested types (classes, structs, records inside other types).
 
@@ -118,7 +481,7 @@ Patterns in match expressions support:
 ### Guard Clauses
 Match patterns can have guards:
 ```
-value match {
+match value {
     x when x > 0 => "positive",
     _ => "other"
 }
@@ -136,29 +499,301 @@ Current behavior:
 - Recovers at declaration, member, statement, and block boundaries.
 - Uses line/column information and statement-start lookahead to avoid swallowing the next statement after a dangling operator or required-expression anchor, including editor auto-indent after `:=`.
 - Suppresses cascades with panic-mode recovery, then resets at the next useful boundary.
-- Emits concrete diagnostics for common editing mistakes such as incomplete member access, missing braces, missing line-ending or empty-list `)` / `]` delimiters, missing required expressions after statement/declaration anchors, malformed string/character/raw string literals, dangling binary operators, and C#-style `=` inside N# object initializers.
+- Emits concrete diagnostics for common editing mistakes such as incomplete member access, missing braces, missing line-ending or empty-list `)` / `]` delimiters, missing required expressions after statement/declaration anchors, malformed string/character/raw string literals, dangling binary operators, and unsupported `=` inside N# object initializers.
 
 Partial ASTs use placeholder nodes such as `<error>` only to keep downstream tooling alive; analyzer and tooling paths treat these as unknown values instead of reporting secondary undefined-symbol cascades.
 
+Package names recover **with the written text preserved**: a malformed segment written attached to the name (`package good.9bad`, `package good.9.5x`) is consumed as one word-like run and carried in `PackageDeclaration.Segments` with its span, producing no parser diagnostic — the analyzer's NL103 invalid-package-name report then names and underlines exactly what the developer wrote (`AnalyzerDeclarationPolicy.ValidatePackageName`). Only a segment with no written text behind it (end of file, reserved keyword, offender on another line) records the `<error>` placeholder; those paths keep their precise parser diagnostic, and the analyzer skips placeholder segments so the mistake is reported once, never as `'<error>'`.
+
 ## Testing
 
-Parser has 86 unit tests covering:
-- All statement types
-- All expression types
-- All declaration types
-- Operator precedence
-- Error cases
+ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
+- **Native contracts** (canonical): nine files, one per observable contract of the same owner.
+  `ColumnarParserRecovery.tests.nl` pins the `ParseFilePreamble` diagnostic stream in POSITION-SORTED
+  order (the CLI-shaped oracle order); `ColumnarParserErrorRecovery.tests.nl` pins the `ParseFileAst`
+  contract — diagnostics in RECORDING order, whole message / snippet / explanation / hint / suggestion
+  list / docs URL per diagnostic, plus the recovered declaration, statement and member censuses;
+  `ColumnarParserAst.tests.nl` pins the materialized AST node-by-node against goldens inventoried from
+  Parser.cs, and owns the `AstEq` reflective comparator and the `Golden.*` builders all three AST
+  files use; `ColumnarParserDeclarations.tests.nl` pins WHOLE TREES over the real-world declaration
+  corpus (task 020 slice 17); `ColumnarParserStatements.tests.nl` pins whole trees over the
+  real-world STATEMENT and test-DSL corpus (task 020 slice 18); and `ColumnarParserPatterns.tests.nl`
+  pins whole trees over the PATTERN / `match`, parameter- and argument-modifier, operator- and
+  conversion-overload and constructor-initializer corpus, plus the two inline-`out` refusals, which
+  are that file's negative half (task 020 slice 19); and `ColumnarParserSmallFamilies.tests.nl` pins
+  whole trees over the FILE-HEADER (package / namespace / both import kinds), LITERAL and
+  INTERPOLATION, ATTRIBUTE and PREPROCESSOR corpus, plus that tranche's two refusals — the
+  interpolation trailing-token error and the attribute-after-parameter-name error, the arc's first
+  MULTI-diagnostic negative (task 020 slice 20); and `ColumnarParserCallAccess.tests.nl` pins whole
+  trees over the CALL-AND-ACCESS tier of the expression family — member access, call, index and
+  range, `new` with its object and collection initializers, and the generic-call family with its
+  `<`-disambiguation control — thirty contracts with no negative at all, the first all-positive
+  tranche of the arc (task 020 slice 21); and `ColumnarParserKeywordLambdaType.tests.nl` pins whole
+  trees over the LAST tranche — keyword and primary expressions (15), lambdas (7), type references
+  (4, carrying the campaign's final negative) and operators (4) — the file that finished the
+  migration (task 020 slice 22); and `ColumnarParserEventSubscription.tests.nl` pins whole trees over
+  the `on` / `off` EVENT-SUBSCRIPTION corpus — the subscription as a bare expression statement, as a
+  `:=` initializer and over a `this` receiver, the `off` statement, `on` / `off` used as ordinary
+  identifiers, and a context control in which a local named `on` does not stop the next line parsing
+  a subscription (task 020 slice 24, migrated from `tests/EventSubscriptionTests.cs`). The EVENTS
+  census slice widened the handler slot from `LambdaExpression` to `Expression` — a delegate VALUE in
+  handler position is the shape C#'s `x.E += handler` maps onto, and rejecting it at parse made a
+  well-typed program unspellable — so what the parser still owns there is the handler's PRESENCE, under
+  the language's own statement rule: the handler must begin on the event's own line. The same slice
+  gave the COLUMNAR kernels their own `on` (expression kind 79, children [target, handler]) and `off`
+  (statement kind 80, one child), committed on exactly the contextual shapes the recovery parser
+  commits on; before it, every function containing either declined at `parse.function`. The EVENTS2
+  slice then gave the language a way to DECLARE one: `event Name: DelegateType` is a member in both
+  parsers, contextual on the three-token shape `event <name> :` — a field spelled `event` puts a `:`
+  where that arm requires a NAME, so `event` stays an ordinary identifier everywhere else. The
+  recovery parser builds an `EventDeclaration` (its own AST node, because outside the declaring type
+  the name is not a value at all); the columnar kernel records the member as a FIELD row with bit 8
+  of the field modifier word set, which is what C# emits for a field-like event and what lets the
+  declaring type's own body read the backing delegate. EVENTS3 added bits 9, 10 and 11 to that word —
+  `virtual`, `abstract` and `override` as written — and taught the INTERFACE kernel its own event
+  member: `ParseInterfaceDeclarationCore` reads `event Name: DelegateType` beside `func` members in
+  either order, writing the row into `InterfaceDeclarationTable`'s four event columns and the count
+  into result slot 7. The contextual test is the same three-token shape the struct body uses
+  (`ParseInterfaceDeclarationMemberIsEvent`), and it is asked in THREE places: at the member loop's
+  head, in the scan that skips a method's tokens, and at the signature core's has-a-body test — that
+  last one because a bodiless `func` followed by an event otherwise read as a malformed declaration.
+  IFACE added the fourth interface member on exactly that pattern: a **VALUE member**, `Name: Type`,
+  the bare spelling a class body uses. `ParseInterfaceDeclarationMemberIsValue` is the contextual
+  test — an identifier followed by a `:`, a shape no other interface member has, read AFTER the event
+  arm because an event carries one identifier more — and it is asked in the same THREE places. The
+  row goes into `InterfaceDeclarationTable`'s four property columns and the count into result slot 8;
+  `ColumnarInterfaceMemberNamesDistinct` then enforces ONE member namespace across `func`, `event`
+  and value members, because all three lower to methods on one type. That slice also gave the kernels a bare `this`
+  (expression kind 82, no children and no value span) — `this.Member` is still collapsed into a bare
+  identifier one level up, so kind 82 means the keyword stood alone. And
+  `ColumnarParserErrorHandling.tests.nl` pins whole trees over the ERROR-HANDLING corpus — 24
+  fixtures of malformed and C#-shaped source, 13 of which report a diagnostic and 11 of which report
+  NONE, each with its census and every diagnostic pinned WHOLE through `PeRow` (task 020 slice 25,
+  migrated from `tests/ErrorHandlingTests.cs`). **That file is where the `var` fact is written down**:
+  `var x = 5` is C# and not N#, so the parser reads `var` as an ordinary IdentifierExpression
+  statement and `x = 5` as a separate AssignmentExpression statement — twice the statements the
+  fixture's author intended, and none of them a declaration. Its other measured finds: an unterminated
+  `/* … */` swallows the WHOLE file and reports NOTHING; `func main() ` with no body parses silently
+  to a NULL `Body` (as against the empty BlockStatement `func main() {}` produces); 100 nested
+  parentheses produce 100 real `ParenthesizedExpression` nodes with no collapsing (and pass the depth
+  bound below untouched);
+  and a 1000-character identifier is carried whole with correct columns past 999. **The two entry points do not
+  always agree on ORDER** — see the "recording order is not position order" contract — so a census's
+  order tells you which entry point produced it. Run with
+  `dotnet test src/NSharpLang.Compiler.Core -c Release -p:NSharpExcludeTests=false`.
+- **There is no C# parser suite any more.** `tests/ParserTests.cs` was migrated tranche by tranche and
+  DELETED in task 020 slice 22: **slice 17 took the DECLARATION family — 50 of its 212 `[Fact]`s,
+  1,358 lines — slice 18 the STATEMENT family plus the test DSL — 23 more, 608 lines — slice 19 the
+  four NON-EXPRESSION families (patterns and `match` 23, parameter and argument modifiers 14,
+  operator and conversion overloads 6, constructor initializers 3) — 46 more, 1,397 lines — slice 20
+  the four SMALL families (the file header 12, literals and interpolation 9, attributes 8, the
+  preprocessor 4) — 33 more, 711 lines — slice 21 the CALL-AND-ACCESS tier of the expression family
+  (postfix access 9, index-from-end and ranges 6, `new` and initializers 8, generic calls 7) — 30
+  more, 998 lines — and slice 22 the remaining 30 methods and 824 lines, plus both private helpers
+  (`Parse`, `AssertHasParseError`) and the class itself.** The analyzer / linter / formatter /
+  completion suites still drive `ParseFileAst` indirectly, but none of them asserts on the parse tree.
+  The error-case half — `tests/ParserErrorTests.cs`, 1,914 lines and 104 xUnit
+  cases — was migrated to `ColumnarParserErrorRecovery.tests.nl` and deleted in task 020 slice 16.
+  **One capability did not survive the move and is recorded here rather than lost**: that file bounded
+  its three malformed table-driven parses with `Task.Run` + a ten-second `Wait`, so a lost no-progress
+  guard failed fast instead of hanging the run. `Task.Run`, `Stopwatch` and `Environment.TickCount64`
+  all decline to emit in the Compiler Core estate, so no wall-clock bound is expressible in a
+  `.tests.nl` today; a no-progress regression in `ParseTestDeclaration` now hangs the native step.
 
-See `tests/ParserTests.cs`.
+**WHAT THE DECLARATION TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice 17).** The C#
+helper `Parse(source)` returns `result.CompilationUnit!` and DISCARDS `result.Errors`, so every one
+of the 212 positive cases was silent about whether its "valid" source parses cleanly; the successor
+pins `PdCensus(source) == ""` on all 50 of its sources and **all 50 are clean**. Four shape facts the
+whole-tree pins state and the member reads could not: a type declaration's `Line`/`Column` anchor on
+its KEYWORD, not on its first modifier (`partial class User` anchors at the `class`, column 21 of
+column 13); `required init Id: string` sets Required|Init in **both** `Modifiers` and
+`PropertyModifier`, and the C# asserted only the former; a base list splits with the FIRST entry
+always becoming `BaseClass` even when it is an interface (`class SimpleClass : IFoo, IBar` puts
+`IFoo` in `BaseClass`), which the C# noted in a comment but asserted only for one case; and an
+expression-bodied `Name: string => …` member materializes a **PropertyDeclaration**, while `Name :=
+"Alice"` materializes a **FieldDeclaration with a null `Type`** — two member kinds from two spellings
+that look alike.
+
+**WHAT THE STATEMENT TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice 18).** The same
+clean-parse pin (`PsCensus(source) == ""`) holds on all 23 statement sources, so the pin has now
+found no defect over 73 real-world fixtures. Five shape facts the whole-tree pins state and the
+member reads could not. **A `using` declaration inherits the `using` KEYWORD's anchor, not its own
+name's**: in `using stream := File.OpenRead("file.txt")` the inner `VariableDeclarationStatement`
+sits at column 17 with the `UsingStatement`, while `stream` starts at column 23 — and the statement's
+`Expression` arm is null, which the C# never read. **`lock (obj)` materializes NO
+`ParenthesizedExpression`**: `lock obj` and `lock (obj)` both put a bare `IdentifierExpression` in
+`LockObject` and differ only by one column, so the deleted `Assert.NotNull(lockStmt.LockObject)`
+could not tell the two spellings apart. **A negative table cell is a unary `Negate` over a POSITIVE
+literal** — `(-1, 1, 0)` gives `UnaryExpression(Negate)` at the `-` over `IntLiteral "1"` — where the
+C# asserted only that the row held three cells. **A post-increment anchors on its `++`, never on its
+operand** (`i++` puts the node at column 38 with `i` at 37). **A `CatchClause` carries no `Line`/
+`Column` at all**, and the N# `catch ex: FormatException` form produces a shape byte-identical to
+C#-style `catch (Exception ex)` apart from the type's own span. The statement family's untested
+kinds — `while`, `const`/`readonly` locals, `break`, `continue`, `throw`, `unsafe`, `alloc`, `allow`,
+local functions, tuple deconstruction, the empty statement and `await foreach` — appear ZERO times in
+the `ParserTests.cs` that slice 18 read, and are already pinned by `ColumnarParserAst.tests.nl`'s
+tranche 10, so slice 18 added no contracts for them.
+
+**WHAT THE PATTERN / MODIFIER / OPERATOR TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice
+19).** The clean-parse pin holds on all 44 positive sources too, so it has now found no defect over
+**117** real-world fixtures. The margin here is total rather than incidental: the tranche's 1,397 C#
+lines contain exactly **three** `.Line` and **three** `.Column` assertions, all six in
+`TestPropertyPatternSourceLocations` and all about the same three property names, so every other
+position in every other fixture was unstated.
+
+**WHAT IS NEW TO THE LEDGER, AS OPPOSED TO MERELY NEW TO THE DELETED TESTS, WAS CHECKED RATHER THAN
+ASSUMED** — `ColumnarParserAst.tests.nl`'s stage-N+1c tranches 9c/10/11 already pin, over synthetic
+one-line sources, the `SlicePattern` anchored on the `[` rather than its `..` (:3373), the
+implicit-binding property pattern `{ N }` that leaves `Pattern` null (:3494), the `TypePattern` whose
+type reference is `SimpleTypeReference(name, 0, 0)` (:3444), a two-element positional pattern (:3401),
+`func operator +` with its symbol and both spans (:505-506), an `implicit operator`'s whole flag word,
+and `: base(x)` anchored on `base` (:1536). Those seven are **restated over the real-world corpus, not
+claimed as findings.** Four things ARE new. **A parenthesized pattern is a one-element
+`PositionalPattern`** — there is no parenthesized-pattern node — so `(> 0 and < 10) or (…)` nests
+`AndPattern` inside `PositionalPattern` inside `OrPattern`, a shape the two-element contract could not
+reach. **`static func operator +` carries `Modifiers.Static` where the conversion form carries
+`Modifiers.None`**, and the declaration anchors on `func`, not on `static` and not on `operator`; both
+pre-existing contracts use sources without a `static`, which is exactly why `Golden.OperatorFunc`'s
+hardcoded `Modifiers.None` could not express this corpus and `Golden.OpFunc` had to be added. **The
+whole ARGUMENT half is unpinned elsewhere**: `Argument` carries no position at all (`Name`, `Value`,
+`Modifier` are its three registered fields), and `ref x` / `out result` / `name:` set `Modifier` and
+`Name` on a node no synthetic contract had ever stated. And **the two inline-`out` refusals cost
+nothing**: each reports exactly ONE `NL103`, underlining the inline DECLARATION rather than the `out`
+keyword (span 7 for `out var num`, 9 for `out int value`), with a NULL suggestion list, and both
+functions come back from recovery with their bodies intact.
+
+**WHAT THE FILE-HEADER / LITERAL / ATTRIBUTE / PREPROCESSOR TRANCHE MEASURED THAT THE C# COULD NOT
+SEE (task 020 slice 20).** The clean-parse pin holds on all 31 positive sources, so it has now found
+no defect over **148** real-world fixtures. The margin is again total: the tranche's 711 C# lines
+state exactly **seven** positions, all inside TWO interpolation methods and all on the same
+hole-expression node and its receiver, and **zero** spans.
+
+**THE HEADLINE FINDING WAS A RAW-INTERPOLATION RULE THE DELETED TEST WAS SILENTLY ACCEPTING — RULED
+A DEFECT AND FIXED.** As measured by slice 20: in a **raw** interpolated string (`$"""…"""`), a `:`
+followed by optional whitespace SWALLOWED the next brace group into the literal text run instead of
+opening a hole — `q: {a}` and `"age": {person.Age}` were TEXT, the suppressing colon could sit on an
+EARLIER line, only the FIRST following brace group was swallowed, and an ORDINARY `$"…"` string was
+unaffected (`$"q: {a}"` is a hole). `TestInterpolatedRawString` asserted
+`Assert.Single(parts.OfType<InterpolatedStringHole>())` over a four-line JSON template with TWO brace
+groups and PASSED because the second group had become text. The follow-up slice RULED this a defect
+— C#'s `:`-starts-a-format-specifier rule applies INSIDE a hole after an expression; this lookbehind
+mis-scoped it to TEXT context, was inconsistent with the ordinary form, silently defeated the
+canonical JSON-templating use case (no diagnostic, and N# has no `$$` alternative), and even the
+shipped `InterpolatedRawStrings` example had dodged it with `{{name}}` escapes that stopped
+demonstrating interpolation. The colon prong was removed from the raw `{`-literal heuristic in
+`ColumnarParserRecovery.ParseInterpolatedString`; `"age": {person.Age}` is now a HOLE, and the
+updated `ColumnarParserSmallFamilies` contract states two holes and three text parts. The two
+INTENDED raw-string leniencies stay and are now documented in the language tour: a `{` opening a
+MULTI-LINE brace group is literal text (the outer JSON braces), and an unclosed `{` is literal text.
+
+**AND FOUR MORE.** An N# raw string literal keeps its own indentation — `Value` carries the leading
+newline, every line's leading spaces and the trailing indentation before the closing delimiter, so
+C#'s indent-stripping rule does NOT apply. An attribute argument spelled with `=`
+(`[FromQuery(Name = "q")]`) parses as an **AssignmentExpression** with a null `Argument.Name`, where
+the colon form (`[Attr(x: 1)]`, tranche 9b) fills `Name` instead. An attribute-free parameter carries
+a **NULL** `Attributes` list, not an empty one, while two bracket groups on one parameter flatten into
+ONE list in source order. And the attribute-after-parameter-name refusal **cascades**: it reports
+`NL102` with a repair suggestion and then SEVEN `NL101`s, leaving a body-less function and seven
+synthetic `<error>` class declarations — which the deleted `AssertHasParseError` ("some message
+contains this text") could not distinguish from a clean single-error recovery. Four shapes in this
+tranche were already pinned next door over synthetic sources (a file-scoped namespace, a package with
+an aliased import, an aliased file import's `PathColumn`/`PathLength`, and a top-level
+`PreprocessorDeclaration`) and are **restated over the real-world corpus, not claimed as findings**.
+
+**WHAT THE CALL-AND-ACCESS TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice 21).** The
+clean-parse pin holds on all 30 sources too, so it has now found no defect over **178** real-world
+fixtures — and one of the thirty carried a WEAKER form of that claim itself
+(`Assert.DoesNotContain(result.Errors, e => e.Severity == ErrorSeverity.Error)`, which a
+warning-severity diagnostic satisfies and `PsCensus` does not). **The margin here is total: of the 368
+claim rows the 30 deleted methods decode to, the number stating a `Line`, a `Column`, a `Span`, a
+`NameLine` or a `NameColumn` is ZERO** — in 998 lines and 260 assertions — where slice 19's tranche had
+six such rows and slice 20's had seven. So all 419 anchors the successor pins were unstated, and a
+parser that moved every member access, index, call, range, `new`, initializer and array literal one
+column right would have passed the whole deleted tranche.
+
+**AND THE SIBLING SWEEP MOVED MOST OF THIS TRANCHE'S SHAPE RULES INTO THE RESTATEMENT COLUMN, WHICH IS
+WHY IT IS PART OF THE METHOD.** `ColumnarParserAst.tests.nl`'s stage-N+1c corpus already pins, over
+synthetic one-line sources, a null-conditional member access and index anchored on the **`?`** rather
+than the `.`/`[` (:3310, :3341), a `let a := 1` anchored on its **NAME** rather than the keyword
+(:4718), an `ObjectInitializerExpression` carrying its `NewExpression`'s anchor rather than the open
+brace (:3915), an INDEXER `PropertyInitializer` whose `NameLine`/`NameColumn` are **both zero**
+(:3937), an `ArrayTypeReference` whose `Span` is exactly its **element's** span (:3951 — `new T[2]`
+spans `T`, not `T[]`), a `RangeExpression` anchored on its `..` in both the two-ended and open-start
+forms (:3143, :3153), a nested generic type argument with split spans, and a **null** `TypeArguments`
+for a non-generic call. All are restated over the real corpus and labelled as restatements.
+**THREE SHAPES ARE GENUINELY NEW TO THE LEDGER**, each measured at ZERO occurrences in the estate
+before this file: a **parenthesized receiver under an index access** (`(items)[0]`, and four levels
+deep in `(nodes.name)[row] == "alpha"`, where the initializer also STOPS at the newline rather than
+swallowing the next line's assignment); the **`^n` index-from-end unary**, which no PARSER contract anywhere
+builds from source — the operator appears in the estate only over synthesised nodes, in
+`OperatorFacts.tests.nl` and `AnalyzerOperatorExpressions.tests.nl` — so its caret anchor and its
+composition inside a range (`arr[1..^1]`) are new to the parser ledger; and a `Properties` list
+**interleaving named and indexer initializers** in source order, which the all-named / all-indexer
+synthetic lists could not reach. A fourth thing the corpus adds rather than discovers is the
+LEADING-DOT continuation chain, whose links anchor on their own lines — no one-line source can
+express it.
+
+**AND `Parser.cs` IS GONE**, so `ParseFileAst` is the sole production parse entry (`FixApplicator.cs`,
+`Formatter.nl`, `AnalyzerImports.nl`, `AnalyzerProjectDiscovery.nl`, `CodeIntelligenceQueries.nl`).
+The pre-cutover goldens in `ColumnarParserAst.tests.nl` still pin the tree Parser.cs produced, but a
+golden written AFTER the cutover has no second parser to check it, and is a behavioural snapshot
+whose C#-asserted subset is a faithful restatement.
+
+**THE TYPE-LEVEL `readonly` MODIFIER** (`ParseTypeDeclarationModifiers`, `ColumnarParserRecovery.nl`) is
+taken separately from `ParseModifiers`, which deliberately has no `readonly` case so a member-level
+`readonly X: int` keeps its token for the field parser. The word is claimed as a TYPE modifier only when
+a type-declaration keyword follows it across the remaining modifier words and the `ref` of
+`readonly ref struct`, so modifier order is free (`public readonly struct` == `readonly public struct`);
+the scan names `public`/`private` explicitly because `ParserTokenFacts.IsModifierKeyword` excludes them.
+`readonly struct`, `readonly ref struct` and `readonly record struct` record `Modifiers.Readonly`;
+anything else reports **NL311 on the word** and keeps parsing the declaration without it (C# `CS0106`).
+Both the top-level and the member dispatch route through the one function, so a nested readonly struct
+behaves identically to a top-level one.
+
+### A DECLARATION'S EXTENT WHEN IT HAS NO BRACES
+
+Three walkers over the top-level token stream — `TopLevelDeclarationModifiersCore`,
+`TopLevelDeclarationKindsCore`/`NameSpansCore` and `TopLevelDeclarationIndicesCore` — skip bodies by
+BRACE DEPTH. An EXPRESSION-BODIED declaration has no braces, so its body's tokens are read as if they
+sat between declarations, and three separate failures came out of that one gap:
+
+- **A modifier leaked forward, silently.** `func F(): Func<Task<int>> => async () => 1` left `async`
+  pending, and the NEXT top-level function wore it: its signature grew a `ValueTask<T>` wrap and its
+  body was emitted inside the async fault guard, so a `throw` it raised became a faulted task nobody
+  awaited and the call simply returned. No diagnostic anywhere. A declaration's modifiers are the run
+  IMMEDIATELY before its keyword, so any depth-zero token that is not a modifier, a declaration
+  keyword or a newline now ends the run.
+- **A modified declaration after an arrow body declined the whole file.**
+  `TopLevelFunctionPreamblesAreValidCore` measured the arrow body's end against the next `func`
+  TOKEN, and `async`/`public`/an attribute group sits between them. It measures against the next
+  declaration's PREAMBLE start now (`preceding + 1`, which the walk already computed).
+- **A constraint clause never ended.** `inWhereClause` was cleared only by `{`, so
+  `func Id<T>(v: T): T where T : class => v` hid every later declaration in the file. All five
+  walkers clear the latch at `=>` as well, which is how an expression body opens.
+
+### A local function's body, and what an expression body lowers to
+
+The statement kernel's kind-41 arm records only the `func` keyword's span and SKIPS the declaration;
+the host re-locates the keyword and parses signature + body through the ordinary function kernels.
+That skip demanded a `{`, so `func inner(v: string?): string => v ?? "d"` declined its WHOLE enclosing
+function at `parse.function` — the kernels behind it already read an expression body, only the skip
+did not. It now stops at the first DEPTH-ZERO `{` or `=>` (depth matters: a parameter default may
+itself be a lambda) and, for an arrow, takes the expression's end from
+`ParseDeclarationExpressionBodyEndCore`.
+
+`ParseColumnarFunctionExpressionBodyNodesCore` takes `returnsVoid` and lowers the expression to a
+ReturnStatement (kind 20) or an ExpressionStatement (kind 23). A `void` arrow used to be lowered as a
+value return from a void method and declined at `emit.body`; an omitted return type canonicalizes to
+`void`, so it answers the same way. One kernel serves free functions, struct methods and local
+functions, so all three gained the `void` arrow together.
 
 ## Usage Example
 
-```csharp
-var tokens = lexer.Tokenize();
-var parser = new Parser(tokens, "example.nl");
-var ast = parser.ParseCompilationUnit();
+```text
+var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(source, "example.nl");
 
-// ast is CompilationUnit with:
-// - Declarations: List<Declaration>
-// - Statements: List<Statement> (top-level)
+// parseResult is FileParseAst with:
+// - CompilationUnit: CompilationUnit? (Declarations, Statements, Imports, Package, Namespace)
+// - Errors: List<CompilerError> in recording order
+// - Success: no CompilationUnit-absent or error-severity diagnostic
 ```

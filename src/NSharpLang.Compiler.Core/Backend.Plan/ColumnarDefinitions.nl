@@ -1,0 +1,945 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
+
+class ColumnarEnumDef {
+    enumTypeValue: Type
+    constantsValue: Dictionary<string, int>
+    stringConstantsValue: Dictionary<string, string>?
+    declaredTypeNameValue: string
+
+    EnumType: Type => enumTypeValue
+    Constants: Dictionary<string, int> => constantsValue
+    StringConstants: Dictionary<string, string>? => stringConstantsValue
+    IsStringBacked: bool => stringConstantsValue != null
+    DeclaredTypeName: string => declaredTypeNameValue
+
+    constructor(enumType: Type, constants: Dictionary<string, int>, stringConstants: Dictionary<string, string>? = null, declaredTypeName: string = "") {
+        if enumType == null || constants == null || declaredTypeName == null {
+            throw new InvalidOperationException("Source enum definition facts cannot be null.")
+        }
+        enumTypeValue = enumType
+        constantsValue = constants
+        stringConstantsValue = stringConstants
+        declaredTypeNameValue = declaredTypeName
+    }
+}
+
+class ColumnarUnionDef {
+    Base: TypeBuilder
+    DeclaredTypeName: string
+    Cases: Dictionary<string, ColumnarUnionCaseDef>
+    TypeParamCount: int
+    IsValueStruct: bool
+    TagGetter: MethodInfo?
+
+    constructor(baseBuilder: TypeBuilder, typeParamCount: int = 0, declaredTypeName: string = "") {
+        if baseBuilder == null || declaredTypeName == null {
+            throw new InvalidOperationException("Source union definition facts cannot be null.")
+        }
+        Base = baseBuilder
+        DeclaredTypeName = declaredTypeName
+        Cases = new Dictionary<string, ColumnarUnionCaseDef>(StringComparer.Ordinal)
+        TypeParamCount = typeParamCount
+        IsValueStruct = false
+    }
+}
+
+class ColumnarUnionCaseDef {
+    CaseType: TypeBuilder
+    Ctor: ConstructorBuilder
+    FieldOrder: string[]
+    Fields: Dictionary<string, FieldBuilder>
+    UnionBase: TypeBuilder
+    IsValueStruct: bool
+    ValueStructTag: int
+    ValueStructFactory: MethodInfo?
+    ValueStructTagGetter: MethodInfo?
+
+    constructor(caseType: TypeBuilder, ctor: ConstructorBuilder, fieldOrder: string[], fields: Dictionary<string, FieldBuilder>, unionBase: TypeBuilder) {
+        CaseType = caseType
+        Ctor = ctor
+        FieldOrder = fieldOrder
+        Fields = fields
+        UnionBase = unionBase
+        IsValueStruct = false
+        ValueStructTag = 0
+    }
+}
+
+// A METHOD's own generic parameters, as opposed to its declaring type's. A generic method on a
+// user type declares real CLR method type parameters, so every call site has to close it with
+// MakeGenericMethod over an argument list the site either wrote or inferred — and the constraints
+// have to be validated there, because Reflection.Emit does not validate them for an unbaked
+// MethodBuilder. These are the facts a call site needs and a MethodBuilder cannot answer before its
+// owner is baked; they ride beside the signature rather than being re-derived per call.
+class ColumnarGenericMethodFacts {
+    TypeParams: Type[]
+    SpecialConstraints: int[]
+    BaseConstraints: Type[]
+    InterfaceConstraints: Type[][]
+
+    constructor(typeParams: Type[], specialConstraints: int[], baseConstraints: Type[], interfaceConstraints: Type[][]) {
+        if typeParams == null || specialConstraints == null || baseConstraints == null || interfaceConstraints == null {
+            throw new InvalidOperationException("Generic method definition facts cannot be null.")
+        }
+
+        TypeParams = typeParams
+        SpecialConstraints = specialConstraints
+        BaseConstraints = baseConstraints
+        InterfaceConstraints = interfaceConstraints
+    }
+}
+
+// Named metadata rows keep the source-type model readable to both N# and its temporary
+// C# assembly owner. N# tuple element names are source-only today, so public tuple fields
+// would otherwise surface to C# as Item1/Item2/Item3.
+class ColumnarInstanceMethodDef {
+    Builder: MethodBuilder
+    ParamTypes: Type[]
+    ParamModifierKinds: int[]
+    ReturnType: Type
+    // Whether the declaration carried `[DoesNotReturn]` — see ColumnarStaticMethodDef.
+    DoesNotReturn: bool
+    // The `[DoesNotReturnIf(bool)]` each parameter carries, in declaration order — see DoesNotReturn.
+    ParameterDoesNotReturnIf: int[]
+    // The return type AS WRITTEN, tuple element labels and all, or null. A `ValueTuple` erases the
+    // labels at the IL level, so a caller that writes `pair.Min` needs the declaration's spelling to
+    // rewrite the access onto `Item1`. Free functions have carried this since named tuples landed; a
+    // method DECLARED ON A TYPE needs it for the same reason, and without it every
+    // `Type.Method().Name` access declined at emit. The whole LABELLED canonical is kept rather than
+    // the outermost names because a caller may read one level further in --
+    // `Type.Rows()[0].Item` -- and only the labelled spelling still has the names there.
+    ReturnLabeledCanonical: string?
+    Generics: ColumnarGenericMethodFacts?
+    // THE PARAMETER NAMES THE DECLARATION WROTE, in declaration order, and the only list a named
+    // argument can bind by: a `MethodBuilder` answers no `GetParameters()` before its owner is baked.
+    // Empty when the registration site carried none, which means a call on this method may not name
+    // a parameter.
+    ParamNames: string[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
+
+    constructor(builder: MethodBuilder, paramTypes: Type[], returnType: Type) {
+        if builder == null || paramTypes == null || returnType == null {
+            throw new InvalidOperationException("Source instance-method definition facts cannot be null.")
+        }
+
+        Builder = builder
+        ParamTypes = paramTypes
+        ParamModifierKinds = new int[](0)
+        ReturnType = returnType
+        ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
+        ReturnLabeledCanonical = null
+        Generics = null
+        DoesNotReturn = false
+        ParameterDoesNotReturnIf = new int[](0)
+    }
+
+    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnLabeledCanonical: string? = null) {
+        if builder == null || paramTypes == null || paramModifierKinds == null || returnType == null {
+            throw new InvalidOperationException("Source instance-method definition facts cannot be null.")
+        }
+
+        if paramModifierKinds.Length != 0 && paramModifierKinds.Length != paramTypes.Length {
+            throw new InvalidOperationException("Source instance-method modifier facts must be empty or match the parameter count.")
+        }
+
+        Builder = builder
+        ParamTypes = paramTypes
+        ParamModifierKinds = paramModifierKinds
+        ReturnType = returnType
+        ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
+        ReturnLabeledCanonical = returnLabeledCanonical
+        Generics = null
+        DoesNotReturn = false
+        ParameterDoesNotReturnIf = new int[](0)
+    }
+
+    func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out returnType: Type) {
+        builder = Builder
+        paramTypes = ParamTypes
+        returnType = ReturnType
+    }
+
+    func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out paramModifierKinds: int[], out returnType: Type) {
+        builder = Builder
+        paramTypes = ParamTypes
+        paramModifierKinds = ParamModifierKinds
+        returnType = ReturnType
+    }
+}
+
+class ColumnarStaticMethodDef {
+    Builder: MethodBuilder
+    ParamTypes: Type[]
+    ParamModifierKinds: int[]
+    ReturnType: Type
+    // Whether the declaration carried `[DoesNotReturn]`. A `MethodBuilder` cannot be asked for its
+    // own attributes before its owner is baked, so the fact is carried from the declaration input —
+    // the same reason every other signature fact on this record is carried rather than reflected.
+    DoesNotReturn: bool
+    // The `[DoesNotReturnIf(bool)]` each parameter carries, in declaration order — see DoesNotReturn.
+    ParameterDoesNotReturnIf: int[]
+    // The return type AS WRITTEN -- see ColumnarInstanceMethodDef.
+    ReturnLabeledCanonical: string?
+    Generics: ColumnarGenericMethodFacts?
+    // THE PARAMETER NAMES THE DECLARATION WROTE, in declaration order, and the only list a named
+    // argument can bind by: a `MethodBuilder` answers no `GetParameters()` before its owner is baked.
+    // Empty when the registration site carried none, which means a call on this method may not name
+    // a parameter.
+    ParamNames: string[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
+
+    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnLabeledCanonical: string? = null) {
+        Builder = builder
+        ParamTypes = paramTypes
+        ParamModifierKinds = paramModifierKinds
+        ReturnType = returnType
+        ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
+        ReturnLabeledCanonical = returnLabeledCanonical
+        Generics = null
+        DoesNotReturn = false
+        ParameterDoesNotReturnIf = new int[](0)
+    }
+
+    func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out paramModifierKinds: int[], out returnType: Type) {
+        builder = Builder
+        paramTypes = ParamTypes
+        paramModifierKinds = ParamModifierKinds
+        returnType = ReturnType
+    }
+}
+
+// Top-level sibling functions compile to public static methods on the program/module type. The
+// mechanical host carries their exact selected signature (parameter types, return type) and the
+// param-modifier and generic-arity facts here, because a MethodBuilder does not expose
+// GetParameters()/ReturnType before its owner is baked. N# alone decides which siblings a direct
+// call may plan; the host only routes these facts.
+class ColumnarSiblingCallFacts {
+    Method: MethodInfo
+    ParameterTypes: Type[]
+    ParameterModifierKinds: int[]
+    ReturnType: Type
+    TypeParameterCount: int
+    // The parameter NAMES the declaration wrote, in declaration order -- see
+    // ColumnarSiblingMethodDefinition.ParamNames. A named argument at a bare sibling call binds by
+    // this list; an empty list simply means no call on this sibling can name a parameter.
+    ParameterNames: string[]
+    ParameterDefaultKinds: int[]
+    ParameterDefaultTexts: string[]
+
+    constructor(method: MethodInfo, parameterTypes: Type[], parameterModifierKinds: int[], returnType: Type, typeParameterCount: int, parameterNames: string[]? = null, parameterDefaultKinds: int[]? = null, parameterDefaultTexts: string[]? = null) {
+        if method == null || parameterTypes == null || parameterModifierKinds == null || returnType == null {
+            throw new InvalidOperationException("Sibling call definition facts cannot be null.")
+        }
+
+        Method = method
+        ParameterTypes = parameterTypes
+        ParameterModifierKinds = parameterModifierKinds
+        ReturnType = returnType
+        TypeParameterCount = typeParameterCount
+        ParameterNames = parameterNames ?? new string[](0)
+        ParameterDefaultKinds = parameterDefaultKinds ?? new int[](0)
+        ParameterDefaultTexts = parameterDefaultTexts ?? new string[](0)
+    }
+}
+
+class ColumnarPropertyDefinitionToken {
+}
+
+class ColumnarPropertyDef {
+    Getter: MethodBuilder
+    Setter: MethodBuilder?
+    PropertyType: Type
+    GetterParameterCount: int
+    SetterParameterCount: int
+    // WHETHER THE SETTER IS AN `init` ACCESSOR — that is, whether its return type carries
+    // `modreq(IsExternalInit)`. A caller has to know before it emits a reference to the setter,
+    // because a MemberRef to a member of a CLOSED GENERIC type cannot carry the marker:
+    // `TypeBuilder.GetMethod` builds the reference from the open method's bare signature, and the
+    // runtime then refuses to bind it. The one owner that asks declines that write rather than
+    // emitting a reference the JIT will not resolve.
+    IsInitOnly: bool
+
+    constructor(getter: MethodBuilder, setter: MethodBuilder?, propertyType: Type, token: ColumnarPropertyDefinitionToken, isInitOnly: bool = false) {
+        if getter == null || propertyType == null || token == null {
+            throw new InvalidOperationException("Source property definition facts cannot be null.")
+        }
+
+        Getter = getter
+        Setter = setter
+        PropertyType = propertyType
+        GetterParameterCount = 0
+        SetterParameterCount = setter == null ? 0 : 1
+        IsInitOnly = isInitOnly
+    }
+
+    // Define the accessors and their signature fact atomically. A ColumnarPropertyDef cannot
+    // wrap an arbitrary MethodBuilder: the only construction route creates a zero-parameter
+    // getter and, when present, a one-parameter setter itself.
+    static func Define(owner: TypeBuilder, getterName: string, getterAttributes: MethodAttributes, propertyType: Type, setterName: string?, setterAttributes: MethodAttributes): ColumnarPropertyDef {
+        return Define(owner, getterName, getterAttributes, propertyType, setterName, setterAttributes, null)
+    }
+
+    // `setterReturnRequiredModifiers` carries `modreq(IsExternalInit)` for an `init` accessor and is
+    // null for an ordinary `set`. It goes on the setter's RETURN type — the CLR's own place for the
+    // marker, and the one every other language reads to tell `set` from `init`.
+    static func Define(owner: TypeBuilder, getterName: string, getterAttributes: MethodAttributes, propertyType: Type, setterName: string?, setterAttributes: MethodAttributes, setterReturnRequiredModifiers: Type[]?): ColumnarPropertyDef {
+        if owner == null || getterName == null || propertyType == null {
+            throw new InvalidOperationException("Source property definition inputs cannot be null.")
+        }
+
+        // Accessor identity is part of the property fact, not an optional caller convention.
+        // In particular, schema-v3 permits a residual void call only for a genuine setter; stamp
+        // SpecialName here so every accessor created through this atomic factory carries the CLR
+        // invariant even when a synthetic fixture supplies only its visibility flags.
+        // ECMA-335 MethodAttributes.SpecialName is the stable 0x0800 metadata bit.
+        specialNameFlag := 0x0800
+        exactGetterAttributes := (MethodAttributes)((int)getterAttributes | specialNameFlag)
+        getterParameters := new Type[](0)
+        getter := owner.DefineMethod(getterName, exactGetterAttributes, propertyType, getterParameters)
+
+        setter: MethodBuilder? = null
+        if setterName != null {
+            voidType := Type.GetType("System.Void")
+            if voidType == null {
+                throw new InvalidOperationException("System.Void runtime type was not found.")
+            }
+
+            setterParameters := new Type[](1)
+            setterParameters[0] = propertyType
+            exactSetterAttributes := (MethodAttributes)((int)setterAttributes | specialNameFlag)
+            if setterReturnRequiredModifiers == null {
+                setter = owner.DefineMethod(setterName, exactSetterAttributes, voidType, setterParameters)
+            } else {
+                setter = owner.DefineMethod(setterName, exactSetterAttributes, CallingConventions.Standard, voidType, setterReturnRequiredModifiers, null, setterParameters, null, null)
+            }
+        }
+
+        return new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken(), setterReturnRequiredModifiers != null)
+    }
+}
+
+// A SOURCE-DECLARED EVENT'S EMITTED PARTS, kept together because no consumer can use one without the
+// others: `on` needs the handler type and the `add_` accessor, the handle `off` detaches needs the
+// `remove_` accessor, and the declaring type's own body reads the backing field.
+class ColumnarEventDef {
+    Name: string
+    // An ABSTRACT event has NO storage: its accessors are slots an implementing type fills, and the
+    // declaring type has nothing to raise. Every other event owns a private field carrying its name.
+    BackingField: FieldBuilder?
+    Add: MethodBuilder
+    Remove: MethodBuilder
+    HandlerType: Type
+    IsStatic: bool
+    IsAbstract: bool
+    // 0 plain, 1 `virtual`, 2 `abstract`, 3 `override` — the word the declaration wrote, kept because
+    // the shadowing pass has to tell an OVERRIDE's own storage (which is expected to carry the base
+    // event's name) from a data member that really does hide an inherited one.
+    InheritanceKind: int
+
+    constructor(name: string, backingField: FieldBuilder?, add: MethodBuilder, remove: MethodBuilder, handlerType: Type, isStatic: bool, isAbstract: bool, inheritanceKind: int) {
+        if name == null || add == null || remove == null || handlerType == null {
+            throw new InvalidOperationException("Source event definition facts cannot be null.")
+        }
+
+        if backingField == null && !isAbstract {
+            throw new InvalidOperationException("Only an abstract source event may have no backing field.")
+        }
+
+        Name = name
+        BackingField = backingField
+        Add = add
+        Remove = remove
+        HandlerType = handlerType
+        IsStatic = isStatic
+        IsAbstract = isAbstract
+        InheritanceKind = inheritanceKind
+    }
+}
+
+class ColumnarConstructorDef {
+    Builder: ConstructorBuilder
+    ParamTypes: Type[]
+    DefaultKinds: int[]
+    DefaultTexts: string[]
+    // The parameter NAMES the declaration wrote, in declaration order. `new Box(label: "a", value: 1)`
+    // binds by this list; a `ConstructorBuilder` answers no `GetParameters()` before its owner is
+    // baked, so the names are carried here exactly as the defaults beside them are.
+    ParamNames: string[]
+    ParamModifierKinds: int[]
+
+    constructor(builder: ConstructorBuilder, paramTypes: Type[], defaultKinds: int[], defaultTexts: string[], paramNames: string[]? = null, paramModifierKinds: int[]? = null) {
+        Builder = builder
+        ParamTypes = paramTypes
+        DefaultKinds = defaultKinds
+        DefaultTexts = defaultTexts
+        ParamNames = paramNames ?? new string[](0)
+        ParamModifierKinds = paramModifierKinds ?? new int[](0)
+    }
+
+    func Deconstruct(out builder: ConstructorBuilder, out paramTypes: Type[], out defaultKinds: int[], out defaultTexts: string[]) {
+        builder = Builder
+        paramTypes = ParamTypes
+        defaultKinds = DefaultKinds
+        defaultTexts = DefaultTexts
+    }
+}
+
+// Enum-member defaults are declaration facts. Bind source enum identity before constructor
+// facts are registered so callers can never reinterpret an omitted argument through their own
+// imports. Runtime enum reflection remains a mechanical host concern; this binder claims only
+// source enum owners or source enum parameter types.
+class ColumnarConstructorDefaultBinder {
+    static func TryCanonicalizeSourceEnumMember(parameterType: Type, defaultText: string, owner: ColumnarEnumDef?, parameter: ColumnarEnumDef?, out canonicalText: string, out claimed: bool): bool {
+        canonicalText = defaultText
+        claimed = false
+        if parameterType == null || defaultText == null {
+            return false
+        }
+
+        separator := defaultText.LastIndexOf(".", StringComparison.Ordinal)
+        if separator <= 0 || separator + 1 >= defaultText.Length {
+            return false
+        }
+        memberName := defaultText.Substring(separator + 1)
+
+        if owner == null && parameter == null {
+            return false
+        }
+
+        claimed = true
+        if owner == null || parameter == null || !Object.ReferenceEquals(owner, parameter) || !Object.ReferenceEquals(owner.EnumType, parameterType) || owner.DeclaredTypeName.Length == 0 {
+            return false
+        }
+        if owner.IsStringBacked {
+            if owner.StringConstants == null || !owner.StringConstants.ContainsKey(memberName) {
+                return false
+            }
+        } else if !owner.Constants.ContainsKey(memberName) {
+            return false
+        }
+
+        canonicalText = owner.DeclaredTypeName + "." + memberName
+        return true
+    }
+
+    static func TryCanonicalizeDefaults(parameterTypes: Type[], parameterCanonicals: string[], defaultKinds: int[], defaultTexts: string[], enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>, out canonicalDefaultTexts: string[]): bool {
+        canonicalDefaultTexts = new string[](0)
+        if defaultKinds.Length == 0 && defaultTexts.Length == 0 {
+            return true
+        }
+        if parameterCanonicals.Length != parameterTypes.Length || defaultKinds.Length != parameterTypes.Length || defaultTexts.Length != parameterTypes.Length {
+            return false
+        }
+
+        canonicalDefaultTexts = new string[](parameterTypes.Length)
+        index := 0
+        while index < parameterTypes.Length {
+            defaultText := defaultTexts[index]
+            if defaultText == null {
+                return false
+            }
+            if defaultKinds[index] != 1000 {
+                canonicalDefaultTexts[index] = defaultText
+                index += 1
+                continue
+            }
+
+            separator := defaultText.LastIndexOf(".", StringComparison.Ordinal)
+            if separator <= 0 || separator + 1 >= defaultText.Length {
+                return false
+            }
+            ownerName := defaultText.Substring(0, separator)
+            memberName := defaultText.Substring(separator + 1)
+            sourceOwner: ColumnarEnumDef? = null
+            sourceParameter: ColumnarEnumDef? = null
+            enumRegistry.TryGetValue(ownerName, out sourceOwner)
+            enumRegistry.TryGetValue(parameterCanonicals[index], out sourceParameter)
+            sourceCanonical := ""
+            sourceClaimed := false
+            if TryCanonicalizeSourceEnumMember(parameterTypes[index], defaultText, sourceOwner, sourceParameter, out sourceCanonical, out sourceClaimed) {
+                canonicalDefaultTexts[index] = sourceCanonical
+                index += 1
+                continue
+            }
+            if sourceClaimed {
+                return false
+            }
+
+            runtimeEnum := typeof(object)
+            runtimeClaimed := false
+            if !enumRegistry.Resolver.TryResolve(ownerName, out runtimeEnum, out runtimeClaimed) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(runtimeEnum, parameterTypes[index]) || runtimeEnum is TypeBuilder || runtimeEnum is EnumBuilder || !runtimeEnum.IsEnum || Enum.GetUnderlyingType(runtimeEnum).FullName != "System.Int32" || !Enum.IsDefined(runtimeEnum, memberName) {
+                return false
+            }
+            fullName := runtimeEnum.FullName
+            if fullName == null || fullName.Length == 0 {
+                return false
+            }
+            canonicalDefaultTexts[index] = fullName + "." + memberName
+            index += 1
+        }
+        return true
+    }
+}
+
+// Live source-type metadata is N#-owned so expression planners can select exact unbaked
+// FieldBuilder/MethodBuilder handles without a C# lookup bridge.
+class ColumnarStructDef {
+    Builder: TypeBuilder
+    DeclaredTypeName: string
+    FieldOrder: string[]
+    Fields: Dictionary<string, FieldBuilder>
+    NullableFields: HashSet<string>
+    GenericParameters: Dictionary<string, Type>?
+    IsReference: bool
+    IsClosureDisplay: bool
+    // THE SCOPE A CLOSURE DISPLAY WAS MADE FOR, and the reason a nested lambda can reach past its own
+    // captures. A display that holds `<>4__this` holds ONE enclosing receiver in it: the declaring
+    // TYPE when the capturing scope is a member body, or the PARENT DISPLAY when the capturing scope
+    // is itself a lambda or local function that made one. Following this link from display to display
+    // is the whole chain a capture at any nesting depth is read through, which is why no arm counts
+    // levels. Null on every type that is not a display, and on a display with no captured receiver.
+    ClosureEnclosingDef: ColumnarStructDef?
+    IsRecord: bool
+    IsNewtype: bool
+    IsInterface: bool
+    // A `duck interface`: the one kind of source interface the structural registration pass may
+    // attach to a type that does not name it. False on every plain (nominal) interface and on every
+    // type that is not an interface.
+    IsDuckInterface: bool
+    InterfaceBases: List<ColumnarStructDef>
+    ImplementedInterfaces: List<ColumnarStructDef>
+    ImplementedInterfaceTypes: List<Type>
+    ExternalInterfaces: List<Type>
+    DefaultInterfaceMethodNames: HashSet<string>
+    DefaultCtor: ConstructorBuilder?
+    BaseDef: ColumnarStructDef?
+    ExactBaseType: Type?
+    Methods: Dictionary<string, ColumnarInstanceMethodDef>
+    // THE INTERFACE SLOTS THIS TYPE FILLED EXPLICITLY, by the slot's METADATA name —
+    // `System.Collections.IEnumerable.GetEnumerator`, which is both the CLR name of the member that
+    // fills it and a unique name for the slot itself.
+    //
+    // The completeness walk asks `Methods` for the interface's member by its SIMPLE name, and an
+    // explicit implementation is deliberately NOT there: its key is the qualified spelling, which is
+    // what makes it unreachable through the declaring type. Without this set the walk would report
+    // every explicitly implemented interface unsatisfied — so the declaration pass records what it
+    // filled, and the walk consults it before it fails.
+    ExplicitInterfaceSlots: HashSet<string>
+    MethodOverloads: Dictionary<string, List<ColumnarInstanceMethodDef>>
+    StaticMethods: Dictionary<string, List<ColumnarStaticMethodDef>>
+    StaticFields: Dictionary<string, FieldBuilder>
+    StaticIntConstants: Dictionary<string, int>
+    StaticProperties: Dictionary<string, ColumnarPropertyDef>
+    Constructors: List<ColumnarConstructorDef>
+    InstanceInitializerFields: HashSet<string>
+    // The N#-owned placement plan for this type's synthesized instance field initializers, and the
+    // synthesized initializer constructor whose body those ordinals index. Left null for a type with no
+    // instance field initializers. ColumnarFieldInitPlanner produces the plan; the emitter consumes its
+    // InlineOrdinals to emit every store directly in each base-reaching constructor, ahead of the base
+    // constructor call.
+    InstanceInitializerPlan: ColumnarFieldInitPlan?
+    InstanceInitializerCtor: ColumnarConstructorInput?
+    Properties: Dictionary<string, ColumnarPropertyDef>
+    // The events this type DECLARES, keyed by the event's own name. `on`/`off` read it because a type
+    // still under construction answers no reflection question — `TypeBuilder.GetEvent` throws — so the
+    // accessors a subscription needs can only come from the definition that created them.
+    Events: Dictionary<string, ColumnarEventDef>
+    // A MEMBER'S TYPE AS WRITTEN, tuple element labels included, keyed by member name. The CLR type a
+    // field or property answers has no element names in it -- `(Item: string, Count: int)` IS
+    // `ValueTuple<string, int>` -- so this is the only place a body can learn that `holder.Pair.Item`
+    // names element one. It carries the LABELLED canonical rather than a flat name list because a
+    // receiver's names may sit one level down (`rows: List<(Item: string, Count: int)>`), and only the
+    // labelled spelling still has them there.
+    MemberLabeledCanonicals: Dictionary<string, string>
+    RecordEquals: MethodBuilder?
+    RecordGetHashCode: MethodBuilder?
+    RecordClone: MethodBuilder?
+    // THE ATTRIBUTES THIS TYPE'S OWN DECLARATION CARRIES, kept because a type under construction
+    // answers no reflection question: `TypeBuilder.GetCustomAttributesData` has nothing to read while
+    // the program that declares the type is still being emitted. The one owner that asks is the
+    // routing of an attribute written on a positional constructor parameter, which needs the
+    // `[AttributeUsage]` of a source-declared attribute class.
+    DeclaredSourceAttributes: ColumnarSourceAttributeInput[]?
+    // THE PRIVATE STORAGE BEHIND AN INIT-ONLY AUTO-PROPERTY, by backing-field name. It is a field in
+    // every table that holds fields, and it is NOT a member a constructor owes an assignment to: an
+    // init-only member is written from OUTSIDE the constructor — an object initializer is its whole
+    // point — and the only code that ever touches this field is the accessor pair the emitter wrote.
+    // The same reasoning exempts a field-like event's backing delegate from the same rule.
+    AutoPropertyBackingFields: HashSet<string>
+
+    constructor(builder: TypeBuilder, fieldOrder: string[], fields: Dictionary<string, FieldBuilder>, isReference: bool, isRecord: bool = false, isClosureDisplay: bool = false, declaredTypeName: string = "") {
+        if builder == null || fieldOrder == null || fields == null || declaredTypeName == null {
+            throw new InvalidOperationException("Columnar source-type metadata cannot be null.")
+        }
+
+        Builder = builder
+        DeclaredTypeName = declaredTypeName
+        FieldOrder = fieldOrder
+        Fields = fields
+        NullableFields = new HashSet<string>(StringComparer.Ordinal)
+        IsReference = isReference
+        IsClosureDisplay = isClosureDisplay
+        ClosureEnclosingDef = null
+        IsRecord = isRecord
+        IsNewtype = false
+        IsInterface = false
+        IsDuckInterface = false
+        InterfaceBases = new List<ColumnarStructDef>()
+        ImplementedInterfaces = new List<ColumnarStructDef>()
+        ImplementedInterfaceTypes = new List<Type>()
+        ExternalInterfaces = new List<Type>()
+        DefaultInterfaceMethodNames = new HashSet<string>(StringComparer.Ordinal)
+        Methods = new Dictionary<string, ColumnarInstanceMethodDef>(StringComparer.Ordinal)
+        ExplicitInterfaceSlots = new HashSet<string>(StringComparer.Ordinal)
+        MethodOverloads = new Dictionary<string, List<ColumnarInstanceMethodDef>>(StringComparer.Ordinal)
+        StaticMethods = new Dictionary<string, List<ColumnarStaticMethodDef>>(StringComparer.Ordinal)
+        StaticFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)
+        StaticIntConstants = new Dictionary<string, int>(StringComparer.Ordinal)
+        StaticProperties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
+        Constructors = new List<ColumnarConstructorDef>()
+        InstanceInitializerFields = new HashSet<string>(StringComparer.Ordinal)
+        Properties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
+        Events = new Dictionary<string, ColumnarEventDef>(StringComparer.Ordinal)
+        MemberLabeledCanonicals = new Dictionary<string, string>(StringComparer.Ordinal)
+        AutoPropertyBackingFields = new HashSet<string>(StringComparer.Ordinal)
+        ExactBaseType = null
+    }
+
+    // Record the resolved base of this source type. A source base supplies the sibling definition;
+    // an external runtime base supplies only the exact handle used by SetParent and base-constructor
+    // chaining. Base classification is decided by ColumnarBaseTypePlanner; this only stores the
+    // result on the owning definition.
+    func RecordBase(baseDefinition: ColumnarStructDef?, exactBaseType: Type) {
+        BaseDef = baseDefinition
+        ExactBaseType = exactBaseType
+    }
+
+    // Define the exact user-constructor handle and its planner-visible signature as one N#
+    // operation. The temporary C# assembly owner may attach parameter metadata and emit the body,
+    // but it cannot construct or partially register semantic constructor facts.
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[]): ConstructorBuilder {
+        return DefineUserConstructor(parameterTypes, defaultKinds, defaultTexts, 0)
+    }
+
+    // Keep the existing three-argument, default-public API while the complete input owner supplies
+    // the source visibility word to the declaration planner's four-argument call.
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int): ConstructorBuilder {
+        return DefineUserConstructor(parameterTypes, defaultKinds, defaultTexts, visibilityModifierFlags, new string[](0))
+    }
+
+    // The five-argument form carries the declaration's PARAMETER NAMES as well, which is what a named
+    // argument at a `new` binds by. An empty list means the registration site had none to carry.
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int, parameterNames: string[]): ConstructorBuilder {
+        return DefineUserConstructor(parameterTypes, defaultKinds, defaultTexts, visibilityModifierFlags, parameterNames, new int[](0))
+    }
+
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int, parameterNames: string[], parameterModifierKinds: int[]): ConstructorBuilder {
+        if parameterTypes == null || defaultKinds == null || defaultTexts == null {
+            throw new InvalidOperationException("Source constructor definition facts cannot be null.")
+        }
+
+        exactParameterTypes := new Type[](parameterTypes.Length)
+        exactDefaultKinds := new int[](parameterTypes.Length)
+        exactDefaultTexts := new string[](parameterTypes.Length)
+        hasExplicitDefaultColumns := defaultKinds.Length != 0 || defaultTexts.Length != 0
+        if hasExplicitDefaultColumns && (defaultKinds.Length != parameterTypes.Length || defaultTexts.Length != parameterTypes.Length) {
+            throw new InvalidOperationException("Source constructor default facts must match the parameter count.")
+        }
+
+        index := 0
+        while index < parameterTypes.Length {
+            if parameterTypes[index] == null {
+                throw new InvalidOperationException("Source constructor parameter types cannot contain null values.")
+            }
+            exactParameterTypes[index] = parameterTypes[index]
+            if hasExplicitDefaultColumns {
+                if defaultTexts[index] == null {
+                    throw new InvalidOperationException("Source constructor default texts cannot contain null values.")
+                }
+                exactDefaultKinds[index] = defaultKinds[index]
+                exactDefaultTexts[index] = defaultTexts[index]
+            } else {
+                exactDefaultKinds[index] = -1
+                exactDefaultTexts[index] = ""
+            }
+            index = index + 1
+        }
+
+        visibility := ColumnarDeclarationPlanner.MethodVisibilityAttributes("Constructor", visibilityModifierFlags)
+        builder := Builder.DefineConstructor((MethodAttributes)visibility, CallingConventions.Standard, exactParameterTypes)
+        exactParameterNames := new string[](parameterTypes.Length)
+        if parameterNames.Length == parameterTypes.Length {
+            nameIndex := 0
+            while nameIndex < parameterTypes.Length {
+                exactParameterNames[nameIndex] = parameterNames[nameIndex] ?? ""
+                nameIndex = nameIndex + 1
+            }
+        } else {
+            blankIndex := 0
+            while blankIndex < parameterTypes.Length {
+                exactParameterNames[blankIndex] = ""
+                blankIndex = blankIndex + 1
+            }
+        }
+
+        exactModifierKinds := new int[](parameterTypes.Length)
+        if parameterModifierKinds.Length == parameterTypes.Length {
+            Array.Copy(parameterModifierKinds, exactModifierKinds, parameterTypes.Length)
+        }
+        Constructors.Add(new ColumnarConstructorDef(builder, exactParameterTypes, exactDefaultKinds, exactDefaultTexts, exactParameterNames, exactModifierKinds))
+        return builder
+    }
+
+    func SetFieldOrder(fieldOrder: string[]) {
+        if fieldOrder == null {
+            throw new InvalidOperationException("Columnar source-type field order cannot be null.")
+        }
+
+        FieldOrder = fieldOrder
+    }
+
+    // Synthesized record value members enter the same exact source-method registry as user
+    // declarations. Defining the MethodBuilder and its signature fact together prevents a later
+    // call owner from reconstructing either fact from an unbaked TypeBuilder.
+    func DefineSynthesizedRecordEquals(): MethodBuilder {
+        if !IsRecord || RecordEquals != null || Methods.ContainsKey("Equals") || MethodOverloads.ContainsKey("Equals") {
+            throw new InvalidOperationException("Synthesized record Equals requires one unclaimed record member slot.")
+        }
+
+        parameterTypes := new Type[](1)
+        parameterTypes[0] = typeof(object)
+        method := Builder.DefineMethod("Equals", (MethodAttributes)198, typeof(bool), parameterTypes)
+        definition := new ColumnarInstanceMethodDef(method, parameterTypes, new int[](0), typeof(bool))
+        overloads := new List<ColumnarInstanceMethodDef>()
+        overloads.Add(definition)
+
+        RecordEquals = method
+        Methods["Equals"] = definition
+        MethodOverloads["Equals"] = overloads
+        return method
+    }
+
+    func DefineSynthesizedRecordGetHashCode(): MethodBuilder {
+        if !IsRecord || RecordGetHashCode != null || Methods.ContainsKey("GetHashCode") || MethodOverloads.ContainsKey("GetHashCode") {
+            throw new InvalidOperationException("Synthesized record GetHashCode requires one unclaimed record member slot.")
+        }
+
+        parameterTypes := new Type[](0)
+        method := Builder.DefineMethod("GetHashCode", (MethodAttributes)198, typeof(int), parameterTypes)
+        definition := new ColumnarInstanceMethodDef(method, parameterTypes, new int[](0), typeof(int))
+        overloads := new List<ColumnarInstanceMethodDef>()
+        overloads.Add(definition)
+
+        RecordGetHashCode = method
+        Methods["GetHashCode"] = definition
+        MethodOverloads["GetHashCode"] = overloads
+        return method
+    }
+}
+
+// Exact read-only view of the active `this` chain. Production facts wrap the live source
+// definitions without copying their mutable declaration maps; native owner tests can instead
+// provide baked runtime handles. Lookup and cycle rejection live here as one semantic authority.
+class ColumnarCurrentPropertyFact {
+    Getter: MethodInfo
+    PropertyType: Type
+    GetterParameterCount: int
+
+    constructor(getter: MethodInfo, propertyType: Type, getterParameterCount: int) {
+        if getter == null || propertyType == null || getterParameterCount < 0 {
+            throw new InvalidOperationException("Current-instance property facts cannot be null.")
+        }
+
+        Getter = getter
+        PropertyType = propertyType
+        GetterParameterCount = getterParameterCount
+    }
+}
+
+class ColumnarCurrentInstanceFacts {
+    ExactType: Type
+    IsReference: bool
+    IsClosureDisplay: bool
+    SourceDefinition: ColumnarStructDef?
+    Fields: Dictionary<string, FieldInfo>
+    Properties: Dictionary<string, ColumnarCurrentPropertyFact>
+    BaseFacts: ColumnarCurrentInstanceFacts?
+
+    constructor(exactType: Type, isReference: bool, isClosureDisplay: bool = false) {
+        if exactType == null {
+            throw new InvalidOperationException("Current-instance exact type cannot be null.")
+        }
+
+        ExactType = exactType
+        IsReference = isReference
+        IsClosureDisplay = isClosureDisplay
+        SourceDefinition = null
+        Fields = new Dictionary<string, FieldInfo>(StringComparer.Ordinal)
+        Properties = new Dictionary<string, ColumnarCurrentPropertyFact>(StringComparer.Ordinal)
+    }
+
+    static func FromSourceDefinition(source: ColumnarStructDef): ColumnarCurrentInstanceFacts {
+        if source == null {
+            throw new InvalidOperationException("Current-instance source definition cannot be null.")
+        }
+
+        result := new ColumnarCurrentInstanceFacts(source.Builder, source.IsReference, source.IsClosureDisplay)
+
+        result.SourceDefinition = source
+        return result
+    }
+
+    static func TryFindField(root: ColumnarCurrentInstanceFacts, name: string, out field: FieldInfo?, out declaringType: Type): bool {
+        if root == null || name == null {
+            throw new InvalidOperationException("Current-instance field lookup facts cannot be null.")
+        }
+
+        if root.SourceDefinition != null {
+            ValidateSourceHierarchy(root.SourceDefinition)
+            current: ColumnarStructDef? = root.SourceDefinition
+            while current != null {
+                if current.Fields.ContainsKey(name) {
+                    field = AsFieldInfo(current.Fields[name])
+                    declaringType = current.Builder
+                    return true
+                }
+
+                current = current.BaseDef
+            }
+        } else {
+            ValidateRuntimeHierarchy(root)
+            currentFacts: ColumnarCurrentInstanceFacts? = root
+            while currentFacts != null {
+                if currentFacts.SourceDefinition != null {
+                    throw new InvalidOperationException("Current-instance runtime facts cannot mix source definitions into their base chain.")
+                }
+
+                if currentFacts.Fields.ContainsKey(name) {
+                    field = currentFacts.Fields[name]
+                    declaringType = currentFacts.ExactType
+                    return true
+                }
+
+                currentFacts = currentFacts.BaseFacts
+            }
+        }
+
+        field = null
+        declaringType = typeof(object)
+        return false
+    }
+
+    static func TryFindProperty(root: ColumnarCurrentInstanceFacts, name: string, out getter: MethodInfo?, out propertyType: Type, out declaringType: Type): bool {
+        if root == null || name == null {
+            throw new InvalidOperationException("Current-instance property lookup facts cannot be null.")
+        }
+
+        if root.SourceDefinition != null {
+            ValidateSourceHierarchy(root.SourceDefinition)
+            current: ColumnarStructDef? = root.SourceDefinition
+            while current != null {
+                if current.Properties.ContainsKey(name) {
+                    property := current.Properties[name]
+                    getter = AsMethodInfo(property.Getter)
+                    propertyType = property.PropertyType
+                    if property.GetterParameterCount != 0 {
+                        throw new InvalidOperationException("Source property getter facts must declare zero parameters.")
+                    }
+
+                    declaringType = current.Builder
+                    return true
+                }
+
+                current = current.BaseDef
+            }
+        } else {
+            ValidateRuntimeHierarchy(root)
+            currentFacts: ColumnarCurrentInstanceFacts? = root
+            while currentFacts != null {
+                if currentFacts.SourceDefinition != null {
+                    throw new InvalidOperationException("Current-instance runtime facts cannot mix source definitions into their base chain.")
+                }
+
+                if currentFacts.Properties.ContainsKey(name) {
+                    property := currentFacts.Properties[name]
+                    getter = property.Getter
+                    propertyType = property.PropertyType
+                    if property.GetterParameterCount != 0 {
+                        throw new InvalidOperationException("Current-instance property getter facts must declare zero parameters.")
+                    }
+
+                    declaringType = currentFacts.ExactType
+                    return true
+                }
+
+                currentFacts = currentFacts.BaseFacts
+            }
+        }
+
+        getter = null
+        propertyType = typeof(object)
+        declaringType = typeof(object)
+        return false
+    }
+
+    static func ValidateSourceHierarchy(root: ColumnarStructDef) {
+        slow: ColumnarStructDef? = root
+        fast: ColumnarStructDef? = root
+        while fast != null && fast.BaseDef != null {
+            if slow != null {
+                slow = slow.BaseDef
+            }
+
+            next := fast.BaseDef
+            if next == null {
+                return
+            }
+
+            fast = next.BaseDef
+            if slow != null && slow == fast {
+                throw new InvalidOperationException("Current-instance source hierarchy contains a cycle.")
+            }
+        }
+    }
+
+    static func ValidateRuntimeHierarchy(root: ColumnarCurrentInstanceFacts) {
+        slow: ColumnarCurrentInstanceFacts? = root
+        fast: ColumnarCurrentInstanceFacts? = root
+        while fast != null && fast.BaseFacts != null {
+            if slow != null {
+                slow = slow.BaseFacts
+            }
+
+            next := fast.BaseFacts
+            if next == null {
+                return
+            }
+
+            fast = next.BaseFacts
+            if slow != null && slow == fast {
+                throw new InvalidOperationException("Current-instance runtime hierarchy contains a cycle.")
+            }
+        }
+    }
+
+    static func AsFieldInfo(value: FieldInfo): FieldInfo {
+        return value
+    }
+
+    static func AsMethodInfo(value: MethodInfo): MethodInfo {
+        return value
+    }
+}

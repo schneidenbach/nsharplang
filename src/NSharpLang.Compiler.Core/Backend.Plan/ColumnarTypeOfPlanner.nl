@@ -1,0 +1,2057 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
+import System.Text
+import System.Text.Json
+import System.Threading
+import System.Threading.Tasks
+import Mono.Cecil
+import NSharpLang.Compiler
+import YamlDotNet.Serialization
+
+
+// Direct owner for `typeof(Type)`. The embedded type subtree is semantic input, not expression
+// text: N# reconstructs its canonical shape, resolves the exact live runtime/TypeBuilder handle,
+// and records the CLR `ldtoken; Type.GetTypeFromHandle` lowering in a validated schema-v3 plan.
+// The append seam is shared by direct roots and ordinary instance-member receivers.
+class ColumnarTypeOfPlanner {
+    static func MayPlanRoot(nodes: ColumnarNodeTable, node: int): bool {
+        if nodes == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression
+    }
+
+    // A parsed typeof root is terminal even when its type facts are corrupt or unavailable. The
+    // legacy owner must never get a second opportunity to reinterpret the same type syntax.
+    static func ClaimsRoot(nodes: ColumnarNodeTable, node: int): bool {
+        return MayPlanRoot(nodes, node)
+    }
+
+    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out resultType: Type): bool {
+        if Plan(nodes, source, node, bindings, plan) != ColumnarFragmentPlanStatus.Planned {
+            resultType = typeof(Type)
+            return false
+        }
+        ColumnarCodePlanExecutor.Execute(plan, il)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "typeof expression")
+        return true
+    }
+
+    static func TryGetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        ValidateInputs(nodes, source, node, bindings, plan)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        selected := ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression && (!TryResolveTarget(nodes, source, candidate, bindings, out selected) || !IsSupportedTypeOfTarget(selected.RuntimeType)) {
+            plan.PrepareV3()
+            resultType = typeof(Type)
+            return false
+        }
+        if Plan(nodes, source, node, bindings, plan) != ColumnarFragmentPlanStatus.Planned {
+            resultType = typeof(Type)
+            return false
+        }
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "typeof expression")
+        return true
+    }
+
+    // 015-B16 — THE ROOT-APPEND SEQUENCE, FACTORED OUT OF `Plan` SO THE METHOD-BODY DOOR CAN ENTER
+    // THE SEQUENCE `Plan` ITSELF RUNS.
+    //
+    // The `015-B6`/`015-B7`/`015-B14`/`015-B15` factoring for the FOURTH time, and the rule is the same
+    // every time: everything between the kind test and `CompleteFragment` inclusive is the root-append
+    // sequence; `PrepareV3`/`CompleteV3` are the wrapper `Plan` keeps. The door calls this directly, so
+    // a claimed `typeof` root is byte-identical to the cascade's FIFTH arm BY CONSTRUCTION rather than
+    // by a transcription that could drift.
+    //
+    // ⚠ AND IT KEEPS THE `try`/`catch`, WHICH IS WHERE THIS OWNER DIFFERS FROM `015-B15`'s.
+    // `ColumnarExternalStaticMemberPlanner.TryAppendRoot` carries none, because that owner's `Plan`
+    // carried none. This owner's `Plan` DOES (`catch ex { Rollback; throw ex }`), so the factored
+    // sequence carries it too. The rule runs in both directions: the factored sequence is the sequence
+    // `Plan` runs, no more and no less.
+    //
+    // The cascade's fifth arm is UNCONDITIONAL (`nsharpOwned = true; return TryEmit(…)`), so the host
+    // already declines the whole FUNCTION for a `typeof` root this owner cannot plan. A door decline is
+    // therefore a narrowing of the BODY and never of the function — the opposite risk profile from the
+    // cascade's eighth arm, and the reason kind 55 was separable while `o.Inner.V` is not.
+    static func TryAppendRoot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(Type)
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.TypeOfExpression {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.TypeOfExpression, candidate)
+            if !TryAppendTypeOf(nodes, source, candidate, bindings, plan, out resultType) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            plan.CompleteFragment(fragment, resultType)
+            return true
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+    }
+
+    static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
+        ValidateInputs(nodes, source, node, bindings, plan)
+        plan.PrepareV3()
+        resultType := typeof(Type)
+        if !TryAppendRoot(nodes, source, node, bindings, plan, out resultType) {
+            return plan.Status
+        }
+
+        plan.CompleteV3(resultType)
+        return plan.Status
+    }
+
+    static func TryAppendTypeOf(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(Type)
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression || nodes.ChildCount(node) != 1 {
+            return false
+        }
+        // 015-B6: a schema-v4 METHOD BODY is admitted alongside v3. This gate threw — a hard crash out
+        // of the compiler, not a decline — on every method-body plan, and ALL NINE owners that carried
+        // it were widened in ONE move because the value surface routes by operand kind: admitting a
+        // subset would mean pre-scanning operands to predict which owner they reach, which is a second
+        // copy of the dispatcher's own decision.
+        // It appends one ldtoken/call pair and recurses into nothing, but its callers are
+        // composites.
+        if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Typeof append requires an open schema-v3 or method-body plan.")
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            selected := ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
+            if !TryResolveTarget(nodes, source, node, bindings, out selected) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            targetIndex := plan.AddType(selected, bindings.StructuralTypeReferences)
+            plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldtoken(), targetIndex)
+
+            handleParameters := new Type[](1)
+            handleParameters[0] = typeof(RuntimeTypeHandle)
+            getTypeFromHandle := typeof(Type).GetMethod("GetTypeFromHandle", handleParameters)
+            if getTypeFromHandle == null || !getTypeFromHandle.IsStatic || getTypeFromHandle.DeclaringType != typeof(Type) || getTypeFromHandle.ReturnType != typeof(Type) || getTypeFromHandle.GetParameters().Length != 1 {
+                throw new InvalidOperationException("System.Type.GetTypeFromHandle has an unexpected runtime signature.")
+            }
+            methodIndex := plan.AddMethodWithSignature(getTypeFromHandle, typeof(Type), handleParameters, typeof(Type), true, false)
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+            return true
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+    }
+
+    static func TryResolveTarget(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out selected: ColumnarSelectedTypeReference): bool {
+        selected = null
+        if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression || nodes.ChildCount(node) != 1 {
+            return false
+        }
+        selected = ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
+        canonical := ""
+        if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), 0, out canonical) {
+            return false
+        }
+        // `typeof` IS THE ONE TYPE POSITION THAT ADMITS `void`.
+        //
+        // `AnalyzerTypeReferenceFacts` already states the split: `void` is a built-in SPELLING the
+        // analyzer resolves everywhere a return type is written, but
+        // `ColumnarBindingScopeFacts.TryResolveExplicitBuiltin` deliberately binds the other
+        // seventeen and not this one, "because `void` is not a type a local can hold". That refusal
+        // is the reason `x: void` and `new void[](1)` do not bind, and it must stay.
+        //
+        // `typeof(void)` is the exception the CLR itself carries (C# §12.8.18: the type argument of
+        // `typeof` may be `void`, and ONLY there). It lowers to the same `ldtoken`/`GetTypeFromHandle`
+        // pair as every other target and yields `System.Void` — an ordinary external named identity
+        // in the structural pool. So the admission is stated HERE, in the typeof owner, where it
+        // cannot leak into a storage position, rather than by widening the explicit-type builtin set.
+        if canonical == "void" {
+            selected = bindings.StructuralTypeReferences.SelectRuntimeType(RequiredVoidType())
+            return true
+        }
+        scope := ColumnarBindingScopeFacts.Of(nodes)
+        if scope != null && !canonical.Contains("|") {
+            claimed := false
+            targetType := typeof(object)
+            resolved := scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out targetType, out claimed)
+            if resolved {
+                exactSourceName := ""
+                sourceClaimed := false
+                scope.TryResolveExactSourceDeclarationNameInContext(nodes.EnclosingTypeName, canonical, out exactSourceName, out sourceClaimed)
+                selected = bindings.StructuralTypeReferences.SelectResolvedRuntimeType(targetType, exactSourceName)
+            }
+            return resolved
+        }
+        // Anonymous unions retain their dedicated structural resolver. Detached planner facts have
+        // no source/import catalog; the standalone resolver remains their explicit input surface.
+        targetType := typeof(object)
+        resolved := TryResolveType(canonical, bindings, out targetType)
+        if resolved {
+            selected = bindings.StructuralTypeReferences.SelectRuntimeType(targetType)
+        }
+        return resolved
+    }
+
+    static func TryBuildTypeCanonical(nodes: ColumnarNodeTable, source: string, node: int, depth: int, out canonical: string): bool {
+        canonical = ""
+        if depth > 200 || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression {
+            if nodes.ChildCount(node) != 0 {
+                return false
+            }
+            canonical = nodes.Text(source, node)
+            return canonical.Length > 0
+        }
+
+        if kind == ColumnarExpressionNodeKind.FloatLiteralExpression {
+            childCount := nodes.ChildCount(node)
+            name := nodes.Text(source, node)
+            if childCount == 0 || name.Length == 0 {
+                return false
+            }
+            builder := new StringBuilder()
+            builder.Append(name)
+            builder.Append("<")
+            i := 0
+            while i < childCount {
+                if i > 0 {
+                    builder.Append(",")
+                }
+                argument := ""
+                if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, i), depth + 1, out argument) {
+                    return false
+                }
+                builder.Append(argument)
+                i += 1
+            }
+            builder.Append(">")
+            canonical = builder.ToString()
+            return true
+        }
+
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression {
+            if nodes.ChildCount(node) != 1 {
+                return false
+            }
+            element := ""
+            if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out element) {
+                return false
+            }
+            canonical = element + (kind == ColumnarExpressionNodeKind.CharLiteralExpression ? "[]" : "?")
+            return true
+        }
+
+        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression {
+            childCount := nodes.ChildCount(node)
+            if childCount != 2 {
+                return false
+            }
+            builder := new StringBuilder()
+            i := 0
+            while i < childCount {
+                if i > 0 {
+                    builder.Append("|")
+                }
+                arm := ""
+                if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, i), depth + 1, out arm) {
+                    return false
+                }
+                builder.Append(arm)
+                i += 1
+            }
+            canonical = builder.ToString()
+            return true
+        }
+
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
+            childCount := nodes.ChildCount(node)
+            if childCount < 2 || childCount > 7 {
+                return false
+            }
+            builder := new StringBuilder()
+            builder.Append("ValueTuple<")
+            i := 0
+            while i < childCount {
+                if i > 0 {
+                    builder.Append(",")
+                }
+                element := ""
+                if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, i), depth + 1, out element) {
+                    return false
+                }
+                builder.Append(element)
+                i += 1
+            }
+            builder.Append(">")
+            canonical = builder.ToString()
+            return true
+        }
+
+        // A named tuple element is transparent to CLR type identity.
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(node) == 1 {
+            return TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out canonical)
+        }
+        return false
+    }
+
+    static func TryResolveType(canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        result = typeof(object)
+        if canonical == null || canonical.Length == 0 || bindings == null {
+            return false
+        }
+
+        unionParts := SplitTopLevelPipes(canonical)
+        if unionParts.Count > 0 {
+            if unionParts.Count != 2 {
+                return false
+            }
+            left := typeof(object)
+            right := typeof(object)
+            leftCanonical := unionParts[0]
+            rightCanonical := unionParts[1]
+            unionDefinition := typeof(object)
+            if !TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.Union`2", "NSharpLang.Runtime", out unionDefinition) || !TryResolveType(leftCanonical, bindings, out left) || !TryResolveType(rightCanonical, bindings, out right) || !IsSupportedAnonymousUnionArm(left) || !IsSupportedAnonymousUnionArm(right) || RuntimeTypeShapeFacts.ExactTypeShapeMatches(left, right) {
+                return false
+            }
+            arguments := new Type[](2)
+            arguments[0] = left
+            arguments[1] = right
+            result = unionDefinition.MakeGenericType(arguments)
+            return true
+        }
+
+        if canonical.EndsWith("[]", StringComparison.Ordinal) {
+            element := typeof(object)
+            if !TryResolveType(canonical.Substring(0, canonical.Length - 2), bindings, out element) || !IsSupportedElementType(element) {
+                return false
+            }
+            result = element.MakeArrayType()
+            return true
+        }
+
+        if canonical.EndsWith("?", StringComparison.Ordinal) {
+            element := typeof(object)
+            if !TryResolveType(canonical.Substring(0, canonical.Length - 1), bindings, out element) {
+                return false
+            }
+            if !element.IsValueType {
+                result = element
+                return true
+            }
+            if !IsLiftableNullableElement(element) {
+                return false
+            }
+            definition := RequiredNullableDefinition()
+            arguments := new Type[](1)
+            arguments[0] = element
+            result = definition.MakeGenericType(arguments)
+            return true
+        }
+
+        if TryResolveSpecialKnownType(canonical, out result) {
+            return true
+        }
+
+        runtimeIdentity := ""
+        if ColumnarExternalBindingPlans.TryGetRuntimeTypeName(canonical, out runtimeIdentity) {
+            runtimeType := Type.GetType(runtimeIdentity)
+            if runtimeType != null {
+                result = runtimeType
+                return true
+            }
+        }
+
+        if TryResolveKnownExternalType(canonical, out result) || TryResolveExceptionType(canonical, out result) {
+            return true
+        }
+
+        if canonical.Length >= 2 && canonical[0] == '(' && canonical[canonical.Length - 1] == ')' {
+            argumentText := canonical.Substring(1, canonical.Length - 2)
+            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(argumentText)
+            definition := OpenValueTupleType(argumentCanonicals.Count)
+            if definition == null {
+                return false
+            }
+            arguments := new Type[](argumentCanonicals.Count)
+            i := 0
+            while i < arguments.Length {
+                argumentType := typeof(object)
+                argumentCanonical := argumentCanonicals[i]
+                if !TryResolveType(argumentCanonical, bindings, out argumentType) {
+                    return false
+                }
+                arguments[i] = argumentType
+                i += 1
+            }
+            result = definition.MakeGenericType(arguments)
+            return IsSupportedValueTuple(result)
+        }
+
+        if canonical.StartsWith("Func<", StringComparison.Ordinal) && canonical.EndsWith(">", StringComparison.Ordinal) {
+            return TryResolveDelegate(canonical.Substring(5, canonical.Length - 6), true, bindings, out result)
+        }
+
+        genericOpen := canonical.IndexOf("<", StringComparison.Ordinal)
+        if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
+            head := canonical.Substring(0, genericOpen)
+            shortHead := ColumnarTypeCanonicalizer.UnqualifiedTypeName(head)
+            if shortHead != head {
+                return TryResolveType(shortHead + canonical.Substring(genericOpen), bindings, out result)
+            }
+
+            if IsCollectionHead(head) && HasSourceTypeNamed(head, bindings) {
+                return false
+            }
+
+            if TryResolveClosedSourceGeneric(canonical, genericOpen, bindings, out result) {
+                return true
+            }
+
+            argumentText := canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(argumentText)
+
+            if head == "Action" {
+                return TryResolveDelegate(argumentText, false, bindings, out result)
+            }
+            if head == "Span" || head == "ReadOnlySpan" {
+                element := typeof(object)
+                elementCanonical := ""
+                if argumentCanonicals.Count == 1 {
+                    elementCanonical = argumentCanonicals[0]
+                }
+                if argumentCanonicals.Count != 1 || !TryResolveType(elementCanonical, bindings, out element) || !IsSupportedReadOnlySpanElement(element) {
+                    return false
+                }
+                definition := (head == "Span" ? typeof(Span<int>) : typeof(ReadOnlySpan<int>)).GetGenericTypeDefinition()
+                arguments := new Type[](1)
+                arguments[0] = element
+                result = definition.MakeGenericType(arguments)
+                return true
+            }
+            if head == "ValueTuple" {
+                definition := OpenValueTupleType(argumentCanonicals.Count)
+                if definition == null {
+                    return false
+                }
+                arguments := new Type[](argumentCanonicals.Count)
+                i := 0
+                while i < arguments.Length {
+                    argumentType := typeof(object)
+                    argumentCanonical := argumentCanonicals[i]
+                    if !TryResolveType(argumentCanonical, bindings, out argumentType) {
+                        return false
+                    }
+                    arguments[i] = argumentType
+                    i += 1
+                }
+                result = definition.MakeGenericType(arguments)
+                return IsSupportedValueTuple(result)
+            }
+            if head == "Task" || head == "ValueTask" {
+                element := typeof(object)
+                elementCanonical := ""
+                if argumentCanonicals.Count == 1 {
+                    elementCanonical = argumentCanonicals[0]
+                }
+                if argumentCanonicals.Count != 1 || !TryResolveType(elementCanonical, bindings, out element) || !IsSupportedType(element) {
+                    return false
+                }
+                definition := (head == "Task" ? typeof(Task<int>) : typeof(ValueTask<int>)).GetGenericTypeDefinition()
+                arguments := new Type[](1)
+                arguments[0] = element
+                result = definition.MakeGenericType(arguments)
+                return true
+            }
+            if head == "Result" {
+                definition := typeof(object)
+                first := typeof(object)
+                second := typeof(object)
+                firstCanonical := ""
+                secondCanonical := ""
+                if argumentCanonicals.Count == 2 {
+                    firstCanonical = argumentCanonicals[0]
+                    secondCanonical = argumentCanonicals[1]
+                }
+                if !TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.Result`2", "NSharpLang.Runtime", out definition) || argumentCanonicals.Count != 2 || !TryResolveType(firstCanonical, bindings, out first) || !TryResolveType(secondCanonical, bindings, out second) || RuntimeTypeShapeFacts.IsByRefLike(first) || RuntimeTypeShapeFacts.IsByRefLike(second) || !IsSupportedType(first) || !IsSupportedType(second) {
+                    return false
+                }
+                arguments := new Type[](2)
+                arguments[0] = first
+                arguments[1] = second
+                result = definition.MakeGenericType(arguments)
+                return true
+            }
+
+            return TryResolveCollection(head, argumentCanonicals, bindings, out result)
+        }
+
+        if TryResolveEnum(canonical, bindings, out result) || TryResolveSourceType(canonical, bindings, out result) || TryResolveSourceUnion(canonical, bindings, out result) {
+            return true
+        }
+
+        if canonical == "Action" {
+            result = typeof(Action)
+            return true
+        }
+
+        if TryResolveBuiltinType(canonical, out result) {
+            return true
+        }
+
+        if canonical.Contains(".") {
+            shortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(canonical)
+            if shortName != canonical {
+                return TryResolveType(shortName, bindings, out result)
+            }
+        }
+        return false
+    }
+
+    static func TryResolveRuntimeGenericDefinition(fullName: string, assemblyName: string, out result: Type): bool {
+        result = typeof(object)
+        qualifiedName := fullName + ", " + assemblyName
+        direct := Type.GetType(qualifiedName)
+        if direct != null && direct.IsGenericTypeDefinition {
+            result = direct
+            return true
+        }
+
+        // `ExternalAssemblyScan` owns every read of the process's loaded assemblies; this is the
+        // same unfiltered snapshot in the same order the `AppDomain` call gave.
+        assemblies := ExternalAssemblyScan.LoadedAcrossContexts()
+        for assembly in assemblies {
+            identity := assembly.GetName().FullName
+            if String.Equals(identity, assemblyName, StringComparison.Ordinal) || identity.StartsWith(assemblyName + ",", StringComparison.Ordinal) {
+                candidate := assembly.GetType(fullName)
+                if candidate != null && candidate.IsGenericTypeDefinition {
+                    result = candidate
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // The catalogue's `IComparable`-admitting projection, with this owner's `object` on the false
+    // path restored for the same reason.
+    static func TryResolveSpecialKnownType(canonical: string, out result: Type): bool {
+        if WellKnownTypeCatalog.TryResolveSpecialKnownTypeOrComparable(canonical, out result) {
+            return true
+        }
+
+        result = typeof(object)
+        return false
+    }
+
+    // `WellKnownTypeCatalog` owns the table. This owner has always left `object` in `result` when
+    // the name is not a builtin, and a caller may read it, so the value is restored here.
+    static func TryResolveBuiltinType(canonical: string, out result: Type): bool {
+        if WellKnownTypeCatalog.TryResolveBuiltinType(canonical, out result) {
+            return true
+        }
+
+        result = typeof(object)
+        return false
+    }
+
+    static func TryResolveKnownExternalType(canonical: string, out result: Type): bool {
+        result = typeof(object)
+        fullName := ""
+        if canonical == "IYamlTypeConverter" || canonical == "YamlDotNet.Serialization.IYamlTypeConverter" {
+            fullName = "YamlDotNet.Serialization.IYamlTypeConverter"
+        } else if canonical == "ObjectDeserializer" || canonical == "YamlDotNet.Serialization.ObjectDeserializer" {
+            fullName = "YamlDotNet.Serialization.ObjectDeserializer"
+        } else if canonical == "ObjectSerializer" || canonical == "YamlDotNet.Serialization.ObjectSerializer" {
+            fullName = "YamlDotNet.Serialization.ObjectSerializer"
+        } else if canonical == "DeserializerBuilder" || canonical == "YamlDotNet.Serialization.DeserializerBuilder" {
+            fullName = "YamlDotNet.Serialization.DeserializerBuilder"
+        } else if canonical == "IDeserializer" || canonical == "YamlDotNet.Serialization.IDeserializer" {
+            fullName = "YamlDotNet.Serialization.IDeserializer"
+        } else if canonical == "INamingConvention" || canonical == "YamlDotNet.Serialization.INamingConvention" {
+            fullName = "YamlDotNet.Serialization.INamingConvention"
+        } else if canonical == "CamelCaseNamingConvention" || canonical == "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention" {
+            fullName = "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention"
+        } else if canonical == "IParser" || canonical == "YamlDotNet.Core.IParser" {
+            fullName = "YamlDotNet.Core.IParser"
+        } else if canonical == "IEmitter" || canonical == "YamlDotNet.Core.IEmitter" {
+            fullName = "YamlDotNet.Core.IEmitter"
+        } else if canonical == "YamlException" || canonical == "YamlDotNet.Core.YamlException" {
+            fullName = "YamlDotNet.Core.YamlException"
+        } else if canonical == "ParsingEvent" || canonical == "YamlDotNet.Core.Events.ParsingEvent" {
+            fullName = "YamlDotNet.Core.Events.ParsingEvent"
+        } else if canonical == "Scalar" || canonical == "YamlDotNet.Core.Events.Scalar" {
+            fullName = "YamlDotNet.Core.Events.Scalar"
+        } else if canonical == "MappingStart" || canonical == "YamlDotNet.Core.Events.MappingStart" {
+            fullName = "YamlDotNet.Core.Events.MappingStart"
+        } else if canonical == "MappingEnd" || canonical == "YamlDotNet.Core.Events.MappingEnd" {
+            fullName = "YamlDotNet.Core.Events.MappingEnd"
+        }
+        if fullName.Length > 0 {
+            yamlType := typeof(IYamlTypeConverter).Assembly.GetType(fullName)
+            if yamlType != null {
+                result = yamlType
+                return true
+            }
+            return false
+        }
+
+        if canonical == "JsonElement" || canonical == "System.Text.Json.JsonElement" {
+            result = typeof(JsonElement)
+            return true
+        }
+        if canonical == "JsonDocument" || canonical == "System.Text.Json.JsonDocument" {
+            result = typeof(JsonDocument)
+            return true
+        }
+        if canonical == "JsonValueKind" || canonical == "System.Text.Json.JsonValueKind" {
+            result = typeof(JsonValueKind)
+            return true
+        }
+        if canonical == "JsonSerializerOptions" || canonical == "System.Text.Json.JsonSerializerOptions" {
+            result = typeof(JsonSerializerOptions)
+            return true
+        }
+        if canonical == "JsonNamingPolicy" || canonical == "System.Text.Json.JsonNamingPolicy" {
+            result = typeof(JsonNamingPolicy)
+            return true
+        }
+
+        if canonical == "TypeDefinition" || canonical == "Mono.Cecil.TypeDefinition" {
+            result = typeof(TypeDefinition)
+            return true
+        }
+        if canonical == "ExportedType" || canonical == "Mono.Cecil.ExportedType" {
+            result = typeof(ExportedType)
+            return true
+        }
+        if canonical == "AssemblyNameReference" || canonical == "Mono.Cecil.AssemblyNameReference" {
+            result = typeof(AssemblyNameReference)
+            return true
+        }
+        if canonical == "TypeReference" || canonical == "Mono.Cecil.TypeReference" {
+            result = typeof(Mono.Cecil.TypeReference)
+            return true
+        }
+
+        aspNetName := canonical
+        if canonical == "WebApplication" {
+            aspNetName = "Microsoft.AspNetCore.Builder.WebApplication"
+        } else if canonical == "WebApplicationBuilder" {
+            aspNetName = "Microsoft.AspNetCore.Builder.WebApplicationBuilder"
+        } else if canonical == "HttpContext" {
+            aspNetName = "Microsoft.AspNetCore.Http.HttpContext"
+        } else if canonical == "HttpRequest" {
+            aspNetName = "Microsoft.AspNetCore.Http.HttpRequest"
+        } else if canonical == "HttpResponse" {
+            aspNetName = "Microsoft.AspNetCore.Http.HttpResponse"
+        } else if canonical == "RequestDelegate" {
+            aspNetName = "Microsoft.AspNetCore.Http.RequestDelegate"
+        } else if canonical == "IResult" {
+            aspNetName = "Microsoft.AspNetCore.Http.IResult"
+        } else if !canonical.Contains(".") {
+            return false
+        }
+
+        assemblies := ExternalAssemblyScan.Loaded()
+        for assembly in assemblies {
+            try {
+                candidate := assembly.GetType(aspNetName)
+                if candidate != null && IsSupportedExternalType(candidate) {
+                    result = candidate
+                    return true
+                }
+            } catch {
+            }
+            // A later loaded assembly may carry the exact supported type.
+        }
+        return false
+    }
+
+    // ONE EXCEPTION-RESOLUTION PATH FOR THE WHOLE COMPILER. This owner used to carry its own copy of
+    // the admitted-exception list beside `ColumnarCanonicalTypeResolver`'s, and the two drifted: a
+    // qualified `System.ArrayTypeMismatchException` was in one and not the other. There is no list any
+    // more, and there is no second resolver — this forwards.
+    static func TryResolveExceptionType(canonical: string, out result: Type): bool {
+        return ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(canonical, out result)
+    }
+
+    static func TryResolveCollection(head: string, argumentCanonicals: List<string>, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        result = typeof(object)
+        if head == "List" || head == "HashSet" || head == "SortedSet" || head == "Stack" || head == "IReadOnlyList" || head == "IReadOnlyCollection" || head == "IReadOnlySet" || head == "IEnumerable" {
+            element := typeof(object)
+            elementCanonical := ""
+            if argumentCanonicals.Count == 1 {
+                elementCanonical = argumentCanonicals[0]
+            }
+            if argumentCanonicals.Count != 1 || !TryResolveType(elementCanonical, bindings, out element) {
+                return false
+            }
+            if head == "HashSet" || head == "IReadOnlySet" {
+                if !IsAdmissibleHashSetElement(element) {
+                    return false
+                }
+            } else if !IsAdmissibleCollectionElement(element) {
+                return false
+            }
+            definition := typeof(List<int>).GetGenericTypeDefinition()
+            if head == "HashSet" {
+                definition = typeof(HashSet<int>).GetGenericTypeDefinition()
+            } else if head == "SortedSet" {
+                definition = typeof(SortedSet<int>).GetGenericTypeDefinition()
+            } else if head == "Stack" {
+                definition = typeof(Stack<int>).GetGenericTypeDefinition()
+            } else if head == "IReadOnlyList" {
+                definition = typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
+            } else if head == "IReadOnlyCollection" {
+                definition = typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()
+            } else if head == "IReadOnlySet" {
+                definition = typeof(IReadOnlySet<int>).GetGenericTypeDefinition()
+            } else if head == "IEnumerable" {
+                definition = typeof(IEnumerable<int>).GetGenericTypeDefinition()
+            }
+            arguments := new Type[](1)
+            arguments[0] = element
+            result = definition.MakeGenericType(arguments)
+            return true
+        }
+
+        // The three two-argument heads. `IReadOnlyDictionary` is the READ-ONLY mirror of `Dictionary` and
+        // takes `Dictionary`'s key admissibility exactly (an enum key is allowed; any other builder-bound
+        // key is not); only `SortedDictionary` keeps the stricter key rule its comparer needs.
+        if head == "Dictionary" || head == "SortedDictionary" || head == "IReadOnlyDictionary" {
+            key := typeof(object)
+            value := typeof(object)
+            keyCanonical := ""
+            valueCanonical := ""
+            if argumentCanonicals.Count == 2 {
+                keyCanonical = argumentCanonicals[0]
+                valueCanonical = argumentCanonicals[1]
+            }
+            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? RuntimeTypeShapeFacts.ContainsBuilderBoundType(key) : !IsAdmissibleDictionaryKey(key)) || !IsAdmissibleCollectionElement(value) {
+                return false
+            }
+            definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
+            if head == "SortedDictionary" {
+                definition = typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
+            } else if head == "IReadOnlyDictionary" {
+                definition = RequiredReadOnlyDictionaryDefinition()
+            }
+            arguments := new Type[](2)
+            arguments[0] = key
+            arguments[1] = value
+            result = definition.MakeGenericType(arguments)
+            return true
+        }
+        return false
+    }
+
+    static func TryResolveDelegate(argumentText: string, hasReturn: bool, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        result = typeof(object)
+        parts := ColumnarTypeCanonicalizer.SplitTopLevelCommas(argumentText)
+        if parts.Count == 0 {
+            return false
+        }
+        parameterCount := parts.Count
+        voidType := RequiredVoidType()
+        returnType := voidType
+        if hasReturn {
+            parameterCount -= 1
+            returnCanonical := parts[parameterCount]
+            if returnCanonical != "void" && (!TryResolveType(returnCanonical, bindings, out returnType) || IsAssemblyBuilderBacked(returnType)) {
+                return false
+            }
+        }
+        if parameterCount > 4 {
+            return false
+        }
+        parameters := new Type[](parameterCount)
+        i := 0
+        while i < parameterCount {
+            parameterType := typeof(object)
+            parameterCanonical := parts[i]
+            if parameterCanonical == "void" || !TryResolveType(parameterCanonical, bindings, out parameterType) || IsAssemblyBuilderBacked(parameterType) {
+                return false
+            }
+            parameters[i] = parameterType
+            i += 1
+        }
+
+        if returnType == voidType {
+            if parameterCount == 0 {
+                result = typeof(Action)
+                return true
+            }
+            definition := typeof(Action<int>).GetGenericTypeDefinition()
+            if parameterCount == 2 {
+                definition = typeof(Action<int, int>).GetGenericTypeDefinition()
+            } else if parameterCount == 3 {
+                definition = typeof(Action<int, int, int>).GetGenericTypeDefinition()
+            } else if parameterCount == 4 {
+                definition = typeof(Action<int, int, int, int>).GetGenericTypeDefinition()
+            }
+            result = definition.MakeGenericType(parameters)
+            return true
+        }
+
+        definition := typeof(Func<int>).GetGenericTypeDefinition()
+        if parameterCount == 1 {
+            definition = typeof(Func<int, int>).GetGenericTypeDefinition()
+        } else if parameterCount == 2 {
+            definition = typeof(Func<int, int, int>).GetGenericTypeDefinition()
+        } else if parameterCount == 3 {
+            definition = typeof(Func<int, int, int, int>).GetGenericTypeDefinition()
+        } else if parameterCount == 4 {
+            definition = typeof(Func<int, int, int, int, int>).GetGenericTypeDefinition()
+        }
+        arguments := new Type[](parameterCount + 1)
+        i = 0
+        while i < parameterCount {
+            arguments[i] = parameters[i]
+            i += 1
+        }
+        arguments[parameterCount] = returnType
+        result = definition.MakeGenericType(arguments)
+        return true
+    }
+
+    static func TryResolveClosedSourceGeneric(canonical: string, genericOpen: int, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        result = typeof(object)
+        head := canonical.Substring(0, genericOpen)
+        openType := typeof(object)
+        if !TryFindSourceGenericDefinition(head, bindings, out openType) {
+            return false
+        }
+        argumentsText := canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+        argumentsCanonical := ColumnarTypeCanonicalizer.SplitTopLevelCommas(argumentsText)
+        openArguments := openType.GetGenericArguments()
+        if argumentsCanonical.Count != openArguments.Length {
+            return false
+        }
+        arguments := new Type[](argumentsCanonical.Count)
+        i := 0
+        while i < arguments.Length {
+            argumentType := typeof(object)
+            argumentCanonical := argumentsCanonical[i]
+            if !TryResolveType(argumentCanonical, bindings, out argumentType) {
+                return false
+            }
+            arguments[i] = argumentType
+            i += 1
+        }
+        result = openType.MakeGenericType(arguments)
+        return true
+    }
+
+    static func TryFindSourceGenericDefinition(name: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        result = typeof(object)
+        candidate := typeof(object)
+        for definition in bindings.SourceTypeDefinitions {
+            if definition == null || definition.Builder == null {
+                throw new InvalidOperationException("Typeof source type definitions cannot be null.")
+            }
+            builder: Type = definition.Builder
+            if SourceExactNameMatches(builder, name) && candidate == typeof(object) {
+                candidate = builder
+            }
+        }
+        if candidate == typeof(object) {
+            for definition in bindings.SourceTypeDefinitions {
+                builder: Type = definition.Builder
+                if SourceShortNameMatches(builder, name) && candidate == typeof(object) {
+                    candidate = builder
+                }
+            }
+        }
+        if candidate != typeof(object) {
+            if candidate.IsGenericTypeDefinition {
+                result = candidate
+                return true
+            }
+            return false
+        }
+
+        candidate = typeof(object)
+        for definition in bindings.SourceUnionDefinitions {
+            if definition == null || definition.Base == null {
+                throw new InvalidOperationException("Typeof source union definitions cannot be null.")
+            }
+            builder: Type = definition.Base
+            if SourceExactNameMatches(builder, name) && candidate == typeof(object) {
+                candidate = builder
+            }
+        }
+        if candidate == typeof(object) {
+            for definition in bindings.SourceUnionDefinitions {
+                builder: Type = definition.Base
+                if SourceShortNameMatches(builder, name) && candidate == typeof(object) {
+                    candidate = builder
+                }
+            }
+        }
+        if candidate != typeof(object) && candidate.IsGenericTypeDefinition {
+            result = candidate
+            return true
+        }
+        return false
+    }
+
+    static func TryResolveEnum(canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        result = typeof(object)
+        if !bindings.Enums.ContainsKey(canonical) {
+            return false
+        }
+        definition := bindings.Enums[canonical]
+        if definition == null || definition.EnumType == null {
+            throw new InvalidOperationException("Typeof enum facts cannot be null.")
+        }
+        result = definition.IsStringBacked ? typeof(string) : definition.EnumType
+        return true
+    }
+
+    static func TryResolveSourceType(canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        result = typeof(object)
+        for definition in bindings.SourceTypeDefinitions {
+            if definition == null || definition.Builder == null {
+                throw new InvalidOperationException("Typeof source type definitions cannot be null.")
+            }
+            candidate: Type = definition.Builder
+            if SourceExactNameMatches(candidate, canonical) && result == typeof(object) {
+                result = SelectUniqueSourceCandidate(result, candidate, "Typeof source type name is ambiguous.")
+            }
+        }
+        if result != typeof(object) || canonical.Contains(".") {
+            return result != typeof(object)
+        }
+        for definition in bindings.SourceTypeDefinitions {
+            candidate: Type = definition.Builder
+            if SourceShortNameMatches(candidate, canonical) && result == typeof(object) {
+                result = candidate
+            }
+        }
+        return result != typeof(object)
+    }
+
+    static func TryResolveSourceUnion(canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        result = typeof(object)
+        for definition in bindings.SourceUnionDefinitions {
+            if definition == null || definition.Base == null {
+                throw new InvalidOperationException("Typeof source union definitions cannot be null.")
+            }
+            candidate: Type = definition.Base
+            if SourceExactNameMatches(candidate, canonical) && result == typeof(object) {
+                result = SelectUniqueSourceCandidate(result, candidate, "Typeof source union name is ambiguous.")
+            }
+        }
+        if result == typeof(object) && !canonical.Contains(".") {
+            for definition in bindings.SourceUnionDefinitions {
+                candidate: Type = definition.Base
+                if SourceShortNameMatches(candidate, canonical) && result == typeof(object) {
+                    result = candidate
+                }
+            }
+        }
+        return result != typeof(object) && !result.IsGenericTypeDefinition
+    }
+
+    static func HasSourceTypeNamed(name: string, bindings: ColumnarFragmentBindings): bool {
+        if bindings.Enums.ContainsKey(name) {
+            return true
+        }
+        for definition in bindings.SourceTypeDefinitions {
+            if definition != null && (SourceExactNameMatches(definition.Builder, name) || SourceShortNameMatches(definition.Builder, name)) {
+                return true
+            }
+        }
+        for definition in bindings.SourceUnionDefinitions {
+            if definition != null && (SourceExactNameMatches(definition.Base, name) || SourceShortNameMatches(definition.Base, name)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func SourceExactNameMatches(valueType: Type, canonical: string): bool {
+        if valueType == null || canonical == null || canonical.Length == 0 {
+            return false
+        }
+        fullName := valueType.FullName ?? ""
+        if fullName.Length > 0 {
+            return String.Equals(fullName, canonical, StringComparison.Ordinal)
+        }
+        return String.Equals(valueType.Name, canonical, StringComparison.Ordinal)
+    }
+
+    static func SourceShortNameMatches(valueType: Type, canonical: string): bool {
+        if valueType == null || canonical == null || canonical.Length == 0 || SourceExactNameMatches(valueType, canonical) {
+            return false
+        }
+        shortCanonical := ColumnarTypeCanonicalizer.UnqualifiedTypeName(canonical)
+        fullName := valueType.FullName ?? ""
+        shortCandidate := ColumnarTypeCanonicalizer.UnqualifiedTypeName(fullName)
+        return String.Equals(valueType.Name, shortCanonical, StringComparison.Ordinal) || String.Equals(shortCandidate, shortCanonical, StringComparison.Ordinal)
+    }
+
+    static func SelectUniqueSourceCandidate(current: Type, candidate: Type, ambiguityMessage: string): Type {
+        if current != typeof(object) && current != candidate {
+            throw new InvalidOperationException(ambiguityMessage)
+        }
+        return candidate
+    }
+
+    static func IsCollectionHead(name: string): bool {
+        return name == "List" || name == "Dictionary" || name == "SortedDictionary" || name == "HashSet" || name == "SortedSet" || name == "Stack"
+    }
+
+    // THE COMPILER'S TYPE-ADMISSIBILITY HEAD. Every param, local, field, return, array element,
+    // collection argument and match subject the columnar backend admits passes through here.
+    //
+    // The surface: int/bool/long/uint/ulong and the small-int scalars (i4-slot; arithmetic promotes
+    // small ints to INT per ECMA §12.4.7 and uint runs native u4), ulong being u8 on the stack like
+    // long but using the UNSIGNED opcodes; `decimal` as a baked VALUE struct whose arithmetic and
+    // comparisons call System.Decimal's op_* methods; `Nullable<T>` over a baked value scalar; a
+    // single-dimension ARRAY of a supported element type; a user-defined struct or record (a
+    // TypeBuilder — only those reach here as a resolved type, the Program type never does); a
+    // generic type/method parameter; and a closed instantiation of a user generic definition.
+    // Mixed arithmetic (implicit widening) is not modelled — an expression's operands must share
+    // one type.
+    // The target of a `typeof` is a METADATA reference, not a value, so it admits one type the
+    // storable-value surface must keep refusing: `System.Void`. Everything else is the same rule,
+    // because everything else that can be named can also be held.
+    static func IsSupportedTypeOfTarget(targetType: Type): bool {
+        if targetType != null && targetType == RequiredVoidType() {
+            return true
+        }
+        return IsSupportedType(targetType)
+    }
+
+    static func IsSupportedType(valueType: Type): bool {
+        if valueType == null {
+            return false
+        }
+        if valueType == typeof(int) || valueType == typeof(bool) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(string) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(uint) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(decimal) || valueType == typeof(object) {
+            return true
+        }
+        if RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.IsGenericParameter || IsClosedSourceGeneric(valueType) {
+            return true
+        }
+        // SymbolType reports IsSZArray for pointers and byrefs too. Those shapes belong to their
+        // parameter/pointer owners and must never enter the ordinary storable-type surface.
+        if valueType.IsPointer || valueType.IsByRef {
+            return false
+        }
+        if valueType.HasElementType {
+            element := valueType.GetElementType()
+            return ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) && element != null && IsSupportedElementType(element)
+        }
+        // Reflection.Emit cannot resolve a closed type containing a source builder through
+        // Assembly.GetType. Its existing collection/task/result/union rebinding lowerings own these
+        // structural shapes; the catalog rule below applies to complete external identities.
+        if IsSupportedDictionaryKeyCollectionType(valueType) {
+            return true
+        }
+        if IsSupportedCecilSequenceType(valueType) {
+            return true
+        }
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
+            // `Nullable<T>` keeps ONE owner on both sides of this branch. Its lifting rules decide
+            // which elements have a modelled null-carrying representation, and a builder-bound
+            // argument must not reach the general external-construction arm and borrow an answer
+            // the lifting rules never gave.
+            if IsExactNullableConstruction(valueType) {
+                return IsSupportedNullable(valueType)
+            }
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType) || IsSupportedExternalGenericOverTypeParameters(valueType) || IsSupportedExternalConstruction(valueType)
+        }
+        if IsExactNullableConstruction(valueType) {
+            return IsSupportedNullable(valueType)
+        }
+        if RuntimeTypeShapeFacts.IsByRefLike(valueType) {
+            return IsSupportedSpanLikeType(valueType)
+        }
+        return IsSupportedCatalogType(valueType)
+    }
+
+    // AN EXTERNAL GENERIC CLOSED OVER THE DECLARING TYPE'S OWN TYPE PARAMETER.
+    //
+    // `Action<T>`, `Func<T, bool>`, `IComparer<T>` — the definition is a complete external identity
+    // and the only builder-bound thing inside it is a type PARAMETER, which every instantiation
+    // will replace with a real type. Nothing about such a shape is unfinished the way a source
+    // `TypeBuilder` argument would be, so it stores, loads and passes like any other reference.
+    //
+    // The named families above each exist to state an ADDITIONAL rule about their arguments (a
+    // dictionary key must be hashable, a collection element must be storable). This rule states no
+    // such thing because the delegate and interface families impose none; it only refuses the two
+    // shapes whose storage is not ordinary — a by-ref-like type, which may not be a field at all,
+    // and a source `TypeBuilder` argument, which would name a type that does not exist yet.
+    static func IsSupportedExternalGenericOverTypeParameters(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || RuntimeTypeShapeFacts.IsByRefLike(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        // THE BY-REF-LIKE QUESTION IS ASKED OF THE DEFINITION, for the same reason its sibling arm
+        // asks it there: a builder-bound instantiation REFUSES the read and answers "not
+        // by-ref-like", so `Span<T>` over a declaration's own parameter would slip through the
+        // instantiation check above. `IsSupportedSpanLikeType` is the only owner of a span shape.
+        if definition == null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(definition) || RuntimeTypeShapeFacts.IsByRefLike(definition) {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if argument.IsGenericParameter {
+                if RuntimeTypeShapeFacts.IsByRefLike(argument) {
+                    return false
+                }
+            } else if RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument) {
+                return false
+            }
+        }
+        return arguments.Length > 0
+    }
+
+    static func IsSupportedCecilSequenceType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+
+        definition := valueType.GetGenericTypeDefinition()
+        enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+        enumerableIdentity := enumerableDefinition.AssemblyQualifiedName ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, enumerableIdentity) {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        if arguments.Length != 1 {
+            return false
+        }
+
+        element := arguments[0]
+        return RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(element, typeof(TypeDefinition)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(element, typeof(ExportedType)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(element, typeof(AssemblyNameReference)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(element, typeof(Mono.Cecil.TypeReference))
+    }
+
+    // Resolution has already selected this assembly. Its own type catalog must reproduce the exact
+    // assembly-qualified identity; a familiar namespace or a matching short name is no evidence.
+    // This works in both runtime and MetadataLoadContext universes without loading another assembly.
+    static func IsSupportedCatalogType(valueType: Type): bool {
+        if valueType == null || valueType.HasElementType || RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        // `Assembly.GetType` accepts the open name but cannot reproduce the full name of a
+        // constructed generic (`List<Widget>` includes the argument identity in FullName).  The
+        // selected type is already a complete CLR object, so validate its definition in the same
+        // assembly and then validate each argument recursively.  This keeps the catalog rule
+        // nominal and works for both runtime and MetadataLoadContext Type universes.
+        if valueType.IsGenericType && !valueType.IsGenericTypeDefinition {
+            definition := valueType.GetGenericTypeDefinition()
+            definitionName := definition.FullName ?? ""
+            definitionIdentity := definition.AssemblyQualifiedName ?? ""
+            if definitionName.Length == 0 || definitionIdentity.Length == 0 {
+                return false
+            }
+
+            try {
+                reproducedDefinition := definition.Assembly.GetType(definitionName)
+                if reproducedDefinition == null || !ExternalAssemblyScan.HasExactTypeIdentity(reproducedDefinition, definitionIdentity) || !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(reproducedDefinition, definition) {
+                    return false
+                }
+
+                arguments := valueType.GetGenericArguments()
+                if arguments.Length == 0 {
+                    return false
+                }
+                for argument in arguments {
+                    if argument == null || argument.IsPointer || argument.IsByRef || ContainsOpenGenericParameters(argument) || !IsSupportedType(argument) {
+                        return false
+                    }
+                }
+
+                // Reconstruct the selected closed identity from the reproduced definition. This
+                // catches wrappers that only preserve a familiar FullName while reporting another
+                // assembly-qualified identity, and keeps the validation inside the selected Type
+                // universe instead of asking the host runtime to resolve metadata types.
+                reproduced := reproducedDefinition.MakeGenericType(arguments)
+                reproducedIdentity := reproduced.AssemblyQualifiedName ?? ""
+                return reproducedIdentity.Length > 0 && ExternalAssemblyScan.HasExactTypeIdentity(valueType, reproducedIdentity)
+            } catch {
+                return false
+            }
+        }
+        return HasSelfConsistentCatalogIdentity(valueType)
+    }
+
+    static func HasSelfConsistentCatalogIdentity(valueType: Type): bool {
+        fullName := valueType.FullName ?? ""
+        identity := valueType.AssemblyQualifiedName ?? ""
+        if fullName.Length == 0 || identity.Length == 0 || ExternalAssemblyScan.HasExactTypeIdentity(RequiredVoidType(), identity) {
+            return false
+        }
+        try {
+            candidate := valueType.Assembly.GetType(fullName)
+            return candidate != null && ExternalAssemblyScan.HasExactTypeIdentity(candidate, identity)
+        } catch {
+            return false
+        }
+    }
+
+    // AN EXTERNAL GENERIC CONSTRUCTED OVER ANYTHING THIS COMPILATION CAN ALREADY STORE —
+    // `EqualityComparer<TOk>` and `IEquatable<Outcome<TOk, TErr>>` inside `Outcome<TOk, TErr>`,
+    // `Comparer<T>` and `Func<T, bool>` inside `Ranker<T>`, and equally `IEquatable<Plain>`,
+    // `Comparer<Item>`, `Func<Plain, bool>` and `IEquatable<Outcome<int, string>>` written at file
+    // scope over a COMPLETE source type. Its head is an ordinary external type the catalog verifies
+    // by exact identity, and each argument is storable in its own right. Nothing consults the head's
+    // NAME, so one more BCL generic never needs another row in a family table — which is the point:
+    // a table cannot state a rule for a type argument it does not know.
+    //
+    // WHAT THIS ANSWERS IS STORABILITY, AND ONLY THAT. A field, local, parameter, return or base-list
+    // interface of this shape is an ordinary reference or an ordinary value: the CLR gives the
+    // instantiation a real handle whether its arguments are finished or not. The narrower family
+    // predicates beside it are not a second opinion about storage — each states a rule its own
+    // LOWERING needs (a collection element it will box or copy, a dictionary key it will hash, an
+    // enumerator whose protocol it will drive), and each lowering asks its own predicate directly.
+    // A shape admitted here that no lowering models is stored, loaded and passed; the operation that
+    // is not modelled still declines at the site that would have to emit it.
+    //
+    // Three shapes remain out. A BY-REF-LIKE head, asked of the DEFINITION because a builder-bound
+    // instantiation refuses the read, keeps `IsSupportedSpanLikeType` as its only owner — its
+    // lowerings are element-specific and it may not be a field at all. `Nullable<T>` is routed to
+    // `IsSupportedNullable` by `IsSupportedType` before this arm is reached, so lifting keeps one
+    // owner. And the head must come from a real reference, never from the assembly being emitted, so
+    // a source declaration that spells a BCL generic's name cannot borrow that name's admission.
+    static func IsSupportedExternalConstruction(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || valueType.IsGenericParameter || valueType.HasElementType {
+            return false
+        }
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        // The BY-REF-LIKE question is asked of the DEFINITION. A builder-bound instantiation refuses
+        // the read outright, so asking it would silently answer "not by-ref-like" for `Span<T>`.
+        if definition is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(definition) || IsEmittedAssemblyType(definition) || RuntimeTypeShapeFacts.IsByRefLike(definition) || RuntimeTypeShapeFacts.IsByRefLike(valueType) || !HasSelfConsistentCatalogIdentity(definition) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if !IsSupportedType(argument) {
+                return false
+            }
+        }
+        return arguments.Length > 0
+    }
+
+    static func IsSupportedElementType(valueType: Type): bool {
+        if valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(string) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(object) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) || RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.IsGenericParameter || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedNullable(valueType) {
+            return true
+        }
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
+            element := valueType.GetElementType()
+            return element != null && IsSupportedElementType(element)
+        }
+        // A TUPLE IS A VALUE A POSITION MAY HOLD, AND AN ARRAY IS A POSITION. `(Item: string,
+        // Count: int)[]` is `ValueTuple<string, int>[]`, whose element load, store and address are the
+        // ordinary struct opcodes already emitted for every other admitted value type -- and the
+        // element's own written names are read back through the labelled canonical the array suffix
+        // already carries. Without this the tuple syntax was admitted at every declared position
+        // EXCEPT an array element, which is not a rule anyone can hold in mind.
+        if IsSupportedValueTuple(valueType) {
+            return true
+        }
+        return !valueType.IsValueType && IsSupportedCatalogType(valueType)
+    }
+
+    // A `Nullable<T>` NEEDS A NON-NULLABLE VALUE `T`, AND THAT IS THE WHOLE QUESTION.
+    //
+    // This used to be a LIST — the integral and floating scalars, `bool`, `char`, `decimal`,
+    // `TimeSpan`, a tuple, an enum, and a struct this compilation declares — each row added when
+    // something needed it. A list is not a rule, and the rows it did not have were the census:
+    // `DateTime?` and `Guid?` declined at every declared position with NL103 while `TimeSpan?` beside
+    // them emitted, and the analyzer's own nullable surface followed the same set, so
+    // `GetValueOrDefault()` on anything off the list reported NL303.
+    //
+    // Nothing in the lowering ever depended on WHICH `T` it was. `Nullable<T>` is one struct with one
+    // layout, and the constructor, `HasValue`, `Value` and `GetValueOrDefault` handles are reflection
+    // over the CLOSED construction — `TypeBuilder.GetMethod` for a construction over a type this
+    // compilation is emitting, `MethodBase.GetMethodFromHandle` for an external one — neither of
+    // which is a per-element opcode table.
+    //
+    // What a `Nullable<T>`'s argument may NOT be is what the CLR says: a by-ref-like struct (it may
+    // not be a field of anything, so it may not be a `Nullable`'s either), an open generic
+    // definition, and another `Nullable<T>` — C# has no `int??` and neither does the CLR. A
+    // reference type is not a value at all, and a pointer is not a value TYPE. `IsValueType` is read
+    // through a guard because a builder-bound type answers it by throwing rather than by declining.
+    static func IsLiftableNullableElement(valueType: Type): bool {
+        if valueType == null || IsExactNullableConstruction(valueType) {
+            return false
+        }
+
+        if valueType.IsGenericTypeDefinition {
+            return false
+        }
+
+        // A TYPE PARAMETER IS A LIFTABLE ELEMENT EXACTLY WHEN ITS OWN `where` CLAUSE SAYS IT IS A
+        // NON-NULLABLE VALUE TYPE. That is the CLR's requirement on `Nullable<T>`'s argument, read at
+        // the DECLARATION rather than at an instantiation, and it is also what separates the two
+        // readings of `T?`: `where T : struct` makes it `Nullable<T>`, exactly as C# reads it, while
+        // an UNCONSTRAINED `T?` is the annotated `T` itself and lifts nothing.
+        //
+        // Refusing every parameter was silently the second reading for both: `func Pick<T>(…): T?
+        // where T : struct` declared its return as bare `T`, so the DECLARATION emitted and every
+        // caller that read the lifted result saw a `T` where the analyzer had said `T?`.
+        if valueType.IsGenericParameter {
+            return HasNotNullableValueTypeConstraint(valueType)
+        }
+
+        return IsValueTypeSafely(valueType) && !RuntimeTypeShapeFacts.IsByRefLike(valueType)
+    }
+
+    // The `struct` bit of a type parameter's own `GenericParameterAttributes`, read defensively
+    // because a parameter this compilation has not finished building answers some reflection
+    // questions by throwing rather than by declining.
+    static func HasNotNullableValueTypeConstraint(valueType: Type): bool {
+        try {
+            attributes := valueType.GenericParameterAttributes
+            return ((int)attributes & ColumnarGenericConstraintPlanner.NotNullableValueTypeConstraintBit()) != 0
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
+    }
+
+    static func IsValueTypeSafely(valueType: Type): bool {
+        try {
+            return valueType.IsValueType
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
+    }
+
+    static func IsExactNullableConstruction(valueType: Type): bool {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        return ExternalAssemblyScan.HasExactTypeIdentity(definition, RequiredNullableDefinition().AssemblyQualifiedName ?? "")
+    }
+
+    static func IsSupportedNullable(valueType: Type): bool {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != RequiredNullableDefinition() {
+            return false
+        }
+        return IsLiftableNullableElement(valueType.GetGenericArguments()[0])
+    }
+
+    static func IsSupportedReadOnlySpanElement(valueType: Type): bool {
+        return valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || RuntimeTypeShapeFacts.IsEnumType(valueType)
+    }
+
+    // A span head alone is NOT admissibility: the span read/write/slice/conversion lowerings are
+    // written for the blittable element set, and `Span<T>` over anything else is a byref-like generic
+    // whose ctor/Item reflection lookups are not resolvable (a closed span over a source TypeBuilder is
+    // a TypeBuilderInstantiation whose `GetConstructor` throws). The ELEMENT is part of the question.
+    static func IsSupportedSpanLikeType(valueType: Type): bool {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        name := valueType.GetGenericTypeDefinition().FullName ?? ""
+        if name != "System.Span`1" && name != "System.ReadOnlySpan`1" {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 1 && IsSupportedReadOnlySpanElement(arguments[0])
+    }
+
+    // The two span heads are published SEPARATELY because the span family is not symmetric and three
+    // emitter decisions read the difference: only `Span<T>` converts to `ReadOnlySpan<T>` (there is no
+    // conversion the other way), an indexed READ of a `ReadOnlySpan<T>` lowers through
+    // `MemoryMarshal.AsBytes` while a `Span<T>` read uses the `Item` getter, and an indexed WRITE is a
+    // `Span<T>`-only lowering. A single folded head would answer `true` for `ReadOnlySpan<T>` in the
+    // source slot of a conversion that does not exist. Both narrow the SAME span-like rule, so the
+    // element constraint is still spelled exactly once.
+    static func IsSupportedReadOnlySpanType(valueType: Type): bool {
+        return IsSupportedSpanLikeType(valueType) && (valueType.GetGenericTypeDefinition().FullName ?? "") == "System.ReadOnlySpan`1"
+    }
+
+    static func IsSupportedSpanType(valueType: Type): bool {
+        return IsSupportedSpanLikeType(valueType) && (valueType.GetGenericTypeDefinition().FullName ?? "") == "System.Span`1"
+    }
+
+    static func IsSupportedTaskType(valueType: Type): bool {
+        if valueType == typeof(Task) || valueType == typeof(ValueTask) {
+            return true
+        }
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        name := valueType.GetGenericTypeDefinition().FullName ?? ""
+        return (name == "System.Threading.Tasks.Task`1" || name == "System.Threading.Tasks.ValueTask`1") && IsSupportedType(valueType.GetGenericArguments()[0])
+    }
+
+    // SOLE OWNER since `015-A5`, which deleted the C# emitter's copy and rerouted its two sites.
+    // The reroute is deliberately NOT behaviour-preserving: the deleted head asked
+    // `IsValueType || IsByRef || IsPointer || ContainsGenericParameters`, and the last two terms are
+    // wrong for the shapes the emitter meets.
+    //
+    // THE ELEMENT GUARD. `IsPointer` is false for an ARRAY, so the C# head admitted `WebApplication[]`
+    // as an external reference type without ever consulting the array arm's element rule. Measured on
+    // the baseline compiler, that left a half-open surface — such an array could be indexed and have
+    // its `Length` read, but could not be CREATED and could not be walked by `for`, because those two
+    // paths do read `IsSupportedElementType`. Asking `HasElementType` keeps array-ness (and pointer-
+    // and byref-ness) a single decision made in the array arm, so the surface is coherent both ways.
+    //
+    // THE OPEN-GENERIC GUARD IS A SECOND, DISTINCT ONE. A generic type declared in an AspNet
+    // namespace by a source file with a file-scoped `namespace Microsoft.AspNetCore.…` reaches here
+    // as a `TypeBuilderImpl`, on which `ContainsGenericParameters` reads FALSE — and its
+    // `HasElementType` is false too, so the element guard above cannot catch it.
+    // `ContainsOpenGenericParameters` answers by walking the definition and its argument tree.
+    //
+    // The yaml clause is an ASSEMBLY test asked BEFORE both guards, and it compares by assembly NAME
+    // rather than by handle identity: the compiler never loads that assembly twice, and the name
+    // comparison is what lets a bootstrap host that did answer the same as the emitting host.
+    static func IsSupportedExternalType(valueType: Type): bool {
+        valueAssemblyName := valueType.Assembly.GetName().FullName
+        yamlAssemblyName := typeof(IYamlTypeConverter).Assembly.GetName().FullName
+        if String.Equals(valueAssemblyName, yamlAssemblyName, StringComparison.Ordinal) {
+            return true
+        }
+        if valueType.IsValueType || valueType.IsByRef || valueType.HasElementType || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        namespaceName := valueType.Namespace ?? ""
+        return namespaceName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal) || namespaceName.StartsWith("Microsoft.Extensions.Hosting", StringComparison.Ordinal)
+    }
+
+    static func ContainsOpenGenericParameters(valueType: Type): bool {
+        if valueType.IsGenericParameter || valueType.IsGenericTypeDefinition {
+            return true
+        }
+        if !valueType.IsGenericType {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if ContainsOpenGenericParameters(argument) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func IsSupportedGenericDefinitionName(valueType: Type, definitionName: string): bool {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        if (definition.FullName ?? "") != definitionName {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 1 && arguments[0] == typeof(byte)
+    }
+
+    static func IsSupportedRuntimeGeneric(valueType: Type, definitionName: string): bool {
+        return valueType.IsGenericType && !valueType.IsGenericTypeDefinition && (valueType.GetGenericTypeDefinition().FullName ?? "") == definitionName
+    }
+
+    // The four buffer heads, each admissible at `byte` ONLY: rent/return, the owner's Memory getter
+    // and Memory's Span getter are lowered for byte buffers and nothing else, so `ArrayPool<int>` is
+    // declined rather than admitted-then-declined. Each head is its own named entry point instead of a
+    // string argument at the call site, so a consumer names the head it means.
+    static func IsSupportedArrayPoolType(valueType: Type): bool {
+        return IsSupportedGenericDefinitionName(valueType, "System.Buffers.ArrayPool`1")
+    }
+
+    static func IsSupportedMemoryPoolType(valueType: Type): bool {
+        return IsSupportedGenericDefinitionName(valueType, "System.Buffers.MemoryPool`1")
+    }
+
+    static func IsSupportedMemoryOwnerType(valueType: Type): bool {
+        return IsSupportedGenericDefinitionName(valueType, "System.Buffers.IMemoryOwner`1")
+    }
+
+    static func IsSupportedMemoryType(valueType: Type): bool {
+        return IsSupportedGenericDefinitionName(valueType, "System.Memory`1")
+    }
+
+    // `Result<T, E>` and `Union<A, B>` are admissible only when their ARGUMENTS are: the head alone
+    // admits `Result<Queue<int>, string>`, whose Ok/Err member surface has no emit lowering. Byref-like
+    // arguments are excluded because a `Result` closed over one cannot be stored in a field or a local.
+    static func IsSupportedResultType(valueType: Type): bool {
+        if !IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Result`2") {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && !RuntimeTypeShapeFacts.IsByRefLike(arguments[0]) && !RuntimeTypeShapeFacts.IsByRefLike(arguments[1]) && IsSupportedType(arguments[0]) && IsSupportedType(arguments[1])
+    }
+
+    static func IsSupportedAnonymousUnionType(valueType: Type): bool {
+        if !IsSupportedRuntimeGeneric(valueType, "NSharpLang.Runtime.Union`2") {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if !IsSupportedAnonymousUnionArm(argument) {
+                return false
+            }
+        }
+        return true
+    }
+
+    // An arm of an anonymous union must be a storable value. `void` is not, and neither is a by-ref
+    // — the by-ref term is kept explicit rather than left to the head because an arm slot has no
+    // parameter path to fall through to. The void test is an IDENTITY test, not a name test: a user
+    // type declared as `System.Void` shares the name and is an ordinary storable TypeBuilder, and a
+    // name test declined it. `typeof(void)` is off the columnar front end's typeof surface, so the
+    // runtime type is seeded through `RequiredVoidType`, the idiom this file already uses.
+    static func IsSupportedAnonymousUnionArm(valueType: Type): bool {
+        return valueType != RequiredVoidType() && !valueType.IsByRef && IsSupportedType(valueType)
+    }
+
+    static func IsSupportedCollectionType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        return HasExactRuntimeGenericDefinition(definition, typeof(List<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(Dictionary<int, int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(HashSet<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(SortedSet<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(Stack<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IReadOnlyList<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IReadOnlySet<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IReadOnlyDictionary<int, int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IEnumerable<int>).GetGenericTypeDefinition())
+    }
+
+    static func HasExactRuntimeGenericDefinition(candidate: Type, expected: Type): bool {
+        if candidate == null || expected == null || !candidate.IsGenericTypeDefinition || !expected.IsGenericTypeDefinition {
+            return false
+        }
+        try {
+            identity := expected.AssemblyQualifiedName ?? ""
+            return identity.Length > 0 && ExternalAssemblyScan.HasExactTypeIdentity(candidate, identity)
+        } catch {
+            return false
+        }
+    }
+
+    // HashSet<T> and Dictionary<T, TValue> expose IEqualityComparer<T> in their exact constructor
+    // parameters. The BCL's ReferenceEqualityComparer singleton can close that interface over a
+    // complete source class even while its TypeBuilder is unbaked. Keep this exception to that one
+    // interface shell and direct, non-generic source class argument.
+    static func IsSupportedReferenceEqualityComparerType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        comparerDefinition := typeof(IEqualityComparer<int>).GetGenericTypeDefinition()
+        comparerIdentity := comparerDefinition.AssemblyQualifiedName ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, comparerIdentity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        if arguments.Length != 1 {
+            return false
+        }
+        argument := arguments[0]
+        return argument is TypeBuilder && !RuntimeTypeShapeFacts.IsEnumBuilder(argument) && !argument.IsGenericTypeDefinition && !argument.IsValueType && !argument.IsInterface
+    }
+
+    // IEnumerator<T> is storable protocol state, not a collection expression or foreach source.
+    // Iterator state machines already construct this exact handle for hoisted enumeration. Source
+    // discovery needs the same narrow shape as a local so it can preserve the typed Current slot and
+    // explicit disposal around an early first-hit return.
+    static func IsSupportedEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredEnumeratorDefinition().AssemblyQualifiedName ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 1 && (IsAdmissibleCollectionElement(arguments[0]) || IsSupportedKeyValuePairType(arguments[0]))
+    }
+
+    // List<T>.GetEnumerator exposes this concrete value-type enumerator. Constraint validation keeps
+    // it unboxed so mutation detection and finally disposal operate on the same receiver state. The
+    // one generic argument retains List's existing element-admissibility boundary.
+    static func IsSupportedListEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredListEnumeratorDefinition().AssemblyQualifiedName ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 1 && IsAdmissibleCollectionElement(arguments[0])
+    }
+
+    // Dictionary<TKey, TValue>.Values is the live value view returned by the concrete Dictionary
+    // getter. Compiler realization passes that exact view to source-definition scans so its delayed
+    // getter, live enumeration, and mutation behavior remain intact even when TValue is unbaked.
+    static func IsSupportedDictionaryValueCollectionType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryValueCollectionDefinition().AssemblyQualifiedName ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+    }
+
+    // Dictionary<TKey, TValue>.Keys is a live view whose closed nested type retains both
+    // declaring-type arguments even though enumeration exposes only TKey. Closure binding passes
+    // this exact view into set constructors and UnionWith, so keep the concrete result type rather
+    // than materializing or copying its keys in the compiler host.
+    static func IsSupportedDictionaryKeyCollectionType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryKeyCollectionDefinition().AssemblyQualifiedName ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+    }
+
+    // Dictionary<TKey, TValue>.Keys exposes this concrete value-type enumerator. Compiler passes
+    // keep that exact struct in one local so MoveNext, Current, and Dispose all mutate/read the same
+    // receiver and retain Dictionary's version check. Its two generic arguments use the same key and
+    // value boundary as the live KeyCollection that produced it.
+    static func IsSupportedDictionaryKeyEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryKeyEnumeratorDefinition().AssemblyQualifiedName ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+    }
+
+    // Dictionary<TKey, TValue>.GetEnumerator returns this concrete mutable struct. Keeping it
+    // unboxed preserves one receiver across MoveNext/Current/Dispose and the BCL's mutation check.
+    static func IsSupportedDictionaryEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryEnumeratorDefinition().AssemblyQualifiedName ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+    }
+
+    // A closed KeyValuePair<TKey, TValue> is the concrete Dictionary foreach value. Preserve the
+    // emitter's complete historical predicate: the exact runtime definition and closed shell are the
+    // whole question here; its key/value member owners validate their individual substituted slots.
+    static func IsSupportedKeyValuePairType(valueType: Type): bool {
+        return valueType.IsGenericType && !valueType.IsGenericTypeDefinition && !(valueType is TypeBuilder) && valueType.GetGenericTypeDefinition() == typeof(KeyValuePair<int, int>).GetGenericTypeDefinition()
+    }
+
+    // Dictionary.Values exposes this concrete value-type enumerator. Entry-point discovery keeps
+    // that exact struct in a local so Current and Dispose operate on the same unboxed state. Its
+    // two generic arguments retain Dictionary's existing key and value admissibility boundaries.
+    static func IsSupportedDictionaryValueEnumeratorType(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        identity := RequiredDictionaryValueEnumeratorDefinition().AssemblyQualifiedName ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, identity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
+    }
+
+    // The element/value types a collection may close over:
+    // - a user TypeBuilder (record/class/struct under construction) — members rebind;
+    // - an ARRAY of any element an array may hold, including a source declaration: the array itself is
+    //   an ordinary reference whatever it holds, and its element rule already owns that question;
+    // - `T?` over an element that lifts — `Nullable<T>` keeps ONE owner, so the lifting rules answer;
+    // - a nested admissible collection (List<List<Pt>>, List<HashSet<int>>) — its own resolution already
+    //   vetted the inner arguments, which is why the six concrete heads return before asking about them;
+    // - the BAKED surface (scalars/string/enums/baked closed generics), through the supported-value tail.
+    // A POINTER OR BYREF is not a value a collection may hold at all, and it is refused first because
+    // SymbolType reports `IsSZArray` for both.
+    // A closed source generic is an ordinary constructed value type here. Its definition and every
+    // argument were resolved before this admission question, and construction/member planning
+    // rebinds the definition's handles onto the exact instantiation.
+    static func IsAdmissibleCollectionElement(valueType: Type): bool {
+        if RuntimeTypeShapeFacts.IsEnumBuilder(valueType) {
+            return false
+        }
+        if RuntimeTypeShapeFacts.IsEnumType(valueType) {
+            return true
+        }
+        if valueType is TypeBuilder {
+            return true
+        }
+        if valueType.IsPointer || valueType.IsByRef {
+            return false
+        }
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
+            element := valueType.GetElementType()
+            return element != null && IsSupportedElementType(element)
+        }
+        if valueType.IsGenericType && !valueType.IsGenericTypeDefinition {
+            if IsClosedSourceGeneric(valueType) {
+                return true
+            }
+            name := valueType.GetGenericTypeDefinition().FullName ?? ""
+            if name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1" || name == "System.Collections.Generic.Stack`1" {
+                return true
+            }
+            if IsSupportedValueTuple(valueType) {
+                return true
+            }
+            if IsExactNullableConstruction(valueType) {
+                return IsSupportedNullable(valueType)
+            }
+            if RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
+                return false
+            }
+        }
+        return IsSupportedType(valueType) && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType)
+    }
+
+    // HashSet<T> elements are keys. A complete non-generic source declaration — reference OR value —
+    // has direct identity/equality coverage, and open definitions and constructed builder-bound shapes
+    // remain outside this key surface. Source enums retain their underlying integral semantics.
+    static func IsAdmissibleHashSetElement(valueType: Type): bool {
+        return IsAdmissibleCollectionElement(valueType) && IsAdmissibleDictionaryKey(valueType)
+    }
+
+    // Dictionary shares the direct source-declaration key admission. Keep the exception at the direct
+    // builder leaf so arrays and constructed shapes cannot inherit it accidentally.
+    static func IsAdmissibleDictionaryKey(valueType: Type): bool {
+        return IsAdmissibleSourceDeclarationKey(valueType) || !ContainsNonEnumBuilderBoundType(valueType)
+    }
+
+    // A DIRECT SOURCE DECLARATION IS A KEY, whether it is a class, a record, a struct or a record
+    // struct. Every one of them has well-defined equality and hashing the moment it exists: a source
+    // reference declaration through its own members, a record through the equality it synthesizes, and
+    // a plain source struct through `System.ValueType`'s — which is the same answer C# gives, and the
+    // reason no registry lookup is needed to tell the value shapes apart. The exception stays at the
+    // direct builder leaf: an open definition names no single type, an `EnumBuilder` is handled by the
+    // enum rule beside this one, and arrays or constructed builder-bound shapes must not inherit it.
+    static func IsAdmissibleSourceDeclarationKey(valueType: Type): bool {
+        return valueType is TypeBuilder && !RuntimeTypeShapeFacts.IsEnumBuilder(valueType) && !valueType.IsGenericTypeDefinition
+    }
+
+    static func IsSupportedDelegateType(valueType: Type): bool {
+        if valueType == typeof(Action) || valueType == typeof(ThreadStart) {
+            return true
+        }
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        name := valueType.GetGenericTypeDefinition().FullName ?? ""
+        if name != "System.Action`1" && name != "System.Action`2" && name != "System.Action`3" && name != "System.Action`4" && name != "System.Func`1" && name != "System.Func`2" && name != "System.Func`3" && name != "System.Func`4" && name != "System.Func`5" {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument) {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func IsSupportedValueTuple(valueType: Type): bool {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        name := definition.FullName ?? ""
+        containsBuilder := RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType)
+        isLongTuple := definition == OpenValueTupleType(8)
+        if name != "System.ValueTuple`2" && name != "System.ValueTuple`3" && name != "System.ValueTuple`4" && name != "System.ValueTuple`5" && name != "System.ValueTuple`6" && name != "System.ValueTuple`7" && !isLongTuple {
+            return false
+        }
+        // Baked two-through-seven tuples retain their established structural admission. Every NEW
+        // builder-bound tuple shape is tied to the exact CLR definitions, so a source or external
+        // namesake cannot acquire the constructor/field rebinding path by metadata name alone.
+        if containsBuilder && definition != OpenValueTupleType(valueType.GetGenericArguments().Length) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        i := 0
+        while i < arguments.Length {
+            argument := arguments[i]
+            if isLongTuple && i == 7 {
+                if !argument.IsGenericType || argument.IsGenericTypeDefinition || argument.GetGenericTypeDefinition() != OpenValueTupleType(2) || !IsSupportedValueTuple(argument) {
+                    return false
+                }
+                i += 1
+                continue
+            }
+            directSourceReference := argument is TypeBuilder && !RuntimeTypeShapeFacts.IsEnumBuilder(argument) && !argument.IsGenericTypeDefinition && !argument.IsValueType && !argument.IsInterface
+            if !directSourceReference && (RuntimeTypeShapeFacts.IsEnumType(argument) || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument)) {
+                return false
+            }
+            i += 1
+        }
+        return true
+    }
+
+    static func OpenValueTupleType(arity: int): Type? {
+        if arity == 2 {
+            return typeof(ValueTuple<int, int>).GetGenericTypeDefinition()
+        }
+        if arity == 3 {
+            return typeof(ValueTuple<int, int, int>).GetGenericTypeDefinition()
+        }
+        if arity == 4 {
+            return typeof(ValueTuple<int, int, int, int>).GetGenericTypeDefinition()
+        }
+        if arity == 5 {
+            return typeof(ValueTuple<int, int, int, int, int>).GetGenericTypeDefinition()
+        }
+        if arity == 6 {
+            return typeof(ValueTuple<int, int, int, int, int, int>).GetGenericTypeDefinition()
+        }
+        if arity == 7 {
+            return typeof(ValueTuple<int, int, int, int, int, int, int>).GetGenericTypeDefinition()
+        }
+        if arity == 8 {
+            result := Type.GetType("System.ValueTuple`8")
+            if result == null || !result.IsGenericTypeDefinition {
+                throw new InvalidOperationException("System.ValueTuple`8 runtime type was not found.")
+            }
+            return result
+        }
+        return null
+    }
+
+    static func ContainsNonEnumBuilderBoundType(valueType: Type): bool {
+        if RuntimeTypeShapeFacts.IsEnumBuilder(valueType) {
+            return true
+        }
+        if RuntimeTypeShapeFacts.IsEnumType(valueType) {
+            return false
+        }
+        if valueType is TypeBuilder || valueType.IsGenericParameter {
+            return true
+        }
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
+            element := valueType.GetElementType()
+            return element != null && ContainsNonEnumBuilderBoundType(element)
+        }
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        if definition is TypeBuilder {
+            return true
+        }
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if ContainsNonEnumBuilderBoundType(argument) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func IsClosedSourceGeneric(valueType: Type): bool {
+        return !(valueType is TypeBuilder) && valueType.IsGenericType && !valueType.IsGenericTypeDefinition && valueType.GetGenericTypeDefinition() is TypeBuilder
+    }
+
+    // `EnumBuilder` is ABSTRACT on this runtime: a live instance is `EnumBuilderImpl` (persisted emit)
+    // or `RuntimeEnumBuilder` (run emit), so an EXACT match on the base name can never be true and the
+    // predicate silently reported every EnumBuilder as baked. The base chain is walked, exactly as
+    // IsAssemblyBuilderBacked already walks it for AssemblyBuilder.
+    // A definition that lives in an assembly this process is EMITTING is not an external reference,
+    // even after `CreateType` has baked it and even when its name matches a BCL generic exactly. The
+    // builder check alone is not enough: a baked type reports the underlying dynamic assembly rather
+    // than the builder that produced it.
+    static func IsEmittedAssemblyType(valueType: Type): bool {
+        if IsAssemblyBuilderBacked(valueType) {
+            return true
+        }
+        try {
+            return valueType.Assembly.IsDynamic
+        } catch ex: NotSupportedException {
+            return true
+        } catch ex: NotImplementedException {
+            return true
+        }
+    }
+
+    static func IsAssemblyBuilderBacked(valueType: Type): bool {
+        assemblyObject: object = valueType.Assembly
+        assemblyType := assemblyObject.GetType()
+        while assemblyType != null {
+            if assemblyType.FullName == "System.Reflection.Emit.AssemblyBuilder" {
+                return true
+            }
+            assemblyType = assemblyType.BaseType
+        }
+        return false
+    }
+
+    // `IsValueType` is one of the reads an unbaked builder handle refuses. A shape that cannot answer
+    // is not a value type for the purposes of the `?` suffix, which is the same answer the ordinary
+    // resolver reaches for every reference shape.
+    static func IsValueTypeShape(valueType: Type): bool {
+        try {
+            return valueType.IsValueType
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
+    }
+
+    static func SplitTopLevelPipes(canonical: string): List<string> {
+        result := new List<string>()
+        start := 0
+        angleDepth := 0
+        parenDepth := 0
+        bracketDepth := 0
+        i := 0
+        while i < canonical.Length {
+            c := canonical[i]
+            if c == '<' {
+                angleDepth += 1
+            } else if c == '>' && angleDepth > 0 {
+                angleDepth -= 1
+            } else if c == '(' {
+                parenDepth += 1
+            } else if c == ')' && parenDepth > 0 {
+                parenDepth -= 1
+            } else if c == '[' {
+                bracketDepth += 1
+            } else if c == ']' && bracketDepth > 0 {
+                bracketDepth -= 1
+            } else if c == '|' && angleDepth == 0 && parenDepth == 0 && bracketDepth == 0 {
+                result.Add(canonical.Substring(start, i - start))
+                start = i + 1
+            }
+            i += 1
+        }
+        if result.Count > 0 {
+            result.Add(canonical.Substring(start))
+        }
+        return result
+    }
+
+    static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
+        ColumnarPlannerSupport.RequirePresent(nodes != null && source != null && bindings != null && plan != null && bindings.SourceTypeDefinitions != null && bindings.SourceUnionDefinitions != null, "Typeof planning inputs and source type facts cannot be null.")
+        ColumnarPlannerSupport.RequireNodeInRange(nodes, node, "Typeof planning received an invalid root node index.")
+    }
+
+    // The read-only dictionary definition is fetched BY NAME rather than by `typeof`: this kernel is
+    // compiled by the pinned toolset, which is the one that does not yet publish the head.
+    static func RequiredReadOnlyDictionaryDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.IReadOnlyDictionary`2")
+        if result == null {
+            throw new InvalidOperationException("System.Collections.Generic.IReadOnlyDictionary`2 runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredVoidType(): Type {
+        result := Type.GetType("System.Void")
+        if result == null {
+            throw new InvalidOperationException("System.Void runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredNullableDefinition(): Type {
+        result := Type.GetType("System.Nullable`1")
+        if result == null {
+            throw new InvalidOperationException("System.Nullable<T> runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.IEnumerator`1")
+        if result == null {
+            throw new InvalidOperationException("System.Collections.Generic.IEnumerator<T> runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredListEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.List`1+Enumerator")
+        if result == null {
+            throw new InvalidOperationException("List<T>.Enumerator runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryValueCollectionDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+ValueCollection")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.ValueCollection runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryKeyCollectionDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+KeyCollection")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.KeyCollection runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryKeyEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+KeyCollection+Enumerator")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.KeyCollection.Enumerator runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+Enumerator")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.Enumerator runtime type was not found.")
+        }
+        return result
+    }
+
+    static func RequiredDictionaryValueEnumeratorDefinition(): Type {
+        result := Type.GetType("System.Collections.Generic.Dictionary`2+ValueCollection+Enumerator")
+        if result == null {
+            throw new InvalidOperationException("Dictionary<TKey, TValue>.ValueCollection.Enumerator runtime type was not found.")
+        }
+        return result
+    }
+}

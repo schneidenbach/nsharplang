@@ -5,7 +5,7 @@ title: "N# for Go Developers"
 
 # N# for Go Developers
 
-N# is "Go for .NET." If you write Go, a lot of N# will feel familiar. Here's how your Go knowledge maps over.
+N# shares Go's ethos — simplicity, clean syntax, fast tooling — so if you write Go, a lot of N# will feel familiar. But it is **not** "Go for .NET": N# has a much richer type system (discriminated unions, exhaustive pattern matching, structural typing). Here's how your Go knowledge maps over.
 
 ## What's the Same
 
@@ -18,7 +18,7 @@ N# is "Go for .NET." If you write Go, a lot of N# will feel familiar. Here's how
 | `go fmt` | `nlc format` | One canonical style |
 | `go test` | `nlc test` | Tests near code |
 | No semicolons | No semicolons | Clean syntax |
-| PascalCase = exported | PascalCase = exported/public, camelCase = unexported/private-by-convention | Convention-based visibility; no C# `public`/`private` noise |
+| PascalCase = exported | PascalCase = exported/public, camelCase = namespace-private | Convention-based visibility; no ordinary `public`/`private` noise |
 
 ## Variables
 
@@ -147,7 +147,7 @@ func process(r: IReader) {
 process(new FileReader("/tmp/data"))
 ```
 
-`duck interface` = Go interfaces. Structural typing, implicit satisfaction. N# also has regular `interface` (like Java/C#) for when you need explicit contracts.
+`duck interface` = Go interfaces. Structural typing, implicit satisfaction. N# also has regular `interface` for when you need explicit contracts.
 
 ## Error Handling
 
@@ -370,7 +370,7 @@ test "should add" with (a: int, b: int, expected: int) [
 }
 ```
 
-Same data-driven philosophy, but with dedicated syntax instead of anonymous structs + loops. Transpiles to XUnit `[Theory]`/`[InlineData]`.
+Same data-driven philosophy, but with dedicated syntax instead of anonymous structs + loops.
 
 ### Assert Messages & Throws
 
@@ -387,7 +387,7 @@ assert throws DivideByZeroException {
 }
 ```
 
-### Setup & Skip
+### Setup
 
 ```n#
 setup {
@@ -398,11 +398,13 @@ setup {
 test "should add task" {
     assert service.AddTask("Test", Priority.High, tags, "") != null
 }
-
-test "needs network" skip "CI has no network" {
-    // skipped
-}
 ```
+
+The `skip "reason"` CLAUSE is not the way to skip a test: N# parses it for forward compatibility, but
+no backend emits it and `nlc test` reports `NL323` on a file that spells one. The equivalent of
+`t.Skip()` is an ATTRIBUTE — a class deriving from xunit's `FactAttribute` whose constructor sets
+`Skip` — written above the `test` block, and `nlc test` reports that test as `skipped` with the
+reason. See [Skipping a Test](language-tour.md#skipping-a-test).
 
 ## Formatting
 
@@ -434,7 +436,7 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 
 ## What Go Developers Will Love
 
-- **Convention-based visibility** — PascalCase is exported/public and camelCase is unexported/private-by-convention, just like Go's exported names. Explicit `public`/`private` modifiers are unnecessary in ordinary N#; the formatter drops redundant ones but preserves semantic escape hatches like `public legacyCamel` and `private SecretPascal` when they intentionally override casing.
+- **Convention-based visibility** — PascalCase is exported/public and camelCase is private to the declaring **namespace**, just like Go's exported names are package-scoped rather than file-scoped: every file of the namespace sees them, nothing outside does. Explicit `public`/`private` modifiers are unnecessary in ordinary N#; the formatter drops redundant ones but preserves semantic escape hatches like `public legacyCamel` and `private SecretPascal` when they intentionally override casing.
 - **Tight syntax** — No semicolons, no noise
 - **`:=` everywhere** — Same declaration shorthand
 - **`duck interface`** — Structural typing, Go's best feature
@@ -455,4 +457,3 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 
 - **[Getting Started](getting-started.md)** — Create your first project
 - **[Language Tour](language-tour.md)** — Every feature with examples
-- **[For C# Developers](for-csharp-developers.md)** — If you also know C#

@@ -1,0 +1,198 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Collections.Generic
+import NSharpLang.Compiler
+
+// Admission consumes a selected identity; it does not turn namespace familiarity into evidence.
+test "external type admission round trips the selected catalog identity in both universes" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        selection := ExternalAssemblyScan.FindExactType(scan, "System.Guid")
+        assert selection.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert selection.HasRuntimeType
+        assert ColumnarTypeOfPlanner.IsSupportedCatalogType(selection.RuntimeType)
+        assert scan.Context != null
+        metadataType := scan.Context.LoadFromAssemblyName("System.Private.CoreLib").GetType("System.Guid")
+        assert metadataType != null
+        assert ColumnarTypeOfPlanner.IsSupportedCatalogType(metadataType)
+        assert metadataType != selection.RuntimeType
+        assert metadataType.get_AssemblyQualifiedName() == selection.RuntimeType.get_AssemblyQualifiedName()
+        assert !ExternalAssemblyScan.HasExactTypeIdentity(metadataType, "System.Guid, Unrelated.Assembly")
+        assert !ExternalAssemblyScan.HasExactTypeIdentity(metadataType, "Unrelated.Guid, System.Private.CoreLib")
+        metadataVoid := scan.Context.LoadFromAssemblyName("System.Private.CoreLib").GetType("System.Void")
+        assert metadataVoid != null
+        assert !ColumnarTypeOfPlanner.IsSupportedType(metadataVoid)
+        // THE `Uri` ROW IS NOW ITS POSITIVE FORM, AND IT IS STILL ABOUT RESOLUTION BEFORE ADMISSION.
+        // It used to read Missing and recorded why: "the product's shared common scan has no Uri
+        // entry". That was never an admission rule -- `System.Uri` is an ordinary catalog identity
+        // and always would have been admitted -- it was the scan's resolver being unable to follow
+        // `System.Runtime`'s type FORWARDER into `System.Private.Uri`, which is not one of the
+        // inspected entries. The forwarder lands now, so resolution answers and admission then says
+        // what it always said.
+        uri := ExternalAssemblyScan.FindExactType(scan, "System.Uri")
+        assert uri.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert uri.HasRuntimeType
+        assert ExternalAssemblyScan.SemanticIdentityMatches(uri.SemanticTypeIdentity, "System.Uri, System.Private.Uri")
+        assert ColumnarTypeOfPlanner.IsSupportedCatalogType(uri.RuntimeType)
+
+        // AND THE SEPARATION THE ROW EXISTS FOR IS UNCHANGED: a name no inspected entry declares and
+        // no inspected entry forwards is still Missing, so a familiar-looking namespace is still not
+        // evidence.
+        absent := ExternalAssemblyScan.FindExactType(scan, "System.Nsharp.NotARealType")
+        assert absent.Status == ExternalAssemblyTypeLookupStatus.Missing
+        assert !absent.HasRuntimeType
+        assert absent.SemanticTypeIdentity == ""
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "external admission leaves structural shapes to their owners" {
+    assert !ColumnarTypeOfPlanner.IsSupportedCatalogType(null)
+    assert !ColumnarTypeOfPlanner.IsSupportedCatalogType(typeof(int).MakePointerType())
+    assert !ColumnarTypeOfPlanner.IsSupportedCatalogType(typeof(int).MakeByRefType())
+    assert !ColumnarTypeOfPlanner.IsSupportedCatalogType(typeof(int[]))
+    assert !ColumnarTypeOfPlanner.IsSupportedType(typeof(int).MakeArrayType(2))
+    assert !ColumnarTypeOfPlanner.IsSupportedCatalogType(typeof(List<int>).GetGenericTypeDefinition())
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilitySpan(typeof(string)))
+
+    // `Guid?` IS ADMISSIBLE NOW. This assertion read `!IsSupportedType` while the liftable element
+    // set was a list that happened not to have a `Guid` row; `Nullable<T>`'s argument is decided by
+    // the CLR's rule — a non-nullable, non-by-ref-like value type — and a `Guid` is one.
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.Guid")))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityQueueOfInt())
+    assert ColumnarTypeOfPlanner.IsSupportedCatalogType(AdmissibilityQueueOfInt())
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.Void"))
+}
+
+func CatalogTypeOfTree(name: string, scope: ColumnarBindingScopeFacts): ColumnarRangePlannerTestTree {
+    tree := TypeOfSimpleTree(name)
+    tree.Nodes.SetBindingContext(scope, "", new string[](0), null)
+    return tree
+}
+
+test "typeof consults exact aliases and refuses an unresolved qualified tail" {
+    scope := ExactTypeSingleScope("import System.Text as Text\ntype Selected = Text.StringBuilder\n")
+    bindings := ExactTypeEmptyBindings()
+    aliasTree := CatalogTypeOfTree("Selected", scope)
+    selected := ColumnarSelectedTypeReference.Missing(
+        bindings.StructuralTypeReferences
+    )
+    assert ColumnarTypeOfPlanner.TryResolveTarget(aliasTree.Nodes, aliasTree.Source, aliasTree.Root, bindings, out selected)
+    assert selected.RuntimeType == typeof(System.Text.StringBuilder)
+    assert bindings.StructuralTypeReferences.ValidatePair(
+        selected,
+        typeof(System.Text.StringBuilder)
+    )
+    missingTree := CatalogTypeOfTree("Unrelated.StringBuilder", scope)
+    assert !ColumnarTypeOfPlanner.TryResolveTarget(missingTree.Nodes, missingTree.Source, missingTree.Root, bindings, out selected)
+    brokenScope := ExactTypeSingleScope("type StringBuilder = Missing.Target\n")
+    brokenTree := CatalogTypeOfTree("StringBuilder", brokenScope)
+    assert !ColumnarTypeOfPlanner.TryResolveTarget(brokenTree.Nodes, brokenTree.Source, brokenTree.Root, bindings, out selected)
+}
+
+test "typeof preserves a source identity that shares a BCL name" {
+    builder := TypeOfCreateSourceBuilder("Scope.DateTime", false)
+    definitions := new List<ColumnarStructDef>()
+    definitions.Add(ExactTypeDefinition(builder, "Scope.DateTime"))
+    bindings := ExactTypeBindings(definitions)
+    bindings.StructuralTypeReferences.RegisterSourceDefinition(
+        "Scope.DateTime",
+        builder,
+        false
+    )
+    scope := ExactTypeSingleScope("namespace Scope\nclass DateTime {}\n")
+    tree := CatalogTypeOfTree("DateTime", scope)
+    selected := ColumnarSelectedTypeReference.Missing(
+        bindings.StructuralTypeReferences
+    )
+    assert ColumnarTypeOfPlanner.TryResolveTarget(tree.Nodes, tree.Source, tree.Root, bindings, out selected)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selected.RuntimeType, builder)
+    assert selected.RuntimeType != typeof(DateTime)
+    assert selected.SourceProvenanceName == "Scope.DateTime"
+    missing := CatalogTypeOfTree("Unrelated.DateTime", scope)
+    assert !ColumnarTypeOfPlanner.TryResolveTarget(missing.Nodes, missing.Source, missing.Root, bindings, out selected)
+}
+
+// These closures have no assembly-qualified identity that Assembly.GetType can materialize while
+// their source argument is still a builder. The specialized rebinding facts must remain live.
+test "type admission retains external generics closed over source builders" {
+    sourceClass := TypeOfCreateBuilder("Catalog.SourceArgument", "CatalogSourceArguments", 0)
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Collections.Generic.List`1", sourceClass))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed2("System.Collections.Generic.Dictionary`2", typeof(string), sourceClass))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Threading.Tasks.Task`1", sourceClass))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityResult(sourceClass, typeof(string)))
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityUnion(sourceClass, typeof(string)))
+    // A complete non-generic source reference has stable identity semantics and is admitted as a
+    // direct set key. Constructed builder-bound shapes remain outside that narrower key surface.
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Collections.Generic.HashSet`1", sourceClass))
+    assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceClass)
+    // `Func<SourceArgument>` is an ordinary delegate REFERENCE. It has no rebinding lowering and
+    // needs none: what a field, local or argument of this type does is store, load and pass a
+    // reference, which the general external-construction arm answers for any external head closed
+    // over something this compilation can already store. Its element is NOT thereby a set key —
+    // that is the narrower question `IsAdmissibleHashSetElement` above still owns.
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Func`1", sourceClass))
+    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(AdmissibilityClosed1("System.Func`1", sourceClass))
+    // Exact CLR ValueTuple shapes can carry a complete source reference while the source assembly
+    // is still being built; namesakes and every other builder-bound shape remain excluded by the
+    // tuple-specific identity and element checks.
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), sourceClass))
+}
+
+test "type admission validates closed generic arguments from an external assembly" {
+    foreignBuilder := TypeOfCreateBuilder(
+        "Catalog.ExternalGenericArgument",
+        "CatalogExternalGenericArgumentAsm",
+        0
+    )
+    foreign := IdentityBake(foreignBuilder)
+    listOfReference := AdmissibilityClosed1("System.Collections.Generic.List`1", foreign)
+    readOnlyListOfReference := AdmissibilityClosed1("System.Collections.Generic.IReadOnlyList`1", foreign)
+    readOnlyDictionaryOfReference := AdmissibilityClosed2("System.Collections.Generic.IReadOnlyDictionary`2", typeof(string), foreign)
+
+    assert ColumnarTypeOfPlanner.IsSupportedType(foreign)
+    assert ColumnarTypeOfPlanner.IsSupportedType(listOfReference)
+    assert ColumnarTypeOfPlanner.IsSupportedType(readOnlyListOfReference)
+    assert ColumnarTypeOfPlanner.IsSupportedType(readOnlyDictionaryOfReference)
+
+    rankTwoArray := typeof(int).MakeArrayType(2)
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Collections.Generic.List`1", rankTwoArray))
+
+    closedIdentity := listOfReference.get_AssemblyQualifiedName() ?? ""
+    forged := CatalogReferenceArrayForgedIdentityType(listOfReference, closedIdentity + ", Foreign.Generic.Head")
+    assert !ColumnarTypeOfPlanner.IsSupportedCatalogType(forged)
+
+    foreignHeadBuilder := TypeOfCreateBuilder(
+        "System.Collections.Generic.List`1",
+        "CatalogForeignCollectionHeadAsm",
+        1
+    )
+    foreignHead := IdentityBake(foreignHeadBuilder)
+    foreignArguments := new Type[](1)
+    foreignArguments[0] = foreign
+    foreignClosed := foreignHead.MakeGenericType(foreignArguments)
+    assert !ColumnarTypeOfPlanner.IsSupportedCollectionType(foreignClosed)
+}
+
+test "type admission validates closed generic arguments in the metadata universe" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Private.CoreLib")
+        currentAssembly := context.LoadFromAssemblyPath(typeof(ColumnarTypeOfPlanner).get_Assembly().get_Location())
+        externalArgument := currentAssembly.GetType("NSharpLang.Compiler.Columnar.ColumnarTypeOfPlanner")
+        listDefinition := core.GetType("System.Collections.Generic.List`1")
+        assert externalArgument != null
+        assert listDefinition != null
+        arguments := new Type[](1)
+        arguments[0] = externalArgument
+        listOfReference := listDefinition.MakeGenericType(arguments)
+        assert ColumnarTypeOfPlanner.IsSupportedCatalogType(listOfReference)
+        assert ColumnarTypeOfPlanner.IsSupportedType(listOfReference)
+    } finally {
+        scan.Dispose()
+    }
+}

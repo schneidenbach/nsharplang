@@ -1,0 +1,16 @@
+name: NSharpLang.CensusExternalOperands.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+dependencies:
+  - project: ../../fixtures/census-external-operands-library/project.yml
+  - nuget: System.Reflection.MetadataLoadContext
+    version: 10.0.5
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Model.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Syntax.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.CodeIntel.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Tooling.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Driver.dll

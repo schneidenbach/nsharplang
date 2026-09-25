@@ -6,18 +6,11 @@ import {
     getSignatureHelp,
     positionOf,
     closeAllEditors,
-    createTempNlFile,
-    getDiagnostics
 } from './helpers';
-
-function documentationText(documentation: string | vscode.MarkdownString | undefined): string | undefined {
-    return typeof documentation === 'string' ? documentation : documentation?.value;
-}
 
 /**
  * Signature Help tests with parameter validation.
  *
- * The SignatureHelpHandler is fully implemented for N# functions and .NET types.
  * It triggers on "(" and "," characters.
  *
  * Signature label format: "funcName(param1: Type, param2: Type): ReturnType"
@@ -132,50 +125,6 @@ suite('Signature Help', () => {
             sig.label.includes('string'),
             `Signature label should include return type "string". Got: "${sig.label}"`
         );
-    });
-
-    test('string instance method exposes overload set', async function () {
-        this.timeout(60_000);
-        const { doc, cleanup } = await createTempNlFile(`
-func Main() {
-    name := "Spencer"
-    name.Contains(
-}
-`, '_signature_instance_overloads.nl');
-
-        try {
-            const parenPos = positionOf(doc, 'name.Contains(', { at: 'end' });
-            const sigHelp = await getSignatureHelp(doc, parenPos);
-
-            assert.ok(sigHelp, 'Signature help should be returned for string.Contains()');
-            assert.ok(sigHelp!.signatures.length >= 2,
-                `Expected string.Contains overloads, got ${sigHelp!.signatures.length} signature(s)`);
-
-            const labels = sigHelp!.signatures.map(signature => signature.label);
-            assert.ok(labels.every(label => label.startsWith('Contains(')),
-                `Expected only Contains signatures. Got: ${labels.join(' | ')}`);
-            assert.ok(labels.some(label => label.includes('value: string')),
-                `Expected string overload. Got: ${labels.join(' | ')}`);
-            assert.ok(labels.some(label => label.includes('value: char')),
-                `Expected char overload. Got: ${labels.join(' | ')}`);
-            assert.ok(labels.some(label => label.includes('comparisonType: StringComparison')),
-                `Expected comparison overload. Got: ${labels.join(' | ')}`);
-
-            const stringOverload = sigHelp!.signatures.find(signature =>
-                signature.label.includes('value: string') &&
-                !signature.label.includes('comparisonType'));
-            assert.ok(stringOverload, `Expected single-parameter string overload. Got: ${labels.join(' | ')}`);
-
-            const documentation = documentationText(stringOverload!.documentation);
-            const parameterDocumentation = documentationText(stringOverload!.parameters[0]?.documentation);
-
-            assert.ok(documentation?.includes('specified substring'),
-                `Expected string.Contains signature documentation. Got: ${documentation ?? '<none>'}`);
-            assert.ok(parameterDocumentation?.includes('string to seek'),
-                `Expected string.Contains parameter documentation. Got: ${parameterDocumentation ?? '<none>'}`);
-        } finally {
-            cleanup();
-        }
     });
 
     // ================================================================

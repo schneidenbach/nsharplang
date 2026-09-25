@@ -27,7 +27,9 @@ test "CreateIssue with empty title uses error tuples" {
     tags := new List<string>()
     // Go-style error handling: result, err :=
     issue, err := service.CreateIssue("", "no title", Priority.Low, tags.ToArray())
-    assert err != null
+    if err == null {
+        throw new InvalidOperationException("CreateIssue should return an error for an empty title.")
+    }
     assert err.Message.Contains("title")
 }
 
@@ -67,7 +69,7 @@ test "TransitionIssue rejects invalid transition" {
     service.CreateIssue("Test issue", "desc", Priority.Medium, tags.ToArray())
 
     // Open -> Open is not a valid transition
-    _, err := service.TransitionIssue(1, new IssueStatus.Open {})
+    _, err := service.TransitionIssue(1, new IssueStatus.Open {  })
     assert err != null
 }
 

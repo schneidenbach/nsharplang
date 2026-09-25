@@ -1,4 +1,3 @@
-import WeatherDemo.Models
 import WeatherDemo.Services
 
 class Program {

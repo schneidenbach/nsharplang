@@ -1,0 +1,15 @@
+name: NSharpLang.CensusSafeCasts.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# The nullability fixture library is a PROJECT reference, so a consumer can be analysed against its
+# classes as a referenced assembly's; the compiler assemblies drive the analyzer over that consumer.
+dependencies:
+  - project: ../../fixtures/census-external-nullability-library/project.yml
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Model.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.CodeIntel.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Tooling.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Driver.dll

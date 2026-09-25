@@ -1,0 +1,1382 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Collections
+import System.Collections.Generic
+import System.IO
+import System.Reflection
+import System.Reflection.Emit
+import System.Text
+import System.Text.Json
+import System.Threading
+import System.Threading.Tasks
+import Microsoft.Build.Framework
+import Mono.Cecil
+import YamlDotNet.Serialization
+
+
+// Exact result of runtime instance-member binding. Source TypeBuilder definitions use the
+// source-definition resolver instead; this row owns only the established baked/BCL/external
+// receiver surface.
+class ColumnarRuntimeInstanceMemberSelection {
+    IsField: bool
+    DeclaringType: Type
+    ResultType: Type
+    Field: FieldInfo?
+    Getter: MethodInfo?
+    ReceiverIsReference: bool
+    PreserveDirectValueStorage: bool
+
+    constructor(isField: bool, declaringType: Type, resultType: Type, field: FieldInfo?, getter: MethodInfo?, receiverIsReference: bool) {
+        IsField = isField
+        DeclaringType = declaringType
+        ResultType = resultType
+        Field = field
+        Getter = getter
+        ReceiverIsReference = receiverIsReference
+        PreserveDirectValueStorage = false
+    }
+
+    static func Empty(): ColumnarRuntimeInstanceMemberSelection {
+        return new ColumnarRuntimeInstanceMemberSelection(false, typeof(object), typeof(object), null, null, false)
+    }
+}
+
+// Runtime half of ordinary instance field/property binding. The established catalog remains
+// explicit, while complete baked reference types may use the bounded ordinary readable-member tail
+// below. Selection completes before a code plan emits the receiver, so every false result is atomic.
+class ColumnarRuntimeInstanceMemberResolver {
+    static func CanOwnReceiver(receiverType: Type): bool {
+        if receiverType == null || IsSourceBuilderShape(receiverType) || receiverType.IsByRef || receiverType.IsGenericTypeDefinition || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) {
+            return false
+        }
+
+        if receiverType == typeof(string) || receiverType == typeof(StringBuilder) || receiverType == typeof(Version) || receiverType == typeof(TimeSpan) {
+            return true
+        }
+
+        // `Process` was named here beside these and then CLAIMED BY AN EXCLUSIVE ARM in `TrySelect`
+        // that answered three members and refused every other one, so `p.Id`, `p.StartTime` and
+        // `p.MainModule` could not be read at all. The arm is gone and the class reaches the general
+        // ordinary-reference arm like any other referenced class, which is what this row would have
+        // admitted it as anyway.
+        if receiverType == typeof(DateTime) || receiverType == typeof(Type) || receiverType == typeof(IList) || receiverType == typeof(JsonSerializerOptions) {
+            return true
+        }
+
+        jsonPropertyType := RequiredJsonType("System.Text.Json.JsonProperty")
+        jsonArrayEnumeratorType := RequiredJsonType("System.Text.Json.JsonElement+ArrayEnumerator")
+
+        jsonObjectEnumeratorType := RequiredJsonType("System.Text.Json.JsonElement+ObjectEnumerator")
+
+        yamlParserType := RequiredYamlType("YamlDotNet.Core.IParser")
+        yamlScalarType := RequiredYamlType("YamlDotNet.Core.Events.Scalar")
+
+        if receiverType == typeof(Assembly) {
+            return true
+        }
+
+        if receiverType == typeof(JsonDocument) {
+            return true
+        }
+
+        if receiverType == typeof(JsonElement) {
+            return true
+        }
+
+        if receiverType == jsonPropertyType {
+            return true
+        }
+
+        if receiverType == jsonArrayEnumeratorType {
+            return true
+        }
+
+        if receiverType == jsonObjectEnumeratorType {
+            return true
+        }
+
+        if receiverType == yamlParserType {
+            return true
+        }
+
+        if receiverType == yamlScalarType {
+            return true
+        }
+
+        if IsSupportedXmlLinqReceiver(receiverType) {
+            return true
+        }
+
+        if typeof(Exception).IsAssignableFrom(receiverType) || IsSupportedAspNetReceiver(receiverType) || IsSupportedSdkTaskReceiver(receiverType) || IsSupportedCecilReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) || IsSupportedUnitTaskReceiver(receiverType) || IsSupportedNullableReceiver(receiverType) || IsSupportedResultReceiver(receiverType) || IsSupportedMemoryOwnerReceiver(receiverType) || IsSupportedMemoryReceiver(receiverType) || IsSupportedCountReceiver(receiverType) || IsSupportedKeyValuePairReceiver(receiverType) || IsSupportedSpanLikeReceiver(receiverType) || IsSupportedValueTupleReceiver(receiverType) || ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(receiverType) {
+            return true
+        }
+
+        return IsOrdinaryExternalReferenceReceiver(receiverType) || IsOrdinaryExternalValueReceiver(receiverType)
+    }
+
+    // AN ORDINARY EXTERNAL VALUE RECEIVER — the struct counterpart of the reference arm below, and
+    // the same generalisation for the same reason. The named value-type rows above recorded which
+    // struct had been needed first, not a rule: `Result<TOk, TErr>` and `KeyValuePair<TKey, TValue>`
+    // are listed and the runtime's `Union<T0, T1>` beside them is not, so `u.Index` declined while
+    // `r.IsOk` resolved, and no property of any other referenced struct could be read at all.
+    //
+    // WHAT STILL SEPARATES A STRUCT FROM A CLASS IS KEPT. A BY-REF-LIKE struct cannot be held in
+    // every slot a read needs, and the `Span`-shaped rows above own that decision; an ENUM's members
+    // are the enum arm's; and anything builder-bound or still open is source rather than external.
+    // Everything a read actually depends on is decided elsewhere and unchanged: the selection records
+    // `receiverIsReference` false so the receiver is addressed rather than loaded, only PUBLIC
+    // GETTERS are resolved so no mutation through `this` is reachable, and what a property may RETURN
+    // is still the admitted-value-type fence's answer.
+    static func IsOrdinaryExternalValueReceiver(receiverType: Type): bool {
+        if receiverType == null {
+            return false
+        }
+
+        // THE BUILDER SCREEN RUNS FIRST, and the order is load-bearing rather than tidy: a
+        // `TypeBuilderInstantiation` throws `NotSupportedException` out of `IsEnum`, so a question
+        // about a type still being emitted has to be refused before any such property is read.
+        if ContainsOpenGenericParameters(receiverType) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) || IsSourceBuilderShape(receiverType) {
+            return false
+        }
+
+        if !receiverType.IsValueType || receiverType.HasElementType || receiverType.IsPointer || receiverType.IsEnum {
+            return false
+        }
+
+        return !RuntimeTypeShapeFacts.IsByRefLike(receiverType)
+    }
+
+    // AN ORDINARY EXTERNAL REFERENCE RECEIVER — any class or interface that came from referenced
+    // metadata rather than from this compilation's builders. It is the receiver half of the same
+    // generalisation the exception arm made: there is no rule that distinguishes `MethodInfo` from
+    // `ArgumentNullException`, and the named rows above only ever recorded which receiver had been
+    // needed first. Every read through it still passes the admitted-value-type fence, so what a
+    // property RETURNS is still decided by `IsAdmittedValueType` and not by this predicate.
+    //
+    // VALUE TYPES ARE NOT GENERALISED. A struct receiver needs an address and its readable members
+    // interact with copy semantics, mutation through `this`, and the by-ref-like fence; the named
+    // value-type rows above each carry that decision. Arrays are excluded because their members are
+    // the array arm's, and anything builder-bound is excluded because it is source, not external.
+    static func IsOrdinaryExternalReferenceReceiver(receiverType: Type): bool {
+        if receiverType == null || receiverType.IsValueType || receiverType.HasElementType || receiverType.IsPointer {
+            return false
+        }
+
+        if ContainsOpenGenericParameters(receiverType) || IsSourceBuilderShape(receiverType) {
+            return false
+        }
+
+        // WHAT MAKES A RECEIVER "SOURCE" IS ITS DEFINITION, NOT ITS ARGUMENTS. `IsSourceBuilderShape`
+        // above already refuses a type this compilation is WRITING, including a generic whose
+        // definition is one. What is left here is an EXTERNAL generic closed over a source type —
+        // `Lazy<Query>` for a source class `Query` — and refusing that made `new Lazy<Query>(...)`
+        // compile while `.Value` on it declined, because a member of it could not be reached at all.
+        //
+        // Its members ARE reachable: `TryResolvePublicGetter` reads the getter off the DEFINITION and
+        // rebinds it through `TypeBuilder.GetMethod`, substituting this instantiation's arguments —
+        // the same rebind the call path already does. A builder-bound receiver still cannot be asked
+        // any reflection question directly, which is why nothing below this point reads a property of
+        // it that is not routed through that rebind.
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) {
+            if !receiverType.IsGenericType || receiverType.IsGenericTypeDefinition {
+                return false
+            }
+
+            // The DEFINITION answers what kind of type this is, because a constructed generic the CLR
+            // has no handle for cannot be asked directly.
+            builderBoundDefinition := receiverType.GetGenericTypeDefinition()
+            return builderBoundDefinition.IsClass || builderBoundDefinition.IsInterface
+        }
+
+        return receiverType.IsClass || receiverType.IsInterface
+    }
+
+    // THE LINQ-TO-XML RECEIVERS THE DOC WALK HOLDS. Matched by exact metadata name, for the same
+    // reason the WebApplication arm below is: this assembly cannot reference the Linq-to-XML types by
+    // spelling, because the toolset that compiles it has no rows for them yet. A source-declared
+    // namesake cannot reach this test — `CanOwnReceiver` rejects every builder shape first — and
+    // `TrySelect` still resolves each getter by reflection ON THE RECEIVER and demands an exact
+    // result-type shape, so a namesake without those properties selects nothing.
+    static func IsSupportedXmlLinqReceiver(receiverType: Type): bool {
+        name := receiverType.FullName ?? ""
+        return name == "System.Xml.Linq.XDocument" || name == "System.Xml.Linq.XElement" || name == "System.Xml.Linq.XName" || name == "System.Xml.Linq.XAttribute" || name == "System.Xml.Linq.XText"
+    }
+
+    // A type from the SAME assembly the receiver came from. Resolving the expected result type out of
+    // the receiver's own assembly is stronger than a load-context lookup: it cannot answer with a
+    // same-named type from somewhere else.
+    static func RequiredXmlLinqType(receiverType: Type, fullName: string): Type {
+        return RequiredAssemblyType(receiverType.Assembly, fullName)
+    }
+
+    static func TrySelect(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
+        return TrySelect(receiverType, member, false, out selection)
+    }
+
+    // `allowInheritedProtected` IS THE INHERITED-BASE CASE AND NOTHING ELSE. A source type that derives
+    // from an external base owns everything that base declares `protected`, and the general arm below
+    // asked metadata for public members only — so `this.Items` on a `Collection<T>` base resolved in
+    // the analyzer and then declined at emit. Only the ORDINARY arm widens: the named rows above are
+    // each about a specific public surface and none of them has a protected member to reach.
+    static func TrySelect(receiverType: Type, member: string, allowInheritedProtected: bool, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        if receiverType == null || member == null || member.Length == 0 || !CanOwnReceiver(receiverType) {
+            return false
+        }
+
+        jsonPropertyType := RequiredJsonType("System.Text.Json.JsonProperty")
+        jsonArrayEnumeratorType := RequiredJsonType("System.Text.Json.JsonElement+ArrayEnumerator")
+
+        jsonObjectEnumeratorType := RequiredJsonType("System.Text.Json.JsonElement+ObjectEnumerator")
+
+        yamlParserType := RequiredYamlType("YamlDotNet.Core.IParser")
+        yamlScalarType := RequiredYamlType("YamlDotNet.Core.Events.Scalar")
+        parsingEventType := RequiredYamlType("YamlDotNet.Core.Events.ParsingEvent")
+
+        if IsSupportedValueTupleReceiver(receiverType) {
+            return TrySelectValueTupleField(receiverType, member, out selection)
+        }
+
+        if IsSupportedSdkTaskReadableProperty(receiverType, member) || IsSupportedCecilReadableProperty(receiverType, member) {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
+        if ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(receiverType) && member == "Current" {
+            arguments := receiverType.GetGenericArguments()
+            return TrySelectExpectedProperty(receiverType, receiverType, member, arguments[0], out selection)
+        }
+
+        // ANY readable instance property an exception declares, not a list of names.
+        //
+        // `Message` was modelled by name, so `ex.ParamName` on a caught `ArgumentNullException` —
+        // which is how a caller learns WHICH argument was null — declined, as did `StackTrace` and
+        // `Source` and every property a NuGet package's exception type adds. There is no rule that
+        // distinguishes `Message` from the rest; it was simply the one that had been needed. The
+        // lookup is the ordinary admitted-property one, on the RECEIVER's own type, so a derived
+        // exception's own properties resolve as readily as `Exception`'s and the admitted-value-type
+        // fence still decides what may be read.
+        if typeof(Exception).IsAssignableFrom(receiverType) {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
+        if receiverType == typeof(Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision") {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(int), out selection)
+        }
+
+        if receiverType == typeof(TimeSpan) && member == "TotalMilliseconds" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(double), out selection)
+        }
+
+        if receiverType == typeof(DateTime) {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
+        if receiverType == typeof(JsonElement) && member == "ValueKind" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(JsonValueKind), out selection)
+        }
+
+        if receiverType == typeof(JsonSerializerOptions) && member == "WriteIndented" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(bool), out selection)
+        }
+
+        if receiverType == jsonArrayEnumeratorType && member == "Current" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(JsonElement), out selection)
+        }
+
+        if receiverType == jsonObjectEnumeratorType && member == "Current" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, jsonPropertyType, out selection)
+        }
+
+        if receiverType == jsonPropertyType && member == "Name" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(string), out selection)
+        }
+
+        if receiverType == jsonPropertyType && member == "Value" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(JsonElement), out selection)
+        }
+
+        if receiverType == typeof(Type) && (member == "Name" || member == "FullName" || member == "Namespace" || member == "IsNested") {
+            expected := typeof(string)
+            if member == "IsNested" {
+                expected = typeof(bool)
+            }
+
+            return TrySelectExpectedProperty(receiverType, receiverType, member, expected, out selection)
+        }
+
+        if receiverType == yamlParserType && member == "Current" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, parsingEventType, out selection)
+        }
+
+        if receiverType == yamlScalarType && member == "Value" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(string), out selection)
+        }
+
+        if IsSupportedTaskReceiver(receiverType) && member == "Result" {
+            arguments := receiverType.GetGenericArguments()
+            return TrySelectExpectedProperty(receiverType, receiverType, member, arguments[0], out selection)
+        }
+
+        // `IsCompleted` answers on both task shapes: the bare `Task` a unit async function
+        // returns, and the generic `Task<T>`.
+        if member == "IsCompleted" {
+            if IsSupportedUnitTaskReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(bool), out selection)
+            }
+        }
+
+        if receiverType == typeof(IList) && member == "Count" {
+            collectionType := RequiredAssemblyType(typeof(object).Assembly, "System.Collections.ICollection")
+
+            return TrySelectExpectedProperty(receiverType, collectionType, member, typeof(int), out selection)
+        }
+
+        if receiverType == typeof(Assembly) && (member == "IsDynamic" || member == "IsCollectible") {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(bool), out selection)
+        }
+
+        if receiverType == typeof(JsonDocument) && member == "RootElement" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(JsonElement), out selection)
+        }
+
+        // THE SIX XML DOC PROPERTY READS. Each names its exact result: the document's root element,
+        // an element's text and its name, that name's local part, and the text an attribute or a text
+        // node carries. `XElement.Value` and `XText.Value` are DIFFERENT properties on different
+        // types that happen to share a name and a result, so both are spelled.
+        if IsSupportedXmlLinqReceiver(receiverType) {
+            receiverName := receiverType.FullName ?? ""
+            if receiverName == "System.Xml.Linq.XDocument" && member == "Root" {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, RequiredXmlLinqType(receiverType, "System.Xml.Linq.XElement"), out selection)
+            }
+
+            if receiverName == "System.Xml.Linq.XElement" && member == "Name" {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, RequiredXmlLinqType(receiverType, "System.Xml.Linq.XName"), out selection)
+            }
+
+            if member == "Value" && (receiverName == "System.Xml.Linq.XElement" || receiverName == "System.Xml.Linq.XAttribute" || receiverName == "System.Xml.Linq.XText") {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(string), out selection)
+            }
+
+            if receiverName == "System.Xml.Linq.XName" && member == "LocalName" {
+                return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(string), out selection)
+            }
+
+            return false
+        }
+
+        // The old WebApplication arm repeated the general ASP.NET rule but omitted its result
+        // admission check. Environment's exact result is itself on the admitted external surface.
+        if receiverType.FullName == "Microsoft.AspNetCore.Builder.WebApplication" && member == "Environment" {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
+        if IsSupportedAspNetReceiver(receiverType) {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
+        if IsSupportedNullableReceiver(receiverType) && (member == "HasValue" || member == "Value") {
+            expected := typeof(bool)
+            if member == "Value" {
+                expected = receiverType.GetGenericArguments()[0]
+            }
+
+            return TrySelectExpectedProperty(receiverType, receiverType, member, expected, out selection)
+        }
+
+        if IsSupportedResultReceiver(receiverType) {
+            resultArguments := receiverType.GetGenericArguments()
+            expected := typeof(object)
+            if member == "IsOk" || member == "IsErr" {
+                expected = typeof(bool)
+            } else if member == "OkValue" || member == "OkValueUnchecked" {
+                expected = resultArguments[0]
+            } else if member == "ErrValue" || member == "ErrValueUnchecked" {
+                expected = resultArguments[1]
+            } else {
+                return false
+            }
+
+            return TrySelectExpectedProperty(receiverType, receiverType, member, expected, out selection)
+        }
+
+        if IsSupportedDictionaryKeyCollectionOwner(receiverType) && member == "Keys" {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
+        if IsSupportedMemoryOwnerReceiver(receiverType) && member == "Memory" {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
+        if IsSupportedMemoryReceiver(receiverType) && member == "Span" {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
+        if IsSupportedCountReceiver(receiverType) && (member == "Count" || member == "Capacity" && receiverType.GetGenericTypeDefinition() == typeof(List<int>).GetGenericTypeDefinition()) {
+            countOwner := receiverType
+            if member == "Count" {
+                inheritedCountOwner := typeof(object)
+                if TryGetInheritedCountOwner(receiverType, out inheritedCountOwner) {
+                    countOwner = inheritedCountOwner
+                }
+            }
+
+            return TrySelectExpectedProperty(receiverType, countOwner, member, typeof(int), out selection)
+        }
+
+        if IsSupportedKeyValuePairReceiver(receiverType) && (member == "Key" || member == "Value") {
+            pairArguments := receiverType.GetGenericArguments()
+            expected := pairArguments[0]
+            if member == "Value" {
+                expected = pairArguments[1]
+            }
+
+            return TrySelectExpectedProperty(receiverType, receiverType, member, expected, out selection)
+        }
+
+        if (receiverType == typeof(string) || receiverType == typeof(StringBuilder) || IsSupportedSpanLikeReceiver(receiverType)) && member == "Length" {
+            return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(int), out selection)
+        }
+
+        // THE GENERAL ARM, LAST, so every named row above keeps its exact expected result and only a
+        // receiver none of them claimed reaches here. `m.Name` on a `MethodInfo` and `list.Count` on
+        // an `IList<T>` are ordinary readable instance properties; refusing them while accepting
+        // `m.get_Name()` — the accessor spelling for the very same getter — was a gap in which
+        // receivers had been listed, not a rule. A PUBLIC FIELD is read through the same arm, because
+        // which storage a member happens to use is not a rule either: `Location.Line` is a field.
+        if IsOrdinaryExternalReferenceReceiver(receiverType) || IsOrdinaryExternalValueReceiver(receiverType) {
+            return TrySelectOrdinaryReadableMember(receiverType, member, allowInheritedProtected, out selection)
+        }
+
+        return false
+    }
+
+    // The general arm's own selection: an exact public, instance, zero-argument getter, or an exact
+    // public instance field. A VALUE receiver keeps its DIRECT STORAGE — the plan addresses the local
+    // or parameter the read is written on instead of spilling a copy of it — and
+    // `PreserveDirectValueStorage` is what carries that decision to the planner. A composed temporary
+    // still spills, because it has no storage of its own to address.
+    static func TrySelectOrdinaryReadableMember(receiverType: Type, member: string, allowInheritedProtected: bool, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
+        selection = EmptySelection()
+
+        // A CONSTRUCTED GENERIC CLOSED OVER A TYPE THIS COMPILATION IS WRITING ANSWERS NO MEMBER
+        // QUERY AT ALL — `GetField` on one throws "TypeBuilder generic instantiation does not support
+        // resolving members". The PROPERTY read below reaches its getter through the definition and
+        // `TypeBuilder.GetMethod`, which is the whole point of admitting such a receiver; the FIELD
+        // probe has no such rebind here, so it is skipped rather than asked.
+        field: FieldInfo? = null
+        if !RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) {
+            field = receiverType.GetField(member, OrdinaryMemberFlags(allowInheritedProtected, receiverType))
+        }
+        if field != null {
+            declaringType := field.DeclaringType
+            fieldType := field.FieldType
+            if IsReachableInheritedLevel(MemberAccessibility.LevelOfField(field), allowInheritedProtected, declaringType) && !field.IsStatic && !field.IsLiteral && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && IsOrdinaryReadableResultType(fieldType) {
+                selectedField := new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.IsValueType)
+                selectedField.PreserveDirectValueStorage = true
+                selection = selectedField
+                return true
+            }
+        }
+
+        getter: MethodInfo? = null
+        declaringType := typeof(object)
+        resultType := typeof(object)
+        if !TryResolveInheritedPublicGetter(receiverType, member, allowInheritedProtected, out getter, out declaringType, out resultType) || getter == null || !IsOrdinaryReadableResultType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
+            return false
+        }
+
+        selectedProperty := new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, !receiverType.IsValueType)
+        selectedProperty.PreserveDirectValueStorage = true
+        selection = selectedProperty
+        return true
+    }
+
+    // WHAT THE GENERAL ARM MAY READ. The named rows above each answer with `IsAdmittedValueType`, and
+    // a referenced assembly's own object model answers with the columnar backend's own supported-type
+    // fence; they are the same question — can this value be held, stored and used from emitted IL —
+    // asked by the two paths that grew this arm, so the arm accepts a result either one admits.
+    static func IsOrdinaryReadableResultType(valueType: Type): bool {
+        return IsSelectableResultType(valueType) && (IsAdmittedValueType(valueType) || ColumnarTypeOfPlanner.IsSupportedType(valueType))
+    }
+
+    static func TrySelectValueTupleField(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        isRest := member == "Rest" && receiverType.GetGenericTypeDefinition() == ColumnarTypeOfPlanner.OpenValueTupleType(8)
+        if !isRest && (member.Length <= 4 || !member.StartsWith("Item", StringComparison.Ordinal) || !char.IsDigit(member[4])) {
+            return false
+        }
+
+        field: FieldInfo? = null
+        resultType := typeof(object)
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) {
+            definition := receiverType.GetGenericTypeDefinition()
+            openField := definition.GetField(member)
+            if openField == null || !openField.IsPublic || openField.IsStatic || openField.IsLiteral {
+                return false
+            }
+            field = TypeBuilder.GetField(receiverType, openField)
+            resultType = SubstituteClosedTypeArguments(openField.FieldType, receiverType.GetGenericArguments())
+        } else {
+            field = receiverType.GetField(member)
+            if field != null {
+                resultType = field.FieldType
+            }
+        }
+        if field == null || !field.IsPublic || field.IsStatic || field.IsLiteral {
+            return false
+        }
+
+        declaringType := field.DeclaringType
+        if declaringType == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatches(declaringType, receiverType) || !IsSelectableResultType(resultType) {
+            return false
+        }
+
+        selection = new ColumnarRuntimeInstanceMemberSelection(true, declaringType, resultType, field, null, false)
+
+        return true
+    }
+
+    static func TrySelectExpectedProperty(receiverType: Type, lookupType: Type, member: string, expectedResultType: Type, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        getter: MethodInfo? = null
+        declaringType := typeof(object)
+        resultType := typeof(object)
+        if !TryResolvePublicGetter(lookupType, member, out getter, out declaringType, out resultType) || getter == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatches(resultType, expectedResultType) || !IsSelectableResultType(expectedResultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
+            return false
+        }
+
+        receiverIsReference := !receiverType.IsValueType
+        selection = new ColumnarRuntimeInstanceMemberSelection(false, declaringType, expectedResultType, null, getter, receiverIsReference)
+
+        return true
+    }
+
+    // THE FENCE IS THE BACKEND'S OWN QUESTION, NOT A SECOND LIST. This door is what makes an
+    // exception's, a `DateTime`'s and a reflected member's properties readable WITHOUT naming them,
+    // and it used to gate the result on `IsAdmittedValueType` alone -- a list of types somebody had
+    // needed, which is the very shape the receiver arms above stopped being. So `Exception.Data`
+    // (an `IDictionary`) and `AggregateException.InnerExceptions` (a
+    // `ReadOnlyCollection<Exception>`) declined although the columnar backend holds, stores and
+    // passes both types everywhere else, and so did every property a referenced package's exception
+    // adds whose type is an ordinary supported one. `IsOrdinaryReadableResultType` is the same
+    // question the general arm already asks -- can this value be held, stored and used from emitted
+    // IL -- and its comment says so; asking it here rather than half of it is what makes the "ANY
+    // readable instance property" rule above true.
+    static func TrySelectAdmittedProperty(receiverType: Type, lookupType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        getter: MethodInfo? = null
+        declaringType := typeof(object)
+        resultType := typeof(object)
+        if !TryResolveInheritedPublicGetter(lookupType, member, out getter, out declaringType, out resultType) || getter == null || !IsOrdinaryReadableResultType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
+            return false
+        }
+
+        receiverIsReference := !receiverType.IsValueType
+        selection = new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, receiverIsReference)
+
+        return true
+    }
+
+    // AN INTERFACE DOES NOT INHERIT ITS BASES' MEMBERS THROUGH `GetProperty`, which is why
+    // `IList<T>.Count` — declared on `ICollection<T>` — resolved nothing while the same read on
+    // `List<T>` resolved. A class receiver already walks its base chain in metadata, so the extra
+    // sweep runs ONLY for an interface, in `GetInterfaces()` order, and the first base that declares
+    // the name wins. `ReceiverMatchesDeclaringType` still has to accept the owner it finds.
+    static func TryResolveInheritedPublicGetter(lookupType: Type, member: string, out getter: MethodInfo?, out declaringType: Type, out resultType: Type): bool {
+        return TryResolveInheritedPublicGetter(lookupType, member, false, out getter, out declaringType, out resultType)
+    }
+
+    static func TryResolveInheritedPublicGetter(lookupType: Type, member: string, allowInheritedProtected: bool, out getter: MethodInfo?, out declaringType: Type, out resultType: Type): bool {
+        if TryResolvePublicGetter(lookupType, member, allowInheritedProtected, out getter, out declaringType, out resultType) {
+            return true
+        }
+
+        if !lookupType.IsInterface {
+            return false
+        }
+
+        baseInterfaces := InheritedInterfaceSweep(lookupType)
+        for baseInterface in baseInterfaces {
+            if TryResolvePublicGetter(baseInterface, member, allowInheritedProtected, out getter, out declaringType, out resultType) {
+                return true
+            }
+        }
+
+        getter = null
+        declaringType = typeof(object)
+        resultType = typeof(object)
+        return false
+    }
+
+    static func TryResolvePublicGetter(lookupType: Type, member: string, out getter: MethodInfo?, out declaringType: Type, out resultType: Type): bool {
+        return TryResolvePublicGetter(lookupType, member, false, out getter, out declaringType, out resultType)
+    }
+
+    // THE INTERFACES A RECEIVER IMPLEMENTS, INCLUDING WHEN IT IS BUILDER-BOUND.
+    //
+    // `TypeBuilderInstantiation.GetInterfaces()` throws `NotSupportedException`, so the sweep used to
+    // be SKIPPED for a receiver closed over a type this compilation is writing — and with it every
+    // member a BASE interface declares. That is where `ILogger<TheHandler>.IsEnabled` lives
+    // (`ILogger<out TCategoryName>` declares nothing; `ILogger` does), and `IList<Row>.IsReadOnly`
+    // and `IList<Row>.Add` with it, while the identical reads on `ILogger<string>` and
+    // `IList<string>` resolved. The list cannot be asked of the receiver, but it CAN be asked of its
+    // DEFINITION, whose entries are constructed over the definition's own parameters (`IList<T>`
+    // implements `ICollection<T>`); closing each with this instantiation's arguments names exactly
+    // the interfaces the receiver implements. A definition answers the TRANSITIVE list, so one flat
+    // sweep reaches every ancestor, and a definition that is itself a `TypeBuilder` is source rather
+    // than external and keeps its own resolver.
+    static func InheritedInterfaceSweep(lookupType: Type): Type[] {
+        if !RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
+            return lookupType.GetInterfaces()
+        }
+
+        if !lookupType.IsGenericType || lookupType.IsGenericTypeDefinition {
+            return new Type[](0)
+        }
+
+        definition := lookupType.GetGenericTypeDefinition()
+        if definition is TypeBuilder {
+            return new Type[](0)
+        }
+
+        openInterfaces := definition.GetInterfaces()
+        arguments := lookupType.GetGenericArguments()
+        closedInterfaces := new List<Type>()
+        index := 0
+        while index < openInterfaces.Length {
+            closed := SubstituteClosedTypeArguments(openInterfaces[index], arguments)
+            index = index + 1
+            if closed == null || closed.IsGenericTypeDefinition {
+                continue
+            }
+            closedInterfaces.Add(closed)
+        }
+
+        return closedInterfaces.ToArray()
+    }
+
+    // WHICH LEVELS AN INHERITED-BASE READ MAY REACH, and the binding flags that find them. `family`
+    // and its two combinations always; `private` never; and the three ASSEMBLY-bound levels only when
+    // the referenced assembly that declares the member named the assembly being emitted in an
+    // `InternalsVisibleTo` — the CLR's own friend rule, which it re-checks at load, so a reached
+    // member emits the ordinary instruction and nothing else changes. `MemberAccessibility` answers,
+    // so the emitter and the analyzer read the same relation.
+    static func IsReachableInheritedLevel(level: int, allowInheritedProtected: bool): bool {
+        return IsReachableInheritedLevel(level, allowInheritedProtected, null)
+    }
+
+    static func IsReachableInheritedLevel(level: int, allowInheritedProtected: bool, declaringType: Type?): bool {
+        return MemberAccessibility.IsAccessible(level, false, allowInheritedProtected, allowInheritedProtected, InternalsVisibleToEmissionScope.GrantsAccessToDeclarer(declaringType))
+    }
+
+    // A FRIEND'S INTERNALS ARE ONLY FINDABLE IF METADATA IS ASKED FOR THEM. `NonPublic` is otherwise
+    // an opt-in for the inherited-`protected` case alone, and the level filter beside it is what
+    // decides whether anything it returns is actually reachable.
+    static func OrdinaryMemberFlags(allowInheritedProtected: bool): BindingFlags {
+        return OrdinaryMemberFlags(allowInheritedProtected, null)
+    }
+
+    // `GetGetMethod(nonPublic)` and `GetSetMethod(nonPublic)` take the same opt-in the binding flags
+    // do, and for the same two reasons: an inherited `protected` accessor, and a friend's `internal`
+    // one.
+    static func NonPublicAccessorsAreVisible(allowInheritedProtected: bool, lookupType: Type?): bool {
+        return allowInheritedProtected || InternalsVisibleToEmissionScope.GrantsAccessToDeclarer(lookupType)
+    }
+
+    static func OrdinaryMemberFlags(allowInheritedProtected: bool, lookupType: Type?): BindingFlags {
+        if allowInheritedProtected || InternalsVisibleToEmissionScope.GrantsAccessToDeclarer(lookupType) {
+            return BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        }
+
+        return BindingFlags.Public | BindingFlags.Instance
+    }
+
+    static func TryResolvePublicGetter(lookupType: Type, member: string, allowInheritedProtected: bool, out getter: MethodInfo?, out declaringType: Type, out resultType: Type): bool {
+        getter = null
+        declaringType = typeof(object)
+        resultType = typeof(object)
+
+        signatureGetter: MethodInfo? = null
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
+            if !lookupType.IsGenericType || lookupType.IsGenericTypeDefinition {
+                return false
+            }
+
+            definition := lookupType.GetGenericTypeDefinition()
+            if definition is TypeBuilder {
+                return false
+            }
+
+            property := definition.GetProperty(member, OrdinaryMemberFlags(allowInheritedProtected, definition))
+            if property == null {
+                return false
+            }
+
+            signatureGetter = property.GetGetMethod(NonPublicAccessorsAreVisible(allowInheritedProtected, definition))
+            if signatureGetter == null || !ValidatePublicGetterSignature(signatureGetter, allowInheritedProtected) {
+                return false
+            }
+
+            rebound := TypeBuilder.GetMethod(lookupType, signatureGetter)
+            if rebound == null {
+                return false
+            }
+
+            getter = (MethodInfo)rebound
+            resultType = SubstituteClosedTypeArguments(property.PropertyType, lookupType.GetGenericArguments())
+        } else {
+            property := lookupType.GetProperty(member, OrdinaryMemberFlags(allowInheritedProtected, lookupType))
+            if property == null {
+                return false
+            }
+
+            signatureGetter = property.GetGetMethod(NonPublicAccessorsAreVisible(allowInheritedProtected, lookupType))
+            if signatureGetter == null || !ValidatePublicGetterSignature(signatureGetter, allowInheritedProtected) {
+                return false
+            }
+
+            getter = signatureGetter
+            resultType = property.PropertyType
+        }
+
+        exactGetter := getter
+        if exactGetter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(exactGetter), allowInheritedProtected, exactGetter.DeclaringType) || exactGetter.IsStatic {
+            getter = null
+            return false
+        }
+
+        exactDeclaringType := exactGetter.DeclaringType
+        if exactDeclaringType == null {
+            getter = null
+            return false
+        }
+
+        declaringType = exactDeclaringType
+
+        actualReturn := exactGetter.ReturnType
+        if lookupType.IsGenericType && !lookupType.IsGenericTypeDefinition {
+            actualReturn = SubstituteClosedTypeArguments(actualReturn, lookupType.GetGenericArguments())
+        }
+
+        if !RuntimeTypeShapeFacts.ExactTypeShapeMatches(actualReturn, resultType) || !IsSelectableResultType(resultType) {
+            getter = null
+            return false
+        }
+
+        return true
+    }
+
+    static func ValidatePublicGetterSignature(getter: MethodInfo): bool {
+        return ValidatePublicGetterSignature(getter, false)
+    }
+
+    static func ValidatePublicGetterSignature(getter: MethodInfo, allowInheritedProtected: bool): bool {
+        if getter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(getter), allowInheritedProtected, getter.DeclaringType) || getter.IsStatic || getter.IsGenericMethodDefinition || getter.ReturnType.IsByRef {
+            return false
+        }
+
+        parameters := getter.GetParameters()
+        return parameters.Length == 0
+    }
+
+    static func ReceiverMatchesDeclaringType(receiverType: Type, declaringType: Type): bool {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatches(receiverType, declaringType) {
+            return true
+        }
+
+        if receiverType.IsValueType || declaringType.IsValueType {
+            return false
+        }
+
+        // Reflection.Emit's BCL-headed constructed wrappers do not implement `IsAssignableFrom`, so
+        // the relation is answered from the receiver's OWN closed interface list — the one the
+        // definition's transitive interfaces produce once this instantiation's arguments are closed
+        // into them. `Count` used to be the only member whose getter owner could be an interface
+        // base of such a wrapper, because it was the only one anything could reach; its narrower
+        // route is kept below for the collection wrappers it also names.
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(declaringType) {
+            implemented := InheritedInterfaceSweep(receiverType)
+            for implementedItem in implemented {
+                if RuntimeTypeShapeFacts.ExactTypeShapeMatches(implementedItem, declaringType) {
+                    return true
+                }
+            }
+
+            inheritedCountOwner := typeof(object)
+            return TryGetInheritedCountOwner(receiverType, out inheritedCountOwner) && RuntimeTypeShapeFacts.ExactTypeShapeMatches(inheritedCountOwner, declaringType)
+        }
+
+        return declaringType.IsAssignableFrom(receiverType)
+    }
+
+    static func TryGetInheritedCountOwner(receiverType: Type, out countOwner: Type): bool {
+        countOwner = typeof(object)
+        if !receiverType.IsGenericType || receiverType.IsGenericTypeDefinition {
+            return false
+        }
+
+        definition := receiverType.GetGenericTypeDefinition()
+        arguments := receiverType.GetGenericArguments()
+        elementType := typeof(object)
+        if definition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() {
+            if arguments.Length != 1 {
+                return false
+            }
+
+            elementType = arguments[0]
+        } else {
+            if !ColumnarGenericCallBindingPlanner.IsReadOnlyDictionaryCollectionDefinition(definition) || arguments.Length != 2 {
+                return false
+            }
+
+            elementType = typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(arguments)
+        }
+
+        collectionArguments := new Type[](1)
+        collectionArguments[0] = elementType
+        countOwner = typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition().MakeGenericType(collectionArguments)
+        return true
+    }
+
+    static func IsSelectableResultType(valueType: Type): bool {
+        return valueType != null && valueType.FullName != "System.Void" && !valueType.IsByRef && !valueType.IsGenericTypeDefinition
+    }
+
+    static func IsSourceBuilderShape(valueType: Type): bool {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) {
+            return true
+        }
+
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+
+        definition := valueType.GetGenericTypeDefinition()
+        return definition is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(definition)
+    }
+
+    static func SubstituteClosedTypeArguments(signatureType: Type, closedArguments: Type[]): Type {
+        if signatureType.IsGenericParameter {
+            if signatureType.DeclaringMethod == null {
+                position := signatureType.GenericParameterPosition
+                if position >= 0 && position < closedArguments.Length {
+                    return closedArguments[position]
+                }
+            }
+
+            return signatureType
+        }
+
+        // A `ref`/`out` slot in an open signature is `T&`, and substituting through it is the whole
+        // point: without this arm the method returned the UNSUBSTITUTED `T&` and the caller compared a
+        // closed argument against an open parameter.
+        if signatureType.IsByRef {
+            byRefElement := signatureType.GetElementType()
+            if byRefElement == null {
+                return signatureType
+            }
+
+            return SubstituteClosedTypeArguments(byRefElement, closedArguments).MakeByRefType()
+        }
+
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
+            elementType := signatureType.GetElementType()
+            if elementType == null {
+                return signatureType
+            }
+
+            return SubstituteClosedTypeArguments(elementType, closedArguments).MakeArrayType()
+        }
+
+        // The GENERIC TYPE DEFINITION is substituted too, not skipped. A member whose signature type
+        // is its own owner — `EqualityComparer<T>.Default` is typed `EqualityComparer<T>`, and the
+        // CLR spells that as the definition itself — is exactly the shape a self-typed static
+        // factory has, and leaving it unsubstituted hands the planner an open definition, which
+        // names no storage. Its arguments ARE the owner's type parameters, so the ordinary
+        // by-position substitution below closes it; a definition whose parameters this
+        // instantiation does not cover substitutes to itself and is rejected downstream as before.
+        if signatureType.IsGenericType {
+            definition := signatureType.IsGenericTypeDefinition ? signatureType : signatureType.GetGenericTypeDefinition()
+            arguments := signatureType.GetGenericArguments()
+            substituted := new Type[](arguments.Length)
+            index := 0
+            while index < arguments.Length {
+                substituted[index] = SubstituteClosedTypeArguments(arguments[index], closedArguments)
+
+                index = index + 1
+            }
+
+            return definition.MakeGenericType(substituted)
+        }
+
+        return signatureType
+    }
+
+    static func IsSupportedTaskReceiver(valueType: Type): bool {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+
+        return valueType.GetGenericTypeDefinition() == typeof(Task<int>).GetGenericTypeDefinition() && IsAdmittedValueType(valueType.GetGenericArguments()[0])
+    }
+
+    // The BARE `Task` a unit async function answers with. Read by name because the pinned
+    // toolset's `typeof` surface does not carry the non-generic task types.
+    static func IsSupportedUnitTaskReceiver(valueType: Type): bool {
+        return valueType == RequiredAssemblyType(typeof(object).Assembly, "System.Threading.Tasks.Task")
+    }
+
+    static func IsSupportedNullableReceiver(valueType: Type): bool {
+        nullableDefinition := RequiredAssemblyType(typeof(object).Assembly, "System.Nullable`1")
+
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != nullableDefinition {
+            return false
+        }
+
+        return IsLiftableNullableElement(valueType.GetGenericArguments()[0])
+    }
+
+    // ONE OWNER ANSWERS WHAT A `Nullable<T>`'s ARGUMENT MAY BE — see
+    // `ColumnarTypeOfPlanner.IsLiftableNullableElement`. This was a second copy of the same list.
+    static func IsLiftableNullableElement(valueType: Type): bool {
+        return ColumnarTypeOfPlanner.IsLiftableNullableElement(valueType)
+    }
+
+    static func IsSupportedResultReceiver(valueType: Type): bool {
+        resultDefinition := Type.GetType("NSharpLang.Runtime.Result`2, NSharpLang.Runtime")
+        if resultDefinition == null || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != resultDefinition {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 2 && !RuntimeTypeShapeFacts.IsByRefLike(arguments[0]) && !RuntimeTypeShapeFacts.IsByRefLike(arguments[1]) && IsAdmittedValueType(arguments[0]) && IsAdmittedValueType(arguments[1])
+    }
+
+    static func IsSupportedMemoryOwnerReceiver(valueType: Type): bool {
+        definition := RequiredAssemblyType(typeof(object).Assembly, "System.Buffers.IMemoryOwner`1")
+
+        return IsClosedGenericWithSingleByteArgument(valueType, definition)
+    }
+
+    static func IsSupportedMemoryReceiver(valueType: Type): bool {
+        definition := RequiredAssemblyType(typeof(object).Assembly, "System.Memory`1")
+
+        return IsClosedGenericWithSingleByteArgument(valueType, definition)
+    }
+
+    static func IsClosedGenericWithSingleByteArgument(valueType: Type, definition: Type): bool {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != definition {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        return arguments.Length == 1 && arguments[0] == typeof(byte)
+    }
+
+    static func IsSupportedCountReceiver(valueType: Type): bool {
+        if !IsSupportedCollectionType(valueType) {
+            return false
+        }
+
+        return valueType.GetGenericTypeDefinition() != typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    }
+
+    static func IsSupportedCollectionType(valueType: Type): bool {
+        if valueType is TypeBuilder || !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+
+        definition := valueType.GetGenericTypeDefinition()
+        return definition == typeof(List<int>).GetGenericTypeDefinition() || definition == typeof(Dictionary<int, int>).GetGenericTypeDefinition() || definition == typeof(SortedDictionary<int, int>).GetGenericTypeDefinition() || definition == typeof(HashSet<int>).GetGenericTypeDefinition() || definition == typeof(SortedSet<int>).GetGenericTypeDefinition() || definition == typeof(Stack<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || definition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || (definition.FullName ?? "") == "System.Collections.Generic.IReadOnlyDictionary`2" || definition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    }
+
+    static func IsSupportedDictionaryKeyCollectionOwner(valueType: Type): bool {
+        return valueType != null && !(valueType is TypeBuilder) && valueType.IsGenericType && !valueType.IsGenericTypeDefinition && valueType.GetGenericTypeDefinition() == typeof(Dictionary<int, int>).GetGenericTypeDefinition()
+    }
+
+    static func IsSupportedKeyValuePairReceiver(valueType: Type): bool {
+        if valueType is TypeBuilder || !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+
+        definition := RequiredAssemblyType(typeof(object).Assembly, "System.Collections.Generic.KeyValuePair`2")
+
+        return valueType.GetGenericTypeDefinition() == definition
+    }
+
+    static func IsSupportedSpanLikeReceiver(valueType: Type): bool {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+
+        definition := valueType.GetGenericTypeDefinition()
+        spanDefinition := RequiredAssemblyType(typeof(object).Assembly, "System.Span`1")
+
+        readOnlySpanDefinition := RequiredAssemblyType(typeof(object).Assembly, "System.ReadOnlySpan`1")
+
+        if definition != spanDefinition && definition != readOnlySpanDefinition {
+            return false
+        }
+
+        return IsSupportedSpanElement(valueType.GetGenericArguments()[0])
+    }
+
+    static func IsSupportedSpanElement(valueType: Type): bool {
+        return valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || RuntimeTypeShapeFacts.IsEnumType(valueType)
+    }
+
+    static func IsSupportedValueTupleReceiver(valueType: Type): bool {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
+            return ColumnarTypeOfPlanner.IsSupportedValueTuple(valueType)
+        }
+
+        definition := valueType.GetGenericTypeDefinition()
+        if definition == ColumnarTypeOfPlanner.OpenValueTupleType(8) {
+            return ColumnarTypeOfPlanner.IsSupportedValueTuple(valueType)
+        }
+        if definition != typeof(ValueTuple<int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int, int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int, int, int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int, int, int, int, int>).GetGenericTypeDefinition() {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if RuntimeTypeShapeFacts.IsEnumType(argument) || argument is TypeBuilder || IsSourceBuilderShape(argument) || IsSupportedDelegateType(argument) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsAdmittedValueType(argument) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    // SOLE OWNER of the AspNet RECEIVER test since `015-A5`. The C# emitter's two BCL-property entry
+    // points (`TryGetSupportedBclReadableProperty` / `TryGetSupportedBclWritableProperty`) asked their
+    // own copy of this predicate; both now call here, because "may this receiver own a member?" is
+    // this owner's whole subject and routing them to the planner's type-surface head would have
+    // spelled the namespace rule a third time. Driven as a second column over a 275-type corpus, this
+    // head and `ColumnarTypeOfPlanner.IsSupportedExternalType` agree on every AspNet-namespaced input;
+    // they part company only on the yaml assembly, which is a type-surface question and not a
+    // receiver one. `IsSupportedExternalReferenceShape` below carries BOTH of the guards `015-A5`
+    // was created to land — see the planner's own comment for why each one is needed.
+    static func IsSupportedAspNetReceiver(valueType: Type): bool {
+        if !IsSupportedExternalReferenceShape(valueType) {
+            return false
+        }
+
+        namespaceName := valueType.Namespace ?? ""
+        return namespaceName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal) || namespaceName.StartsWith("Microsoft.Extensions.Hosting", StringComparison.Ordinal)
+    }
+
+    static func IsSupportedExternalReferenceShape(valueType: Type): bool {
+        return !valueType.IsValueType && !valueType.HasElementType && !ContainsOpenGenericParameters(valueType)
+    }
+
+    static func ContainsOpenGenericParameters(valueType: Type): bool {
+        if valueType.IsGenericParameter || valueType.IsGenericTypeDefinition {
+            return true
+        }
+
+        if !valueType.IsGenericType {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if ContainsOpenGenericParameters(argument) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func IsAdmittedValueType(valueType: Type): bool {
+        if !IsSelectableResultType(valueType) {
+            return false
+        }
+
+        if valueType == typeof(int) || valueType == typeof(bool) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(string) || valueType == typeof(char) {
+            return true
+        }
+
+        if valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(uint) {
+            return true
+        }
+
+        if valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(decimal) || valueType == typeof(object) || valueType == typeof(Stream) || valueType == typeof(StreamReader) {
+            return true
+        }
+
+        if valueType == typeof(StringComparer) {
+            return true
+        }
+        textWriterType := RequiredAssemblyType(typeof(object).Assembly, "System.IO.TextWriter")
+        if valueType == textWriterType {
+            return true
+        }
+        if valueType == typeof(StringBuilder) {
+            return true
+        }
+        if valueType == typeof(DateTime) {
+            return true
+        }
+        if valueType == typeof(TimeSpan) {
+            return true
+        }
+        if valueType == typeof(Index) {
+            return true
+        }
+        if valueType == typeof(Range) {
+            return true
+        }
+
+        if valueType == typeof(System.Threading.CancellationToken) || valueType == typeof(Random) || valueType == typeof(IList) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) {
+            return true
+        }
+
+        // The dependency-injection service collection is the receiver produced by a hosting builder's
+        // `Services` property (`builder.Services.AddControllers()`); admitting it as an instance-member
+        // result lets that external reference flow into extension-method resolution. Matched by exact
+        // metadata name because this assembly does not reference the DI abstractions.
+        if valueType.FullName == "Microsoft.Extensions.DependencyInjection.IServiceCollection" {
+            return true
+        }
+
+        if ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(valueType) || ColumnarRuntimeTypeFacts.IsSupportedDirectCallInteropType(valueType) || IsSupportedTaskValueType(valueType) || typeof(Exception).IsAssignableFrom(valueType) || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) {
+            return true
+        }
+
+        if IsSupportedJsonType(valueType) || IsSupportedExternalType(valueType) || IsSupportedSpanLikeReceiver(valueType) || IsSupportedArrayPoolType(valueType) || IsSupportedMemoryPoolType(valueType) {
+            return true
+        }
+
+        if IsSupportedMemoryOwnerReceiver(valueType) || IsSupportedMemoryReceiver(valueType) || IsSupportedNullableReceiver(valueType) || IsSupportedResultReceiver(valueType) || IsSupportedAnonymousUnionType(valueType) {
+            return true
+        }
+
+        if RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.IsGenericParameter || IsSourceBuilderShape(valueType) || IsSupportedValueTupleReceiver(valueType) {
+            return true
+        }
+
+        if IsSupportedDelegateType(valueType) || IsSupportedCollectionType(valueType) || ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(valueType) {
+            return true
+        }
+
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
+            elementType := valueType.GetElementType()
+            return elementType != null && IsSupportedElementType(elementType)
+        }
+
+        return false
+    }
+
+    static func IsSupportedTaskValueType(valueType: Type): bool {
+        if valueType == typeof(Task) || valueType == typeof(ValueTask) {
+            return true
+        }
+
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
+            return false
+        }
+
+        definition := valueType.GetGenericTypeDefinition()
+        if definition != typeof(Task<int>).GetGenericTypeDefinition() && definition != typeof(ValueTask<int>).GetGenericTypeDefinition() {
+            return false
+        }
+
+        return IsAdmittedValueType(valueType.GetGenericArguments()[0])
+    }
+
+    static func IsSupportedJsonType(valueType: Type): bool {
+        jsonPropertyType := RequiredJsonType("System.Text.Json.JsonProperty")
+        jsonArrayEnumeratorType := RequiredJsonType("System.Text.Json.JsonElement+ArrayEnumerator")
+
+        jsonObjectEnumeratorType := RequiredJsonType("System.Text.Json.JsonElement+ObjectEnumerator")
+
+        return valueType == typeof(JsonElement) || valueType == typeof(JsonDocument) || valueType == typeof(JsonValueKind) || valueType == typeof(JsonSerializerOptions) || valueType == typeof(JsonNamingPolicy) || valueType == jsonArrayEnumeratorType || valueType == jsonObjectEnumeratorType || valueType == jsonPropertyType
+    }
+
+    static func IsSupportedExternalType(valueType: Type): bool {
+        if IsSupportedSdkTaskReceiver(valueType) || IsSupportedCecilReceiver(valueType) {
+            return true
+        }
+
+        valueAssemblyName := valueType.Assembly.GetName().FullName
+        yamlAssemblyName := typeof(IYamlTypeConverter).Assembly.GetName().FullName
+        if String.Equals(valueAssemblyName, yamlAssemblyName, StringComparison.Ordinal) {
+            return true
+        }
+        return IsSupportedAspNetReceiver(valueType)
+    }
+
+    // The SDK task owner uses three exact MSBuild receiver types. Keep this surface narrower than
+    // the packages: ITaskItem contributes ItemSpec, Task contributes Log, and the resulting
+    // TaskLoggingHelper is admitted so its exact public calls can flow through ordinary binding.
+    static func IsSupportedSdkTaskReceiver(valueType: Type): bool {
+        if !IsSupportedExternalReferenceShape(valueType) {
+            return false
+        }
+
+        return RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(ITaskItem)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(Microsoft.Build.Utilities.Task)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(Microsoft.Build.Utilities.TaskLoggingHelper))
+    }
+
+    static func IsSupportedSdkTaskReadableProperty(receiverType: Type, member: string): bool {
+        fullName := receiverType.FullName ?? ""
+        return IsSupportedSdkTaskReceiver(receiverType) && ((fullName == "Microsoft.Build.Framework.ITaskItem" && member == "ItemSpec") || (fullName == "Microsoft.Build.Utilities.Task" && member == "Log"))
+    }
+
+    // Exact Mono.Cecil receivers used by the SDK's reference-assembly scope rewrite. The compiler
+    // still resolves each selected property on the actual receiver and validates its CLR result;
+    // these names only define which external object-model types may enter that binding path.
+    static func IsSupportedCecilReceiver(valueType: Type): bool {
+        if !IsSupportedExternalReferenceShape(valueType) {
+            return false
+        }
+
+        if valueType.IsGenericType && !valueType.IsGenericTypeDefinition {
+            definition := valueType.GetGenericTypeDefinition()
+            if !RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(definition, typeof(Mono.Collections.Generic.Collection<int>).GetGenericTypeDefinition()) {
+                return false
+            }
+            arguments := valueType.GetGenericArguments()
+            return arguments.Length == 1 && (RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(arguments[0], typeof(TypeDefinition)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(arguments[0], typeof(ExportedType)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(arguments[0], typeof(AssemblyNameReference)))
+        }
+        return RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(ReaderParameters)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(AssemblyDefinition)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(ModuleDefinition)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(AssemblyNameDefinition)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(AssemblyNameReference)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(IMetadataScope)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(Mono.Cecil.TypeReference)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(TypeDefinition)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(valueType, typeof(ExportedType))
+    }
+
+    static func IsSupportedCecilReadableProperty(receiverType: Type, member: string): bool {
+        if !IsSupportedCecilReceiver(receiverType) {
+            return false
+        }
+
+        fullName := receiverType.FullName ?? ""
+        if receiverType.IsGenericType && !receiverType.IsGenericTypeDefinition {
+            fullName = receiverType.GetGenericTypeDefinition().FullName ?? ""
+        }
+        if fullName == "Mono.Cecil.AssemblyDefinition" {
+            return member == "MainModule" || member == "Name"
+        }
+        if fullName == "Mono.Cecil.ModuleDefinition" {
+            return member == "Types" || member == "ExportedTypes" || member == "AssemblyReferences"
+        }
+        if fullName == "Mono.Cecil.AssemblyNameDefinition" || fullName == "Mono.Cecil.AssemblyNameReference" {
+            return member == "FullName" || member == "Name" || member == "Version" || member == "Culture" || member == "PublicKeyToken"
+        }
+        if fullName == "Mono.Cecil.TypeReference" {
+            return member == "FullName" || member == "Scope"
+        }
+        if fullName == "Mono.Cecil.TypeDefinition" {
+            return member == "FullName" || member == "NestedTypes"
+        }
+        if fullName == "Mono.Cecil.ExportedType" {
+            return member == "FullName"
+        }
+        if fullName == "Mono.Collections.Generic.Collection`1" {
+            return member == "Count"
+        }
+        return false
+    }
+
+    static func IsSupportedArrayPoolType(valueType: Type): bool {
+        definition := RequiredRuntimeType("System.Buffers.ArrayPool`1, System.Private.CoreLib")
+
+        return IsClosedGenericWithSingleByteArgument(valueType, definition)
+    }
+
+    static func IsSupportedMemoryPoolType(valueType: Type): bool {
+        definition := RequiredRuntimeType("System.Buffers.MemoryPool`1, System.Memory")
+
+        return IsClosedGenericWithSingleByteArgument(valueType, definition)
+    }
+
+    static func IsSupportedAnonymousUnionType(valueType: Type): bool {
+        unionDefinition := Type.GetType("NSharpLang.Runtime.Union`2, NSharpLang.Runtime")
+        if unionDefinition == null || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != unionDefinition {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if !IsAdmittedValueType(argument) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    static func IsSupportedDelegateType(valueType: Type): bool {
+        if valueType == typeof(Action) || valueType == typeof(ThreadStart) {
+            return true
+        }
+
+        if valueType is TypeBuilder || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
+            return false
+        }
+
+        definition := valueType.GetGenericTypeDefinition()
+        if definition != typeof(Action<int>).GetGenericTypeDefinition() && definition != typeof(Action<int, int>).GetGenericTypeDefinition() && definition != typeof(Action<int, int, int>).GetGenericTypeDefinition() && definition != typeof(Action<int, int, int, int>).GetGenericTypeDefinition() && definition != typeof(Func<int>).GetGenericTypeDefinition() && definition != typeof(Func<int, int>).GetGenericTypeDefinition() && definition != typeof(Func<int, int, int>).GetGenericTypeDefinition() && definition != typeof(Func<int, int, int, int>).GetGenericTypeDefinition() && definition != typeof(Func<int, int, int, int, int>).GetGenericTypeDefinition() {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        for argument in arguments {
+            if !IsAdmittedValueType(argument) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    static func IsSupportedElementType(valueType: Type): bool {
+        if valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(string) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(object) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) || RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.IsGenericParameter || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedNullableReceiver(valueType) {
+            return true
+        }
+
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
+            elementType := valueType.GetElementType()
+            return elementType != null && IsSupportedElementType(elementType)
+        }
+
+        return false
+    }
+
+    static func RequiredJsonType(fullName: string): Type {
+        return RequiredAssemblyType(typeof(JsonElement).Assembly, fullName)
+    }
+
+    // `EnumBuilder` is ABSTRACT on this runtime: a live instance is `EnumBuilderImpl` (persisted emit)
+    // or `RuntimeEnumBuilder` (run emit), so an EXACT match on the base name can never be true and the
+    // predicate silently reported every EnumBuilder as baked — which routed `List<SomeEnumBuilder>` into
+    // the plain-reflection member path, where `GetMethod` throws NotSupportedException.
+    static func RequiredYamlType(fullName: string): Type {
+        return RequiredAssemblyType(typeof(IYamlTypeConverter).Assembly, fullName)
+    }
+
+    static func RequiredAssemblyType(assembly: Assembly, fullName: string): Type {
+        valueType := assembly.GetType(fullName)
+        if valueType == null {
+            throw new InvalidOperationException("Required runtime instance-member type '" + fullName + "' was not found.")
+        }
+
+        return valueType
+    }
+
+    static func RequiredRuntimeType(assemblyQualifiedName: string): Type {
+        valueType := Type.GetType(assemblyQualifiedName)
+        if valueType == null {
+            throw new InvalidOperationException("Required runtime instance-member type '" + assemblyQualifiedName + "' was not found.")
+        }
+
+        return valueType
+    }
+
+    static func EmptySelection(): ColumnarRuntimeInstanceMemberSelection {
+        return ColumnarRuntimeInstanceMemberSelection.Empty()
+    }
+}

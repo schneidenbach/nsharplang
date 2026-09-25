@@ -2,6 +2,7 @@
 
 namespace IssueTracker
 
+import System
 import System.IO
 import System.Linq
 import System.Text.Json

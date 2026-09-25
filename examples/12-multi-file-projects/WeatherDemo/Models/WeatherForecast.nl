@@ -1,5 +1,7 @@
 namespace WeatherDemo.Models
 
+import System
+
 
 // Record with computed properties - demonstrates immutable data types
 record WeatherForecast {
@@ -7,6 +9,6 @@ record WeatherForecast {
     TemperatureC: int
     Summary: string?
 
-    // Expression-bodied computed property (C# 6+)
+    // Expression-bodied computed property
     TemperatureF: int => 32 + (TemperatureC * 9 / 5)
 }

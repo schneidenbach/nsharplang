@@ -1,0 +1,16 @@
+name: SystemsLib
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+language:
+  profile: systems
+  asyncDefaultType: ValueTask
+  systems:
+    mode: strict
+    unknownExternalCalls: warn
+    aotTarget: nativeaot
+    stackBudgetBytes: 4096
+    warmup:
+      - Warmup

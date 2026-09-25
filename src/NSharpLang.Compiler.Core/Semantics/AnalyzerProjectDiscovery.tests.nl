@@ -1,0 +1,1497 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.IO
+import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
+
+// Native contracts for project discovery — the source/unit provider and the discovery walk over it.
+//
+// Every member behind these contracts was `private` in Analyzer.cs, so no test named any of them:
+// their behaviour was pinned only indirectly, through end-to-end diagnostics. This is their first
+// DIRECT pinning, and it goes at the parts that read like plumbing and are not:
+//
+//   * the ENUMERATION ORDER, which is the answer whenever two files declare the same name (measured:
+//     47 such (namespace, name) pairs in this repository's own root project);
+//   * the CACHES — which are cleared per analysis and which deliberately are not, and the fact that
+//     a cached NULL is a real answer and not a miss;
+//   * the THREE-WAY outcome of the type channel, whose ORDER is the semantics: the inaccessible case
+//     is decided BETWEEN the namespace sweep and the unique-exported fallback, and suppresses it;
+//   * export visibility, which is what makes a cross-namespace reference resolve or not.
+func ProjectSourceOf(namespaceName: string?, body: string): string {
+    if namespaceName == null {
+        return body
+    }
+
+    return "namespace " + namespaceName + "\n\n" + body
+}
+
+// A provider holding an in-memory snapshot, added in the given order — which is the order every walk
+// then takes.
+func ProjectProviderOf(paths: string[], sources: string[]): AnalyzerProjectSourceProvider {
+    provider := new AnalyzerProjectSourceProvider()
+    index := 0
+    while index < paths.Length {
+        provider.AddSourceText(paths[index], sources[index])
+        index = index + 1
+    }
+
+    return provider
+}
+
+func ProjectDiscoveryOf(
+    provider: AnalyzerProjectSourceProvider,
+    imports: string[]
+): AnalyzerProjectTypeDiscovery {
+    context := new AnalyzerDeclarationContext()
+    context.Reset(Path.GetFullPath("."), new List<Assembly>())
+    provider.AddProjectUnitsTo(context)
+    usingNamespaces := new List<string>()
+    index := 0
+    while index < imports.Length {
+        usingNamespaces.Add(imports[index])
+        index = index + 1
+    }
+
+    return new AnalyzerProjectTypeDiscovery(
+        provider,
+        context,
+        usingNamespaces,
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
+}
+
+func ProjectPathList(values: List<string>): string {
+    text := ""
+    index := 0
+    while index < values.Count {
+        if index > 0 {
+            text = text + ","
+        }
+        text = text + Path.GetFileName(values[index])
+        index = index + 1
+    }
+    return text
+}
+
+// ---- the provider ------------------------------------------------------------------------------
+
+test "the snapshot is walked in insertion order, and a repeated path keeps its original position" {
+    provider := new AnalyzerProjectSourceProvider()
+    provider.AddSourceText("/p/b.nl", "b1")
+    provider.AddSourceText("/p/a.nl", "a1")
+    provider.AddSourceText("/p/c.nl", "c1")
+
+    // Insertion order, NOT sorted order: two files declaring the same name make "first wins" a
+    // decision, so this order is part of the answer.
+    assert ProjectPathList(provider.SourceFilePaths()) == "b.nl,a.nl,c.nl"
+
+    // Re-adding a path REPLACES its text and keeps its position, exactly as an indexer assignment
+    // into a dictionary that already has the key.
+    provider.AddSourceText("/p/a.nl", "a2")
+    assert ProjectPathList(provider.SourceFilePaths()) == "b.nl,a.nl,c.nl"
+    assert provider.TryGetProjectSourceText("/p/a.nl") == "a2"
+}
+
+test "the snapshot is keyed case-insensitively on the FULL path" {
+    provider := new AnalyzerProjectSourceProvider()
+    provider.AddSourceText("/p/One.nl", "one")
+
+    assert provider.ContainsSourceText(Path.GetFullPath("/p/One.nl"))
+    assert provider.ContainsSourceText(Path.GetFullPath("/p/one.nl"))
+    assert provider.TryGetProjectSourceText("/p/ONE.NL") == "one"
+
+    // A relative spelling normalises to the same key.
+    assert provider.TryGetProjectSourceText("/p/./One.nl") == "one"
+    assert provider.TryGetProjectSourceText("/p/Two.nl") == null
+    assert !provider.ContainsSourceText(Path.GetFullPath("/p/Two.nl"))
+}
+
+test "a snapshot miss means ask the disk, and a missing file means empty rather than a throw" {
+    provider := new AnalyzerProjectSourceProvider()
+    provider.AddSourceText("/p/known.nl", "in memory")
+
+    // TryGetProjectSourceText answers only from the snapshot: null is "not in the snapshot", which is
+    // a different question from "no text".
+    assert provider.TryGetProjectSourceText("/p/known.nl") == "in memory"
+    assert provider.TryGetProjectSourceText("/p/absent.nl") == null
+
+    // ProjectSourceText resolves it: snapshot, then disk, then empty.
+    assert provider.ProjectSourceText("/p/known.nl") == "in memory"
+    assert provider.ProjectSourceText("/p/does-not-exist-at-all.nl") == ""
+
+    temporary := Path.Combine(Path.GetTempPath(), "nsharp-project-discovery-" + Guid.NewGuid().ToString() + ".nl")
+    File.WriteAllText(temporary, "on disk")
+    assert provider.ProjectSourceText(temporary) == "on disk"
+    File.Delete(temporary)
+}
+
+test "resetting the snapshot takes the parsed units with it, but beginning an analysis does not" {
+    provider := new AnalyzerProjectSourceProvider()
+    provider.AddSourceText("/p/one.nl", ProjectSourceOf("A", "public class Kept {\n}\n"))
+    firstUnit := provider.GetProjectCompilationUnit("/p/one.nl")
+    assert firstUnit != null
+    assert AnalyzerProjectSourceProvider.UnitNamespace(firstUnit) == "A"
+
+    // A new analysis keeps the parsed unit: the same instance comes back, so the cache survived.
+    provider.BeginAnalysis("/p")
+    assert Object.ReferenceEquals(provider.GetProjectCompilationUnit("/p/one.nl"), firstUnit)
+    assert provider.ProjectRoot == "/p"
+
+    // A new SNAPSHOT does not: the units were parsed from the old texts.
+    provider.ResetSourceTexts()
+    provider.AddSourceText("/p/one.nl", ProjectSourceOf("B", "public class Kept {\n}\n"))
+    secondUnit := provider.GetProjectCompilationUnit("/p/one.nl")
+    assert !Object.ReferenceEquals(secondUnit, firstUnit)
+    assert AnalyzerProjectSourceProvider.UnitNamespace(secondUnit) == "B"
+    assert provider.SourceFilePaths().Count == 1
+}
+
+test "a unit is parsed at most once per path, and a package name outranks a namespace name" {
+    provider := new AnalyzerProjectSourceProvider()
+    provider.AddSourceText("/p/pkg.nl", "package Pack\n\npublic class Inside {\n}\n")
+    provider.AddSourceText("/p/plain.nl", "public class Global {\n}\n")
+
+    packUnit := provider.GetProjectCompilationUnit("/p/pkg.nl")
+    assert Object.ReferenceEquals(provider.GetProjectCompilationUnit("/p/pkg.nl"), packUnit)
+    assert AnalyzerProjectSourceProvider.UnitNamespace(packUnit) == "Pack"
+
+    // No package and no namespace is the GLOBAL namespace — a real candidate, expressed as null.
+    assert AnalyzerProjectSourceProvider.UnitNamespace(provider.GetProjectCompilationUnit("/p/plain.nl")) == null
+    assert AnalyzerProjectSourceProvider.UnitNamespace(null) == null
+}
+
+test "the file-namespace question caches its negative answer and parses at most once per snapshot" {
+    provider := new AnalyzerProjectSourceProvider()
+    directory := Path.Combine(Path.GetTempPath(), "nsharp-project-ns-" + Guid.NewGuid().ToString())
+    Directory.CreateDirectory(directory)
+    present := Path.Combine(directory, "present.nl")
+    File.WriteAllText(present, ProjectSourceOf("Declared", "public class Here {\n}\n"))
+    absent := Path.Combine(directory, "absent.nl")
+
+    assert provider.GetNamespaceForFile(present) == "Declared"
+    assert provider.GetNamespaceForFile(absent) == null
+    assert provider.GetNamespaceForFile(null) == null
+    assert provider.GetNamespaceForFile("") == null
+
+    // The negative answer is CACHED: creating the file afterwards does not change the answer until
+    // the next analysis clears the cache. A cached null is an answer, not a miss.
+    File.WriteAllText(absent, ProjectSourceOf("Late", "public class Late {\n}\n"))
+    assert provider.GetNamespaceForFile(absent) == null
+    provider.BeginAnalysis(directory)
+    assert provider.GetNamespaceForFile(absent) == "Late"
+
+    // The question goes through the unit cache (rule 3): snapshot text added AFTER the file was
+    // parsed does not re-enter it, because only a NEW snapshot re-parses...
+    provider.AddSourceText(present, ProjectSourceOf("Snapshot", "public class Here {\n}\n"))
+    provider.BeginAnalysis(directory)
+    assert provider.GetNamespaceForFile(present) == "Declared"
+
+    // ...and under a new snapshot the SNAPSHOT'S text is the file's text, not the disk's — the same
+    // snapshot-first answer every other project question gives.
+    provider.ResetSourceTexts()
+    provider.AddSourceText(present, ProjectSourceOf("Snapshot", "public class Here {\n}\n"))
+    provider.BeginAnalysis(directory)
+    assert provider.GetNamespaceForFile(present) == "Snapshot"
+
+    Directory.Delete(directory, true)
+}
+
+test "the project-namespace set comes from the root on disk and is empty without a usable root" {
+    provider := new AnalyzerProjectSourceProvider()
+
+    // No root at all, a blank root and a root that does not exist all answer NO rather than throwing.
+    assert !provider.ProjectNamespaceExists("Anything")
+    provider.BeginAnalysis(null)
+    assert !provider.ProjectNamespaceExists("Anything")
+    provider.BeginAnalysis("   ")
+    assert !provider.ProjectNamespaceExists("Anything")
+    provider.BeginAnalysis(Path.Combine(Path.GetTempPath(), "nsharp-absent-" + Guid.NewGuid().ToString()))
+    assert !provider.ProjectNamespaceExists("Anything")
+
+    directory := Path.Combine(Path.GetTempPath(), "nsharp-project-roots-" + Guid.NewGuid().ToString())
+    Directory.CreateDirectory(directory)
+    File.WriteAllText(Path.Combine(directory, "a.nl"), ProjectSourceOf("Alpha", "public class A {\n}\n"))
+    File.WriteAllText(Path.Combine(directory, "b.nl"), "package Beta\n\npublic class B {\n}\n")
+    File.WriteAllText(Path.Combine(directory, "c.nl"), "public class C {\n}\n")
+    provider.BeginAnalysis(directory)
+
+    assert provider.ProjectNamespaceExists("Alpha")
+    assert provider.ProjectNamespaceExists("Beta")
+    // A file with no namespace contributes nothing, and the match is case-SENSITIVE.
+    assert !provider.ProjectNamespaceExists("alpha")
+    assert !provider.ProjectNamespaceExists("Gamma")
+
+    Directory.Delete(directory, true)
+}
+
+test "a namespace rebuild walks cached units instead of re-parsing the project" {
+    provider := new AnalyzerProjectSourceProvider()
+    directory := Path.Combine(Path.GetTempPath(), "nsharp-project-rebuild-" + Guid.NewGuid().ToString())
+    Directory.CreateDirectory(directory)
+    drifting := Path.Combine(directory, "drifting.nl")
+    File.WriteAllText(drifting, ProjectSourceOf("Alpha", "public class A {\n}\n"))
+    provider.BeginAnalysis(directory)
+    assert provider.ProjectNamespaceExists("Alpha")
+
+    // The disk drifting mid-snapshot changes NOTHING: the next analysis rebuilds the namespace set
+    // from the cached unit rather than re-reading the file. This is the load-bearing half of
+    // rule 3 — a shared analyzer begins one analysis per project file, so a rebuild that re-parsed
+    // the project would parse it once per file, O(files²): the 2026-08 `nlc query completions`
+    // hang (693 files, ~480k recovery parses, tens of minutes at 100% CPU).
+    File.WriteAllText(drifting, ProjectSourceOf("Beta", "public class A {\n}\n"))
+    provider.BeginAnalysis(directory)
+    assert provider.ProjectNamespaceExists("Alpha")
+    assert !provider.ProjectNamespaceExists("Beta")
+    assert provider.GetNamespaceForFile(drifting) == "Alpha"
+
+    // A NEW snapshot is the one thing that re-parses (rule 3), and then the disk's new text answers.
+    provider.ResetSourceTexts()
+    provider.BeginAnalysis(directory)
+    assert provider.ProjectNamespaceExists("Beta")
+    assert !provider.ProjectNamespaceExists("Alpha")
+
+    Directory.Delete(directory, true)
+}
+
+test "the disk fallback is used only when there is no snapshot, and skips nothing it can read" {
+    directory := Path.Combine(Path.GetTempPath(), "nsharp-project-disk-" + Guid.NewGuid().ToString())
+    Directory.CreateDirectory(directory)
+    File.WriteAllText(Path.Combine(directory, "one.nl"), ProjectSourceOf("Disk", "public class One {\n}\n"))
+    File.WriteAllText(Path.Combine(directory, "two.nl"), ProjectSourceOf("Disk", "public class Two {\n}\n"))
+
+    provider := new AnalyzerProjectSourceProvider()
+    provider.BeginAnalysis(directory)
+    assert provider.SourceFilePaths().Count == 2
+
+    // One snapshot entry takes the whole answer: the snapshot is not merged with the disk.
+    provider.AddSourceText("/elsewhere/only.nl", "public class Only {\n}\n")
+    assert ProjectPathList(provider.SourceFilePaths()) == "only.nl"
+
+    Directory.Delete(directory, true)
+}
+
+// ---- the discovery walk ------------------------------------------------------------------------
+
+test "a type declared by another file in the SAME namespace resolves, exported or not" {
+    provider := ProjectProviderOf(
+        ["/p/other.nl"],
+        [ProjectSourceOf("Same", "public class Exported {\n}\n\nclass notExported {\n}\n")]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "Exported",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+    assert declaration != null
+    assert declaration.Name == "Exported"
+    assert declaration.Kind == "class"
+
+    // Inside its OWN namespace a non-exported declaration is still visible, and finding it there is
+    // not an accessibility failure.
+    assert discovery.ResolveVisibleProjectType(
+        "notExported",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+}
+
+test "across namespaces only an EXPORTED declaration resolves, and the rest is the inaccessible case" {
+    provider := ProjectProviderOf(
+        ["/p/other.nl"],
+        [ProjectSourceOf("Other", "public class Exported {\n}\n\nclass notExported {\n}\n")]
+    )
+    discovery := ProjectDiscoveryOf(provider, ["Other"])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+
+    assert discovery.ResolveVisibleProjectType(
+        "Exported",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+
+    // The non-exported one is not resolved AND is reported as inaccessible, with the file that
+    // declares it — which is what the diagnostic names.
+    assert !discovery.ResolveVisibleProjectType(
+        "notExported",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible != null
+    assert Path.GetFileName(inaccessible) == "other.nl"
+    assert declaration == null
+    assert BuiltInTypes.IsUnknown(resolved)
+}
+
+test "the inaccessible probe is skipped without a source position, and it SUPPRESSES the fallback" {
+    // `Hidden` is non-exported in an imported namespace, so the inaccessible case fires — and the
+    // unique-exported fallback, which would otherwise have nothing to offer either, is not reached.
+    provider := ProjectProviderOf(
+        ["/p/other.nl"],
+        [ProjectSourceOf("Other", "class hidden {\n}\n")]
+    )
+    discovery := ProjectDiscoveryOf(provider, ["Other"])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+
+    assert !discovery.ResolveVisibleProjectType(
+        "hidden",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible != null
+
+    // Without a position there is nothing to report, so the probe is not even run: the SAME inputs
+    // answer "no such type" rather than "inaccessible".
+    assert !discovery.ResolveVisibleProjectType(
+        "hidden",
+        "Mine",
+        false,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+}
+
+test "the unique-exported fallback resolves a type no visible namespace offers" {
+    // `Far` is exported from a namespace that is neither the current one nor imported, so the
+    // namespace sweep misses it and the project-wide unique-exported fallback catches it.
+    provider := ProjectProviderOf(
+        ["/p/far.nl"],
+        [ProjectSourceOf("Far", "public class Far {\n}\n")]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "Far",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+    assert declaration != null
+    assert Path.GetFileName(declaration.File) == "far.nl"
+
+    // A name nothing declares is simply absent — not inaccessible.
+    assert !discovery.ResolveVisibleProjectType(
+        "Missing",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+    assert declaration == null
+}
+
+test "the enumeration order IS the answer: the first file declaring a function name wins" {
+    // The function channel takes the FIRST match, and duplicate function names across files are
+    // ordinary rather than pathological — `Main` is declared by 42 files in this repository's own
+    // root project. So the order the files are enumerated in decides the answer.
+    forward := ProjectProviderOf(
+        ["/p/aaa.nl", "/p/zzz.nl"],
+        [
+            ProjectSourceOf("Same", "public func Twice() {\n}\n"),
+            ProjectSourceOf("Same", "public func Twice() {\n}\n")
+        ]
+    )
+    reversed := ProjectProviderOf(
+        ["/p/zzz.nl", "/p/aaa.nl"],
+        [
+            ProjectSourceOf("Same", "public func Twice() {\n}\n"),
+            ProjectSourceOf("Same", "public func Twice() {\n}\n")
+        ]
+    )
+
+    declarationFile: string? = null
+    functionDeclaration: FunctionDeclaration? = null
+    declaration: SymbolDeclaration? = null
+
+    forwardDiscovery := ProjectDiscoveryOf(forward, [])
+    assert forwardDiscovery.TryResolveVisibleProjectFunction(
+        "Twice",
+        "Same",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
+    assert Path.GetFileName(declarationFile) == "aaa.nl"
+
+    // The SAME two files in the opposite order give a DIFFERENT answer. Insertion order, not any
+    // sort of the paths.
+    reversedDiscovery := ProjectDiscoveryOf(reversed, [])
+    assert reversedDiscovery.TryResolveVisibleProjectFunction(
+        "Twice",
+        "Same",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
+    assert Path.GetFileName(declarationFile) == "zzz.nl"
+}
+
+test "the inaccessible probe names the FIRST file that hides the name" {
+    forward := ProjectProviderOf(
+        ["/p/aaa.nl", "/p/zzz.nl"],
+        [
+            ProjectSourceOf("Other", "func hidden() {\n}\n"),
+            ProjectSourceOf("Other", "func hidden() {\n}\n")
+        ]
+    )
+    reversed := ProjectProviderOf(
+        ["/p/zzz.nl", "/p/aaa.nl"],
+        [
+            ProjectSourceOf("Other", "func hidden() {\n}\n"),
+            ProjectSourceOf("Other", "func hidden() {\n}\n")
+        ]
+    )
+
+    inaccessible: string? = null
+    // The file this names goes into the diagnostic, so the order is user-visible.
+    assert ProjectDiscoveryOf(forward, ["Other"]).TryFindInaccessibleVisibleFunction(
+        "hidden",
+        "Mine",
+        out inaccessible
+    )
+    assert Path.GetFileName(inaccessible) == "aaa.nl"
+    assert ProjectDiscoveryOf(reversed, ["Other"]).TryFindInaccessibleVisibleFunction(
+        "hidden",
+        "Mine",
+        out inaccessible
+    )
+    assert Path.GetFileName(inaccessible) == "zzz.nl"
+}
+
+test "two files declaring the SAME type name in one namespace resolve to the first, and NL339 owns the duplicate" {
+    // The type channel used to REFUSE this pair rather than pick one, and the refusal surfaced at
+    // every use as NL201 "not found" — a true statement about nothing, since the type existed twice,
+    // and one that sat beside the NL339 the later declaration already carried. The duplicate is
+    // reported where it is (NL339, `AnalyzerDeclarationPolicy.ReportTypeDeclaredInAnotherFile`), and
+    // a use resolves to the FIRST file in enumeration order, which makes the order decisive for this
+    // channel exactly as it is for the other two.
+    provider := ProjectProviderOf(
+        ["/p/aaa.nl", "/p/zzz.nl"],
+        [
+            ProjectSourceOf("Same", "public class Twice {\n}\n"),
+            ProjectSourceOf("Same", "public class Twice {\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "Twice",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName((must declaration).File) == "aaa.nl"
+    assert inaccessible == null
+
+    // The SAME two files in the opposite order give the other answer: insertion order, not a sort.
+    reversed := ProjectProviderOf(
+        ["/p/zzz.nl", "/p/aaa.nl"],
+        [
+            ProjectSourceOf("Same", "public class Twice {\n}\n"),
+            ProjectSourceOf("Same", "public class Twice {\n}\n")
+        ]
+    )
+    assert ProjectDiscoveryOf(reversed, []).ResolveVisibleProjectType(
+        "Twice",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName((must declaration).File) == "zzz.nl"
+
+    // From a THIRD namespace with no import, the unique-exported fallback counts NAMESPACES, not
+    // files: one namespace exports `Twice`, so the reference resolves to its first file rather than
+    // turning the reported duplicate back into "not found".
+    assert discovery.ResolveVisibleProjectType(
+        "Twice",
+        "Elsewhere",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName((must declaration).File) == "aaa.nl"
+
+    // Two DIFFERENT namespaces exporting the name remain the tie the fallback refuses to break.
+    twoNamespaces := ProjectProviderOf(
+        ["/p/aaa.nl", "/p/zzz.nl"],
+        [
+            ProjectSourceOf("Same", "public class Twice {\n}\n"),
+            ProjectSourceOf("Other", "public class Twice {\n}\n")
+        ]
+    )
+    assert !ProjectDiscoveryOf(twoNamespaces, []).ResolveVisibleProjectType(
+        "Twice",
+        "Elsewhere",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert declaration == null
+    assert inaccessible == null
+}
+
+test "the visible-namespace order decides between two namespaces that both declare the name" {
+    provider := ProjectProviderOf(
+        ["/p/mine.nl", "/p/imported.nl"],
+        [
+            ProjectSourceOf("Mine", "public class Both {\n}\n"),
+            ProjectSourceOf("Imported", "public class Both {\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, ["Imported"])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+
+    // The file's OWN namespace is the first candidate, ahead of every import.
+    assert discovery.ResolveVisibleProjectType(
+        "Both",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName(declaration.File) == "mine.nl"
+
+    // From a namespace that declares nothing, the import answers.
+    assert discovery.ResolveVisibleProjectType(
+        "Both",
+        "Elsewhere",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName(declaration.File) == "imported.nl"
+}
+
+test "one namespace at a time: the current namespace does not require export and others do" {
+    provider := ProjectProviderOf(
+        ["/p/other.nl"],
+        [ProjectSourceOf("Other", "public class Exported {\n}\n\nclass notExported {\n}\n")]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+
+    // Asked AS the declaring namespace, export is not required.
+    assert discovery.TryResolveProjectTypeInNamespace(
+        "notExported",
+        "Other",
+        "Other",
+        out resolved,
+        out declaration
+    )
+    // Asked from anywhere else, it is.
+    assert !discovery.TryResolveProjectTypeInNamespace(
+        "notExported",
+        "Other",
+        "Mine",
+        out resolved,
+        out declaration
+    )
+    assert discovery.TryResolveProjectTypeInNamespace(
+        "Exported",
+        "Other",
+        "Mine",
+        out resolved,
+        out declaration
+    )
+    // A namespace no file declares offers nothing, and the global namespace is a real candidate
+    // rather than an absence.
+    assert !discovery.TryResolveProjectTypeInNamespace(
+        "Exported",
+        "Nowhere",
+        "Mine",
+        out resolved,
+        out declaration
+    )
+    assert !discovery.TryResolveProjectTypeInNamespace(
+        "Exported",
+        null,
+        "Mine",
+        out resolved,
+        out declaration
+    )
+}
+
+test "a resolved declaration points at the NAME's column, not the declaration's own column" {
+    // The declaration starts at column 1 (`public`); the identifier starts later on the line, and a
+    // go-to-definition span has to land on the identifier.
+    provider := ProjectProviderOf(
+        ["/p/other.nl"],
+        [ProjectSourceOf("Same", "public class Located {\n}\n")]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "Located",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert declaration.Line == 3
+    assert declaration.Column == 14
+}
+
+// The kind of the FIRST declaration in a source, and whether the owner calls it a type.
+func ProjectFirstDeclarationKind(body: string, out isType: bool): string {
+    provider := new AnalyzerProjectSourceProvider()
+    path := "/families/" + Guid.NewGuid().ToString() + ".nl"
+    provider.AddSourceText(path, ProjectSourceOf("Fam", body))
+    unit := provider.GetProjectCompilationUnit(path)
+    if unit == null {
+        isType = false
+        return "<unparsed>"
+    }
+
+    declarations := unit.Declarations
+    if declarations.Count == 0 {
+        isType = false
+        return "<empty>"
+    }
+
+    first := declarations[0]
+    isType = AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration(first)
+    return DeclarationFacts.GetDeclarationKind(first)
+}
+
+test "every declared family is a top-level TYPE declaration and a function is not" {
+    // Each family is parsed on its own so that one family failing to parse cannot hide behind
+    // another's success. Eight families answer YES; a function answers NO.
+    isType := false
+
+    assert ProjectFirstDeclarationKind("public class C {\n}\n", out isType) == "class"
+    assert isType
+    assert ProjectFirstDeclarationKind("public struct S {\n}\n", out isType) == "struct"
+    assert isType
+    assert ProjectFirstDeclarationKind("public record R(value: int)\n", out isType) == "record"
+    assert isType
+    assert ProjectFirstDeclarationKind("public interface I {\n}\n", out isType) == "interface"
+    assert isType
+    assert ProjectFirstDeclarationKind("union U {\n    A { value: int }\n    B\n}\n", out isType) == "union"
+    assert isType
+    assert ProjectFirstDeclarationKind("public enum E {\n    One\n}\n", out isType) == "enum"
+    assert isType
+    assert ProjectFirstDeclarationKind("type T = int\n", out isType) == "typeAlias"
+    assert isType
+    assert ProjectFirstDeclarationKind("type N = newtype int\n", out isType) == "newtype"
+    assert isType
+
+    assert ProjectFirstDeclarationKind("public func F() {\n}\n", out isType) == "function"
+    assert !isType
+}
+
+test "an exported top-level function is visible project-wide and a camelCase one only inside its namespace" {
+    provider := ProjectProviderOf(
+        ["/p/funcs.nl"],
+        [ProjectSourceOf("Other", "public func Exported() {\n}\n\nfunc notExported() {\n}\n")]
+    )
+    discovery := ProjectDiscoveryOf(provider, ["Other"])
+
+    declarationFile: string? = null
+    functionDeclaration: FunctionDeclaration? = null
+    declaration: SymbolDeclaration? = null
+
+    assert discovery.TryResolveVisibleProjectFunction(
+        "Exported",
+        "Mine",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
+    assert Path.GetFileName(declarationFile) == "funcs.nl"
+    assert functionDeclaration != null
+    assert functionDeclaration.Name == "Exported"
+    assert declaration != null
+    assert declaration.Kind == "function"
+
+    // A camelCase function is private to its NAMESPACE, so another namespace does not see it and it
+    // shows up as the inaccessible case for the identifier path instead.
+    assert !discovery.TryResolveVisibleProjectFunction(
+        "notExported",
+        "Mine",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
+    assert declarationFile == null
+    assert functionDeclaration == null
+
+    inaccessible: string? = null
+    assert discovery.TryFindInaccessibleVisibleFunction("notExported", "Mine", out inaccessible)
+    assert Path.GetFileName(inaccessible) == "funcs.nl"
+
+    // A name nothing declares is not inaccessible, and neither is one declared in MY OWN namespace.
+    assert !discovery.TryFindInaccessibleVisibleFunction("missing", "Mine", out inaccessible)
+    assert inaccessible == null
+    assert !discovery.TryFindInaccessibleVisibleFunction("notExported", "Other", out inaccessible)
+    assert inaccessible == null
+}
+
+// THE RULING OF 2026-09-02, at the function channel: camelCase is private to the NAMESPACE, not to
+// the FILE. `funcs.nl` and `caller.nl` both declare namespace `Other`, so `caller.nl` sees
+// `notExported` with no import and no export — exactly as it already saw a camelCase CLASS declared
+// in `funcs.nl`, which is the half of the rule that was already right. Before this, `B.nl` calling
+// `A.nl`'s `func formatTypeRef` reported NL412 at a direct call and NL402 at `names.Select(...)`.
+test "a camelCase top-level function is visible to every OTHER file of its own namespace" {
+    provider := ProjectProviderOf(
+        ["/p/funcs.nl", "/p/caller.nl"],
+        [
+            ProjectSourceOf("Other", "func notExported() {\n}\n\nclass alsoNotExported {\n}\n"),
+            ProjectSourceOf("Other", "func Caller() {\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    declarationFile: string? = null
+    functionDeclaration: FunctionDeclaration? = null
+    declaration: SymbolDeclaration? = null
+
+    assert discovery.TryResolveVisibleProjectFunction(
+        "notExported",
+        "Other",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
+    assert Path.GetFileName(declarationFile) == "funcs.nl"
+    assert functionDeclaration != null
+    assert functionDeclaration.Name == "notExported"
+    assert declaration != null
+    assert declaration.Kind == "function"
+
+    // The type half of the same rule, unchanged, said here so the two stay pinned together.
+    resolvedType := BuiltInTypes.Unknown as TypeInfo
+    typeDeclaration: SymbolDeclaration? = null
+    typeInaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "alsoNotExported",
+        "Other",
+        true,
+        out resolvedType,
+        out typeDeclaration,
+        out typeInaccessible
+    )
+    assert typeInaccessible == null
+
+    // And the namespace really is the unit: asking from ANOTHER namespace still declines, whether or
+    // not that namespace imported this one.
+    importingDiscovery := ProjectDiscoveryOf(provider, ["Other"])
+    assert !importingDiscovery.TryResolveVisibleProjectFunction(
+        "notExported",
+        "Mine",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
+    assert declarationFile == null
+}
+
+test "the inaccessible probe does not confuse a type with a function of the same name" {
+    provider := ProjectProviderOf(
+        ["/p/mixed.nl"],
+        [ProjectSourceOf("Other", "class shared {\n}\n\nfunc alsoShared() {\n}\n")]
+    )
+    discovery := ProjectDiscoveryOf(provider, ["Other"])
+
+    inaccessible: string? = null
+    // The FUNCTION probe sees only functions: the non-exported TYPE is invisible to it.
+    assert !discovery.TryFindInaccessibleVisibleFunction("shared", "Mine", out inaccessible)
+    assert inaccessible == null
+    assert discovery.TryFindInaccessibleVisibleFunction("alsoShared", "Mine", out inaccessible)
+    assert inaccessible != null
+
+    // And the TYPE channel's own probe sees only types.
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    typeInaccessible: string? = null
+    assert !discovery.ResolveVisibleProjectType(
+        "shared",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out typeInaccessible
+    )
+    assert typeInaccessible != null
+    assert !discovery.ResolveVisibleProjectType(
+        "alsoShared",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out typeInaccessible
+    )
+    assert typeInaccessible == null
+}
+
+test "a file that does not parse is skipped by every walk rather than failing it" {
+    provider := ProjectProviderOf(
+        ["/p/broken.nl", "/p/good.nl"],
+        [
+            "namespace Same\n\npublic class ((( {\n",
+            ProjectSourceOf("Same", "public class Good {\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+
+    // The broken file is enumerated first and contributes nothing; the good one still answers.
+    assert provider.SourceFilePaths().Count == 2
+    assert discovery.ResolveVisibleProjectType(
+        "Good",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName(declaration.File) == "good.nl"
+}
+
+test "the declaring file of every resolved type is recorded for the project index" {
+    provider := ProjectProviderOf(
+        ["/p/one.nl", "/p/two.nl"],
+        [
+            ProjectSourceOf("Same", "public class First {\n}\n"),
+            ProjectSourceOf("Far", "public class Second {\n}\n")
+        ]
+    )
+    context := new AnalyzerDeclarationContext()
+    context.Reset(Path.GetFullPath("."), new List<Assembly>())
+    provider.AddProjectUnitsTo(context)
+    declarationFiles := new Dictionary<string, string>(StringComparer.Ordinal)
+    discovery := new AnalyzerProjectTypeDiscovery(
+        provider,
+        context,
+        new List<string>(),
+        declarationFiles
+    )
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+
+    // The namespace-sweep hit records...
+    assert discovery.ResolveVisibleProjectType(
+        "First",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    // ...and so does the unique-exported fallback.
+    assert discovery.ResolveVisibleProjectType(
+        "Second",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+
+    assert declarationFiles.Count == 2
+    assert Path.GetFileName(declarationFiles["First"]) == "one.nl"
+    assert Path.GetFileName(declarationFiles["Second"]) == "two.nl"
+
+    // A miss records nothing.
+    assert !discovery.ResolveVisibleProjectType(
+        "Absent",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert declarationFiles.Count == 2
+}
+
+test "the declaration context receives the project units in enumeration order" {
+    provider := ProjectProviderOf(
+        ["/p/second.nl", "/p/first.nl"],
+        [
+            ProjectSourceOf("Same", "public class FromSecond {\n}\n"),
+            ProjectSourceOf("Same", "public class FromFirst {\n}\n")
+        ]
+    )
+    context := new AnalyzerDeclarationContext()
+    context.Reset(Path.GetFullPath("."), new List<Assembly>())
+    provider.AddProjectUnitsTo(context)
+
+    // Every parseable unit arrives, and each is attributed to the file it came from — which is what
+    // makes the context's own walks agree with the provider's order.
+    selection := new AnalyzerSourceTypeSelection(BuiltInTypes.Unknown, null, null, false)
+    assert context.TryResolveProjectTypeInNamespace("FromSecond", "Same", false, out selection)
+    assert Path.GetFileName(selection.FilePath) == "second.nl"
+    assert context.TryResolveProjectTypeInNamespace("FromFirst", "Same", false, out selection)
+    assert Path.GetFileName(selection.FilePath) == "first.nl"
+}
+
+// ---- the import-precedence rule and the ambiguity gate ------------------------------------------
+
+// The same discovery, given a REAL external probe over the runtime's own assembly. That is what
+// makes "does an imported CLR namespace supply this name" answerable here rather than only
+// end-to-end: `System` really does declare a `Version`.
+func ProjectDiscoveryWithProbeOf(
+    provider: AnalyzerProjectSourceProvider,
+    imports: string[]
+): AnalyzerProjectTypeDiscovery {
+    context := new AnalyzerDeclarationContext()
+    assemblies := new List<Assembly>()
+    assemblies.Add(typeof(object).get_Assembly())
+    context.Reset(Path.GetFullPath("."), assemblies)
+    provider.AddProjectUnitsTo(context)
+    usingNamespaces := new List<string>()
+    index := 0
+    while index < imports.Length {
+        usingNamespaces.Add(imports[index])
+        index = index + 1
+    }
+
+    return new AnalyzerProjectTypeDiscovery(
+        provider,
+        context,
+        usingNamespaces,
+        new Dictionary<string, string>(StringComparer.Ordinal),
+        new AnalyzerExternalTypeProbe(assemblies, usingNamespaces)
+    )
+}
+
+test "the project-wide fallback does not claim a name an imported CLR namespace supplies" {
+    provider := ProjectProviderOf(
+        ["/p/shadow.nl"],
+        [ProjectSourceOf("Shadow", "public class Version {\n}\n")]
+    )
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+
+    // WITHOUT the import, auto-discovery is the only channel that can answer, and it does: an
+    // exported project type is usable by its bare name from any namespace.
+    withoutImport := ProjectDiscoveryWithProbeOf(provider, [])
+    assert withoutImport.ResolveVisibleProjectType(
+        "Version",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+
+    // WITH `import System`, the same name is supplied by something the file asked for. Auto-discovery
+    // is a last resort and an explicit import is not one, so discovery stands aside and the caller's
+    // external channel answers. This is the shadowing hazard: before it, a source `Version` in a
+    // namespace this file never imported silently replaced `System.Version`.
+    withImport := ProjectDiscoveryWithProbeOf(provider, ["System"])
+    assert !withImport.ResolveVisibleProjectType(
+        "Version",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+
+    // The guard is about the FALLBACK only. A type in a namespace the file DID import still resolves
+    // as a project type, ahead of anything metadata offers.
+    importedProvider := ProjectProviderOf(
+        ["/p/imported.nl"],
+        [ProjectSourceOf("Mine.Models", "public class Version {\n}\n")]
+    )
+    importedDiscovery := ProjectDiscoveryWithProbeOf(importedProvider, ["Mine.Models", "System"])
+    assert importedDiscovery.ResolveVisibleProjectType(
+        "Version",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName(declaration.File) == "imported.nl"
+}
+
+test "two imports that supply one name are ambiguous, and a closer declaration is not" {
+    provider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/own.nl"],
+        [
+            ProjectSourceOf("Left", "public class Widget {\n}\n"),
+            ProjectSourceOf("Right", "public class Widget {\n}\n"),
+            ProjectSourceOf("Mine", "public class Gadget {\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["Left", "Right"])
+
+    first := ""
+    second := ""
+    assert discovery.TryFindAmbiguousImportedType("Widget", "Mine", out first, out second)
+
+    // Both candidates come back FULLY QUALIFIED and in IMPORT order, because the report names both
+    // and suggests the first — the one a first-import-wins order would have chosen silently.
+    assert first == "Left.Widget"
+    assert second == "Right.Widget"
+
+    // A name only ONE import supplies is not a tie.
+    assert !discovery.TryFindAmbiguousImportedType("Gadget", "Mine", out first, out second)
+
+    // NEITHER IS A NAME THE FILE'S OWN NAMESPACE DECLARES. A closer declaration wins outright — the
+    // same rule C# applies to `using` — so the two imports never get to tie over it.
+    ownProvider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/own.nl"],
+        [
+            ProjectSourceOf("Left", "public class Widget {\n}\n"),
+            ProjectSourceOf("Right", "public class Widget {\n}\n"),
+            ProjectSourceOf("Mine", "public class Widget {\n}\n")
+        ]
+    )
+    ownDiscovery := ProjectDiscoveryWithProbeOf(ownProvider, ["Left", "Right"])
+    assert !ownDiscovery.TryFindAmbiguousImportedType("Widget", "Mine", out first, out second)
+}
+
+test "a source type in one import ties with a CLR type in another" {
+    provider := ProjectProviderOf(
+        ["/p/models.nl"],
+        [ProjectSourceOf("Models", "public class Version {\n}\n")]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["Models", "System"])
+
+    first := ""
+    second := ""
+    assert discovery.TryFindAmbiguousImportedType("Version", "Mine", out first, out second)
+    assert first == "Models.Version"
+    assert second == "System.Version"
+
+    // The metadata half is asked only once the SOURCE half has matched — a measured limit, so that an
+    // assembly sweep does not run for every ordinary CLR spelling. `Console` is supplied by one
+    // import and by no source namespace, so nothing here answers for it.
+    assert !discovery.TryFindAmbiguousImportedType("Console", "Mine", out first, out second)
+}
+
+// ---- the lexical chain: an enclosing namespace outranks an import -------------------------------
+
+test "an enclosing namespace wins outright over an import that supplies the same name" {
+    // `App` declares `Version`; the file sits in `App.Models` and imports `System`, which declares
+    // `System.Version`. C# reads the enclosing declaration — it is lexically nearer than any import —
+    // so this is a RESOLUTION and not an ambiguity.
+    provider := ProjectProviderOf(
+        ["/p/outer.nl"],
+        [ProjectSourceOf("App", "public class Version {\n}\n")]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["System"])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "Version",
+        "App.Models",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName(declaration.File) == "outer.nl"
+
+    first := ""
+    second := ""
+    assert !discovery.TryFindAmbiguousImportedType("Version", "App.Models", out first, out second)
+
+    // The chain reaches ALL the way out, one namespace at a time, and it is the same answer from two
+    // levels down.
+    assert discovery.ResolveVisibleProjectType(
+        "Version",
+        "App.Models.Internal",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert !discovery.TryFindAmbiguousImportedType("Version", "App.Models.Internal", out first, out second)
+
+    // IMPORTING THE ENCLOSING NAMESPACE CHANGES NOTHING. It was already in scope, so the import is
+    // redundant rather than a second candidate that could tie with `System`.
+    alsoImported := ProjectDiscoveryWithProbeOf(provider, ["App", "System"])
+    assert !alsoImported.TryFindAmbiguousImportedType("Version", "App.Models", out first, out second)
+    assert alsoImported.ResolveVisibleProjectType(
+        "Version",
+        "App.Models",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+}
+
+test "a sibling namespace is not lexical, so an import takes the name from it" {
+    // `App.Ast` neither encloses `App.Columnar` nor is enclosed by it. Nothing about the file's
+    // position brings it into scope, so the imported `System.Version` wins and discovery stands
+    // aside — the caller's external channel answers.
+    provider := ProjectProviderOf(
+        ["/p/sibling.nl"],
+        [ProjectSourceOf("App.Ast", "public class Version {\n}\n")]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["System"])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert !discovery.ResolveVisibleProjectType(
+        "Version",
+        "App.Columnar",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+
+    // A file that IMPORTS the sibling namespace reaches it — but then two imports supply the name,
+    // and that is the ambiguity the developer has to settle by qualifying.
+    importing := ProjectDiscoveryWithProbeOf(provider, ["App.Ast", "System"])
+    first := ""
+    second := ""
+    assert importing.TryFindAmbiguousImportedType("Version", "App.Columnar", out first, out second)
+    assert first == "App.Ast.Version"
+    assert second == "System.Version"
+}
+
+test "a global-namespace declaration is the outermost lexical step, ahead of an import" {
+    // The global namespace encloses every file, so an exported declaration there is in scope from a
+    // namespaced file without an import — and, being lexical, it outranks one.
+    provider := ProjectProviderOf(
+        ["/p/global.nl"],
+        [ProjectSourceOf(null, "public class Version {\n}\n")]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["System"])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "Version",
+        "App.Models",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName(declaration.File) == "global.nl"
+
+    first := ""
+    second := ""
+    assert !discovery.TryFindAmbiguousImportedType("Version", "App.Models", out first, out second)
+}
+
+// THE FUNCTION CHANNEL TIES EXACTLY WHERE THE TYPE CHANNEL DOES (census 2026-09-13, §EMIT3). A free
+// function reaches a file from a sibling namespace through an `import` and nothing else, so two
+// imports supplying one spelling is the same NL209 tie — and the same three exclusions apply.
+test "two imports that supply one free function are ambiguous, and a nearer declaration is not" {
+    provider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/own.nl"],
+        [
+            ProjectSourceOf("Left", "func Render(): string {\n    return \"left\"\n}\n"),
+            ProjectSourceOf("Right", "func Render(): string {\n    return \"right\"\n}\n"),
+            ProjectSourceOf("Mine", "func Describe(): string {\n    return \"mine\"\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, ["Left", "Right"])
+
+    first := ""
+    second := ""
+    assert discovery.TryFindAmbiguousImportedFunction("Render", "Mine", out first, out second)
+    assert first == "Left.Render"
+    assert second == "Right.Render"
+
+    // A name only ONE import supplies is not a tie.
+    assert !discovery.TryFindAmbiguousImportedFunction("Describe", "Mine", out first, out second)
+
+    // A name NO import supplies is not a tie either.
+    assert !discovery.TryFindAmbiguousImportedFunction("Missing", "Mine", out first, out second)
+}
+
+test "a free function in the file's own or an enclosing namespace outranks both imports" {
+    ownProvider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/own.nl"],
+        [
+            ProjectSourceOf("Left", "func Render(): string {\n    return \"left\"\n}\n"),
+            ProjectSourceOf("Right", "func Render(): string {\n    return \"right\"\n}\n"),
+            ProjectSourceOf("Mine", "func Render(): string {\n    return \"mine\"\n}\n")
+        ]
+    )
+    ownDiscovery := ProjectDiscoveryOf(ownProvider, ["Left", "Right"])
+    first := ""
+    second := ""
+    assert !ownDiscovery.TryFindAmbiguousImportedFunction("Render", "Mine", out first, out second)
+
+    // An ENCLOSING namespace is nearer than any import too, with nothing to report.
+    enclosingProvider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/outer.nl"],
+        [
+            ProjectSourceOf("Left", "func Render(): string {\n    return \"left\"\n}\n"),
+            ProjectSourceOf("Right", "func Render(): string {\n    return \"right\"\n}\n"),
+            ProjectSourceOf("Mine", "func Render(): string {\n    return \"outer\"\n}\n")
+        ]
+    )
+    enclosingDiscovery := ProjectDiscoveryOf(enclosingProvider, ["Left", "Right"])
+    assert !enclosingDiscovery.TryFindAmbiguousImportedFunction("Render", "Mine.Inner", out first, out second)
+}
+
+test "a non-exported free function is not one of the candidates a tie is decided between" {
+    provider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl"],
+        [
+            ProjectSourceOf("Left", "func render(): string {\n    return \"left\"\n}\n"),
+            ProjectSourceOf("Right", "func Render(): string {\n    return \"right\"\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, ["Left", "Right"])
+    first := ""
+    second := ""
+
+    // camelCase is file-private, so only one import supplies `Render` and only one supplies
+    // `render` — neither spelling ties.
+    assert !discovery.TryFindAmbiguousImportedFunction("Render", "Mine", out first, out second)
+    assert !discovery.TryFindAmbiguousImportedFunction("render", "Mine", out first, out second)
+}
+
+// THE ONE-DECLARATION-PER-NAMESPACE RULE, at discovery. A namespace spans files, so the names the
+// OTHER files of the current namespace declare as top-level functions are what a duplicate report is
+// built from — the first other file wins, the caller's own file is never its own twin, and another
+// namespace's same-named function is a different function altogether. The parameter lists play no
+// part: a free function's identity is (namespace, name), and there is no cross-file overload group.
+test "the same-namespace function twins are the names the OTHER files of one namespace declare" {
+    provider := ProjectProviderOf(
+        ["/p/a.nl", "/p/b.nl", "/p/c.nl", "/p/other.nl"],
+        [
+            ProjectSourceOf("X", "func Helper(): int {\n    return 1\n}\n"),
+            ProjectSourceOf("X", "func Helper(_count: int): int {\n    return 2\n}\n\nfunc Alone(): int {\n    return 3\n}\n"),
+            ProjectSourceOf("X", "func Helper(): int {\n    return 4\n}\n"),
+            ProjectSourceOf("Y", "func Helper(): int {\n    return 5\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    // From a.nl: b.nl's `Helper` is the twin (the first OTHER file), whatever its parameter list,
+    // and so is `Alone` — the index is by name, not by what a.nl happens to declare.
+    fromA := discovery.SameNamespaceFunctionTwins("/p/a.nl", "X")
+    assert fromA.Count == 2
+    assert Path.GetFileName(fromA["Helper"].FilePath) == "b.nl"
+    assert fromA["Helper"].Line == 3
+    assert Path.GetFileName(fromA["Alone"].FilePath) == "b.nl"
+
+    // From b.nl: a.nl's `Helper`, and never its own `Alone`.
+    fromB := discovery.SameNamespaceFunctionTwins("/p/b.nl", "X")
+    assert fromB.Count == 1
+    assert Path.GetFileName(fromB["Helper"].FilePath) == "a.nl"
+
+    // Y's `Helper` is a different function: from other.nl there is no twin at all.
+    fromOther := discovery.SameNamespaceFunctionTwins("/p/other.nl", "Y")
+    assert fromOther.Count == 0
+}
+
+test "the global namespace is one namespace for the twin index, whether spelled null or empty" {
+    provider := ProjectProviderOf(
+        ["/p/one.nl", "/p/two.nl"],
+        [
+            ProjectSourceOf(null, "func Helper(): int {\n    return 1\n}\n"),
+            ProjectSourceOf(null, "func Helper(): int {\n    return 2\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    fromNull := discovery.SameNamespaceFunctionTwins("/p/one.nl", null)
+    assert fromNull.Count == 1
+    assert Path.GetFileName(fromNull["Helper"].FilePath) == "two.nl"
+    assert fromNull["Helper"].Line == 1
+
+    fromEmpty := discovery.SameNamespaceFunctionTwins("/p/one.nl", "")
+    assert fromEmpty.Count == 1
+}
+
+// THE FUNCTION RULE END TO END, through `Analyzer.Analyze` over a project on disk: the report is
+// NL306, it lands in EACH file naming the other, and a third namespace's same-named declaration
+// reports nothing. Measured on 353fb69f7 before the rule: the pair passed `check`, built, and the
+// program printed whichever `Helper` the emitter's declaration order kept.
+//
+// `onlyDuplicates` narrows the answer to the two cross-file duplicate reports — NL306 for a function,
+// NL339 for a type; every error otherwise, so a USE site can be shown to resolve cleanly once the
+// declarations carry the diagnostic.
+func NamespaceTwinReports(filePath: string, source: string, projectRoot: string, onlyDuplicates: bool): List<string> {
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    analyzer := new Analyzer()
+    messages := new List<string>()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if !onlyDuplicates || error.Code == ErrorCode.DuplicateDeclaration || error.Code == ErrorCode.TypeDeclaredInAnotherFile {
+                messages.Add(error.Message + " @" + error.Line.ToString() + ":" + error.Column.ToString())
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+    }
+
+    return messages
+}
+
+test "two files of one namespace that declare the same free function each report NL306 naming the other" {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-function-twin-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        aPath := Path.Combine(projectRoot, "A.nl")
+        aSource := "namespace X\n\nfunc Helper(): string {\n    return \"A\"\n}\n"
+        bPath := Path.Combine(projectRoot, "B.nl")
+        bSource := "namespace X\n\nfunc Helper(_count: int): string {\n    return \"B\"\n}\n"
+        cPath := Path.Combine(projectRoot, "C.nl")
+        cSource := "namespace Y\n\nfunc Helper(): string {\n    return \"C\"\n}\n"
+        File.WriteAllText(aPath, aSource)
+        File.WriteAllText(bPath, bSource)
+        File.WriteAllText(cPath, cSource)
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: FunctionTwin\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
+
+        fromA := NamespaceTwinReports(aPath, aSource, projectRoot, true)
+        assert fromA.Count == 1
+        assert fromA[0] == "'Helper' is already declared in namespace 'X' by B.nl:3 — a free function name must be unique across every file of its namespace @3:6"
+
+        // The other file reports too, naming THIS one: neither file is "second".
+        fromB := NamespaceTwinReports(bPath, bSource, projectRoot, true)
+        assert fromB.Count == 1
+        assert fromB[0].Contains("by A.nl:3")
+
+        // A different namespace is a different function.
+        assert NamespaceTwinReports(cPath, cSource, projectRoot, true).Count == 0
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+// THE TYPE CHANNEL'S USE SITE, end to end. The duplicate itself is NL339's — reported once, at the
+// later declaration, naming the first — and a use in a third file resolves to the first file's type
+// rather than reporting it missing. Measured on 353fb69f7: this project reported the NL339 AND an
+// NL201 "Type 'Widget' not found" at `new Widget()`, because the namespace walk refused a second claim
+// of one (name, arity) instead of picking one.
+test "a type declared in two files of one namespace is one NL339, and a use in a third file resolves" {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-type-twin-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        aPath := Path.Combine(projectRoot, "A.nl")
+        aSource := "namespace X\n\nclass Widget {\n    Tag: string = \"A\"\n}\n"
+        bPath := Path.Combine(projectRoot, "B.nl")
+        bSource := "namespace X\n\nclass Widget {\n    Tag: string = \"B\"\n}\n"
+        mainPath := Path.Combine(projectRoot, "Main.nl")
+        mainSource := "namespace X\n\nfunc main() {\n    w := new Widget()\n    print w.Tag\n}\n"
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: TypeTwin\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
+        File.WriteAllText(aPath, aSource)
+        File.WriteAllText(bPath, bSource)
+        File.WriteAllText(mainPath, mainSource)
+
+        // The first declaration carries nothing; the later one carries the one report, and no
+        // function-channel NL306 joins it.
+        assert NamespaceTwinReports(aPath, aSource, projectRoot, true).Count == 0
+        fromB := NamespaceTwinReports(bPath, bSource, projectRoot, true)
+        assert fromB.Count == 1
+        assert fromB[0].StartsWith("A type named 'Widget' is already declared in this namespace, at A.nl:3"), fromB[0]
+        assert fromB[0].EndsWith("@3:7"), fromB[0]
+
+        // THE USE SITE RESOLVES: no NL201, no report of any code.
+        fromMain := NamespaceTwinReports(mainPath, mainSource, projectRoot, false)
+        assert fromMain.Count == 0, string.Join(" | ", fromMain)
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "a folder of standalone scripts with no project.yml is not one program, so same-named functions in it are not twins" {
+    // `examples/03-functions` is this shape: seven single-file programs, each with its own `Main`
+    // and its own helpers, checked by the product gate as one directory. The Language Server opens
+    // such a folder with the directory as its fallback root, and the CLI builds its files one at a
+    // time — nothing ever compiles them together, so nothing they declare can collide.
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-script-folder-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        firstPath := Path.Combine(projectRoot, "First.nl")
+        firstSource := "func Sum(a: int, b: int): int {\n    return a + b\n}\n\nfunc Main() {\n    print Sum(1, 2)\n}\n"
+        secondPath := Path.Combine(projectRoot, "Second.nl")
+        secondSource := "func Sum(values: int[]): int {\n    return values.Length\n}\n\nfunc Main() {\n    print Sum([1, 2])\n}\n"
+        File.WriteAllText(firstPath, firstSource)
+        File.WriteAllText(secondPath, secondSource)
+
+        assert NamespaceTwinReports(firstPath, firstSource, projectRoot, true).Count == 0
+        assert NamespaceTwinReports(secondPath, secondSource, projectRoot, true).Count == 0
+
+        // The same two files under a `project.yml` ARE one program, and then they collide.
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: ScriptFolder\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
+        reports := NamespaceTwinReports(firstPath, firstSource, projectRoot, true)
+        assert reports.Count == 2
+        assert reports[0].Contains("'Sum' is already declared in the global namespace by Second.nl:1")
+        assert reports[1].Contains("'Main' is already declared in the global namespace by Second.nl:5")
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}

@@ -1,0 +1,2043 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.Reflection
+import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
+
+
+// THE REFLECTION BINDER'S ARGUMENT MODEL.
+//
+// A reflected candidate is bound in TWO passes and this is the value that carries the first pass's
+// answer into the second. `TryBindReflectionArguments` decides WHICH argument (or default, or
+// params tail) each parameter position takes and scores the candidate; the analyzer's finalising
+// walk later re-reads exactly the same decisions to convert, validate and report. The two passes
+// must agree, so the decisions are recorded rather than recomputed.
+//
+// THE OPEN PARAMETER TYPE IS THE FIELD THAT MATTERS. Every bound argument records the type it was
+// matched AGAINST, with the by-ref shell already stripped, and for an EXPANDED params tail that is
+// the ELEMENT type rather than the declared array. That difference is the only evidence a later
+// pass has that the tail was expanded (`AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument`
+// asks exactly this question), which is why the field is on the base rather than on one arm.
+class ReflectionBoundArgument {
+    parameterIndexValue: int
+    openParameterTypeValue: Type
+
+    ParameterIndex: int => parameterIndexValue
+    OpenParameterType: Type => openParameterTypeValue
+
+    constructor(parameterIndex: int, openParameterType: Type) {
+        parameterIndexValue = parameterIndex
+        openParameterTypeValue = openParameterType
+    }
+}
+
+// A position filled by a written argument. `ArgumentIndex` indexes the CALL's argument list, not
+// the parameter list — named arguments and an expanded params tail both break that correspondence.
+class SuppliedReflectionBoundArgument: ReflectionBoundArgument {
+    argumentValue: Argument
+    argumentIndexValue: int
+
+    Argument: Argument => argumentValue
+    ArgumentIndex: int => argumentIndexValue
+
+    constructor(parameterIndex: int, openParameterType: Type, argument: Argument, argumentIndex: int): base(parameterIndex, openParameterType) {
+        argumentValue = argument
+        argumentIndexValue = argumentIndex
+    }
+}
+
+// A position filled by the declaration's own default. The `ParameterInfo` is kept because the
+// default's TYPE is read from the parameter, not from any argument.
+class DefaultReflectionBoundArgument: ReflectionBoundArgument {
+    parameterValue: ParameterInfo
+
+    Parameter: ParameterInfo => parameterValue
+
+    constructor(parameterIndex: int, openParameterType: Type, parameter: ParameterInfo): base(parameterIndex, openParameterType) {
+        parameterValue = parameter
+    }
+}
+
+// An EXPANDED params tail: one parameter position, zero or more arguments. The elements are
+// MATERIALIZED here, each already carrying the element type as its own open parameter type, so
+// every later pass reads one shape instead of re-expanding the tail itself.
+class ParamsReflectionBoundArgument: ReflectionBoundArgument {
+    openElementTypeValue: Type
+    argumentsValue: List<SuppliedReflectionBoundArgument>
+
+    OpenElementType: Type => openElementTypeValue
+    Arguments: List<SuppliedReflectionBoundArgument> => argumentsValue
+
+    constructor(parameterIndex: int, openParameterType: Type, openElementType: Type, arguments: List<SuppliedReflectionBoundArgument>): base(parameterIndex, openParameterType) {
+        openElementTypeValue = openElementType
+        argumentsValue = arguments
+    }
+}
+
+// A candidate that ACCEPTED the call, with everything the finalising walk needs to convert,
+// validate and report it. This is the first pass's whole answer.
+//
+// THE TWO METHODS ARE DIFFERENT ON PURPOSE. `RuntimeMethod` is the one that will be CALLED;
+// `SignatureMethod` is the open form its parameter and return types are read from, which for a
+// method on a constructed generic type is re-found on the type DEFINITION. Collapsing them would
+// lose either the callee or the open signature that carries the type parameters.
+//
+// THE TIE-BREAK FIELDS ARE PART OF THE ANSWER, not bookkeeping: candidates are ordered by `Score`
+// descending, then by NOT using a params tail, then by using fewer defaults, so a candidate that
+// matches exactly beats one that matched by expanding or by defaulting.
+class ReflectionPreBoundCandidate {
+    runtimeMethodValue: MethodInfo
+    signatureMethodValue: MethodInfo
+    bindingsValue: Dictionary<Type, Type>
+    typeInfoBindingsValue: Dictionary<Type, TypeInfo>
+    methodGroupArgumentsValue: Dictionary<int, FunctionTypeInfo>
+    boundArgumentsValue: List<ReflectionBoundArgument>
+    scoreValue: int
+    usesParamsValue: bool
+    defaultsUsedValue: int
+
+    RuntimeMethod: MethodInfo => runtimeMethodValue
+    SignatureMethod: MethodInfo => signatureMethodValue
+    Bindings: Dictionary<Type, Type> => bindingsValue
+    TypeInfoBindings: Dictionary<Type, TypeInfo> => typeInfoBindingsValue
+    MethodGroupArguments: Dictionary<int, FunctionTypeInfo> => methodGroupArgumentsValue
+    BoundArguments: List<ReflectionBoundArgument> => boundArgumentsValue
+    Score: int => scoreValue
+    UsesParams: bool => usesParamsValue
+    DefaultsUsed: int => defaultsUsedValue
+
+    constructor(runtimeMethod: MethodInfo, signatureMethod: MethodInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, boundArguments: List<ReflectionBoundArgument>, score: int, usesParams: bool, defaultsUsed: int) {
+        runtimeMethodValue = runtimeMethod
+        signatureMethodValue = signatureMethod
+        bindingsValue = bindings
+        typeInfoBindingsValue = typeInfoBindings
+        methodGroupArgumentsValue = methodGroupArguments
+        boundArgumentsValue = boundArguments
+        scoreValue = score
+        usesParamsValue = usesParams
+        defaultsUsedValue = defaultsUsed
+    }
+}
+
+// THE REFLECTION BINDER'S PURE INTERIOR.
+//
+// This owner answers the question "does this reflected candidate accept this call, and how well?"
+// and NOTHING ELSE. It reports no diagnostic and records nothing in the semantic model: a candidate
+// either binds with a score or does not bind, and the analyzer's reporting walk decides what to say
+// about a call for which no candidate bound.
+//
+// THE BINDING WALK IS THREE ORDERED PHASES and they cannot be merged. First every written argument
+// is PLACED — named arguments by name (a name that does not match, or that lands on a position
+// already taken, fails the candidate outright), then positionals into the next free non-params
+// position, then the remainder into the params tail. Only then are unfilled positions FILLED from
+// their declared defaults, because a named argument may legally fill a position after one that
+// defaults. Only then is each placement SCORED, because scoring binds generic parameters and the
+// bindings accumulated by an earlier position must be visible to a later one.
+//
+// THE BINDINGS DICTIONARIES ARE THE INFERENCE, NOT A CACHE. `bindings` maps a method's open type
+// parameters to CLR types and `typeInfoBindings` maps them to N# `TypeInfo`s; both accumulate as
+// the walk proceeds, and both are the caller's — a failed candidate leaves them dirty, which is why
+// the analyzer hands each candidate its own pair.
+//
+// THE PARAMS TAIL IS TWO DIFFERENT BINDINGS. A single trailing argument that already IS the array
+// (or a compatible sequence) is passed DIRECTLY and binds as an ordinary supplied argument against
+// the array type; anything else EXPANDS, and each element binds against the element type. The
+// choice is `ShouldPassReflectionParamsArgumentDirectly`, and it deliberately answers on a TRIAL
+// copy of the bindings so a rejected direct pass leaves no inference behind.
+//
+// A METHOD GROUP IS NOT AN ARGUMENT TYPE. When a parameter is a delegate, a source function or
+// method group argument is resolved to ONE overload here, ambiguity is a non-binding, and the
+// selection is recorded for the finalising walk — the analyzer cannot re-derive it, because the
+// choice depended on the delegate's bound signature.
+//
+// Do not reintroduce any of this in C#.
+class AnalyzerReflectionArgumentBinder {
+    clrTypeConversion: AnalyzerClrTypeConversion
+    assignability: AnalyzerAssignability
+    assignabilityFacts: AnalyzerAssignabilityFacts
+    overloadScoring: AnalyzerOverloadScoring
+    // Written type arguments are resolved through the analyzer's own resolver. It is MUTATED in
+    // place across a toolset rebuild (`SetWellKnownTypes`) rather than replaced, so unlike the
+    // conversion beside it, holding it as a field cannot go stale.
+    typeResolver: AnalyzerTypeResolver
+    postconditions: AnalyzerNullabilityPostconditions
+
+    constructor(conversion: AnalyzerClrTypeConversion, assignabilityOwner: AnalyzerAssignability, facts: AnalyzerAssignabilityFacts, scoring: AnalyzerOverloadScoring, resolver: AnalyzerTypeResolver, postconditionOwner: AnalyzerNullabilityPostconditions) {
+        clrTypeConversion = conversion
+        assignability = assignabilityOwner
+        assignabilityFacts = facts
+        overloadScoring = scoring
+        typeResolver = resolver
+        postconditions = postconditionOwner
+    }
+
+    // Phase one and two: PLACE every written argument, then FILL the rest from defaults. Phase
+    // three scores. A false answer means this candidate does not accept this call at all.
+    func TryBindReflectionArguments(parameters: ParameterInfo[], parameterOffset: int, call: CallExpression, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, analyzedNonLambdaArguments: TypeInfo?[], out boundArguments: List<ReflectionBoundArgument>, out score: int, out usesParams: bool, out defaultsUsed: int): bool {
+        boundArguments = new List<ReflectionBoundArgument>()
+        score = 0
+        defaultsUsed = 0
+
+        bound := new ReflectionBoundArgument?[](parameters.Length)
+        usesParams = parameters.Length > parameterOffset && AnalyzerOverloadFacts.IsParamsParameter(parameters[parameters.Length - 1])
+        paramsParameterIndex := -1
+        if usesParams {
+            paramsParameterIndex = parameters.Length - 1
+        }
+
+        nextPositionalParameter := parameterOffset
+        paramsArguments := new List<Argument>()
+        paramsArgumentIndexes := new List<int>()
+
+        argumentIndex := 0
+        while argumentIndex < call.Arguments.Count {
+            argument := call.Arguments[argumentIndex]
+            if argument.Name != null {
+                namedIndex := FindNamedParameterIndex(parameters, parameterOffset, argument.Name)
+                if namedIndex < parameterOffset || namedIndex >= parameters.Length || bound[namedIndex] != null {
+                    return false
+                }
+
+                namedParameterType := parameters[namedIndex].ParameterType
+                namedOpenType := AnalyzerOverloadFacts.GetByRefElementType(namedParameterType)
+                namedBinding: ReflectionBoundArgument? = new SuppliedReflectionBoundArgument(namedIndex, namedOpenType, argument, argumentIndex)
+                bound[namedIndex] = namedBinding
+                argumentIndex = argumentIndex + 1
+                continue
+            }
+
+            while nextPositionalParameter < parameters.Length && nextPositionalParameter != paramsParameterIndex && bound[nextPositionalParameter] != null {
+                nextPositionalParameter = nextPositionalParameter + 1
+            }
+
+            if nextPositionalParameter < parameters.Length && nextPositionalParameter != paramsParameterIndex {
+                positionalParameterType := parameters[nextPositionalParameter].ParameterType
+                positionalOpenType := AnalyzerOverloadFacts.GetByRefElementType(positionalParameterType)
+                positionalBinding: ReflectionBoundArgument? = new SuppliedReflectionBoundArgument(nextPositionalParameter, positionalOpenType, argument, argumentIndex)
+                bound[nextPositionalParameter] = positionalBinding
+                nextPositionalParameter = nextPositionalParameter + 1
+                argumentIndex = argumentIndex + 1
+                continue
+            }
+
+            if !usesParams {
+                return false
+            }
+
+            paramsArguments.Add(argument)
+            paramsArgumentIndexes.Add(argumentIndex)
+            argumentIndex = argumentIndex + 1
+        }
+
+        regularParameterEnd := parameters.Length
+        if usesParams {
+            regularParameterEnd = paramsParameterIndex
+        }
+
+        parameterIndex := parameterOffset
+        while parameterIndex < regularParameterEnd {
+            if bound[parameterIndex] == null {
+                if !parameters[parameterIndex].IsOptional {
+                    return false
+                }
+
+                defaultParameter := parameters[parameterIndex]
+                defaultParameterType := defaultParameter.ParameterType
+                defaultOpenType := AnalyzerOverloadFacts.GetByRefElementType(defaultParameterType)
+                defaultBinding: ReflectionBoundArgument? = new DefaultReflectionBoundArgument(parameterIndex, defaultOpenType, defaultParameter)
+                bound[parameterIndex] = defaultBinding
+                defaultsUsed = defaultsUsed + 1
+            }
+
+            parameterIndex = parameterIndex + 1
+        }
+
+        if usesParams {
+            if bound[paramsParameterIndex] != null && paramsArguments.Count > 0 {
+                return false
+            }
+
+            if bound[paramsParameterIndex] == null {
+                declaredParamsType := parameters[paramsParameterIndex].ParameterType
+                paramsParameterType := AnalyzerOverloadFacts.GetByRefElementType(declaredParamsType)
+                elementType: Type = typeof(object)
+                if !AnalyzerOverloadFacts.TryGetReflectionParamsElementType(paramsParameterType, out elementType) {
+                    return false
+                }
+
+                if paramsArguments.Count == 1 && ShouldPassReflectionParamsArgumentDirectly(paramsArguments[0], paramsArgumentIndexes[0], paramsParameterType, bindings, analyzedNonLambdaArguments) {
+                    directBinding: ReflectionBoundArgument? = new SuppliedReflectionBoundArgument(paramsParameterIndex, paramsParameterType, paramsArguments[0], paramsArgumentIndexes[0])
+                    bound[paramsParameterIndex] = directBinding
+                } else {
+                    elements := new List<SuppliedReflectionBoundArgument>()
+                    elementIndex := 0
+                    while elementIndex < paramsArguments.Count {
+                        element := new SuppliedReflectionBoundArgument(paramsParameterIndex, elementType, paramsArguments[elementIndex], paramsArgumentIndexes[elementIndex])
+                        elements.Add(element)
+                        elementIndex = elementIndex + 1
+                    }
+
+                    expandedBinding: ReflectionBoundArgument? = new ParamsReflectionBoundArgument(paramsParameterIndex, paramsParameterType, elementType, elements)
+                    bound[paramsParameterIndex] = expandedBinding
+                }
+            }
+        }
+
+        materialized := new List<ReflectionBoundArgument>()
+        scoredIndex := parameterOffset
+        while scoredIndex < parameters.Length {
+            boundArgument := bound[scoredIndex]
+            if boundArgument != null {
+                supplied := boundArgument as SuppliedReflectionBoundArgument
+                paramsBound := boundArgument as ParamsReflectionBoundArgument
+                if supplied != null {
+                    suppliedScore := 0
+                    if !TryScoreReflectionSuppliedArgument(supplied, parameters[supplied.ParameterIndex], bindings, typeInfoBindings, methodGroupArguments, analyzedNonLambdaArguments, false, out suppliedScore) {
+                        return false
+                    }
+
+                    score = score + suppliedScore
+                } else if paramsBound != null {
+                    elements := paramsBound.Arguments
+                    elementIndex := 0
+                    while elementIndex < elements.Count {
+                        elementScore := 0
+                        if !TryScoreReflectionSuppliedArgument(elements[elementIndex], parameters[paramsBound.ParameterIndex], bindings, typeInfoBindings, methodGroupArguments, analyzedNonLambdaArguments, true, out elementScore) {
+                            return false
+                        }
+
+                        score = score + elementScore
+                        elementIndex = elementIndex + 1
+                    }
+                }
+
+                materialized.Add(boundArgument)
+            }
+
+            scoredIndex = scoredIndex + 1
+        }
+
+        boundArguments = materialized
+        return true
+    }
+
+    // The per-argument score, and the point at which generic inference actually happens.
+    //
+    // THE LADDER IS ORDERED BY HOW MUCH THE COMPILER HAD TO ASSUME. An explicit `default` scores 8
+    // because it fits any parameter exactly. A lambda against a KNOWN delegate signature scores
+    // 2 + arity, and against a broad `System.Delegate` only 1 + arity, so a concrete delegate
+    // parameter always beats `Delegate` for the same lambda. A resolved method group scores 4 plus
+    // its own signature match. A CLR-representable argument scores on the reflection ladder. An
+    // argument that has no CLR form at all falls back to the assignability question and scores 1.
+    //
+    // BY-REF DIRECTION IS AN EQUALITY, NOT AN IMPLICATION: a `ref`/`out` argument for a by-value
+    // parameter and a by-value argument for a by-ref parameter are BOTH non-bindings. A params
+    // ELEMENT is exempt, because the element of a by-ref params array is not itself by-ref.
+    func TryScoreReflectionSuppliedArgument(supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, analyzedNonLambdaArguments: TypeInfo?[], expectsParamsElement: bool, out score: int): bool {
+        score = 0
+
+        expectsByRef := !expectsParamsElement && parameter.ParameterType.IsByRef
+        argumentModifier := supplied.Argument.Modifier
+        suppliedByRef := argumentModifier == ArgumentModifier.Ref || argumentModifier == ArgumentModifier.Out
+        if expectsByRef != suppliedByRef {
+            return false
+        }
+
+        openParameterType := supplied.OpenParameterType
+        argumentValue := supplied.Argument.Value
+
+        // A `ref`/`out` ARGUMENT MAKES AN EXACT INFERENCE, never a widening one (ECMA-334 §12.6.3.2):
+        // the position is written THROUGH as well as read, so a bound that merely converts to the
+        // declared one is not a bound at all. `map.TryGetValue(key, out found)` is the case that
+        // shows it — the receiver fixes `TValue` to `Entry`, `found` is declared `Entry?` because the
+        // call is what fills it, and lifting `TValue` to `Entry?` there would make
+        // `[MaybeNullWhen(false)] out TValue` prove nothing on the true branch.
+        allowsLift := !expectsByRef
+
+        if argumentValue is DefaultExpression {
+            score = 8
+            return true
+        }
+
+        lambda := argumentValue as LambdaExpression
+        if lambda != null {
+            expectedSignature := CreateDelegateSignatureFromOpenType(openParameterType, typeInfoBindings, bindings)
+
+            if expectedSignature == null || expectedSignature.ParameterTypes == null {
+                if !overloadScoring.CanInferBroadDelegateLambda(openParameterType, bindings, lambda) {
+                    return false
+                }
+
+                score = 1 + lambda.Parameters.Count
+                return true
+            }
+
+            expectedParameterTypes := expectedSignature.ParameterTypes
+            if expectedParameterTypes == null || expectedParameterTypes.Count != lambda.Parameters.Count {
+                return false
+            }
+
+            // AN `async` LAMBDA IS NOT A CANDIDATE FOR A DELEGATE THAT RETURNS NO TASK. `Task.Run`
+            // declares `Action` beside `Func<Task>` and `Func<TResult>` beside `Func<Task<TResult>>`,
+            // and by arity alone an `async () => …` fits all four; without this the `Action` overload
+            // wins on declaration order and the awaited result is silently thrown away. N# has no
+            // `async void` (see `AnalyzerLambdaAnalysis.AsyncBodyReturnType`), so the non-task
+            // positions are not merely worse here — they are not conversions at all.
+            if lambda.IsAsync && !AnalyzerLambdaAnalysis.IsAsyncLambdaTarget(expectedSignature.ReturnType) {
+                return false
+            }
+
+            score = 2 + expectedParameterTypes.Count
+
+            // A LAMBDA THAT HAS A VALUE TO GIVE PREFERS A DELEGATE THAT KEEPS IT, AND ONE THAT HAS
+            // NONE PREFERS A DELEGATE THAT EXPECTS NONE. `Task.Run(() => 42)` fits both `Run(Action)`
+            // and `Run<TResult>(Func<TResult>)` by arity alone, and C# prefers the conversion that
+            // keeps the result; `Task.Run(() => { work() })` fits both the same way and C# prefers
+            // `Action`. Both directions have to be scored, because a rule that only rewarded one of
+            // them left the other pair tied on every key — which is now an ambiguity report rather
+            // than a silent pick by declaration order.
+            //
+            // FOR AN `async` LAMBDA THE VALUE IS INSIDE THE TASK, so both directions are asked of the
+            // task's RESULT rather than of the delegate's return: `Task.Run(Func<Task>)` and
+            // `Task.Run(Func<Task<TResult>>)` BOTH return something, and only the second keeps what
+            // the body computed. The unwrap cannot answer null here — a target that is not task-like
+            // already failed the viability test above — and a non-async lambda reads the delegate's
+            // own return exactly as before.
+            keptValueType := expectedSignature.ReturnType
+            if lambda.IsAsync {
+                keptValueType = AnalyzerLambdaAnalysis.AsyncBodyReturnType(expectedSignature.ReturnType)
+            }
+
+            if AnalyzerOverloadFacts.LambdaBodyProducesValue(lambda) {
+                if !BuiltInTypes.Is(keptValueType, BuiltInTypes.Void) {
+                    score = score + 1
+                }
+            } else {
+                if BuiltInTypes.Is(keptValueType, BuiltInTypes.Void) {
+                    score = score + 1
+                }
+            }
+
+            return true
+        }
+
+        argumentType := analyzedNonLambdaArguments[supplied.ArgumentIndex]
+        if argumentType == null {
+            return false
+        }
+
+        // AN EMPTY COLLECTION EXPRESSION HAS NO ELEMENT TO ASK ABOUT, AND THAT IS THE ANSWER RATHER
+        // THAN THE OBSTACLE.
+        //
+        // `[]` is target-typed like every other collection expression (§12.6.4.4), but the pre-pass
+        // that types arguments before a candidate is chosen can only give it `unknown[]` — there is
+        // no element to infer from. Every later question then asks whether `unknown` converts to the
+        // parameter's element type and answers no, so `sha.TransformFinalBlock([], 0, 0)` reported
+        // that no overload accepts three arguments with these types, for a call with exactly ONE
+        // overload that the writer spelled correctly.
+        //
+        // The conversion rule says an empty collection expression converts to any collection-expression
+        // target, and that is what is stated here — at the COLLECTION rung, never the identity one, so
+        // an empty literal never out-ranks a real argument. Where two candidates both accept it the
+        // call is genuinely ambiguous and the reader is told so, which is what C# does with the same
+        // pair; what stops now is the silent inapplicability that hid the single-candidate case.
+        emptyCollectionScore := 0
+        if TryScoreEmptyCollectionExpressionArgument(argumentValue, openParameterType, out emptyCollectionScore) {
+            PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
+            score = emptyCollectionScore
+            return true
+        }
+
+        selectedMethodGroup: FunctionTypeInfo? = null
+        methodGroupScore := 0
+        if TryBindMethodGroupToReflectionDelegate(openParameterType, argumentType, bindings, out selectedMethodGroup, out methodGroupScore) {
+            if selectedMethodGroup == null || !TryPopulateReflectionBindingsFromMethodGroupDelegate(openParameterType, selectedMethodGroup, bindings, typeInfoBindings) {
+                return false
+            }
+
+            methodGroupArguments[supplied.ArgumentIndex] = selectedMethodGroup
+            score = methodGroupScore
+            return true
+        }
+
+        argumentClrType := clrTypeConversion.TryConvertTypeInfoToClrType(argumentType)
+        if argumentClrType == null {
+            argumentClrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(argumentType)
+        }
+
+        if argumentClrType != null {
+            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameterType, argumentClrType, bindings, allowsLift) {
+                // AN INTEGER CONSTANT IS APPLICABLE AT A NARROWER PARAMETER, AND A REFLECTED OVERLOAD
+                // SET IS NOT AN EXCEPTION TO THAT. ECMA-334 §10.2.11 converts an in-range `int`
+                // constant to `sbyte`/`byte`/`short`/`ushort`/`uint`, and §10.2.4 converts the
+                // constant zero to any enum; both are implicit conversions, so both are part of
+                // APPLICABILITY (§12.6.4.2) and not something a later pass performs. Without this
+                // `roots.TryAdd(root, 0)` on a `ConcurrentDictionary<string, byte>` reported that no
+                // overload of `TryAdd` accepts `string, int` — for a call whose only overload is the
+                // one the writer meant.
+                //
+                // THE SCORE IS THE IMPLICIT-NUMERIC RUNG, not a rung of its own. A constant conversion
+                // is an implicit conversion of the numeric family, so `f(int)` still beats `f(byte)`
+                // for `0` on identity, and `f(byte)` versus `f(long)` ties here and is separated by
+                // `AnalyzerOverloadSpecificity`'s better-conversion-target rule — which answers
+                // `byte`, exactly as C# does.
+                constantScore := 0
+                if TryScoreConstantExpressionArgument(argumentValue, openParameterType, bindings, expectsByRef, out constantScore) {
+                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
+                    score = constantScore
+                    return true
+                }
+
+                // A COLLECTION EXPRESSION IS APPLICABLE ELEMENT BY ELEMENT, AND IT IS SCORED BEFORE A
+                // CANDIDATE IS CHOSEN RATHER THAN AFTER. `[args]` has no type of its own until a
+                // parameter names its element type; the pre-pass had to give it one anyway, and
+                // inferring `string[][]` from its single element made `Invoke(object?, object?[]?)`
+                // look inapplicable. What decides is the ELEMENT relation — `string[]` fits `object`,
+                // so the literal fits `object[]` — which is the same rule the finalising walk then
+                // applies for real with the parameter's element type in the slot.
+                collectionScore := 0
+                if TryScoreCollectionExpressionArgument(argumentValue, openParameterType, argumentType, out collectionScore) {
+                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
+                    score = collectionScore
+                    return true
+                }
+
+                // A USER-DEFINED IMPLICIT CONVERSION IS PART OF APPLICABILITY, NOT SOMETHING THAT
+                // HAPPENS AFTER IT. C# §12.6.4.2 admits a candidate when every argument has an
+                // implicit conversion to its parameter, and a conversion an operator declares is one
+                // of those: `result.Attribute("outcome")` passes a `string` to `Attribute(XName)`
+                // because `XName` declares `implicit operator XName(string)`, and a resolution that
+                // asked only about standard conversions reported that no overload of `Attribute`
+                // takes one argument. Asked here rather than inside `TryMatchReflectionParameter`
+                // because that predicate also answers for an extension RECEIVER, which C# converts
+                // only by identity, reference or boxing. It is asked LAST, because a conversion a
+                // type declares about itself is worse than every one the language defines.
+                if HasUserDefinedArgumentConversion(openParameterType, argumentClrType) {
+                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
+                    score = UserDefinedConversionScore()
+                    return true
+                }
+
+                // ConvertReflectionType deliberately represents every CLR array as the N# vector
+                // shape.  Keep the compatibility escape on that shape only: otherwise a reflected
+                // string[,] parameter would be mistaken for string[] after conversion and accept a
+                // call the CLR cannot make.
+                if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(openParameterType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(argumentClrType) {
+                    return false
+                }
+
+                parameterTypeInfo := AnalyzerReflectionTypeConversion.ConvertReflectionType(openParameterType)
+                if !AnalyzerAssignabilityFacts.AreArrayTypesCompatible(parameterTypeInfo, argumentType) {
+                    return false
+                }
+            }
+
+            PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
+
+            score = AnalyzerOverloadFacts.GetReflectionMatchScore(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openParameterType, bindings), argumentClrType)
+            return true
+        }
+
+        // A METHOD type parameter this call has not bound yet, met by an argument the CLR has no type
+        // for. Inside `struct Outcome<TOk, TErr>`, `HashCode.Combine(state, ok)` passes an argument whose
+        // type is TOk -- a type parameter of the ENCLOSING declaration, which converts to no CLR type at
+        // all, exactly and not as a surrogate. C# binds the method's own parameter to precisely that
+        // type; refusing it reported "no overload accepts 2 arguments with these types: byte, TOk" for a
+        // call that is simply generic.
+        //
+        // The binding is recorded on the N# side ONLY, because there is no CLR type to record. The
+        // closing walk knows that shape and leaves the method open rather than guessing a surrogate
+        // instantiation whose constraints it would then check against the wrong type.
+        if openParameterType.IsGenericParameter && openParameterType.DeclaringMethod != null && !bindings.ContainsKey(openParameterType) {
+            if !typeInfoBindings.ContainsKey(openParameterType) {
+                typeInfoBindings[openParameterType] = argumentType
+            }
+
+            score = 8
+            return true
+        }
+
+        boundParameterType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openParameterType, bindings)
+        expectedType := AnalyzerReflectionTypeConversion.ConvertReflectionType(boundParameterType)
+        if !assignability.IsAssignable(expectedType, argumentType) {
+            return false
+        }
+
+        score = 1
+        return true
+    }
+
+    // Whether ONE trailing argument is the params ARRAY itself rather than its first element.
+    //
+    // A SPREAD is never direct — spreading is the expansion — and a lambda never is, because a
+    // lambda has no type until a delegate context exists. An explicit `default` always is: it
+    // denotes the null array. Everything else is a type question, asked on a TRIAL COPY of the
+    // bindings so that a refused direct pass leaves no generic inference behind for the expansion
+    // that follows it.
+    func ShouldPassReflectionParamsArgumentDirectly(argument: Argument, argumentIndex: int, paramsParameterType: Type, bindings: Dictionary<Type, Type>, analyzedNonLambdaArguments: TypeInfo?[]): bool {
+        argumentValue := argument.Value
+        if argumentValue is SpreadExpression {
+            return false
+        }
+
+        if argumentValue is DefaultExpression {
+            return true
+        }
+
+        if argumentValue is LambdaExpression {
+            return false
+        }
+
+        argumentType := analyzedNonLambdaArguments[argumentIndex]
+        if argumentType == null || BuiltInTypes.IsUnknown(argumentType) {
+            return false
+        }
+
+        argumentClrType := clrTypeConversion.TryConvertTypeInfoToClrType(argumentType)
+        if argumentClrType == null {
+            argumentClrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(argumentType)
+        }
+
+        if argumentClrType != null {
+            trialBindings := CopyBindings(bindings)
+            return AnalyzerOverloadFacts.TryMatchReflectionParameter(paramsParameterType, argumentClrType, trialBindings, true)
+        }
+
+        expectedType := AnalyzerReflectionTypeConversion.ConvertReflectionType(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(paramsParameterType, bindings))
+        return assignability.IsAssignable(expectedType, argumentType)
+    }
+
+    // Resolving a source function or method group against a DELEGATE parameter.
+    //
+    // The parameter's bindings are applied first, so an unbound `Func<T, TResult>` is not a
+    // delegate yet and no method group binds to it. A single function must carry SOURCE identity —
+    // a reflected delegate value is not a method group — and a method group picks its BEST
+    // overload, with a tie being a non-binding rather than an arbitrary choice. The +4 is the
+    // method-group conversion itself, so a resolved group outranks a plain assignable argument.
+    //
+    // THE POSITION'S CONTRIBUTION IS PER-POSITION QUALITY, NOT A SUM OVER THE DELEGATE'S SIGNATURE.
+    // The inner walk adds one ladder value per delegate parameter plus one for the return, which is
+    // the right key for choosing WITHIN the group — every survivor there matched the SAME expected
+    // signature, so they all have the same number of positions. Handing that sum to the enclosing
+    // candidate's score is not: `Enumerable.Select` declares a one-parameter and a two-parameter
+    // selector, a method group with both arities closes both overloads, and the longer signature won
+    // purely for having one more position to add up. C# calls that pair CS0121, so the two must TIE
+    // here and let `AnalyzerOverloadSpecificity` say so.
+    func TryBindMethodGroupToReflectionDelegate(parameterType: Type, argumentType: TypeInfo, bindings: Dictionary<Type, Type>, out selectedMethodGroup: FunctionTypeInfo?, out score: int): bool {
+        selectedMethodGroup = null
+        score = 0
+
+        delegateType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(parameterType, bindings)
+        if !assignabilityFacts.IsDelegateType(delegateType) {
+            return false
+        }
+
+        expectedSignature := AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(delegateType)
+        if expectedSignature.ParameterTypes == null {
+            return false
+        }
+
+        functionType := argumentType as FunctionTypeInfo
+        if functionType != null {
+            candidateScore := 0
+            if !TryGetMethodGroupMatchScore(functionType, expectedSignature, out candidateScore) {
+                return false
+            }
+
+            selectedMethodGroup = functionType
+            score = AnalyzerOverloadFacts.MethodGroupConversionScore()
+            return true
+        }
+
+        methodGroup := argumentType as NSharpMethodGroupInfo
+        if methodGroup != null {
+            bestScore := -1
+            ambiguous := false
+            bestFunctionType: FunctionTypeInfo? = null
+            candidates := NSharpMethodGroupInfoFactory.GetFunctions(methodGroup)
+            for candidateType in candidates {
+                candidateScore := 0
+                if TryGetMethodGroupMatchScore(candidateType, expectedSignature, out candidateScore) {
+                    scoreWithConversion := 4 + candidateScore
+                    if scoreWithConversion > bestScore {
+                        bestScore = scoreWithConversion
+                        bestFunctionType = candidateType
+                        ambiguous = false
+                    } else if scoreWithConversion == bestScore {
+                        ambiguous = true
+                    }
+                }
+            }
+
+            if bestFunctionType == null || bestScore < 0 || ambiguous {
+                return false
+            }
+
+            selectedMethodGroup = bestFunctionType
+            score = AnalyzerOverloadFacts.MethodGroupConversionScore()
+            return true
+        }
+
+        // A REFLECTED METHOD GROUP IS A METHOD GROUP. `roots.Where(Directory.Exists)` names one, and
+        // before this only a group the PROJECT declared could stand at a delegate position at all —
+        // the reflected shapes fell through to "not a delegate argument" and the call did not bind.
+        // The signature is read off the candidate's own metadata and then scored by the same relation
+        // a source group is scored by, so the two are one path and not two policies.
+        reflectionMethod := argumentType as ReflectionMethodInfo
+        if reflectionMethod != null {
+            reflectedSignature := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(reflectionMethod.Method)
+            reflectedScore := 0
+            if reflectedSignature == null || !TryGetMethodGroupMatchScore(reflectedSignature, expectedSignature, out reflectedScore) {
+                return false
+            }
+
+            selectedMethodGroup = reflectedSignature
+            score = AnalyzerOverloadFacts.MethodGroupConversionScore()
+            return true
+        }
+
+        reflectionGroup := argumentType as ReflectionMethodGroupInfo
+        if reflectionGroup != null {
+            bestReflectedScore := -1
+            reflectedAmbiguous := false
+            bestReflected: FunctionTypeInfo? = null
+            reflectedMethods := reflectionGroup.Methods
+            for reflectedMethod in reflectedMethods {
+                reflectedCandidate := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(reflectedMethod)
+                reflectedCandidateScore := 0
+                if reflectedCandidate != null && TryGetMethodGroupMatchScore(reflectedCandidate, expectedSignature, out reflectedCandidateScore) {
+                    reflectedWithConversion := 4 + reflectedCandidateScore
+                    if reflectedWithConversion > bestReflectedScore {
+                        bestReflectedScore = reflectedWithConversion
+                        bestReflected = reflectedCandidate
+                        reflectedAmbiguous = false
+                    } else if reflectedWithConversion == bestReflectedScore {
+                        reflectedAmbiguous = true
+                    }
+                }
+            }
+
+            if bestReflected == null || bestReflectedScore < 0 || reflectedAmbiguous {
+                return false
+            }
+
+            selectedMethodGroup = bestReflected
+            score = bestReflectedScore
+            return true
+        }
+
+        return false
+    }
+
+    // A candidate binds to a delegate only when it is a SOURCE function; a reflected delegate value
+    // has no method group to select from.
+    func TryGetMethodGroupMatchScore(functionType: FunctionTypeInfo, expectedSignature: FunctionTypeInfo, out candidateScore: int): bool {
+        candidateScore = 0
+        if !AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType) {
+            return false
+        }
+
+        return assignability.TryGetRuntimeDelegateMethodGroupMatchScore(functionType, expectedSignature, out candidateScore)
+    }
+
+    // Every supplied argument the binding produced, with an expanded params tail flattened into its
+    // elements. The elements were materialized when the tail was bound, so this is a read.
+    func EnumerateSuppliedReflectionArguments(boundArguments: List<ReflectionBoundArgument>): List<SuppliedReflectionBoundArgument> {
+        flattened := new List<SuppliedReflectionBoundArgument>()
+        for boundArgument in boundArguments {
+            supplied := boundArgument as SuppliedReflectionBoundArgument
+            paramsBound := boundArgument as ParamsReflectionBoundArgument
+            if supplied != null {
+                flattened.Add(supplied)
+            } else if paramsBound != null {
+                elements := paramsBound.Arguments
+                elementIndex := 0
+                while elementIndex < elements.Count {
+                    flattened.Add(elements[elementIndex])
+                    elementIndex = elementIndex + 1
+                }
+            }
+        }
+
+        return flattened
+    }
+
+    // The signature a lambda must match, read off an OPEN delegate parameter.
+    //
+    // The CLR bindings are applied first so a partially inferred `Func<T, TResult>` becomes as
+    // concrete as inference has made it, and an expression tree unwraps to the delegate it carries.
+    // `Action`/`Func` are read structurally from their type ARGUMENTS rather than through `Invoke`,
+    // because the open form's `Invoke` would lose the N# TypeInfo overrides; every other delegate
+    // goes through `Invoke`, whose parameters carry their own nullability metadata.
+    //
+    // A NULL answer means "not a delegate at all". A delegate with no `Invoke` answers with an
+    // unknown-returning signature instead, so a caller can tell "no signature" from "not callable".
+    func CreateDelegateSignatureFromOpenType(openDelegateType: Type, typeInfoOverrides: Dictionary<Type, TypeInfo>, clrBindings: Dictionary<Type, Type>): FunctionTypeInfo? {
+        effectiveOpenType := openDelegateType
+        resolvedType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openDelegateType, clrBindings)
+        expressionDelegateType: Type = typeof(object)
+        if AnalyzerFunctionTypeFactory.TryGetExpressionTreeDelegateType(resolvedType, out expressionDelegateType) {
+            resolvedType = expressionDelegateType
+            effectiveOpenType = AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openDelegateType)
+        }
+
+        if !assignabilityFacts.IsDelegateType(resolvedType) {
+            return null
+        }
+
+        if resolvedType.IsGenericType {
+            definition := resolvedType.GetGenericTypeDefinition()
+            definitionName := definition.FullName
+
+            openTypeArguments := resolvedType.GetGenericArguments()
+            if effectiveOpenType.IsGenericType {
+                openTypeArguments = effectiveOpenType.GetGenericArguments()
+            }
+
+            typeArguments := new List<TypeInfo>()
+            for openTypeArgument in openTypeArguments {
+                typeArguments.Add(AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(openTypeArgument, typeInfoOverrides, clrBindings))
+            }
+
+            if AnalyzerFunctionTypeFactory.IsActionDefinitionName(definitionName) {
+                action := new FunctionTypeInfo()
+                action.ParameterTypes = typeArguments
+                action.ParameterModifiers = AnalyzerFunctionTypeFactory.RepeatNoModifier(typeArguments.Count)
+                action.ReturnType = BuiltInTypes.Void
+                return action
+            }
+
+            if AnalyzerFunctionTypeFactory.IsFuncDefinitionName(definitionName) {
+                parameterCount := typeArguments.Count - 1
+                parameterTypes := new List<TypeInfo>()
+                parameterIndex := 0
+                while parameterIndex < parameterCount {
+                    parameterTypes.Add(typeArguments[parameterIndex])
+                    parameterIndex = parameterIndex + 1
+                }
+
+                modifierCount := parameterCount
+                if modifierCount < 0 {
+                    modifierCount = 0
+                }
+
+                function := new FunctionTypeInfo()
+                function.ParameterTypes = parameterTypes
+                function.ParameterModifiers = AnalyzerFunctionTypeFactory.RepeatNoModifier(modifierCount)
+                function.ReturnType = typeArguments[typeArguments.Count - 1]
+                return function
+            }
+        }
+
+        invokeMethod := resolvedType.GetMethod("Invoke")
+        if invokeMethod == null {
+            unknown := new FunctionTypeInfo()
+            unknown.ReturnType = BuiltInTypes.Unknown
+            return unknown
+        }
+
+        // The same rule the delegate factory states: a position the DEFINITION spells with a naked
+        // type parameter takes its nullability from the type ARGUMENT rather than from the closed
+        // `Invoke`'s metadata, so `Predicate<string>` hands a lambda a `string` parameter exactly as
+        // `Func<string, bool>` does and the two shapes cannot disagree.
+        openInvokeParameters := AnalyzerFunctionTypeFactory.OpenDelegateInvokeParameters(resolvedType, invokeMethod)
+        openInvokeReturnType := AnalyzerFunctionTypeFactory.OpenDelegateInvokeReturnType(resolvedType)
+
+        invokeParameters := invokeMethod.GetParameters()
+        parameterTypeList := new List<TypeInfo>()
+        parameterModifierList := new List<Ast.ParameterModifier>()
+        invokeIndex := 0
+        while invokeIndex < invokeParameters.Length {
+            invokeParameter := invokeParameters[invokeIndex]
+            if openInvokeParameters != null && openInvokeParameters[invokeIndex].ParameterType.IsGenericParameter {
+                parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(invokeParameter.ParameterType, typeInfoOverrides, clrBindings))
+            } else {
+                parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(invokeParameter, typeInfoOverrides, clrBindings))
+            }
+
+            parameterModifierList.Add(AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(invokeParameter))
+            invokeIndex = invokeIndex + 1
+        }
+
+        signature := new FunctionTypeInfo()
+        signature.ParameterTypes = parameterTypeList
+        signature.ParameterModifiers = parameterModifierList
+        if openInvokeReturnType != null && openInvokeReturnType.IsGenericParameter {
+            signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(invokeMethod.ReturnType, typeInfoOverrides, clrBindings)
+        } else {
+            signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReturnWithOverrides(invokeMethod, typeInfoOverrides, clrBindings)
+        }
+
+        return signature
+    }
+
+    // THE FIRST PASS OVER ONE CANDIDATE: does this reflected method accept this call at all, and
+    // how well? A null answer is a non-binding and says nothing — the reporting walk decides what
+    // to say when EVERY candidate answers null.
+    //
+    // THE ORDER OF THE FOUR GATES IS THE SEMANTICS. The receiver is settled first, because an
+    // extension call binds the receiver into the same inference the arguments will read. WRITTEN
+    // type arguments come next and are absolute: they fix the bindings before any argument can
+    // infer a different one, and a wrong count or a non-generic target is an outright non-binding.
+    // Arity is checked before any argument work, so a hopeless candidate costs nothing. Only then
+    // are the arguments placed, filled and scored.
+    //
+    // THE EXTENSION PENALTY IS NOT COSMETIC. A candidate reached as an extension scores one lower
+    // than the same match reached as an instance member, which is what makes a real instance method
+    // win against an extension of the same name and shape.
+    func PreBindReflectionMethod(method: MethodInfo, call: CallExpression, receiverClrType: Type?, receiverTypeInfo: TypeInfo?, analyzedNonLambdaArguments: TypeInfo?[]): ReflectionPreBoundCandidate? {
+        bindings := new Dictionary<Type, Type>()
+        typeInfoBindings := new Dictionary<Type, TypeInfo>()
+        methodGroupArguments := new Dictionary<int, FunctionTypeInfo>()
+        openMethod := GetOpenReflectionSignatureMethod(method)
+        parameterOffset := 0
+        if AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(openMethod, call, receiverClrType) {
+            parameterOffset = 1
+        }
+        parameters := openMethod.GetParameters()
+        receiverScore := 0
+
+        if parameterOffset == 1 {
+            if receiverClrType == null {
+                return null
+            }
+            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(parameters[0].ParameterType, receiverClrType, bindings, true) {
+                return null
+            }
+
+            // Track N# TypeInfo bindings from the receiver type.
+            if receiverTypeInfo != null {
+                PopulateTypeInfoBindingsFromType(parameters[0].ParameterType, receiverTypeInfo, typeInfoBindings, true)
+            }
+
+            receiverScore = AnalyzerOverloadFacts.GetReflectionMatchScore(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(parameters[0].ParameterType, bindings), receiverClrType)
+        } else {
+            if receiverClrType != null && receiverTypeInfo != null {
+                if !TryPopulateReceiverGenericTypeBindings(openMethod.DeclaringType, receiverClrType, receiverTypeInfo, bindings, typeInfoBindings) {
+                    return null
+                }
+            }
+        }
+
+        if call.TypeArguments != null && call.TypeArguments.Count > 0 {
+            if !openMethod.IsGenericMethodDefinition {
+                return null
+            }
+
+            genericParameters := openMethod.GetGenericArguments()
+            if genericParameters.Length != call.TypeArguments.Count {
+                return null
+            }
+
+            i := 0
+            while i < genericParameters.Length {
+                resolvedTypeInfo := typeResolver.ResolveType(call.TypeArguments[i])
+                typeArgument := typeof(object)
+                if TryConvertWrittenTypeArgument(resolvedTypeInfo, out typeArgument) {
+                    bindings[genericParameters[i]] = typeArgument
+                } else if !IsOpenWrittenTypeArgument(resolvedTypeInfo) {
+                    // A written type argument that names nothing the CLR nor the project declares is a
+                    // non-binding, exactly as before.
+                    return null
+                }
+
+                typeInfoBindings[genericParameters[i]] = resolvedTypeInfo
+                i = i + 1
+            }
+        }
+
+        if !AnalyzerOverloadFacts.HasCompatibleReflectionArity(parameters, parameterOffset, call.Arguments.Count) {
+            return null
+        }
+
+        // An extension gets a small penalty so instance methods are preferred.
+        score := receiverScore
+        if parameterOffset == 1 {
+            score = score - 1
+        }
+
+        boundArguments := new List<ReflectionBoundArgument>()
+        argumentScore := 0
+        usesParams := false
+        defaultsUsed := 0
+        if !TryBindReflectionArguments(parameters, parameterOffset, call, bindings, typeInfoBindings, methodGroupArguments, analyzedNonLambdaArguments, out boundArguments, out argumentScore, out usesParams, out defaultsUsed) {
+            return null
+        }
+
+        score = score + argumentScore
+        return new ReflectionPreBoundCandidate(method, openMethod, bindings, typeInfoBindings, methodGroupArguments, boundArguments, score, usesParams, defaultsUsed)
+    }
+
+    // A WRITTEN type argument's CLR form. An N# type has no CLR form of its own, so `object` stands
+    // in as the binding surrogate; a type that answers neither is a non-binding.
+    //
+    // This is a separate member because the answer is a NON-NULL type or nothing at all, and N#
+    // does not narrow a nullable local across a negative check — writing it inline would leave the
+    // dictionary store reading a `Type?`.
+    func TryConvertWrittenTypeArgument(resolvedTypeInfo: TypeInfo, out typeArgument: Type): bool {
+        direct := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTypeInfo)
+        if direct != null {
+            typeArgument = direct
+            return true
+        }
+
+        surrogate := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(resolvedTypeInfo)
+        if surrogate != null {
+            typeArgument = surrogate
+            return true
+        }
+
+        typeArgument = typeof(object)
+        return false
+    }
+
+    // A WRITTEN TYPE ARGUMENT THAT IS ITSELF A TYPE PARAMETER OF THE ENCLOSING DECLARATION.
+    //
+    // `static func Read<T>(json: string, options: JsonSerializerOptions): T?` calls
+    // `JsonSerializer.Deserialize<T>(json, options)`, and `T` there is not a type the CLR has a handle
+    // for — it is the type parameter the CALLER will fix. Refusing the candidate for that reported
+    // "no overload of `Deserialize` accepts 2 arguments with these types: string, JsonSerializerOptions"
+    // for a call that is simply generic, which is the SAME failure the argument side already answers
+    // for `HashCode.Combine(state, ok)`, and it is answered the same way: the binding is recorded on
+    // the N# side only and `CloseGenericRuntimeMethod` leaves the method OPEN rather than substituting
+    // a surrogate whose declared constraints would then be checked against a type nobody wrote.
+    //
+    // The analyzer spells a type parameter in scope as a bare `SimpleTypeInfo`. Every BUILT-IN spelled
+    // that way converts to a CLR type and never reaches here; a name that resolves to nothing at all is
+    // `UnknownTypeInfo` and is still a non-binding, which is what keeps `Deserialize<Nonsense>(…)` a
+    // report rather than a silently open call.
+    static func IsOpenWrittenTypeArgument(resolvedTypeInfo: TypeInfo): bool {
+        return resolvedTypeInfo as SimpleTypeInfo != null
+    }
+
+    // The OPEN form a candidate's signature is read from.
+    //
+    // A generic METHOD reduces to its own definition. A method on a CONSTRUCTED generic type needs
+    // more: its `ParameterInfo`s already have the type arguments substituted in, so the type
+    // parameters that inference must bind are simply gone. The open form is re-found on the type
+    // DEFINITION, and the metadata TOKEN is what identifies it — names collide across overloads and
+    // the substituted signature cannot be compared against the open one.
+    //
+    // A method already declared on a definition, or on a non-generic type, is already open. If the
+    // re-find fails the substituted method is returned unchanged rather than treated as an error:
+    // a candidate is never rejected for the shape of its declaring type.
+    static func GetOpenReflectionSignatureMethod(method: MethodInfo): MethodInfo {
+        signatureMethod := method
+        if method.IsGenericMethod {
+            signatureMethod = method.GetGenericMethodDefinition()
+        }
+
+        declaringType := signatureMethod.DeclaringType
+        if declaringType == null {
+            return signatureMethod
+        }
+        if !declaringType.IsGenericType || declaringType.IsGenericTypeDefinition {
+            return signatureMethod
+        }
+
+        genericDefinition := declaringType.GetGenericTypeDefinition()
+        candidates := genericDefinition.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+        for candidate in candidates {
+            if candidate.MetadataToken == signatureMethod.MetadataToken {
+                return candidate
+            }
+        }
+
+        return signatureMethod
+    }
+
+    // The RECEIVER's contribution to generic inference, for a call on a generic type. A declaring
+    // type that mentions no type parameter contributes nothing and is not a failure.
+    func TryPopulateReceiverGenericTypeBindings(declaringType: Type?, receiverClrType: Type, receiverTypeInfo: TypeInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>): bool {
+        if declaringType == null || !declaringType.IsGenericType || !declaringType.ContainsGenericParameters {
+            return true
+        }
+
+        receiverSignatureType := declaringType
+        if !declaringType.IsGenericTypeDefinition {
+            receiverSignatureType = declaringType.GetGenericTypeDefinition()
+        }
+
+        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(receiverSignatureType, receiverClrType, bindings, true) {
+            return false
+        }
+
+        PopulateTypeInfoBindingsFromType(receiverSignatureType, receiverTypeInfo, typeInfoBindings, true)
+        return true
+    }
+
+    // ONE TYPE PARAMETER'S N# BOUND, RECORDED. First binding wins, matching the CLR walk beside it,
+    // EXCEPT where the later bound is the earlier one's nullable lift: `X` converts to `X?` and `X?`
+    // does not convert back, so `X?` is the bound both arguments reach and the binding widens to it.
+    // The CLR walk widens on exactly the same relation (`AnalyzerOverloadScoring`), so the two maps
+    // that record one inference never disagree about which type was inferred.
+    //
+    // `allowsLift` IS THE BOUND'S DIRECTION, and it is not decoration. A bound read off an ARGUMENT
+    // (or off the delegate's RETURN position, which the lambda's body or the group's return decides)
+    // says the type parameter must accept that type — C#'s LOWER bound, and the lift belongs there.
+    // A bound read off a delegate's PARAMETER position says the opposite: the type parameter must be
+    // accepted BY that position, which is contravariant, and widening on it is simply wrong.
+    // `roots.Where(Directory.Exists)` is the case that shows it: the receiver fixes `TSource` to
+    // `string`, and `Exists(string? path)` would otherwise widen it to `string?` and make the whole
+    // chain a `string?[]`.
+    func RecordTypeInfoBinding(typeParameter: Type, bound: TypeInfo, typeInfoBindings: Dictionary<Type, TypeInfo>, allowsLift: bool) {
+        existing: TypeInfo? = null
+        if !typeInfoBindings.TryGetValue(typeParameter, out existing) || existing == null {
+            typeInfoBindings[typeParameter] = bound
+            return
+        }
+
+        if allowsLift && AnalyzerConversionFacts.IsNullableLiftOfTypeInfo(bound, existing) {
+            typeInfoBindings[typeParameter] = bound
+        }
+    }
+
+    // The N# half of generic inference: which `TypeInfo` a method's open type parameter took.
+    //
+    // This runs ALONGSIDE the CLR binding walk rather than instead of it, because a source type has
+    // no CLR form to bind and the finalising walk needs the source spelling back — that is what
+    // keeps `int` printed as `int` and an N# record printed as itself in a reflected signature.
+    //
+    // FIRST BINDING WINS, matching the CLR walk, so a repeated type parameter is decided by its
+    // leftmost occurrence. An ARRAY argument against any read-only sequence parameter contributes
+    // its ELEMENT type, and a generic argument that does not match the parameter's own definition
+    // is traced through the CLR hierarchy — `List<int>` against `IEnumerable<T>` binds `T` to `int`
+    // by mapping the interface's type arguments back to the argument definition's own.
+    func PopulateTypeInfoBindingsFromType(openParameterType: Type, argumentTypeInfo: TypeInfo, typeInfoBindings: Dictionary<Type, TypeInfo>, allowsLift: bool) {
+        if openParameterType.IsGenericParameter {
+            RecordTypeInfoBinding(openParameterType, argumentTypeInfo, typeInfoBindings, allowsLift)
+            return
+        }
+
+        // A NULLABILITY ANNOTATION IS NOT A SHAPE. A member read out of an assembly that was compiled
+        // WITHOUT a nullable context converts to an `ObliviousTypeInfo` wrapper — `ITestCase.Traits`
+        // is `Dictionary<string!, List<string!>!>!` — and asking that wrapper whether it is a generic
+        // or an array answered NO, so the receiver contributed no bindings at all and the method's
+        // own type parameters were left to be bound by whichever ARGUMENT came next. On
+        // `dict.TryGetValue(k, out v)` that argument is the `out` variable, so `TValue` bound to the
+        // variable's own `List<string>?` and the postcondition then said the call leaves a MAYBE-NULL
+        // value in the true branch. The structure is read through the wrapper and the ANSWER keeps it,
+        // because the annotation is part of what the receiver said about its own type argument.
+        structuralTypeInfo := NullabilityMetadataCore.StripMetadata(argumentTypeInfo)
+
+        // A NULLABLE REFERENCE ANNOTATION IS NOT A SHAPE EITHER, and it reaches this walk the same
+        // way: `doc.Symbols?.TryGetValue(k, out v)` hands the receiver as `Dictionary<K, V>?`, whose
+        // `?` is an annotation on one CLR type rather than a `Nullable<>` construction. A VALUE
+        // nullable is left alone — `int?` IS `Nullable<int>`, and a parameter spelled `T?` matches it
+        // as the construction it is.
+        structuralNullable := structuralTypeInfo as NullableTypeInfo
+        if structuralNullable != null && AnalyzerConversionFacts.IsReferenceType(structuralNullable.InnerType) {
+            structuralTypeInfo = NullabilityMetadataCore.StripMetadata(structuralNullable.InnerType)
+        }
+
+        arrayTypeInfo := structuralTypeInfo as ArrayTypeInfo
+        if arrayTypeInfo != null {
+            enumerableElementParameter := TryGetReflectionEnumerableElementParameter(openParameterType)
+            if enumerableElementParameter != null {
+                PopulateTypeInfoBindingsFromType(enumerableElementParameter, arrayTypeInfo.ElementType, typeInfoBindings, allowsLift)
+                return
+            }
+        }
+
+        argGeneric := structuralTypeInfo as GenericTypeInfo
+        if !openParameterType.IsGenericType || argGeneric == null {
+            return
+        }
+
+        openParamGenDef := openParameterType.GetGenericTypeDefinition()
+        openParamArgs := openParameterType.GetGenericArguments()
+        paramName := StripGenericArity(openParamGenDef.Name)
+
+        if argGeneric.Name == paramName && openParamArgs.Length == argGeneric.TypeArguments.Count {
+            directIndex := 0
+            while directIndex < openParamArgs.Length {
+                PopulateTypeInfoBindingsFromType(openParamArgs[directIndex], argGeneric.TypeArguments[directIndex], typeInfoBindings, allowsLift)
+                directIndex = directIndex + 1
+            }
+
+            return
+        }
+
+        argClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(structuralTypeInfo)
+        if argClrType == null || !argClrType.IsGenericType {
+            return
+        }
+
+        argGenDef := argClrType.GetGenericTypeDefinition()
+        openImpl := FindOpenImplementation(argGenDef, openParamGenDef)
+        if openImpl == null {
+            return
+        }
+
+        implArgs := openImpl.GetGenericArguments()
+        argDefGenArgs := argGenDef.GetGenericArguments()
+
+        implIndex := 0
+        while implIndex < openParamArgs.Length && implIndex < implArgs.Length {
+            if implArgs[implIndex].IsGenericParameter {
+                definitionIndex := 0
+                while definitionIndex < argDefGenArgs.Length {
+                    if implArgs[implIndex] == argDefGenArgs[definitionIndex] && definitionIndex < argGeneric.TypeArguments.Count {
+                        PopulateTypeInfoBindingsFromType(openParamArgs[implIndex], argGeneric.TypeArguments[definitionIndex], typeInfoBindings, allowsLift)
+                        definitionIndex = argDefGenArgs.Length
+                    } else {
+                        definitionIndex = definitionIndex + 1
+                    }
+                }
+            }
+
+            implIndex = implIndex + 1
+        }
+    }
+
+    // Both halves of inference, driven from a SOURCE signature rather than from a CLR argument. This
+    // is how a selected method group's own parameter and return types flow back into the reflected
+    // method's type parameters.
+    func PopulateReflectionBindingsFromTypeInfo(openType: Type, sourceType: TypeInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, allowsLift: bool) {
+        // `unknown` IS NOT AN INFERENCE. It is the analyzer's answer for an expression it could not
+        // type at all, and recording it would close the method over a type the program never wrote —
+        // a lambda with an unanalysable body would silently fix the very type parameter its body was
+        // supposed to decide. The position stays open, which is a non-finalisation rather than a
+        // guess.
+        if BuiltInTypes.IsUnknown(sourceType) {
+            return
+        }
+
+        effectiveOpenType := openType
+        if openType.IsByRef {
+            element := openType.GetElementType()
+            if element != null {
+                effectiveOpenType = element
+            }
+        }
+
+        if effectiveOpenType.IsGenericParameter {
+            RecordTypeInfoBinding(effectiveOpenType, sourceType, typeInfoBindings, allowsLift)
+            if !bindings.ContainsKey(effectiveOpenType) {
+                clrType := clrTypeConversion.TryConvertTypeInfoToClrType(sourceType)
+                if clrType == null {
+                    clrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(sourceType)
+                }
+
+                if clrType != null {
+                    bindings[effectiveOpenType] = clrType
+                }
+            }
+
+            return
+        }
+
+        if effectiveOpenType.IsArray {
+            sourceArray := sourceType as ArrayTypeInfo
+            if sourceArray != null {
+                elementType := effectiveOpenType.GetElementType()
+                if elementType != null {
+                    PopulateReflectionBindingsFromTypeInfo(elementType, sourceArray.ElementType, bindings, typeInfoBindings, allowsLift)
+                }
+            }
+
+            return
+        }
+
+        if !effectiveOpenType.IsGenericType {
+            return
+        }
+
+        PopulateTypeInfoBindingsFromType(effectiveOpenType, sourceType, typeInfoBindings, allowsLift)
+
+        sourceGeneric := sourceType as GenericTypeInfo
+        if sourceGeneric != null {
+            openName := StripGenericArity(effectiveOpenType.Name)
+            openArguments := effectiveOpenType.GetGenericArguments()
+            if AnalyzerOverloadFacts.GenericNamesMatch(openName, sourceGeneric.Name) && openArguments.Length == sourceGeneric.TypeArguments.Count {
+                index := 0
+                while index < openArguments.Length {
+                    PopulateReflectionBindingsFromTypeInfo(openArguments[index], sourceGeneric.TypeArguments[index], bindings, typeInfoBindings, allowsLift)
+                    index = index + 1
+                }
+
+                return
+            }
+        }
+
+        // THE CLR SHAPE ANSWERS WHERE THE N# SPELLING CANNOT.
+        //
+        // The walk above descends into the source type's N# TYPE ARGUMENTS, which only a
+        // `GenericTypeInfo` carries. A member read off a REFLECTED type does not have one — it is a
+        // `ReflectionTypeInfo` wrapping the CLR type whole — so `safeActions.SelectMany(f => f.Edits)`
+        // over a reflected `List<TextEdit>` member fixed NOTHING for `TResult` and reported NL402,
+        // while the identical member declared in source fixed it. The same hole swallowed every
+        // source spelling whose generic NAME differs from the parameter's (`List<T>` met by
+        // `IEnumerable<T>`), which is the ordinary way a sequence reaches a sequence parameter.
+        //
+        // The reflected type is a complete shape in its own right, and the parameter-match walk is
+        // exactly the reading that traces it through its interfaces and base chain. It runs on a
+        // TRIAL copy for the same reason the params-tail decision does: a walk that fails part way
+        // through must leave no inference behind.
+        sourceClrType := clrTypeConversion.TryConvertTypeInfoToClrType(sourceType)
+        if sourceClrType == null {
+            sourceClrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(sourceType)
+        }
+
+        if sourceClrType == null {
+            return
+        }
+
+        trialBindings := CopyBindings(bindings)
+        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(effectiveOpenType, sourceClrType, trialBindings, allowsLift) {
+            return
+        }
+
+        for inferred in trialBindings {
+            if !bindings.ContainsKey(inferred.Key) {
+                bindings[inferred.Key] = inferred.Value
+            }
+        }
+    }
+
+    // A selected method group's SIGNATURE, matched position by position against the delegate's own
+    // `Invoke`. An arity disagreement is a non-binding; a `void` return contributes nothing.
+    func TryPopulateReflectionBindingsFromMethodGroupDelegate(openDelegateType: Type, sourceFunctionType: FunctionTypeInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>): bool {
+        invokeMethod := openDelegateType.GetMethod("Invoke")
+        if invokeMethod == null {
+            return false
+        }
+
+        invokeParameters := invokeMethod.GetParameters()
+        sourceParameterTypes := sourceFunctionType.ParameterTypes
+        if sourceParameterTypes == null {
+            sourceParameterTypes = new List<TypeInfo>()
+        }
+
+        if invokeParameters.Length != sourceParameterTypes.Count {
+            return false
+        }
+
+        index := 0
+        while index < invokeParameters.Length {
+            PopulateReflectionBindingsFromTypeInfo(invokeParameters[index].ParameterType, sourceParameterTypes[index], bindings, typeInfoBindings, false)
+            index = index + 1
+        }
+
+        returnType := sourceFunctionType.ReturnType
+        if invokeMethod.ReturnType != LiveVoidType() && returnType != null {
+            PopulateReflectionBindingsFromTypeInfo(invokeMethod.ReturnType, returnType, bindings, typeInfoBindings, true)
+        }
+
+        return true
+    }
+
+    // The read-only SEQUENCE parameters an array argument may contribute its element type to. The
+    // set is deliberately closed: it is the shapes an N# array literal binds to without conversion.
+    // A null answer means this parameter is not one of them.
+    func TryGetReflectionEnumerableElementParameter(openParameterType: Type): Type? {
+        effectiveType := AnalyzerOverloadFacts.GetByRefElementType(openParameterType)
+        if effectiveType.IsArray {
+            return effectiveType.GetElementType()
+        }
+
+        if !effectiveType.IsGenericType {
+            return null
+        }
+
+        definitionName := effectiveType.GetGenericTypeDefinition().FullName
+        if definitionName == "System.Collections.Generic.IEnumerable`1" || definitionName == "System.Collections.Generic.IReadOnlyList`1" || definitionName == "System.Collections.Generic.IReadOnlyCollection`1" || definitionName == "System.Collections.Generic.ICollection`1" || definitionName == "System.Collections.Generic.IList`1" {
+            return effectiveType.GetGenericArguments()[0]
+        }
+
+        return null
+    }
+
+    // The interface or base position on `definition` that instantiates `openDefinition`. Interfaces
+    // are searched before the base chain, matching the CLR's own resolution order.
+    static func FindOpenImplementation(definition: Type, openDefinition: Type): Type? {
+        interfaces := definition.GetInterfaces()
+        for candidate in interfaces {
+            if candidate.IsGenericType && candidate.GetGenericTypeDefinition() == openDefinition {
+                return candidate
+            }
+        }
+
+        baseType := definition.BaseType
+        while baseType != null {
+            if baseType.IsGenericType && baseType.GetGenericTypeDefinition() == openDefinition {
+                return baseType
+            }
+
+            baseType = baseType.BaseType
+        }
+
+        return null
+    }
+
+    // A reflected generic name carries its arity (`List`1`); the N# spelling does not.
+    static func StripGenericArity(name: string?): string {
+        if name == null {
+            return ""
+        }
+
+        tick := name.IndexOf("`", StringComparison.Ordinal)
+        if tick < 0 {
+            return name
+        }
+
+        return name.Substring(0, tick)
+    }
+
+    // The LIVE `System.Void`, resolved through the core library because `typeof(void)` is off the
+    // columnar surface.
+    //
+    // It is deliberately the LIVE one, and the difference is observable: a delegate read through a
+    // MetadataLoadContext answers with the CONTEXT'S `System.Void`, a distinct type identity, so
+    // this comparison does not recognise it as void. That is exactly the comparison the analyzer has
+    // always made here, and it is reproduced rather than corrected — a correction would change which
+    // return positions contribute to inference.
+    static func LiveVoidType(): Type {
+        coreLibrary := typeof(object).Assembly
+        voidType := coreLibrary.GetType("System.Void")
+        if voidType == null {
+            throw new InvalidOperationException("AnalyzerReflectionArgumentBinder requires System.Void in the compiler's own core library, and Assembly.GetType returned null for it.")
+        }
+
+        return voidType
+    }
+
+    // A TRIAL copy of the accumulated CLR bindings. The point is not the copy but the ISOLATION: a
+    // refused direct params pass must leave no generic inference behind for the expansion that
+    // follows it.
+    static func CopyBindings(bindings: Dictionary<Type, Type>): Dictionary<Type, Type> {
+        copy := new Dictionary<Type, Type>()
+        for entry in bindings {
+            copy[entry.Key] = entry.Value
+        }
+
+        return copy
+    }
+
+    // The named-argument lookup, over the SUPPLIABLE positions only: a receiver position is never
+    // addressable by name.
+    static func FindNamedParameterIndex(parameters: ParameterInfo[], parameterOffset: int, name: string): int {
+        index := parameterOffset
+        while index < parameters.Length {
+            if String.Equals(parameters[index].Name, name, StringComparison.Ordinal) {
+                return index
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
+    // THE SECOND PASS OVER THE WINNING CANDIDATE: convert every position, validate every argument
+    // and answer the call's type — or answer nothing, which sends the caller to the next candidate.
+    //
+    // The pass starts here and then SUSPENDS at each expression it needs analysed. The candidate's
+    // own dictionaries are COPIED first, exactly as the walk this replaces did: a finalisation that
+    // fails must leave the candidate's recorded inference untouched, because the caller may retry a
+    // different candidate that shares nothing but them.
+    func BeginFinalizeReflectionCall(candidate: ReflectionPreBoundCandidate, requireExactLambdaMatch: bool): ReflectionCallFinalizeState {
+        state := new ReflectionCallFinalizeState(candidate.RuntimeMethod, candidate.SignatureMethod, candidate.SignatureMethod.GetParameters(), candidate.BoundArguments, EnumerateSuppliedReflectionArguments(candidate.BoundArguments), candidate.MethodGroupArguments, CopyBindings(candidate.Bindings), CopyTypeInfoBindings(candidate.TypeInfoBindings))
+        state.RequireExactLambdaMatch = requireExactLambdaMatch
+        return state
+    }
+
+    // Run the walk until it needs an expression analysed, or until it ends. A null answer means the
+    // walk is over — read `state.Result` for the verdict, which is null when it failed. Every
+    // decision the walk makes between two analyses is taken HERE; the caller performs the analysis
+    // the request names and hands the answer back, and nothing else.
+    func NextReflectionAnalysis(state: ReflectionCallFinalizeState): ReflectionAnalysisRequest? {
+        if state.Failed || state.Phase == 2 {
+            return null
+        }
+
+        if state.Phase == 0 {
+            while state.PreIndex < state.SuppliedArguments.Count {
+                supplied := state.SuppliedArguments[state.PreIndex]
+                state.PreIndex = state.PreIndex + 1
+                lambda := supplied.Argument.Value as LambdaExpression
+                if lambda == null {
+                    continue
+                }
+
+                expectedSignature := CreateLambdaTargetSignature(state, supplied.OpenParameterType, lambda)
+                if expectedSignature == null {
+                    state.Failed = true
+                    return null
+                }
+
+                state.PendingKind = 1
+                state.PendingOpenParameterType = supplied.OpenParameterType
+                return new ReflectionAnalysisRequest(lambda, lambda, expectedSignature, AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
+            }
+
+            if !CloseGenericRuntimeMethod(state) {
+                state.Failed = true
+                return null
+            }
+
+            // Recalculated AFTER the pre-pass on purpose: a lambda's return type may have added an
+            // override that was not there when the candidate was bound.
+            state.HasTypeInfoOverrides = state.WorkingTypeInfoBindings.Count > 0
+            state.Phase = 1
+        }
+
+        while state.MainIndex < state.BoundArguments.Count {
+            boundArgument := state.BoundArguments[state.MainIndex]
+            defaultArgument := boundArgument as DefaultReflectionBoundArgument
+            if defaultArgument != null {
+                state.ParameterTypes.Add(AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(defaultArgument.Parameter, state.WorkingTypeInfoBindings, state.WorkingBindings))
+                state.MainIndex = state.MainIndex + 1
+                continue
+            }
+
+            supplied := boundArgument as SuppliedReflectionBoundArgument
+            if supplied != null {
+                state.MainIndex = state.MainIndex + 1
+                request := PrepareReflectionArgument(state, supplied, state.OpenParameters[supplied.ParameterIndex])
+                if state.Failed {
+                    return null
+                }
+                if request != null {
+                    return request
+                }
+
+                continue
+            }
+
+            paramsBound := boundArgument as ParamsReflectionBoundArgument
+            if paramsBound != null {
+                if state.ParamsIndex < paramsBound.Arguments.Count {
+                    element := paramsBound.Arguments[state.ParamsIndex]
+                    state.ParamsIndex = state.ParamsIndex + 1
+                    request := PrepareReflectionArgument(state, element, state.OpenParameters[paramsBound.ParameterIndex])
+                    if state.Failed {
+                        return null
+                    }
+                    if request != null {
+                        return request
+                    }
+
+                    continue
+                }
+
+                state.ParamsIndex = 0
+                state.MainIndex = state.MainIndex + 1
+                continue
+            }
+
+            state.MainIndex = state.MainIndex + 1
+        }
+
+        finalized := new FunctionTypeInfo()
+        finalized.ParameterTypes = state.ParameterTypes
+        finalized.ReturnType = AnalyzerReflectionTypeConversion.ConvertBoundReturn(state.OpenMethod, state.WorkingTypeInfoBindings, state.WorkingBindings, state.HasTypeInfoOverrides)
+        state.Result = finalized
+        state.Postconditions = CollectReflectionPostconditions(state)
+        CollectReflectionTerminationFacts(state)
+        state.NotNullIfNotNullArgumentIndex = FindNotNullIfNotNullArgument(state)
+        state.Phase = 2
+        return null
+    }
+
+    // `[NotNullIfNotNull("path")]` ON A RETURN NAMES A PARAMETER, and what this answers is the WRITTEN
+    // ARGUMENT that landed on it. `Path.GetFileName(path)` is declared `string?` and is null only when
+    // `path` is, so the call's result is as null as the argument was — and only the flow knows that,
+    // which is why the question is handed on rather than answered here.
+    static func FindNotNullIfNotNullArgument(state: ReflectionCallFinalizeState): int {
+        parameterName := NullabilityFlowAttributeReflection.NotNullIfNotNull(state.OpenMethod.ReturnParameter.GetCustomAttributesData())
+        if parameterName == null {
+            return -1
+        }
+
+        index := 0
+        while index < state.SuppliedArguments.Count {
+            supplied := state.SuppliedArguments[index]
+            index = index + 1
+            parameterIndex := supplied.ParameterIndex
+            if parameterIndex < 0 || parameterIndex >= state.OpenParameters.Length {
+                continue
+            }
+
+            if state.OpenParameters[parameterIndex].Name == parameterName {
+                return supplied.ArgumentIndex
+            }
+        }
+
+        return -1
+    }
+
+    // WHAT A REFLECTED SIGNATURE PROVES ABOUT THE ARGUMENTS IT WAS HANDED. The parameter's own
+    // attributes are read off the OPEN parameter — `[MaybeNullWhen(false)]` is written on
+    // `Dictionary<K, V>.TryGetValue`'s definition, not on its construction — while the declared
+    // nullability is read off the CLOSED conversion, because `out V` is only as nullable as the `V`
+    // this call site bound.
+    func CollectReflectionPostconditions(state: ReflectionCallFinalizeState): List<NullabilityPostcondition>? {
+        facts: List<NullabilityPostcondition>? = null
+        index := 0
+        while index < state.SuppliedArguments.Count {
+            supplied := state.SuppliedArguments[index]
+            index = index + 1
+            parameterIndex := supplied.ParameterIndex
+            if parameterIndex < 0 || parameterIndex >= state.OpenParameters.Length {
+                continue
+            }
+
+            parameter := state.OpenParameters[parameterIndex]
+            flowFacts := NullabilityFlowAttributeReflection.FromParameter(parameter)
+            isByRefParameter := parameter.ParameterType.IsByRef
+            if !isByRefParameter && flowFacts == NullabilityFlowFacts.None() {
+                continue
+            }
+
+            if facts == null {
+                facts = new List<NullabilityPostcondition>()
+            }
+
+            parameterType := AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(parameter, state.WorkingTypeInfoBindings, state.WorkingBindings)
+            postconditions.AddArgumentFacts(facts, supplied.Argument, parameterType, isByRefParameter, flowFacts)
+        }
+
+        return facts
+    }
+
+    // WHETHER THIS REFLECTED SIGNATURE ENDS THE PATH. `[DoesNotReturn]` is read off the OPEN method
+    // and `[DoesNotReturnIf(b)]` off the OPEN parameter, for the same reason the nullability
+    // postconditions are: the attribute is written on the definition, never on a construction of it.
+    func CollectReflectionTerminationFacts(state: ReflectionCallFinalizeState) {
+        state.TerminatingMethodFacts = ReachabilityFlowAttributeReflection.FromMethodAttributes(state.OpenMethod.GetCustomAttributesData())
+        state.TerminatingGuardArgumentIndex = -1
+        state.TerminatingGuardFacts = ReachabilityFlowFacts.None()
+        index := 0
+        while index < state.SuppliedArguments.Count {
+            supplied := state.SuppliedArguments[index]
+            index = index + 1
+            parameterIndex := supplied.ParameterIndex
+            if parameterIndex < 0 || parameterIndex >= state.OpenParameters.Length {
+                continue
+            }
+
+            parameterFacts := ReachabilityFlowAttributeReflection.FromParameter(state.OpenParameters[parameterIndex])
+            if parameterFacts == ReachabilityFlowFacts.None() {
+                continue
+            }
+
+            state.TerminatingGuardArgumentIndex = supplied.ArgumentIndex
+            state.TerminatingGuardFacts = parameterFacts
+            return
+        }
+    }
+
+    // Fold the answer to the outstanding request back in. A phase-one answer INFERS — it matches the
+    // lambda's constructed delegate against the open parameter and, when exactly one type parameter
+    // is still unbound, takes the lambda's return type for it. A phase-two expression answer is
+    // JUDGED against the expected type and a refusal ends the finalisation. A phase-two lambda
+    // answer is neither: the walk this replaces stored it in a list nothing read.
+    func SupplyReflectionAnalysis(state: ReflectionCallFinalizeState, analyzedType: TypeInfo) {
+        if state.PendingKind == 1 {
+            lambdaType := analyzedType as FunctionTypeInfo
+            if lambdaType != null {
+                FoldLambdaInference(state, lambdaType)
+            }
+        } else if state.PendingKind == 2 {
+            if state.RequireExactLambdaMatch && !LambdaExactlyMatchesTarget(state.PendingExpectedType, analyzedType) {
+                state.Failed = true
+            }
+        } else if state.PendingKind == 3 {
+            expectedType := state.PendingExpectedType
+            if expectedType == null || !IsAcceptedReflectionArgument(expectedType, analyzedType, state.PendingConstant) {
+                state.Failed = true
+            } else if state.PendingArgumentIndex >= 0 && RefusesMaybeNullArgument(state, expectedType, analyzedType) {
+                state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, expectedType, analyzedType))
+            }
+        }
+
+        state.PendingKind = 0
+        state.PendingExpectedType = null
+        state.PendingConstant = ConstantOperandFacts.None()
+        state.PendingArgumentIndex = -1
+        state.PendingParameterIndex = -1
+        state.PendingOpenParameterType = null
+    }
+
+    // WHETHER THE LAMBDA'S OWN TYPE *IS* THE DELEGATE IT WAS GIVEN, RETURN POSITION INCLUDED.
+    //
+    // This is "E exactly matches T" from §12.6.4.4, and it is asked of the type the lambda answered
+    // with the candidate's fully bound signature in place — so a delegate whose return position this
+    // very lambda inferred matches by construction, and one that merely ACCEPTS the body's type by a
+    // reference or variance conversion does not. That difference is the whole clause:
+    // `() => Task.FromResult(11)` converts to `Func<Task>` and IS a `Func<Task<int>>`.
+    //
+    // A return position inference never closed is not a match either: there is no type there to be
+    // the lambda's, and the relaxed pass is where such a candidate is allowed to bind.
+    static func LambdaExactlyMatchesTarget(expectedType: TypeInfo?, analyzedType: TypeInfo): bool {
+        expectedSignature := expectedType as FunctionTypeInfo
+        lambdaType := analyzedType as FunctionTypeInfo
+        if expectedSignature == null || lambdaType == null {
+            return true
+        }
+
+        expectedReturn := expectedSignature.ReturnType
+        lambdaReturn := lambdaType.ReturnType
+        if expectedReturn == null || lambdaReturn == null {
+            return true
+        }
+
+        if BuiltInTypes.IsUnknown(expectedReturn) || BuiltInTypes.IsUnknown(lambdaReturn) {
+            return true
+        }
+
+        return TypeInfoIdentityFacts.AreEqual(expectedReturn, lambdaReturn)
+    }
+
+    // WHETHER AN ACCEPTED ARGUMENT WAS ACCEPTED ONLY BY IGNORING ITS `?`. Applicability admits a
+    // maybe-null reference argument for a not-null parameter (`IsAssignableReflectionArgument` peels
+    // the annotation), because nullability never selects an overload. Once the candidate is chosen,
+    // a method outside the shared framework is held to what its metadata states, exactly as the same
+    // declaration in source is: the plain relation, which keeps the annotation, must accept it too.
+    // The shared framework keeps its old answer -- a separate decision, measured in
+    // `AnalyzerAssignability.IsMaybeNullIntoNotNull`.
+    func RefusesMaybeNullArgument(state: ReflectionCallFinalizeState, expectedType: TypeInfo, analyzedType: TypeInfo): bool {
+        declaringType := state.OpenMethod.DeclaringType
+        if declaringType == null || ExternalAssemblyScan.IsSharedFrameworkAssembly(declaringType.Assembly) {
+            return false
+        }
+
+        return assignability.RefusesMaybeNull(expectedType, analyzedType)
+    }
+
+    // THE CONVERSION THE FINALISING WALK VALIDATES, WITH THE CONSTANT STILL IN HAND.
+    //
+    // Applicability admitted this position; this is the same question asked again with the argument's
+    // real analysed type, and it must admit exactly what applicability did or a candidate the pre-pass
+    // chose is refused after the fact. A literal analysed against a narrower target still answers
+    // `int` — `b: byte = 0` records `int` too — so without the constant the §10.2.11 positions the
+    // pre-pass accepted would all fail here, which is the NL402 this arm removes rather than moves.
+    func IsAcceptedReflectionArgument(expectedType: TypeInfo, analyzedType: TypeInfo, constant: ConstantOperandFacts): bool {
+        if overloadScoring.IsAssignableReflectionArgument(expectedType, analyzedType) {
+            return true
+        }
+
+        return constant.HasIntegerLiteral && assignability.IsAssignableWithConstant(expectedType, analyzedType, constant)
+    }
+
+    // The lambda-target signature, with the BROAD fallback behind it. The fallback is not a
+    // synonym: the first answer is read off the open delegate type and answers null when the type is
+    // not a delegate at all, and only then may the lambda's own written parameters supply one.
+    func CreateLambdaTargetSignature(state: ReflectionCallFinalizeState, openParameterType: Type, lambda: LambdaExpression): FunctionTypeInfo? {
+        expectedSignature := CreateDelegateSignatureFromOpenType(openParameterType, state.WorkingTypeInfoBindings, state.WorkingBindings)
+        if expectedSignature != null {
+            return expectedSignature
+        }
+
+        return overloadScoring.CreateBroadDelegateSignatureForLambda(openParameterType, state.WorkingBindings, lambda)
+    }
+
+    // Close the runtime method over the inference, if it is still open. A type parameter the whole
+    // pre-pass failed to bind is a non-finalisation, not a guess.
+    //
+    // A type parameter bound only on the N# SIDE is neither. Its binding is an N#-declared type the CLR
+    // has no name for -- the enclosing declaration's own type parameter, say -- so there is nothing to
+    // hand `MakeGenericMethod`, and substituting a surrogate would validate the declared constraints
+    // against a type the program never wrote. The method is left OPEN instead: the finalised signature
+    // and return type are read from the N# bindings, which is where the real answer already is.
+    func CloseGenericRuntimeMethod(state: ReflectionCallFinalizeState): bool {
+        if !state.RuntimeMethod.IsGenericMethodDefinition {
+            return true
+        }
+
+        genericArguments := state.RuntimeMethod.GetGenericArguments()
+        index := 0
+        while index < genericArguments.Length {
+            if !state.WorkingBindings.ContainsKey(genericArguments[index]) {
+                return state.WorkingTypeInfoBindings.ContainsKey(genericArguments[index])
+            }
+
+            index = index + 1
+        }
+
+        typeArguments := new Type[](genericArguments.Length)
+        index = 0
+        while index < genericArguments.Length {
+            typeArguments[index] = state.WorkingBindings[genericArguments[index]]
+            index = index + 1
+        }
+
+        state.CloseRuntimeMethod(typeArguments)
+        return true
+    }
+
+    // THE LAMBDA'S OWN SIGNATURE, FOLDED BACK INTO THE INFERENCE — C#'s phase-two OUTPUT TYPE
+    // INFERENCE, and nothing weaker.
+    //
+    // The lambda has just been analysed under the delegate's input types, so what came back is a
+    // COMPLETE signature, and the relation that folds a selected method group's signature into the
+    // bindings folds this one unchanged: each delegate parameter position against the lambda's, then
+    // the delegate's RETURN position against the lambda's return type. Both halves respect bindings
+    // that are already there, so an inference an earlier argument made is never overwritten, and a
+    // `void`-returning delegate contributes nothing from its return.
+    //
+    // A LAMBDA AND A METHOD GROUP ARE THE SAME ARGUMENT HERE, deliberately: both are values whose
+    // type is a signature, and the type parameters a signature can fix do not depend on how the
+    // signature was written.
+    //
+    // THE WALK THIS REPLACES GUESSED. It took the lambda's return type for "the one type parameter
+    // still unbound", which is not a POSITION at all: in `ToDictionary(n => n, n => n.Length)` the
+    // first lambda fixed `TKey` by shape and was then handed that same `string` for `TElement`
+    // because `TElement` happened to be the only one left, so every call whose lambdas fix two type
+    // parameters answered with the first lambda's type twice.
+    func FoldLambdaInference(state: ReflectionCallFinalizeState, lambdaType: FunctionTypeInfo) {
+        openParameterType := state.PendingOpenParameterType
+        if openParameterType == null {
+            return
+        }
+
+        openDelegateType := AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openParameterType)
+        if TryPopulateReflectionBindingsFromMethodGroupDelegate(openDelegateType, lambdaType, state.WorkingBindings, state.WorkingTypeInfoBindings) {
+            return
+        }
+
+        // No `Invoke` to read positions off, or an arity that disagrees with the lambda's. The
+        // lambda's own constructed delegate type is then the only shape there is to match against,
+        // and the structural match carries the same information when the two definitions agree.
+        lambdaDelegateType := clrTypeConversion.TryConstructDelegateType(lambdaType)
+        if lambdaDelegateType != null {
+            AnalyzerOverloadFacts.TryMatchReflectionParameter(openDelegateType, lambdaDelegateType, state.WorkingBindings, false)
+        }
+    }
+
+    // The type a written argument is EXPECTED to have, once the candidate's inference is known.
+    //
+    // THE ONE DECISION IS WHICH SPELLING OF THE PARAMETER TO ASK ABOUT. An EXPANDED params tail
+    // records the ELEMENT type as its open parameter type while the `ParameterInfo` still declares
+    // the ARRAY, so the tail must be converted from the recorded type; every other position reads
+    // the parameter itself, which is what carries the declaration's nullability metadata.
+    static func ConvertSuppliedArgumentType(supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo, workingBindings: Dictionary<Type, Type>, workingTypeInfoBindings: Dictionary<Type, TypeInfo>, hasTypeInfoOverrides: bool): TypeInfo {
+        if AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(supplied, parameter) {
+            return AnalyzerReflectionTypeConversion.ConvertBoundType(supplied.OpenParameterType, workingTypeInfoBindings, workingBindings, hasTypeInfoOverrides)
+        }
+
+        return AnalyzerReflectionTypeConversion.ConvertBoundParameter(parameter, workingTypeInfoBindings, workingBindings, hasTypeInfoOverrides)
+    }
+
+    // One phase-two position: record the type the parameter EXPECTS, then say whether an analysis is
+    // still needed. A method-group position is settled here and needs none — the selection was made
+    // when the candidate bound, and all that is left is whether it fits the now-bound signature.
+    func PrepareReflectionArgument(state: ReflectionCallFinalizeState, supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo): ReflectionAnalysisRequest? {
+        lambda := supplied.Argument.Value as LambdaExpression
+        if lambda != null {
+            expectedSignature := CreateLambdaTargetSignature(state, supplied.OpenParameterType, lambda)
+            if expectedSignature == null {
+                unknownSignature := new FunctionTypeInfo()
+                unknownSignature.ReturnType = BuiltInTypes.Unknown
+                state.ParameterTypes.Add(unknownSignature)
+                state.Failed = true
+                return null
+            }
+
+            state.ParameterTypes.Add(expectedSignature)
+            state.PendingKind = 2
+            state.PendingExpectedType = expectedSignature
+            return new ReflectionAnalysisRequest(lambda, lambda, expectedSignature, AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
+        }
+
+        expectedType := ConvertSuppliedArgumentType(supplied, parameter, state.WorkingBindings, state.WorkingTypeInfoBindings, state.HasTypeInfoOverrides)
+        state.ParameterTypes.Add(expectedType)
+
+        selectedMethodGroup: FunctionTypeInfo? = null
+        if state.MethodGroupArguments.TryGetValue(supplied.ArgumentIndex, out selectedMethodGroup) {
+            expectedSignature := CreateDelegateSignatureFromOpenType(supplied.OpenParameterType, state.WorkingTypeInfoBindings, state.WorkingBindings)
+            if selectedMethodGroup == null || expectedSignature == null || expectedSignature.ParameterTypes == null || !assignability.IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(selectedMethodGroup, expectedSignature) {
+                state.Failed = true
+            }
+
+            return null
+        }
+
+        state.PendingKind = 3
+        state.PendingExpectedType = expectedType
+        state.PendingConstant = ConstantOperandFacts.FromExpression(supplied.Argument.Value)
+        if !AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(supplied, parameter) {
+            state.PendingArgumentIndex = supplied.ArgumentIndex
+            state.PendingParameterIndex = supplied.ParameterIndex
+        }
+        return new ReflectionAnalysisRequest(supplied.Argument.Value, null, expectedType, false)
+    }
+
+    // WHETHER AN ARRAY LITERAL WRITTEN HERE COULD BE THIS PARAMETER'S ARRAY, ELEMENT BY ELEMENT.
+    //
+    // The literal's PROVISIONAL type — what the pre-pass inferred with no target in the slot — is
+    // what its element relation is read from; the finalising walk analyses the same literal again
+    // with the parameter's real element type and is what actually decides. So this answer is an
+    // APPLICABILITY question and never the conversion itself.
+    //
+    // THE SCORE IS THE ELEMENT'S, which is what ranks `f(int[])` above `f(object[])` for `[1, 2]`:
+    // an identical element type keeps the top of the ladder and a converting one sits where every
+    // other assignable argument sits. A parameter whose element type is still open takes no part —
+    // a collection expression does not drive method type inference.
+    // THE EMPTY COLLECTION EXPRESSION, WHOSE APPLICABILITY IS A QUESTION ABOUT THE TARGET ALONE.
+    //
+    // `[]` carries no element, so there is nothing to convert and nothing to compare: the only
+    // question left is whether the parameter is a collection-expression target at all. The gate is
+    // the SAME one the element-by-element arm uses — a single-dimension array that is not a by-ref
+    // position and has no unbound type parameter left in it — so the two arms admit exactly the same
+    // set of targets and differ only in what they have to ask about the elements.
+    func TryScoreEmptyCollectionExpressionArgument(argumentValue: Expression, openParameterType: Type, out score: int): bool {
+        score = 0
+        literal := argumentValue as ArrayLiteralExpression
+        if literal == null || literal.Elements == null || literal.Elements.Count != 0 {
+            return false
+        }
+
+        if openParameterType.IsByRef || openParameterType.ContainsGenericParameters || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(openParameterType) {
+            return false
+        }
+
+        score = 4
+        return true
+    }
+
+    func TryScoreCollectionExpressionArgument(argumentValue: Expression, openParameterType: Type, argumentType: TypeInfo, out score: int): bool {
+        score = 0
+        if argumentValue as ArrayLiteralExpression == null {
+            return false
+        }
+
+        if openParameterType.IsByRef || openParameterType.ContainsGenericParameters || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(openParameterType) {
+            return false
+        }
+
+        parameterElement := openParameterType.GetElementType()
+        if parameterElement == null {
+            return false
+        }
+
+        sourceArray := argumentType as ArrayTypeInfo
+        if sourceArray == null {
+            return false
+        }
+
+        parameterElementTypeInfo := AnalyzerReflectionTypeConversion.ConvertReflectionType(parameterElement)
+        if !assignability.IsAssignable(parameterElementTypeInfo, sourceArray.ElementType) {
+            // THE ELEMENTS THEMSELVES STILL DECIDE WHEN THEIR PROVISIONAL TYPE DOES NOT. `[0]` is
+            // provisionally `int[]`, and `int` does not convert to `byte` — but the ELEMENT WRITTEN
+            // there is the constant `0`, which does (§10.2.11), which is why the same literal in
+            // `one: byte[] = [0]` is accepted at a local and was refused at
+            // `sha.TransformBlock([0], 0, 1, null, 0)`. Asked element by element, because a literal
+            // whose elements are `[0, 300]` converts at neither position and must stay inapplicable.
+            if !AllElementsAreInRangeConstants(argumentValue, parameterElement) {
+                return false
+            }
+
+            score = 4
+            return true
+        }
+
+        score = 4
+        if TypeInfoIdentityFacts.AreEqual(parameterElementTypeInfo, sourceArray.ElementType) {
+            score = 8
+        }
+
+        return true
+    }
+
+    // WHETHER EVERY ELEMENT WRITTEN IN AN ARRAY LITERAL IS A CONSTANT THIS ELEMENT TYPE ACCEPTS.
+    //
+    // An EMPTY literal answers false rather than true: `[]` has no element to carry a constant, so
+    // this rule — which is about what the written elements convert to — has nothing to say about it.
+    // The empty form is answered one arm earlier, by the target-only rule that is its actual
+    // conversion (§12.6.4.4), and never by pretending the elements it does not have all converted.
+    func AllElementsAreInRangeConstants(argumentValue: Expression, parameterElement: Type): bool {
+        literal := argumentValue as ArrayLiteralExpression
+        if literal == null || literal.Elements == null || literal.Elements.Count == 0 {
+            return false
+        }
+
+        for element2 in literal.Elements {
+            constant := ConstantOperandFacts.FromExpression(element2)
+            if !constant.HasIntegerLiteral {
+                return false
+            }
+
+            if !ConstantConversionFacts.AcceptsIntegerConstant(parameterElement, constant.LiteralText, constant.IsNegative) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    // WHETHER THE CONSTANT WRITTEN AT THIS POSITION CONVERTS TO THIS PARAMETER'S TYPE.
+    //
+    // The parameter's own bindings are applied first, so a type parameter an earlier position already
+    // fixed is a real target here; one still OPEN is refused by `AcceptsIntegerConstant`, because a
+    // constant conversion drives no method type inference. A BY-REF position is refused for the same
+    // reason C# refuses it: the position is written through as well as read, and a constant is not a
+    // variable.
+    func TryScoreConstantExpressionArgument(argumentValue: Expression, openParameterType: Type, bindings: Dictionary<Type, Type>, expectsByRef: bool, out score: int): bool {
+        score = 0
+        if expectsByRef {
+            return false
+        }
+
+        constant := ConstantOperandFacts.FromExpression(argumentValue)
+        if !constant.HasIntegerLiteral {
+            return false
+        }
+
+        boundParameterType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openParameterType, bindings)
+        if !ConstantConversionFacts.AcceptsIntegerConstant(boundParameterType, constant.LiteralText, constant.IsNegative) {
+            return false
+        }
+
+        score = ConstantExpressionConversionScore()
+        return true
+    }
+
+    // WHERE A CONSTANT CONVERSION RANKS: the implicit-numeric rung, because that is what it is.
+    // 6 keeps it below an identity (8) — so `f(int)` still wins for `0` — and above a plain
+    // assignable conversion (4), and ties it with the widening `int` → `long` it competes against,
+    // which is where `AnalyzerOverloadSpecificity` takes over.
+    static func ConstantExpressionConversionScore(): int {
+        return 6
+    }
+
+    // WHERE A USER-DEFINED CONVERSION RANKS, AND IT IS BELOW EVERYTHING THE LANGUAGE DEFINES.
+    // The reflection ladder is 8 identical, 6 implicit numeric, 4 assignable, 2 otherwise; a
+    // conversion a TYPE declares about itself is worse than any of those, so an overload reachable
+    // without one always wins. C# says the same thing the other way round (§12.6.4.4: a standard
+    // implicit conversion is better than a user-defined one); the ladder says it with a number.
+    static func UserDefinedConversionScore(): int {
+        return 1
+    }
+
+    // WHETHER AN OPERATOR DECLARED BY EITHER END SPANS THIS ARGUMENT AND THIS PARAMETER.
+    //
+    // An OPEN parameter is refused outright: a user-defined conversion takes no part in method type
+    // inference, so `T` must be bound by the standard rules or not at all. An AMBIGUOUS conversion is
+    // refused too, and deliberately — two operators that tie are not a conversion, and picking one
+    // would be the silent choice this compiler does not make. The candidate is simply inapplicable,
+    // which is the NL402 the reader can act on.
+    func HasUserDefinedArgumentConversion(openParameterType: Type, argumentClrType: Type): bool {
+        if openParameterType.IsByRef || openParameterType.ContainsGenericParameters {
+            return false
+        }
+
+        if !assignability.DeclaresExternalConversionOperators(argumentClrType) && !assignability.DeclaresExternalConversionOperators(openParameterType) {
+            return false
+        }
+
+        return ExternalUserDefinedConversions.ResolveImplicit(argumentClrType, openParameterType).IsSelected
+    }
+
+    static func CopyTypeInfoBindings(bindings: Dictionary<Type, TypeInfo>): Dictionary<Type, TypeInfo> {
+        copy := new Dictionary<Type, TypeInfo>()
+        for entry in bindings {
+            copy[entry.Key] = entry.Value
+        }
+
+        return copy
+    }
+}

@@ -1,3 +1,5 @@
+namespace Examples.PreprocessorDirectives
+
 #region Configuration
 class Config {
     AppName: string = "MyApp"

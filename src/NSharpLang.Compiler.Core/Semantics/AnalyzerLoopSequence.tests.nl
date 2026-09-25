@@ -1,0 +1,1871 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.IO
+import System.Reflection
+import NSharpLang.Compiler.Ast
+
+
+// Native contracts for WHAT ITERATING A VALUE PRODUCES.
+//
+// Every member of this family was `private` in `Analyzer.cs`, so nothing named any of them: their
+// behaviour was pinned only indirectly, through end-to-end `foreach` diagnostics. This is their first
+// DIRECT pinning, and it is written around the three things the family is easy to get wrong.
+//
+// (1) THE SYNCHRONOUS/ASYNCHRONOUS SPLIT IS NOT SYMMETRIC. An array, a `string`, a `Span<T>`, the
+// duck-typed enumerator pattern and the non-generic `IEnumerable` are SYNCHRONOUS-ONLY arms; asking
+// them as an async sequence must answer nothing rather than answer anyway. Only the generic arm and
+// the reflected interface probe have an async shape at all.
+//
+// (2) THE METADATA LOAD CONTEXT SPLITS THE REFLECTION ARMS IN HALF, and the split is behaviour rather
+// than a bug. The array arm and the `Span`/`ReadOnlySpan` arm are STRUCTURAL or NAME-based, so they
+// answer for a type loaded into the analyzer's MetadataLoadContext exactly as they do for its runtime
+// twin. The interface probe, the duck-typed pattern and the non-generic fallback all compare RUNTIME
+// IDENTITIES — `GetGenericTypeDefinition() == typeof(IEnumerable<>)`, `MoveNext().ReturnType ==
+// typeof(bool)`, `typeof(IEnumerable).IsAssignableFrom(...)` — and a metadata type is a different
+// object from its runtime twin, so all three answer NO. `Analyzer.cs` behaved this way; these
+// contracts pin it so that a later "simplification" to name comparison is a red test rather than a
+// silent change in which loops compile.
+//
+// (3) THE `yield` WALK READS BOTH ESCAPE ANSWERS. Each escape report returns a boolean the walk uses
+// to SILENCE the element-type rule. The reports are `AnalyzerSoaEscape`'s and are called directly —
+// they were the driver's kinds 2 and 3 until that family moved — so a contract that wants one to fire
+// builds a REAL row view or a REAL declared-table column read rather than handing back a boolean.
+
+// ── a runtime type that satisfies the duck-typed enumerator pattern ───────────
+//
+// Not an `IEnumerable` of any kind: a parameterless `GetEnumerator` whose return type carries a
+// parameterless `bool MoveNext()` and a readable `Current`, which is the whole of the pattern.
+class LoopProbeEnumerator {
+    Current: int => 7
+
+    func MoveNext(): bool {
+        return false
+    }
+}
+
+class LoopProbeSequence {
+    func GetEnumerator(): LoopProbeEnumerator {
+        return new LoopProbeEnumerator()
+    }
+}
+
+// A type with a `GetEnumerator` whose enumerator has NO `MoveNext`, which must not satisfy the
+// pattern — the probe checks the enumerator, not just the entry point.
+class LoopProbeBrokenEnumerator {
+    Current: int => 7
+}
+
+class LoopProbeBrokenSequence {
+    func GetEnumerator(): LoopProbeBrokenEnumerator {
+        return new LoopProbeBrokenEnumerator()
+    }
+}
+
+class LoopHarness {
+    Sequence: AnalyzerLoopSequence
+    Ambient: AnalyzerAmbientContext
+    Scopes: AnalyzerScopeStack
+    Errors: List<CompilerError>
+    Assignability: AnalyzerAssignability
+    Model: SemanticModel
+    Narrowing: AnalyzerFlowNarrowing
+
+    constructor(sequence: AnalyzerLoopSequence, ambient: AnalyzerAmbientContext, scopes: AnalyzerScopeStack, errors: List<CompilerError>, assignability: AnalyzerAssignability, model: SemanticModel, narrowing: AnalyzerFlowNarrowing) {
+        Sequence = sequence
+        Ambient = ambient
+        Scopes = scopes
+        Errors = errors
+        Assignability = assignability
+        Model = model
+        Narrowing = narrowing
+    }
+}
+
+// One replayed step of the `yield` walk, with the error count AS THE STEP WAS HANDED OUT.
+class LoopStep {
+    Kind: int
+    Node: Expression?
+    Text: string?
+    CarriedType: string
+    ErrorsBefore: int
+
+    constructor(kind: int, node: Expression?, text: string?, carriedType: string, errorsBefore: int) {
+        Kind = kind
+        Node = node
+        Text = text
+        CarriedType = carriedType
+        ErrorsBefore = errorsBefore
+    }
+}
+
+func LoopPath(): string {
+    return Path.GetFullPath("loop-sequence-contract.nl")
+}
+
+func LoopHarnessWith(sourceText: string?): LoopHarness {
+    provider := new AnalyzerProjectSourceProvider()
+    errors := new List<CompilerError>()
+    diagnostics := new AnalyzerDiagnosticSink(errors, provider)
+    diagnostics.BeginAnalysis(LoopPath(), sourceText)
+    spans := new AnalyzerDiagnosticSpans(diagnostics)
+    context := new AnalyzerDeclarationContext()
+    assemblies := new List<Assembly>()
+    assemblies.Add(typeof(List<int>).get_Assembly())
+    context.Reset(Path.GetFullPath("."), assemblies)
+    model := new SemanticModel()
+    scopes := new AnalyzerScopeStack()
+    scopes.Push(model, new Scope(ScopeKind.Global), 1, 1)
+    LoopBindSequenceDefinitions(scopes)
+    discovery := new AnalyzerProjectTypeDiscovery(provider, context, new List<string>(), new Dictionary<string, string>(StringComparer.Ordinal))
+    probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
+    resolver := new AnalyzerTypeResolver(scopes, context, discovery, probe, diagnostics, new Dictionary<string, string>(StringComparer.Ordinal), new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal), new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal), model, new BindingMap())
+    resolver.BeginAnalysis(LoopPath(), null, model, new BindingMap())
+    substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
+    facts := new AnalyzerAssignabilityFacts(context, null)
+    structural := new AnalyzerStructuralAssignability(resolver, probe)
+    clrConversion := new AnalyzerClrTypeConversion(context, null)
+    guard := new AnalyzerImplicitConversionGuard()
+    assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
+    escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
+    ambient := new AnalyzerAmbientContext(diagnostics, spans, escape)
+    conditions := new AnalyzerBooleanConditions(diagnostics, spans, escape)
+    postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
+    narrowing := new AnalyzerFlowNarrowing(scopes, resolver, assignability, postconditions)
+    sequence := new AnalyzerLoopSequence(diagnostics, spans, scopes, context, resolver, ambient, escape, conditions, new AnalyzerTypeSubstitution(scopes, context, resolver), new AnalyzerTerminatingCalls())
+    return new LoopHarness(sequence, ambient, scopes, errors, assignability, model, narrowing)
+}
+
+func LoopDefault(): LoopHarness {
+    return LoopHarnessWith(null)
+}
+
+func LoopTypeText(candidate: TypeInfo?): string {
+    if candidate == null {
+        return "<null>"
+    }
+
+    boxed := candidate as object
+    rendered := boxed.ToString()
+    if rendered != null {
+        return rendered
+    }
+
+    return "<blank>"
+}
+
+func LoopElement(harness: LoopHarness, candidate: TypeInfo, requireAsync: bool): string {
+    return LoopTypeText(harness.Sequence.GetLoopSequenceElementType(candidate, requireAsync))
+}
+
+func LoopReflected(clrType: Type): TypeInfo {
+    reflected: TypeInfo = new ReflectionTypeInfo(clrType)
+    return reflected
+}
+
+func LoopTypeArgs(argument: TypeInfo): List<TypeInfo> {
+    arguments := new List<TypeInfo>()
+    arguments.Add(argument)
+    return arguments
+}
+
+// The CLR generic definitions a real file's `import System.Collections.Generic` binds into scope.
+// The element-type walk reads the DEFINITION behind an instantiation rather than its spelling, so a
+// harness that binds no definitions answers nothing for every generic — which is the contract two
+// rows below pin, and the reason these four are bound here.
+func LoopBindSequenceDefinitions(scopes: AnalyzerScopeStack) {
+    globalScope := scopes.Peek()
+    globalScope.DeclareType(TypeArityNames.Key("List", 1), LoopReflected(typeof(List<int>).GetGenericTypeDefinition()))
+    globalScope.DeclareType(TypeArityNames.Key("Queue", 1), LoopReflected(typeof(Queue<int>).GetGenericTypeDefinition()))
+    globalScope.DeclareType(TypeArityNames.Key("IEnumerable", 1), LoopReflected(typeof(IEnumerable<int>).GetGenericTypeDefinition()))
+    globalScope.DeclareType(TypeArityNames.Key("IAsyncEnumerable", 1), LoopReflected(LoopAsyncSequenceDefinition()))
+}
+
+func LoopGeneric(name: string, argument: TypeInfo): TypeInfo {
+    generic: TypeInfo = new GenericTypeInfo(name, LoopTypeArgs(argument))
+    return generic
+}
+
+func LoopGenericOver(definition: Type, argument: TypeInfo): TypeInfo {
+    generic: TypeInfo = new GenericTypeInfo(definition.Name, LoopTypeArgs(argument), LoopReflected(definition))
+    return generic
+}
+
+func LoopCollection(): Expression {
+    return new IdentifierExpression("values", 4, 14)
+}
+
+func LoopYield(value: Expression?): YieldStatement {
+    return new YieldStatement(value, 6, 5)
+}
+
+func LoopValue(): Expression {
+    return new IntLiteralExpression("1", 6, 11)
+}
+
+func LoopFunction(name: string, returnType: TypeReference?, modifiers: Modifiers): FunctionDeclaration {
+    return new FunctionDeclaration(name, new List<Parameter>(), returnType, null, null, null, null, modifiers, new List<AttributeNode>(), false, null, false, false, 3, 1)
+}
+
+func LoopErrorText(harness: LoopHarness, index: int): string {
+    error := harness.Errors[index]
+    return error.Message + "|" + error.Line.ToString() + ":" + error.Column.ToString() + "+" + error.Length.ToString()
+}
+
+// ── the `yield` driver, exactly as `Analyzer.cs` writes it ────────────────────
+//
+// It asks for ONE thing now. Kinds 2 and 3 were the two SoA escape reports, which the walk performs
+// itself against the real `AnalyzerSoaEscape` — so a contract that wants an escape to FIRE supplies a
+// row-view TYPE or yields a real column read, rather than handing the walk a boolean.
+func LoopRunYield(harness: LoopHarness, statement: YieldStatement, answer: TypeInfo?): List<LoopStep> {
+    steps := new List<LoopStep>()
+    state := harness.Sequence.BeginYield(statement, harness.Assignability)
+    step := harness.Sequence.NextStep(state)
+    while step != null {
+        steps.Add(new LoopStep(step.Kind, step.Node, step.Text, LoopTypeText(step.CarriedType), harness.Errors.Count))
+
+        harness.Sequence.Supply(state, answer)
+        step = harness.Sequence.NextStep(state)
+    }
+
+    return steps
+}
+
+// A table declared in the harness's scope, and a `points.x` read against it — the only way to make
+// the direct-column escape fire for real.
+func LoopSoaColumns(): List<SoaColumnInfo> {
+    columns := new List<SoaColumnInfo>()
+    columns.Add(new SoaColumnInfo("x", new SimpleTypeReference("int", 0, 0), 1, 1))
+    return columns
+}
+
+func LoopSoaDeclaration(): SoaRecordDeclarationInfo {
+    return new SoaRecordDeclarationInfo("Points", LoopSoaColumns(), 1, 1)
+}
+
+func LoopSoaRowType(): TypeInfo {
+    row: TypeInfo = new SoaRowTypeInfo(LoopSoaDeclaration())
+    return row
+}
+
+func LoopDeclareSoaTable(harness: LoopHarness) {
+    table: TypeInfo = new SoaRecordTypeInfo(LoopSoaDeclaration())
+    harness.Scopes.Peek().Symbols["points"] = table
+}
+
+func LoopSoaColumnRead(): Expression {
+    read: Expression = new MemberAccessExpression(new IdentifierExpression("points", 6, 11), "x", false, 6, 11)
+    return read
+}
+
+func LoopText(value: string?): string {
+    if value == null {
+        return "<null>"
+    }
+
+    return value
+}
+
+func LoopKinds(steps: List<LoopStep>): string {
+    rendered := ""
+    index := 0
+    while index < steps.Count {
+        if index > 0 {
+            rendered = rendered + ","
+        }
+
+        rendered = rendered + steps[index].Kind.ToString()
+        index = index + 1
+    }
+
+    return rendered
+}
+
+// ── the declared arms ─────────────────────────────────────────────────────────
+
+test "AN ARRAY ANSWERS ITS ELEMENT TYPE, AND ONLY FOR A SYNCHRONOUS LOOP" {
+    harness := LoopDefault()
+    arrayType: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
+
+    assert LoopElement(harness, arrayType, false) == "int"
+    assert LoopElement(harness, arrayType, true) == "<null>"
+}
+
+test "A string ANSWERS char, AND ONLY FOR A SYNCHRONOUS LOOP" {
+    harness := LoopDefault()
+    stringType: TypeInfo = BuiltInTypes.String
+
+    assert LoopElement(harness, stringType, false) == "char"
+    assert LoopElement(harness, stringType, true) == "<null>"
+}
+
+test "A SIMPLE TYPE THAT IS NOT string ANSWERS NOTHING IN EITHER MODE" {
+    harness := LoopDefault()
+    intType: TypeInfo = BuiltInTypes.Int
+
+    assert LoopElement(harness, intType, false) == "<null>"
+    assert LoopElement(harness, intType, true) == "<null>"
+}
+
+// A GENERIC INSTANTIATION ANSWERS THROUGH ITS DEFINITION, AND THE ARGUMENTS ARE SUBSTITUTED BY
+// POSITION. Nothing here is matched by spelling: `Queue<bool>` answers `bool` because
+// `Queue<T>.Enumerator.Current` IS `T`, and a `Dictionary<K, V>` answers its PAIR for the same
+// reason, over arguments the CLR need not have a handle for.
+test "A DECLARED GENERIC ANSWERS THROUGH ITS DEFINITION, SUBSTITUTED BY POSITION" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopGeneric("List", BuiltInTypes.Int), false) == "int"
+    assert LoopElement(harness, LoopGeneric("IEnumerable", BuiltInTypes.String), false) == "string"
+    assert LoopElement(harness, LoopGeneric("Queue", BuiltInTypes.Bool), false) == "bool"
+
+    assert LoopElement(harness, LoopGenericOver(typeof(Stack<int>).GetGenericTypeDefinition(), BuiltInTypes.Int), false) == "int"
+    assert LoopElement(harness, LoopGenericOver(typeof(HashSet<int>).GetGenericTypeDefinition(), BuiltInTypes.String), false) == "string"
+    assert LoopElement(harness, LoopGenericOver(typeof(Span<int>).GetGenericTypeDefinition(), BuiltInTypes.Char), false) == "char"
+    assert LoopElement(harness, LoopGenericOver(typeof(IReadOnlyList<int>).GetGenericTypeDefinition(), BuiltInTypes.Int), false) == "int"
+}
+
+test "A DICTIONARY INSTANTIATION ANSWERS ITS PAIR OVER THE ARGUMENTS IT SUPPLIED" {
+    harness := LoopDefault()
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.String)
+    arguments.Add(BuiltInTypes.Int)
+    dictionary: TypeInfo = new GenericTypeInfo("Dictionary", arguments, LoopReflected(typeof(Dictionary<string, int>).GetGenericTypeDefinition()))
+
+    assert LoopElement(harness, dictionary, false) == "KeyValuePair<string, int>"
+}
+
+// AN INSTANTIATION WHOSE DEFINITION NOTHING BINDS ANSWERS NOTHING. The old owner answered eighteen
+// bare spellings, which is what let a user type called `List` be walked as the BCL's; a name with no
+// declaration behind it is now exactly what it looks like.
+test "A GENERIC WITH NO DEFINITION AND NO DECLARATION IN SCOPE ANSWERS NOTHING" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopGeneric("LinkedList", BuiltInTypes.Int), false) == "<null>"
+    assert LoopElement(harness, LoopGeneric("Bag", BuiltInTypes.Int), false) == "<null>"
+}
+
+test "THE ASYNC QUESTION IS ANSWERED BY IAsyncEnumerable AND BY NOTHING ELSE" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopGeneric("IAsyncEnumerable", BuiltInTypes.Int), true) == "int"
+    assert LoopElement(harness, LoopGeneric("IAsyncEnumerable", BuiltInTypes.Int), false) == "<null>"
+    assert LoopElement(harness, LoopGeneric("List", BuiltInTypes.Int), true) == "<null>"
+}
+
+test "A DECLARED CLASS ANSWERS THROUGH THE INTERFACES IT NAMES, IN DECLARATION ORDER" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopDeclaredSequenceClass(), false) == "int"
+    assert LoopElement(harness, LoopDeclaredSequenceClass(), true) == "<null>"
+}
+
+test "A DECLARED INTERFACE ANSWERS THROUGH THE INTERFACES IT INHERITS" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopDeclaredSequenceInterface(), false) == "int"
+    assert LoopElement(harness, LoopDeclaredSequenceInterface(), true) == "<null>"
+}
+
+test "A DECLARED CLASS THAT NAMES NO SEQUENCE ANSWERS NOTHING" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopDeclaredPlainClass(), false) == "<null>"
+}
+
+func LoopIntArgument(): List<TypeReference> {
+    arguments := new List<TypeReference>()
+    argument: TypeReference = new SimpleTypeReference("int", 1, 1)
+    arguments.Add(argument)
+    return arguments
+}
+
+// A declared class whose SECOND interface is the sequence one, so the walk is proven to keep going
+// past an interface that answers nothing.
+func LoopSequenceInterfaces(): TypeReference[] {
+    interfaces := new TypeReference[](2)
+    disposable: TypeReference = new SimpleTypeReference("IDisposable", 1, 1)
+    sequence: TypeReference = new GenericTypeReference("IEnumerable", LoopIntArgument(), 1, 1)
+    interfaces[0] = disposable
+    interfaces[1] = sequence
+    return interfaces
+}
+
+func LoopDeclaredSequenceClass(): TypeInfo {
+    declared: TypeInfo = new ClassTypeInfo("Bag", 1, 1, false, null, LoopSequenceInterfaces(), new TypeParameter[](0), new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0), true)
+    return declared
+}
+
+func LoopDeclaredPlainClass(): TypeInfo {
+    declared: TypeInfo = new ClassTypeInfo("Plain", 1, 1, false, null, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0), true)
+    return declared
+}
+
+func LoopDeclaredSequenceInterface(): TypeInfo {
+    declared: TypeInfo = new InterfaceTypeInfo("IBag", 1, 1, false, LoopSequenceInterfaces(), new TypeParameter[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0))
+    return declared
+}
+
+// ── the shape normaliser ──────────────────────────────────────────────────────
+
+test "THE SHAPE NORMALISER UNWRAPS nullable, oblivious AND ref TO A FIXED POINT" {
+    harness := LoopDefault()
+    arrayType: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
+
+    assert LoopTypeText(harness.Sequence.NormalizeShapeType(new NullableTypeInfo(arrayType))) == "int[]"
+    assert LoopTypeText(harness.Sequence.NormalizeShapeType(new ObliviousTypeInfo(arrayType))) == "int[]"
+    assert LoopTypeText(harness.Sequence.NormalizeShapeType(new ByRefTypeInfo(arrayType))) == "int[]"
+    assert LoopTypeText(harness.Sequence.NormalizeShapeType(new ObliviousTypeInfo(new ByRefTypeInfo(new NullableTypeInfo(arrayType))))) == "int[]"
+}
+
+test "A NULLABLE, oblivious OR ref SEQUENCE STILL ANSWERS ITS ELEMENT TYPE" {
+    harness := LoopDefault()
+    arrayType: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
+
+    assert LoopElement(harness, new NullableTypeInfo(arrayType), false) == "int"
+    assert LoopElement(harness, new ObliviousTypeInfo(arrayType), false) == "int"
+    assert LoopElement(harness, new ByRefTypeInfo(arrayType), false) == "int"
+}
+
+test "A SIMPLE NAME IS REPLACED BY WHAT THE SCOPE STACK SAYS IT DECLARES" {
+    harness := LoopDefault()
+    declared: TypeInfo = new ArrayTypeInfo(BuiltInTypes.String)
+    harness.Scopes.Peek().Types["Names"] = declared
+
+    assert LoopTypeText(harness.Sequence.NormalizeShapeType(new SimpleTypeInfo("Names"))) == "string[]"
+    assert LoopElement(harness, new SimpleTypeInfo("Names"), false) == "string"
+}
+
+test "A NAME THE SCOPE STACK DOES NOT KNOW IS ITS OWN ANSWER" {
+    harness := LoopDefault()
+
+    assert LoopTypeText(harness.Sequence.NormalizeShapeType(new SimpleTypeInfo("Missing"))) == "Missing"
+}
+
+// ── the reflected probes, over RUNTIME types ─────────────────────────────────
+
+test "A REFLECTED ARRAY ANSWERS ITS ELEMENT TYPE, SYNCHRONOUSLY ONLY" {
+    harness := LoopDefault()
+    arrayType := LoopReflected(typeof(int[]))
+
+    assert LoopElement(harness, arrayType, false) == "int"
+    assert LoopElement(harness, arrayType, true) == "<null>"
+}
+
+test "A REFLECTED Span AND ReadOnlySpan ANSWER BY DEFINITION NAME" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopReflected(typeof(Span<byte>)), false) == "byte"
+    assert LoopElement(harness, LoopReflected(typeof(ReadOnlySpan<byte>)), false) == "byte"
+    assert LoopElement(harness, LoopReflected(typeof(Span<byte>)), true) == "<null>"
+}
+
+test "A REFLECTED GENERIC SEQUENCE ANSWERS THROUGH THE INTERFACE PROBE" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopReflected(typeof(List<string>)), false) == "string"
+    assert LoopElement(harness, LoopReflected(typeof(IEnumerable<int>)), false) == "int"
+    assert LoopElement(harness, LoopReflected(typeof(string)), false) == "char"
+}
+
+test "A REFLECTED ASYNC SEQUENCE ANSWERS ONLY THE ASYNC QUESTION" {
+    harness := LoopDefault()
+    asyncSequence := LoopReflected(LoopClose(LoopAsyncSequenceDefinition(), typeof(int)))
+
+    assert LoopElement(harness, asyncSequence, true) == "int"
+    assert LoopElement(harness, asyncSequence, false) == "<null>"
+    assert LoopElement(harness, LoopReflected(typeof(List<string>)), true) == "<null>"
+}
+
+test "A REFLECTED NULLABLE VALUE TYPE IS UNWRAPPED BEFORE THE PROBES RUN" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopReflected(typeof(int?)), false) == "<null>"
+    assert LoopElement(harness, LoopReflected(typeof(int)), false) == "<null>"
+}
+
+test "THE DUCK-TYPED ENUMERATOR PATTERN ANSWERS Current's TYPE" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopReflected(typeof(LoopProbeSequence)), false) == "int"
+    assert LoopElement(harness, LoopReflected(typeof(LoopProbeSequence)), true) == "<null>"
+}
+
+test "AN ENUMERATOR WITHOUT MoveNext DOES NOT SATISFY THE PATTERN" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopReflected(typeof(LoopProbeBrokenSequence)), false) == "<null>"
+}
+
+test "A NON-GENERIC IEnumerable FALLS BACK TO object" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopReflected(LoopArrayListType()), false) == "object"
+    assert LoopElement(harness, LoopReflected(LoopArrayListType()), true) == "<null>"
+}
+
+// ── the MetadataLoadContext dimension ────────────────────────────────────────
+
+test "A METADATA ARRAY AND SPAN STILL ANSWER — THOSE ARMS ARE STRUCTURAL AND NAME-BASED" {
+    harness := LoopDefault()
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Runtime")
+        metadataInt := core.GetType("System.Int32")
+        assert metadataInt != null
+        assert metadataInt != typeof(int)
+
+        assert LoopElement(harness, LoopReflected(metadataInt.MakeArrayType()), false) == "int"
+
+        metadataSpan := core.GetType("System.Span`1")
+        assert metadataSpan != null
+        assert LoopElement(harness, LoopReflected(LoopClose(metadataSpan, metadataInt)), false) == "int"
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// THE SAME QUESTION, ASKED OF METADATA RATHER THAN OF THE RUNTIME, GIVES THE SAME ANSWER.
+//
+// The analyser reads referenced assemblies through a MetadataLoadContext, where the projected
+// `IEnumerable<>` is a different OBJECT from `typeof(IEnumerable<>)` and the projected `Boolean` is
+// not `typeof(bool)`. Every arm of this walk used to compare RUNTIME IDENTITIES, so every one of
+// them answered NO for a type that arrived that way — which is why a `foreach` over a
+// `JsonElement.ArrayEnumerator`, over a `Dictionary<K,V>.KeyCollection` or over any user type whose
+// assembly was merely referenced was rejected as "not enumerable". The arms compare FULL NAMES now,
+// and these rows are the proof that the two worlds agree.
+test "A METADATA SEQUENCE ANSWERS EXACTLY WHAT ITS RUNTIME TWIN DOES" {
+    harness := LoopDefault()
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Runtime")
+        metadataInt := core.GetType("System.Int32")
+        assert metadataInt != null
+
+        // The interface arm.
+        metadataSequence := core.GetType("System.Collections.Generic.IEnumerable`1")
+        assert metadataSequence != null
+        assert metadataSequence != typeof(IEnumerable<int>).GetGenericTypeDefinition()
+        assert LoopElement(harness, LoopReflected(LoopClose(metadataSequence, metadataInt)), false) == "int"
+        assert LoopElement(harness, LoopReflected(typeof(IEnumerable<int>)), false) == "int"
+
+        // The pattern arm and the non-generic remainder: the metadata `IEnumerable` declares a
+        // parameterless `GetEnumerator` whose enumerator's `MoveNext` returns the METADATA `Boolean`,
+        // and that is the same `bool` by name.
+        metadataEnumerable := core.GetType("System.Collections.IEnumerable")
+        assert metadataEnumerable != null
+        assert LoopElement(harness, LoopReflected(metadataEnumerable), false) == "object"
+        assert LoopElement(harness, LoopReflected(LoopArrayListType()), false) == "object"
+
+        // And the metadata `string` answers `char`, as its runtime twin does.
+        metadataString := core.GetType("System.String")
+        assert metadataString != null
+        assert LoopElement(harness, LoopReflected(metadataString), false) == "char"
+        assert LoopElement(harness, LoopReflected(typeof(string)), false) == "char"
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// The two runtime identities the contracts cannot spell as `typeof`, for the reason the owner
+// records: the pinned toolset declines `typeof` on `IAsyncEnumerable<T>` and on the non-generic
+// collection types.
+func LoopAsyncSequenceDefinition(): Type {
+    definition := Type.GetType("System.Collections.Generic.IAsyncEnumerable`1")
+    if definition == null {
+        throw new InvalidOperationException("System.Collections.Generic.IAsyncEnumerable`1 was not found.")
+    }
+
+    return definition
+}
+
+func LoopArrayListType(): Type {
+    found := Type.GetType("System.Collections.ArrayList")
+    if found == null {
+        throw new InvalidOperationException("System.Collections.ArrayList was not found.")
+    }
+
+    return found
+}
+
+func LoopClose(definition: Type, argument: Type): Type {
+    arguments := new Type[](1)
+    arguments[0] = argument
+    return definition.MakeGenericType(arguments)
+}
+
+// ── whether a failure is worth reporting ─────────────────────────────────────
+
+test "AN UNKNOWN OR STILL-EXTERNAL COLLECTION IS NOT REPORTED; ANYTHING ELSE IS" {
+    harness := LoopDefault()
+
+    assert !harness.Sequence.ShouldReportLoopSequenceTypeMismatch(BuiltInTypes.Unknown)
+    assert !harness.Sequence.ShouldReportLoopSequenceTypeMismatch(new ExternalTypeInfo("Widget"))
+    assert harness.Sequence.ShouldReportLoopSequenceTypeMismatch(BuiltInTypes.Int)
+    assert harness.Sequence.ShouldReportLoopSequenceTypeMismatch(new NullableTypeInfo(BuiltInTypes.Int))
+}
+
+// ── the two loop entries ─────────────────────────────────────────────────────
+
+test "A foreach OVER A SEQUENCE ANSWERS THE ELEMENT TYPE AND REPORTS NOTHING" {
+    harness := LoopDefault()
+    arrayType: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
+
+    resolved := harness.Sequence.ResolveForeachElementType(LoopCollection(), arrayType)
+
+    assert LoopTypeText(resolved) == "int"
+    assert harness.Errors.Count == 0
+}
+
+test "A foreach OVER A NON-SEQUENCE ANSWERS unknown AND REPORTS AT THE COLLECTION" {
+    harness := LoopDefault()
+
+    resolved := harness.Sequence.ResolveForeachElementType(LoopCollection(), BuiltInTypes.Int)
+
+    assert LoopTypeText(resolved) == "unknown"
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "foreach collection must be enumerable, but this collection is 'int'|4:14+6"
+    assert harness.Errors[0].Suggestion == "A foreach collection needs an accessible parameterless GetEnumerator() whose result has a readable Current and a bool MoveNext(), or it must be an array, a string, an IEnumerable<T> or an IEnumerable."
+}
+
+test "AN await foreach OVER A SYNCHRONOUS SEQUENCE REPORTS THE ASYNC WORDING" {
+    harness := LoopDefault()
+    arrayType: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
+
+    resolved := harness.Sequence.ResolveAwaitForeachElementType(LoopCollection(), arrayType)
+
+    assert LoopTypeText(resolved) == "unknown"
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "await foreach collection must be async enumerable, but this collection is 'int[]'|4:14+6"
+    assert harness.Errors[0].Suggestion == "An await foreach collection must be an IAsyncEnumerable<T>; a synchronous sequence is iterated with plain foreach."
+}
+
+test "AN await foreach OVER AN ASYNC SEQUENCE ANSWERS THE ELEMENT TYPE" {
+    harness := LoopDefault()
+
+    resolved := harness.Sequence.ResolveAwaitForeachElementType(LoopCollection(), LoopGeneric("IAsyncEnumerable", BuiltInTypes.String))
+
+    assert LoopTypeText(resolved) == "string"
+    assert harness.Errors.Count == 0
+}
+
+test "AN UNKNOWN COLLECTION ANSWERS unknown SILENTLY IN BOTH LOOPS" {
+    harness := LoopDefault()
+
+    assert LoopTypeText(harness.Sequence.ResolveForeachElementType(LoopCollection(), BuiltInTypes.Unknown)) == "unknown"
+    assert LoopTypeText(harness.Sequence.ResolveAwaitForeachElementType(LoopCollection(), BuiltInTypes.Unknown)) == "unknown"
+    assert harness.Errors.Count == 0
+}
+
+// ── the generator façade ─────────────────────────────────────────────────────
+
+test "THE GENERATOR ELEMENT TYPE FOLLOWS THE ENCLOSING FUNCTION'S async MODIFIER" {
+    harness := LoopDefault()
+    syncSequence := LoopGeneric("IEnumerable", BuiltInTypes.Int)
+    asyncSequence := LoopGeneric("IAsyncEnumerable", BuiltInTypes.Int)
+
+    harness.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), BuiltInTypes.Unknown)
+
+    assert LoopTypeText(harness.Sequence.GetGeneratorYieldElementType(syncSequence)) == "int"
+    assert LoopTypeText(harness.Sequence.GetGeneratorYieldElementType(asyncSequence)) == "<null>"
+
+    harness.Ambient.EnterFunctionDeclaration(LoopFunction("h", null, Modifiers.Generator | Modifiers.Async), BuiltInTypes.Unknown)
+
+    assert LoopTypeText(harness.Sequence.GetGeneratorYieldElementType(asyncSequence)) == "int"
+    assert LoopTypeText(harness.Sequence.GetGeneratorYieldElementType(syncSequence)) == "<null>"
+}
+
+// ── the `yield` walk ─────────────────────────────────────────────────────────
+
+test "A BARE yield ASKS FOR NOTHING" {
+    harness := LoopDefault()
+    harness.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+
+    steps := LoopRunYield(harness, LoopYield(null), null)
+
+    assert LoopKinds(steps) == ""
+    assert harness.Errors.Count == 0
+}
+
+test "A yield WITH A VALUE ASKS FOR THE WALK AND NOTHING ELSE" {
+    harness := LoopDefault()
+    harness.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+
+    steps := LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.Int)
+
+    // The two escape reports were kinds 2 and 3 and are N#-owned calls now.
+    assert LoopKinds(steps) == "1"
+    assert LoopText(steps[0].Text) == "<null>"
+    assert steps[0].CarriedType == "unknown"
+    assert harness.Errors.Count == 0
+}
+
+// The expected-type slot as the value step is HANDED OUT — the only moment it is open — because the
+// walk closes it again in `Supply`.
+func LoopYieldExpectedTypeDuringValueStep(harness: LoopHarness, statement: YieldStatement): string {
+    state := harness.Sequence.BeginYield(statement, harness.Assignability)
+    step := harness.Sequence.NextStep(state)
+    observed := "<no step>"
+    while step != null {
+        if step.Kind == 1 {
+            observed = LoopTypeText(harness.Ambient.CurrentExpectedType)
+        }
+
+        harness.Sequence.Supply(state, BuiltInTypes.Int)
+        step = harness.Sequence.NextStep(state)
+    }
+
+    return observed
+}
+
+test "A YIELDED VALUE IS TARGET-TYPED BY THE SEQUENCE IT JOINS" {
+    // Without this the value was walked with NO expected type, so an array literal in a `yield`
+    // inferred from its FIRST element — `yield ["a", ["b", "c"]]` in an `IEnumerable<object[]>`
+    // generator reported "All elements in an array must be the same type" — while the identical
+    // literal in a `return`, an argument or an annotated assignment took the target's element type.
+    generator := LoopDefault()
+    generator.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+    assert LoopYieldExpectedTypeDuringValueStep(generator, LoopYield(LoopValue())) == "int"
+
+    // The slot is CLOSED again once the value is answered, so nothing downstream inherits it.
+    assert LoopTypeText(generator.Ambient.CurrentExpectedType) == "<null>"
+
+    // A `yield` in a function that is not a generator has no sequence to impose, and the slot is
+    // LEFT ALONE rather than cleared — whatever target surrounds the statement is still the truth.
+    ordinary := LoopDefault()
+    ordinary.Ambient.EnterFunctionDeclaration(LoopFunction("f", null, Modifiers.None), BuiltInTypes.Int)
+    saved := ordinary.Ambient.EnterExpectedType(BuiltInTypes.String)
+    assert LoopYieldExpectedTypeDuringValueStep(ordinary, LoopYield(LoopValue())) == "string"
+    ordinary.Ambient.ExitExpectedType(saved)
+
+    // A generator whose declared return type names no sequence likewise imposes nothing.
+    unnameable := LoopDefault()
+    unnameable.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), BuiltInTypes.Int)
+    assert LoopYieldExpectedTypeDuringValueStep(unnameable, LoopYield(LoopValue())) == "<null>"
+}
+
+test "A yield OUTSIDE A GENERATOR IS REPORTED AT THE KEYWORD, AND THE VALUE IS STILL WALKED" {
+    harness := LoopDefault()
+    harness.Ambient.EnterFunctionDeclaration(LoopFunction("f", null, Modifiers.None), BuiltInTypes.Int)
+
+    steps := LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.String)
+
+    assert LoopKinds(steps) == "1"
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "'yield' can only be used inside a generator function|6:5+5"
+    // The element-type rule is silent for a non-generator: it has already been told what is wrong.
+    assert steps[0].ErrorsBefore == 1
+}
+
+test "A yield OF THE WRONG TYPE IS REPORTED AT THE VALUE, WITH BOTH TYPES IN THE WORDING" {
+    harness := LoopDefault()
+    harness.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+
+    LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.String)
+
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "Generator yield value is 'string', but the sequence element type is 'int'|6:11+1"
+    assert harness.Errors[0].Suggestion == "Yield a value assignable to 'int', or change the generator return type."
+}
+
+test "EITHER ESCAPE SILENCES THE ELEMENT-TYPE RULE, AND SPEAKS IN ITS PLACE" {
+    // A yielded ROW VIEW: the row escape fires on the answered type, and the mismatch that would
+    // otherwise follow (a row view is not an `int`) never speaks.
+    rowHarness := LoopDefault()
+    rowHarness.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+    LoopRunYield(rowHarness, LoopYield(LoopValue()), LoopSoaRowType())
+    assert rowHarness.Errors.Count == 1
+    assert rowHarness.Errors[0].Message == "SoA row views cannot be yielded; use the table and row index instead"
+
+    // A yielded DIRECT COLUMN: decided by the SYNTAX of the value, not by its type, so the answered
+    // type is an ordinary mismatching one and the mismatch still does not speak.
+    columnHarness := LoopDefault()
+    columnHarness.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+    LoopDeclareSoaTable(columnHarness)
+    LoopRunYield(columnHarness, LoopYield(LoopSoaColumnRead()), BuiltInTypes.String)
+    assert columnHarness.Errors.Count == 1
+    assert columnHarness.Errors[0].Message == "SoA table member 'x' cannot be yielded directly"
+}
+
+test "A yield WHOSE VALUE FITS, OR WHOSE SEQUENCE IS UNNAMEABLE, IS SILENT" {
+    fitting := LoopDefault()
+    fitting.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+    LoopRunYield(fitting, LoopYield(LoopValue()), BuiltInTypes.Int)
+    assert fitting.Errors.Count == 0
+
+    // A return type that names no sequence at all: a different error, reported elsewhere.
+    unnameable := LoopDefault()
+    unnameable.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), BuiltInTypes.Int)
+    LoopRunYield(unnameable, LoopYield(LoopValue()), BuiltInTypes.String)
+    assert unnameable.Errors.Count == 0
+
+    // An unknown on either side would make the wording meaningless.
+    unknownValue := LoopDefault()
+    unknownValue.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+    LoopRunYield(unknownValue, LoopYield(LoopValue()), BuiltInTypes.Unknown)
+    assert unknownValue.Errors.Count == 0
+}
+
+test "A yield WITH NO ENCLOSING FUNCTION AT ALL REPORTS ONLY THE GENERATOR RULE" {
+    harness := LoopDefault()
+
+    steps := LoopRunYield(harness, LoopYield(LoopValue()), BuiltInTypes.String)
+
+    assert LoopKinds(steps) == "1"
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "'yield' can only be used inside a generator function|6:5+5"
+}
+
+test "AN UNANSWERED VALUE WALK LEAVES THE YIELDED TYPE unknown RATHER THAN NULL" {
+    harness := LoopDefault()
+    harness.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+
+    steps := LoopRunYield(harness, LoopYield(LoopValue()), null)
+
+    assert LoopKinds(steps) == "1"
+    // An unanswered walk leaves `unknown`, which silences the rule rather than reporting nonsense.
+    assert harness.Errors.Count == 0
+}
+
+// ── the `foreach` / `await foreach` walk ─────────────────────────────────────
+//
+// These two statements were the LAST `Analyzer.cs` arms in this territory. Their contracts are
+// written around the four things the pair is easy to get wrong: the six-step ORDER (the collection
+// is asked for before the scope opens, and the loop closes before the scope does), the fact that the
+// two arms differ ONLY in a mode flag and therefore must not drift apart, the escape→`unknown`
+// collapse that keeps one bad collection to ONE diagnostic, and the body step being a single
+// STATEMENT rather than the statement LIST the expression-statement family asks for.
+class LoopDriverStep {
+    Kind: int
+    Node: Expression?
+    Body: Statement?
+    Statements: List<Statement>?
+    Name: string?
+    CarriedType: string
+    Line: int
+    Column: int
+    InLoop: bool
+    ErrorsBefore: int
+
+    constructor(kind: int, node: Expression?, body: Statement?, statements: List<Statement>?, name: string?, carriedType: string, line: int, column: int, inLoop: bool, errorsBefore: int) {
+        Kind = kind
+        Node = node
+        Body = body
+        Statements = statements
+        Name = name
+        CarriedType = carriedType
+        Line = line
+        Column = column
+        InLoop = inLoop
+        ErrorsBefore = errorsBefore
+    }
+}
+
+// The foreach driver, exactly as `Analyzer.cs` writes it, with the ambient loop flag sampled at
+// every step so that the loop's open/close window is pinned rather than assumed.
+func LoopRun(harness: LoopHarness, state: LoopStatementState, answer: TypeInfo?): List<LoopDriverStep> {
+    steps := new List<LoopDriverStep>()
+    step := harness.Sequence.NextLoopStep(state)
+    while step != null {
+        steps.Add(new LoopDriverStep(step.Kind, step.Node, step.Body, step.Statements, step.Name, LoopTypeText(step.CarriedType), step.Line, step.Column, harness.Ambient.InLoop, harness.Errors.Count))
+
+        harness.Sequence.SupplyLoop(state, answer)
+        step = harness.Sequence.NextLoopStep(state)
+    }
+
+    return steps
+}
+
+func LoopStepKinds(steps: List<LoopDriverStep>): string {
+    rendered := ""
+    index := 0
+    while index < steps.Count {
+        if index > 0 {
+            rendered = rendered + ","
+        }
+
+        rendered = rendered + steps[index].Kind.ToString()
+        index = index + 1
+    }
+
+    return rendered
+}
+
+func LoopForeachBody(): Statement {
+    body: Statement = new BlockStatement(new List<Statement>(), 7, 9)
+    return body
+}
+
+func LoopForeachOver(collection: Expression, body: Statement): ForeachStatement {
+    return new ForeachStatement("item", collection, body, 6, 5)
+}
+
+// `for item: T in <collection>` — the loop above with a WRITTEN annotation on its variable.
+func LoopTypedForeachOver(collection: Expression, body: Statement, typeName: string): ForeachStatement {
+    annotation: TypeReference = new SimpleTypeReference(typeName, 6, 15)
+    return new ForeachStatement("item", collection, body, 6, 5, annotation)
+}
+
+func LoopAwaitForeachOver(collection: Expression, body: Statement): AwaitForEachStatement {
+    return new AwaitForEachStatement("item", collection, body, 6, 5)
+}
+
+func LoopArrayOf(element: TypeInfo): TypeInfo {
+    arrayType: TypeInfo = new ArrayTypeInfo(element)
+    return arrayType
+}
+
+test "A foreach ASKS FOR SIX STEPS IN ONE FIXED ORDER" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert LoopStepKinds(steps) == "1,2,3,4,5,6"
+    assert harness.Errors.Count == 0
+}
+
+test "AN await foreach ASKS FOR THE SAME SIX STEPS — THE ARMS DIFFER ONLY IN A MODE FLAG" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+
+    steps := LoopRun(harness, state, LoopGeneric("IAsyncEnumerable", BuiltInTypes.String))
+
+    assert LoopStepKinds(steps) == "1,2,3,4,5,6"
+    assert steps[2].CarriedType == "string"
+    assert harness.Errors.Count == 0
+}
+
+test "THE COLLECTION IS ASKED FOR BEFORE THE SCOPE OPENS, AND THE SCOPE OPENS AT THE STATEMENT" {
+    harness := LoopDefault()
+    collection := LoopCollection()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(collection, LoopForeachBody()), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    // Step 1 carries the collection node itself, and NOTHING has opened yet.
+    assert Object.ReferenceEquals(steps[0].Node, collection)
+    assert steps[0].CarriedType == "unknown"
+    // Step 2 is the scope, at the STATEMENT's position rather than the collection's or the body's.
+    assert steps[1].Line == 6
+    assert steps[1].Column == 5
+    assert LoopText(steps[1].Name) == "<null>"
+}
+
+test "THE LOOP VARIABLE IS DECLARED THEN RECORDED, BOTH WITH THE ELEMENT TYPE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.String))
+
+    assert LoopText(steps[2].Name) == "item"
+    assert steps[2].CarriedType == "string"
+    // The declaration carries the statement's position; the semantic-model write does not need one.
+    assert steps[2].Line == 6
+    assert steps[2].Column == 5
+    assert LoopText(steps[3].Name) == "item"
+    assert steps[3].CarriedType == "string"
+    assert steps[3].Line == 0
+    assert steps[3].Column == 0
+}
+
+test "THE BODY STEP CARRIES THE STATEMENT ITSELF, NOT A LIST AND NOT AN EXPRESSION" {
+    harness := LoopDefault()
+    body := LoopForeachBody()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), body), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert Object.ReferenceEquals(steps[4].Body, body)
+    assert steps[4].Node == null
+}
+
+test "THE LOOP IS OPEN FOR THE BODY STEP ALONE, AND CLOSED BEFORE THE SCOPE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    // The collection is NOT inside the loop: a `break` written in it is as illegal as one outside.
+    assert !steps[0].InLoop
+    assert !steps[1].InLoop
+    assert !steps[2].InLoop
+    assert !steps[3].InLoop
+    assert steps[4].InLoop
+    // The loop closes BEFORE the scope does, which is the order `Analyzer.cs` used.
+    assert !steps[5].InLoop
+    assert !harness.Ambient.InLoop
+}
+
+// ── THE ANNOTATED LOOP VARIABLE (NL330) ───────────────────────────────────────────────────
+//
+// The annotation is applied at the SAME phase the element type is resolved, so everything after it —
+// the scope declaration, the semantic-model record and the body — sees the WRITTEN type. That is the
+// whole of what the form does, and the three contracts below pin it from both sides.
+
+test "AN ANNOTATED LOOP VARIABLE IS DECLARED AND RECORDED AT THE WRITTEN TYPE, NOT THE ELEMENT TYPE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopTypedForeachOver(LoopCollection(), LoopForeachBody(), "long"), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert steps[2].CarriedType == "long"
+    assert steps[3].CarriedType == "long"
+    assert harness.Errors.Count == 0
+}
+
+// A DOWNCAST IS THE POINT OF THE FORM. `object` is not assignable to `string`, and that is exactly
+// why the rule asks for an EXPLICIT conversion rather than for assignability.
+test "AN ANNOTATION THAT DOWNCASTS THE ELEMENT IS ACCEPTED IN SILENCE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopTypedForeachOver(LoopCollection(), LoopForeachBody(), "string"), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Object))
+
+    assert steps[2].CarriedType == "string"
+    assert harness.Errors.Count == 0
+}
+
+// NEITHER DIRECTION CONVERTS, SO THE LOOP REPORTS — ONCE, AT THE ANNOTATION, NAMING BOTH TYPES —
+// AND THE VARIABLE IS STILL THE WRITTEN TYPE, so the body checks against what the author wrote.
+test "AN ANNOTATION NO CONVERSION REACHES REPORTS NL330 ONCE AND KEEPS THE WRITTEN TYPE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopTypedForeachOver(LoopCollection(), LoopForeachBody(), "string"), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.ForeachElementConversion
+    assert harness.Errors[0].Message == "A 'int' cannot be read as a 'string'"
+    assert harness.Errors[0].Line == 6
+    assert harness.Errors[0].Column == 15
+    assert steps[2].CarriedType == "string"
+}
+
+// A COLLECTION THAT IS NOT A SEQUENCE HAS ALREADY BEEN TOLD SO. Its element type is `unknown`, and
+// measuring an annotation against it would add a second sentence about one mistake.
+test "AN ANNOTATION OVER A COLLECTION THAT IS NOT A SEQUENCE ADDS NO SECOND REPORT" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopTypedForeachOver(LoopCollection(), LoopForeachBody(), "string"), harness.Assignability)
+
+    LoopRun(harness, state, BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+}
+
+test "A NON-SEQUENCE COLLECTION REPORTS ONCE AND STILL DECLARES THE VARIABLE AS unknown" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Int)
+
+    assert LoopStepKinds(steps) == "1,2,3,4,5,6"
+    assert steps[2].CarriedType == "unknown"
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "foreach collection must be enumerable, but this collection is 'int'|4:14+6"
+    // The report is already in the list by the time the scope opens.
+    assert steps[1].ErrorsBefore == 1
+}
+
+test "AN await foreach OVER A SYNCHRONOUS SEQUENCE REPORTS THE ASYNC WORDING FROM THE ARM" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert steps[2].CarriedType == "unknown"
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "await foreach collection must be async enumerable, but this collection is 'int[]'|4:14+6"
+}
+
+test "A ROW-VIEW COLLECTION ESCAPES, COLLAPSES TO unknown, AND SPEAKS WITH THE ARM'S ACTION WORD" {
+    // The SYNCHRONOUS arm.
+    syncHarness := LoopDefault()
+    syncState := syncHarness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), syncHarness.Assignability)
+    syncSteps := LoopRun(syncHarness, syncState, LoopSoaRowType())
+    assert syncSteps[2].CarriedType == "unknown"
+    // ONE diagnostic, not two: the collapse is what silences the element-type mismatch.
+    assert syncHarness.Errors.Count == 1
+    assert syncHarness.Errors[0].Message == "SoA row views cannot be used as a foreach collection; use the table and row index instead"
+
+    // The ASYNCHRONOUS arm, whose only difference is the action word.
+    asyncHarness := LoopDefault()
+    asyncState := asyncHarness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+    asyncSteps := LoopRun(asyncHarness, asyncState, LoopSoaRowType())
+    assert asyncSteps[2].CarriedType == "unknown"
+    assert asyncHarness.Errors.Count == 1
+    assert asyncHarness.Errors[0].Message == "SoA row views cannot be used as an async foreach collection; use the table and row index instead"
+}
+
+test "A DIRECT COLUMN COLLECTION ESCAPES ON SYNTAX, COLLAPSES, AND KEEPS THE ARM'S ACTION WORD" {
+    // Decided by the SYNTAX of the collection, not by its type — so the answered type is an ordinary
+    // array that WOULD have iterated cleanly, and the escape is still what speaks.
+    syncHarness := LoopDefault()
+    LoopDeclareSoaTable(syncHarness)
+    syncState := syncHarness.Sequence.BeginForeach(LoopForeachOver(LoopSoaColumnRead(), LoopForeachBody()), syncHarness.Assignability)
+    syncSteps := LoopRun(syncHarness, syncState, LoopArrayOf(BuiltInTypes.Int))
+    assert syncSteps[2].CarriedType == "unknown"
+    assert syncHarness.Errors.Count == 1
+    assert syncHarness.Errors[0].Message == "SoA table member 'x' cannot be used as a foreach collection directly"
+
+    asyncHarness := LoopDefault()
+    LoopDeclareSoaTable(asyncHarness)
+    asyncState := asyncHarness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopSoaColumnRead(), LoopForeachBody()))
+    asyncSteps := LoopRun(asyncHarness, asyncState, LoopArrayOf(BuiltInTypes.Int))
+    assert asyncSteps[2].CarriedType == "unknown"
+    assert asyncHarness.Errors.Count == 1
+    assert asyncHarness.Errors[0].Message == "SoA table member 'x' cannot be used as an async foreach collection directly"
+}
+
+test "AN UNANSWERED COLLECTION WALK LEAVES THE TYPE unknown AND STAYS SILENT" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
+
+    steps := LoopRun(harness, state, null)
+
+    assert LoopStepKinds(steps) == "1,2,3,4,5,6"
+    assert steps[2].CarriedType == "unknown"
+    // An unknown collection is not worth reporting — it already carries whatever made it unknown.
+    assert harness.Errors.Count == 0
+}
+
+test "THE WALK'S STATE CARRIES THE OPERANDS, NOT THE NODE — THE TWO ARMS SHARE ONE STATE TYPE" {
+    harness := LoopDefault()
+    syncState := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
+    asyncState := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+
+    assert !syncState.IsAsync
+    assert asyncState.IsAsync
+    assert syncState.VariableName == "item"
+    assert syncState.Line == 6
+    assert syncState.Column == 5
+    // Nothing has run yet, so neither the loop nor the types have moved.
+    assert syncState.LoopFrame == null
+    assert LoopTypeText(syncState.CollectionType) == "unknown"
+    assert LoopTypeText(syncState.ElementType) == "unknown"
+}
+
+// ── `while` AND `for` ─────────────────────────────────────────────────────────
+//
+// The two condition loops share the request type, the state and the driver with the two iteration
+// loops, and the contracts below are written around the FIVE things that sharing makes easy to get
+// wrong: that a condition-shaped clause is OPTIONAL for `for` and mandatory for `while`, that the
+// narrowing scope exists only when the condition actually proved something, that the ambient loop is
+// open for the BODY and for nothing else, that `for`'s outer scope opens at the KEYWORD and closes
+// LAST, and that the iterator is a NESTED walk rather than a plain expression.
+
+func LoopWhileOver(condition: Expression, body: Statement): WhileStatement {
+    return new WhileStatement(condition, body, 6, 5)
+}
+
+func LoopForOver(initializer: Statement?, condition: Expression?, iterator: Expression?, body: Statement): ForStatement {
+    return new ForStatement(initializer, condition, iterator, body, 6, 5)
+}
+
+// A condition that proves NOTHING — an ordinary identifier read.
+func LoopPlainCondition(): Expression {
+    plain: Expression = new IdentifierExpression("flag", 6, 11)
+    return plain
+}
+
+// A condition that PROVES something: `value is int n` declares `n` in the then-branch, which is the
+// shortest shape the narrowing extractor answers for without needing a symbol already in scope.
+func LoopProvingCondition(): Expression {
+    proving: Expression = new IsExpression(new IdentifierExpression("value", 6, 11), new SimpleTypeReference("int", 6, 20), "n", 6, 11)
+    return proving
+}
+
+func LoopInitializer(): Statement {
+    initializer: Statement = new VariableDeclarationStatement("i", null, new IntLiteralExpression("0", 6, 14), VariableKind.Let, 6, 9)
+    return initializer
+}
+
+func LoopIterator(): Expression {
+    iterator: Expression = new UnaryExpression(UnaryOperator.PostIncrement, new IdentifierExpression("i", 6, 30), 6, 30)
+    return iterator
+}
+
+test "A while ASKS FOR TWO STEPS WHEN THE CONDITION PROVES NOTHING" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginWhile(LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // The condition, then the body. No scope, because there is nothing to put in one.
+    assert LoopStepKinds(steps) == "1,5"
+    assert harness.Errors.Count == 0
+}
+
+test "A while OPENS A NARROWING SCOPE ONLY WHEN THE CONDITION PROVED SOMETHING" {
+    harness := LoopDefault()
+    body := LoopForeachBody()
+    state := harness.Sequence.BeginWhile(LoopWhileOver(LoopProvingCondition(), body), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // Condition, scope, body, scope close.
+    assert LoopStepKinds(steps) == "1,2,5,6"
+    // The scope opens at the BODY's position, not at the `while` keyword's — a `while` has no scope
+    // of its own to name.
+    assert steps[1].Line == 7
+    assert steps[1].Column == 9
+    assert Object.ReferenceEquals(steps[2].Body, body)
+}
+
+test "A while's LOOP IS OPEN FOR THE BODY AND FOR NOTHING ELSE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginWhile(LoopWhileOver(LoopProvingCondition(), LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // The CONDITION is not inside the loop: a `break` written in it is as illegal as one outside.
+    assert !steps[0].InLoop
+    // The narrowing scope opens after the loop does, so it and the body are both inside.
+    assert steps[1].InLoop
+    assert steps[2].InLoop
+    // The scope closes BEFORE the loop, which is the order `Analyzer.cs` used.
+    assert steps[3].InLoop
+    assert !harness.Ambient.InLoop
+}
+
+test "A NON-BOOLEAN while CONDITION IS REPORTED BY THE WALK, UNDER THE while's OWN OWNER NAME" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginWhile(LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "The condition in a 'while' loop must be a boolean, but I found 'int'|6:11+4"
+    // The report is in the list BEFORE the body runs, which is what an emission-order reader sees.
+    assert steps[0].ErrorsBefore == 0
+    assert steps[1].ErrorsBefore == 1
+}
+
+test "A ROW-VIEW while CONDITION IS TOLD ABOUT THE ESCAPE AND NOT ALSO TOLD IT IS NOT A BOOLEAN" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginWhile(LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)
+
+    LoopRun(harness, state, LoopSoaRowType())
+
+    // ONE diagnostic, not two — the escape silences the boolean question.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA row views cannot be used as a 'while' condition; use the table and row index instead"
+}
+
+test "A for WITH ALL THREE CLAUSES ASKS FOR EIGHT STEPS IN ONE FIXED ORDER" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginFor(LoopForOver(LoopInitializer(), LoopProvingCondition(), LoopIterator(), LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // Outer scope, initializer, condition, iterator, narrowing scope, body, narrowing close,
+    // outer close.
+    assert LoopStepKinds(steps) == "2,5,1,7,2,5,6,6"
+    assert harness.Errors.Count == 0
+}
+
+test "A for's OUTER SCOPE OPENS AT THE KEYWORD AND CLOSES LAST" {
+    harness := LoopDefault()
+    body := LoopForeachBody()
+    state := harness.Sequence.BeginFor(LoopForOver(LoopInitializer(), LoopProvingCondition(), LoopIterator(), body), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    // The outer scope opens at the `for` KEYWORD — which is what makes the initializer's variable
+    // belong to the loop and not to the enclosing block.
+    assert steps[0].Line == 6
+    assert steps[0].Column == 5
+    // The narrowing scope opens at the BODY.
+    assert steps[4].Line == 7
+    assert steps[4].Column == 9
+    // Nothing runs after the outer close.
+    assert steps[7].Kind == 6
+    assert !steps[7].InLoop
+}
+
+test "A for's INITIALIZER AND ITERATOR RUN OUTSIDE THE LOOP, THE BODY INSIDE IT" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginFor(LoopForOver(LoopInitializer(), LoopProvingCondition(), LoopIterator(), LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    assert !steps[0].InLoop
+    assert !steps[1].InLoop
+    assert !steps[2].InLoop
+    // The ITERATOR is analysed once, before the body, and outside the loop.
+    assert !steps[3].InLoop
+    assert steps[4].InLoop
+    assert steps[5].InLoop
+    assert steps[6].InLoop
+    // The loop closes BEFORE the outer scope does.
+    assert !steps[7].InLoop
+}
+
+test "A for's ITERATOR IS A NESTED WALK, CARRIED AS A NODE AND NOT AS A BODY" {
+    harness := LoopDefault()
+    iterator := LoopIterator()
+    state := harness.Sequence.BeginFor(LoopForOver(null, null, iterator, LoopForeachBody()), harness.Narrowing)
+
+    steps := LoopRun(harness, state, BuiltInTypes.Bool)
+
+    assert LoopStepKinds(steps) == "2,7,5,6"
+    assert Object.ReferenceEquals(steps[1].Node, iterator)
+    assert steps[1].Body == null
+}
+
+test "EVERY for CLAUSE IS OPTIONAL, AND EACH ABSENCE REMOVES EXACTLY ITS OWN STEPS" {
+    // No initializer: the initializer step is gone and nothing else moves.
+    noInit := LoopDefault()
+    noInitState := noInit.Sequence.BeginFor(LoopForOver(null, LoopProvingCondition(), LoopIterator(), LoopForeachBody()), noInit.Narrowing)
+    assert LoopStepKinds(LoopRun(noInit, noInitState, BuiltInTypes.Bool)) == "2,1,7,2,5,6,6"
+
+    // No condition: the condition step, the boolean gate AND the narrowing scope all go, because a
+    // `for` with no condition proves nothing.
+    noCond := LoopDefault()
+    noCondState := noCond.Sequence.BeginFor(LoopForOver(LoopInitializer(), null, LoopIterator(), LoopForeachBody()), noCond.Narrowing)
+    assert LoopStepKinds(LoopRun(noCond, noCondState, BuiltInTypes.Bool)) == "2,5,7,5,6"
+    assert noCond.Errors.Count == 0
+
+    // No iterator: the nested walk goes.
+    noIter := LoopDefault()
+    noIterState := noIter.Sequence.BeginFor(LoopForOver(LoopInitializer(), LoopProvingCondition(), null, LoopForeachBody()), noIter.Narrowing)
+    assert LoopStepKinds(LoopRun(noIter, noIterState, BuiltInTypes.Bool)) == "2,5,1,2,5,6,6"
+
+    // Nothing at all: the outer scope, the body, the close — and the loop still opens around the
+    // body alone.
+    bare := LoopDefault()
+    bareState := bare.Sequence.BeginFor(LoopForOver(null, null, null, LoopForeachBody()), bare.Narrowing)
+    bareSteps := LoopRun(bare, bareState, BuiltInTypes.Bool)
+    assert LoopStepKinds(bareSteps) == "2,5,6"
+    assert !bareSteps[0].InLoop
+    assert bareSteps[1].InLoop
+    assert !bareSteps[2].InLoop
+}
+
+test "A NON-BOOLEAN for CONDITION SPEAKS UNDER THE for's OWN OWNER NAME, NOT THE while's" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginFor(LoopForOver(null, LoopPlainCondition(), null, LoopForeachBody()), harness.Narrowing)
+
+    LoopRun(harness, state, BuiltInTypes.String)
+
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "The condition in a 'for' loop must be a boolean, but I found 'string'|6:11+4"
+}
+
+test "A DIRECT COLUMN READ IN A for CONDITION ESCAPES WITH THE for's ACTION WORD" {
+    harness := LoopDefault()
+    LoopDeclareSoaTable(harness)
+    state := harness.Sequence.BeginFor(LoopForOver(null, LoopSoaColumnRead(), null, LoopForeachBody()), harness.Narrowing)
+
+    LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA table member 'x' cannot be used as a 'for' condition directly"
+}
+
+test "ONE STATE AND ONE DRIVER SERVE ALL FIVE STATEMENTS, AND Form IS THE ONLY THING THAT SEPARATES THEM" {
+    harness := LoopDefault()
+    iteration := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
+    asyncIteration := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
+    whileLoop := harness.Sequence.BeginWhile(LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)
+    forLoop := harness.Sequence.BeginFor(LoopForOver(LoopInitializer(), LoopPlainCondition(), LoopIterator(), LoopForeachBody()), harness.Narrowing)
+    conditional := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    // The two iteration arms share a form and are separated by the mode flag alone.
+    assert iteration.Form == 0
+    assert asyncIteration.Form == 0
+    assert whileLoop.Form == 1
+    assert forLoop.Form == 2
+    assert conditional.Form == 3
+    // Each form's phase band starts where its walk does, so a phase number never means two things.
+    assert iteration.Phase == 0
+    assert whileLoop.Phase == 10
+    assert forLoop.Phase == 20
+    assert conditional.Phase == 30
+    // Exactly the operands each form uses are non-null.
+    assert iteration.Collection != null
+    assert iteration.Condition == null
+    assert iteration.Narrowing == null
+    assert whileLoop.Collection == null
+    assert whileLoop.Condition != null
+    assert whileLoop.Initializer == null
+    assert whileLoop.Iterator == null
+    assert forLoop.Initializer != null
+    assert forLoop.Iterator != null
+    assert forLoop.Narrowing != null
+    // `if` is the `while` shape plus one optional body, and the else slot is the family's ONLY
+    // optional body.
+    assert conditional.Condition != null
+    assert conditional.Collection == null
+    assert conditional.Initializer == null
+    assert conditional.Iterator == null
+    assert conditional.ElseBody == null
+    assert conditional.Narrowing != null
+}
+
+// ── `if` ──────────────────────────────────────────────────────────────────────
+//
+// The conditional joins the family as its third condition form, and the contracts below are written
+// around the FIVE things that are easy to get wrong once it shares a walk with the loops: that it
+// NEVER opens an ambient loop, that each branch's narrowing scope exists only when THAT branch's own
+// list is non-empty and opens at THAT branch's own position, that the two guard-clause arms are not
+// symmetric, that the facts a guard clause installs land in the ENCLOSING scope rather than in one of
+// its own, and that an `else if` needs no shape of its own because it arrives back through the branch
+// step.
+
+func LoopIfOver(condition: Expression, thenStatement: Statement, elseStatement: Statement?): IfStatement {
+    return new IfStatement(condition, thenStatement, elseStatement, 6, 5)
+}
+
+// A second body at a DIFFERENT position from `LoopForeachBody`'s, so a contract can tell which branch
+// a scope was opened for.
+func LoopElseBody(): Statement {
+    body: Statement = new BlockStatement(new List<Statement>(), 9, 9)
+    return body
+}
+
+// `x != null` — proves NOT-NULL when true and NULL when false, which is the shortest condition that
+// yields BOTH lists non-empty.
+func LoopNullCheckCondition(): Expression {
+    check: Expression = new BinaryExpression(new IdentifierExpression("x", 6, 8), BinaryOperator.NotEqual, new NullLiteralExpression(6, 13), 6, 8)
+    return check
+}
+
+// `x == null` — the mirror, and the shape a guard clause is actually written in.
+func LoopNullGuardCondition(): Expression {
+    guard: Expression = new BinaryExpression(new IdentifierExpression("x", 6, 8), BinaryOperator.Equal, new NullLiteralExpression(6, 13), 6, 8)
+    return guard
+}
+
+func LoopReturningBranch(): Statement {
+    statements := new List<Statement>()
+    returnStatement: Statement = new ReturnStatement(null, 7, 9)
+    statements.Add(returnStatement)
+    body: Statement = new BlockStatement(statements, 7, 9)
+    return body
+}
+
+// A branch that always leaves, positioned where the ELSE body is, so the two guard-clause arms can be
+// told apart by more than their narrowings.
+func LoopReturningElseBranch(): Statement {
+    statements := new List<Statement>()
+    returnStatement: Statement = new ReturnStatement(null, 9, 9)
+    statements.Add(returnStatement)
+    body: Statement = new BlockStatement(statements, 9, 9)
+    return body
+}
+
+func LoopDeclareNullable(harness: LoopHarness) {
+    nullable: TypeInfo = new NullableTypeInfo(BuiltInTypes.String)
+    harness.Scopes.Peek().Symbols["x"] = nullable
+}
+
+func LoopNullFact(harness: LoopHarness): string {
+    return NullStateFacts.GetDiagnosticText(harness.Scopes.NullStateOrUnknown("x"))
+}
+
+// The `if` driver, exactly as `Analyzer.cs` writes it — and unlike `LoopRun` it performs the SCOPE
+// operations for real, because the whole point of a branch's narrowing scope is that the facts it
+// carries die when it closes. `trace` records what the scope stack says about `x` immediately BEFORE
+// each step, so the window each fact is visible in is pinned rather than assumed.
+func LoopRunIf(harness: LoopHarness, state: LoopStatementState, answer: TypeInfo?, trace: List<string>): List<LoopDriverStep> {
+    steps := new List<LoopDriverStep>()
+    step := harness.Sequence.NextLoopStep(state)
+    while step != null {
+        trace.Add(LoopNullFact(harness))
+        steps.Add(new LoopDriverStep(step.Kind, step.Node, step.Body, step.Statements, step.Name, LoopTypeText(step.CarriedType), step.Line, step.Column, harness.Ambient.InLoop, harness.Errors.Count))
+
+        if step.Kind == 2 {
+            harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), step.Line, step.Column)
+        }
+
+        if step.Kind == 6 {
+            harness.Scopes.NoteLine(99)
+            harness.Scopes.Pop(harness.Model)
+        }
+
+        harness.Sequence.SupplyLoop(state, answer)
+        step = harness.Sequence.NextLoopStep(state)
+    }
+
+    trace.Add(LoopNullFact(harness))
+    return steps
+}
+
+func LoopTraceText(trace: List<string>): string {
+    rendered := ""
+    index := 0
+    while index < trace.Count {
+        if index > 0 {
+            rendered = rendered + ","
+        }
+
+        rendered = rendered + trace[index]
+        index = index + 1
+    }
+
+    return rendered
+}
+
+test "AN if WITH NO ELSE AND A CONDITION THAT PROVES NOTHING STILL OWNS ITS BRANCH SCOPE" {
+    harness := LoopDefault()
+    body := LoopForeachBody()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), body, null), harness.Narrowing)
+
+    steps := LoopRunIf(harness, state, BuiltInTypes.Bool, new List<string>())
+
+    // The condition, the branch's scope, the branch's STATEMENT LIST, and the close. The scope is
+    // opened whether or not there are facts to install, because the branch's exit state is what the
+    // join reads and a branch's exit state is a scope's fact table.
+    assert LoopStepKinds(steps) == "1,2,8,6"
+    // The block runs as a LIST inside that scope rather than as a statement that pushes its own.
+    assert steps[2].Body == null
+    assert steps[2].Statements != null
+    assert harness.Errors.Count == 0
+}
+
+test "AN if NEVER OPENS AN AMBIENT LOOP — break AND continue ARE NO MORE LEGAL INSIDE IT" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullCheckCondition(), LoopForeachBody(), LoopElseBody()), harness.Narrowing)
+
+    steps := LoopRunIf(harness, state, BuiltInTypes.Bool, new List<string>())
+
+    index := 0
+    while index < steps.Count {
+        assert !steps[index].InLoop
+        index = index + 1
+    }
+
+    assert !harness.Ambient.InLoop
+}
+
+test "EACH BRANCH GETS ITS OWN SCOPES, AT ITS OWN POSITION" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    thenBody := LoopForeachBody()
+    elseBody := LoopElseBody()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullCheckCondition(), thenBody, elseBody), harness.Narrowing)
+
+    steps := LoopRunIf(harness, state, BuiltInTypes.Bool, new List<string>())
+
+    // Condition; the then-branch's NARROWING scope, its own scope, its statements and the two closes;
+    // then the same four for the else branch. The narrowing scope is opened only when that branch's
+    // own list is non-empty, and the branch scope always — one is where the condition's proved facts
+    // live, the other is where the branch's own declarations and assignments do.
+    assert LoopStepKinds(steps) == "1,2,2,8,6,6,2,2,8,6,6"
+    // Both of a branch's scopes open at that BRANCH's position — neither opens at the `if` keyword,
+    // and the else branch's open at the else branch's own.
+    assert steps[1].Line == 7
+    assert steps[1].Column == 9
+    assert steps[2].Line == 7
+    assert steps[2].Column == 9
+    assert steps[6].Line == 9
+    assert steps[6].Column == 9
+}
+
+test "A BRANCH WHOSE OWN LIST IS EMPTY IS SCOPED ALL THE SAME — ITS EXIT STATE IS STILL AN INPUT" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    // `x is string s` proves something when TRUE and nothing when FALSE. The else-branch still gets
+    // a scope: what it ENDS with is half of the join, and a branch with no proved facts can still
+    // assign one.
+    condition: Expression = new IsExpression(new IdentifierExpression("x", 6, 8), new SimpleTypeReference("string", 6, 13), "s", 6, 8)
+    state := harness.Sequence.BeginIf(LoopIfOver(condition, LoopForeachBody(), LoopElseBody()), harness.Narrowing)
+
+    steps := LoopRunIf(harness, state, BuiltInTypes.Bool, new List<string>())
+
+    // The then-branch gets a narrowing scope AND its own; the else branch gets only its own.
+    assert LoopStepKinds(steps) == "1,2,2,8,6,6,2,8,6"
+}
+
+test "A BRANCH'S FACTS ARE VISIBLE FOR THAT BRANCH ALONE AND DIE WITH ITS SCOPE" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullCheckCondition(), LoopForeachBody(), LoopElseBody()), harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    // Before the condition and before each scope opens: nothing is known. Inside the then-branch:
+    // not-null. Inside the else-branch: null. And after the statement the two branches are JOINED:
+    // one path proved `x` not-null and the other proved it null, so what reaches the next statement
+    // is the meet of the two rather than either of them and rather than nothing at all.
+    assert LoopTraceText(trace) == "unknown,unknown,not-null,not-null,not-null,not-null,unknown,null,null,null,null,maybe-null"
+}
+
+test "A GUARD CLAUSE HANDS THE SURVIVING FLOW THE FACTS OF THE BRANCH IT DID NOT TAKE" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    // `if x == null { return }` — the then-branch always leaves, so what survives is the ELSE fact.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullGuardCondition(), LoopReturningBranch(), null), harness.Narrowing)
+
+    steps := LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    assert LoopStepKinds(steps) == "1,2,2,8,6,6"
+    // And the fact that survives is the OPPOSITE one, installed with no scope of its own.
+    assert LoopTraceText(trace) == "unknown,unknown,null,null,null,null,not-null"
+    // A null-check narrowing carries a NULL STATE and no narrowed TYPE, so the declared type of the
+    // guarded name is left exactly as it was — the surviving flow learns that `x` is not null, not
+    // that it stopped being `string?`.
+    stillNullable := harness.Scopes.Peek().Symbols["x"] as NullableTypeInfo
+    assert stillNullable != null
+}
+
+test "THE MIRROR GUARD CLAUSE INSTALLS THE THEN FACTS WHEN THE ELSE BRANCH LEAVES" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    // `if x != null { … } else { return }` — the else-branch leaves, so the THEN fact survives.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullCheckCondition(), LoopForeachBody(), LoopReturningElseBranch()), harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    assert LoopTraceText(trace) == "unknown,unknown,not-null,not-null,not-null,not-null,unknown,null,null,null,null,not-null"
+}
+
+test "WHEN BOTH BRANCHES LEAVE THE SECOND ARM WINS — THE TWO GUARD ARMS ARE NOT SYMMETRIC" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullGuardCondition(), LoopReturningBranch(), LoopReturningElseBranch()), harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    // The FIRST arm additionally requires that the else-branch does NOT leave, so it is refused
+    // here and the SECOND arm fires instead — the surviving flow is handed the THEN facts. There is
+    // no reachable code left to read them, which is exactly why the asymmetry is invisible in
+    // practice and must be pinned here rather than reasoned about at a call site.
+    lastIndex := trace.Count - 1
+    assert trace[lastIndex] == "null"
+}
+
+test "A BRANCH THAT LEAVES INSTALLS NOTHING WHEN THE OTHER BRANCH PROVED NOTHING" {
+    harness := LoopDefault()
+    trace := new List<string>()
+    // A plain identifier condition proves neither list, so there is nothing to hand on however the
+    // branches end.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopReturningBranch(), null), harness.Narrowing)
+
+    steps := LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    assert LoopStepKinds(steps) == "1,2,8,6"
+    assert LoopTraceText(trace) == "unknown,unknown,unknown,unknown,unknown"
+}
+
+// The `if` driver again, with ONE addition: the named branch step simulates an ASSIGNMENT to `x` —
+// the two operations `UpdateNullStateAfterAssignment` performs, in its order — so a contract can pin
+// what the JOIN does with a branch that wrote the value rather than only with one the condition
+// narrowed. `writeOnKind8Index` counts kind-8 steps from zero, which is how the then-branch and the
+// else-branch are told apart without the driver knowing which is which.
+func LoopRunIfAssigning(harness: LoopHarness, state: LoopStatementState, writeOnBranch: int, written: NullState, trace: List<string>): List<LoopDriverStep> {
+    steps := new List<LoopDriverStep>()
+    branchIndex := 0
+    step := harness.Sequence.NextLoopStep(state)
+    while step != null {
+        trace.Add(LoopNullFact(harness))
+        steps.Add(new LoopDriverStep(step.Kind, step.Node, step.Body, step.Statements, step.Name, LoopTypeText(step.CarriedType), step.Line, step.Column, harness.Ambient.InLoop, harness.Errors.Count))
+
+        if step.Kind == 2 {
+            harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), step.Line, step.Column)
+        }
+
+        if step.Kind == 8 {
+            if branchIndex == writeOnBranch {
+                harness.Scopes.InvalidateNullFactsForAssignment("x")
+                harness.Scopes.SetNullStateInCurrentScope("x", written)
+            }
+
+            branchIndex = branchIndex + 1
+        }
+
+        if step.Kind == 6 {
+            harness.Scopes.NoteLine(99)
+            harness.Scopes.Pop(harness.Model)
+        }
+
+        harness.Sequence.SupplyLoop(state, BuiltInTypes.Bool)
+        step = harness.Sequence.NextLoopStep(state)
+    }
+
+    trace.Add(LoopNullFact(harness))
+    return steps
+}
+
+func LoopLastFact(trace: List<string>): string {
+    return trace[trace.Count - 1]
+}
+
+test "THE CENSUS IDIOM: A BRANCH THAT CREATED THE VALUE JOINS THE CONDITION'S FALSE FACTS" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    // `if x == null { x = … }` — the then-branch ends not-null because it just assigned, and the
+    // implicit else path is the path on which `x == null` was FALSE. Both reach the next statement
+    // holding a non-null `x`, so the join is not-null and the line below no longer squiggles.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullGuardCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIfAssigning(harness, state, 0, NullState.NotNull, trace)
+
+    assert LoopLastFact(trace) == "not-null"
+}
+
+test "A BRANCH THAT ASSIGNED A MAYBE-NULL VALUE KEEPS THE JOIN MAYBE-NULL" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullGuardCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIfAssigning(harness, state, 0, NullState.MaybeNull, trace)
+
+    // The condition proved `x` not-null on the implicit else path, and the branch left it maybe-null.
+    // The meet is the uncertainty, which is what keeps NL905 on the dereference below.
+    assert LoopLastFact(trace) == "maybe-null"
+}
+
+test "A CONDITION THAT PROVED NOTHING ON THE FALSE SIDE LEAVES A ONE-BRANCH ASSIGNMENT ALONE" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    // `if flag { x = … }` — the implicit else path proves NOTHING about `x`, so there is no second
+    // side to join with and the assignment's own invalidation is the whole answer.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIfAssigning(harness, state, 0, NullState.NotNull, trace)
+
+    assert LoopLastFact(trace) == "unknown"
+}
+
+test "BOTH BRANCHES ASSIGNING THE SAME ANSWER JOIN TO IT" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopForeachBody(), LoopElseBody()), harness.Narrowing)
+
+    // The else-branch alone assigns; the then-branch leaves `x` as the condition found it.
+    LoopRunIfAssigning(harness, state, 1, NullState.NotNull, trace)
+
+    // One path assigned and the other did not, so the surviving flow is told nothing rather than
+    // being told what only one of the two paths established.
+    assert LoopLastFact(trace) == "unknown"
+}
+
+test "A REDUNDANT RE-CHECK AFTER A GUARD CLAUSE DOES NOT TAKE THE GUARD'S PROOF BACK" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    harness.Scopes.SetNullStateInCurrentScope("x", NullState.NotNull)
+    trace := new List<string>()
+    // The redundant re-check written after a guard clause. `x != null` proves NULL on the false side,
+    // and meeting that with the then-branch's not-null would hand the code below a maybe-null `x`
+    // that the guard above had already ruled out.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullCheckCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    assert LoopLastFact(trace) == "not-null"
+}
+
+test "A while THAT FELL OUT OF THE BOTTOM PROVES ITS CONDITION WAS FALSE" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    whileStatement := new WhileStatement(LoopNullGuardCondition(), LoopForeachBody(), 6, 5)
+    state := harness.Sequence.BeginWhile(whileStatement, harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    // `while x == null { … }` is left only when `x` stopped being null.
+    assert LoopLastFact(trace) == "not-null"
+}
+
+test "A while WHOSE BODY CAN break PROVES NOTHING ON ITS WAY OUT" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    statements := new List<Statement>()
+    breakStatement: Statement = new BreakStatement(7, 9)
+    statements.Add(breakStatement)
+    body: Statement = new BlockStatement(statements, 7, 9)
+    state := harness.Sequence.BeginWhile(new WhileStatement(LoopNullGuardCondition(), body, 6, 5), harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    // A `break` leaves with the condition untested, so the exit carries whatever was true at the
+    // `break` rather than what the condition would have proved.
+    assert LoopLastFact(trace) == "unknown"
+}
+
+test "A for EXIT CARRIES THE SAME FACT A while EXIT DOES, AND CARRIES IT OUTSIDE THE for's OWN SCOPE" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    forStatement := new ForStatement(null, LoopNullGuardCondition(), null, LoopForeachBody(), 6, 5)
+    state := harness.Sequence.BeginFor(forStatement, harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    // The fact is installed AFTER the `for`'s outer scope closed — the scope that would have held a
+    // variable the initializer declared is not the scope the surviving flow reads from.
+    assert LoopLastFact(trace) == "not-null"
+}
+
+test "A NON-BOOLEAN if CONDITION EARNS THE RICH REPORT, NOT THE while's PLAIN WORDING" {
+    harness := LoopHarnessWith("    if count {")
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    steps := LoopRunIf(harness, state, BuiltInTypes.Int, new List<string>())
+
+    assert harness.Errors.Count == 1
+    // The rich `if` report carries the source line and the underline; the plain wording would have
+    // named "an 'if'" and stopped there.
+    assert harness.Errors[0].Message.Contains("int", StringComparison.Ordinal)
+    assert harness.Errors[0].Line == 6
+    // The report is in the list BEFORE the branch runs, which is what an emission-order reader sees.
+    assert steps[0].ErrorsBefore == 0
+    assert steps[1].ErrorsBefore == 1
+}
+
+test "AN if CONDITION WITH NO SOURCE FALLS BACK TO THE PLAIN WORDING UNDER THE if's OWN OWNER NAME" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Int, new List<string>())
+
+    assert harness.Errors.Count == 1
+    assert LoopErrorText(harness, 0) == "The condition in an 'if' must be a boolean, but I found 'int'|6:11+4"
+}
+
+test "A ROW-VIEW if CONDITION IS TOLD ABOUT THE ESCAPE AND NOT ALSO TOLD IT IS NOT A BOOLEAN" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIf(harness, state, LoopSoaRowType(), new List<string>())
+
+    // ONE diagnostic, not two — the escape silences the boolean question, and the action word is the
+    // `if` arm's own.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "SoA row views cannot be used as an 'if' condition; use the table and row index instead"
+}
+
+test "AN else if NEEDS NO SHAPE OF ITS OWN — IT IS AN if IN THE ELSE SLOT" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    inner: Statement = LoopIfOver(LoopPlainCondition(), LoopElseBody(), null)
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullCheckCondition(), LoopForeachBody(), inner), harness.Narrowing)
+
+    steps := LoopRunIf(harness, state, BuiltInTypes.Bool, new List<string>())
+
+    // The chain is not flattened: the outer walk hands the inner `if` back as ONE branch statement,
+    // and the statement dispatch is what re-enters this walk for it. It is handed back as a
+    // STATEMENT (kind 5) rather than as a list, because a statement that scopes itself must keep
+    // doing so — inside the else branch's own scope, so what the inner join installs is the else
+    // branch's exit state rather than a fact that escapes the outer `if` altogether.
+    assert LoopStepKinds(steps) == "1,2,2,8,6,6,2,2,5,6,6"
+    assert Object.ReferenceEquals(steps[8].Body, inner)
+}

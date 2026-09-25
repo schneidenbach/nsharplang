@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "project": "src/NSharpLang.Compiler.Core",
+  "command": "build",
+  "stage": "front-end (parse + semantic analysis + strict lint); build rejects Core before emission",
+  "expectedExitCode": 1,
+  "phaseContract": "analysis-before-strict-lint/v1",
+  "phaseDiagnosticMultiset": "NL011 ×1, NL202 ×1",
+  "measuredAt": "2026-09-16",
+  "cliCommit": "88cf7534c4603f33583f5f1ad1c9de920a2824c2",
+  "machine": "Apple M4, 10 logical cores, arm64, macOS 15.6.1 (build 24G90, Darwin 24.6.0), .NET SDK 10.0.105, /usr/bin/time -l; observed idle start at 2026-09-16T18:52:05Z: load 1.91 < threshold 2.0",
+  "runs": 5,
+  "files": 526,
+  "lines": 288658,
+  "medianWallMs": 123885,
+  "medianPeakRssBytes": 1521696768,
+  "toleranceFactor": 1.5
+}

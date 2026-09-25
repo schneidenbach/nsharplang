@@ -1,63 +1,115 @@
 name: Build
 
+# `systems-language` is the campaign's integration branch, and the split lane PRs target it rather
+# than `main` (e.g. #191). Under a `main`-only trigger those PRs got NO CI at all and merged on local
+# gates alone, so both events list it.
 on:
   push:
-    branches: [ main ]
+    branches: [ main, systems-language ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, systems-language ]
+
+# A PR run groups by its PR NUMBER, so a new push to a PR cancels that PR's previous run and no
+# other; a branch push groups by its own `refs/heads/...`. Both keys are already independent of the
+# base branch, so adding a second base adds no collisions.
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
       with:
         global-json-file: global.json
+
+    - name: Verify pinned compiler bootstrap
+      run: python3 scripts/verify-bootstrap.py
+
+    - name: Release lifecycle regression tests
+      run: python3 tests/scripts/test-release-workflows.py
 
     - name: Restore .NET workloads
       run: dotnet workload restore src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj
 
-    - name: Restore dependencies
-      run: dotnet restore
-
-    - name: Build
-      run: dotnet build --no-restore -c Release
-
-    - name: Pack SDK to local feed
+    - name: Build portable product and tests
       run: |
-        mkdir -p ~/.nuget/local-feed
-        dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o ~/.nuget/local-feed --no-build -c Release
+        dotnet build src/NSharpLang.Cli/Cli.csproj -c Release
+        dotnet build src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release
+        dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release
+        dotnet build src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj -c Release
 
-    - name: Test
-      run: dotnet test --no-build -c Release --verbosity normal
+    - name: Canonical formatting
+      run: |
+        for project in examples templates tests/fixtures/issue-tracker src/NSharpLang.Compiler.Model src/NSharpLang.Compiler.Syntax src/NSharpLang.Compiler.Core src/NSharpLang.Compiler.CodeIntel src/NSharpLang.Compiler.Tooling src/NSharpLang.Compiler.Driver; do
+          dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll format --project "$project" --check
+        done
 
-    - name: Pack CLI
-      run: dotnet pack src/NSharpLang.Cli/Cli.csproj -o artifacts/nuget --no-build -c Release
+    - name: Native compiler tests
+      run: |
+        dotnet test src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj -c Release -p:NSharpExcludeTests=false
+        dotnet test src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj -c Release -p:NSharpExcludeTests=false
+        dotnet test src/NSharpLang.Compiler.CodeIntel/NSharpLang.Compiler.CodeIntel.csproj -c Release -p:NSharpExcludeTests=false
+        dotnet test src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj -c Release -p:NSharpExcludeTests=false
+        dotnet test src/NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj -c Release -p:NSharpExcludeTests=false
 
-    - name: Install nlc
-      run: dotnet tool install --global NSharpLang.Cli --no-cache --source artifacts/nuget
+    - name: Ownership audit
+      run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll test --project tests/native/ownership-audit --no-cache
 
-    - name: Lint
-      run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll lint
+    # The installed-toolchain rows are an N# native project (`tests/native/installed-toolchain-integration`),
+    # run by the CLI's own `nlc test` — the same Step-3a mechanism as the ownership audit above.
+    # NSHARP_RUN_DOCKER_INTEGRATION=1 makes the Docker rows REQUIRED: without it a runner with no
+    # daemon would report them skipped and this step would pass having proved nothing.
+    - name: Installed toolchain integration tests
+      env:
+        NSHARP_RUN_DOCKER_INTEGRATION: '1'
+      run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll test --project tests/native/installed-toolchain-integration --no-cache
+
+    - name: Setup Node.js for extension packaging
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      with:
+        node-version: 22
+
+    - name: Pack unofficial release
+      run: ./scripts/pack-nuget.sh
+
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: unofficial-release
+        path: |
+          artifacts/nuget/*.nupkg
+          artifacts/toolset/nsharp-toolset.tar.gz
+          artifacts/vscode/nsharp.vsix
+        if-no-files-found: error
+        retention-days: 14
 
   # Blocking IL-verification gate. PR #160 shipped GC-unsafe IL that only
   # crashed on Linux x64 because nothing verified the emitted assemblies and CI
   # never ran ilverify. This job runs `scripts/ilverify.sh` (the single source
-  # of truth, shared with the local full-suite gate), which builds the example
-  # and fixture assemblies with `nlc build` and runs `dotnet ilverify` over each
-  # one, failing on any NEW unverifiable IL versus the committed baseline.
+  # of truth, shared with the local full-suite gate), which builds example and
+  # fixture assemblies with `nlc build`, emits selected native regression projects
+  # with `nlc test`, and rejects NEW unverifiable IL versus the committed baseline.
   ilverify:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
       with:
         global-json-file: global.json
 
@@ -65,6 +117,9 @@ jobs:
     # with `nlc build` (the CLI DLL) and never touches NSharpLang.Playground.Wasm,
     # so a solution-wide `dotnet restore` would needlessly require the wasm-tools
     # workload (NETSDK1147) and fail this job before it ever runs ilverify.
+    - name: Verify pinned compiler bootstrap
+      run: python3 scripts/verify-bootstrap.py
+
     - name: Restore dependencies (CLI/compiler only)
       run: dotnet restore src/NSharpLang.Cli/Cli.csproj
 
@@ -72,7 +127,69 @@ jobs:
       run: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug --no-restore
 
     - name: Install dotnet-ilverify
-      run: dotnet tool install --global dotnet-ilverify
+      run: dotnet tool install --global dotnet-ilverify --version 10.0.9
 
     - name: IL verification gate
       run: scripts/ilverify.sh
+
+  # THE ONLY JOB THAT PUBLISHES ANYTHING. Two run shapes may publish, and no third.
+  #
+  # A same-repo PULL REQUEST publishes its `pr-<n>` pre-release, which is the behaviour this campaign
+  # has relied on since 2026-09-10 and is deliberately kept: `channel` below reads `PR_NUMBER`, so the
+  # release is titled "Unofficial pr-<n>" and names the run it came from. A fork PR is still refused,
+  # for the reason it always was — it has no write token.
+  #
+  # A PUSH publishes only from `main`. `channel` falls back to `main` for ANY push, so once
+  # `systems-language` became a trigger a push to it would have created an `unofficial-main-*`
+  # release titled "Unofficial main" — a release named for a branch it did not come from. The ref
+  # check therefore guards the PUSH arm alone and leaves the PR arm untouched: a `systems-language`
+  # push gets build + tests + ilverify and publishes nothing, while PRs targeting it still get their
+  # own `pr-<n>` pre-release.
+  #
+  # `Upload release artifacts` in the `build` job is deliberately NOT guarded: it is a 14-day workflow
+  # artifact, not a release, it is what forks get instead of a release, and this job downloads it.
+  unofficial-release:
+    needs: [build, ilverify]
+    # Same-repo PRs publish `pr-<n>`; pushes publish only from `main`. Forks get the same tests and
+    # downloadable artifacts, without a write token.
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: unofficial-${{ github.event.pull_request.number || 'main' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unofficial-release
+          path: artifacts
+      - name: Publish unofficial release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel=main
+          if [[ -n "$PR_NUMBER" ]]; then
+            # A close or newer push can overtake an already running build.
+            state=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.state')
+            head=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+            if [[ "$state" != open || "$head" != "$COMMIT" ]]; then
+              echo 'PR closed or superseded; no release to publish.'
+              exit 0
+            fi
+            channel="pr-$PR_NUMBER"
+          fi
+          tag="unofficial-$channel-$RUN_ID-$RUN_ATTEMPT"
+          assets=()
+          while IFS= read -r -d '' asset; do assets+=("$asset"); done < <(find artifacts -type f -print0)
+          gh release create "$tag" "${assets[@]}" --repo "$GH_REPO" \
+            --target "$COMMIT" --prerelease --latest=false \
+            --title "Unofficial $channel ($COMMIT)" \
+            --notes "Unofficial development build from $COMMIT. Requires .NET 10. PR builds are removed when the PR closes. Build: https://github.com/$GH_REPO/actions/runs/$RUN_ID"

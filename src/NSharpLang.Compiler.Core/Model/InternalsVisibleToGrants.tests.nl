@@ -1,0 +1,243 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.Reflection
+
+
+// THE FRIEND RULE ITSELF, pinned where it is decided rather than where it is felt.
+//
+// The END of this rule — an `internal` type and an `internal` member of a granting reference being
+// named, resolved, emitted and RUN — is asserted in `tests/native/census-internals-visible-to`,
+// which is compiled as the assembly `Tests` that `LanguageServer.dll` and `Cli.dll` declare as a
+// friend. What is asserted HERE is everything that does not need such an assembly: how a friend
+// declaration's argument is read, which compiling names it names, what an unnamed compilation is
+// granted, and that the nameability answer for an ungranted internal is still "no".
+func GrantsCoreAssembly(): Assembly {
+    return typeof(object).get_Assembly()
+}
+
+// `System.TokenType` is internal to the core library, which declares no friend named by any test
+// here — so it is the standing negative for every arm below.
+func GrantsInternalCoreType(): Type? {
+    return GrantsCoreAssembly().GetType("System.TokenType")
+}
+
+func GrantsNamed(assemblyName: string): InternalsVisibleToGrants {
+    grants := new InternalsVisibleToGrants()
+    grants.SetCompilingAssemblyName(assemblyName)
+    return grants
+}
+
+test "a friend declaration's simple name is everything before the first comma, trimmed" {
+    assert InternalsVisibleToGrants.FriendSimpleName("Tests") == "Tests"
+    assert InternalsVisibleToGrants.FriendSimpleName("  Tests  ") == "Tests"
+    assert InternalsVisibleToGrants.FriendSimpleName("Tests, PublicKey=00240000048000009400000006020000") == "Tests"
+    assert InternalsVisibleToGrants.FriendSimpleName("Contoso.Widgets.Tests, PublicKey=0024") == "Contoso.Widgets.Tests"
+    assert InternalsVisibleToGrants.FriendSimpleName("") == ""
+    assert InternalsVisibleToGrants.FriendSimpleName(", PublicKey=0024") == ""
+}
+
+// ASSEMBLY SIMPLE NAMES COMPARE CASE-INSENSITIVELY — the CLR's own rule, and the one Roslyn's friend
+// map applies — so a differently cased grant is still a grant and a merely similar one is not.
+test "a grant names a compilation by its whole simple name, without regard to case" {
+    assert InternalsVisibleToGrants.NamesCompilation("Tests", "Tests")
+    assert InternalsVisibleToGrants.NamesCompilation("TESTS", "tests")
+    assert InternalsVisibleToGrants.NamesCompilation("Tests, PublicKey=0024", "Tests")
+
+    assert !InternalsVisibleToGrants.NamesCompilation("Tests", "Tests.Unit")
+    assert !InternalsVisibleToGrants.NamesCompilation("Tests", "Test")
+    assert !InternalsVisibleToGrants.NamesCompilation("Tests.Unit", "Tests")
+    assert !InternalsVisibleToGrants.NamesCompilation("Tests", "Other")
+}
+
+// A COMPILATION WITH NO NAME IS THE FRIEND OF NOTHING, and that is the pre-existing behaviour a bare
+// `new Analyzer()` and every planner unit test keep.
+test "an unnamed compilation is granted nothing and names no internal type" {
+    grants := new InternalsVisibleToGrants()
+
+    assert grants.CompilingAssemblyName == ""
+    assert !grants.GrantsAccess(GrantsCoreAssembly())
+    assert !grants.GrantsAccess(null)
+    assert !InternalsVisibleToGrants.NamesCompilation("Tests", "")
+
+    internalType := GrantsInternalCoreType()
+    assert internalType != null, "System.TokenType must exist in the core library for this contract"
+    assert !grants.IsNameableType(internalType)
+}
+
+test "a named compilation the core library does not befriend still cannot name its internals" {
+    grants := GrantsNamed("Tests")
+
+    assert grants.CompilingAssemblyName == "Tests"
+    assert !grants.GrantsAccess(GrantsCoreAssembly())
+    assert !grants.IsNameableType(GrantsInternalCoreType())
+    assert !grants.SameAssemblyOrFriend(GrantsInternalCoreType())
+}
+
+// THE VISIBLE SURFACE IS NAMEABLE WITH OR WITHOUT A GRANT: the friend arm only ever ADDS to what
+// `Type.IsVisible` already answers, so it can never make a public type unnameable.
+test "a visible type is nameable whatever the compiling assembly is called" {
+    unnamed := new InternalsVisibleToGrants()
+    named := GrantsNamed("Tests")
+
+    assert unnamed.IsNameableType(typeof(string))
+    assert named.IsNameableType(typeof(string))
+    assert unnamed.IsNameableType(typeof(Assembly))
+    assert !unnamed.IsNameableType(null)
+    assert !named.IsNameableType(null)
+}
+
+// RENAMING THE COMPILATION IS THE ONLY INPUT THAT CHANGES AN ANSWER, so it is the only thing that
+// drops the per-assembly memo. Setting the same name again is not a change.
+test "the compiling name is what the grants are keyed on and re-setting it is idempotent" {
+    grants := new InternalsVisibleToGrants()
+
+    grants.SetCompilingAssemblyName("Tests")
+    assert grants.CompilingAssemblyName == "Tests"
+    assert !grants.GrantsAccess(GrantsCoreAssembly())
+
+    grants.SetCompilingAssemblyName("Tests")
+    assert grants.CompilingAssemblyName == "Tests"
+
+    grants.SetCompilingAssemblyName("Other")
+    assert grants.CompilingAssemblyName == "Other"
+    assert !grants.GrantsAccess(GrantsCoreAssembly())
+
+    grants.SetCompilingAssemblyName(null)
+    assert grants.CompilingAssemblyName == ""
+}
+
+test "a member with no declaring type is granted nothing" {
+    grants := GrantsNamed("Tests")
+
+    assert !grants.GrantsAccessToDeclaringAssemblyOf(null)
+    assert !grants.GrantsAccessToAssemblyOf(null)
+    assert !grants.SameAssemblyOrFriend(null)
+    assert !grants.GrantsAccessToAssemblyOf(typeof(string)) || grants.GrantsAccessToAssemblyOf(typeof(string))
+}
+
+// THE BACK END'S SCOPE. It is thread-local and opened for the duration of one emission; with no
+// scope open nothing is granted, which is exactly what a planner unit test and a hover must see.
+test "the emission scope grants nothing until it is opened, and nothing again once it is closed" {
+    InternalsVisibleToEmissionScope.End()
+
+    assert InternalsVisibleToEmissionScope.CompilingAssemblyName() == ""
+    assert !InternalsVisibleToEmissionScope.GrantsAccess(GrantsCoreAssembly())
+    assert !InternalsVisibleToEmissionScope.GrantsAccessToDeclarer(typeof(string))
+    assert !InternalsVisibleToEmissionScope.GrantsAccessToDeclarerOf(null)
+    assert !InternalsVisibleToEmissionScope.CanNameType(GrantsInternalCoreType())
+
+    // A VISIBLE type is nameable with no scope at all: the scope only widens.
+    assert InternalsVisibleToEmissionScope.CanNameType(typeof(string))
+    assert !InternalsVisibleToEmissionScope.CanNameType(null)
+    assert InternalsVisibleToEmissionScope.DeclaredGrants() == null
+
+    InternalsVisibleToEmissionScope.Begin("Tests", null)
+    try {
+        assert InternalsVisibleToEmissionScope.CompilingAssemblyName() == "Tests"
+        assert !InternalsVisibleToEmissionScope.GrantsAccess(GrantsCoreAssembly())
+        assert !InternalsVisibleToEmissionScope.CanNameType(GrantsInternalCoreType())
+        assert InternalsVisibleToEmissionScope.CanNameType(typeof(string))
+    } finally {
+        InternalsVisibleToEmissionScope.End()
+    }
+
+    assert InternalsVisibleToEmissionScope.CompilingAssemblyName() == ""
+}
+
+// THE OTHER HALF OF THE SCOPE'S IDENTITY: the grants this emission WRITES. They travel with the
+// name for the same reason — the attribute writer is a static function deep in the emit walk — and
+// they are cleared by the same `End`, so one emission cannot leak its friend declarations into the
+// next one on the same thread.
+test "the emission scope carries the friend declarations the assembly being emitted writes" {
+    InternalsVisibleToEmissionScope.End()
+    assert InternalsVisibleToEmissionScope.DeclaredGrants() == null
+
+    declared := new List<string>()
+    declared.Add("Tests")
+    declared.Add("Contoso.Widgets, PublicKey=0024")
+
+    InternalsVisibleToEmissionScope.Begin("MyLib", declared)
+    try {
+        carried := InternalsVisibleToEmissionScope.DeclaredGrants()
+        assert carried != null
+        assert carried.Count == 2
+        assert carried[0] == "Tests"
+
+        rows := ColumnarInternalsVisibleToEmitter.ResolveDeclaredNames(carried)
+        assert rows.Count == 2
+        assert rows[0] == "Tests"
+        assert rows[1] == "Contoso.Widgets, PublicKey=0024"
+    } finally {
+        InternalsVisibleToEmissionScope.End()
+    }
+
+    assert InternalsVisibleToEmissionScope.DeclaredGrants() == null
+}
+
+// THE LEVEL RELATION THE BACK-END FILTERS ASK. `public` always; the three assembly-bound levels only
+// through a friend; `protected` and `private` never, because a plain read carries no derivation
+// relation — the inherited-`protected` path answers those with its own argument.
+test "the back end reaches public always, assembly levels only through a friend, and protected never" {
+    InternalsVisibleToEmissionScope.End()
+
+    assert InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.Public, typeof(string))
+    assert !InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.Assembly, typeof(string))
+    assert !InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.FamilyOrAssembly, typeof(string))
+    assert !InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.PrivateProtected, typeof(string))
+    assert !InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.Family, typeof(string))
+    assert !InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.Private, typeof(string))
+    assert InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.Public, null)
+}
+
+// ── THE ANALYZER'S HALF OF THE SAME RULE ──────────────────────────────────────────────────────
+//
+// The back-end relation above decides what may be EMITTED. This is the relation that decides what
+// the ANALYZER says about the same member, and it did not exist: every reflection arm narrows its
+// binding flags to what this compilation may see, so an `assembly`-level member of a referenced
+// assembly is simply absent for a non-friend, the walk answers `unknown`, and an unknown member on
+// a non-BCL reflected receiver is deliberately LENIENT. So `nlc check` was clean and the refusal
+// arrived from the emitter as `NL103 … is not modeled`, naming a backend where the developer needed
+// to be told about a visibility rule.
+test "the levels a friend grant alone decides are internal and protected internal" {
+    assert AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.Assembly)
+    assert AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.FamilyOrAssembly)
+
+    // Reachable with or without a grant.
+    assert !AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.Public)
+    // Unreachable with or without one, from a plain outside read — so none of them is the grant's
+    // business and each keeps the pre-existing leniency.
+    assert !AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.Private)
+    assert !AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.Family)
+    assert !AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.PrivateProtected)
+}
+
+// AN `internal` MEMBER OF THE CORE LIBRARY IS THE ONE EVERY HOST HAS. `string.FastAllocateString`
+// is `internal static` on `System.String`, and nothing this compilation can be called makes it a
+// friend of the core library — so the probe answers, and names the level the report will quote.
+test "an internal member of a reference with no grant is found and named as internal" {
+    level := MemberAccessibility.Public
+    assert AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(typeof(string), "FastAllocateString", true, new InternalsVisibleToGrants(), out level)
+    assert level == MemberAccessibility.Assembly
+}
+
+// A PUBLIC MEMBER IS NOT THE PROBE'S BUSINESS, so an ordinary miss stays an ordinary miss and the
+// undefined-member report keeps every position it already owned.
+test "a public member and a name nothing declares are both left alone" {
+    publicLevel := MemberAccessibility.Public
+    assert !AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(typeof(string), "Substring", false, new InternalsVisibleToGrants(), out publicLevel)
+
+    missingLevel := MemberAccessibility.Public
+    assert !AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(typeof(string), "NoSuchMemberAnywhere", true, new InternalsVisibleToGrants(), out missingLevel)
+
+    nullOwnerLevel := MemberAccessibility.Public
+    assert !AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(null, "FastAllocateString", true, new InternalsVisibleToGrants(), out nullOwnerLevel)
+}
+
+// A STATIC MEMBER IS OUT OF REACH OF AN INSTANCE-ONLY QUESTION, exactly as it is for resolution:
+// the probe asks the same surface the walk that missed was asking.
+test "the probe sees only the surface the miss was looking at" {
+    staticOnlyLevel := MemberAccessibility.Public
+    assert !AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(typeof(string), "FastAllocateString", false, new InternalsVisibleToGrants(), out staticOnlyLevel)
+}

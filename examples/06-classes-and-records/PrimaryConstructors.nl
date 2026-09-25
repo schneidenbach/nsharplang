@@ -1,5 +1,7 @@
-// Primary Constructors (C# 12 Feature)
+// Primary Constructors
 // Demonstrates primary constructor syntax for classes, structs, and records
+namespace Examples.PrimaryConstructors
+
 import System
 
 

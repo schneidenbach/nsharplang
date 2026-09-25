@@ -1,0 +1,834 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.IO
+import System.Reflection
+import System.Runtime.InteropServices
+import System.Runtime.Loader
+import NSharpLang.Cli
+
+func ExternalCopyAsset(sourcePath: string, destinationPath: string) {
+    directory := Path.GetDirectoryName(destinationPath)
+    if directory != null {
+        Directory.CreateDirectory(directory)
+    }
+
+    File.Copy(sourcePath, destinationPath, true)
+}
+
+func ExternalWriteAsset(destinationPath: string, content: string) {
+    directory := Path.GetDirectoryName(destinationPath)
+    if directory != null {
+        Directory.CreateDirectory(directory)
+    }
+
+    File.WriteAllText(destinationPath, content)
+}
+
+func ExternalContainsPath(paths: IReadOnlyList<string>, expected: string): bool {
+    index := 0
+    while index < paths.Count {
+        if string.Equals(paths[index], expected, StringComparison.OrdinalIgnoreCase) {
+            return true
+        }
+
+        index = index + 1
+    }
+
+    return false
+}
+
+// THE ESTATE HOST'S OWN PROJECT AND REFERENCE IMAGE, READ FROM WHERE THE HOST ACTUALLY RUNS.
+// The SDK writes the reference image below the project's intermediate root at the same relative
+// location the assembly has below its output root: `bin/<configuration>/<tfm>/` pairs with
+// `obj/<configuration>/<tfm>/refint/`, and the tested project's `bin/tests-included/<configuration>/<tfm>/`
+// with `obj/tests-included/<configuration>/<tfm>/refint/`. Counting a fixed three directories up from
+// the host assumed the first shape: under a seed whose SDK gives the tested project its own trees it
+// named `bin/obj/...`, and under the seed before it (own `obj/` only) it silently read a PRODUCT build's
+// `obj/<configuration>/<tfm>/refint/` - a different compilation that merely shared the identity.
+//
+// THE HOST IS NAMED BY A TYPE IT DECLARES, `ExternalScanHost`, not by `ExternalAssemblyScan`: the
+// carved `NSharpLang.Compiler.Model` compiles that one, so the host runs only a copy of it, copied
+// beside its own assembly, with no reference image below the host's `obj`.
+class ExternalScanHost {
+}
+
+func ExternalHostAssembly(): Assembly {
+    return typeof(ExternalScanHost).get_Assembly()
+}
+
+func ExternalHostProjectDirectory(): string {
+    runtimePath := ExternalHostAssembly().get_Location()
+    outputRoot := Path.GetDirectoryName(runtimePath) ?? ""
+    while outputRoot.Length > 0 && !string.Equals(Path.GetFileName(outputRoot), "bin", StringComparison.OrdinalIgnoreCase) {
+        outputRoot = Path.GetDirectoryName(outputRoot) ?? ""
+    }
+
+    projectDirectory := Path.GetDirectoryName(outputRoot) ?? ""
+    if outputRoot.Length == 0 || projectDirectory.Length == 0 {
+        throw new InvalidOperationException("The estate host does not run from below a project's bin directory: " + runtimePath)
+    }
+
+    return projectDirectory
+}
+
+func ExternalHostReferenceImagePath(): string {
+    runtimePath := ExternalHostAssembly().get_Location()
+    outputRelative := Path.GetRelativePath(Path.Combine(ExternalHostProjectDirectory(), "bin"), Path.GetDirectoryName(runtimePath) ?? "")
+    referencePath := Path.Combine(Path.Combine(Path.Combine(Path.Combine(ExternalHostProjectDirectory(), "obj"), outputRelative), "refint"), Path.GetFileName(runtimePath))
+    if !File.Exists(referencePath) {
+        throw new InvalidOperationException("The estate host's reference image is not where its SDK writes it: " + referencePath)
+    }
+
+    return referencePath
+}
+
+test "external assembly scan resolves common types through metadata with exact runtime handles" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        assert scan.Context != null
+        assert scan.Entries.Length > 0
+
+        exact := ExternalAssemblyScan.FindExactType(scan, "System.Environment")
+
+        assert exact.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert exact.HasRuntimeType
+        assert exact.RuntimeType.FullName == "System.Environment"
+        assert ExternalAssemblyScan.SemanticIdentityMatches(exact.SemanticTypeIdentity, "System.Environment, System.Private.CoreLib")
+
+        visible := ExternalAssemblyScan.FindFirstVisibleType(scan, "Environment")
+
+        assert visible.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert visible.HasRuntimeType
+        assert visible.RuntimeType.FullName == "System.Environment"
+    } finally {
+        scan.Dispose()
+    }
+
+    assert scan.Context == null
+}
+
+// A TYPE FORWARDER MUST BE ABLE TO LAND. `System.Runtime` declares almost nothing and forwards
+// almost everything, so a scan whose resolver holds only the files the scan itself inspects cannot
+// follow a forwarder out of that facade: `System.Uri` lives in `System.Private.Uri`, which nobody had
+// listed, and the back end therefore could not name it at any position while the analyzer -- which
+// resolves from the runtime and shared-framework DIRECTORIES -- accepted the same program.
+test "external assembly scan follows a type forwarder out of the reference facade" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        forwarded := ExternalAssemblyScan.FindExactType(scan, "System.Uri")
+
+        assert forwarded.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert forwarded.HasRuntimeType
+        assert forwarded.RuntimeType.FullName == "System.Uri"
+        assert ExternalAssemblyScan.SemanticIdentityMatches(forwarded.SemanticTypeIdentity, "System.Uri, System.Private.Uri")
+
+        // The enum and the builder beside it, so the row is not a fact about one name.
+        kind := ExternalAssemblyScan.FindExactType(scan, "System.UriKind")
+
+        assert kind.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert kind.HasRuntimeType
+
+        builder := ExternalAssemblyScan.FindExactType(scan, "System.UriBuilder")
+
+        assert builder.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert builder.HasRuntimeType
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// WHICH ASSEMBLIES ARE INSPECTED IS UNCHANGED BY THE FORWARD TARGETS. The paths above are in the
+// resolver so a forwarder can be followed; they are not catalog entries, so a simple-name scan still
+// sees only what the caller asked for.
+test "external assembly scan ignores host assemblies outside semantic slots" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        yaml := ExternalAssemblyScan.FindExactType(scan, "YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention")
+
+        assert yaml.Status == ExternalAssemblyTypeLookupStatus.Missing
+        assert !yaml.HasRuntimeType
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "external assembly scan resolves dotted source names for nested CLR types" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        exact := ExternalAssemblyScan.FindExactType(scan, "System.Environment.SpecialFolder")
+        assert exact.Status == ExternalAssemblyTypeLookupStatus.Missing
+
+        nested := ExternalAssemblyScan.FindExactOrNestedType(scan, "System.Environment.SpecialFolder")
+        assert nested.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert nested.HasRuntimeType
+        assert nested.RuntimeType.FullName == "System.Environment+SpecialFolder"
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "external assembly scan stops before an unrelated broken reference" {
+    paths := new List<string>()
+    paths.Add("/nsharp/does-not-exist/unrelated-reference.dll")
+    scan := ExternalAssemblyScan.OpenWithReferences(paths)
+    try {
+        environment := ExternalAssemblyScan.FindExactType(scan, "System.Environment")
+
+        assert environment.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert environment.HasRuntimeType
+
+        unknown := ExternalAssemblyScan.FindExactType(scan, "Missing.Namespace.Environment")
+
+        assert unknown.Status == ExternalAssemblyTypeLookupStatus.Unknown
+        assert !unknown.HasRuntimeType
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "external assembly scan resolves an MSBuild reference-only path to its project runtime output" {
+    runtimePath := ExternalHostAssembly().get_Location()
+    projectDirectory := ExternalHostProjectDirectory()
+    referencePath := ExternalHostReferenceImagePath()
+
+    dependencies := new List<Reference>()
+    reference := new Reference()
+    reference.Dll = referencePath
+    dependencies.Add(reference)
+    paths := ExternalAssemblyScan.ResolveReferencePaths(projectDirectory, dependencies)
+
+    assert paths.Count == 2, string.Join(", ", paths)
+    assert paths[0] == Path.GetFullPath(referencePath), paths[0]
+    assert paths[1] == Path.GetFullPath(runtimePath), paths[1]
+
+    scan := ExternalAssemblyScan.OpenWithReferences(paths)
+    try {
+        resolved := ExternalAssemblyScan.FindExactType(scan, "NSharpLang.Compiler.ExternalScanHost")
+
+        assert resolved.Status == ExternalAssemblyTypeLookupStatus.Found, resolved.Status.ToString()
+        assert resolved.HasRuntimeType, "the host's own reference image found no runtime type"
+        assert resolved.RuntimeType == typeof(ExternalScanHost)
+        assert resolved.SemanticTypeIdentity == typeof(ExternalScanHost).get_AssemblyQualifiedName(), resolved.SemanticTypeIdentity
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "external reference paths select DLLs normalize project-relative paths and remove duplicates" {
+    dependencies := new List<Reference>()
+    packageReference := new Reference()
+    packageReference.Nuget = "Ignored"
+    packageReference.Version = "1.0.0"
+    dependencies.Add(packageReference)
+    dllReference := new Reference()
+    dllReference.Dll = "lib/relative.dll"
+    dependencies.Add(dllReference)
+    duplicateReference := new Reference()
+    duplicateReference.Dll = "/tmp/nsharp-project/lib/relative.dll"
+    dependencies.Add(duplicateReference)
+    blankReference := new Reference()
+    blankReference.Dll = "   "
+    dependencies.Add(blankReference)
+    paths := ExternalAssemblyScan.ResolveReferencePaths("/tmp/nsharp-project", dependencies)
+
+    assert paths.Count == 1
+    assert paths[0] == Path.GetFullPath("/tmp/nsharp-project/lib/relative.dll")
+}
+
+test "a project reference image pairs with the implementation at its own relative location below bin" {
+    project := Path.GetFullPath("/tmp/nsharp-project-output-layout/Lib")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(Path.Combine(project, "obj/Debug/net10.0/ref/Lib.dll")) == Path.Combine(project, "bin/Debug/net10.0/Lib.dll")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(Path.Combine(project, "obj/Release/net10.0/osx-arm64/refint/Lib.dll")) == Path.Combine(project, "bin/Release/net10.0/osx-arm64/Lib.dll")
+    testedImage := Path.Combine(project, "obj/tests-included/Debug/net10.0/refint/Lib.dll")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(testedImage) == Path.Combine(project, "bin/tests-included/Debug/net10.0/Lib.dll")
+    assert ExternalAssemblyScan.IsProjectReferenceAssemblyPath(testedImage)
+    assert !ExternalAssemblyScan.IsHostDependencyReferencePath(testedImage)
+    assert ExternalAssemblyScan.GetRuntimePathCandidate(testedImage) == Path.Combine(project, "bin/tests-included/Debug/net10.0/Lib.dll")
+
+    // Not project images: a NuGet compile asset (its tfm, not `ref`, holds the file), an image with
+    // no configuration and target framework between it and `obj`, and one below no `obj` at all.
+    nugetImage := Path.GetFullPath("/tmp/nsharp-project-output-layout/packages/lib/1.0.0/ref/net10.0/Lib.dll")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(nugetImage) == ""
+    assert !ExternalAssemblyScan.IsProjectReferenceAssemblyPath(nugetImage)
+    assert ExternalAssemblyScan.GetRuntimePathCandidate(nugetImage) == Path.GetFullPath("/tmp/nsharp-project-output-layout/packages/lib/1.0.0/lib/net10.0/Lib.dll")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(Path.Combine(project, "obj/net10.0/ref/Lib.dll")) == ""
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(Path.Combine(project, "out/Debug/net10.0/ref/Lib.dll")) == ""
+}
+
+test "external reference paths put NuGet metadata before its runtime implementation" {
+    bootstrapRuntimePath := ExternalHostAssembly().get_Location()
+    bootstrapReferencePath := ExternalHostReferenceImagePath()
+
+    packageVersionDirectory := Path.GetFullPath("obj/nsharp-reference-pair-contract/package/1.0.0")
+
+    referencePath := Path.Combine(packageVersionDirectory, "ref/net10.0/Paired.dll")
+
+    runtimePath := Path.Combine(packageVersionDirectory, "lib/net10.0/Paired.dll")
+
+    ExternalCopyAsset(bootstrapReferencePath, referencePath)
+    ExternalCopyAsset(bootstrapRuntimePath, runtimePath)
+
+    dependencies := new List<Reference>()
+    runtimeReference := new Reference()
+    runtimeReference.Dll = runtimePath
+    dependencies.Add(runtimeReference)
+    metadataReference := new Reference()
+    metadataReference.Dll = referencePath
+    dependencies.Add(metadataReference)
+
+    paths := ExternalAssemblyScan.ResolveReferencePaths(packageVersionDirectory, dependencies)
+
+    assert paths.Count == 2
+    assert paths[0] == Path.GetFullPath(referencePath)
+    assert paths[1] == Path.GetFullPath(runtimePath)
+}
+
+test "external reference paths reject a conventionally located runtime with a different assembly identity" {
+    bootstrapRuntimePath := ExternalHostAssembly().get_Location()
+    bootstrapReferencePath := ExternalHostReferenceImagePath()
+
+    packageVersionDirectory := Path.GetFullPath("obj/nsharp-reference-mismatch-contract/package/1.0.0")
+    referencePath := Path.Combine(packageVersionDirectory, "ref/net10.0/Mismatched.dll")
+    runtimePath := Path.Combine(packageVersionDirectory, "lib/net10.0/Mismatched.dll")
+    mismatchedRuntimePath := typeof(MetadataLoadContext).get_Assembly().get_Location()
+
+    ExternalCopyAsset(bootstrapReferencePath, referencePath)
+    ExternalCopyAsset(mismatchedRuntimePath, runtimePath)
+
+    dependencies := new List<Reference>()
+    metadataReference := new Reference()
+    metadataReference.Dll = referencePath
+    dependencies.Add(metadataReference)
+
+    referencePaths := ExternalAssemblyScan.ResolveReferencePaths(packageVersionDirectory, dependencies)
+    assert referencePaths.Count == 1
+    assert referencePaths[0] == Path.GetFullPath(referencePath)
+
+    runtimePaths := ExternalAssemblyScan.ResolveRuntimeAssetPaths(packageVersionDirectory, dependencies)
+    assert runtimePaths.Count == 0
+
+    referenceIdentity := AssemblyName.GetAssemblyName(referencePath).get_FullName()
+    byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
+    byIdentity[referenceIdentity] = ExternalHostAssembly()
+    loadedReference := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(byIdentity, referencePath, referenceIdentity)
+    assert loadedReference == null, "A NuGet ref/<tfm> image must never be loaded for execution when its lib companion is unavailable."
+}
+
+test "external assembly scan resolves framework-pack metadata to the shared runtime implementation" {
+    coreRuntimePath := typeof(object).get_Assembly().get_Location()
+    runtimeVersionDirectory := Path.GetDirectoryName(coreRuntimePath)
+    runtimeFrameworkDirectory := Path.GetDirectoryName(runtimeVersionDirectory)
+
+    sharedDirectory := Path.GetDirectoryName(runtimeFrameworkDirectory)
+    dotnetRoot := Path.GetDirectoryName(sharedDirectory)
+    referencePackRoot := Path.Combine(Path.Combine(dotnetRoot, "packs"), "Microsoft.NETCore.App.Ref")
+
+    runtimeVersion := Path.GetFileName(runtimeVersionDirectory)
+    referencePath := Path.Combine(Path.Combine(Path.Combine(referencePackRoot, runtimeVersion), "ref/net10.0"), "System.Formats.Tar.dll")
+
+    if !File.Exists(referencePath) {
+        referencePath = ""
+        versionDirectories := Directory.GetDirectories(referencePackRoot, "*", SearchOption.TopDirectoryOnly)
+
+        versionIndex := 0
+        while versionIndex < versionDirectories.Length {
+            candidate := Path.Combine(Path.Combine(versionDirectories[versionIndex], "ref/net10.0"), "System.Formats.Tar.dll")
+
+            if referencePath.Length == 0 && File.Exists(candidate) {
+                referencePath = candidate
+            }
+
+            versionIndex = versionIndex + 1
+        }
+    }
+
+    assert File.Exists(referencePath)
+
+    dependencies := new List<Reference>()
+    reference := new Reference()
+    reference.Dll = referencePath
+    dependencies.Add(reference)
+    paths := ExternalAssemblyScan.ResolveReferencePaths(dotnetRoot, dependencies)
+
+    assert paths.Count == 1
+    assert paths[0] == Path.GetFullPath(referencePath)
+
+    scan := ExternalAssemblyScan.OpenWithReferences(paths)
+    try {
+        resolved := ExternalAssemblyScan.FindExactType(scan, "System.Formats.Tar.TarEntry")
+
+        assert resolved.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert resolved.SemanticTypeIdentity.StartsWith("System.Formats.Tar.TarEntry, System.Formats.Tar", StringComparison.Ordinal)
+        assert resolved.HasRuntimeType, "A framework-pack reference must use its shared-runtime implementation instead of the reference image."
+        assert ExternalAssemblyScan.RuntimeAssemblyPathMatches(resolved.RuntimeType.get_Assembly(), ExternalAssemblyScan.FrameworkRuntimePathForReference(referencePath))
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "configured DLL runtime assets deploy implementations and retain metadata-only inputs" {
+    root := Path.GetFullPath("obj/nsharp-runtime-assets-contract")
+    output := Path.Combine(root, "output")
+    normalPath := Path.Combine(root, "direct/Normal.dll")
+    packageReferencePath := Path.Combine(root, "packages/sample/1.0.0/ref/net10.0/Package.dll")
+
+    packageRuntimePath := Path.Combine(root, "packages/sample/1.0.0/lib/net10.0/Package.dll")
+
+    projectReferencePath := Path.Combine(root, "project/obj/Debug/net10.0/refint/Project.dll")
+
+    projectRuntimePath := Path.Combine(root, "project/bin/Debug/net10.0/Project.dll")
+
+    metadataOnlyPath := Path.Combine(root, "packages/metadata/1.0.0/ref/net10.0/MetadataOnly.dll")
+
+    bootstrapRuntimePath := ExternalHostAssembly().get_Location()
+    bootstrapReferencePath := ExternalHostReferenceImagePath()
+
+    ExternalCopyAsset(bootstrapRuntimePath, normalPath)
+    ExternalCopyAsset(bootstrapReferencePath, packageReferencePath)
+    ExternalCopyAsset(bootstrapRuntimePath, packageRuntimePath)
+    ExternalCopyAsset(bootstrapReferencePath, projectReferencePath)
+    ExternalCopyAsset(bootstrapRuntimePath, projectRuntimePath)
+    ExternalCopyAsset(bootstrapReferencePath, metadataOnlyPath)
+
+    dependencies := new List<Reference>()
+    normal := new Reference()
+    normal.Dll = Path.GetRelativePath(root, normalPath)
+    dependencies.Add(normal)
+    duplicate := new Reference()
+    duplicate.Dll = normalPath
+    dependencies.Add(duplicate)
+    packageReference := new Reference()
+    packageReference.Dll = packageReferencePath
+    dependencies.Add(packageReference)
+    projectReference := new Reference()
+    projectReference.Dll = projectReferencePath
+    dependencies.Add(projectReference)
+    metadataOnly := new Reference()
+    metadataOnly.Dll = metadataOnlyPath
+    dependencies.Add(metadataOnly)
+
+    runtimePaths := ExternalAssemblyScan.ResolveRuntimeAssetPaths(root, dependencies)
+
+    assert runtimePaths.Count == 3
+    assert ExternalContainsPath(runtimePaths, normalPath)
+    assert ExternalContainsPath(runtimePaths, packageRuntimePath)
+    assert ExternalContainsPath(runtimePaths, projectRuntimePath)
+    assert !ExternalContainsPath(runtimePaths, packageReferencePath)
+    assert !ExternalContainsPath(runtimePaths, projectReferencePath)
+    assert !ExternalContainsPath(runtimePaths, metadataOnlyPath)
+
+    result := ReferenceResolutionResult.Create(root, dependencies)
+    assert result.RuntimeAssets.Count == 3
+    result.CopyRuntimeAssets(output)
+    assert File.Exists(Path.Combine(output, "Normal.dll"))
+    assert File.Exists(Path.Combine(output, "Package.dll"))
+    assert File.Exists(Path.Combine(output, "Project.dll"))
+    assert !File.Exists(Path.Combine(output, "MetadataOnly.dll"))
+}
+
+test "runtime asset copy unifies same-filename sources to the highest package version" {
+    root := Path.GetFullPath("obj/nsharp-runtime-asset-unify-contract")
+    lowerPath := Path.Combine(root, "microsoft.openapi/1.6.17/lib/net9.0/Collision.dll")
+    higherPath := Path.Combine(root, "microsoft.openapi/1.6.22/lib/net9.0/Collision.dll")
+    output := Path.Combine(root, "output")
+
+    ExternalWriteAsset(lowerPath, "lower-version-asset")
+    ExternalWriteAsset(higherPath, "higher-version-asset")
+
+    result := new ReferenceResolutionResult()
+    result.AddRuntimeAsset(lowerPath)
+    result.AddRuntimeAsset(higherPath)
+
+    // A diamond dependency that flattens two versions of the same assembly name is unified to the
+    // single highest version, exactly as NuGet resolves a version conflict, instead of throwing.
+    assert result.RuntimeAssets.Count == 2
+    result.CopyRuntimeAssets(output)
+
+    copiedPath := Path.Combine(output, "Collision.dll")
+    assert File.Exists(copiedPath)
+    assert File.ReadAllText(copiedPath) == "higher-version-asset", "The higher package version must win a same-filename runtime-asset collision."
+}
+
+test "loaded assemblies index by identity covers the snapshot the walk it replaces would have scanned" {
+    assemblies := ExternalAssemblyScan.Loaded()
+    byIdentity := ExternalAssemblyScan.LoadedByIdentity()
+
+    assert assemblies.Length > 0
+    assert byIdentity.Count > 0
+    assert byIdentity.Count <= assemblies.Length, "Indexing cannot invent an assembly the snapshot did not carry."
+
+    // Every identity the linear walk could have matched is present, and the entry it answers really
+    // carries that identity — which is the whole contract the walk provided.
+    index := 0
+    while index < assemblies.Length {
+        identity := assemblies[index].GetName().get_FullName()
+        assert byIdentity.ContainsKey(identity), "Every loaded assembly identity must be indexed."
+
+        indexed := byIdentity[identity]
+        assert indexed != null
+        assert indexed.GetName().get_FullName() == identity, "An indexed entry must carry the identity it is keyed by."
+        index = index + 1
+    }
+}
+
+test "exact runtime assembly selection resolves an already-loaded identity through the index" {
+    assemblies := ExternalAssemblyScan.Loaded()
+    byIdentity := ExternalAssemblyScan.LoadedByIdentity()
+    identity := assemblies[0].GetName().get_FullName()
+
+    // The path argument is never consulted when the identity is already loaded, so a path that does
+    // not exist still resolves — which is exactly what makes the index a pure lookup.
+    resolved := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(byIdentity, "does-not-exist.dll", identity)
+    assert resolved != null, "An already-loaded identity resolves without touching the filesystem."
+    assert resolved.GetName().get_FullName() == identity
+
+    missingIdentity := "No.Such.Assembly, Version=9.9.9.9, Culture=neutral, PublicKeyToken=null"
+    assert !byIdentity.ContainsKey(missingIdentity)
+    absent := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(byIdentity, "does-not-exist.dll", missingIdentity)
+    assert absent == null, "An identity that is neither loaded nor loadable stays metadata-only."
+}
+
+test "a prepared external type catalog answers every file from one retained scan" {
+    catalog := new ColumnarExternalTypeCatalog()
+
+    // Before Prepare there is no scan and no answer — the catalog never opens one on demand.
+    unpreparedResolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+    assert !catalog.IsPrepared
+    assert !catalog.TryGet(0, "Console", out unpreparedResolution)
+
+    factsById := new Dictionary<int, ColumnarSourceBindingFacts>()
+    firstFile := new ColumnarSourceBindingFacts()
+    firstFile.UnaliasedNamespaceImports.Add("System")
+    secondFile := new ColumnarSourceBindingFacts()
+    secondFile.UnaliasedNamespaceImports.Add("System")
+    factsById[0] = firstFile
+    factsById[1] = secondFile
+
+    catalog.Prepare(null, factsById)
+    assert catalog.IsPrepared
+
+    firstResolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+    secondResolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+    assert catalog.TryGet(0, "Console", out firstResolution)
+    assert catalog.TryGet(1, "Console", out secondResolution)
+
+    // Two files asking the same question of the same retained scan get the same answer. Before the
+    // scan was retained each of these was a whole MetadataLoadContext over every referenced assembly.
+    assert firstResolution.Status == ExternalAssemblyTypeLookupStatus.Found
+    assert secondResolution.Status == ExternalAssemblyTypeLookupStatus.Found
+    assert firstResolution.HasRuntimeType
+    assert secondResolution.HasRuntimeType
+    firstType := firstResolution.RuntimeType
+    secondType := secondResolution.RuntimeType
+    assert firstType.get_FullName() == "System.Console"
+    assert secondType.get_FullName() == "System.Console"
+    assert firstResolution.SemanticTypeIdentity == secondResolution.SemanticTypeIdentity
+
+    // A repeat of an already-cached key is still the same answer, and a re-Prepare replaces the scan
+    // without stranding the catalog.
+    repeat := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+    assert catalog.TryGet(0, "Console", out repeat)
+    repeatType := repeat.RuntimeType
+    assert repeatType.get_FullName() == "System.Console"
+
+    catalog.Prepare(null, factsById)
+    afterRePrepare := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+    assert catalog.TryGet(0, "Console", out afterRePrepare)
+    afterRePrepareType := afterRePrepare.RuntimeType
+    assert afterRePrepareType.get_FullName() == "System.Console"
+
+    // A name that resolves nowhere is still a recorded decline, not an exception.
+    missing := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+    assert catalog.TryGet(0, "NoSuchExternalOwnerName", out missing)
+    assert missing.Status == ExternalAssemblyTypeLookupStatus.Missing
+}
+
+// THE METADATA PATH NO LONGER COMES FROM `Assembly.Location`. Under a single-file binary that reading
+// is the empty string, which would leave every common assembly uninspectable in silence. These blocks
+// pin the replacement AND pin that it answers the SAME FILE the old reading answered, so the
+// re-sourcing is a change of route and not a change of content.
+test "every common assembly resolves to a metadata file that exists" {
+    directories := ExternalAssemblyScan.CommonAssemblySearchDirectories(null)
+    assert directories.Length >= 1
+    names := ExternalAssemblyScan.CommonAssemblyNames()
+    index := 0
+    resolved := 0
+    while index < names.Length {
+        path := ExternalAssemblyScan.CommonAssemblyMetadataPath(directories, names[index])
+        if path.Length > 0 {
+            assert File.Exists(path)
+            resolved = resolved + 1
+        }
+
+        index = index + 1
+    }
+
+    // The whole common set is present in a framework-dependent host's runtime directory.
+    assert resolved == names.Length
+}
+
+test "the resolved metadata path is the same file the old Location reading answered" {
+    directories := ExternalAssemblyScan.CommonAssemblySearchDirectories(null)
+    loaded := Assembly.Load("System.Runtime")
+    expected := loaded.get_Location()
+    assert expected.Length > 0
+    actual := ExternalAssemblyScan.CommonAssemblyMetadataPath(directories, "System.Runtime")
+    assert actual == expected
+}
+
+test "the runtime directory is searched before any reference directory" {
+    references := new List<string>()
+    references.Add(Path.Combine("/tmp/nsharp-not-a-real-directory", "System.Runtime.dll"))
+    directories := ExternalAssemblyScan.CommonAssemblySearchDirectories(references)
+    runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
+    assert directories.Length == 2
+    assert directories[0] == runtimeDirectory
+    assert directories[1] == "/tmp/nsharp-not-a-real-directory"
+}
+
+test "a name no directory carries resolves to the empty string" {
+    directories := ExternalAssemblyScan.CommonAssemblySearchDirectories(null)
+    assert ExternalAssemblyScan.CommonAssemblyMetadataPath(directories, "NSharp.NotAnAssembly") == ""
+    empty := new string[](0)
+    assert ExternalAssemblyScan.CommonAssemblyMetadataPath(empty, "System.Runtime") == ""
+}
+
+// ── the exact-identity runtime handle ─────────────────────────────────────────
+
+test "an exact identity the default context already carries is answered by the default context" {
+    loaded := Assembly.Load("System.Text.Json")
+    path := loaded.get_Location()
+    assert path.Length > 0
+    identity := loaded.GetName().get_FullName()
+    resolved := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert resolved != null
+    assert Object.ReferenceEquals(resolved, loaded)
+    assert Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(resolved), AssemblyLoadContext.Default)
+}
+
+test "an identity the file does not carry is refused by both routes" {
+    loaded := Assembly.Load("System.Text.Json")
+    path := loaded.get_Location()
+    assert path.Length > 0
+
+    // The FILE is real and loadable; only the demanded identity is wrong, which is exactly the
+    // shape a host-owned same-name assembly produces. Neither route may substitute another build.
+    assert ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, "System.Text.Json, Version=1.2.3.4, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51") == null
+    assert ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, "NSharp.NotAnAssembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null") == null
+}
+
+test "a file that is not an assembly at all has no executable handle" {
+    scratch := Path.Combine(Path.GetTempPath(), "nsharp-exact-identity-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(scratch)
+    try {
+        notAnAssembly := Path.Combine(scratch, "NotAnAssembly.dll")
+        File.WriteAllText(notAnAssembly, "this is not metadata")
+        assert ExternalAssemblyScan.TryLoadExactIdentityAssembly(notAnAssembly, "NotAnAssembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null") == null
+        assert ExternalAssemblyScan.TryLoadExactIdentityAssembly(Path.Combine(scratch, "Missing.dll"), "Missing, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null") == null
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
+// A FILE ON DISK WHOSE IDENTITY THE DEFAULT CONTEXT DOES NOT ANSWER FOR, which is the shape every
+// package reference has and the shape the runtime directory does NOT have: everything beside
+// `System.Private.CoreLib` is on this host's own probing list, so the default context binds all of
+// it. The .NET SDK directory beside it is not, and neither is any other shared framework -- and the
+// SDK directory is exactly where the `Microsoft.Extensions.*` family that started this whole
+// investigation lives. Chosen by LOOKING rather than by naming a file, so no row depends on which
+// assemblies this particular host happened to ship.
+func ExternalUnboundAssemblyDirectories(): List<string> {
+    roots := new List<string>()
+    versionDirectory := Path.GetDirectoryName(RuntimeEnvironment.GetRuntimeDirectory())
+    frameworkDirectory := Path.GetDirectoryName(versionDirectory ?? "")
+    sharedDirectory := Path.GetDirectoryName(frameworkDirectory ?? "")
+    dotnetRoot := Path.GetDirectoryName(sharedDirectory ?? "")
+    if dotnetRoot == null || dotnetRoot.Length == 0 {
+        return roots
+    }
+
+    sdkRoot := Path.Combine(dotnetRoot, "sdk")
+    if Directory.Exists(sdkRoot) {
+        sdkDirectories := Directory.GetDirectories(sdkRoot)
+        Array.Sort(sdkDirectories, StringComparer.Ordinal)
+        for sdkDirectory in sdkDirectories {
+            roots.Add(sdkDirectory)
+        }
+    }
+
+    if sharedDirectory != null && Directory.Exists(sharedDirectory) {
+        frameworkDirectories := Directory.GetDirectories(sharedDirectory)
+        Array.Sort(frameworkDirectories, StringComparer.Ordinal)
+        for candidateFramework in frameworkDirectories {
+            versionDirectories := Directory.GetDirectories(candidateFramework)
+            Array.Sort(versionDirectories, StringComparer.Ordinal)
+            for candidateVersion in versionDirectories {
+                roots.Add(candidateVersion)
+            }
+        }
+    }
+
+    return roots
+}
+
+func ExternalUnboundAssemblyPath(): string {
+    for root in ExternalUnboundAssemblyDirectories() {
+        candidates := Directory.GetFiles(root, "*.dll", SearchOption.TopDirectoryOnly)
+        Array.Sort(candidates, StringComparer.Ordinal)
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            identity := ""
+            try {
+                identity = AssemblyName.GetAssemblyName(candidate).get_FullName()
+            } catch {
+                identity = ""
+            }
+
+            // A native image or a file with no managed metadata is not a candidate; keep looking.
+
+            if identity.Length > 0 && ExternalAssemblyScan.DefaultContextAssemblyForIdentity(identity) == null {
+                return candidate
+            }
+
+            index = index + 1
+        }
+    }
+
+    return ""
+}
+
+func ExternalDefaultContextCarries(identity: string): bool {
+    loaded := ExternalAssemblyScan.Loaded()
+    index := 0
+    while index < loaded.Length {
+        candidate := loaded[index]
+        name := ""
+        try {
+            name = candidate.GetName().get_FullName()
+        } catch {
+            name = ""
+        }
+
+        // A hostile loaded assembly is not evidence either way; keep looking.
+
+        if name == identity && Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(candidate), AssemblyLoadContext.Default) {
+            return true
+        }
+
+        index = index + 1
+    }
+
+    return false
+}
+
+// THE PARITY RULE. A reference the default context does not already answer for goes into the ONE
+// owned context, and the default context does not gain it -- so the whole of a project's reference
+// closure resolves its own members out of one context's cache instead of being split between the
+// host's build of every shared name and the project's.
+test "a reference the default context does not answer for lands in the compiler's own context" {
+    path := ExternalUnboundAssemblyPath()
+    assert path.Length > 0
+    identity := AssemblyName.GetAssemblyName(path).get_FullName()
+    assert !ExternalDefaultContextCarries(identity)
+
+    resolved := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert resolved != null
+    assert resolved.GetName().get_FullName() == identity
+    assert Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(resolved), ExternalAssemblyScan.ExactIdentityLoadContext())
+    assert !ExternalDefaultContextCarries(identity)
+}
+
+// THE SEED SELF-HOST RULE, and the one that reverted the previous attempt. Under MSBuild the build
+// task IS `NSharpLang.Compiler.Core.dll`, loaded into a context of the HOST's, and a project that
+// references the compiler carries a DIFFERENT build of that same identity on its reference path.
+// A process-wide identity index answers such a path with the TASK's assembly, the project's own file
+// is never loaded at all, and the project's `Compiler.dll` -- which the default context has never
+// heard of, so it lands in the owned context -- then has no `NSharpLang.Compiler.Core` to bind:
+// `Could not load file or assembly 'NSharpLang.Compiler.Core'`, measured on `src/NSharpLang.Playground`.
+// Asking the DEFAULT context rather than every context is what keeps the file the answer.
+test "an identity only another context carries is not the default context's to give" {
+    path := ExternalUnboundAssemblyPath()
+    assert path.Length > 0
+    identity := AssemblyName.GetAssemblyName(path).get_FullName()
+
+    owned := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert owned != null
+    assert !Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(owned), AssemblyLoadContext.Default)
+
+    // The process now carries the identity, and the default context still does not answer for it.
+    assert ExternalAssemblyScan.LoadedByIdentity().ContainsKey(identity)
+    assert ExternalAssemblyScan.DefaultContextAssemblyForIdentity(identity) == null
+
+    // And the owner still answers with the same handle rather than loading a second copy.
+    again := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert Object.ReferenceEquals(again, owned)
+}
+
+test "the compiler's own reference context is a stable context that is not the default one" {
+    first := ExternalAssemblyScan.ExactIdentityLoadContext()
+    second := ExternalAssemblyScan.ExactIdentityLoadContext()
+    assert first != null
+    assert Object.ReferenceEquals(first, second)
+    assert !Object.ReferenceEquals(first, AssemblyLoadContext.Default)
+
+    // A second copy of a name the default context already holds is what this context exists for,
+    // so it must never be the context the host's own assemblies were loaded into.
+    assert !Object.ReferenceEquals(first, AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly()))
+}
+
+// THE OWNED CONTEXT'S DEPENDENCY RULE. A reference loaded into the owned context resolves an identity
+// the COMPILER references to the handle the compiler's own context binds for it -- the handle the
+// reference set is paired with -- so a referenced assembly's member typed by one of those identities
+// names the same type the project names. Under MSBuild the compiler's context is not the default one,
+// and the default fallback used to answer with the SDK directory's build instead
+// (`tests/native/sdk-emit-path-parity`'s scan row is the product-path contract).
+test "the owned reference context binds an identity the compiler references to the compiler's own handle" {
+    compilerHandle := typeof(System.Reflection.MetadataLoadContext).get_Assembly()
+    identity := compilerHandle.GetName().get_FullName()
+    assert ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(identity)
+
+    bound := ExternalAssemblyScan.ExactIdentityLoadContext().LoadFromAssemblyName(new AssemblyName(identity))
+    assert Object.ReferenceEquals(bound, compilerHandle)
+}
+
+// THE ONE RULE BOTH ROUTES INTO THE OWNED CONTEXT ASK. A reference PATH whose identity the compiler
+// references is answered with the compiler's handle rather than loaded into the owned context as a
+// second copy -- a copy there would answer every later dependency edge from the context's own cache
+// before `Load` is ever asked (the Linux-CI split of `MetadataLoadContext` in Core's estate).
+test "an identity the compiler references is answered with the compiler's own handle" {
+    compilerHandle := typeof(System.Reflection.MetadataLoadContext).get_Assembly()
+    identity := compilerHandle.GetName().get_FullName()
+    assert Object.ReferenceEquals(ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity(identity), compilerHandle)
+}
+
+// The compiler's own slices ARE among its references -- Core references Model and Syntax -- and are
+// still never answered with the compiler's copy: a project's own build of them is what its path means.
+test "a compiler slice is never answered with the compiler's own copy, although the compiler references it" {
+    modelIdentity := typeof(ExternalAssemblyScan).get_Assembly().GetName().get_FullName()
+    assert ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(modelIdentity)
+    assert ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity(modelIdentity) == null
+}
+
+test "an identity the compiler does not reference, or references at another version, has no compiler handle" {
+    compilerHandle := typeof(System.Reflection.MetadataLoadContext).get_Assembly()
+    otherVersion := new AssemblyName(compilerHandle.GetName().get_FullName())
+    otherVersion.Version = new Version(1, 2, 3, 4)
+    assert ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity(otherVersion.get_FullName()) == null
+    assert ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity("NSharp.NotAnAssembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null") == null
+    assert ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity("") == null
+}
+
+test "the owned reference context leaves an identity the compiler does not reference to the default fallback" {
+    path := ExternalUnboundAssemblyPath()
+    assert path.Length > 0
+    identity := AssemblyName.GetAssemblyName(path).get_FullName()
+    assert !ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(identity)
+
+    // Nothing the compiler references is involved, so the owner still loads the project's file.
+    owned := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert owned != null
+    assert Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(owned), ExternalAssemblyScan.ExactIdentityLoadContext())
+}

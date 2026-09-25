@@ -1,0 +1,949 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Collections.Generic
+import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
+
+class ColumnarEnumInput {
+    nameValue: string
+    memberNamesValue: string[]
+    memberValuesValue: int[]
+    isStringBackedValue: bool
+    memberStringValuesValue: string[]
+    SourceFileId: int
+    // The attributes written on the enum DECLARATION. They reach the emitted type's rows, which is
+    // why `[Flags]` changes what `ToString()` prints.
+    SourceAttributes: ColumnarSourceAttributeInput[]?
+    // The attributes written on each declared member, indexed the same way every other member column
+    // is. Null at a slot the source wrote nothing at, and null as a whole for an input built before
+    // the members were read. A member becomes a LITERAL FIELD of the emitted enum, so these are
+    // field attributes and are measured against `AttributeTargets.Field`.
+    MemberSourceAttributes: ColumnarSourceAttributeInput[]?[]?
+
+    Name: string => nameValue
+    MemberNames: string[] => memberNamesValue
+    MemberValues: int[] => memberValuesValue
+    IsStringBacked: bool => isStringBackedValue
+    MemberStringValues: string[] => memberStringValuesValue
+
+    constructor(name: string, memberNames: string[], memberValues: int[], isStringBacked: bool = false, memberStringValues: string[]? = null, sourceFileId: int = 0) {
+        nameValue = name
+        memberNamesValue = memberNames
+        memberValuesValue = memberValues
+        isStringBackedValue = isStringBacked
+        memberStringValuesValue = memberStringValues ?? new string[](0)
+        SourceFileId = sourceFileId
+        SourceAttributes = null
+        MemberSourceAttributes = null
+    }
+
+    // The attributes written on the member at `index`, or none. Every member column is indexed the
+    // same way, so this is a bounds-guarded read of one row rather than a search.
+    func MemberSourceAttributesAt(index: int): ColumnarSourceAttributeInput[]? {
+        rows := MemberSourceAttributes
+        if rows == null || index < 0 || index >= rows.Length {
+            return null
+        }
+
+        return rows[index]
+    }
+}
+
+class ColumnarUnionInput {
+    nameValue: string
+    caseNamesValue: string[]
+    caseFieldNamesValue: string[][]
+    caseFieldTypeCanonicalsValue: string[][]
+    typeParamNamesValue: string[]
+    isValueStructValue: bool
+    SourceFileId: int
+
+    Name: string => nameValue
+    CaseNames: string[] => caseNamesValue
+    CaseFieldNames: string[][] => caseFieldNamesValue
+    CaseFieldTypeCanonicals: string[][] => caseFieldTypeCanonicalsValue
+    TypeParamNames: string[] => typeParamNamesValue
+    IsValueStruct: bool => isValueStructValue
+    TypeParamSpecialConstraints: int[]
+    TypeParamTypeConstraints: string[][]
+
+    constructor(name: string, caseNames: string[], caseFieldNames: string[][], caseFieldTypeCanonicals: string[][], typeParamNames: string[]? = null, isValueStruct: bool = false, sourceFileId: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null) {
+        nameValue = name
+        caseNamesValue = caseNames
+        caseFieldNamesValue = caseFieldNames
+        caseFieldTypeCanonicalsValue = caseFieldTypeCanonicals
+        typeParamNamesValue = typeParamNames ?? new string[](0)
+        isValueStructValue = isValueStruct
+        TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, typeParamNamesValue.Length)
+        TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, typeParamNamesValue.Length)
+        SourceFileId = sourceFileId
+    }
+}
+
+class ColumnarFunctionInput {
+    SourceAttributes: ColumnarSourceAttributeInput[]?
+    ParameterSourceAttributes: ColumnarSourceAttributeInput[][]?
+    Name: string
+    ReturnCanonical: string
+    ParamNames: string[]
+    ParamCanonicals: string[]
+    ParamModifierKinds: int[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
+    BodyNodes: ColumnarNodeTable
+    BodyRoot: int
+    IsStatic: bool
+    IsAsync: bool
+    ReturnTupleElementNames: string[]?
+    // The return and parameter types as WRITTEN, keeping every tuple element label at every level:
+    // `(Min:int,Max:int)`, `(A:int,D:(B:int,C:int))`, `List<(Min:int,Max:int)>`. The structural
+    // canonicals above discard those labels because a tuple's element names are metadata rather than
+    // identity, and `ReturnTupleElementNames` carries only the TOP-LEVEL ones. Emitting
+    // `TupleElementNamesAttribute` the way C# does needs the nested and generic-argument names too,
+    // and this is the only column that still has them.
+    ReturnLabeledCanonical: string
+    ParamLabeledCanonicals: string[]
+    TypeParamNames: string[]
+    TypeParamSpecialConstraints: int[]
+    TypeParamTypeConstraints: string[][]
+    ModifierFlags: int
+    // THE VISIBILITY WORD AS WRITTEN, SEPARATE FROM `ModifierFlags` ON PURPOSE. A top-level `func`'s
+    // `public`/`internal`/`protected`/`private` does not reach `ModifierFlags` (the declaration scan
+    // collects modifier words for structs only), and putting it there would change the CLR method
+    // attributes the declaration planner composes for every existing program. This column carries the
+    // word for the owners that must answer "is this function visible outside its own namespace?" —
+    // free-function identity above all — and changes no emitted metadata. Zero means "nothing
+    // written", which is the casing convention's cue.
+    VisibilityModifierFlags: int
+    SourceFileId: int
+    IsBodylessNativeImport: bool
+    NativeImportLibraryName: string
+    NativeImportEntryPoint: string
+    LocalFunctions: List<ColumnarLocalFunctionInput>?
+
+    // The declaration planner owns the override request. It is not a Reflection.Emit attribute:
+    // this is the source modifier bit carried by the parser input.
+    static func OverrideModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Override)
+    }
+
+    static func HasOverrideModifier(flags: int): bool {
+        return (flags & OverrideModifierFlag()) != 0
+    }
+
+    // The three INHERITANCE words a member may carry, read out of the same source modifier column
+    // the override request is. `abstract` and `virtual` each open a new virtual slot — the first
+    // without a body, the second with one — and `sealed` closes the slot an `override` reused.
+    static func AbstractModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Abstract)
+    }
+
+    static func HasAbstractModifier(flags: int): bool {
+        return (flags & AbstractModifierFlag()) != 0
+    }
+
+    static func VirtualModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Virtual)
+    }
+
+    static func HasVirtualModifier(flags: int): bool {
+        return (flags & VirtualModifierFlag()) != 0
+    }
+
+    static func SealedModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Sealed)
+    }
+
+    static func HasSealedModifier(flags: int): bool {
+        return (flags & SealedModifierFlag()) != 0
+    }
+
+    // A member with `abstract` and no `static` HAS NO BODY. The parser wrote no body nodes for it;
+    // every consumer that would otherwise walk one asks here first.
+    static func IsBodylessAbstractMember(flags: int, isStatic: bool): bool {
+        return HasAbstractModifier(flags) && !isStatic
+    }
+
+    constructor(name: string, returnCanonical: string, paramNames: string[], paramCanonicals: string[], bodyNodes: ColumnarNodeTable, bodyRoot: int, isStatic: bool = false, typeParamNames: string[]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, returnTupleElementNames: string[]? = null, paramModifierKinds: int[]? = null, paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isAsync: bool = false, modifierFlags: int = 0, sourceFileId: int = 0, isBodylessNativeImport: bool = false, nativeImportLibraryName: string = "", nativeImportEntryPoint: string = "", returnLabeledCanonical: string? = null, paramLabeledCanonicals: string[]? = null) {
+        Name = name
+        ReturnCanonical = returnCanonical
+        IsAsync = isAsync
+        ModifierFlags = modifierFlags
+        VisibilityModifierFlags = 0
+        SourceFileId = sourceFileId
+        IsBodylessNativeImport = isBodylessNativeImport
+        NativeImportLibraryName = nativeImportLibraryName
+        NativeImportEntryPoint = nativeImportEntryPoint
+        ParamNames = paramNames
+        ParamCanonicals = paramCanonicals
+        ParamModifierKinds = paramModifierKinds ?? new int[](0)
+        ParamDefaultKinds = paramDefaultKinds ?? new int[](0)
+        ParamDefaultTexts = paramDefaultTexts ?? new string[](0)
+        BodyNodes = bodyNodes
+        BodyRoot = bodyRoot
+        IsStatic = isStatic
+        ReturnTupleElementNames = returnTupleElementNames
+        ReturnLabeledCanonical = returnLabeledCanonical ?? returnCanonical
+        ParamLabeledCanonicals = paramLabeledCanonicals ?? paramCanonicals
+        TypeParamNames = typeParamNames ?? new string[](0)
+        TypeParamSpecialConstraints = typeParamSpecialConstraints ?? new int[](TypeParamNames.Length)
+        if typeParamTypeConstraints == null {
+            typeParamTypeConstraints = new string[][](TypeParamNames.Length)
+            t := 0
+            while t < typeParamTypeConstraints.Length {
+                typeParamTypeConstraints[t] = new string[](0)
+                t = t + 1
+            }
+        }
+
+        TypeParamTypeConstraints = typeParamTypeConstraints
+    }
+}
+
+class ColumnarLocalFunctionInput {
+    NodeIndex: int
+    Function: ColumnarFunctionInput
+
+    constructor(nodeIndex: int, function: ColumnarFunctionInput) {
+        NodeIndex = nodeIndex
+        Function = function
+    }
+}
+
+class ColumnarConstructorInput {
+    Body: ColumnarFunctionInput
+    ChainInitKind: int
+    ChainArgKinds: int[]
+    ChainArgTexts: string[]
+    ChainArgNames: string[]
+    ChainArgNodes: ColumnarNodeTable[]
+    ChainArgRoots: int[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
+    VisibilityModifierFlags: int
+    IsSynthesizedInitializer: bool
+    SourceFileId: int
+
+    constructor(body: ColumnarFunctionInput, chainInitKind: int, chainArgKinds: int[], chainArgTexts: string[], paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isSynthesizedInitializer: bool = false, sourceFileId: int = 0) {
+        Body = body
+        ChainInitKind = chainInitKind
+        ChainArgKinds = chainArgKinds
+        ChainArgTexts = chainArgTexts
+        ChainArgNames = new string[](chainArgTexts.Length)
+        ChainArgNodes = new ColumnarNodeTable[](0)
+        ChainArgRoots = new int[](0)
+        ParamDefaultKinds = paramDefaultKinds ?? new int[](0)
+        ParamDefaultTexts = paramDefaultTexts ?? new string[](0)
+        VisibilityModifierFlags = 0
+        IsSynthesizedInitializer = isSynthesizedInitializer
+        SourceFileId = sourceFileId
+    }
+}
+
+class ColumnarPropertyInput {
+    IsStatic: bool
+    HasMsBuildRequiredAttribute: bool
+    // These marker facts are retained on the property input so the emitter can attach the exact
+    // framework attributes without treating arbitrary skipped attributes as CLR metadata.
+    HasMsBuildOutputAttribute: bool
+    // The `required` and `init` words the declaration wrote. `required` puts a
+    // `RequiredMemberAttribute` on the property row; `init` puts `modreq(IsExternalInit)` on the
+    // setter's return type, which is how every CLR language spells an init-only accessor.
+    IsRequired: bool
+    IsInitOnly: bool
+    Name: string
+    TypeCanonical: string
+    Getter: ColumnarFunctionInput
+    Setter: ColumnarFunctionInput?
+    SourceFileId: int
+
+    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false, isRequired: bool = false, isInitOnly: bool = false) {
+        IsStatic = isStatic
+        HasMsBuildRequiredAttribute = hasMsBuildRequiredAttribute
+        HasMsBuildOutputAttribute = hasMsBuildOutputAttribute
+        IsRequired = isRequired
+        IsInitOnly = isInitOnly
+        Name = name
+        TypeCanonical = typeCanonical
+        Getter = getter
+        Setter = setter
+        SourceFileId = sourceFileId
+    }
+}
+
+class ColumnarStructInput {
+    SourceAttributes: ColumnarSourceAttributeInput[]?
+    // The attributes written on each declared field, indexed the same way every other field column
+    // is. Null at a slot the source wrote nothing at, and null as a whole for an input built before
+    // the fields were read.
+    FieldSourceAttributes: ColumnarSourceAttributeInput[]?[]?
+    Name: string
+    FieldNames: string[]
+    FieldTypeCanonicals: string[]
+    Methods: IReadOnlyList<ColumnarFunctionInput>
+    Constructors: IReadOnlyList<ColumnarConstructorInput>
+    Properties: IReadOnlyList<ColumnarPropertyInput>
+    IsReference: bool
+    IsSealed: bool
+    // `abstract class C` — the declaration says this type has no direct instances. The analyzer
+    // already refuses `new C()` (NL803) and an unimplemented inherited member (NL324); this is the
+    // metadata bit that makes the CLR agree.
+    IsAbstract: bool
+    IsRefStruct: bool
+    // `readonly struct S` / `readonly ref struct S` / `readonly record struct S`: the declaration promises
+    // that no instance state changes after construction, which the assembly owner turns into an
+    // `IsReadOnlyAttribute` on the emitted type. The analyzer has already proved every instance field
+    // carries `readonly`, so this bit adds metadata and never changes layout or field attributes.
+    IsReadonlyStruct: bool
+    BaseNames: string[]
+    FieldStaticFlags: bool[]
+    FieldReadonlyFlags: bool[]
+    FieldPrivateFlags: bool[]
+    // The accessibility words written on each field, in the `Modifiers` bit space. `FieldPrivateFlags`
+    // is the `private` bit of this same word and is kept because the storage decisions beside it read
+    // a boolean; every ACCESSIBILITY decision reads this column.
+    FieldVisibilityFlags: int[]
+    FieldThreadStaticFlags: bool[]
+    FieldConstFlags: bool[]
+    // Which field rows are SOURCE-DECLARED EVENTS. A field-like event's storage IS a field — that is
+    // what C# emits and what makes `Changed?.Invoke(...)` inside the declaring type an ordinary read —
+    // so it travels in the field columns, and this bit is what tells the emitter to force the storage
+    // private, stamp it `[CompilerGenerated]`, and define the `add_`/`remove_` accessors and the
+    // `EventInfo` row that make the member an event to every other language.
+    FieldEventFlags: bool[]
+    // The three inheritance words written on each row. Only an EVENT row can act on them: an event's
+    // accessors are ordinary methods, so `virtual` and `abstract` open a slot and `override` reuses
+    // the base's, exactly as they do on a `func`. A plain field carrying one is NL311 before emission.
+    FieldVirtualFlags: bool[]
+    FieldAbstractFlags: bool[]
+    FieldOverrideFlags: bool[]
+    // `required` and `init` as written on each row. `required` keeps the row a field and adds the
+    // `RequiredMemberAttribute` a caller's object initializer is checked against; `init` makes the
+    // row an init-only auto-property — the CLR spells "settable only while the object is being
+    // created" as a setter whose return type carries `modreq(IsExternalInit)`, and a field has no
+    // setter to put it on.
+    FieldRequiredFlags: bool[]
+    FieldInitOnlyFlags: bool[]
+    FieldInitKinds: int[]
+    FieldInitTexts: string[]
+    // The synthesized `.cctor` body: `Name = <expression>` statements, in textual order, for every
+    // non-const static field that declares an initializer. Null for a type that declares none, and
+    // the emitter defines no type initializer for such a type.
+    StaticInitializer: ColumnarFunctionInput?
+    IsRecord: bool
+    IsNewtype: bool
+    TypeParamNames: string[]
+    // The generic-constraint columns, in the SAME shape a function input carries them: one special-flag
+    // word per type parameter, and one array of constraint type texts per type parameter.
+    TypeParamSpecialConstraints: int[]
+    TypeParamTypeConstraints: string[][]
+    SourceFileId: int
+    EnclosingTypeName: string
+    NestedVisibilityAttributes: int
+    // THE SAME QUESTION FOR A TOP-LEVEL TYPE. A nested type has answered it by casing since
+    // `NestedVisibilityFor` existed; a top-level one was hard-coded `Public`, which made the casing rule
+    // stop at the namespace boundary for types alone while it held for every member and free function.
+    TopLevelVisibilityAttributes: int
+
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null, fieldVirtualFlags: bool[]? = null, fieldAbstractFlags: bool[]? = null, fieldOverrideFlags: bool[]? = null, fieldRequiredFlags: bool[]? = null, fieldInitOnlyFlags: bool[]? = null) {
+        Name = name
+        FieldNames = fieldNames
+        FieldTypeCanonicals = fieldTypeCanonicals
+        Methods = methods
+        Constructors = constructors
+        Properties = properties
+        IsReference = isReference
+        IsSealed = (visibilityModifierFlags & 128) != 0
+        IsAbstract = isReference && (visibilityModifierFlags & 64) != 0
+        IsRefStruct = isRefStruct
+        IsReadonlyStruct = !isReference && (visibilityModifierFlags & 512) != 0
+        BaseNames = baseNames ?? new string[](0)
+        FieldStaticFlags = fieldStaticFlags ?? new bool[](fieldNames.Length)
+        FieldReadonlyFlags = fieldReadonlyFlags ?? new bool[](fieldNames.Length)
+        if fieldInitKinds == null {
+            fieldInitKinds = new int[](fieldNames.Length)
+            i := 0
+            while i < fieldInitKinds.Length {
+                fieldInitKinds[i] = -1
+                i = i + 1
+            }
+        }
+
+        FieldInitKinds = fieldInitKinds
+        FieldInitTexts = fieldInitTexts ?? new string[](fieldNames.Length)
+        IsRecord = isRecord
+        IsNewtype = isNewtype
+        TypeParamNames = typeParamNames ?? new string[](0)
+        TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, TypeParamNames.Length)
+        TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, TypeParamNames.Length)
+        SourceFileId = sourceFileId
+        EnclosingTypeName = enclosingTypeName ?? ""
+        NestedVisibilityAttributes = NestedVisibilityFor(name, visibilityModifierFlags)
+        TopLevelVisibilityAttributes = TopLevelVisibilityFor(name, visibilityModifierFlags)
+        FieldPrivateFlags = fieldPrivateFlags ?? new bool[](fieldNames.Length)
+        FieldVisibilityFlags = fieldVisibilityFlags ?? new int[](fieldNames.Length)
+        FieldThreadStaticFlags = fieldThreadStaticFlags ?? new bool[](fieldNames.Length)
+        FieldConstFlags = fieldConstFlags ?? new bool[](fieldNames.Length)
+        FieldEventFlags = fieldEventFlags ?? new bool[](fieldNames.Length)
+        FieldVirtualFlags = fieldVirtualFlags ?? new bool[](fieldNames.Length)
+        FieldAbstractFlags = fieldAbstractFlags ?? new bool[](fieldNames.Length)
+        FieldOverrideFlags = fieldOverrideFlags ?? new bool[](fieldNames.Length)
+        FieldRequiredFlags = fieldRequiredFlags ?? new bool[](fieldNames.Length)
+        FieldInitOnlyFlags = fieldInitOnlyFlags ?? new bool[](fieldNames.Length)
+    }
+
+    // The attributes written on the field at `index`, or none. Every field column is indexed the
+    // same way, so this is a bounds-guarded read of one row rather than a search.
+    func FieldSourceAttributesAt(index: int): ColumnarSourceAttributeInput[]? {
+        rows := FieldSourceAttributes
+        if rows == null || index < 0 || index >= rows.Length {
+            return null
+        }
+
+        return rows[index]
+    }
+
+    // The synthesized static-initializer body's name. It is never emitted as a method — the emitter
+    // writes its statements into the type initializer — but every body carries one for diagnostics.
+    static func StaticInitializerName(): string {
+        return "<StaticInitialize>$"
+    }
+
+    // A TOP-LEVEL TYPE'S `TypeAttributes` VISIBILITY WORD: `Public` (1) when the type is exported from
+    // its package, and `NotPublic` (0) — which the CLR reads as assembly-only — when it is not. The
+    // rule is `VisibilityConventions`', so a written `public`/`internal`/`private`/`protected` word wins
+    // and the CASING decides when none was written. This is the Go rule applied to types: a lowercase
+    // identifier is unexported, and a type is an identifier like any other.
+    static func TopLevelVisibilityFor(name: string, flags: int): int {
+        if VisibilityConventions.IsExportedIdentifierWithFlags(DeclaredSimpleName(name), flags) {
+            return 1
+        }
+
+        return 0
+    }
+
+    // THE CASING RULE ASKS ABOUT THE DECLARED NAME, NOT THE EMITTED ONE. A struct input carries its
+    // simple name, but an interface, enum or union input can reach a caller already qualified
+    // (`App.Models.iValidator`) — and the first letter of a NAMESPACE says nothing about whether the
+    // package exported the type. Reading the whole string made every qualified declaration look
+    // exported, which is a silent wrong answer rather than a loud one, so the trim happens here where
+    // every caller gets it. A generic arity suffix is dropped for the same reason: `box`1` is `box`.
+    static func DeclaredSimpleName(name: string): string {
+        if name == null || name.Length == 0 {
+            return ""
+        }
+
+        simple := name
+        lastDot := simple.LastIndexOf('.')
+        if lastDot >= 0 && lastDot + 1 < simple.Length {
+            simple = simple.Substring(lastDot + 1)
+        }
+
+        lastPlus := simple.LastIndexOf('+')
+        if lastPlus >= 0 && lastPlus + 1 < simple.Length {
+            simple = simple.Substring(lastPlus + 1)
+        }
+
+        tick := simple.IndexOf('`')
+        if tick > 0 {
+            simple = simple.Substring(0, tick)
+        }
+
+        return simple
+    }
+
+    static func NestedVisibilityFor(name: string, flags: int): int {
+        if (flags & 1) != 0 {
+            return 2
+        }
+        if (flags & 2) != 0 {
+            return 3
+        }
+        if (flags & 4) != 0 {
+            return 4
+        }
+        if (flags & 8) != 0 {
+            return 5
+        }
+        if name.Length > 0 && char.IsUpper(name[0]) {
+            return 2
+        }
+        return 3
+    }
+}
+
+class ColumnarInterfaceInput {
+    Name: string
+    BaseInterfaceNames: string[]
+    TypeParamNames: string[]
+    MethodNames: string[]
+    MethodReturnCanonicals: string[]
+    MethodParamNames: string[][]
+    MethodParamCanonicals: string[][]
+    MethodParamModifierKinds: int[][]
+    MethodBodies: ColumnarFunctionInput?[]
+    // `event Name: DelegateType` members. An interface event is two ABSTRACT accessor slots plus an
+    // `EventInfo` row, so the only facts a row carries are the name and the handler delegate type —
+    // there is no body, no storage and no parameter list.
+    EventNames: string[]
+    EventHandlerCanonicals: string[]
+    // `Name: Type` members. An interface's value member is written bare, the way a class writes one,
+    // and what it declares is a GET-ONLY abstract property: one `get_Name` slot plus the
+    // `PropertyInfo` row naming it. There is no body, no storage and no setter — everything an
+    // implementer can read, a field included, can fill a read slot.
+    PropertyNames: string[]
+    PropertyTypeCanonicals: string[]
+    TypeParamSpecialConstraints: int[]
+    TypeParamTypeConstraints: string[][]
+    SourceFileId: int
+    // `duck interface` rather than `interface`. ONLY a duck interface is structural: the backend
+    // writes it onto every type whose members satisfy it. A plain interface is NOMINAL — a type
+    // implements it by naming it in its base list and in no other way, so an empty marker interface
+    // is implemented by nothing that does not declare it.
+    IsDuck: bool
+
+    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, eventNames: string[]? = null, eventHandlerCanonicals: string[]? = null, propertyNames: string[]? = null, propertyTypeCanonicals: string[]? = null, isDuck: bool = false) {
+        Name = name
+        BaseInterfaceNames = baseInterfaceNames
+        TypeParamNames = typeParamNames ?? new string[](0)
+        MethodNames = methodNames
+        MethodReturnCanonicals = methodReturnCanonicals
+        MethodParamNames = methodParamNames
+        MethodParamCanonicals = methodParamCanonicals
+        MethodParamModifierKinds = methodParamModifierKinds ?? CreateMethodParamModifierKinds(methodNames, methodParamCanonicals)
+        MethodBodies = methodBodies ?? new ColumnarFunctionInput?[](methodNames.Length)
+        EventNames = eventNames ?? new string[](0)
+        EventHandlerCanonicals = eventHandlerCanonicals ?? new string[](0)
+        PropertyNames = propertyNames ?? new string[](0)
+        PropertyTypeCanonicals = propertyTypeCanonicals ?? new string[](0)
+        TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, TypeParamNames.Length)
+        TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, TypeParamNames.Length)
+        SourceFileId = sourceFileId
+        IsDuck = isDuck
+    }
+
+    static func CreateMethodParamModifierKinds(methodNames: string[], methodParamCanonicals: string[][]): int[][] {
+        result := new int[][](methodNames.Length)
+        i := 0
+        while i < result.Length {
+            result[i] = new int[](methodParamCanonicals[i].Length)
+            i = i + 1
+        }
+
+        return result
+    }
+}
+
+// One PLAIN top-level test declaration (`test "<description>" { body }`). The body reuses the
+// function-input shape so node tables, source-file stamping, and body emission share machinery.
+//
+// THE ATTRIBUTES A TEST CARRIES ARE THE ONES ITS AUTHOR WROTE. A `test` block lowers to a method, so
+// an attribute written above it is an attribute on that method — including one deriving from
+// `FactAttribute`, which is how xunit is told a test is conditional (`Skip`) or categorised. They
+// travel in the shape every other declaration's source attributes travel in, so the binder and the
+// blob writer that already exist are the ones that write them.
+class ColumnarTestInput {
+    descriptionValue: string
+    bodyValue: ColumnarFunctionInput
+    sourceAttributesValue: ColumnarSourceAttributeInput[]
+
+    Description: string => descriptionValue
+    Body: ColumnarFunctionInput => bodyValue
+    SourceAttributes: ColumnarSourceAttributeInput[] => sourceAttributesValue
+
+    constructor(description: string, body: ColumnarFunctionInput, sourceAttributes: ColumnarSourceAttributeInput[]? = null) {
+        descriptionValue = description
+        bodyValue = body
+        sourceAttributesValue = sourceAttributes ?? System.Array.Empty<ColumnarSourceAttributeInput>()
+    }
+}
+
+class ColumnarProgramInput {
+    bindingScope: ColumnarBindingScopeFacts
+    ProjectRoot: string
+    Source: string
+    Sources: ColumnarSourceFile[]
+    Functions: IReadOnlyList<ColumnarFunctionInput>
+    Enums: IReadOnlyList<ColumnarEnumInput>
+    Structs: IReadOnlyList<ColumnarStructInput>
+    Unions: IReadOnlyList<ColumnarUnionInput>
+    Interfaces: IReadOnlyList<ColumnarInterfaceInput>
+    Tests: IReadOnlyList<ColumnarTestInput>?
+
+    static func CreateSingleSource(source: string, functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
+        return new ColumnarProgramInput(source, functions, enums, structs, unions, interfaces, BuildSingleSourceFiles(source), tests, null)
+    }
+
+    static func CreateFromSourceFiles(sourceFiles: ColumnarSourceFile[], functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
+        return new ColumnarProgramInput(GetFirstSource(sourceFiles), functions, enums, structs, unions, interfaces, sourceFiles, tests, null)
+    }
+
+    static func MergeSourceFiles(sourceFiles: ColumnarSourceFile[], programs: ColumnarProgramInput[]): ColumnarProgramInput {
+        return MergeSourceFilesAtProjectRoot(sourceFiles, programs, "")
+    }
+
+    static func MergeSourceFilesAtProjectRoot(sourceFiles: ColumnarSourceFile[], programs: ColumnarProgramInput[], projectRoot: string): ColumnarProgramInput {
+        functions := new List<ColumnarFunctionInput>()
+        enums := new List<ColumnarEnumInput>()
+        structs := new List<ColumnarStructInput>()
+        unions := new List<ColumnarUnionInput>()
+        interfaces := new List<ColumnarInterfaceInput>()
+        tests := new List<ColumnarTestInput>()
+
+        for program in programs {
+            AddAll(functions, program.Functions)
+            AddAll(enums, program.Enums)
+            AddAll(structs, program.Structs)
+            AddAll(unions, program.Unions)
+            AddAll(interfaces, program.Interfaces)
+            programTests := program.Tests
+            if programTests != null {
+                AddAll(tests, programTests)
+            }
+        }
+
+        return new ColumnarProgramInput(GetFirstSource(sourceFiles), functions, enums, structs, unions, interfaces, sourceFiles, tests, projectRoot)
+    }
+
+    static func AssignSourceFileId(program: ColumnarProgramInput, sourceFileId: int) {
+        AssignFunctionListSourceFileId(program.Functions, sourceFileId)
+        AssignEnumListSourceFileId(program.Enums, sourceFileId)
+        AssignStructListSourceFileId(program.Structs, sourceFileId)
+        AssignUnionListSourceFileId(program.Unions, sourceFileId)
+        AssignInterfaceListSourceFileId(program.Interfaces, sourceFileId)
+        programTests := program.Tests
+        if programTests != null {
+            for programTest in programTests {
+                AssignFunctionSourceFileId(programTest.Body, sourceFileId)
+            }
+        }
+    }
+
+    constructor(source: string, functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, sourceFiles: ColumnarSourceFile[]? = null, tests: IReadOnlyList<ColumnarTestInput>? = null, projectRoot: string? = null) {
+        Source = source
+        Sources = sourceFiles ?? BuildSingleSourceFiles(source)
+        ProjectRoot = projectRoot ?? ""
+        Functions = functions
+        Enums = enums
+        Structs = structs
+        Unions = unions
+        Interfaces = interfaces
+        Tests = tests
+        bindingScope = ColumnarBindingScopeFacts.Create(Sources, Enums, Structs, Unions, Interfaces, ProjectRoot)
+
+        StampBindingContexts(bindingScope)
+    }
+
+    func PrepareExternalTypeBindings(referenceAssemblyPaths: IReadOnlyList<string>?) {
+        bindingScope.PrepareExternalTypeBindings(referenceAssemblyPaths)
+    }
+
+    // The referenced assemblies' free-function holders in one namespace (`""` is the global one) --
+    // asked by `ColumnarFreeFunctionScope` once the external bindings are prepared.
+    func ExternalFreeFunctionHolders(namespaceName: string, rootHolderTypeName: string): List<Type> {
+        return bindingScope.ExternalFreeFunctionHolders(namespaceName, rootHolderTypeName)
+    }
+
+    func GetSourceForFileId(fileId: int): string {
+        if fileId >= 0 && fileId < Sources.Length {
+            return Sources[fileId].Source
+        }
+
+        return Source
+    }
+
+    // The file's own name, for an owner that must NAME a declaration after the file that wrote it —
+    // the lowered `test` container above all. A single-source program has no file name to give.
+    func GetFileNameForFileId(fileId: int): string {
+        if fileId >= 0 && fileId < Sources.Length {
+            return Sources[fileId].FileName
+        }
+
+        return ""
+    }
+
+    // The assembly owner asks N# for the semantic declaration identity and then uses the returned
+    // string mechanically as the CLR builder/registry name. Namespace interpretation must never
+    // be reconstructed in C#.
+    func ExactTypeNameForFile(name: string, sourceFileId: int): string {
+        return bindingScope.ExactTypeNameForFile(name, sourceFileId)
+    }
+
+    // A FILE'S NAMESPACE AND ITS IMPORTS, for the owners that must key a declaration or resolve a
+    // bare name by namespace rather than by bare spelling — free-function identity above all.
+    func NamespaceNameForFile(sourceFileId: int): string {
+        return bindingScope.NamespaceNameForFile(sourceFileId)
+    }
+
+    func NamespaceImportsForFile(sourceFileId: int): List<string> {
+        return bindingScope.NamespaceImportsForFile(sourceFileId)
+    }
+
+    func FileImportSourceFileIdsForFile(sourceFileId: int): List<int> {
+        return bindingScope.FileImportSourceFileIdsForFile(sourceFileId)
+    }
+
+    func DeclaresSourceTypeNamed(exactName: string): bool {
+        return bindingScope.DeclaresSourceTypeNamed(exactName)
+    }
+
+    func ExactStructTypeName(input: ColumnarStructInput): string {
+        return bindingScope.ExactStructTypeName(input)
+    }
+
+    func ExactInterfaceTypeName(input: ColumnarInterfaceInput): string {
+        return bindingScope.ExactInterfaceTypeName(input)
+    }
+
+    func ExactUnionTypeName(input: ColumnarUnionInput): string {
+        return bindingScope.ExactUnionTypeName(input)
+    }
+
+    func ExactRelativeTypeNameForFile(name: string, sourceFileId: int): string {
+        return bindingScope.ExactRelativeTypeNameForFile(name, sourceFileId)
+    }
+
+    // The spelling a file writes for one of its own exact declaration identities — the namespace
+    // prefix removed when it is this file's own. A lexical rewrite hands the per-file walk a name it
+    // recognises as locally declared instead of a global identity it would hold to the export rule.
+    func FileRelativeExactTypeName(sourceFileId: int, exactName: string): string {
+        return bindingScope.FileRelativeExactTypeName(sourceFileId, exactName)
+    }
+
+    // Metadata declaration sites do not own a node-table view, so select the same immutable
+    // per-file semantic scope explicitly before resolving a live type handle.
+    func TryResolveExactExplicitTypeForFile(sourceFileId: int, canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {
+        claimed := false
+        return TryResolveExactExplicitTypeForFile(sourceFileId, canonical, bindings, out result, out claimed)
+    }
+
+    func TryResolveExactExplicitTypeForFile(sourceFileId: int, canonical: string, bindings: ColumnarFragmentBindings, out result: Type, out claimed: bool): bool {
+        fileScope := bindingScope.ForSourceFile(sourceFileId)
+        return fileScope.TryResolveExactExplicitType(canonical, bindings, out result, out claimed)
+    }
+
+    // Definition registries need the declaration identity, not a CLR Type. This is especially
+    // important for string-backed enums, whose distinct source declarations all erase to
+    // System.String. Keep that selection in the same per-file N# binding scope as explicit type
+    // resolution so the mechanical assembly owner never probes candidate declarations.
+    func TryResolveExactSourceDeclarationNameForFile(sourceFileId: int, canonical: string, out exactName: string, out claimed: bool): bool {
+        fileScope := bindingScope.ForSourceFile(sourceFileId)
+        return fileScope.TryResolveExactSourceDeclarationName(canonical, out exactName, out claimed)
+    }
+
+    static func BuildSingleSourceFiles(source: string): ColumnarSourceFile[] {
+        sources := new string[](1)
+        fileNames := new string[](1)
+        sources[0] = source
+        fileNames[0] = ""
+        return ColumnarEmissionPlanner.BuildSourceFiles(sources, fileNames)
+    }
+
+    func StampBindingContexts(scope: ColumnarBindingScopeFacts) {
+        noTypeParameters := new string[](0)
+        for function2 in Functions {
+            StampFunctionBindingContext(function2, scope, "", noTypeParameters, null)
+        }
+
+        for structInput in Structs {
+            staticInitializer := structInput.StaticInitializer
+            if staticInitializer != null {
+                StampFunctionBindingContext(staticInitializer, scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
+            }
+
+            methodIndex := 0
+            while methodIndex < structInput.Methods.Count {
+                StampFunctionBindingContext(structInput.Methods[methodIndex], scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
+
+                methodIndex = methodIndex + 1
+            }
+
+            constructorIndex := 0
+            while constructorIndex < structInput.Constructors.Count {
+                constructorInput := structInput.Constructors[constructorIndex]
+                exactStructName := scope.ExactStructTypeName(structInput)
+                StampFunctionBindingContext(constructorInput.Body, scope, exactStructName, structInput.TypeParamNames, null)
+                chainArgIndex := 0
+                while chainArgIndex < constructorInput.ChainArgNodes.Length {
+                    constructorInput.ChainArgNodes[chainArgIndex].SetBindingContext(
+                        scope.ForSourceFile(constructorInput.SourceFileId),
+                        exactStructName,
+                        structInput.TypeParamNames,
+                        null
+                    )
+                    chainArgIndex = chainArgIndex + 1
+                }
+
+                constructorIndex = constructorIndex + 1
+            }
+
+            propertyIndex := 0
+            while propertyIndex < structInput.Properties.Count {
+                propertyInput := structInput.Properties[propertyIndex]
+                StampFunctionBindingContext(propertyInput.Getter, scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
+
+                if propertyInput.Setter != null {
+                    StampFunctionBindingContext(propertyInput.Setter, scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
+                }
+
+                propertyIndex = propertyIndex + 1
+            }
+        }
+
+        for interfaceInput in Interfaces {
+            if interfaceInput.MethodNames.Length != interfaceInput.MethodBodies.Length {
+                throw new InvalidOperationException("Columnar interface method names and bodies must have identical lengths.")
+            }
+
+            visibleInterfaceMethodNames := new List<string>()
+            methodIndex := 0
+            while methodIndex < interfaceInput.MethodBodies.Length {
+
+                // The analyzer has no implicit `this` in an interface and analyzes methods
+                // sequentially. The current method declares itself before its body; later and
+                // base-interface methods are not lexical bindings in this body.
+                visibleInterfaceMethodNames.Add(interfaceInput.MethodNames[methodIndex])
+
+                body := interfaceInput.MethodBodies[methodIndex]
+                if body != null {
+                    StampFunctionBindingContext(body, scope, "", interfaceInput.TypeParamNames, visibleInterfaceMethodNames.ToArray())
+                }
+
+                methodIndex = methodIndex + 1
+            }
+        }
+
+        if Tests != null {
+            for test2 in Tests {
+                StampFunctionBindingContext(test2.Body, scope, "", noTypeParameters, null)
+            }
+        }
+    }
+
+    static func StampFunctionBindingContext(function: ColumnarFunctionInput, scope: ColumnarBindingScopeFacts, enclosingTypeName: string, inheritedTypeParameterNames: string[], additionalRootBindingNames: string[]?) {
+        visibleTypeParameters := MergeNames(inheritedTypeParameterNames, function.TypeParamNames)
+
+        function.BodyNodes.SetBindingContext(scope.ForSourceFile(function.SourceFileId), enclosingTypeName, visibleTypeParameters, additionalRootBindingNames)
+
+        localFunctions := function.LocalFunctions
+        if localFunctions != null {
+            for localFunction in localFunctions {
+                StampFunctionBindingContext(localFunction.Function, scope, enclosingTypeName, visibleTypeParameters, additionalRootBindingNames)
+            }
+        }
+    }
+
+    static func MergeNames(first: string[], second: string[]): string[] {
+        result := new string[](first.Length + second.Length)
+        index := 0
+        while index < first.Length {
+            result[index] = first[index]
+            index = index + 1
+        }
+
+        for secondItem in second {
+            result[index] = secondItem
+            index = index + 1
+        }
+
+        return result
+    }
+
+    static func AssignFunctionSourceFileId(function: ColumnarFunctionInput, sourceFileId: int) {
+        function.SourceFileId = sourceFileId
+        localFunctions := function.LocalFunctions
+        if localFunctions != null {
+            for localFunction in localFunctions {
+                AssignFunctionSourceFileId(localFunction.Function, sourceFileId)
+            }
+        }
+    }
+
+    static func AssignFunctionListSourceFileId(functions: IReadOnlyList<ColumnarFunctionInput>, sourceFileId: int) {
+        for function in functions {
+            AssignFunctionSourceFileId(function, sourceFileId)
+        }
+    }
+
+    static func AssignEnumListSourceFileId(enums: IReadOnlyList<ColumnarEnumInput>, sourceFileId: int) {
+        for enumInput in enums {
+            enumInput.SourceFileId = sourceFileId
+        }
+    }
+
+    static func AssignStructListSourceFileId(structs: IReadOnlyList<ColumnarStructInput>, sourceFileId: int) {
+        for structItem in structs {
+            AssignStructSourceFileId(structItem, sourceFileId)
+        }
+    }
+
+    static func AssignUnionListSourceFileId(unions: IReadOnlyList<ColumnarUnionInput>, sourceFileId: int) {
+        for unionInput in unions {
+            unionInput.SourceFileId = sourceFileId
+        }
+    }
+
+    static func AssignInterfaceListSourceFileId(interfaces: IReadOnlyList<ColumnarInterfaceInput>, sourceFileId: int) {
+        for interfaceItem in interfaces {
+            AssignInterfaceSourceFileId(interfaceItem, sourceFileId)
+        }
+    }
+
+    static func AssignStructSourceFileId(structInput: ColumnarStructInput, sourceFileId: int) {
+        structInput.SourceFileId = sourceFileId
+        staticInitializer := structInput.StaticInitializer
+        if staticInitializer != null {
+            AssignFunctionSourceFileId(staticInitializer, sourceFileId)
+        }
+
+        for method2 in structInput.Methods {
+            AssignFunctionSourceFileId(method2, sourceFileId)
+        }
+
+        for constructorInput in structInput.Constructors {
+            constructorInput.SourceFileId = sourceFileId
+            AssignFunctionSourceFileId(constructorInput.Body, sourceFileId)
+        }
+
+        for property2 in structInput.Properties {
+            AssignPropertySourceFileId(property2, sourceFileId)
+        }
+    }
+
+    static func AssignPropertySourceFileId(propertyInput: ColumnarPropertyInput, sourceFileId: int) {
+        propertyInput.SourceFileId = sourceFileId
+        AssignFunctionSourceFileId(propertyInput.Getter, sourceFileId)
+
+        setter := propertyInput.Setter
+        if setter != null {
+            AssignFunctionSourceFileId(setter, sourceFileId)
+        }
+    }
+
+    static func AssignInterfaceSourceFileId(interfaceInput: ColumnarInterfaceInput, sourceFileId: int) {
+        interfaceInput.SourceFileId = sourceFileId
+
+        for methodBody in interfaceInput.MethodBodies {
+            if methodBody != null {
+                AssignFunctionSourceFileId(methodBody, sourceFileId)
+            }
+        }
+    }
+
+    // ONE APPEND. `AddFunctions`, `AddTests`, `AddEnums`, `AddStructs`, `AddUnions` and
+    // `AddInterfaces` were the same three-line loop over a different element type.
+    static func AddAll<T>(target: List<T>, source: IReadOnlyList<T>) {
+        for sourceItem in source {
+            target.Add(sourceItem)
+        }
+    }
+
+    static func GetFirstSource(sourceFiles: ColumnarSourceFile[]): string {
+        if sourceFiles.Length == 0 {
+            return ""
+        }
+
+        return sourceFiles[0].Source
+    }
+}

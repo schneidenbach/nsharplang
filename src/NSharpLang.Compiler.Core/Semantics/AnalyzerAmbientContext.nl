@@ -1,0 +1,1406 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import NSharpLang.Compiler.Ast
+
+
+// A SNAPSHOT OF THE WHOLE AMBIENT CONTEXT, HELD BY THE CALLER FOR THE LENGTH OF ONE NESTED WALK.
+//
+// The frame is handed BACK to the C# caller rather than pushed onto a stack inside the context, and
+// that is a deliberate lifetime decision, not a convenience. Of the seven save/restore idioms the
+// analyzer uses, exactly ONE — the block-bodied lambda — restores from a `finally`; the other six
+// restore on the straight line and are SKIPPED when the walk throws. An internal stack would pop in
+// `Exit`, so a throw would leave a stale frame on it and the NEXT `Exit` would restore the wrong
+// one; worse, it would quietly make six idioms exception-safe that are not. A frame in the caller's
+// own local is abandoned by a throw exactly as the C# locals were.
+class AmbientContextFrame {
+    ReturnType: TypeInfo?
+    Function: FunctionDeclaration?
+    ReturnTypeWasOmitted: bool
+    IsAsync: bool
+    InLoop: bool
+    FinallyDepth: int
+    BreakTargetFinallyDepth: int
+    ContinueTargetFinallyDepth: int
+    InConstructor: bool
+    MemberIsStatic: bool
+    CatchHandlerDepth: int
+    RethrowTargetFinallyDepth: int
+
+    constructor(returnType: TypeInfo?, declaration: FunctionDeclaration?, returnTypeWasOmitted: bool, isAsync: bool, inLoop: bool, finallyDepth: int, breakTargetFinallyDepth: int, continueTargetFinallyDepth: int, inConstructor: bool, memberIsStatic: bool, catchHandlerDepth: int, rethrowTargetFinallyDepth: int) {
+        ReturnType = returnType
+        Function = declaration
+        ReturnTypeWasOmitted = returnTypeWasOmitted
+        IsAsync = isAsync
+        InLoop = inLoop
+        FinallyDepth = finallyDepth
+        BreakTargetFinallyDepth = breakTargetFinallyDepth
+        ContinueTargetFinallyDepth = continueTargetFinallyDepth
+        InConstructor = inConstructor
+        MemberIsStatic = memberIsStatic
+        CatchHandlerDepth = catchHandlerDepth
+        RethrowTargetFinallyDepth = rethrowTargetFinallyDepth
+    }
+}
+
+// ONE NESTED BODY'S RETURN-TYPE INFERENCE, SAVED WHILE ANOTHER ONE RUNS INSIDE IT.
+//
+// It is its own value rather than two more slots on `AmbientContextFrame` because the STAGE-0
+// compiler that builds this project declines a constructor of more than twelve parameters, and that
+// frame already has twelve. The pair is pushed and popped by the nested-body boundary alone, which a
+// list used as a stack states exactly.
+class AmbientReturnInferenceFrame {
+    Inferring: bool
+    Inferred: TypeInfo?
+
+    constructor(inferring: bool, inferred: TypeInfo?) {
+        Inferring = inferring
+        Inferred = inferred
+    }
+}
+
+// THE THREE CALLEE-POSITION SUPPRESSIONS, SAVED AS ONE VALUE. They are opened together and closed
+// together — a callee is a callee for all three questions at once — so a caller holds one local
+// instead of three, and cannot restore two of them and forget the third.
+class AmbientCallCalleeFrame {
+    AllowUnboundCallableReference: bool
+    AllowSyntheticSoaOperationReference: bool
+    AnalyzingCallCallee: bool
+    CallCalleeNode: Expression?
+
+    constructor(allowUnboundCallableReference: bool, allowSyntheticSoaOperationReference: bool, analyzingCallCallee: bool, callCalleeNode: Expression?) {
+        AllowUnboundCallableReference = allowUnboundCallableReference
+        AllowSyntheticSoaOperationReference = allowSyntheticSoaOperationReference
+        AnalyzingCallCallee = analyzingCallCallee
+        CallCalleeNode = callCalleeNode
+    }
+}
+
+// THE ONE STEP A `return` STATEMENT CANNOT TAKE FOR ITSELF.
+//
+// The walk owns what a `return` MEANS: whether there is a function to return from at all, whether the
+// statement leaves a `finally`, what type the returned expression is asked for (the AWAITED result
+// type in an `async` function, the declared type otherwise), which of the two SoA escape reports the
+// returned type selects, whether a generator may return a value, and whether the value fits — plus
+// the bare-`return` arm's "not all code paths return a value" pair. What it cannot do is run the
+// analyzer's own EXPRESSION walk — so it ASKS, once.
+//
+// IT ASKED THREE THINGS AND NOW ASKS ONE. Kinds 2 and 3 were the two SoA escape reports, and they are
+// now direct calls on `AnalyzerSoaEscape`, which this owner holds. WHICH of the two the returned type
+// selects was always this walk's decision and still is; only the round trip through C# is gone. Kind
+// 1 remains a suspension because the analyzer's expression walk is still C#'s.
+//
+//   1  analyse the RETURNED expression. ANSWERS a type, and that type decides which escape report
+//      runs, whether the generator report fires and whether the value fits. It does NOT carry an
+//      expected type for the driver to install: this owner IS the ambient context, so it sets its own
+//      target-typing slot before emitting the request and restores it when the answer arrives — the
+//      transition never leaves N#.
+class ReturnStatementRequest {
+    Kind: int
+    Node: Expression?
+    Text: string?
+
+    constructor(kind: int) {
+        Kind = kind
+        Node = null
+        Text = null
+    }
+}
+
+// THE `return` STATEMENT'S WHOLE STATE, SUSPENDED BETWEEN TWO STEPS.
+//
+// `Phase` is the walk's program counter: 0 decides whether there is a function at all, reports a
+// `return` out of a `finally`, and either finishes the bare form or opens the target type and asks
+// for the value; 1 folds the answer in, closes the target type and chooses ONE escape report; 2
+// applies the generator rule and the assignability rule. 99 is done.
+//
+// The ASSIGNABILITY ORACLE IS CARRIED ON THE STATE rather than held as a field, and that is a
+// lifetime decision: `Analyzer.cs` REBUILDS its assignability whenever the metadata load context is
+// created or disposed, while the ambient context is constructed once and never rebuilt because it
+// holds live walk state that a rebuild would silently reset. Reading the field at `Begin` gets
+// whichever instance is current at the moment the statement is analysed — exactly what the C# call
+// site read — without making this owner rebuildable.
+//
+// `SavedExpectedType` is the caller-held frame of the target-typing slot, kept HERE because the
+// boundary opens in one phase and closes in the next. A throw inside the expression walk abandons it
+// exactly as the C# local was abandoned: `Supply` is never reached, so the slot is not restored, and
+// the analyzer unwinds out of the whole statement either way.
+class ReturnStatementState {
+    statementValue: ReturnStatement
+    assignabilityValue: AnalyzerAssignability
+
+    Statement: ReturnStatement => statementValue
+    Assignability: AnalyzerAssignability => assignabilityValue
+
+    Phase: int
+    Pending: int
+    ValueNode: Expression?
+    ExpectedReturnValueType: TypeInfo
+    ReturnedType: TypeInfo
+    SavedExpectedType: TypeInfo?
+
+    constructor(statement: ReturnStatement, assignability: AnalyzerAssignability) {
+        statementValue = statement
+        assignabilityValue = assignability
+        Phase = 0
+        Pending = 0
+        ValueNode = null
+        ExpectedReturnValueType = BuiltInTypes.Unknown
+        ReturnedType = BuiltInTypes.Unknown
+        SavedExpectedType = null
+    }
+}
+
+// WHERE THE WALK CURRENTLY IS — THE THREE AMBIENT FAMILIES, AND EVERYTHING THAT IS A PURE FUNCTION OF
+// THEM.
+//
+// The FUNCTION family answers "what may a `return` do here": the enclosing function's declaration,
+// the type it returns, whether that type was written down or inferred as `void`, and whether the
+// function is `async`. The CONTROL-FLOW family answers "what may a `break`, a `continue` or a
+// `return` do here": whether a loop is open, how deep inside `finally` handlers the walk is, and the
+// depth at which the innermost `break` and `continue` targets were entered. The EXPECTED-TYPE family
+// answers "what is this expression being asked for" — the target-typing slot that `default`, `new()`,
+// a collection literal, an integer literal's width, a lambda's parameters and an unbound callable
+// reference all resolve against.
+//
+// The first two families are ONE object because they are saved and restored TOGETHER at the two
+// boundaries that matter — a lambda's block body and a local function's body — where a nested body
+// gets a fresh function context AND a zeroed control-flow context in the same breath. Splitting them
+// would make those two sites pay twice and would let the two halves drift out of step. The
+// expected-type family joins them because it moves at the SAME KIND of boundary, with the same
+// snapshot-to-caller lifetime — and because the `return` arm is the one place all three meet: the
+// function family says what type the value is asked for, the control-flow family says whether the
+// statement may leave, and the expected-type family carries the answer into the expression walk.
+//
+// The context also OWNS the reports that are pure functions of it and nothing else: `break` and
+// `continue` outside a loop, all three flavours of control leaving a `finally` (NL319), and the
+// four return-value-mismatch shapes, whose wording turns entirely on the enclosing function's name,
+// its declared-versus-omitted return type and whether that type is `void`. Nothing here needs the
+// expression walk, the scope stack or the type resolver — which is exactly why they belong with the
+// state rather than with the statement arms that happen to trigger them.
+//
+// AND IT OWNS THE `return` STATEMENT ITSELF, as a suspendable walk. That arm reads FIVE things this
+// object already answers and reports through TWO members it already owns; hosting it anywhere else
+// would mean exporting all seven. What it does not own it asks for, three kinds at a time.
+//
+// WHAT THIS OBJECT DELIBERATELY DOES NOT DO: it never decides WHEN a boundary opens. The caller
+// still chooses to enter a loop, a nested body, a `finally` or a target type; the context only
+// records that it happened, hands back the frame to undo it, and answers questions about where the
+// walk now is.
+class AnalyzerAmbientContext {
+    diagnosticsValue: AnalyzerDiagnosticSink
+    spansValue: AnalyzerDiagnosticSpans
+    soaEscapeValue: AnalyzerSoaEscape
+    // ONLY FOR RENDERING A MISMATCH PAIR. `TypeMismatchDisplay` needs a source type's declaring
+    // namespace to spell it in full, and the declaration context is the only owner that knows one.
+    // It is a DEFAULTED trailing constructor parameter so that every hand-built shape in the estate
+    // keeps its own arity; production always supplies it, and without one the metadata half of the
+    // qualification still answers.
+    declarationContextValue: AnalyzerDeclarationContext?
+
+    currentReturnTypeValue: TypeInfo?
+    currentFunctionValue: FunctionDeclaration?
+    returnTypeWasOmittedValue: bool
+    isAsyncValue: bool
+    inLoopValue: bool
+    finallyDepthValue: int
+    yieldForbiddenPlacementsValue: List<string>
+    breakTargetFinallyDepthValue: int
+    continueTargetFinallyDepthValue: int
+    // How many `catch` HANDLER BODIES of THIS body the walk is standing inside, and the `finally`
+    // depth the innermost of them was entered at. Together they answer the one question a bare
+    // `throw` asks: may this statement re-raise the exception in flight? A nested body (a lambda, a
+    // local function) compiles to a method of its own and zeroes both — IL `rethrow` is only valid
+    // inside a handler of the SAME method.
+    catchHandlerDepthValue: int
+    rethrowTargetFinallyDepthValue: int
+    // WHETHER THIS BODY IS WORKING OUT ITS OWN RETURN TYPE, and the join of what its `return`
+    // statements have given so far. A LAMBDA'S BLOCK BODY written where the target's return position
+    // is not yet decided — a generic method's `TResult` before the call has bound it — has no type to
+    // check its returns against, so the returns are COLLECTED instead and their best common type
+    // becomes the lambda's own (C# §12.6.3.13's inferred return type). `lastInferredReturnTypeValue`
+    // is how the collected answer leaves: it is the most recently EXITED nested body's, because the
+    // walk that asked for the body is resumed after the boundary has already closed.
+    inferringReturnTypeValue: bool
+    inferredReturnTypeValue: TypeInfo?
+    lastInferredReturnTypeValue: TypeInfo?
+    returnInferenceStackValue: List<AmbientReturnInferenceFrame>
+    // The enclosing function's `ref`/`out`/`in` parameter names, live only while a LOCAL FUNCTION's
+    // body is being walked. A managed pointer cannot be stored in a closure's storage, so a local
+    // function that reads one has no way to be lowered — C# reports that as CS1628 and so does NL331.
+    capturedByRefParameterNamesValue: HashSet<string>?
+    currentExpectedTypeValue: TypeInfo?
+    currentClassValue: ClassDeclaration?
+    currentTypeMembersValue: List<Declaration>?
+    currentTypeNameValue: string?
+    inConstructorValue: bool
+    memberIsStaticValue: bool
+    allowEventReferenceValue: bool
+    allowUnboundCallableReferenceValue: bool
+    allowSyntheticSoaOperationReferenceValue: bool
+    analyzingCallCalleeValue: bool
+    callCalleeNodeValue: Expression?
+    writeTargetExpressionTypesValue: Dictionary<object, TypeInfo>?
+
+    // THE ENCLOSING FUNCTION'S RETURN TYPE, and `null` when there is no enclosing function at all —
+    // which is the ONLY thing that distinguishes "a `return` is illegal here" from "a `return` must
+    // produce a value of this type".
+    CurrentReturnType: TypeInfo? => currentReturnTypeValue
+
+    // The enclosing function's DECLARATION, or `null` inside a lambda's block body (a lambda has no
+    // declaration to name, so a diagnostic about it says "this function").
+    CurrentFunction: FunctionDeclaration? => currentFunctionValue
+
+    // Whether the enclosing function's return type was OMITTED rather than written. Every
+    // return-value diagnostic changes both its wording and its SPAN on this — an omitted return type
+    // squiggles the function's NAME, because that is where the fix goes.
+    CurrentFunctionReturnTypeWasOmitted: bool => returnTypeWasOmittedValue
+
+    // Whether the enclosing function is `async`, recorded from its modifiers when the body was
+    // entered. A `return` in an async function is checked against the AWAITED result type.
+    CurrentFunctionIsAsync: bool => isAsyncValue
+
+    // Whether the enclosing function is declared `generator` (`func*`). Read off the declaration
+    // rather than recorded separately, exactly as the two C# readers did.
+    CurrentFunctionDeclaresGenerator: bool => HasModifier(currentFunctionValue, Modifiers.Generator)
+
+    // WHETHER THE MEMBER WHOSE BODY IS OPEN IS DECLARED `static` — the fact NL327 asks, because a
+    // static member is called with no object and so `this` and `base` have nothing to name inside one.
+    //
+    // IT IS RECORDED AT THE MEMBER BOUNDARY RATHER THAN DERIVED FROM `CurrentFunction`, and the
+    // difference is two whole shapes. A LAMBDA has no declaration of its own — `EnterNestedBody`
+    // passes `null` — so a derived answer would say "not static" for `() => this.X` written inside a
+    // static method, which is exactly where the mistake is easiest to make. A PROPERTY OR INDEXER
+    // ACCESSOR has no `FunctionDeclaration` at all, so a derived answer could only ever say "not
+    // static" for `static Name: string => this.value`.
+    //
+    // A lambda and a local function therefore INHERIT the enclosing member's answer (they compile to
+    // members of the same type and see the same receiver, or the same absence of one), while a member
+    // boundary SETS it and restores the outer value on the way out. `false` is the default and the
+    // safe one: it means "assume there is a receiver", so a walk that has not passed a member
+    // boundary — a field initializer, a walk between declarations — reports nothing rather than
+    // reporting wrongly.
+    CurrentMemberIsStatic: bool => memberIsStaticValue
+
+    // Whether the enclosing function is declared `async`, read off the declaration. This is a
+    // DIFFERENT question from `CurrentFunctionIsAsync` even though the two always agree today: one
+    // asks the declaration, the other reads what was recorded when the body was entered, and the
+    // generator-element walk asks the declaration.
+    CurrentFunctionDeclaresAsync: bool => HasModifier(currentFunctionValue, Modifiers.Async)
+
+    // Whether a loop body is currently open. `break` and `continue` are legal only here.
+    InLoop: bool => inLoopValue
+
+    // How many `finally` blocks enclose the walk. Depth, not immediate parent: a `return` inside a
+    // `try` nested in a `finally` still leaves the handler.
+    FinallyDepth: int => finallyDepthValue
+
+    // The finally depth at which the innermost `break` target — a loop, or a `switch` — was entered.
+    // A `break` written deeper than this would have to leave a handler to reach it.
+    BreakTargetFinallyDepth: int => breakTargetFinallyDepthValue
+
+    // The same for `continue`, whose target is always a LOOP: a `switch` moves the break target and
+    // leaves this one alone.
+    ContinueTargetFinallyDepth: int => continueTargetFinallyDepthValue
+
+    // How many `catch` HANDLER BODIES enclose the walk. A bare `throw` is legal only where this is
+    // positive — it names the exception the innermost of them is running for.
+    CatchHandlerDepth: int => catchHandlerDepthValue
+
+    // The finally depth at which the innermost `catch` handler was entered. A bare `throw` written
+    // deeper than this stands inside a `finally` nested in that handler, where IL `rethrow` is not
+    // valid.
+    RethrowTargetFinallyDepth: int => rethrowTargetFinallyDepthValue
+
+    // Whether a `return` at this point would leave a `finally` handler — illegal IL (ECMA-335: a
+    // finally may only complete via its own end).
+    ReturnWouldLeaveFinally: bool => finallyDepthValue > 0
+
+    // WHAT TYPE THE SURROUNDING CODE IS ASKING THIS EXPRESSION FOR, or `null` when nothing is asking.
+    // This is the TARGET-TYPING slot: the whole answer to `default`, `new()`, a collection literal's
+    // element type, an integer literal's width, a negative literal's signedness, a lambda's parameter
+    // types, `Ok`/`Err`'s arms, a generic union case's arguments and whether a bare method name is an
+    // unbound callable reference. Twenty-two sites READ it and sixteen save/set/restore it around a
+    // nested walk.
+    CurrentExpectedType: TypeInfo? => currentExpectedTypeValue
+
+    // THE CLASS DECLARATION THE WALK IS INSIDE, or `null` outside every class. Read by the
+    // constructor's definite-assignment walk, by the `lock` rule's value-type judgement and by the
+    // implicit-field lookups that let a bare name resolve to a field of the enclosing class. A struct,
+    // record or interface nested in a class does NOT clear it.
+    CurrentClass: ClassDeclaration? => currentClassValue
+
+    // THE MEMBER LIST OF THE TYPE THE WALK IS INSIDE — a CLASS's, a STRUCT's or a RECORD's alike —
+    // or `null` outside all three. `CurrentClass` cannot answer this: its slot is typed
+    // `ClassDeclaration`, so a struct and a record could never be put in it, and the readonly-field
+    // write rule (NL309) read it and therefore went blind the moment the enclosing type was not a
+    // class. An interface has no fields to find and a union's cases are not members in this sense, so
+    // neither moves this slot; it is paired with `CurrentTypeName`, which every form already sets, so
+    // the two always describe the SAME declaration.
+    CurrentTypeMembers: List<Declaration>? => currentTypeMembersValue
+
+    // THE NAME OF THE TYPE THE WALK IS INSIDE, or `null` at top level. This is what makes a member
+    // declaration a MEMBER: the function walk records its function under it, the field walk records
+    // its field under it, the property walk records both of its IDE tables under it, member resolution
+    // asks it whether a private member is reachable, and the SoA walk refuses a table declared under
+    // one.
+    CurrentTypeName: string? => currentTypeNameValue
+
+    // WHETHER THE WALK IS INSIDE A CONSTRUCTOR BODY. The readonly-field write rule is the only thing
+    // that asks, and it asks three times — an assignment, a `++`/`--` and a `ref`/`out` argument each
+    // change both their VERDICT and their wording on it, because a constructor is the one place an
+    // instance readonly field of the current instance may be written.
+    InConstructor: bool => inConstructorValue
+
+    // WHETHER A BARE REFERENCE TO A .NET EVENT IS CURRENTLY ALLOWED. False everywhere except inside
+    // the two arms that resolve an event member on purpose so they can raise their own, more specific
+    // diagnostic — `on`/`off` and the assignment target walk. It is not a permission so much as a
+    // suppression: the generic "an event is not a value" report steps aside for a tailored one.
+    AllowEventReference: bool => allowEventReferenceValue
+
+    // THE THREE CALL-SHAPED SUPPRESSIONS, and they are the same KIND of thing as the event one: not
+    // a permission, but a generic refusal stepping aside where a call has already made the reference
+    // legitimate. All three are read by ONE place — the expression walk's tail — and written only
+    // where a call names something rather than uses it as a value.
+    //
+    // `AllowUnboundCallableReference` lets a bare method group through: the walk's tail otherwise
+    // refuses `Foo` as a value, but `Foo(1)`'s own callee IS a method group, and so is an argument
+    // being scored against a delegate parameter during reflected binding.
+    //
+    // `AllowSyntheticSoaOperationReference` lets a compiler-generated SoA operation through for the
+    // same reason: `points.Sort` is not a value a user may hold, but `points.Sort()` must name it.
+    //
+    // `AnalyzingCallCallee` is NOT a permission at all — it is a POSITION. The direct-column rule
+    // asks a different question of `points.x.Clone` depending on whether it is being CALLED or read,
+    // and the call arm answers that question itself, so the value-side gate must not also fire.
+    AllowUnboundCallableReference: bool => allowUnboundCallableReferenceValue
+
+    AllowSyntheticSoaOperationReference: bool => allowSyntheticSoaOperationReferenceValue
+
+    AnalyzingCallCallee: bool => analyzingCallCalleeValue
+
+    // THE EXACT NODE A CALL NAMES, and it is a different value from the position flag above on
+    // purpose. `AnalyzingCallCallee` is true for the whole callee SUBTREE — the receiver `a.b` of
+    // `a.b.Count(x)` is analysed inside the same bracket — while only the OUTERMOST link is the
+    // thing being called. The rule that a member which cannot be called does not hide a method of
+    // the same name applies to that one link and to nothing under it, so the node itself crosses
+    // and the reader compares by identity.
+    CallCalleeNode: Expression? => callCalleeNodeValue
+
+    // THE SUB-EXPRESSION TYPES OF THE WRITE TARGET CURRENTLY BEING ANALYSED, or `null` when no write
+    // target is open. Keyed by NODE IDENTITY rather than by position, because the semantic model's
+    // line/column keys collide for nested chains that share a start column — `a.b.c` has three nodes
+    // beginning at `a`. The write-target classifiers read this instead of re-analysing the chain,
+    // which would duplicate every diagnostic the chain produces.
+    //
+    // IT IS AN AMBIENT SLOT AND NOT ONE ARM'S STATE. Three arms open it — the assignment target walk,
+    // an increment or decrement operand and a `ref`/`out` argument — and TWO things read it that
+    // belong to neither: the expression walk's tail, which records into it, and the index arm, whose
+    // hidden-allocation refusal is suppressed while a write target is open. Its PRESENCE is therefore
+    // observable behaviour, which is why `InWriteTarget` is a published question.
+    //
+    // THE KEY TYPE IS `object`, NOT `Expression`, AND THE COMPARER IS THE DEFAULT ONE. `Expression`
+    // does not resolve as a dictionary key on the columnar surface, and the reference comparer's
+    // constructor overload does not bind; neither costs anything, because every AST node class
+    // declares no `Equals` and no `GetHashCode`, so the default comparer IS reference identity for
+    // these keys. A contract pins that: two structurally identical nodes are two entries.
+    InWriteTarget: bool => writeTargetExpressionTypesValue != null
+
+    WriteTargetExpressionTypes: Dictionary<object, TypeInfo>? => writeTargetExpressionTypesValue
+
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape, declarationContext: AnalyzerDeclarationContext? = null) {
+        diagnosticsValue = diagnostics
+        spansValue = spans
+        soaEscapeValue = soaEscape
+        declarationContextValue = declarationContext
+        currentReturnTypeValue = null
+        currentFunctionValue = null
+        returnTypeWasOmittedValue = false
+        isAsyncValue = false
+        inLoopValue = false
+        finallyDepthValue = 0
+        inferringReturnTypeValue = false
+        inferredReturnTypeValue = null
+        lastInferredReturnTypeValue = null
+        returnInferenceStackValue = new List<AmbientReturnInferenceFrame>()
+        yieldForbiddenPlacementsValue = new List<string>()
+        breakTargetFinallyDepthValue = 0
+        continueTargetFinallyDepthValue = 0
+        catchHandlerDepthValue = 0
+        rethrowTargetFinallyDepthValue = 0
+        currentExpectedTypeValue = null
+        currentClassValue = null
+        currentTypeMembersValue = null
+        currentTypeNameValue = null
+        inConstructorValue = false
+        memberIsStaticValue = false
+        allowEventReferenceValue = false
+        allowUnboundCallableReferenceValue = false
+        allowSyntheticSoaOperationReferenceValue = false
+        analyzingCallCalleeValue = false
+        callCalleeNodeValue = null
+        writeTargetExpressionTypesValue = null
+    }
+
+    // One call per analysis, from the same reset block that clears the scope stack and the null-flow
+    // state. A compilation unit starts outside every function, every loop and every `finally`.
+    //
+    // THE EXPECTED TYPE IS DELIBERATELY NOT RESET HERE. `Analyzer.cs` reset the other eight fields in
+    // its `Analyze` prologue and left the target-typing slot alone, and that is preserved verbatim: it
+    // is only ever written inside a matched save/restore pair, so it is already `null` at every point
+    // a new analysis can begin, and resetting it would be a write this family never performed.
+    func BeginAnalysis() {
+        currentReturnTypeValue = null
+        currentFunctionValue = null
+        returnTypeWasOmittedValue = false
+        isAsyncValue = false
+        inLoopValue = false
+        finallyDepthValue = 0
+        inferringReturnTypeValue = false
+        inferredReturnTypeValue = null
+        lastInferredReturnTypeValue = null
+        returnInferenceStackValue.Clear()
+        yieldForbiddenPlacementsValue.Clear()
+        breakTargetFinallyDepthValue = 0
+        continueTargetFinallyDepthValue = 0
+        catchHandlerDepthValue = 0
+        rethrowTargetFinallyDepthValue = 0
+        inConstructorValue = false
+        memberIsStaticValue = false
+    }
+
+    // A CONSTRUCTOR BODY. This is a plain pair rather than a save/restore, exactly as the C# was: a
+    // constructor is never nested inside another, so there is nothing to restore to but `false` and
+    // `null`.
+    //
+    // A CONSTRUCTOR RUNS LIKE A `void` FUNCTION, which is why the return type is set here. The field
+    // initializers and the base call have already happened by the time the body runs, so a bare
+    // `return` simply ends it — C# accepts exactly that, and a converted project spells it in every
+    // early-out constructor. Without the type the `return` walk found no enclosing function at all
+    // and said so (NL103), which is a sentence about a program nobody wrote.
+    func EnterConstructor() {
+        inConstructorValue = true
+        currentReturnTypeValue = BuiltInTypes.Void
+    }
+
+    func ExitConstructor() {
+        inConstructorValue = false
+        currentReturnTypeValue = null
+    }
+
+    // THE BARE-EVENT SUPPRESSION. Save/restore, because the two arms that open it can nest — an `on`
+    // subscription may appear inside an assignment's value.
+    func EnterAllowEventReference(): bool {
+        saved := allowEventReferenceValue
+        allowEventReferenceValue = true
+        return saved
+    }
+
+    func ExitAllowEventReference(saved: bool) {
+        allowEventReferenceValue = saved
+    }
+
+    // THE METHOD-GROUP SUPPRESSION, opened unconditionally by the reflected-binding argument walk.
+    func EnterAllowUnboundCallableReference(): bool {
+        saved := allowUnboundCallableReferenceValue
+        allowUnboundCallableReferenceValue = true
+        return saved
+    }
+
+    // The same suppression, opened only when the caller asked for it. The target-typed entry point
+    // takes it as a PARAMETER and leaves the flag alone when it is false, so the test lives here
+    // rather than at every call — the `EnterExpectedTypeIfProvided` shape, for the same reason.
+    func EnterAllowUnboundCallableReferenceIfRequested(requested: bool): bool {
+        saved := allowUnboundCallableReferenceValue
+        if requested {
+            allowUnboundCallableReferenceValue = true
+        }
+
+        return saved
+    }
+
+    func ExitAllowUnboundCallableReference(saved: bool) {
+        allowUnboundCallableReferenceValue = saved
+    }
+
+    // THE CALLEE POSITION, opened as one frame because its three flags are one decision: what is
+    // being analysed is the thing a call NAMES, not a value the program holds. Nothing opens any of
+    // the three on its own except the method-group suppression above, so there is no reason to make
+    // a caller spell three save/restore pairs and no way for it to get two of the three right.
+    func EnterCallCallee(calleeNode: Expression?): AmbientCallCalleeFrame {
+        saved := new AmbientCallCalleeFrame(allowUnboundCallableReferenceValue, allowSyntheticSoaOperationReferenceValue, analyzingCallCalleeValue, callCalleeNodeValue)
+        allowUnboundCallableReferenceValue = true
+        allowSyntheticSoaOperationReferenceValue = true
+        analyzingCallCalleeValue = true
+        callCalleeNodeValue = calleeNode
+        return saved
+    }
+
+    // Restored in the C# original's own order — callee position, then the SoA operation, then the
+    // method group — which is the reverse of the order they were set in and is preserved verbatim
+    // because a restore is not commutative when a nested walk reads one of them in between.
+    func ExitCallCallee(saved: AmbientCallCalleeFrame) {
+        callCalleeNodeValue = saved.CallCalleeNode
+        analyzingCallCalleeValue = saved.AnalyzingCallCallee
+        allowSyntheticSoaOperationReferenceValue = saved.AllowSyntheticSoaOperationReference
+        allowUnboundCallableReferenceValue = saved.AllowUnboundCallableReference
+    }
+
+    // OPEN A WRITE TARGET with a fresh table, answering the previous one. The two arms that nest —
+    // an increment operand and a `ref`/`out` argument — restore what they saved; the assignment arm
+    // CLEARS instead, which is what its `finally` did and is preserved deliberately.
+    func EnterWriteTargetExpressionTypes(): Dictionary<object, TypeInfo>? {
+        saved := writeTargetExpressionTypesValue
+        writeTargetExpressionTypesValue = new Dictionary<object, TypeInfo>()
+        return saved
+    }
+
+    func ExitWriteTargetExpressionTypes(saved: Dictionary<object, TypeInfo>?) {
+        writeTargetExpressionTypesValue = saved
+    }
+
+    func ClearWriteTargetExpressionTypes() {
+        writeTargetExpressionTypesValue = null
+    }
+
+    // THE EXPRESSION WALK'S TAIL RECORDS HERE, and the `null` test lives inside so no caller repeats
+    // it. Nothing is recorded when no write target is open, which is the overwhelmingly common case.
+    func RecordWriteTargetExpressionType(expression: Expression, resolved: TypeInfo) {
+        table := writeTargetExpressionTypesValue
+        if table == null {
+            return
+        }
+
+        table[expression] = resolved
+    }
+
+    // Everything the context holds, as one value. Every `Enter` takes one of these first; each
+    // matching `Exit` restores exactly the subset ITS boundary is responsible for, and the doc on
+    // each pair names that subset.
+    func Snapshot(): AmbientContextFrame {
+        return new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue, inConstructorValue, memberIsStaticValue, catchHandlerDepthValue, rethrowTargetFinallyDepthValue)
+    }
+
+    // A TOP-LEVEL FUNCTION DECLARATION'S BODY. Sets the whole function family and leaves the
+    // control-flow family alone: a declaration is never analysed from inside a loop or a `finally`,
+    // so there is nothing there to reset.
+    func EnterFunctionDeclaration(declaration: FunctionDeclaration, returnType: TypeInfo): AmbientContextFrame {
+        saved := Snapshot()
+        currentReturnTypeValue = returnType
+        currentFunctionValue = declaration
+        returnTypeWasOmittedValue = declaration.ReturnType == null
+        isAsyncValue = HasModifier(declaration, Modifiers.Async)
+        memberIsStaticValue = HasModifier(declaration, Modifiers.Static)
+        return saved
+    }
+
+    // Restores the function, the omitted flag and the async flag — and sets the return type to
+    // `null` rather than to the saved one. That ASYMMETRY is the original behaviour and is preserved
+    // deliberately: leaving a declaration leaves "inside a function" entirely, so a stray `return`
+    // between declarations is reported as having no function to return from.
+    func ExitFunctionDeclaration(saved: AmbientContextFrame) {
+        currentReturnTypeValue = null
+        currentFunctionValue = saved.Function
+        returnTypeWasOmittedValue = saved.ReturnTypeWasOmitted
+        isAsyncValue = saved.IsAsync
+        memberIsStaticValue = saved.MemberIsStatic
+    }
+
+    // A PROPERTY OR INDEXER ACCESSOR BODY. An accessor changes what a `return` must produce and
+    // NOTHING else — not the enclosing function's identity, which is what a diagnostic still names,
+    // and not the omitted flag, because an accessor's type is always written. The saved value is a
+    // bare type rather than a frame: the C# it replaces held exactly one local too.
+    func EnterAccessorReturnType(returnType: TypeInfo): TypeInfo? {
+        saved := currentReturnTypeValue
+        currentReturnTypeValue = returnType
+        return saved
+    }
+
+    func ExitAccessorReturnType(saved: TypeInfo?) {
+        currentReturnTypeValue = saved
+    }
+
+    // AN ACCESSOR'S RECEIVER, which is the ONE ambient fact an accessor body needs that its return
+    // type does not carry. It is a separate pair from the return-type one because the two are entered
+    // at different points in the accessor walk — the member's staticness is known from the
+    // declaration before either accessor is reached, while the return type differs between the getter
+    // and the setter — and a single pair would have to be opened twice for one member.
+    // THE ENCLOSING FUNCTION'S BYREF PARAMETERS, ENTERED WITH A LOCAL FUNCTION'S BODY. Nested local
+    // functions accumulate rather than replace: the innermost one may not read the outermost one's
+    // `ref` parameter either. The previous set is handed back so the walk restores it on the way out.
+    func EnterLocalFunctionByRefParameters(enclosing: FunctionDeclaration?): HashSet<string>? {
+        saved := capturedByRefParameterNamesValue
+        names := new HashSet<string>(StringComparer.Ordinal)
+        if saved != null {
+            names.UnionWith(saved)
+        }
+
+        if enclosing != null {
+            for parameter in enclosing.Parameters {
+                if parameter.Modifier != ParameterModifier.None && !parameter.IsThis {
+                    names.Add(parameter.Name)
+                }
+            }
+        }
+
+        capturedByRefParameterNamesValue = names
+        return saved
+    }
+
+    func ExitLocalFunctionByRefParameters(saved: HashSet<string>?) {
+        capturedByRefParameterNamesValue = saved
+    }
+
+    // Whether a bare name read here would be a read of an enclosing function's byref parameter from
+    // inside a local function's body.
+    func IsCapturedByRefParameter(name: string): bool {
+        names := capturedByRefParameterNamesValue
+        return names != null && names.Contains(name)
+    }
+
+    func EnterMemberIsStatic(memberIsStatic: bool): bool {
+        saved := memberIsStaticValue
+        memberIsStaticValue = memberIsStatic
+        return saved
+    }
+
+    func ExitMemberIsStatic(saved: bool) {
+        memberIsStaticValue = saved
+    }
+
+    // THE TYPE-DECLARATION FAMILY, WHICH IS TWO INDEPENDENT SLOTS RATHER THAN ONE FRAME, BECAUSE THE
+    // WALKS THAT MOVE THEM DO NOT MOVE THEM TOGETHER. A class declaration saves and sets BOTH: the
+    // declaration itself, which the constructor's definite-assignment walk, the `lock` rule and the
+    // implicit-field lookups read, and the type NAME, which every member declaration reads to know
+    // what it is a member OF. A struct, a record and an interface save and set ONLY THE NAME — so a
+    // struct nested inside a class is analysed with the CLASS still current, which is the shipped
+    // behaviour and is preserved verbatim rather than tidied into a single frame that would clear it.
+    //
+    // A union, an enum and a `soa record` move neither: a union's cases and an enum's members are not
+    // members OF a containing type in this sense, and the SoA walk READS the name to refuse a nested
+    // table.
+    //
+    // NEITHER SLOT IS RESET BY `BeginAnalysis`, and that is deliberate for the reason the
+    // expected-type slot records: `Analyzer.cs` reset its other ambient state in the `Analyze`
+    // prologue and left these two fields alone. They are only ever written inside a matched
+    // save/restore pair, so they are already `null` wherever a new analysis can begin, and resetting
+    // them here would be a write this family never performed.
+    //
+    // THE SNAPSHOT GOES TO THE CALLER, exactly as every other boundary here: the walk holds the saved
+    // value on its own state and restores it on the straight line. A throw abandons the restore
+    // precisely as the C# locals were abandoned.
+    func EnterClassDeclaration(declaration: ClassDeclaration?): ClassDeclaration? {
+        saved := currentClassValue
+        currentClassValue = declaration
+        return saved
+    }
+
+    func ExitClassDeclaration(saved: ClassDeclaration?) {
+        currentClassValue = saved
+    }
+
+    // THE ENCLOSING TYPE'S MEMBERS, WHICH A CLASS, A STRUCT AND A RECORD ALL MOVE. Save/restore, for
+    // the reason the class slot is: a type declared inside a member body nests, and the outer type's
+    // members must come back when the inner one is left.
+    func EnterTypeMembers(members: List<Declaration>?): List<Declaration>? {
+        saved := currentTypeMembersValue
+        currentTypeMembersValue = members
+        return saved
+    }
+
+    func ExitTypeMembers(saved: List<Declaration>?) {
+        currentTypeMembersValue = saved
+    }
+
+    func EnterTypeName(name: string?): string? {
+        saved := currentTypeNameValue
+        currentTypeNameValue = name
+        return saved
+    }
+
+    func ExitTypeName(saved: string?) {
+        currentTypeNameValue = saved
+    }
+
+    // A NESTED BODY — a local function, or a lambda's block body. Sets the function family from the
+    // nested declaration (a lambda passes `null`, and then answers "this function" and an omitted
+    // return type of `false`) and ZEROES the control-flow family, which is the whole point: a
+    // `return` inside a nested body exits the NESTED body, not any `finally` the declaration happens
+    // to sit inside, and `break`/`continue` cannot target a loop in the enclosing method at all.
+    //
+    // AND IT CLEARS THE CONSTRUCTOR FLAG, for the same reason and with the same force. A nested body
+    // compiles to a method of its own, so a store into an `initonly` field made from inside one is
+    // not the constructor's store however deeply the `func` or the lambda sits inside a constructor —
+    // Roslyn says `CS0191` for both shapes. The flag was a plain sticky bool that survived into the
+    // nested body, and the constructor exemption it grants was therefore handed to code the
+    // constructor does not contain.
+    // AND IT DECIDES WHETHER THIS BODY INFERS ITS OWN RETURN TYPE. A LAMBDA (a nested body with no
+    // declaration) entered with an `unknown` return type has no target to measure its returns
+    // against — the position it is written at is a type parameter the enclosing call has not bound —
+    // so its `return` statements are collected here and joined, and the lambda walk takes the join
+    // for the lambda's own return type. A LOCAL FUNCTION never infers: its return type is written or
+    // it is `void`.
+    func EnterNestedBody(declaration: FunctionDeclaration?, returnType: TypeInfo?): AmbientContextFrame {
+        saved := Snapshot()
+        currentReturnTypeValue = returnType
+        currentFunctionValue = declaration
+        returnTypeWasOmittedValue = DeclaresOmittedReturnType(declaration)
+        isAsyncValue = HasModifier(declaration, Modifiers.Async)
+        inLoopValue = false
+        finallyDepthValue = 0
+        breakTargetFinallyDepthValue = 0
+        continueTargetFinallyDepthValue = 0
+        catchHandlerDepthValue = 0
+        rethrowTargetFinallyDepthValue = 0
+        inConstructorValue = false
+        returnInferenceStackValue.Add(new AmbientReturnInferenceFrame(inferringReturnTypeValue, inferredReturnTypeValue))
+        inferringReturnTypeValue = declaration == null && returnType != null && BuiltInTypes.IsUnknown(returnType)
+        inferredReturnTypeValue = null
+        return saved
+    }
+
+    // Restores ALL ELEVEN, plus the inference pair its own stack saved. A nested body is the only
+    // boundary that saves all of them — and the one
+    // that PUBLISHES something on the way out: the return type the body inferred for itself, which
+    // the walk that asked for the body reads once the boundary has closed.
+    func ExitNestedBody(saved: AmbientContextFrame) {
+        lastInferredReturnTypeValue = null
+        if inferringReturnTypeValue {
+            lastInferredReturnTypeValue = inferredReturnTypeValue
+        }
+
+        currentReturnTypeValue = saved.ReturnType
+        currentFunctionValue = saved.Function
+        returnTypeWasOmittedValue = saved.ReturnTypeWasOmitted
+        isAsyncValue = saved.IsAsync
+        inLoopValue = saved.InLoop
+        finallyDepthValue = saved.FinallyDepth
+        breakTargetFinallyDepthValue = saved.BreakTargetFinallyDepth
+        continueTargetFinallyDepthValue = saved.ContinueTargetFinallyDepth
+        catchHandlerDepthValue = saved.CatchHandlerDepth
+        rethrowTargetFinallyDepthValue = saved.RethrowTargetFinallyDepth
+        inConstructorValue = saved.InConstructor
+
+        restoredIndex := returnInferenceStackValue.Count - 1
+        if restoredIndex >= 0 {
+            restored := returnInferenceStackValue[restoredIndex]
+            returnInferenceStackValue.RemoveAt(restoredIndex)
+            inferringReturnTypeValue = restored.Inferring
+            inferredReturnTypeValue = restored.Inferred
+        } else {
+            inferringReturnTypeValue = false
+            inferredReturnTypeValue = null
+        }
+    }
+
+    // THE RETURN TYPE THE NESTED BODY THAT JUST CLOSED WORKED OUT FOR ITSELF, or null when it was not
+    // inferring one or had no `return` with a value to work from.
+    func LastInferredNestedBodyReturnType(): TypeInfo? {
+        return lastInferredReturnTypeValue
+    }
+
+    // ONE MORE `return` FOLDED INTO THE BODY'S INFERRED TYPE — C#'s best common type, joined
+    // pairwise in the order the returns are written.
+    //
+    // A type both sides accept wins outright, which is what lets a `null` arm take the others' type
+    // and a derived arm widen to a base one already seen. Two unrelated reflected types fall back to
+    // the nearest shared interface or base the match-expression join already owns. When nothing at
+    // all is common the answer is `unknown` AND IT IS STICKY: a body whose returns disagree has no
+    // inferred return type, and the target's own return position is what the conversion is then
+    // judged on rather than whichever arm happened to come last.
+    func JoinInferredReturnType(candidate: TypeInfo, assignability: AnalyzerAssignability) {
+        if BuiltInTypes.IsUnknown(candidate) {
+            return
+        }
+
+        existing := inferredReturnTypeValue
+        if existing == null {
+            inferredReturnTypeValue = candidate
+            return
+        }
+
+        if BuiltInTypes.IsUnknown(existing) {
+            return
+        }
+
+        if assignability.IsAssignable(existing, candidate) {
+            return
+        }
+
+        if assignability.IsAssignable(candidate, existing) {
+            inferredReturnTypeValue = candidate
+            return
+        }
+
+        common := AnalyzerMatchExpression.FindCommonBaseType(existing, candidate)
+        if common != null {
+            inferredReturnTypeValue = common
+            return
+        }
+
+        inferredReturnTypeValue = BuiltInTypes.Unknown
+    }
+
+    // A LOOP BODY — `while`, `for`, `foreach` or `await foreach`. Opens the loop and records the
+    // CURRENT finally depth as both branch targets: a `break` or `continue` written deeper than this
+    // is inside a `finally` the branch would have to leave.
+    func EnterLoop(): AmbientContextFrame {
+        saved := Snapshot()
+        inLoopValue = true
+        breakTargetFinallyDepthValue = finallyDepthValue
+        continueTargetFinallyDepthValue = finallyDepthValue
+        return saved
+    }
+
+    // Restores the loop flag and BOTH branch-target depths — never the finally depth itself, which
+    // a loop body cannot change on its own.
+    func ExitLoop(saved: AmbientContextFrame) {
+        inLoopValue = saved.InLoop
+        breakTargetFinallyDepthValue = saved.BreakTargetFinallyDepth
+        continueTargetFinallyDepthValue = saved.ContinueTargetFinallyDepth
+    }
+
+    // A SWITCH BODY. A `break` in a case body targets the SWITCH — the emitter pushes a break label
+    // per switch — so the break target's depth becomes the switch's entry depth. `continue` still
+    // targets the enclosing loop, so its depth is untouched, and the loop flag is untouched too: a
+    // switch does not make `continue` legal where it was not.
+    func EnterSwitch(): int {
+        saved := breakTargetFinallyDepthValue
+        breakTargetFinallyDepthValue = finallyDepthValue
+        return saved
+    }
+
+    func ExitSwitch(saved: int) {
+        breakTargetFinallyDepthValue = saved
+    }
+
+    // A `catch` HANDLER BODY. Handlers nest (a `try` inside a `catch`), so the depth is a counter,
+    // and the saved value is the RETHROW TARGET: the `finally` depth this handler was entered at. A
+    // bare `throw` written deeper than that target is standing inside a `finally` nested in this
+    // handler, where IL `rethrow` is not valid — the handler's funclet is no longer on the frame.
+    func EnterCatchHandler(): int {
+        saved := rethrowTargetFinallyDepthValue
+        catchHandlerDepthValue = catchHandlerDepthValue + 1
+        rethrowTargetFinallyDepthValue = finallyDepthValue
+        return saved
+    }
+
+    func ExitCatchHandler(saved: int) {
+        catchHandlerDepthValue = catchHandlerDepthValue - 1
+        rethrowTargetFinallyDepthValue = saved
+    }
+
+    // A BARE `throw` — the rethrow. Legal only in a `catch` handler of this same body, and only
+    // outside any `finally` nested inside that handler. Both refusals are NL336, and the message
+    // names the one that applies: "there is no handler here" and "you are inside a `finally`" are
+    // different mistakes with different fixes.
+    func ReportRethrowIfNeeded(line: int, column: int) {
+        if catchHandlerDepthValue == 0 {
+            diagnosticsValue.Report(ErrorCode.RethrowOutsideCatch, "A bare 'throw' can only be used inside a 'catch' handler — there's no exception here to re-throw", line, column, "A bare `throw` re-raises the exception the enclosing `catch` is handling, keeping its original stack trace. Outside a handler there is no such exception. Write `throw <exception>` to raise a new one.", 5)
+            return
+        }
+
+        if finallyDepthValue > rethrowTargetFinallyDepthValue {
+            diagnosticsValue.Report(ErrorCode.RethrowOutsideCatch, "A bare 'throw' cannot be used inside a 'finally' nested in the 'catch' it would re-throw from", line, column, "A `finally` handler runs on its own, after the `catch` handler's frame is gone, so there is no exception in flight to re-raise. Move the bare `throw` into the `catch` body itself, or throw a new exception here.", 5)
+            return
+        }
+    }
+
+    // A `finally` BLOCK. Finallys nest, so this is a counter rather than a flag.
+    func EnterFinally() {
+        finallyDepthValue = finallyDepthValue + 1
+    }
+
+    func ExitFinally() {
+        finallyDepthValue = finallyDepthValue - 1
+    }
+
+    // WHERE A GENERATOR MAY NOT SUSPEND. A `yield` inside a protected region has to be resumable: the
+    // state machine re-enters the region and dispatches to the resume point inside it, and the
+    // `finally` it is standing in must run when the consumer abandons the enumeration. That is only
+    // expressible when the region's ONLY handler is a `finally`; a `catch` would have to be re-armed
+    // across a suspension that is not inside the call at all, and a handler body cannot be suspended
+    // out of and resumed back into. These three placements are therefore refused (NL332), and the
+    // innermost reason is what the message names — the stack nests because a `try` can sit inside a
+    // `catch` that sits inside a `finally`.
+    func EnterYieldForbidden(placement: string) {
+        yieldForbiddenPlacementsValue.Add(placement)
+    }
+
+    func ExitYieldForbidden() {
+        yieldForbiddenPlacementsValue.RemoveAt(yieldForbiddenPlacementsValue.Count - 1)
+    }
+
+    // NL332, reported at the `yield` keyword itself: the reader needs to see the suspension point,
+    // not the handler that forbids it.
+    func ReportYieldPlacementIfNeeded(line: int, column: int) {
+        if yieldForbiddenPlacementsValue.Count == 0 {
+            return
+        }
+
+        placement := yieldForbiddenPlacementsValue[yieldForbiddenPlacementsValue.Count - 1]
+        diagnosticsValue.Report(ErrorCode.YieldInProtectedRegion, YieldPlacementMessage(placement), line, column, YieldPlacementHint(placement), 5)
+    }
+
+    static func YieldPlacementMessage(placement: string): string {
+        if placement == "try" {
+            return "A 'yield' cannot appear inside a 'try' that declares a 'catch'"
+        }
+
+        return "A 'yield' cannot appear inside a '" + placement + "' handler"
+    }
+
+    static func YieldPlacementHint(placement: string): string {
+        if placement == "try" {
+            return "A generator may only suspend inside a `try` whose only handler is `finally`. Move the `catch` to a wrapping function, or move the `yield` out of this `try`."
+        }
+
+        if placement == "catch" {
+            return "Move the `yield` after the `try` statement — a handler body cannot be suspended out of and resumed back into."
+        }
+
+        return "Move the `yield` out of the `finally` handler — a `finally` may only complete through its own end."
+    }
+
+    // A NESTED WALK UNDER A TARGET TYPE. The saved value is a bare type rather than a frame, exactly
+    // as the accessor pair's is: the C# this replaces held one local per site too. Sixteen sites open
+    // one of these; THREE of them restore from a `finally` and thirteen restore on the straight line,
+    // and that difference is the caller's to keep — the frame lives in the caller's own local, so the
+    // exception path is whatever the caller writes, unchanged by construction.
+    func EnterExpectedType(expected: TypeInfo?): TypeInfo? {
+        saved := currentExpectedTypeValue
+        currentExpectedTypeValue = expected
+        return saved
+    }
+
+    // THE SAME BOUNDARY, OPENED ONLY WHEN THERE IS SOMETHING TO ASK FOR. Five sites compute a
+    // candidate expected type that may not exist — a tuple element with no matching element in the
+    // target, a constructor argument that is not the SoA count, an index that is not an integer
+    // index, an initializer element of a non-collection target, an explicit `null` passed to
+    // `AnalyzeExpressionWithExpectedType` — and LEAVE the slot alone when it does not. That is NOT
+    // the same as setting it to `null`: leaving it keeps whatever target typing already surrounds the
+    // walk, and nulling it would change what `default`, `new()`, a lambda and a negative integer
+    // literal resolve to inside it. Restored by `ExitExpectedType` either way, because the saved
+    // value round-trips unchanged when nothing was set.
+    func EnterExpectedTypeIfProvided(expected: TypeInfo?): TypeInfo? {
+        saved := currentExpectedTypeValue
+        if expected != null {
+            currentExpectedTypeValue = expected
+        }
+
+        return saved
+    }
+
+    func ExitExpectedType(saved: TypeInfo?) {
+        currentExpectedTypeValue = saved
+    }
+
+    // `break`: illegal outside a loop, and illegal when it would leave a `finally` to reach one.
+    // The two are exclusive — a `break` with no loop at all is told THAT, not told about handlers.
+    func ReportBreakIfNeeded(line: int, column: int) {
+        if !inLoopValue {
+            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here", line, column, "Move this `break` inside a loop, or remove it if there is no loop to exit.", 5)
+            return
+        }
+
+        if finallyDepthValue > breakTargetFinallyDepthValue {
+            ReportControlTransferOutOfFinally("break", line, column)
+        }
+    }
+
+    // `continue`: the same two rules against the CONTINUE target's depth, which a switch does not
+    // move.
+    func ReportContinueIfNeeded(line: int, column: int) {
+        if !inLoopValue {
+            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here", line, column, "Move this `continue` inside a loop, or remove it if there is no loop to continue.", 8)
+            return
+        }
+
+        if finallyDepthValue > continueTargetFinallyDepthValue {
+            ReportControlTransferOutOfFinally("continue", line, column)
+        }
+    }
+
+    // `return`: any depth at all is a violation, because a return leaves every handler it is inside.
+    func ReportReturnOutOfFinallyIfNeeded(line: int, column: int) {
+        if finallyDepthValue > 0 {
+            ReportControlTransferOutOfFinally("return", line, column)
+        }
+    }
+
+    // NL319, in the rich shape when the file has a snippet and the detail-only shape otherwise.
+    func ReportControlTransferOutOfFinally(keyword: string, line: int, column: int) {
+        sourceSnippet := diagnosticsValue.SourceSnippet(line)
+        currentFilePath := diagnosticsValue.CurrentFilePath
+        if sourceSnippet != null && currentFilePath != null {
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.ControlTransferOutOfFinally(currentFilePath, line, column, sourceSnippet, keyword.Length, keyword))
+            return
+        }
+
+        diagnosticsValue.Report(ErrorCode.ControlTransferOutOfFinally, "Control cannot leave a 'finally' block with '" + keyword + "'", line, column, "Move the `" + keyword + "` outside the `finally` block.", keyword.Length)
+    }
+
+    // THE `return` STATEMENT'S ENTRY. The assignability oracle is read from the caller's field HERE,
+    // at the moment the statement is analysed, rather than held — see `ReturnStatementState`.
+    func BeginReturn(statement: ReturnStatement, assignability: AnalyzerAssignability): ReturnStatementState {
+        return new ReturnStatementState(statement, assignability)
+    }
+
+    // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this `return` is finished. Every phase
+    // either decides something and advances, or emits exactly one request; the walk never advances
+    // past a point whose answer it has not been given.
+    func NextStep(state: ReturnStatementState): ReturnStatementRequest? {
+        while state.Phase != 99 {
+            request := Advance(state)
+            if request != null {
+                return request
+            }
+        }
+
+        return null
+    }
+
+    // THE ANSWER TO THE OUTSTANDING STEP. Only kind 1 remains, and it answers the returned
+    // expression's type, which is the operand of the escape-report choice, the generator report and
+    // the assignability check. Kind 1 is ALSO where the target-typing slot closes, because the C# it
+    // replaces restored the slot on the line after the expression walk returned.
+    func Supply(state: ReturnStatementState, answer: TypeInfo?) {
+        pending := state.Pending
+        state.Pending = 0
+
+        if pending == 1 {
+            ExitExpectedType(state.SavedExpectedType)
+            state.SavedExpectedType = null
+            if answer != null {
+                state.ReturnedType = answer
+            }
+        }
+    }
+
+    func Advance(state: ReturnStatementState): ReturnStatementRequest? {
+        phase := state.Phase
+        if phase == 0 {
+            return AdvanceEntry(state)
+        }
+
+        if phase == 1 {
+            return AdvanceEscapeReport(state)
+        }
+
+        if phase == 2 {
+            return AdvanceValueRules(state)
+        }
+
+        state.Phase = 99
+        return null
+    }
+
+    // PHASE 0 — IS THERE A FUNCTION TO RETURN FROM. This is the ONLY question asked before the
+    // out-of-`finally` report, and a `return` with no enclosing function is told THAT and nothing
+    // else: the arm returns immediately, so it never reports leaving a handler and never walks the
+    // value.
+    func AdvanceEntry(state: ReturnStatementState): ReturnStatementRequest? {
+        statement := state.Statement
+        returnType := currentReturnTypeValue
+        if returnType != null {
+            return AdvanceInsideFunction(state, statement, returnType)
+        }
+
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'return' can only be used inside a function — there's no function to return from here", statement.Line, statement.Column, "Move this `return` inside a function, or remove it if there is no function to return from.", 6)
+        state.Phase = 99
+        return null
+    }
+
+    // The out-of-`finally` report fires for EVERY `return` inside a handler, with or without a value,
+    // and BEFORE the value is walked — so a `return` that is both illegal here and ill-typed reports
+    // the handler violation first.
+    func AdvanceInsideFunction(state: ReturnStatementState, statement: ReturnStatement, returnType: TypeInfo): ReturnStatementRequest? {
+        ReportReturnOutOfFinallyIfNeeded(statement.Line, statement.Column)
+
+        value := statement.Value
+        if value != null {
+            expected := ReturnValueTargetType(returnType)
+            state.ValueNode = value
+            state.ExpectedReturnValueType = expected
+            state.SavedExpectedType = EnterExpectedType(expected)
+            state.Phase = 1
+            state.Pending = 1
+            request := new ReturnStatementRequest(1)
+            request.Node = value
+            request.Text = "returned"
+            return request
+        }
+
+        ReportMissingReturnValueIfNeeded(statement, returnType)
+        state.Phase = 99
+        return null
+    }
+
+    // WHAT THE RETURNED EXPRESSION IS ASKED FOR. In an `async` function whose return type is a
+    // task-like WITH a result, the value is checked against the AWAITED result rather than the task —
+    // and an `async` function whose return type is not task-like at all (an error the declaration
+    // reports elsewhere) falls back to the declared type, because the unwrap simply does not fire.
+    func ReturnValueTargetType(returnType: TypeInfo): TypeInfo {
+        asyncResultType: TypeInfo = BuiltInTypes.Unknown
+        if isAsyncValue && AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(returnType, out asyncResultType) {
+            return asyncResultType
+        }
+
+        return returnType
+    }
+
+    // PHASE 1 — EXACTLY ONE ESCAPE REPORT, chosen by the answer. A row view is reported as a row
+    // escape; everything else is offered to the direct-column reporter. The two are never both asked.
+    // The direct-column reporter's boolean is DELIBERATELY discarded: the C# arm called it in
+    // statement position and ignored its result, so — unlike a local declaration, where a fired escape
+    // turns the declared type unknown — nothing later in a `return` is suppressed by it.
+    func AdvanceEscapeReport(state: ReturnStatementState): ReturnStatementRequest? {
+        state.Phase = 2
+        value := state.ValueNode
+        if value != null {
+            rowView := state.ReturnedType as SoaRowTypeInfo
+            if rowView != null {
+                soaEscapeValue.ReportSoaRowEscape(value, "returned")
+            } else {
+                soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(value, "returned")
+            }
+        }
+
+        return null
+    }
+
+    // PHASE 2 — THE TWO VALUE RULES, IN ORDER. A generator may not return a value at all, and that
+    // report ENDS the arm: the assignability check never runs after it, because a generator's declared
+    // type is the SEQUENCE and comparing the yielded value against it would pile a second, wrong
+    // diagnostic onto the same expression.
+    func AdvanceValueRules(state: ReturnStatementState): ReturnStatementRequest? {
+        state.Phase = 99
+        value := state.ValueNode
+        if value != null {
+            ReportReturnedValue(state, value)
+        }
+
+        return null
+    }
+
+    func ReportReturnedValue(state: ReturnStatementState, value: Expression) {
+        // A CONSTRUCTOR RETURNS NOTHING AT ALL, so the `void` wording — which names a FUNCTION and its
+        // declared return type — would be about the wrong thing. It is its own sentence, and it is
+        // asked first because a constructor has no function name to put in any of the others.
+        if inConstructorValue {
+            span := spansValue.GetExpressionDiagnosticSpan(value)
+            diagnosticsValue.Report(ErrorCode.TypeMismatch, "A constructor returns nothing, but this 'return' gives back a value", span.Line, span.Column, "Use a bare `return` to end the constructor early, or assign the value to a field instead.", span.Length)
+            return
+        }
+
+        if CurrentFunctionDeclaresGenerator {
+            span := spansValue.GetExpressionDiagnosticSpan(value)
+            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Generator functions cannot return a value", span.Line, span.Column, "Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.", span.Length)
+            return
+        }
+
+        // A BODY WORKING OUT ITS OWN RETURN TYPE COLLECTS THIS VALUE INSTEAD OF MEASURING IT. There is
+        // nothing to measure against: the target's return position is a type parameter the enclosing
+        // call has not bound, and checking a `Range` against `TResult` is how a block-bodied lambda at
+        // a generic position used to be told it returned the wrong thing. The call's second pass
+        // analyses the same body against the CLOSED signature, which is where the real check happens.
+        returnedType := state.ReturnedType
+        if inferringReturnTypeValue {
+            JoinInferredReturnType(returnedType, state.Assignability)
+            return
+        }
+
+        expected := state.ExpectedReturnValueType
+        if !state.Assignability.IsAssignable(expected, returnedType) {
+            // The classification is read from the STATE's oracle, which is the only place this owner
+            // can reach one, and handed down rather than looked up again inside the report.
+            conversion := state.Assignability.ClassifyUserDefinedConversion(expected, returnedType)
+            ReportReturnValueMismatch(state.Statement, returnedType, expected, conversion)
+        }
+    }
+
+    // A BARE `return` IN A FUNCTION THAT OWES A VALUE. Silent for `void`, and silent for an `async`
+    // function whose return type is a UNIT task-like (`Task`/`ValueTask`), which owes nothing either.
+    // The span is the `return` keyword — six characters — in both shapes.
+    func ReportMissingReturnValueIfNeeded(statement: ReturnStatement, returnType: TypeInfo) {
+        if BuiltInTypes.Is(returnType, BuiltInTypes.Void) {
+            return
+        }
+
+        // A BODY STILL WORKING OUT ITS RETURN TYPE OWES NOTHING YET. It has no declared type to name
+        // in the sentence — the target's return position is unbound — and the closed second pass is
+        // where a `return` that really owes a value is reported.
+        if inferringReturnTypeValue {
+            return
+        }
+
+        if isAsyncValue && AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(returnType) {
+            return
+        }
+
+        returnTypeName := TypeText(returnType)
+        sourceSnippet := diagnosticsValue.SourceSnippet(statement.Line)
+        currentFilePath := diagnosticsValue.CurrentFilePath
+        if sourceSnippet != null && currentFilePath != null {
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.MissingReturn(currentFilePath, statement.Line, statement.Column, sourceSnippet, 6, returnTypeName))
+            return
+        }
+
+        diagnosticsValue.Report(ErrorCode.MissingReturn, "This function should return '" + returnTypeName + "', but this 'return' doesn't provide a value", statement.Line, statement.Column, null, 0)
+    }
+
+    // A `return` STATEMENT WHOSE VALUE DOES NOT FIT. Three rich shapes and one detail-only fallback,
+    // all selected by the ambient function context alone: a `void` return type with the annotation
+    // OMITTED asks the author to add one and squiggles the function's NAME; a `void` return type
+    // that was WRITTEN says the function is declared to return nothing; anything else is an ordinary
+    // type mismatch against the expected type. The span falls back through the returned expression
+    // to the `return` keyword itself.
+    func ReportReturnValueMismatch(returnStatement: ReturnStatement, returnedType: TypeInfo, expectedReturnValueType: TypeInfo, conversion: ExternalConversionSelection) {
+        statementSnippet := diagnosticsValue.SourceSnippet(returnStatement.Line)
+        currentFilePath := diagnosticsValue.CurrentFilePath
+        if statementSnippet != null && currentFilePath != null {
+            declaration := currentFunctionValue
+            span: DiagnosticSpan = new DiagnosticSpan(returnStatement.Line, returnStatement.Column, 6)
+            returnedValue := returnStatement.Value
+            if returnTypeWasOmittedValue && declaration != null {
+                span = spansValue.GetFunctionNameDiagnosticSpan(declaration)
+            } else if returnedValue != null {
+                span = spansValue.GetExpressionDiagnosticSpan(returnedValue)
+            }
+
+            diagnosticSourceSnippet := statementSnippet
+            spanLineSnippet := diagnosticsValue.SourceSnippet(span.Line)
+            if spanLineSnippet != null {
+                diagnosticSourceSnippet = spanLineSnippet
+            }
+
+            if diagnosticsValue.ReportAmbiguousUserDefinedConversion(conversion, TypeText(returnedType), TypeText(expectedReturnValueType), span.Line, span.Column, span.Length) {
+                return
+            }
+
+            diagnosticsValue.ReportBuilt(BuildReturnValueMismatchError(currentFilePath, span, diagnosticSourceSnippet, returnedType, expectedReturnValueType))
+            return
+        }
+
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, FormatReturnValueMismatchMessage(returnedType, expectedReturnValueType), returnStatement.Line, returnStatement.Column, null, 0)
+    }
+
+    // AN EXPRESSION-BODIED FUNCTION whose expression gives back a value the `void` return type
+    // cannot take. The same two `void` shapes as a `return` statement, spanned on the function's
+    // NAME when the return type was omitted and on the expression otherwise.
+    func ReportExpressionBodyReturn(declaration: FunctionDeclaration, expressionType: TypeInfo) {
+        span: DiagnosticSpan = new DiagnosticSpan(declaration.Line, declaration.Column, 1)
+        expressionBody := declaration.ExpressionBody
+        if returnTypeWasOmittedValue {
+            span = spansValue.GetFunctionNameDiagnosticSpan(declaration)
+        } else if expressionBody != null {
+            span = spansValue.GetExpressionDiagnosticSpan(expressionBody)
+        }
+
+        sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
+        currentFilePath := diagnosticsValue.CurrentFilePath
+        if sourceSnippet != null && currentFilePath != null {
+            diagnosticsValue.ReportBuilt(BuildVoidReturnValueError(currentFilePath, span, sourceSnippet, declaration.Name, expressionType))
+            return
+        }
+
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, FormatReturnValueMismatchMessage(expressionType, BuiltInTypes.Void), span.Line, span.Column, null, 0)
+    }
+
+    // The rich builder choice for a `return` statement: the two `void` shapes, or the general
+    // mismatch against the expected type.
+    func BuildReturnValueMismatchError(currentFilePath: string, span: DiagnosticSpan, sourceSnippet: string, returnedType: TypeInfo, expectedReturnValueType: TypeInfo): CompilerError {
+        if BuiltInTypes.Is(currentReturnTypeValue, BuiltInTypes.Void) {
+            return BuildVoidReturnValueError(currentFilePath, span, sourceSnippet, EnclosingFunctionName(), returnedType)
+        }
+
+        // Rendered as a PAIR, so a declared return type and a returned value that share a simple name
+        // are both spelled in full. See `TypeMismatchDisplay`.
+        actualTypeName := ""
+        expectedTypeName := ""
+        TypeMismatchDisplay.Pair(declarationContextValue, returnedType, expectedReturnValueType, out actualTypeName, out expectedTypeName)
+        return ErrorMessageBuilder.ReturnTypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, EnclosingFunctionName(), actualTypeName, expectedTypeName)
+    }
+
+    // The `void` pair, shared by the `return` statement and the expression body: an OMITTED return
+    // type is a missing annotation the author should add, a WRITTEN `void` is a deliberate choice
+    // the returned value contradicts.
+    func BuildVoidReturnValueError(currentFilePath: string, span: DiagnosticSpan, sourceSnippet: string, functionName: string, returnedType: TypeInfo): CompilerError {
+        actualTypeName := TypeText(returnedType)
+        if returnTypeWasOmittedValue {
+            return ErrorMessageBuilder.ReturnValueRequiresReturnType(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, functionName, actualTypeName)
+        }
+
+        return ErrorMessageBuilder.ReturnValueInVoidFunction(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, functionName, actualTypeName)
+    }
+
+    // The detail-only wording, used when the file has no snippet to underline. Three shapes, chosen
+    // by the same two questions the rich builders ask.
+    func FormatReturnValueMismatchMessage(returnedType: TypeInfo, expectedReturnValueType: TypeInfo): string {
+        functionName := EnclosingFunctionName()
+        actualTypeName := TypeText(returnedType)
+
+        if BuiltInTypes.Is(currentReturnTypeValue, BuiltInTypes.Void) {
+            if returnTypeWasOmittedValue {
+                return "Function '" + functionName + "' has no return type annotation, so it is treated as 'void', but this code gives back '" + actualTypeName + "'"
+            }
+
+            return "Function '" + functionName + "' is declared to return 'void', but this code gives back '" + actualTypeName + "'"
+        }
+
+        expectedTypeName := TypeText(expectedReturnValueType)
+        return "Function '" + functionName + "' should return '" + expectedTypeName + "', but this return statement gives back '" + actualTypeName + "'"
+    }
+
+    // What a diagnostic calls the enclosing function. A lambda's block body has no declaration to
+    // name.
+    func EnclosingFunctionName(): string {
+        declaration := currentFunctionValue
+        if declaration != null {
+            return declaration.Name
+        }
+
+        return "this function"
+    }
+
+    // A TYPE'S RENDERED TEXT, TAKEN THROUGH `object`. `Analyzer.cs` wrote `$"{type}"` and
+    // `type.ToString()`; the columnar backend declines a virtual `ToString` called directly on a
+    // `TypeInfo`, so the estate's spelling is to box first. Same helper, same reason, as
+    // `AnalyzerVariableDeclaration.TypeText` and `AnalyzerExpressionStatements.TypeText`.
+    static func TypeText(typeInfo: TypeInfo): string {
+        boxed := typeInfo as object
+        rendered := boxed.ToString()
+        if rendered != null {
+            return rendered
+        }
+
+        return ""
+    }
+
+    static func DeclaresOmittedReturnType(declaration: FunctionDeclaration?): bool {
+        if declaration != null {
+            return declaration.ReturnType == null
+        }
+
+        return false
+    }
+
+    // THE SAME TEST AGAINST A BARE MODIFIER SET, for the members that are not functions. A property
+    // and an indexer carry their modifiers without a `FunctionDeclaration` to read them off, and the
+    // accessor boundary needs the `static` bit exactly as the function boundary does.
+    static func ModifiersDeclareStatic(modifiers: Modifiers): bool {
+        staticBits := Convert.ToInt32(Modifiers.Static)
+        return (Convert.ToInt32(modifiers) & staticBits) == staticBits
+    }
+
+    static func HasModifier(declaration: FunctionDeclaration?, modifier: Modifiers): bool {
+        if declaration != null {
+            modifierBits := Convert.ToInt32(declaration.Modifiers)
+            flagBits := Convert.ToInt32(modifier)
+            return (modifierBits & flagBits) == flagBits
+        }
+
+        return false
+    }
+}

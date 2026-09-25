@@ -1,0 +1,3169 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Collections.Generic
+import System.Globalization
+import System.Reflection
+import System.Reflection.Emit
+import System.Text
+
+
+// Direct schema-v3 owner for the admitted construction surface: exact source and runtime
+// constructor calls (including closed generics and metadata defaults), sized SZ arrays, nonempty
+// homogeneous array literals, and exact source/runtime/union object initializers. Contextual
+// constructor syntax outside this admitted surface remains a whole-subtree boundary; malformed
+// syntax in an owned family is terminal and can never be reinterpreted by another emitter route.
+class ColumnarConstructionPlanner {
+    static func MayPlanRoot(nodes: ColumnarNodeTable, node: int): bool {
+        if nodes == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+
+        kind := nodes.Kind(candidate)
+        return kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression
+    }
+
+    // DirectCall's syntax preflight may use this without walking NewExpression's type child as a
+    // value. Exact type-shape and semantic rejection remain this planner's responsibility.
+    static func IsAdmittedValueSyntax(nodes: ColumnarNodeTable, source: string, node: int, depth: int): bool {
+        if nodes == null || depth > 200 {
+            return false
+        }
+
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+
+        kind := nodes.Kind(candidate)
+        childStart := 0
+        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression {
+            childCount := nodes.ChildCount(candidate)
+            if childCount < 1 || childCount % 2 != 1 {
+                return true
+            }
+            typeNode := nodes.Child(candidate, 0)
+            if typeNode < 0 || typeNode >= nodes.Kinds.Length {
+                return true
+            }
+            typeKind := nodes.Kind(typeNode)
+            if typeKind == ColumnarExpressionNodeKind.NewExpression {
+                if !IsAdmittedValueSyntax(nodes, source, typeNode, depth + 1) {
+                    return false
+                }
+            } else if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression {
+                return false
+            }
+            index := 1
+            while index < childCount {
+                nameNode := nodes.Child(candidate, index)
+                valueNode := nodes.Child(candidate, index + 1)
+                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression || !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, valueNode, depth + 1) {
+                    return false
+                }
+                index += 2
+            }
+            return true
+        }
+        if kind == ColumnarExpressionNodeKind.NewExpression {
+            if nodes.ChildCount(candidate) < 1 {
+                return true
+            }
+            typeNode := nodes.Child(candidate, 0)
+            if typeNode < 0 || typeNode >= nodes.Kinds.Length {
+                return true
+            }
+            typeKind := nodes.Kind(typeNode)
+            if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression && typeKind != ColumnarExpressionNodeKind.CharLiteralExpression {
+                return false
+            }
+            childStart = 1
+        } else if kind != ColumnarExpressionNodeKind.ArrayLiteralExpression {
+            return false
+        }
+
+        index := childStart
+        while index < nodes.ChildCount(candidate) {
+            child := nodes.Child(candidate, index)
+            if ColumnarConstructionPlanner.MayPlanRoot(nodes, child) {
+                if !IsAdmittedValueSyntax(nodes, source, child, depth + 1) {
+                    return false
+                }
+            } else if !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, child, depth + 1) {
+                return false
+            }
+            index += 1
+        }
+        return true
+    }
+
+    // Source-aware construction admission is deliberately separate from DirectCall's public
+    // shape-only preflight. It commits a primitive binary value only after a scratch schema-v3 plan
+    // proves the exact operand surface the primitive-binary planner owns; every unproven binary
+    // shape remains a whole-subtree exit.
+    static func IsAdmittedConstructionValueSyntax(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int): bool {
+        if nodes == null || source == null || bindings == null || handles == null || depth > 200 {
+            return false
+        }
+
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+        kind := nodes.Kind(candidate)
+        childStart := 0
+        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression {
+            childCount := nodes.ChildCount(candidate)
+            if childCount < 1 || childCount % 2 != 1 {
+                return true
+            }
+            typeNode := nodes.Child(candidate, 0)
+            if typeNode < 0 || typeNode >= nodes.Kinds.Length {
+                return true
+            }
+            typeKind := nodes.Kind(typeNode)
+            if typeKind == ColumnarExpressionNodeKind.NewExpression {
+                if !IsAdmittedConstructionValueSyntax(nodes, source, typeNode, bindings, handles, depth + 1) {
+                    return false
+                }
+            } else if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression {
+                return false
+            }
+            index := 1
+            while index < childCount {
+                nameNode := nodes.Child(candidate, index)
+                valueNode := nodes.Child(candidate, index + 1)
+                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression || !ValueSyntaxIsAdmitted(nodes, source, valueNode, bindings, handles, depth + 1) {
+                    return false
+                }
+                index += 2
+            }
+            return true
+        }
+        if kind == ColumnarExpressionNodeKind.NewExpression {
+            if nodes.ChildCount(candidate) < 1 {
+                return true
+            }
+            typeNode := nodes.Child(candidate, 0)
+            if typeNode < 0 || typeNode >= nodes.Kinds.Length {
+                return true
+            }
+            typeKind := nodes.Kind(typeNode)
+            if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression && typeKind != ColumnarExpressionNodeKind.CharLiteralExpression {
+                return false
+            }
+            childStart = 1
+        } else if kind != ColumnarExpressionNodeKind.ArrayLiteralExpression {
+            return false
+        }
+
+        index := childStart
+        while index < nodes.ChildCount(candidate) {
+            if !ValueSyntaxIsAdmitted(nodes, source, nodes.Child(candidate, index), bindings, handles, depth + 1) {
+                return false
+            }
+            index += 1
+        }
+        return true
+    }
+
+    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null): bool {
+        ownership := ColumnarDirectCallOwnership.NotOwned
+        status := Plan(nodes, source, node, bindings, plan, out ownership, out legacyWholeSubtreePlanning, out resultType)
+        ValidateOwnershipBoundary(ownership, legacyWholeSubtreePlanning)
+        nsharpOwned = ownership != ColumnarDirectCallOwnership.NotOwned
+        if status != ColumnarFragmentPlanStatus.Planned {
+            return false
+        }
+
+        ColumnarCodePlanExecutor.Execute(plan, il, modifiedMemberReferences)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "construction expression")
+        return true
+    }
+
+    static func TryGetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership := ColumnarDirectCallOwnership.NotOwned
+        status := Plan(nodes, source, node, bindings, plan, out ownership, out legacyWholeSubtreePlanning, out resultType)
+        ValidateOwnershipBoundary(ownership, legacyWholeSubtreePlanning)
+        nsharpOwned = ownership != ColumnarDirectCallOwnership.NotOwned
+        if status != ColumnarFragmentPlanStatus.Planned {
+            return false
+        }
+
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "construction expression")
+        return true
+    }
+
+    static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): ColumnarFragmentPlanStatus {
+        ValidateInputs(nodes, source, node, bindings, plan)
+        ownership = ColumnarDirectCallOwnership.NotOwned
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+        plan.PrepareV3()
+
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate < 0 || !MayPlanRoot(nodes, candidate) {
+            return plan.Status
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            fragment := plan.BeginFragment(-1, nodes.Kind(candidate), candidate)
+            handles := ColumnarRangeIndexHandles.Resolve()
+            if !TryAppend(nodes, source, candidate, bindings, handles, plan, fragment, 0, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+                plan.Rollback(checkpoint)
+                ValidateOwnershipBoundary(ownership, legacyWholeSubtreePlanning)
+                return plan.Status
+            }
+
+            plan.CompleteFragment(fragment, resultType)
+            plan.CompleteV3(resultType)
+            ownership = ColumnarDirectCallOwnership.Planned
+            return plan.Status
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+    }
+
+    // The caller has already opened the expression fragment. This operation appends only its
+    // value rows and leaves fragment completion to the shared recursive planner.
+    static func TryAppend(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.NotOwned
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+        if nodes == null || source == null || bindings == null || handles == null || plan == null || node < 0 || node >= nodes.Kinds.Length || depth > 200 {
+            return false
+        }
+        // 015-B6: a schema-v4 METHOD BODY is admitted alongside v3. This gate threw — a hard crash out
+        // of the compiler, not a decline — on every method-body plan, and ALL NINE owners that carried
+        // it were widened in ONE move because the value surface routes by operand kind: admitting a
+        // subset would mean pre-scanning operands to predict which owner they reach, which is a second
+        // copy of the dispatcher's own decision.
+        // Its operands recurse through the shared value dispatcher, so it could not be admitted
+        // alone.
+        if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Construction append requires an open schema-v3 or method-body plan.")
+        }
+
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+        kind := nodes.Kind(candidate)
+        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if TryAppendObjectInitializer(nodes, source, candidate, bindings, handles, plan, fragment, depth, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+            return false
+        }
+        if kind == ColumnarExpressionNodeKind.ArrayLiteralExpression {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if TryAppendInferredArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+            return false
+        }
+        if kind != ColumnarExpressionNodeKind.NewExpression {
+            return false
+        }
+
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        if nodes.ChildCount(candidate) < 1 {
+            return false
+        }
+        typeNode := nodes.Child(candidate, 0)
+        if typeNode < 0 || typeNode >= nodes.Kinds.Length {
+            return false
+        }
+
+        typeKind := nodes.Kind(typeNode)
+        if typeKind == ColumnarExpressionNodeKind.CharLiteralExpression {
+            if TryAppendSizedArray(nodes, source, candidate, typeNode, bindings, handles, plan, fragment, depth, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+            return false
+        }
+        if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+        if typeKind == ColumnarExpressionNodeKind.IntLiteralExpression && nodes.ChildCount(typeNode) != 0 {
+            return false
+        }
+
+        canonical := ""
+        targetType := typeof(object)
+        if !TryBuildTypeCanonical(nodes, source, typeNode, 0, out canonical) {
+            return false
+        }
+
+        unionClaimed := false
+        unionDefinition: ColumnarUnionDef? = null
+        caseDefinition: ColumnarUnionCaseDef? = null
+        unionType := typeof(object)
+        caseType := typeof(object)
+        typeArguments := new Type[](0)
+        if TryResolveExplicitUnionCase(nodes, canonical, bindings, out unionClaimed, out unionDefinition, out caseDefinition, out unionType, out caseType, out typeArguments) && unionDefinition != null && caseDefinition != null {
+            if !TryAppendUnionCasePositionalConstruction(nodes, source, candidate, bindings, handles, plan, fragment, depth, caseDefinition, unionType, caseType, typeArguments, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+            resultType = unionType
+            ownership = ColumnarDirectCallOwnership.Planned
+            return true
+        }
+        if unionClaimed {
+            return false
+        }
+        if !TryResolveExactType(nodes, canonical, bindings, out targetType) {
+            return false
+        }
+
+        // A live generic parameter still requires contextual construction facts that are outside
+        // this root slice. A raw union base is semantically claimed but is never constructible;
+        // only one of its declared cases may allocate a union value.
+        if targetType.IsGenericParameter {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+        if IsSourceUnionType(targetType, bindings) {
+            return false
+        }
+        if targetType.IsGenericType && !targetType.IsGenericTypeDefinition {
+            if TryAppendClosedGenericConstruction(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType, out ownership, out legacyWholeSubtreePlanning) {
+                resultType = targetType
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+            return false
+        }
+
+        sourceDefinition: ColumnarStructDef? = null
+        if TryFindSourceDefinition(targetType, bindings, out sourceDefinition) && sourceDefinition != null {
+            if TryAppendSourceConstruction(nodes, source, candidate, bindings, handles, plan, fragment, depth, sourceDefinition, targetType, out ownership, out legacyWholeSubtreePlanning) {
+                resultType = targetType
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+            return false
+        }
+
+        if TryAppendRuntimeConstruction(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType, out ownership, out legacyWholeSubtreePlanning) {
+            resultType = targetType
+            ownership = ColumnarDirectCallOwnership.Planned
+            return true
+        }
+        return false
+    }
+
+    static func TryAppendSizedArray(nodes: ColumnarNodeTable, source: string, node: int, typeNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+        if nodes.ChildCount(node) != 2 || nodes.ChildCount(typeNode) != 1 {
+            return false
+        }
+
+        elementNode := nodes.Child(typeNode, 0)
+        elementSyntax := ClassifyExactSizedArrayElementSyntax(nodes, elementNode, 0)
+        if elementSyntax == 0 {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+        if elementSyntax < 0 {
+            return false
+        }
+
+        elementCanonical := ""
+        elementType := typeof(object)
+        if !TryBuildTypeCanonical(nodes, source, elementNode, 0, out elementCanonical) || !TryResolveExactType(nodes, elementCanonical, bindings, out elementType) || !IsSupportedArrayElement(elementType) {
+            return false
+        }
+
+        lengthNode := nodes.Child(node, 1)
+        if !ValueSyntaxIsAdmitted(nodes, source, lengthNode, bindings, handles, depth + 1) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+        lengthType := typeof(int)
+        nestedOwnership := ColumnarDirectCallOwnership.NotOwned
+        if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, lengthNode, bindings, handles, depth + 1, true, plan.IsMethodBodySchema(), out lengthType, out nestedOwnership) {
+            if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
+                ownership = nestedOwnership
+            }
+            return false
+        }
+        if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(lengthType, typeof(int)) {
+            return false
+        }
+
+        emittedLengthType := typeof(int)
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, lengthNode, bindings, handles, plan, fragment, depth + 1, out emittedLengthType, out nestedOwnership) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(emittedLengthType, typeof(int)) {
+            if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
+                ownership = nestedOwnership
+            }
+            return false
+        }
+
+        elementIndex := plan.AddType(elementType)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementIndex)
+        resultType = elementType.MakeArrayType()
+        return true
+    }
+
+    static func TryAppendInferredArray(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+        elementCount := nodes.ChildCount(node)
+        if elementCount == 0 {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
+        elementType := typeof(object)
+        index := 0
+        while index < elementCount {
+            elementNode := nodes.Child(node, index)
+            candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, elementNode)
+            if candidate < 0 {
+                return false
+            }
+            if nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+                return false
+            }
+            if !ValueSyntaxIsAdmitted(nodes, source, elementNode, bindings, handles, depth + 1) {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+                return false
+            }
+
+            currentType := typeof(int)
+            nestedOwnership := ColumnarDirectCallOwnership.NotOwned
+            if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, elementNode, bindings, handles, depth + 1, true, plan.IsMethodBodySchema(), out currentType, out nestedOwnership) {
+                if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
+                    ownership = nestedOwnership
+                }
+                return false
+            }
+            if index == 0 {
+                if !IsSupportedArrayElement(currentType) {
+                    return false
+                }
+                elementType = currentType
+            } else if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(elementType, currentType) {
+                // THIS OWNER INFERS; IT IS NOT THE ONE THAT KNOWS THE TARGET. A literal whose
+                // elements do not all have the same type is not ill-formed — analysis accepted it
+                // because the POSITION named an element type each element converts to, which is how
+                // `take(["a", 1])` and `yield ["a", ["b", "c"]]` are written — but nothing here can
+                // see that type, so the first element is the only element type this plan could
+                // choose and it would be the wrong one. Hand the whole subtree to the owner that
+                // does have the target, exactly as a `null` element already does above: rejecting
+                // here instead would kill the enclosing call.
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+                return false
+            }
+            index += 1
+        }
+
+        countIndex := plan.AddInt32(elementCount)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), countIndex)
+        elementTypeIndex := plan.AddType(elementType)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementTypeIndex)
+
+        index = 0
+        while index < elementCount {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            arrayIndex := plan.AddInt32(index)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), arrayIndex)
+
+            emittedType := typeof(int)
+            nestedOwnership := ColumnarDirectCallOwnership.NotOwned
+            if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, index), bindings, handles, plan, fragment, depth + 1, out emittedType, out nestedOwnership) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(emittedType, elementType) {
+                if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
+                    ownership = nestedOwnership
+                }
+                return false
+            }
+            AppendArrayElementStore(plan, elementType)
+            index += 1
+        }
+
+        resultType = elementType.MakeArrayType()
+        return true
+    }
+
+    // THE ARRAY LITERAL AT A POSITION THAT KNOWS ITS ELEMENT TYPE.
+    //
+    // `TryAppendInferredArray` above deliberately refuses a literal whose elements disagree, because
+    // nothing IT can see names the element type: `["a", 1]` is well-formed only because the POSITION
+    // says `object[]`. This is that position's own appender — the caller supplies the exact array type
+    // and every element is planned AGAINST its element type rather than against the first element's.
+    //
+    // A nested literal follows the same rule one level down: when the element type is itself an array,
+    // the nested literal is target-typed too (`[["a"], ["b"]]` as `string[][]`); when it is not (the
+    // `object` element of an `object[]`), the nested literal infers its own type and then converts —
+    // which is how `yield ["symbols", ["symbols", "--project", dir]]` lowers.
+    //
+    // Element conversions are the call-argument conversion owner's, so boxing a value element and
+    // upcasting a reference one behave exactly as they do for a parameter.
+    static func TryAppendTargetTypedArray(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type): bool {
+        if nodes == null || source == null || plan == null || node < 0 || node >= nodes.Kinds.Length || depth > 200 {
+            return false
+        }
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.ArrayLiteralExpression {
+            return false
+        }
+        if targetType == null || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
+            return false
+        }
+        elementType := targetType.GetElementType()
+        if !IsSupportedArrayElement(elementType) {
+            return false
+        }
+
+        elementCount := nodes.ChildCount(candidate)
+        countIndex := plan.AddInt32(elementCount)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), countIndex)
+        elementTypeIndex := plan.AddType(elementType)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementTypeIndex)
+
+        index := 0
+        while index < elementCount {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            arrayIndex := plan.AddInt32(index)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), arrayIndex)
+            if !TryAppendTargetTypedValue(nodes, source, nodes.Child(candidate, index), bindings, handles, plan, fragment, depth + 1, elementType) {
+                return false
+            }
+            AppendArrayElementStore(plan, elementType)
+            index += 1
+        }
+        return true
+    }
+
+    // One value at a position whose type is known: a nested array literal takes the target-typed array
+    // path, everything else takes the ordinary value cascade and then the call-argument conversion.
+    static func TryAppendTargetTypedValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type): bool {
+        if targetType == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
+            return TryAppendTargetTypedArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType)
+        }
+        // AN INTEGER CONSTANT ADOPTS THE POSITION'S TYPE (ECMA-334 §10.2.11), which at an ELEMENT
+        // position is the only way `[0]` can ever be a `byte[]`: the literal has type `int`, `int` does
+        // not convert to `byte`, and the conversion owner below is a type-to-type question that cannot
+        // see the value. This is the same adoption a call ARGUMENT already gets one owner over, asked
+        // here so an element is not the one position where a constant is refused.
+        constantValue := 0L
+        constantNegative := false
+        if ColumnarDirectCallPlanner.TryGetTargetTypedIntegerArgumentValue(nodes, source, node, out constantValue, out constantNegative) && ColumnarSourceDirectCallResolver.CanAdoptIntegerLiteral(targetType, constantValue, constantNegative) {
+            return ColumnarDirectCallPlanner.TryAppendTargetTypedIntegerArgument(nodes, node, plan, fragment, targetType, constantValue)
+        }
+
+        valueType := typeof(int)
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, handles, plan, fragment, depth, out valueType) {
+            return false
+        }
+        if valueType == targetType {
+            return true
+        }
+        return ColumnarDirectCallPlanner.AppendArgumentConversion(plan, valueType, targetType, bindings.SourceTypeDefinitions)
+    }
+
+    static func TryAppendObjectInitializer(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+        childCount := nodes.ChildCount(node)
+        if childCount < 1 || childCount % 2 != 1 {
+            return false
+        }
+        if !IsAdmittedConstructionValueSyntax(nodes, source, node, bindings, handles, depth) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
+        typeRoot := nodes.Child(node, 0)
+        rootKind := nodes.Kind(typeRoot)
+        if rootKind == ColumnarExpressionNodeKind.NewExpression {
+            nestedOwnership := ColumnarDirectCallOwnership.NotOwned
+            nestedLegacy := false
+            constructedType := typeof(int)
+            nestedFragment := plan.BeginFragment(fragment, rootKind, typeRoot)
+            if !TryAppend(nodes, source, typeRoot, bindings, handles, plan, nestedFragment, depth + 1, out nestedOwnership, out nestedLegacy, out constructedType) {
+                if nestedOwnership == ColumnarDirectCallOwnership.NotOwned {
+                    ownership = nestedOwnership
+                    legacyWholeSubtreePlanning = true
+                }
+                return false
+            }
+            plan.CompleteFragment(nestedFragment, constructedType)
+            constructedDefinition: ColumnarStructDef? = null
+            if !TryFindSourceDefinition(constructedType, bindings, out constructedDefinition) {
+                TryFindClosedSourceDefinition(constructedType, bindings, out constructedDefinition)
+            }
+            if constructedDefinition == null && (constructedType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(constructedType)) {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+                return false
+            }
+            if constructedDefinition != null && !constructedDefinition.IsReference {
+                return false
+            }
+            if !TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, constructedType, constructedDefinition, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+            resultType = constructedType
+            return true
+        }
+        if rootKind != ColumnarExpressionNodeKind.IntLiteralExpression && rootKind != ColumnarExpressionNodeKind.FloatLiteralExpression {
+            return false
+        }
+
+        canonical := ""
+        if !TryBuildTypeCanonical(nodes, source, typeRoot, 0, out canonical) {
+            return false
+        }
+
+        unionDefinition: ColumnarUnionDef? = null
+        caseDefinition: ColumnarUnionCaseDef? = null
+        unionType := typeof(object)
+        caseType := typeof(object)
+        typeArguments := new Type[](0)
+        unionClaimed := false
+        if TryResolveExplicitUnionCase(nodes, canonical, bindings, out unionClaimed, out unionDefinition, out caseDefinition, out unionType, out caseType, out typeArguments) && unionDefinition != null && caseDefinition != null {
+            if !TryAppendUnionCaseObjectInitializer(nodes, source, node, bindings, handles, plan, fragment, depth, caseDefinition, unionType, caseType, typeArguments, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+            resultType = unionType
+            return true
+        }
+        if unionClaimed {
+            return false
+        }
+
+        targetType := typeof(object)
+        if !TryResolveExactType(nodes, canonical, bindings, out targetType) {
+            return false
+        }
+
+        definition: ColumnarStructDef? = null
+        if !TryFindSourceDefinition(targetType, bindings, out definition) {
+            TryFindClosedSourceDefinition(targetType, bindings, out definition)
+        }
+        if definition != null {
+            if !TryAppendSourceObjectInitializerConstruction(nodes, source, node, bindings, handles, plan, fragment, depth, definition, targetType, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+            resultType = targetType
+            return true
+        }
+
+        // NO APPROVED-TYPE LIST. A reflected type participates in an object initializer exactly when
+        // ordinary member resolution can satisfy what the initializer writes: a parameterless
+        // constructor to build it and a settable property or writable field for each named member. The
+        // three-type allowlist that stood here was a table of the types the corpus happened to use.
+        if !TryAppendRuntimeObjectInitializerConstruction(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, out ownership, out legacyWholeSubtreePlanning) {
+            return false
+        }
+        resultType = targetType
+        return true
+    }
+
+    static func TryAppendSourceObjectInitializerConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, definition: ColumnarStructDef, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        closed := targetType.IsGenericType && !targetType.IsGenericTypeDefinition
+
+        if definition.IsReference {
+            // `new T { … }` AND `new T() { … }` NAME THE SAME CONSTRUCTOR — the parameterless one.
+            // `DefaultCtor` holds only the SYNTHESIZED default, which is defined only for a type that
+            // declares no callable constructor at all, so reading it alone declined every object
+            // initializer over a class that spells its own `constructor()`. `nlc format`'s canonical
+            // shape DROPS the `()`, which made formatting a compiling program produce a declining one;
+            // the parameterless constructor a caller actually reaches is what both spellings bind.
+            parameterless := ColumnarConstructorDeclarationPlanner.ResolveParameterlessCtor(definition)
+            if parameterless == null {
+                return false
+            }
+            constructor: ConstructorInfo = parameterless
+            if closed {
+                constructor = TypeBuilder.GetConstructor(targetType, parameterless)
+            }
+            constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, new Type[](0))
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+            return TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, definition, out ownership, out legacyWholeSubtreePlanning)
+        }
+
+        localIndex := BeginDefaultValueConstruction(plan, targetType)
+        if !TryAppendValueTypeObjectFields(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, definition, localIndex, out ownership, out legacyWholeSubtreePlanning) {
+            return false
+        }
+        CompleteDefaultValueConstruction(plan, localIndex)
+        return true
+    }
+
+    static func BeginDefaultValueConstruction(plan: ColumnarCodePlan, targetType: Type): int {
+        typeIndex := plan.AddType(targetType)
+        localIndex := plan.DeclarePlanLocal(typeIndex)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), typeIndex)
+        return localIndex
+    }
+
+    static func CompleteDefaultValueConstruction(plan: ColumnarCodePlan, localIndex: int) {
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), localIndex)
+    }
+
+    static func AppendDefaultValueConstruction(plan: ColumnarCodePlan, targetType: Type) {
+        localIndex := BeginDefaultValueConstruction(plan, targetType)
+        CompleteDefaultValueConstruction(plan, localIndex)
+    }
+
+    static func TryAppendRuntimeObjectInitializerConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        constructor := targetType.GetConstructor(new Type[](0))
+        if constructor == null {
+            return false
+        }
+        constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, new Type[](0))
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, null, out ownership, out legacyWholeSubtreePlanning)
+    }
+
+    static func TryAppendObjectMembers(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, definition: ColumnarStructDef?, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        assigned := new HashSet<string>(StringComparer.Ordinal)
+        index := 1
+        while index < nodes.ChildCount(node) {
+            nameNode := nodes.Child(node, index)
+            valueNode := nodes.Child(node, index + 1)
+            if nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression {
+                return false
+            }
+            memberName := nodes.Text(source, nameNode)
+            if !assigned.Add(memberName) {
+                return false
+            }
+
+            if definition != null {
+                propertyOwner: ColumnarStructDef? = null
+                property: ColumnarPropertyDef? = null
+                if TryFindObjectInitializerProperty(definition, memberName, out propertyOwner, out property) && propertyOwner != null && property != null {
+                    if property.Setter == null || property.SetterParameterCount != 1 {
+                        return false
+                    }
+                    propertyOwnerType := typeof(object)
+                    propertyOwnerArguments := new Type[](0)
+                    if !TryResolveExactObjectMemberOwnerType(definition, targetType, propertyOwner, out propertyOwnerType, out propertyOwnerArguments) {
+                        return false
+                    }
+                    propertyType := propertyOwnerArguments.Length > 0 ? SubstituteTypeArgument(property.PropertyType, propertyOwnerArguments) : property.PropertyType
+                    setter: MethodInfo = property.Setter
+                    modifierSignatureSource: MethodInfo? = null
+                    declaringType: Type = propertyOwnerType
+                    if !SameObject(propertyOwnerType, propertyOwner.Builder) {
+                        if property.IsInitOnly {
+                            modifierSignatureSource = property.Setter
+                        }
+
+                        setter = TypeBuilder.GetMethod(propertyOwnerType, property.Setter)
+                    }
+                    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                    if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, propertyType, out ownership, out legacyWholeSubtreePlanning) {
+                        return false
+                    }
+                    parameterTypes := Types1(propertyType)
+                    methodIndex := plan.AddMethodWithSignature(setter, declaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.IsAbstract)
+                    if modifierSignatureSource != null {
+                        plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, modifierSignatureSource)
+                    }
+                    plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
+                    index += 2
+                    continue
+                }
+
+                fieldOwner: ColumnarStructDef? = null
+                field: FieldBuilder? = null
+                if !TryFindObjectInitializerField(definition, memberName, out fieldOwner, out field) || fieldOwner == null || field == null {
+                    return false
+                }
+                selectedField: FieldBuilder = field
+                if selectedField.IsInitOnly {
+                    return false
+                }
+                fieldOwnerType := typeof(object)
+                fieldOwnerArguments := new Type[](0)
+                if !TryResolveExactObjectMemberOwnerType(definition, targetType, fieldOwner, out fieldOwnerType, out fieldOwnerArguments) {
+                    return false
+                }
+                fieldType: Type = typeof(object)
+                fieldType = selectedField.FieldType
+                if fieldOwnerArguments.Length > 0 {
+                    fieldType = SubstituteTypeArgument(fieldType, fieldOwnerArguments)
+                }
+                fieldHandle: FieldInfo = selectedField
+                declaringType: Type = fieldOwnerType
+                if !SameObject(fieldOwnerType, fieldOwner.Builder) {
+                    fieldHandle = TypeBuilder.GetField(fieldOwnerType, selectedField)
+                }
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, fieldType, out ownership, out legacyWholeSubtreePlanning) {
+                    return false
+                }
+                fieldIndex := plan.AddFieldWithSignature(fieldHandle, declaringType, fieldType, false)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldIndex)
+                index += 2
+                continue
+            }
+
+            runtimeProperty := targetType.GetProperty(memberName)
+            if runtimeProperty == null {
+                // A REFLECTED TYPE'S MEMBER MAY BE A FIELD, and an object initializer names members,
+                // not properties. An N#-compiled record in a referenced assembly publishes most of its
+                // members as public fields, so a `new CompilerError(...) { FileName: "a.nl" }` written
+                // against that assembly reaches here and not the property arm. Ordinary member
+                // resolution: a public, non-static, writable instance field is assigned by `stfld`,
+                // which is the same row the source-definition arm above emits for a field member.
+                runtimeField := targetType.GetField(memberName)
+                if runtimeField == null || runtimeField.IsStatic || runtimeField.IsInitOnly || runtimeField.IsLiteral {
+                    return false
+                }
+                runtimeFieldDeclaringType := runtimeField.DeclaringType
+                if runtimeFieldDeclaringType == null {
+                    return false
+                }
+                runtimeFieldType := runtimeField.FieldType
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, runtimeFieldType, out ownership, out legacyWholeSubtreePlanning) {
+                    return false
+                }
+                runtimeFieldIndex := plan.AddFieldWithSignature(runtimeField, runtimeFieldDeclaringType, runtimeFieldType, false)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), runtimeFieldIndex)
+                index += 2
+                continue
+            }
+            selectedProperty: PropertyInfo = runtimeProperty
+            setterCandidate := selectedProperty.SetMethod
+            if setterCandidate == null || setterCandidate.IsStatic || setterCandidate.GetParameters().Length != 1 {
+                return false
+            }
+
+            setter: MethodInfo = setterCandidate
+            setterDeclaringType := setter.DeclaringType
+            if setterDeclaringType == null {
+                return false
+            }
+            requiresModifierRepair := !SetterSignatureSurvivesAMemberRef(setterCandidate)
+            propertyType := selectedProperty.PropertyType
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, propertyType, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+            parameterTypes := Types1(propertyType)
+            methodIndex := plan.AddMethodWithSignature(setter, setterDeclaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.IsAbstract)
+            if requiresModifierRepair {
+                plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, setter)
+            }
+            plan.AppendMethodInstruction(setter.IsVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+            index += 2
+        }
+        return true
+    }
+
+    // Whether this setter's signature survives the round trip into a `MemberRef`. Required custom
+    // modifiers do not, so a setter that carries any of them can be planned but never bound.
+    static func SetterSignatureSurvivesAMemberRef(setter: MethodInfo): bool {
+        modifiers: Type[]? = null
+        try {
+            modifiers = setter.ReturnParameter.GetRequiredCustomModifiers()
+        } catch {
+            return false
+        }
+
+        return modifiers == null || modifiers.Length == 0
+    }
+
+    static func TryAppendValueTypeObjectFields(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, definition: ColumnarStructDef, localIndex: int, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        assigned := new HashSet<string>(StringComparer.Ordinal)
+        index := 1
+        while index < nodes.ChildCount(node) {
+            nameNode := nodes.Child(node, index)
+            valueNode := nodes.Child(node, index + 1)
+            if nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression {
+                return false
+            }
+            memberName := nodes.Text(source, nameNode)
+            if !assigned.Add(memberName) {
+                return false
+            }
+
+            // A VALUE TYPE'S INITIALIZER MAY NAME A PROPERTY, and an `init` member always is one: its
+            // storage is a private backing field nothing outside the accessors may reach. The receiver
+            // is the temp's ADDRESS — the same `ldloca` the field rows beside this one use — and the
+            // call is `call`, not `callvirt`: a value type is sealed, so there is no virtual dispatch
+            // to do and no boxing to pay for.
+            valuePropertyOwner: ColumnarStructDef? = null
+            valueProperty: ColumnarPropertyDef? = null
+            if TryFindObjectInitializerProperty(definition, memberName, out valuePropertyOwner, out valueProperty) && valuePropertyOwner != null && valueProperty != null {
+                if valueProperty.Setter == null || valueProperty.SetterParameterCount != 1 {
+                    return false
+                }
+                valuePropertyOwnerType := typeof(object)
+                valuePropertyOwnerArguments := new Type[](0)
+                if !TryResolveExactObjectMemberOwnerType(definition, targetType, valuePropertyOwner, out valuePropertyOwnerType, out valuePropertyOwnerArguments) {
+                    return false
+                }
+                valuePropertyType := valuePropertyOwnerArguments.Length > 0 ? SubstituteTypeArgument(valueProperty.PropertyType, valuePropertyOwnerArguments) : valueProperty.PropertyType
+                valueSetter: MethodInfo = valueProperty.Setter
+                valueModifierSignatureSource: MethodInfo? = null
+                valueSetterDeclaringType: Type = valuePropertyOwnerType
+                if !SameObject(valuePropertyOwnerType, valuePropertyOwner.Builder) {
+                    if valueProperty.IsInitOnly {
+                        valueModifierSignatureSource = valueProperty.Setter
+                    }
+
+                    valueSetter = TypeBuilder.GetMethod(valuePropertyOwnerType, valueProperty.Setter)
+                }
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+                if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, valuePropertyType, out ownership, out legacyWholeSubtreePlanning) {
+                    return false
+                }
+                valueSetterIndex := plan.AddMethodWithSignature(valueSetter, valueSetterDeclaringType, Types1(valuePropertyType), ColumnarTypeOfPlanner.RequiredVoidType(), false, false)
+                if valueModifierSignatureSource != null {
+                    plan.MarkMethodForModifiedMemberReferenceRepair(valueSetterIndex, valueModifierSignatureSource)
+                }
+                plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), valueSetterIndex)
+                index += 2
+                continue
+            }
+
+            fieldOwner: ColumnarStructDef? = null
+            field: FieldBuilder? = null
+            if !TryFindObjectInitializerField(definition, memberName, out fieldOwner, out field) || fieldOwner == null || field == null {
+                return false
+            }
+            selectedField: FieldBuilder = field
+            if selectedField.IsInitOnly {
+                return false
+            }
+            fieldOwnerType := typeof(object)
+            fieldOwnerArguments := new Type[](0)
+            if !TryResolveExactObjectMemberOwnerType(definition, targetType, fieldOwner, out fieldOwnerType, out fieldOwnerArguments) {
+                return false
+            }
+            fieldType: Type = typeof(object)
+            fieldType = selectedField.FieldType
+            if fieldOwnerArguments.Length > 0 {
+                fieldType = SubstituteTypeArgument(fieldType, fieldOwnerArguments)
+            }
+            fieldHandle: FieldInfo = selectedField
+            declaringType: Type = fieldOwnerType
+            if !SameObject(fieldOwnerType, fieldOwner.Builder) {
+                fieldHandle = TypeBuilder.GetField(fieldOwnerType, selectedField)
+            }
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+            if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, fieldType, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+            fieldIndex := plan.AddFieldWithSignature(fieldHandle, declaringType, fieldType, false)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldIndex)
+            index += 2
+        }
+        return true
+    }
+
+    static func TryAppendObjectInitializerValue(nodes: ColumnarNodeTable, source: string, valueNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, expectedType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, valueNode)
+        if candidate < 0 {
+            return false
+        }
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression {
+            return ColumnarNullableArgumentLowering.TryAppendNullArgument(plan, fragment, nodes.Kind(candidate), candidate, expectedType)
+        }
+        if TryAppendTargetTypedInitializerInteger(nodes, source, candidate, expectedType, plan, fragment) {
+            return true
+        }
+        if !ValueSyntaxIsAdmitted(nodes, source, valueNode, bindings, handles, depth) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
+        actualType := typeof(int)
+        nestedOwnership := ColumnarDirectCallOwnership.NotOwned
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth, out actualType, out nestedOwnership) {
+            if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
+                ownership = nestedOwnership
+            }
+            return false
+        }
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualType, expectedType) {
+            return true
+        }
+        return ColumnarDirectCallPlanner.AppendArgumentConversion(plan, actualType, expectedType, bindings.SourceTypeDefinitions)
+    }
+
+    static func TryAppendTargetTypedInitializerInteger(nodes: ColumnarNodeTable, source: string, node: int, expectedType: Type, plan: ColumnarCodePlan, fragment: int): bool {
+        literalNode := node
+        negative := false
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "-" {
+            literalNode = nodes.Child(node, 0)
+            negative = true
+        }
+        if nodes.Kind(literalNode) != ColumnarExpressionNodeKind.IntLiteralExpression || nodes.ChildCount(literalNode) != 0 {
+            return false
+        }
+        magnitude := 0
+        if !ColumnarScalarLiteralPlanner.TryGetTargetTypedIntegerMagnitude(nodes.Text(source, literalNode), out magnitude) {
+            return false
+        }
+        value := (long)magnitude
+        if negative {
+            value = -value
+        }
+        literalType := expectedType
+        liftNullable := false
+        nullableElement := typeof(int)
+        if ColumnarNullableArgumentLowering.TryGetSupportedNullableElement(expectedType, out nullableElement) {
+            literalType = nullableElement
+            liftNullable = true
+        }
+        if !ColumnarSourceDirectCallResolver.CanAdoptIntegerLiteral(literalType, value, negative) {
+            return false
+        }
+        valueFragment := plan.BeginFragment(fragment, nodes.Kind(node), node)
+        if literalType == typeof(long) || literalType == typeof(ulong) {
+            valueIndex := plan.AddInt64(value)
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
+        } else {
+            valueIndex := plan.AddInt32((int)value)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
+        }
+        plan.CompleteFragment(valueFragment, literalType)
+        return !liftNullable || ColumnarNullableArgumentLowering.TryAppendValueLift(plan, literalType, expectedType)
+    }
+
+    static func TryFindObjectInitializerProperty(definition: ColumnarStructDef, memberName: string, out owner: ColumnarStructDef?, out property: ColumnarPropertyDef?): bool {
+        owner = null
+        property = null
+        current: ColumnarStructDef? = definition
+        while current != null {
+            candidate := current
+            if candidate.Properties.ContainsKey(memberName) {
+                owner = candidate
+                property = candidate.Properties[memberName]
+                return true
+            }
+            current = candidate.BaseDef
+        }
+        return false
+    }
+
+    // Contextual object-initializer fallback still emits values the schema-v3 expression
+    // planner does not own. It must consume this N#-owned declaration-to-CLR mapping rather
+    // than rebuilding generic base substitution in the mechanical emitter.
+    static func TryResolveExactObjectMemberOwnerType(definition: ColumnarStructDef, targetType: Type, owner: ColumnarStructDef, out ownerType: Type, out ownerArguments: Type[]): bool {
+        ownerType = typeof(object)
+        ownerArguments = new Type[](0)
+        currentDefinition: ColumnarStructDef? = definition
+        currentType := targetType
+        while currentDefinition != null {
+            candidate := currentDefinition
+            if SameObject(candidate, owner) {
+                ownerType = currentType
+                if currentType.IsGenericType && !currentType.IsGenericTypeDefinition {
+                    ownerArguments = currentType.GetGenericArguments()
+                }
+                return true
+            }
+
+            baseDefinition := candidate.BaseDef
+            openBaseType := candidate.Builder.BaseType
+            if baseDefinition == null || openBaseType == null {
+                return false
+            }
+            if currentType.IsGenericType && !currentType.IsGenericTypeDefinition {
+                currentType = SubstituteTypeArgument(openBaseType, currentType.GetGenericArguments())
+            } else {
+                currentType = openBaseType
+            }
+            currentDefinition = baseDefinition
+        }
+        return false
+    }
+
+    static func TryFindObjectInitializerField(definition: ColumnarStructDef, memberName: string, out owner: ColumnarStructDef?, out field: FieldBuilder?): bool {
+        owner = null
+        field = null
+        current: ColumnarStructDef? = definition
+        while current != null {
+            candidate := current
+            if candidate.Fields.ContainsKey(memberName) {
+                owner = candidate
+                field = candidate.Fields[memberName]
+                return true
+            }
+            current = candidate.BaseDef
+        }
+        return false
+    }
+
+    static func TryResolveExplicitUnionCase(nodes: ColumnarNodeTable, canonical: string, bindings: ColumnarFragmentBindings, out claimed: bool, out unionDefinition: ColumnarUnionDef?, out caseDefinition: ColumnarUnionCaseDef?, out unionType: Type, out caseType: Type, out typeArguments: Type[]): bool {
+        claimed = false
+        unionDefinition = null
+        caseDefinition = null
+        unionType = typeof(object)
+        caseType = typeof(object)
+        typeArguments = new Type[](0)
+        caseArguments := new Type[](0)
+        head := canonical
+        genericSuffix := ""
+        genericOpen := canonical.IndexOf("<", StringComparison.Ordinal)
+        if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
+            head = canonical.Substring(0, genericOpen)
+            genericSuffix = canonical.Substring(genericOpen)
+        }
+        separator := head.LastIndexOf(".", StringComparison.Ordinal)
+        if separator <= 0 || separator + 1 >= head.Length {
+            return false
+        }
+        ownerHead := head.Substring(0, separator)
+        ownerCanonical := ownerHead + genericSuffix
+        caseName := head.Substring(separator + 1)
+        resolvedUnionType := typeof(object)
+        ownerClaimed := false
+        if !TryResolveExactType(nodes, ownerCanonical, bindings, out resolvedUnionType, out ownerClaimed) {
+            // Wrong generic arity or an invalid explicit argument still belongs to the source
+            // union named by the head. Resolve that head without its arguments solely to preserve
+            // the semantic claim; it must not be reinterpreted as a runtime construction.
+            openOwnerType := typeof(object)
+            openOwnerClaimed := false
+            openOwnerDefinition: ColumnarUnionDef? = null
+            if genericSuffix.Length > 0 && TryResolveExactType(nodes, ownerHead, bindings, out openOwnerType, out openOwnerClaimed) && TryFindSourceUnionDefinition(openOwnerType, bindings, out openOwnerDefinition) {
+                claimed = true
+            }
+            return false
+        }
+
+        openUnionType := resolvedUnionType
+        if resolvedUnionType.IsGenericType && !resolvedUnionType.IsGenericTypeDefinition {
+            openUnionType = resolvedUnionType.GetGenericTypeDefinition()
+            caseArguments = resolvedUnionType.GetGenericArguments()
+        }
+        selectedUnion: ColumnarUnionDef? = null
+        if !TryFindSourceUnionDefinition(openUnionType, bindings, out selectedUnion) || selectedUnion == null {
+            return false
+        }
+        claimed = true
+
+        selectedCase: ColumnarUnionCaseDef? = null
+        suffix := "." + caseName
+        for pair in selectedUnion.Cases {
+            if pair.Value == null {
+                return false
+            }
+            if pair.Key.EndsWith(suffix, StringComparison.Ordinal) {
+                if selectedCase != null && !SameObject(selectedCase, pair.Value) {
+                    return false
+                }
+                selectedCase = pair.Value
+            }
+        }
+        if selectedCase == null {
+            return false
+        }
+        if !SameObject(selectedCase.UnionBase, selectedUnion.Base) {
+            return false
+        }
+        resolvedCaseType: Type = selectedCase.CaseType
+        if caseArguments.Length > 0 {
+            caseDefinitionType: Type = selectedCase.CaseType
+            if !caseDefinitionType.IsGenericTypeDefinition || caseDefinitionType.GetGenericArguments().Length != caseArguments.Length {
+                return false
+            }
+            try {
+                resolvedCaseType = caseDefinitionType.MakeGenericType(caseArguments)
+            } catch {
+                return false
+            }
+        } else if selectedCase.UnionBase.IsGenericTypeDefinition {
+            return false
+        }
+        unionDefinition = selectedUnion
+        caseDefinition = selectedCase
+        unionType = resolvedUnionType
+        caseType = resolvedCaseType
+        typeArguments = caseArguments
+        return true
+    }
+
+    static func TryFindSourceUnionDefinition(targetType: Type, bindings: ColumnarFragmentBindings, out selected: ColumnarUnionDef?): bool {
+        selected = null
+        openTarget := targetType
+        if targetType.IsGenericType && !targetType.IsGenericTypeDefinition {
+            openTarget = targetType.GetGenericTypeDefinition()
+        }
+        for candidate in bindings.SourceUnionDefinitions {
+            if candidate == null || candidate.Base == null {
+                throw new InvalidOperationException("Construction union facts cannot contain null values.")
+            }
+            candidateType: Type = candidate.Base
+            if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, openTarget) {
+                if selected != null && !SameObject(selected, candidate) {
+                    throw new InvalidOperationException("One construction union target cannot map to two definitions.")
+                }
+                selected = candidate
+            }
+        }
+        return selected != null
+    }
+
+    static func TryAppendUnionCaseObjectInitializer(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, definition: ColumnarUnionCaseDef, unionType: Type, caseType: Type, typeArguments: Type[], out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        pairCount := (nodes.ChildCount(node) - 1) / 2
+        assigned := new HashSet<string>(StringComparer.Ordinal)
+        index := 1
+        while index < nodes.ChildCount(node) {
+            nameNode := nodes.Child(node, index)
+            valueNode := nodes.Child(node, index + 1)
+            if nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression {
+                return false
+            }
+            fieldName := nodes.Text(source, nameNode)
+            fieldHandle: FieldInfo? = null
+            fieldType := typeof(object)
+            if !assigned.Add(fieldName) || !TryResolveUnionCaseField(definition, caseType, typeArguments, fieldName, out fieldHandle, out fieldType) || fieldHandle == null {
+                return false
+            }
+            index += 2
+        }
+
+        referenceCase := false
+        if !TryAppendUnionCaseCreation(plan, definition, unionType, caseType, typeArguments, pairCount, out referenceCase) {
+            return false
+        }
+        if !referenceCase {
+            return true
+        }
+
+        index = 1
+        while index < nodes.ChildCount(node) {
+            fieldName := nodes.Text(source, nodes.Child(node, index))
+            fieldHandle: FieldInfo? = null
+            fieldType := typeof(object)
+            if !TryResolveUnionCaseField(definition, caseType, typeArguments, fieldName, out fieldHandle, out fieldType) || fieldHandle == null || !TryAppendUnionCaseFieldValue(nodes, source, nodes.Child(node, index + 1), bindings, handles, plan, fragment, depth, caseType, fieldHandle, fieldType, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+            index += 2
+        }
+        return true
+    }
+
+    static func TryAppendUnionCasePositionalConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, definition: ColumnarUnionCaseDef, unionType: Type, caseType: Type, typeArguments: Type[], out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        argumentCount := nodes.ChildCount(node) - 1
+        if definition.FieldOrder == null || definition.FieldOrder.Length != argumentCount {
+            return false
+        }
+
+        assigned := new HashSet<string>(StringComparer.Ordinal)
+        index := 0
+        while index < argumentCount {
+            fieldName := definition.FieldOrder[index]
+            fieldHandle: FieldInfo? = null
+            fieldType := typeof(object)
+            if fieldName == null || !assigned.Add(fieldName) || !TryResolveUnionCaseField(definition, caseType, typeArguments, fieldName, out fieldHandle, out fieldType) || fieldHandle == null {
+                return false
+            }
+            index += 1
+        }
+
+        referenceCase := false
+        if !TryAppendUnionCaseCreation(plan, definition, unionType, caseType, typeArguments, argumentCount, out referenceCase) {
+            return false
+        }
+        if !referenceCase {
+            return true
+        }
+
+        index = 0
+        while index < argumentCount {
+            fieldName := definition.FieldOrder[index]
+            fieldHandle: FieldInfo? = null
+            fieldType := typeof(object)
+            if !TryResolveUnionCaseField(definition, caseType, typeArguments, fieldName, out fieldHandle, out fieldType) || fieldHandle == null || !TryAppendUnionCaseFieldValue(nodes, source, nodes.Child(node, index + 1), bindings, handles, plan, fragment, depth, caseType, fieldHandle, fieldType, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+            index += 1
+        }
+        return true
+    }
+
+    static func TryAppendUnionCaseCreation(plan: ColumnarCodePlan, definition: ColumnarUnionCaseDef, unionType: Type, caseType: Type, typeArguments: Type[], assignmentCount: int, out referenceCase: bool): bool {
+        referenceCase = false
+        if definition.IsValueStruct {
+            if assignmentCount != 0 || typeArguments.Length != 0 || definition.ValueStructFactory == null || !SameObject(unionType, definition.UnionBase) {
+                return false
+            }
+            methodIndex := plan.AddMethodWithSignature(definition.ValueStructFactory, unionType, new Type[](0), unionType, true, false)
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+            return true
+        }
+
+        if !ConstructorBuilderMatches(definition.Ctor, definition.CaseType) {
+            return false
+        }
+        constructor: ConstructorInfo = definition.Ctor
+        if typeArguments.Length > 0 {
+            try {
+                constructor = TypeBuilder.GetConstructor(caseType, definition.Ctor)
+            } catch {
+                return false
+            }
+        }
+        constructorIndex := plan.AddConstructorWithSignature(constructor, caseType, new Type[](0))
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        referenceCase = true
+        return true
+    }
+
+    static func TryResolveUnionCaseField(definition: ColumnarUnionCaseDef, caseType: Type, typeArguments: Type[], fieldName: string, out fieldHandle: FieldInfo?, out fieldType: Type): bool {
+        fieldHandle = null
+        fieldType = typeof(object)
+        openField: FieldBuilder? = null
+        if definition.Fields == null || !definition.Fields.TryGetValue(fieldName, out openField) || openField == null || openField.IsStatic || openField.IsInitOnly || !SameObject(openField.DeclaringType, definition.CaseType) {
+            return false
+        }
+        fieldType = openField.FieldType
+        if typeArguments.Length > 0 {
+            fieldType = SubstituteTypeArgument(fieldType, typeArguments)
+            try {
+                fieldHandle = TypeBuilder.GetField(caseType, openField)
+            } catch {
+                fieldHandle = null
+                return false
+            }
+        } else {
+            fieldHandle = openField
+        }
+        return true
+    }
+
+    static func TryAppendUnionCaseFieldValue(nodes: ColumnarNodeTable, source: string, valueNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, caseType: Type, fieldHandle: FieldInfo, fieldType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+        if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, fieldType, out ownership, out legacyWholeSubtreePlanning) {
+            return false
+        }
+        fieldIndex := plan.AddFieldWithSignature(fieldHandle, caseType, fieldType, false)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldIndex)
+        return true
+    }
+
+    static func TryAppendSourceConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, definition: ColumnarStructDef, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        argumentCount := nodes.ChildCount(node) - 1
+        if argumentCount == 0 && !definition.IsReference && definition.Constructors.Count == 0 {
+            AppendDefaultValueConstruction(plan, targetType)
+            return true
+        }
+        argumentTypes := new Type[](argumentCount)
+        namedPlacement := new int[](0)
+        placementSucceeded := TryPlaceNamedConstructorArguments(nodes, source, node, definition, targetType, argumentCount, out namedPlacement)
+
+        argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
+        argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+            return false
+        }
+
+        if !placementSucceeded {
+            return TryAppendSparseNamedSourceConstruction(nodes, source, node, bindings, handles, plan, fragment, depth, definition, targetType, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning)
+        }
+
+        if namedPlacement.Length == argumentCount && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
+        if argumentCount == 0 && definition.IsReference && definition.DefaultCtor != null {
+            parameters := new Type[](0)
+            if !ConstructorBuilderMatches(definition.DefaultCtor, targetType) {
+                throw new InvalidOperationException("Source default-constructor facts do not identify their exact owner.")
+            }
+            constructorIndex := plan.AddConstructorWithSignature(definition.DefaultCtor, targetType, parameters)
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+            return true
+        }
+
+        selected: ColumnarConstructorDef? = null
+        if !TrySelectSourceConstructor(nodes, definition, argumentTypes, argumentFacts, bindings, out selected) || selected == null {
+            return false
+        }
+
+        suppliedParameters := PrefixTypes(selected.ParamTypes, argumentCount)
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts) {
+            return false
+        }
+
+        defaultIndex := argumentCount
+        while defaultIndex < selected.ParamTypes.Length {
+            if !TryAppendConstructorDefault(nodes, plan, selected.ParamTypes[defaultIndex], selected.DefaultKinds[defaultIndex], selected.DefaultTexts[defaultIndex], bindings) {
+                return false
+            }
+            defaultIndex += 1
+        }
+
+        constructorIndex := plan.AddConstructorWithSignature(selected.Builder, targetType, selected.ParamTypes, ConstructorOutFlags(selected))
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return true
+    }
+
+    static func TryAppendSparseNamedSourceConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, definition: ColumnarStructDef, targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        candidates := new List<ColumnarConstructorDef>()
+        candidateParameters := new List<Type[]>()
+        candidatePlacements := new List<int[]>()
+        candidateClaims := new List<bool[]>()
+        for candidate in definition.Constructors {
+            placement := new int[](0)
+            claimed := new bool[](0)
+            if candidate.ParamTypes.Length <= argumentTypes.Length || !ColumnarNamedArgumentBinder.TryPlaceSparse(nodes, source, node, 1, argumentTypes.Length, candidate.ParamNames, out placement, out claimed) {
+                continue
+            }
+            fillable := true
+            projected := new Type[](argumentTypes.Length)
+            slot := 0
+            while slot < candidate.ParamTypes.Length {
+                if !claimed[slot] && !CanUseConstructorDefault(nodes, candidate.ParamTypes[slot], candidate.DefaultKinds[slot], candidate.DefaultTexts[slot], bindings) {
+                    fillable = false
+                }
+                slot += 1
+            }
+            written := 0
+            while fillable && written < argumentTypes.Length {
+                projected[written] = candidate.ParamTypes[placement[written]]
+                written += 1
+            }
+            if fillable && ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(projected, argumentTypes, argumentFacts, ProjectedModifierKinds(candidate.ParamModifierKinds, placement, argumentTypes.Length)) >= 0 {
+                candidates.Add(candidate)
+                candidateParameters.Add(projected)
+                candidatePlacements.Add(placement)
+                candidateClaims.Add(claimed)
+            }
+        }
+        selectedIndex := BestSourceConstructorIndex(candidateParameters, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return false
+        }
+        selected := candidates[selectedIndex]
+        selectedPlacement := candidatePlacements[selectedIndex]
+        selectedClaimed := candidateClaims[selectedIndex]
+
+        locals := new int[](selected.ParamTypes.Length)
+        Array.Fill(locals, -1)
+        written := 0
+        while written < argumentTypes.Length {
+            slot := selectedPlacement[written]
+            expected := new Type[](1)
+            expected[0] = selected.ParamTypes[slot]
+            actual := new Type[](1)
+            actual[0] = argumentTypes[written]
+            oneFacts := ColumnarDirectCallPlanner.CopyArgumentFact(argumentFacts, written)
+            if !ColumnarDirectCallPlanner.AppendArgumentSlot(nodes, source, bindings, handles, plan, fragment, depth + 1, true, actual, expected, oneFacts, 0) {
+                return false
+            }
+            local := plan.DeclarePlanLocal(plan.AddType(expected[0]))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
+            locals[slot] = local
+            written += 1
+        }
+        slot := 0
+        while slot < selected.ParamTypes.Length {
+            if selectedClaimed[slot] {
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), locals[slot])
+            } else if !TryAppendConstructorDefault(nodes, plan, selected.ParamTypes[slot], selected.DefaultKinds[slot], selected.DefaultTexts[slot], bindings) {
+                return false
+            }
+            slot += 1
+        }
+        constructorIndex := plan.AddConstructorWithSignature(selected.Builder, targetType, selected.ParamTypes, ConstructorOutFlags(selected))
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return true
+    }
+
+    static func ConstructorOutFlags(constructor: ColumnarConstructorDef): bool[] {
+        result := new bool[](constructor.ParamTypes.Length)
+        index := 0
+        while index < result.Length && index < constructor.ParamModifierKinds.Length {
+            result[index] = constructor.ParamModifierKinds[index] == 2
+            index += 1
+        }
+        return result
+    }
+
+    static func TryAppendRuntimeConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        // THE ARGUMENT TYPES ARE COLLECTED FIRST, because the constructor is now selected BY them
+        // rather than by arity against a hand list. `TryGetConstructorArguments` reads types without
+        // appending instructions, so nothing is emitted before the selection is known.
+        argumentCount := nodes.ChildCount(node) - 1
+        argumentTypes := new Type[](argumentCount)
+        namedPlacement := new int[](0)
+        placementSucceeded := TryPlaceNamedConstructorArguments(nodes, source, node, null, targetType, argumentCount, out namedPlacement)
+
+        argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
+        argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+            return false
+        }
+
+        if !placementSucceeded {
+            return TryAppendSparseNamedRuntimeConstruction(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning)
+        }
+
+        if namedPlacement.Length == argumentCount && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
+        parameters := new Type[](0)
+        constructor: ConstructorInfo? = null
+        paramsElementType: Type? = null
+        if !TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameters, out paramsElementType) || constructor == null {
+            // A value type written `new S()` with no selectable constructor is its CLR zero value, the
+            // same reading C# gives it. `JsonElement` and `Label` used to be spelled out here one type
+            // at a time; every struct without a public parameterless constructor takes this route now.
+            if argumentCount == 0 && targetType.IsValueType {
+                AppendDefaultValueConstruction(plan, targetType)
+                return true
+            }
+            // OWNED AND REFUSED, never silently deferred: an unselectable construction is a decline the
+            // trace shows, not a fall-through to another owner that would bind something else.
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            legacyWholeSubtreePlanning = false
+            return false
+        }
+        if !TryAppendRuntimeConstructorArguments(nodes, source, node, bindings, handles, plan, fragment, depth, argumentTypes, argumentFacts, constructor, parameters, argumentCount, paramsElementType) {
+            return false
+        }
+
+        constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, parameters)
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return true
+    }
+
+    static func TryAppendSparseNamedRuntimeConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        candidates := new List<ConstructorInfo>()
+        candidateTypes := new List<Type[]>()
+        candidateParameters := new List<ParameterInfo[]>()
+        candidateProjected := new List<Type[]>()
+        candidatePlacements := new List<int[]>()
+        candidateClaims := new List<bool[]>()
+        for candidate in RuntimeConstructorsOrEmpty(targetType) {
+            parameters := candidate.GetParameters()
+            if parameters.Length <= argumentTypes.Length {
+                continue
+            }
+            names := ColumnarNamedArgumentBinder.ReflectedParameterNames(candidate)
+            types := new Type[](parameters.Length)
+            index := 0
+            while index < parameters.Length {
+                types[index] = parameters[index].ParameterType
+                index += 1
+            }
+            placement := new int[](0)
+            claimed := new bool[](0)
+            if !ColumnarNamedArgumentBinder.TryPlaceSparse(nodes, source, node, 1, argumentTypes.Length, names, out placement, out claimed) {
+                continue
+            }
+            fillable := true
+            projected := new Type[](argumentTypes.Length)
+            slot := 0
+            while slot < types.Length {
+                if !claimed[slot] && !ColumnarExtensionMethodResolver.CanFillOptional(parameters[slot], types[slot]) {
+                    fillable = false
+                }
+                slot += 1
+            }
+            written := 0
+            while fillable && written < argumentTypes.Length {
+                projected[written] = types[placement[written]]
+                written += 1
+            }
+            if fillable && ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(projected, argumentTypes, argumentFacts, ProjectedModifierKinds(ReflectedModifierKinds(parameters), placement, argumentTypes.Length)) >= 0 {
+                candidates.Add(candidate)
+                candidateTypes.Add(types)
+                candidateParameters.Add(parameters)
+                candidateProjected.Add(projected)
+                candidatePlacements.Add(placement)
+                candidateClaims.Add(claimed)
+            }
+        }
+        selectedIndex := BestSourceConstructorIndex(candidateProjected, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return false
+        }
+        selected := candidates[selectedIndex]
+        selectedTypes := candidateTypes[selectedIndex]
+        selectedParameters := candidateParameters[selectedIndex]
+        selectedPlacement := candidatePlacements[selectedIndex]
+        selectedClaimed := candidateClaims[selectedIndex]
+        locals := new int[](selectedTypes.Length)
+        Array.Fill(locals, -1)
+        written := 0
+        while written < argumentTypes.Length {
+            slot := selectedPlacement[written]
+            expected := new Type[](1)
+            expected[0] = selectedTypes[slot]
+            actual := new Type[](1)
+            actual[0] = argumentTypes[written]
+            oneFacts := ColumnarDirectCallPlanner.CopyArgumentFact(argumentFacts, written)
+            if !ColumnarDirectCallPlanner.AppendArgumentSlot(nodes, source, bindings, handles, plan, fragment, depth + 1, true, actual, expected, oneFacts, 0) {
+                return false
+            }
+            local := plan.DeclarePlanLocal(plan.AddType(expected[0]))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
+            locals[slot] = local
+            written += 1
+        }
+        slot := 0
+        while slot < selectedTypes.Length {
+            if selectedClaimed[slot] {
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), locals[slot])
+            } else if !ColumnarExtensionMethodResolver.TryAppendOptionalDefault(plan, selectedParameters[slot], selectedTypes[slot]) {
+                return false
+            }
+            slot += 1
+        }
+        constructorIndex := plan.AddConstructorWithSignature(selected, targetType, selectedTypes)
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return true
+    }
+
+    static func TryAppendClosedGenericConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        if targetType == null || !targetType.IsGenericType || targetType.IsGenericTypeDefinition {
+            return false
+        }
+
+        definition: ColumnarStructDef? = null
+        if TryFindClosedSourceDefinition(targetType, bindings, out definition) && definition != null {
+            return TryAppendClosedSourceConstruction(nodes, source, node, bindings, handles, plan, fragment, depth, definition, targetType, out ownership, out legacyWholeSubtreePlanning)
+        }
+
+        return TryAppendClosedRuntimeConstruction(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, out ownership, out legacyWholeSubtreePlanning)
+    }
+
+    static func TryAppendClosedSourceConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, definition: ColumnarStructDef, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        argumentCount := nodes.ChildCount(node) - 1
+        if argumentCount == 0 && !definition.IsReference && definition.Constructors.Count == 0 {
+            AppendDefaultValueConstruction(plan, targetType)
+            return true
+        }
+        argumentTypes := new Type[](argumentCount)
+        namedPlacement := new int[](0)
+        if !TryPlaceNamedConstructorArguments(nodes, source, node, definition, targetType, argumentCount, out namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
+        argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
+        argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+            return false
+        }
+
+        if namedPlacement.Length == argumentCount && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
+        if argumentCount == 0 && definition.IsReference && definition.DefaultCtor != null {
+            if !ConstructorBuilderMatches(definition.DefaultCtor, definition.Builder) {
+                throw new InvalidOperationException("Closed source default-constructor facts do not identify their open owner.")
+            }
+            defaultConstructor := TypeBuilder.GetConstructor(targetType, definition.DefaultCtor)
+            defaultConstructorIndex := plan.AddConstructorWithSignature(defaultConstructor, targetType, new Type[](0))
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), defaultConstructorIndex)
+            return true
+        }
+
+        selected: ColumnarConstructorDef? = null
+        selectedParameters := new Type[](0)
+        closedArguments := targetType.GetGenericArguments()
+        candidates := new List<ColumnarConstructorDef>()
+        candidateParameters := new List<Type[]>()
+        candidateModifierKinds := new List<int[]>()
+        exactArityOnly := false
+        for candidate in definition.Constructors {
+            ValidateSourceConstructor(definition, candidate)
+            if candidate.ParamTypes.Length < argumentCount {
+                continue
+            }
+            parameters := SubstituteTypeArguments(candidate.ParamTypes, closedArguments)
+            defaultsSupported := true
+            defaultIndex := argumentCount
+            while defaultIndex < parameters.Length {
+                if !CanUseConstructorDefault(nodes, parameters[defaultIndex], candidate.DefaultKinds[defaultIndex], candidate.DefaultTexts[defaultIndex], bindings) {
+                    defaultsSupported = false
+                }
+                defaultIndex += 1
+            }
+            if !defaultsSupported {
+                continue
+            }
+
+            exactArity := parameters.Length == argumentCount
+            if exactArity && !exactArityOnly {
+                candidates.Clear()
+                candidateParameters.Clear()
+                candidateModifierKinds.Clear()
+                exactArityOnly = true
+            }
+            if exactArityOnly && !exactArity {
+                continue
+            }
+            candidates.Add(candidate)
+            candidateParameters.Add(parameters)
+            candidateModifierKinds.Add(candidate.ParamModifierKinds)
+        }
+        if candidates.Count == 0 {
+            return false
+        }
+        selectedIndex := BestSourceConstructorIndex(candidateParameters, candidateModifierKinds, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return false
+        }
+        selected = candidates[selectedIndex]
+        selectedParameters = candidateParameters[selectedIndex]
+
+        suppliedParameters := PrefixTypes(selectedParameters, argumentCount)
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts) {
+            return false
+        }
+
+        defaultIndex := argumentCount
+        while defaultIndex < selectedParameters.Length {
+            if !TryAppendConstructorDefault(nodes, plan, selectedParameters[defaultIndex], selected.DefaultKinds[defaultIndex], selected.DefaultTexts[defaultIndex], bindings) {
+                return false
+            }
+            defaultIndex += 1
+        }
+
+        constructor := TypeBuilder.GetConstructor(targetType, selected.Builder)
+        if constructor == null {
+            return false
+        }
+        constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, selectedParameters)
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return true
+    }
+
+    // EVERY PUBLIC CONSTRUCTOR OF A CLOSED GENERIC TYPE IS A CANDIDATE, scored by the same argument
+    // flow the non-generic external path already uses. What stood here was a hand list keyed on
+    // `System.Collections.Generic.List`1`, `Dictionary`2`, `HashSet`1` and friends by FULL NAME, with
+    // one arm per remembered constructor shape (capacity, copy, comparer, copy+comparer). That list
+    // declined every other closed generic construction in the BCL -- `new Vector<int>(values, index)`
+    // among them -- and was exactly the kind of feature-specific allowlist this owner exists to remove.
+    //
+    // Two universes must both be served and they read their candidates from different places. A closed
+    // generic whose arguments are all RUNTIME types answers `GetConstructors()` with fully substituted
+    // signatures, so it selects exactly like a non-generic external type. A closed generic that is
+    // BUILDER-BOUND (`List<SomeNSharpClass>`) cannot: its members are only reachable through the open
+    // runtime definition, so candidates are read from the definition, their signatures are substituted
+    // with the closed arguments, and the selected one is rebound with `TypeBuilder.GetConstructor`.
+    static func TryAppendClosedRuntimeConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        argumentCount := nodes.ChildCount(node) - 1
+        argumentTypes := new Type[](argumentCount)
+        namedPlacement := new int[](0)
+        if !TryPlaceNamedConstructorArguments(nodes, source, node, null, targetType, argumentCount, out namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
+        argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
+        argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+            return false
+        }
+
+        if namedPlacement.Length == argumentCount && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
+        parameterTypes := new Type[](0)
+        constructor: ConstructorInfo? = null
+        closedParamsElementType: Type? = null
+        if !TrySelectClosedRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameterTypes, out closedParamsElementType) || constructor == null {
+            // A value type written `new S()` with no selectable constructor is its CLR zero value, the
+            // same reading C# gives it. This is the general rule the JsonElement and Label arms used to
+            // spell one type at a time.
+            if argumentCount == 0 && targetType.IsValueType {
+                AppendDefaultValueConstruction(plan, targetType)
+                return true
+            }
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            legacyWholeSubtreePlanning = false
+            return false
+        }
+        if !TryAppendRuntimeConstructorArguments(nodes, source, node, bindings, handles, plan, fragment, depth, argumentTypes, argumentFacts, constructor, parameterTypes, argumentCount, closedParamsElementType) {
+            return false
+        }
+
+        constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, parameterTypes)
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return true
+    }
+
+    // Constructor selection for a closed generic target, in whichever universe its arguments live.
+    static func TrySelectClosedRuntimeConstructor(targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[], out elementType: Type?): bool {
+        constructor = null
+        parameterTypes = new Type[](0)
+        elementType = null
+        if targetType == null || !targetType.IsGenericType || targetType.IsGenericTypeDefinition {
+            return false
+        }
+        if !RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(targetType) {
+            return TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameterTypes, out elementType)
+        }
+
+        openType := targetType.GetGenericTypeDefinition()
+        // A source-headed instantiation is the closed SOURCE path's business; only a runtime definition
+        // closed over a builder argument is served here.
+        if openType is TypeBuilder {
+            return false
+        }
+
+        closedArguments := targetType.GetGenericArguments()
+        applicable := new List<ConstructorInfo>()
+        applicableParameters := new List<Type[]>()
+        CollectApplicableRuntimeConstructors(RuntimeConstructorsOrEmpty(openType), closedArguments, argumentTypes, applicable, applicableParameters)
+        selectedIndex := BestSourceConstructorIndex(applicableParameters, argumentTypes, argumentFacts)
+        selected: ConstructorInfo? = null
+        selectedParameters := new Type[](0)
+        if selectedIndex < 0 {
+            expandedConstructor: ConstructorInfo? = null
+            expandedParameters := new Type[](0)
+            expandedElement: Type? = null
+            if !TrySelectExpandedRuntimeConstructor(RuntimeConstructorsOrEmpty(openType), closedArguments, argumentTypes, argumentFacts, out expandedConstructor, out expandedParameters, out expandedElement) || expandedConstructor == null {
+                return false
+            }
+
+            selected = expandedConstructor
+            selectedParameters = expandedParameters
+            elementType = expandedElement
+        } else {
+            selected = applicable[selectedIndex]
+            selectedParameters = applicableParameters[selectedIndex]
+        }
+
+        rebound := TypeBuilder.GetConstructor(targetType, selected)
+        if rebound == null {
+            return false
+        }
+
+        constructor = rebound
+        parameterTypes = selectedParameters
+        return true
+    }
+
+    static func TryFindClosedSourceDefinition(targetType: Type, bindings: ColumnarFragmentBindings, out selected: ColumnarStructDef?): bool {
+        selected = null
+        if targetType == null || !targetType.IsGenericType || targetType.IsGenericTypeDefinition {
+            return false
+        }
+        openType := targetType.GetGenericTypeDefinition()
+        for candidate in bindings.SourceTypeDefinitions {
+            if candidate == null || candidate.Builder == null {
+                throw new InvalidOperationException("Construction source-type facts cannot contain null values.")
+            }
+            candidateType: Type = candidate.Builder
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, openType) {
+                continue
+            }
+            if selected != null && !SameObject(selected, candidate) {
+                throw new InvalidOperationException("One closed construction target cannot map to two source definitions.")
+            }
+            selected = candidate
+        }
+        return selected != null
+    }
+
+    static func SubstituteTypeArguments(parameterTypes: Type[], arguments: Type[]): Type[] {
+        result := new Type[](parameterTypes.Length)
+        index := 0
+        while index < parameterTypes.Length {
+            result[index] = SubstituteTypeArgument(parameterTypes[index], arguments)
+            index += 1
+        }
+        return result
+    }
+
+    static func SubstituteTypeArgument(signatureType: Type, arguments: Type[]): Type {
+        if signatureType.IsGenericParameter && signatureType.DeclaringMethod == null {
+            position := signatureType.GenericParameterPosition
+            if position < 0 || position >= arguments.Length {
+                throw new InvalidOperationException("Construction generic parameter position is invalid.")
+            }
+            return arguments[position]
+        }
+        if signatureType.IsByRef {
+            element := signatureType.GetElementType()
+            if element == null {
+                throw new InvalidOperationException("Construction by-reference signature has no element type.")
+            }
+            return SubstituteTypeArgument(element, arguments).MakeByRefType()
+        }
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
+            element := signatureType.GetElementType()
+            if element == null {
+                throw new InvalidOperationException("Construction array signature has no element type.")
+            }
+            return SubstituteTypeArgument(element, arguments).MakeArrayType()
+        }
+        if signatureType.IsGenericType && !signatureType.IsGenericTypeDefinition {
+            definition := signatureType.GetGenericTypeDefinition()
+            rawArguments := signatureType.GetGenericArguments()
+            closedArguments := new Type[](rawArguments.Length)
+            index := 0
+            while index < rawArguments.Length {
+                closedArguments[index] = SubstituteTypeArgument(rawArguments[index], arguments)
+                index += 1
+            }
+            return definition.MakeGenericType(closedArguments)
+        }
+        return signatureType
+    }
+
+    // The names a `new` may write are its type's constructors' parameter names. A source type answers
+    // from its own declarations; an external one from its metadata. The placement moves the argument
+    // rows into signature order before any constructor is selected, exactly as a call's does.
+    static func TryPlaceNamedConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, definition: ColumnarStructDef?, targetType: Type?, argumentCount: int, out placement: int[]): bool {
+        placement = new int[](0)
+        if !ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentCount) {
+            return true
+        }
+
+        candidates := new List<string[]>()
+        if definition != null {
+            ColumnarNamedArgumentBinder.CollectSourceConstructorParameterNames(definition, argumentCount, candidates)
+        } else {
+            ColumnarNamedArgumentBinder.CollectReflectedConstructorParameterNames(targetType, argumentCount, candidates)
+        }
+
+        return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, node, 1, argumentCount, candidates, out placement)
+    }
+
+    static func TryGetConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        index := 1
+        while index < nodes.ChildCount(node) {
+
+            // A `name:` wrapper is placement rather than value syntax: what has to be admitted is the
+            // argument underneath the name.
+            argumentValue := ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, nodes.Child(node, index))
+            isByRefArgument := ColumnarDirectCallPlanner.ByRefArgumentTarget(nodes, source, argumentValue) >= 0
+            if !isByRefArgument && !ValueSyntaxIsAdmitted(nodes, source, argumentValue, bindings, handles, depth + 1) {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+                return false
+            }
+            index += 1
+        }
+
+        nestedOwnership := ColumnarDirectCallOwnership.NotOwned
+        if !ColumnarDirectCallPlanner.TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, true, methodBodySchema, argumentTypes, argumentFacts, out nestedOwnership) {
+            if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
+                ownership = nestedOwnership
+            }
+            return false
+        }
+        return true
+    }
+
+    static func TrySelectSourceConstructor(nodes: ColumnarNodeTable, definition: ColumnarStructDef, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, bindings: ColumnarFragmentBindings, out selected: ColumnarConstructorDef?): bool {
+        selected = null
+        candidates := new List<ColumnarConstructorDef>()
+        for candidate in definition.Constructors {
+            ValidateSourceConstructor(definition, candidate)
+            if candidate.ParamTypes.Length < argumentTypes.Length {
+                continue
+            }
+            defaultsSupported := true
+            defaultIndex := argumentTypes.Length
+            while defaultIndex < candidate.ParamTypes.Length {
+                if !CanUseConstructorDefault(nodes, candidate.ParamTypes[defaultIndex], candidate.DefaultKinds[defaultIndex], candidate.DefaultTexts[defaultIndex], bindings) {
+                    defaultsSupported = false
+                }
+                defaultIndex += 1
+            }
+            if defaultsSupported {
+                AddDistinctConstructor(candidates, candidate)
+            }
+        }
+        if candidates.Count == 0 {
+            return false
+        }
+
+        exact := new List<ColumnarConstructorDef>()
+        for candidate in candidates {
+            if candidate.ParamTypes.Length == argumentTypes.Length {
+                exact.Add(candidate)
+            }
+        }
+        if exact.Count > 0 {
+            candidates = exact
+        }
+        candidateParameters := new List<Type[]>()
+        candidateModifierKinds := new List<int[]>()
+        for candidate in candidates {
+            candidateParameters.Add(candidate.ParamTypes)
+            candidateModifierKinds.Add(candidate.ParamModifierKinds)
+        }
+        selectedIndex := BestSourceConstructorIndex(candidateParameters, candidateModifierKinds, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return false
+        }
+        selected = candidates[selectedIndex]
+        return true
+    }
+
+    // Conversion quality, not declaration order, owns source-constructor overload selection.
+    // The direct-call score is larger for a more specific conversion (identity is the maximum),
+    // so a unique highest score wins and only an equal-best set is ambiguous.
+    // The unique best candidate by argument flow, with C#'s better-conversion-target tie-break behind
+    // it: candidates that score EQUAL are re-compared on how specific their parameter types are, so an
+    // overload set whose parameters sit on one conversion chain selects the most specific member
+    // instead of declining as ambiguous. A tie no rule can break is still no selection.
+    // A REFLECTED member's directions in the same encoding a source one carries: 5 for `in`, 0 for
+    // everything else. `ref` and `out` are deliberately NOT reported here — the scorer only needs to
+    // know which by-reference parameters are READ-ONLY, because that is the only direction whose
+    // call-site word is optional, and reporting the other two would say nothing the types do not.
+    static func ReflectedModifierKinds(parameters: ParameterInfo[]): int[] {
+        kinds := new int[](parameters.Length)
+        index := 0
+        while index < parameters.Length {
+            if parameters[index].ParameterType.IsByRef && parameters[index].IsIn {
+                kinds[index] = 5
+            }
+            index = index + 1
+        }
+
+        return kinds
+    }
+
+    // The first `count` directions of a candidate's column, matching what `PrefixTypes` does to its
+    // types. A column shorter than the prefix cannot describe it, so it answers empty rather than
+    // guessing.
+    static func PrefixModifierKinds(modifierKinds: int[]?, count: int): int[] {
+        if modifierKinds == null || modifierKinds.Length < count {
+            return new int[](0)
+        }
+
+        prefix := new int[](count)
+        index := 0
+        while index < count {
+            prefix[index] = modifierKinds[index]
+            index = index + 1
+        }
+
+        return prefix
+    }
+
+    // A CANDIDATE'S MODIFIER COLUMN, MOVED THE SAME WAY ITS TYPES WERE. A named argument binds a written
+    // position to a declared slot, and the direction travels with the slot it belongs to — reading the
+    // column in written order instead would ask about the wrong parameter. An empty column stays empty,
+    // which is what `ArgumentsScoreWithFacts` reads as "ask the types alone".
+    static func ProjectedModifierKinds(modifierKinds: int[], placement: int[], writtenCount: int): int[] {
+        if modifierKinds == null || modifierKinds.Length == 0 {
+            return new int[](0)
+        }
+
+        projected := new int[](writtenCount)
+        written := 0
+        while written < writtenCount {
+            slot := placement[written]
+            if slot < 0 || slot >= modifierKinds.Length {
+                return new int[](0)
+            }
+
+            projected[written] = modifierKinds[slot]
+            written = written + 1
+        }
+
+        return projected
+    }
+
+    static func BestSourceConstructorIndex(candidateParameters: List<Type[]>, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        return BestSourceConstructorIndex(candidateParameters, null, argumentTypes, argumentFacts)
+    }
+
+    // `candidateModifierKinds` IS PARALLEL TO `candidateParameters` and carries each candidate's
+    // parameter DIRECTIONS. It is what lets a constructor declare `in`: the scorer cannot tell a
+    // read-only by-reference parameter from a writable one by type, so without the column a bare
+    // argument scores -1 against `in` and the constructor is invisible. A null list, or a null entry in
+    // it, means "ask the types alone" — the reading every caller had before.
+    static func BestSourceConstructorIndex(candidateParameters: List<Type[]>, candidateModifierKinds: List<int[]>?, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        bestScore := -1
+        tied := new List<int>()
+        candidateIndex := 0
+        while candidateIndex < candidateParameters.Count {
+            expected := PrefixTypes(candidateParameters[candidateIndex], argumentTypes.Length)
+            modifiers := new int[](0)
+            if candidateModifierKinds != null && candidateIndex < candidateModifierKinds.Count {
+                modifiers = PrefixModifierKinds(candidateModifierKinds[candidateIndex], argumentTypes.Length)
+            }
+
+            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, argumentTypes, argumentFacts, modifiers)
+            if score > bestScore {
+                bestScore = score
+                tied.Clear()
+                tied.Add(candidateIndex)
+            } else if score >= 0 && score == bestScore {
+                tied.Add(candidateIndex)
+            }
+            candidateIndex += 1
+        }
+        if bestScore < 0 || tied.Count == 0 {
+            return -1
+        }
+        if tied.Count == 1 {
+            return tied[0]
+        }
+
+        tiedParameters := new List<Type[]>()
+        for index in tied {
+            tiedParameters.Add(PrefixTypes(candidateParameters[index], argumentTypes.Length))
+        }
+        winner := ColumnarSourceDirectCallResolver.SelectMostSpecificParameters(tiedParameters, argumentTypes, argumentFacts)
+        if winner < 0 {
+            return -1
+        }
+        return tied[winner]
+    }
+
+    static func AddDistinctConstructor(values: List<ColumnarConstructorDef>, candidate: ColumnarConstructorDef) {
+        for existing in values {
+            if SameObject(existing.Builder, candidate.Builder) {
+                return
+            }
+        }
+        values.Add(candidate)
+    }
+
+    static func ValidateSourceConstructor(owner: ColumnarStructDef, candidate: ColumnarConstructorDef) {
+        if owner == null || candidate == null || candidate.Builder == null || candidate.ParamTypes == null || candidate.DefaultKinds == null || candidate.DefaultTexts == null || candidate.DefaultKinds.Length != candidate.ParamTypes.Length || candidate.DefaultTexts.Length != candidate.ParamTypes.Length {
+            throw new InvalidOperationException("Source constructor facts must be complete and positional.")
+        }
+        ownerType: Type = owner.Builder
+        if !ConstructorBuilderMatches(candidate.Builder, ownerType) {
+            throw new InvalidOperationException("Source constructor facts do not identify their exact owner.")
+        }
+        index := 0
+        while index < candidate.ParamTypes.Length {
+            if candidate.ParamTypes[index] == null || candidate.DefaultTexts[index] == null {
+                throw new InvalidOperationException("Source constructor signature facts cannot contain null values.")
+            }
+            index += 1
+        }
+    }
+
+    static func ConstructorBuilderMatches(constructor: ConstructorInfo, ownerType: Type): bool {
+        if constructor == null || ownerType == null {
+            return false
+        }
+        declaringType := constructor.DeclaringType
+        return declaringType != null && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(declaringType, ownerType)
+    }
+
+    static func PrefixTypes(values: Type[], count: int): Type[] {
+        if values == null || count < 0 || count > values.Length {
+            throw new InvalidOperationException("Constructor parameter prefix is invalid.")
+        }
+        result := new Type[](count)
+        index := 0
+        while index < count {
+            result[index] = values[index]
+            index += 1
+        }
+        return result
+    }
+
+    // EVERY PUBLIC CONSTRUCTOR OF AN EXTERNAL TYPE IS A CANDIDATE, and the selection is the same rule
+    // the ordinary call resolver already applies to methods: fixed arity, score each candidate by
+    // argument flow, take a UNIQUE best. What stood here was a hand list of `targetType == typeof(X)`
+    // arms -- what one slice happened to need -- which silently declined every other external
+    // construction and was keyed on exactly the type-identity comparisons task 022 exists to remove.
+    //
+    // No `==` on `Type` survives in the selection: identity is decided by the shared flow scorer, which
+    // reaches assignability through `IsAssignableFrom` and the conversion facts, so the rule holds when
+    // the operands come from a different type universe.
+    //
+    // A TIE IS A DECLINE, not a guess. `bestCount > 1` means two constructors score equally for these
+    // arguments and choosing either would be arbitrary; the caller turns that into `OwnedRejected`.
+    static func TrySelectRuntimeConstructor(targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[], out elementType: Type?): bool {
+        constructor = null
+        parameterTypes = new Type[](0)
+        elementType = null
+        if !IsConstructibleRuntimeTarget(targetType) {
+            return false
+        }
+
+        applicable := new List<ConstructorInfo>()
+        applicableParameters := new List<Type[]>()
+        CollectApplicableRuntimeConstructors(RuntimeConstructorsOrEmpty(targetType), new Type[](0), argumentTypes, applicable, applicableParameters)
+        if applicable.Count == 0 {
+            CollectOptionalFillRuntimeConstructors(RuntimeConstructorsOrEmpty(targetType), new Type[](0), argumentTypes, applicable, applicableParameters)
+        }
+
+        selectedIndex := BestSourceConstructorIndex(applicableParameters, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            expandedConstructor: ConstructorInfo? = null
+            expandedParameters := new Type[](0)
+            expandedElement: Type? = null
+            if !TrySelectExpandedRuntimeConstructor(RuntimeConstructorsOrEmpty(targetType), new Type[](0), argumentTypes, argumentFacts, out expandedConstructor, out expandedParameters, out expandedElement) || expandedConstructor == null || expandedElement == null {
+                return false
+            }
+
+            expandedDeclaringType := expandedConstructor.DeclaringType
+            if expandedDeclaringType == null || !ExternalAssemblyScan.HasExactTypeIdentity(expandedDeclaringType, TargetTypeIdentity(targetType)) {
+                throw new InvalidOperationException("Construction selected a constructor on the wrong owner.")
+            }
+
+            constructor = expandedConstructor
+            parameterTypes = expandedParameters
+            elementType = expandedElement
+            return true
+        }
+        selected := applicable[selectedIndex]
+        selectedParameters := applicableParameters[selectedIndex]
+
+        declaringType := selected.DeclaringType
+        if declaringType == null || !ExternalAssemblyScan.HasExactTypeIdentity(declaringType, TargetTypeIdentity(targetType)) {
+            throw new InvalidOperationException("Construction selected a constructor on the wrong owner.")
+        }
+
+        constructor = selected
+        parameterTypes = selectedParameters
+        return true
+    }
+
+    // The owner check is by IDENTITY STRING, not by `==`: a constructor read out of one universe and a
+    // target read out of another are different objects for the same type, and the emitter's whole
+    // direction is to stop asking object questions about types.
+    // Every public instance constructor whose arity matches and whose SUBSTITUTED signature is
+    // emittable. `closedArguments` is empty for a constructor read off an already-closed type and
+    // carries the closed type arguments when the candidates come from an open generic definition,
+    // where the raw parameter types are still the definition's own type parameters -- so the
+    // emittable-signature test must run on the substituted form, never on the open one.
+    static func CollectApplicableRuntimeConstructors(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], applicable: List<ConstructorInfo>, applicableParameters: List<Type[]>) {
+        for candidate in candidates {
+            if candidate != null && candidate.IsPublic && !candidate.IsStatic && !IsExpandedConstructorShape(candidate) {
+                parameters := candidate.GetParameters()
+                if parameters != null && parameters.Length == argumentTypes.Length {
+                    openTypes := ConstructorParameterTypesOrNull(parameters)
+                    if openTypes != null {
+                        types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
+                        if !HasUnsupportedConstructorSignature(types, closedArguments) {
+                            applicable.Add(candidate)
+                            applicableParameters.Add(types)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // A TRAILING-OPTIONAL CONSTRUCTOR, AND IT IS TRIED ONLY WHEN NOTHING BOUND AT THE WRITTEN ARITY.
+    //
+    // C# fills a constructor's defaults at the call site exactly as it fills a method's, and it
+    // prefers the shorter overload when both could bind. This rung keeps that ordering the blunt way:
+    // the exact-arity list is collected first and a longer candidate is looked at only when that list
+    // came back empty, so no construction that already selected can change its answer — this tier can
+    // only turn a decline into an emission.
+    static func CollectOptionalFillRuntimeConstructors(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], applicable: List<ConstructorInfo>, applicableParameters: List<Type[]>) {
+        for candidate in candidates {
+            if candidate != null && candidate.IsPublic && !candidate.IsStatic && !IsExpandedConstructorShape(candidate) {
+                parameters := candidate.GetParameters()
+                if parameters != null && parameters.Length > argumentTypes.Length {
+                    openTypes := ConstructorParameterTypesOrNull(parameters)
+                    if openTypes != null {
+                        types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
+                        if !HasUnsupportedConstructorSignature(types, closedArguments) && ConstructorOptionalTailFillable(parameters, types, argumentTypes.Length) {
+                            applicable.Add(candidate)
+                            applicableParameters.Add(types)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    static func ConstructorOptionalTailFillable(parameters: ParameterInfo[], parameterTypes: Type[], startIndex: int): bool {
+        if parameters.Length != parameterTypes.Length {
+            return false
+        }
+
+        index := startIndex
+        while index < parameterTypes.Length {
+            if !ColumnarExtensionMethodResolver.CanFillOptional(parameters[index], parameterTypes[index]) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    // Write every default past the written arguments, through the one owner that knows which defaults
+    // are constants. An exact-arity selection fills nothing and this is a no-op for it.
+    static func TryAppendConstructorOptionalDefaults(plan: ColumnarCodePlan, constructor: ConstructorInfo, parameterTypes: Type[], explicitCount: int): bool {
+        parameters := constructor.GetParameters()
+        if parameters == null || parameters.Length != parameterTypes.Length {
+            return false
+        }
+
+        index := explicitCount
+        while index < parameterTypes.Length {
+            if !ColumnarExtensionMethodResolver.TryAppendOptionalDefault(plan, parameters[index], parameterTypes[index]) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    // A parameter that resolved to one of the INSTANTIATION'S OWN arguments is closed, not open:
+    // `new KeyValuePair<string, T>(key, value)` inside `Bag<T>` binds `TValue` to this declaration's
+    // `T`, which is exactly the type the caller has. A generic parameter the instantiation did not
+    // substitute in is still open and still refused.
+    static func HasUnsupportedConstructorSignature(parameterTypes: Type[], closedArguments: Type[]): bool {
+        for parameterType in parameterTypes {
+            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedResolvedSignatureType(parameterType, closedArguments) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func TargetTypeIdentity(targetType: Type): string {
+        identity := targetType.AssemblyQualifiedName
+        if identity == null {
+            return ""
+        }
+
+        return identity
+    }
+
+    // `new` needs a concrete, non-generic, non-builder target. A builder-bound type is refused here
+    // rather than probed: `GetConstructors` over Reflection.Emit metadata is not a semantic answer, and
+    // the closed-generic and source paths own those shapes before this one is reached.
+    static func IsConstructibleRuntimeTarget(targetType: Type): bool {
+        if targetType == null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(targetType) {
+            return false
+        }
+
+        return !targetType.IsAbstract && !targetType.IsInterface && !targetType.IsGenericTypeDefinition && !targetType.IsGenericParameter && !targetType.IsArray && !targetType.IsByRef && !targetType.IsPointer
+    }
+
+    static func RuntimeConstructorsOrEmpty(targetType: Type): ConstructorInfo[] {
+        try {
+            constructors := targetType.GetConstructors()
+            if constructors == null {
+                return new ConstructorInfo[](0)
+            }
+
+            return constructors
+        } catch {
+            return new ConstructorInfo[](0)
+        }
+    }
+
+    // A VARARG signature is an expansion the plan rows do not model. A `params` TAIL IS NOT ONE any
+    // more: it is a call-site shape `ColumnarParamsExpansion` answers for, so the declaration is
+    // admitted in its declared LAST position — which is the only position C# allows — and the arity
+    // tiers below decide whether the arguments pass through in normal form or pack into a fresh
+    // array. The EMITTABILITY of the parameter types is a separate question, asked by
+    // `HasUnsupportedConstructorSignature` on the SUBSTITUTED signature: an open generic parameter is
+    // unemittable as written but perfectly emittable once the closed type arguments are in place.
+    static func IsExpandedConstructorShape(candidate: ConstructorInfo): bool {
+        convention := (int)candidate.CallingConvention
+        if (convention & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0 {
+            return true
+        }
+
+        parameters := candidate.GetParameters()
+        if parameters == null {
+            return true
+        }
+
+        index := 0
+        while index < parameters.Length {
+            parameter := parameters[index]
+            if parameter == null {
+                return true
+            }
+
+            if ColumnarExtensionMethodResolver.IsParamsParameter(parameter) && index != parameters.Length - 1 {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    // THE `params` TIER, AND IT RUNS ONLY WHEN NOTHING BOUND WITHOUT PACKING — the same ordering the
+    // trailing-optional tier keeps, and for the same reason: C# prefers a constructor applicable in
+    // its normal form to one applicable only in its expanded form, so this tier can turn a decline
+    // into an emission and can never change an answer that already selected.
+    //
+    // The scoring is the shared flow scorer, given the per-argument types the packing produces, so an
+    // expanded constructor and an ordinary one cannot disagree about what converts. A tie declines.
+    static func TrySelectExpandedRuntimeConstructor(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[], out elementType: Type?): bool {
+        constructor = null
+        parameterTypes = new Type[](0)
+        elementType = null
+        applicable := new List<ConstructorInfo>()
+        applicableDeclared := new List<Type[]>()
+        applicableExpanded := new List<Type[]>()
+        applicableElements := new List<Type>()
+        for candidate in candidates {
+            if candidate != null && candidate.IsPublic && !candidate.IsStatic && !IsExpandedConstructorShape(candidate) {
+                parameters := candidate.GetParameters()
+                if parameters != null {
+                    openTypes := ConstructorParameterTypesOrNull(parameters)
+                    if openTypes != null {
+                        types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
+                        expanded := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, types, 0, argumentTypes.Length)
+                        candidateElement := ColumnarParamsExpansion.ElementTypeOrNull(parameters, types)
+                        if expanded != null && candidateElement != null && !HasUnsupportedConstructorSignature(types, closedArguments) {
+                            applicable.Add(candidate)
+                            applicableDeclared.Add(types)
+                            applicableExpanded.Add(expanded)
+                            applicableElements.Add(candidateElement)
+                        }
+                    }
+                }
+            }
+        }
+
+        selectedIndex := BestSourceConstructorIndex(applicableExpanded, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return false
+        }
+
+        constructor = applicable[selectedIndex]
+        parameterTypes = applicableDeclared[selectedIndex]
+        elementType = applicableElements[selectedIndex]
+        return true
+    }
+
+    // The arguments of a selected runtime construction, in whichever form it selected. An expanded
+    // one emits its fixed arguments and then stores the rest into one fresh array; a normal one emits
+    // every written argument and fills whatever trailing defaults are left. Both leave the stack
+    // holding exactly the constructor's declared parameter list.
+    static func TryAppendRuntimeConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, constructor: ConstructorInfo, parameterTypes: Type[], argumentCount: int, elementType: Type?): bool {
+        if elementType == null {
+            return ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameterTypes, argumentCount), argumentFacts) && TryAppendConstructorOptionalDefaults(plan, constructor, parameterTypes, argumentCount)
+        }
+
+        parameters := constructor.GetParameters()
+        if parameters == null {
+            return false
+        }
+
+        expanded := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, parameterTypes, 0, argumentCount)
+        if expanded == null {
+            return false
+        }
+
+        return ColumnarDirectCallPlanner.AppendExpandedArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, expanded, argumentFacts, ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 0), elementType)
+    }
+
+    static func ConstructorParameterTypesOrNull(parameters: ParameterInfo[]): Type[]? {
+        types := new Type[](parameters.Length)
+        index := 0
+        while index < parameters.Length {
+            parameterType := parameters[index].ParameterType
+            if parameterType == null {
+                return null
+            }
+
+            types[index] = parameterType
+            index = index + 1
+        }
+
+        return types
+    }
+
+    static func Types1(first: Type): Type[] {
+        result := new Type[](1)
+        result[0] = first
+        return result
+    }
+
+    static func CanUseConstructorDefault(nodes: ColumnarNodeTable, expectedType: Type, defaultKind: int, defaultText: string, bindings: ColumnarFragmentBindings): bool {
+        if defaultKind == 46 {
+            return !expectedType.IsValueType
+        }
+        if defaultKind == 44 || defaultKind == 45 {
+            return expectedType == typeof(bool)
+        }
+        if defaultKind == 1 {
+            value := 0
+            return expectedType == typeof(int) && Int32.TryParse(defaultText, out value)
+        }
+        if defaultKind == 4 {
+            return expectedType == typeof(string)
+        }
+        if defaultKind != 1000 {
+            return false
+        }
+
+        stringValue := ""
+        intValue := 0
+        return TryResolveStringEnumDefault(nodes, expectedType, defaultText, bindings, out stringValue) || TryResolveNumericEnumDefault(nodes, expectedType, defaultText, bindings, out intValue)
+    }
+
+    static func TryAppendConstructorDefault(nodes: ColumnarNodeTable, plan: ColumnarCodePlan, expectedType: Type, defaultKind: int, defaultText: string, bindings: ColumnarFragmentBindings): bool {
+        if !CanUseConstructorDefault(nodes, expectedType, defaultKind, defaultText, bindings) {
+            return false
+        }
+        if defaultKind == 46 {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+            return true
+        }
+        if defaultKind == 44 {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+            return true
+        }
+        if defaultKind == 45 {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+            return true
+        }
+        if defaultKind == 1 {
+            intValue := 0
+            if !Int32.TryParse(defaultText, out intValue) {
+                return false
+            }
+            valueIndex := plan.AddInt32(intValue)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
+            return true
+        }
+        if defaultKind == 4 {
+            valueIndex := plan.AddString(StringLiteralDecoder.Decode(defaultText, false))
+            plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
+            return true
+        }
+
+        stringValue := ""
+        if TryResolveStringEnumDefault(nodes, expectedType, defaultText, bindings, out stringValue) {
+            valueIndex := plan.AddString(stringValue)
+            plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
+            return true
+        }
+        intValue := 0
+        if TryResolveNumericEnumDefault(nodes, expectedType, defaultText, bindings, out intValue) {
+            valueIndex := plan.AddInt32(intValue)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
+            return true
+        }
+        return false
+    }
+
+    static func TryResolveStringEnumDefault(nodes: ColumnarNodeTable, expectedType: Type, defaultText: string, bindings: ColumnarFragmentBindings, out value: string): bool {
+        value = ""
+        ownerName := ""
+        memberName := ""
+        if !TrySplitDefaultMember(defaultText, out ownerName, out memberName) {
+            return false
+        }
+
+        exactClaimed := false
+        if TryResolveDeclaredStringEnumMember(expectedType, ownerName, memberName, bindings, out value, out exactClaimed) {
+            return true
+        }
+        if exactClaimed {
+            return false
+        }
+
+        ownerType := typeof(object)
+        resolvedByScope := false
+        if !TryResolveConstructorDefaultOwner(nodes, expectedType, ownerName, bindings, out ownerType, out resolvedByScope) {
+            return false
+        }
+        if resolvedByScope {
+            return TryResolveBoundStringEnumMember(nodes, ownerName, ownerType, memberName, bindings, out value)
+        }
+        if !bindings.Enums.ContainsKey(ownerName) {
+            return false
+        }
+        definition := bindings.Enums[ownerName]
+        constants := definition.StringConstants
+        if constants == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, expectedType) || !constants.ContainsKey(memberName) {
+            return false
+        }
+        value = constants[memberName]
+        return true
+    }
+
+    static func TryResolveNumericEnumDefault(nodes: ColumnarNodeTable, expectedType: Type, defaultText: string, bindings: ColumnarFragmentBindings, out value: int): bool {
+        value = 0
+        ownerName := ""
+        memberName := ""
+        if !TrySplitDefaultMember(defaultText, out ownerName, out memberName) {
+            return false
+        }
+
+        exactClaimed := false
+        if TryResolveDeclaredNumericEnumMember(expectedType, ownerName, memberName, bindings, out value, out exactClaimed) {
+            return true
+        }
+        if exactClaimed {
+            return false
+        }
+        if expectedType.FullName == ownerName {
+            return TryResolveRuntimeEnumMember(expectedType, memberName, out value)
+        }
+
+        ownerType := typeof(object)
+        resolvedByScope := false
+        if !TryResolveConstructorDefaultOwner(nodes, expectedType, ownerName, bindings, out ownerType, out resolvedByScope) {
+            return false
+        }
+        if resolvedByScope {
+            if TryResolveBoundNumericEnumMember(nodes, ownerName, ownerType, memberName, bindings, out value) {
+                return true
+            }
+            return TryResolveRuntimeEnumMember(ownerType, memberName, out value)
+        }
+
+        if bindings.Enums.ContainsKey(ownerName) {
+            definition := bindings.Enums[ownerName]
+            if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, expectedType) && definition.Constants.ContainsKey(memberName) {
+                value = definition.Constants[memberName]
+                return true
+            }
+        }
+
+        if expectedType.Name != ownerName && expectedType.FullName != ownerName {
+            return false
+        }
+        return TryResolveRuntimeEnumMember(expectedType, memberName, out value)
+    }
+
+    static func TryResolveConstructorDefaultOwner(nodes: ColumnarNodeTable, expectedType: Type, ownerName: string, bindings: ColumnarFragmentBindings, out ownerType: Type, out resolvedByScope: bool): bool {
+        ownerType = expectedType
+        resolvedByScope = false
+        scope := ColumnarBindingScopeFacts.Of(nodes)
+        if scope == null {
+            return true
+        }
+
+        claimed := false
+        resolvedType := typeof(object)
+        if scope.TryResolveExactExplicitType(ownerName, bindings, out resolvedType, out claimed) {
+            resolvedByScope = true
+            ownerType = resolvedType
+            return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(resolvedType, expectedType)
+        }
+        if claimed {
+            resolvedByScope = true
+            return false
+        }
+        return true
+    }
+
+    static func TryResolveDeclaredStringEnumMember(expectedType: Type, ownerName: string, memberName: string, bindings: ColumnarFragmentBindings, out value: string, out claimed: bool): bool {
+        value = ""
+        claimed = false
+        selected: ColumnarEnumDef? = null
+        for pair in bindings.Enums {
+            definition := pair.Value
+            if definition.DeclaredTypeName != ownerName {
+                continue
+            }
+            claimed = true
+            constants := definition.StringConstants
+            if constants == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, expectedType) || !constants.ContainsKey(memberName) {
+                return false
+            }
+            if selected != null && !SameObject(selected, definition) {
+                return false
+            }
+            selected = definition
+        }
+        if selected == null || selected.StringConstants == null {
+            return false
+        }
+        value = selected.StringConstants[memberName]
+        return true
+    }
+
+    static func TryResolveDeclaredNumericEnumMember(expectedType: Type, ownerName: string, memberName: string, bindings: ColumnarFragmentBindings, out value: int, out claimed: bool): bool {
+        value = 0
+        claimed = false
+        selected: ColumnarEnumDef? = null
+        for pair in bindings.Enums {
+            definition := pair.Value
+            if definition.DeclaredTypeName != ownerName {
+                continue
+            }
+            claimed = true
+            if definition.IsStringBacked || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, expectedType) || !definition.Constants.ContainsKey(memberName) {
+                return false
+            }
+            if selected != null && !SameObject(selected, definition) {
+                return false
+            }
+            selected = definition
+        }
+        if selected == null {
+            return false
+        }
+        value = selected.Constants[memberName]
+        return true
+    }
+
+    static func TryResolveBoundStringEnumMember(nodes: ColumnarNodeTable, ownerName: string, ownerType: Type, memberName: string, bindings: ColumnarFragmentBindings, out value: string): bool {
+        value = ""
+        selected: ColumnarEnumDef? = null
+        for pair in bindings.Enums {
+            definition := pair.Value
+            constants := definition.StringConstants
+            if constants == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, ownerType) || !ExactScopeSelectsEnumDefinition(nodes, ownerName, definition, bindings) || !constants.ContainsKey(memberName) {
+                continue
+            }
+            if selected != null && !SameObject(selected, definition) {
+                return false
+            }
+            selected = definition
+        }
+        if selected == null || selected.StringConstants == null {
+            return false
+        }
+        value = selected.StringConstants[memberName]
+        return true
+    }
+
+    static func TryResolveBoundNumericEnumMember(nodes: ColumnarNodeTable, ownerName: string, ownerType: Type, memberName: string, bindings: ColumnarFragmentBindings, out value: int): bool {
+        value = 0
+        selected: ColumnarEnumDef? = null
+        for pair in bindings.Enums {
+            definition := pair.Value
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, ownerType) || !ExactScopeSelectsEnumDefinition(nodes, ownerName, definition, bindings) || !definition.Constants.ContainsKey(memberName) {
+                continue
+            }
+            if selected != null && !SameObject(selected, definition) {
+                return false
+            }
+            selected = definition
+        }
+        if selected == null {
+            return false
+        }
+        value = selected.Constants[memberName]
+        return true
+    }
+
+    static func ExactScopeSelectsEnumDefinition(nodes: ColumnarNodeTable, ownerName: string, definition: ColumnarEnumDef, bindings: ColumnarFragmentBindings): bool {
+        scope := ColumnarBindingScopeFacts.Of(nodes)
+        if scope == null {
+            return true
+        }
+        if definition.DeclaredTypeName == null || definition.DeclaredTypeName.Length == 0 {
+            return false
+        }
+        candidateBindings := bindings.CreateSingleEnumTypeResolutionBindings(definition)
+        candidateType := typeof(object)
+        claimed := false
+        if !scope.TryResolveExactExplicitType(ownerName, candidateBindings, out candidateType, out claimed) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, definition.EnumType) {
+            return false
+        }
+
+        emptyBindings := bindings.CreateEmptySourceTypeResolutionBindings()
+        typeWithoutCandidate := typeof(object)
+        claimedWithoutCandidate := false
+        return !scope.TryResolveExactExplicitType(ownerName, emptyBindings, out typeWithoutCandidate, out claimedWithoutCandidate) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(typeWithoutCandidate, candidateType)
+    }
+
+    static func TryResolveRuntimeEnumMember(enumType: Type, memberName: string, out value: int): bool {
+        value = 0
+        if enumType is TypeBuilder || enumType.GetType().FullName == "System.Reflection.Emit.EnumBuilder" || !enumType.IsEnum || Enum.GetUnderlyingType(enumType).FullName != "System.Int32" || !Enum.IsDefined(enumType, memberName) {
+            return false
+        }
+        value = Convert.ToInt32(Enum.Parse(enumType, memberName), CultureInfo.InvariantCulture)
+        return true
+    }
+
+    static func TrySplitDefaultMember(text: string, out ownerName: string, out memberName: string): bool {
+        ownerName = ""
+        memberName = ""
+        if text == null {
+            return false
+        }
+        separator := text.LastIndexOf(".", StringComparison.Ordinal)
+        if separator <= 0 || separator + 1 >= text.Length {
+            return false
+        }
+        ownerName = text.Substring(0, separator)
+        memberName = text.Substring(separator + 1)
+        return ownerName.Length > 0 && memberName.Length > 0
+    }
+
+    static func AppendArrayElementStore(plan: ColumnarCodePlan, elementType: Type) {
+        if elementType == typeof(bool) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI1())
+        } else if elementType == typeof(char) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI2())
+        } else if elementType == typeof(int) || elementType == typeof(uint) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI4())
+        } else if elementType == typeof(long) || elementType == typeof(ulong) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemI8())
+        } else if elementType == typeof(float) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemR4())
+        } else if elementType == typeof(double) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemR8())
+        } else if !elementType.IsValueType && !elementType.IsGenericParameter {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemRef())
+        } else {
+            typeIndex := plan.AddType(elementType)
+            plan.AppendTypeInstruction(ColumnarCodePlanContract.Stelem(), typeIndex)
+        }
+    }
+
+    static func IsSupportedArrayElement(elementType: Type): bool {
+        if elementType == null || elementType.FullName == "System.Void" || elementType.IsByRef || elementType.IsPointer {
+            return false
+        }
+        return ColumnarTypeOfPlanner.IsSupportedElementType(elementType)
+    }
+
+    static func TryResolveExactType(nodes: ColumnarNodeTable, canonical: string, bindings: ColumnarFragmentBindings, out resultType: Type): bool {
+        claimed := false
+        return TryResolveExactType(nodes, canonical, bindings, out resultType, out claimed)
+    }
+
+    static func TryResolveExactType(nodes: ColumnarNodeTable, canonical: string, bindings: ColumnarFragmentBindings, out resultType: Type, out claimed: bool): bool {
+        resultType = typeof(object)
+        claimed = false
+        if VisibleTypeParameterHandleIsMissing(nodes, canonical, bindings) {
+            claimed = true
+            return false
+        }
+        scope := ColumnarBindingScopeFacts.Of(nodes)
+        return scope != null && scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resultType, out claimed)
+    }
+
+    // The immutable node context records the lexical type-parameter names even when a corrupt
+    // mechanical caller omits their live handles. Such a spelling is blocked; exact scope must
+    // never reinterpret it as a source or runtime type with the same name.
+    static func VisibleTypeParameterHandleIsMissing(nodes: ColumnarNodeTable, canonical: string, bindings: ColumnarFragmentBindings): bool {
+        baseName := canonical
+        while baseName.EndsWith("[]", StringComparison.Ordinal) {
+            baseName = baseName.Substring(0, baseName.Length - 2)
+        }
+        genericOpen := baseName.IndexOf("<", StringComparison.Ordinal)
+        if genericOpen > 0 && baseName.EndsWith(">", StringComparison.Ordinal) {
+            if VisibleTypeParameterRootIsInvalid(nodes, baseName.Substring(0, genericOpen), bindings, false) {
+                return true
+            }
+            arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(baseName.Substring(genericOpen + 1, baseName.Length - genericOpen - 2))
+            for argument in arguments {
+                if VisibleTypeParameterHandleIsMissing(nodes, argument, bindings) {
+                    return true
+                }
+            }
+            return false
+        }
+        return VisibleTypeParameterRootIsInvalid(nodes, baseName, bindings, true)
+    }
+
+    static func VisibleTypeParameterRootIsInvalid(nodes: ColumnarNodeTable, canonical: string, bindings: ColumnarFragmentBindings, allowExactParameter: bool): bool {
+        for name in nodes.VisibleTypeParameterNames {
+            if canonical == name {
+                if !allowExactParameter {
+                    return true
+                }
+                parameterType := typeof(object)
+                return !bindings.TryGetTypeParameter(name, out parameterType)
+            }
+            if canonical.StartsWith(name + ".", StringComparison.Ordinal) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func TryFindSourceDefinition(targetType: Type, bindings: ColumnarFragmentBindings, out selected: ColumnarStructDef?): bool {
+        selected = null
+        for candidate in bindings.SourceTypeDefinitions {
+            if candidate == null || candidate.Builder == null {
+                throw new InvalidOperationException("Construction source-type facts cannot contain null values.")
+            }
+            candidateType: Type = candidate.Builder
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, targetType) {
+                continue
+            }
+            if selected != null && !SameObject(selected, candidate) {
+                throw new InvalidOperationException("One exact construction target cannot map to two source definitions.")
+            }
+            selected = candidate
+        }
+        return selected != null
+    }
+
+    static func IsSourceUnionType(targetType: Type, bindings: ColumnarFragmentBindings): bool {
+        selected: ColumnarUnionDef? = null
+        for candidate in bindings.SourceUnionDefinitions {
+            if candidate == null || candidate.Base == null {
+                throw new InvalidOperationException("Construction source-union facts cannot contain null values.")
+            }
+            candidateType: Type = candidate.Base
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, targetType) {
+                continue
+            }
+            if selected != null && !SameObject(selected, candidate) {
+                throw new InvalidOperationException("One exact construction target cannot map to two source unions.")
+            }
+            selected = candidate
+        }
+        return selected != null
+    }
+
+    static func SameObject(first: object, second: object): bool {
+        return Object.ReferenceEquals(first, second)
+    }
+
+    static func ValueSyntaxIsAdmitted(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int): bool {
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression && nodes.ChildCount(candidate) == 0 {
+            return true
+        }
+        syntaxAdmitted := false
+        if ColumnarPrimitiveBinaryPlanner.IsAdmittedSyntax(nodes, source, node, depth) {
+            syntaxAdmitted = true
+        } else if MayPlanRoot(nodes, node) {
+            syntaxAdmitted = IsAdmittedConstructionValueSyntax(nodes, source, node, bindings, handles, depth)
+        } else {
+            syntaxAdmitted = ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, node, depth)
+        }
+        if !syntaxAdmitted {
+            return false
+        }
+
+        // 015-B8 — armed for the same reason as the direct-call site. It was INERT when it was written
+        // (the door declined the construction kinds at the root, and the only path in from inside a call
+        // needed `allowPrimitiveBinary`, which the root call set false); `015-B9` made the call owner's
+        // argument surface admit a primitive binary, so a construction inside a claimed call's argument
+        // now reaches here and the vocabulary is no longer always empty. The contract belongs to the
+        // SCRATCH FAMILY rather than to whichever member of it happens to be reachable this week.
+        //
+        // 015-B10 — AND THE FRAME, FOR THE IDENTICAL REASON. This scratch appends at `parentFragment =
+        // -1`, so `ColumnarRangeIndexPlanner`'s root rule refused an ordinary `arr[0]` at the ADMISSION
+        // step that all three APPEND sites (array length, array element, constructor argument) plan under
+        // a real fragment at `>= 0`. That is the same misprediction `015-B9` removed at the direct-call
+        // scratch: a value typed at a position it can never occupy. `new Holder(arr[0])` and
+        // `[arr[0], 2]` are what it cost.
+        scratch := new ColumnarCodePlan()
+        scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
+        scratch.EnableNestedValueFrame()
+        scratch.PrepareV3()
+        resultType := typeof(int)
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, handles, scratch, -1, depth, out resultType) || resultType.FullName == "System.Void" {
+            return false
+        }
+        scratch.CompleteV3(resultType)
+        ColumnarCodePlanExecutor.Validate(scratch)
+        return true
+    }
+
+    // Sized arrays in this slice deliberately admit only an exact simple element spelling, with
+    // any number of surrounding array suffixes. Other type families still belong to the legacy
+    // whole-subtree planner because they may require target context or richer type
+    // binding. A malformed node in the admitted simple/repeated-array family remains terminal.
+    //  1: admitted exact syntax, 0: excluded well-formed family, -1: malformed admitted family.
+    static func ClassifyExactSizedArrayElementSyntax(nodes: ColumnarNodeTable, node: int, depth: int): int {
+        if nodes == null || depth > 200 || node < 0 || node >= nodes.Kinds.Length {
+            return -1
+        }
+
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression {
+            return nodes.ChildCount(node) == 0 ? 1 : -1
+        }
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression {
+            if nodes.ChildCount(node) != 1 {
+                return -1
+            }
+            return ClassifyExactSizedArrayElementSyntax(nodes, nodes.Child(node, 0), depth + 1)
+        }
+        return 0
+    }
+
+    static func TryBuildTypeCanonical(nodes: ColumnarNodeTable, source: string, node: int, depth: int, out canonical: string): bool {
+        canonical = ""
+        if depth > 200 || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression {
+            if nodes.ChildCount(node) != 0 {
+                return false
+            }
+            canonical = nodes.Text(source, node)
+            return canonical.Length > 0
+        }
+        if kind == ColumnarExpressionNodeKind.FloatLiteralExpression {
+            childCount := nodes.ChildCount(node)
+            name := nodes.Text(source, node)
+            if childCount == 0 || name.Length == 0 {
+                return false
+            }
+            builder := new StringBuilder()
+            builder.Append(name)
+            builder.Append("<")
+            index := 0
+            while index < childCount {
+                if index > 0 {
+                    builder.Append(",")
+                }
+                argument := ""
+                if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, index), depth + 1, out argument) {
+                    return false
+                }
+                builder.Append(argument)
+                index += 1
+            }
+            builder.Append(">")
+            canonical = builder.ToString()
+            return true
+        }
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression {
+            if nodes.ChildCount(node) != 1 {
+                return false
+            }
+            element := ""
+            if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out element) {
+                return false
+            }
+            canonical = element + (kind == ColumnarExpressionNodeKind.CharLiteralExpression ? "[]" : "?")
+            return true
+        }
+        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression {
+            childCount := nodes.ChildCount(node)
+            if childCount != 2 {
+                return false
+            }
+            builder := new StringBuilder()
+            index := 0
+            while index < childCount {
+                if index > 0 {
+                    builder.Append("|")
+                }
+                arm := ""
+                if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, index), depth + 1, out arm) {
+                    return false
+                }
+                builder.Append(arm)
+                index += 1
+            }
+            canonical = builder.ToString()
+            return true
+        }
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
+            childCount := nodes.ChildCount(node)
+            if childCount < 2 || childCount > 7 {
+                return false
+            }
+            builder := new StringBuilder()
+            builder.Append("ValueTuple<")
+            index := 0
+            while index < childCount {
+                if index > 0 {
+                    builder.Append(",")
+                }
+                element := ""
+                if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, index), depth + 1, out element) {
+                    return false
+                }
+                builder.Append(element)
+                index += 1
+            }
+            builder.Append(">")
+            canonical = builder.ToString()
+            return true
+        }
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(node) == 1 {
+            return TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out canonical)
+        }
+        return false
+    }
+
+    static func ValidateOwnershipBoundary(ownership: ColumnarDirectCallOwnership, legacyWholeSubtreePlanning: bool) {
+        if legacyWholeSubtreePlanning && ownership != ColumnarDirectCallOwnership.NotOwned {
+            throw new InvalidOperationException("Legacy whole-subtree construction planning requires NotOwned.")
+        }
+    }
+
+    static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
+        ColumnarPlannerSupport.RequirePresent(nodes != null && source != null && bindings != null && plan != null && bindings.SourceTypeDefinitions != null && bindings.SourceUnionDefinitions != null && bindings.Enums != null, "Construction planning inputs and binding facts cannot be null.")
+        ColumnarPlannerSupport.RequireNodeInRange(nodes, node, "Construction planning received an invalid root node index.")
+    }
+}
