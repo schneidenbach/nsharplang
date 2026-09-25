@@ -70,7 +70,7 @@ C# consumer of the self-compiled assemblies (`Cli`, `Build.Tasks`, `LanguageServ
 against the stage-2 seed before believing it.**
 
 `Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
-`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling`, `src/NSharpLang.Compiler.Driver`, `src/NSharpLang.Compiler`,
+`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler.Emit`, `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling`, `src/NSharpLang.Compiler.Driver`, `src/NSharpLang.Compiler`,
 `src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and
 fails on any INCREASE over the committed ceilings. **The ceilings are a backlog, not a target**: the
 front door reports diagnostics on Core's own source that the emit-only path never asked about
@@ -181,6 +181,16 @@ reference's own project references, and Core now reaches Model only through Synt
 the 62 NL002s a SOURCE type's project-wide discovery used to answer for `ColumnarParserRecovery`,
 `ColumnarNodeTable` and `ColumnarExpressionNodeKind`, now the imports NL002 asks for.
 
+**Measured 2026-09-25 on `census/carve-emit`** (Compiler.Emit carved out of Core, rows included, above
+Core and below CodeIntel): Step 2d checks **Emit, ceiling 0**, right after **Core at 771** (1,029 before).
+Emit reached zero at the source before the move -- 251 of its own 252 (248 in `ColumnarIlEmitter.nl`;
+the 252nd sits in the Cecil admission rows that moved down to Backend.Plan and still counts in Core)
+and the seven NL905s of the source-attribute rows that moved into its estate -- so the identity diff
+against the base tree through the same tip CLI is **zero additions and 258 removals**, and against
+the pre-carve tree zero and zero. The carve's own cross-assembly findings (out-argument nullability,
+`for`-step narrowing, nested-type `nameof`, two emitter declines) are routed around with `// COMPILER:`
+notes; see `memory/architecture.md`, "Compiler.Emit is carved".
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 
@@ -190,7 +200,7 @@ dependency of every project the step checks, so each front door measures its own
 `check` compiled a project's references from source first, which fails while Core's own front door
 is not clean -- so `src/NSharpLang.Compiler` and `src/NSharpLang.Playground` (and, once carved,
 `src/NSharpLang.Compiler.Driver`) sat at ceiling -1, BLOCKED and counted nowhere, behind a guard that
-skipped them while Core's count was above zero. Now every ceiling is measured: CodeIntel 0 and Tooling 0 (carved
+skipped them while Core's count was above zero. Now every ceiling is measured: Emit 0, CodeIntel 0 and Tooling 0 (carved
 above Core, 2026-09-25), Driver 0, Playground 0 and Compiler 34 (its own backlog, counted for the first time: NL010 11, NL002 11, NL011 6, NL907 4,
 NL001 1, NL012 1). BLOCKED is left for the one case a check truly cannot run -- a dependency Step 2
 did not build, or built from older sources -- and there it FAILS the step, naming the dependency.

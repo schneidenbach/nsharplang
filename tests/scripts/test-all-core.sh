@@ -374,7 +374,7 @@ section "Step 2d: Self-Host Front Door"
 #
 # EACH PROJECT IS CHECKED AGAINST ITS DEPENDENCIES' BUILT ASSEMBLIES (`nlc check
 # --use-built-references`): Step 2 has just built every `project:` dependency of every project here
-# (the Cli build carries Compiler, Driver, Tooling, CodeIntel, Core, Syntax and Model; Playground is built on
+# (the Cli build carries Compiler, Driver, Tooling, CodeIntel, Emit, Core, Syntax and Model; Playground is built on
 # its own), so a project's front door measures ITS OWN source and never waits on a dependency's. Before this, a
 # project that referenced Core began its check by compiling Core from source, which cannot succeed
 # while Core's own front door reports anything -- so Compiler, Playground and (once carved) Driver
@@ -393,6 +393,7 @@ else
         "src/NSharpLang.Compiler.Model"
         "src/NSharpLang.Compiler.Syntax"
         "src/NSharpLang.Compiler.Core"
+        "src/NSharpLang.Compiler.Emit"
         "src/NSharpLang.Compiler.CodeIntel"
         "src/NSharpLang.Compiler.Tooling"
         "src/NSharpLang.Compiler.Driver"
@@ -515,10 +516,25 @@ else
     # CodeIntel 0 (its 166 files, estate included, against built Core), Tooling 0 (now against built
     # CodeIntel), Driver 0, Compiler 34, Playground 0, Build.Tasks 0.
     #
+    # 2026-09-25, before Compiler.Emit (`Backend.Emit`) is carved out of Core (above Core, below
+    # CodeIntel): Core 771. Emit's own files carried 252 of the 1,029 (NL905 140, NL202 90, NL001 6,
+    # NL303 6, NL304 4, NL012 2, NL010 1, NL907 1, NL301 1, NL402 1; 248 in ColumnarIlEmitter.nl). One
+    # sits in the Cecil admission rows that moved DOWN to Backend.Plan and still counts there; the
+    # other 251, and the seven NL905s of the source-attribute rows that moved into Emit's estate, are
+    # fixed. Measured with the same tip CLI against both trees, the identity diff is zero additions and
+    # those 258 removals.
+    #
+    # 2026-09-25, Compiler.Emit carved out of Core into its own project, rows included, ABOVE Core
+    # and below CodeIntel (`census/carve-emit`): Model 0, Syntax 0, Core 771 (the identity diff against
+    # the pre-carve tree through the same tip CLI is zero additions and zero removals), Emit 0 (its 19
+    # files, estate included, against built Core), CodeIntel 0 (now against built Emit), Tooling 0,
+    # Driver 0, Compiler 34, Playground 0, Build.Tasks 0.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
-        1029
+        771
+        0
         0
         0
         0

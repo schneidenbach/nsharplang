@@ -35,19 +35,20 @@ separately. Historical allowlist labels below do not establish current completio
 1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.Syntax/Lexer.nl`)
 2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.Syntax/ColumnarParserRecovery.nl`, N#)
 3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler.Core/Semantics/Analyzer.nl`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
-4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler.Core/Backend.Emit/ColumnarIlEmitter.nl`)
+4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler.Emit/ColumnarIlEmitter.nl`)
 5. **CLI** - command-line workflows (`src/NSharpLang.Cli/`)
 6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.Model/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
 
 ## Compiler.Core slice directories
 
 `src/NSharpLang.Compiler.Core` is being carved into eight slice projects, lowest first, and ordered so
-a file names only its own slice or a lower one. **S0, S1, S5, S6 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
-`src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling` and `src/NSharpLang.Compiler.Driver`
-are each their own N#-SDK project (one-line csproj, `project.yml`, the SDK's `global.json` pin); Syntax
-takes Model with `project:`, Core takes Syntax, CodeIntel takes Core, Tooling takes CodeIntel, Driver
-takes Tooling, the `Compiler` facade takes Driver, and every consumer builds the Model -> Syntax -> Core
--> CodeIntel -> Tooling -> Driver DAG through those edges. The other three are still directories of Core:
+a file names only its own slice or a lower one. **S0, S1, S4, S5, S6 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
+`src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Emit` (S4, `Backend.Emit`), `src/NSharpLang.Compiler.CodeIntel`,
+`src/NSharpLang.Compiler.Tooling` and `src/NSharpLang.Compiler.Driver` are each their own N#-SDK project (one-line
+csproj, `project.yml`, the SDK's `global.json` pin); Syntax takes Model with `project:`, Core takes Syntax,
+Emit takes Core, CodeIntel takes Emit, Tooling takes CodeIntel, Driver takes Tooling, the `Compiler`
+facade takes Driver, and every consumer builds the Model -> Syntax -> Core -> Emit -> CodeIntel ->
+Tooling -> Driver DAG through those edges. The other two are still directories of Core:
 
 | directory | slice | holds |
 |---|---|---|
@@ -55,7 +56,7 @@ takes Tooling, the `Compiler` facade takes Driver, and every consumer builds the
 | `src/NSharpLang.Compiler.Syntax/` (product AND estate) | S1 | lexer, preprocessor, the columnar parser kernels and node table |
 | `Semantics/` | S2 | the analyzer, the systems analyzer, flow and nullability |
 | `Backend.Plan/` | S3 | the columnar planners and binding scope, and the metadata-blob writers |
-| `Backend.Emit/` | S4 | `ColumnarIlEmitter` and the IL realizations |
+| `src/NSharpLang.Compiler.Emit/` (product AND estate) | S4 | `ColumnarIlEmitter` and the IL realizations |
 | `src/NSharpLang.Compiler.CodeIntel/` (product AND estate) | S5 | completion, hover, signature help, navigation, code fixes, DocQuery and the Linter |
 | `src/NSharpLang.Compiler.Tooling/` (product AND estate) | S6 | the formatter and the JSON output models |
 | `src/NSharpLang.Compiler.Driver/` (product AND estate) | S7 | the CLI command kernels, `MultiFileCompiler`, the reference resolver, and the SDK's three MSBuild tasks |
@@ -343,6 +344,71 @@ body edit re-emits only CodeIntel and what sits above it (Tooling and Driver pro
 CodeIntel tests-included for its rows); Syntax, Core, Tooling and Driver answer "no row matches" in
 seconds.
 
+**Compiler.Emit is carved** (2026-09-25, `census/carve-emit`), TOP-DOWN like CodeIntel: `Backend.Emit/`
+-- `ColumnarIlEmitter` and the IL realizations (entry point, iterators, events, argument opcodes,
+friend declarations) -- becomes `src/NSharpLang.Compiler.Emit` (assembly `NSharpLang.Compiler.Emit`;
+a backend slice's project drops its `Backend.` prefix, which the slice-direction guard's
+`SliceProjectName` spells), a project ABOVE Core and below CodeIntel. Emit takes Core with
+`project:` and declares the packages its own source spells (`YamlDotNet`, `Mono.Cecil` for its Cecil
+admission row, and `NSharpLang.Runtime` for the SIMD helpers' `nameof`s -- `Sdk.props` leaves Emit,
+like Core, out of the implicit runtime reference, or MSBuild would see the NU1504 pair); CodeIntel
+takes Emit, so the chain stays linear (Driver -> Tooling -> CodeIntel -> Emit -> Core), although only
+Driver's `MultiFileCompiler` names an Emit type -- the chain edge the split plan gives S5 -> S4. The
+top-down measurement found NO product reach into Emit from Plan or Semantics, but the estate was
+entangled both ways, and every edge was cut in Core first:
+- 29 reaches from Core's rows into Emit (the estate upward-reach ceiling fell 141 -> 112): rows that
+  emit a whole program or drive a private emitter step moved beside their Emit subjects --
+  `ColumnarFreeFunctionScope.tests.nl` whole (8 of its 10 rows emit and read the metadata back),
+  the 12 emitting source-attribute rows into `ColumnarSourceAttributeEmission.tests.nl`, the
+  field-initializer, constructor-chain (`EmitChainedConstructorCall` by reflection) and Cecil
+  writable-property rows into `ColumnarIlEmitter.tests.nl`, the argument-opcode row into
+  `ColumnarArgumentInstructionEmitter.tests.nl`, the friend-declaration row into
+  `ColumnarInternalsVisibleToEmitter.tests.nl`, and the constructor decline-trace row beside the
+  emitted hostile `IReadOnlyList<T>` it drives the planner with (`ColumnarMemberIteratorRealization`);
+  the Cecil/MSBuild admission rows that never reached the emitter moved DOWN (the whole
+  `ColumnarSdkCecilBindingPrerequisite.tests.nl` into `Backend.Plan/`, where its catch-sequence
+  sibling already read its `Smc*` helpers); the generic-call row reads a captured error's runtime
+  type itself;
+- 211 reaches from Emit's rows into Backend.Plan's and Model's estate helpers (`TypeOfCreateBuilder`,
+  `ExecutorRequiredMethod`, `ColumnarIteratorShapeProbe`, `SemanticTypeResolution` ...), which a
+  tests-included Emit build cannot see: it references Core PRODUCT-ONLY. Emit's rows now share their
+  own `ColumnarEmitFixtures.tests.nl` (`EmitFixture*`), spelling the Reflection.Emit calls directly
+  where the planner helpers still go through reflection invocation (a relic of older emitter gaps),
+  and copying only the one fixture with real logic, the iterator-shape probe. Estate helpers are
+  per-assembly now, so a fixture two slices' rows need exists once per slice.
+What the carve is:
+- Emit's front door fixed in Core FIRST (Core 1,029 -> 771: zero additions, 258 removals -- 251 of
+  Emit's own 252, 248 of them in `ColumnarIlEmitter.nl`, the 252nd staying with the Cecil rows that
+  moved down, and the seven NL905s of the moved source-attribute rows), so it starts at 0. Carving
+  added ~100 cross-assembly diagnostics on top, all analyzer or emitter gaps, routed around with
+  `// COMPILER:` notes and still open: an `out` argument to a REFERENCED N# method is checked as if it
+  flowed in (a `T?` local passed to `out value: T` is NL202, and three overload sets became NL402), so
+  such locals are declared with the parameter's own type; a `for` step is not narrowed by its
+  condition, so base-chain walks step with `?.`; `nameof(JsonElement.ArrayEnumerator.Current)` is
+  NL303, so those names are literals; and the columnar emitter (seed's and tip's) declines a
+  referenced static call whose argument is another referenced static call over an implicit-`this`
+  call (`AnalyzerVariableDeclaration.IsErrorCaptureForm`), or over a `must` operand
+  (`MakeGenericType([must t])`, `Bind((must p).Getter)`), so those operands are narrowed or bound to
+  locals first. Two Plan signatures now say what they accept (`TryValidateGenericSiblingConstraints`'s
+  `baseConstraints: Type?[]`, `ColumnarLocalFunctionClosurePlanner.Plan`'s nullable local-function
+  list);
+- the product (6 files) AND its estate (13) as pure renames, with `excludeTests: true` and its own
+  estate project in dev.sh, Step 3a, reseed step 8 and both CI workflows (Syntax 1,376 + Core 6,106 +
+  CodeIntel 1,132 + Tooling 353 + Driver 708 -> Syntax 1,376 + Core 6,049 + Emit 57 + CodeIntel 1,132
+  + Tooling 353 + Driver 708: 9,675/9,675);
+- the SDK packs `tools/NSharpLang.Compiler.Emit.dll` and names it in the emit target's `Inputs` and
+  the emit-only switch; reseed.sh cleans and estate-runs it; `SdkEmitStampPaths` walks Driver ->
+  Tooling -> CodeIntel -> Emit -> Core; `CompilerSliceAssemblyNames` names it; packages.sh packs it
+  between Core and CodeIntel (release set, verify-release.py and its test);
+- 43 `dll:` consumers, the NL924 boundary probe's closure, the facade-interop consumer, the shipped
+  payload and the SDK feed inputs take `NSharpLang.Compiler.Emit.dll`; the one assembly-qualified name
+  of an Emit type (`ColumnarIlEmitterOwnership`'s `ColumnarIlEmitter`) says `NSharpLang.Compiler.Emit`;
+- Step 2d checks Emit (0) between Core and CodeIntel; the slice-direction guard counts Emit's product
+  and estate in its own project;
+- the committed seed does not name Emit in its emit-only switch, so until the next republish it
+  compiles Emit WITH analysis, product and rows (and warns NU1504 for the runtime pair its older
+  `Sdk.props` still adds); Emit's zero front door is what lets that analysis pass.
+
 ## Data Flow
 
 ### Tokenization
@@ -438,7 +504,7 @@ Eleven further C# files in this assembly are `state:"removed"` — deleted whole
 remaining state/control ownership from the active goal:
 
 - The complete `ColumnarIlEmitter` implementation, including SIMD loop lowering, now lives in
-  `src/NSharpLang.Compiler.Core/Backend.Emit/ColumnarIlEmitter.nl`; its C# owner is deleted.
+  `src/NSharpLang.Compiler.Emit/ColumnarIlEmitter.nl`; its C# owner is deleted.
   Checkpoint `8ec52542b`, published with `d533cd51e`, passed the fresh IDE-enabled product gate,
   installed SDK verification and real-editor formatting checks. See
   the acceptance evidence (`2026-09-08-complete-columnar-emitter-ownership.md`).
