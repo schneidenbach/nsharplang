@@ -177,6 +177,10 @@ func main() {
 }
 ```
 
+An instance is always created with `new`. Writing `Person("Alice", 30)` without it is
+[`NL415`](./errors/NL415.md): a type is not a function. The one exception is a
+[newtype](types.md#newtypes-branded-types), which is built by calling its name.
+
 ### Inheritance: `abstract`, `virtual` and `override`
 
 A class may derive from one other class, listed after a colon. Members are **not** virtual by default,

@@ -1509,3 +1509,117 @@ test "call argument inference retains an actual unsigned parameter target" {
 test "call argument inference restores the enclosing target after a nested call" {
     AssertCallArgumentSourceChecks("func Pick(text: string): uint {\n    return (uint)text.Substring(0, 1).Length + 4000000000\n}\n")
 }
+
+// ── NL415: a TYPE named bare before `(` ──────────────────────────────────────────────────────────
+//
+// WHOLE-ANALYZER ROWS, because the fault needs both halves: the identifier rule saying which channel
+// answered with a type, and this walk judging it. Before NL415 the walk answered `unknown` in silence
+// and the program was refused only at emit, with `emit.call.bare-unresolved` naming the emitter
+// rather than the code — so a clean analyzer result for `Widget()` IS the bug these rows pin.
+func TypeCalleeErrors(source: string): List<CompilerError> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-type-callee-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    // The referenced rows need `Console`, `StringBuilder`, `List<T>` and `Func<T, TResult>` to exist,
+    // which means the framework's metadata loaded as `nlc check` loads it.
+    analyzer := new Analyzer()
+    analyzer.LoadSystemAssemblies()
+    errors := new List<CompilerError>()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                errors.Add(error)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return errors
+}
+
+// One line per error: code, position, message, suggestion. A row compares the whole list, so an
+// extra report — a second one at the same callee, or a cascade from the arguments — fails it too.
+func TypeCalleeReports(source: string): string {
+    text := ""
+    for error in TypeCalleeErrors(source) {
+        text += "NL" + Convert.ToInt32(error.Code).ToString() + " " + error.Line.ToString() + ":" + error.Column.ToString() + " " + error.Message + " | " + (error.Suggestion ?? "") + "\n"
+    }
+
+    return text
+}
+
+test "a source class, struct, record or generic type called bare is NL415 at the callee, told to write `new`" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"field\"\n}\n\nstruct Point(x: double, y: double) {}\n\nrecord Person(name: string, age: int) {}\n\nclass Box<T> {\n    Value: T\n}\n\nfunc Run() {\n    a := Widget()\n    b := Point(1.0, 2.0)\n    c := Person(\"x\", 1)\n    d := Box<int>()\n    print a\n    print b\n    print c\n    print d\n}\n"
+    expected := "NL415 16:10 `Widget` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new Widget()`.\n"
+    expected += "NL415 17:10 `Point` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new Point(...)`.\n"
+    expected += "NL415 18:10 `Person` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new Person(...)`.\n"
+    expected += "NL415 19:10 `Box<int>` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new Box<int>()`.\n"
+    assert TypeCalleeReports(source) == expected
+}
+
+test "the report spans the callee's NAME, so the underline sits on the type and not on the call" {
+    errors := TypeCalleeErrors("namespace Probe\n\nclass Widget {\n}\n\nfunc Run() {\n    print Widget()\n}\n")
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.TypeNotCallable
+    assert errors[0].Line == 7
+    assert errors[0].Column == 11
+    assert errors[0].Length == 6
+}
+
+test "a REFERENCED type called bare is NL415 too, and the fix follows what the type is" {
+    source := "namespace Probe\n\nimport System\nimport System.Text\nimport System.Collections.Generic\n\nfunc Run() {\n    a := Console()\n    b := StringBuilder()\n    c := List<int>()\n    d := int(5)\n    print a\n    print b\n    print c\n    print d\n}\n"
+    expected := "NL415 8:10 `Console` is a static class, not a function, so it cannot be called | A static class has no instances. Call one of its members instead: `Console.Member(...)`.\n"
+    expected += "NL415 9:10 `StringBuilder` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new StringBuilder()`.\n"
+    // `List<T>`'s metadata name is `List`1`, which the bare-name probe cannot see: without the
+    // arity-aware lookup this was NL412 "Function 'List' not found".
+    expected += "NL415 10:10 `List<int>` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new List<int>()`.\n"
+    expected += "NL415 11:10 `int` is a type, not a function, so it cannot be called | N# converts between built-in types with a cast: write `(int)value`.\n"
+    assert TypeCalleeReports(source) == expected
+}
+
+test "a type that cannot be created is not told to write `new` — enum, interface, abstract class, union" {
+    source := "namespace Probe\n\nenum Color {\n    Red,\n    Green\n}\n\ninterface IShape {\n}\n\nabstract class Shape {\n}\n\nunion Outcome {\n    Win { score: int }\n    Loss { reason: string }\n}\n\nfunc Run() {\n    a := Color()\n    b := IShape()\n    c := Shape()\n    d := Outcome()\n    print a\n    print b\n    print c\n    print d\n}\n"
+    expected := "NL415 20:10 `Color` is an enum, not a function, so it cannot be called | Name one of its members, such as `Color.Member`, or convert a number with a cast: `(Color)value`.\n"
+    expected += "NL415 21:10 `IShape` is an interface, not a function, so it cannot be called | An interface cannot be created. Create a type that implements `IShape` with `new`.\n"
+    expected += "NL415 22:10 `Shape` is an abstract class, not a function, so it cannot be called | An abstract class cannot be created. Create a type derived from `Shape` with `new`.\n"
+    expected += "NL415 23:10 `Outcome` is a union, not a function, so it cannot be called | Create one of its cases with `new`: `new Outcome.Case(...)`.\n"
+    assert TypeCalleeReports(source) == expected
+}
+
+test "a DELEGATE type called bare is NL415, because the walk binds nothing for it and emit refused it" {
+    source := "namespace Probe\n\nimport System\n\nfunc Run() {\n    a := Func<int, int>((x: int) => x + 1)\n    b := EventHandler()\n    print a\n    print b\n}\n"
+    expected := "NL415 6:10 `Func<int, int>` is a delegate type, not a function, so it cannot be called | A delegate is made from a function or a lambda: assign one to a variable of this type (`handler: Func<int, int> = ...`), or write `new Func<int, int>(...)`.\n"
+    expected += "NL415 7:10 `EventHandler` is a delegate type, not a function, so it cannot be called | A delegate is made from a function or a lambda: assign one to a variable of this type (`handler: EventHandler = ...`), or write `new EventHandler(...)`.\n"
+    assert TypeCalleeReports(source) == expected
+}
+
+test "a NEWTYPE is constructed by call, and its arity and argument checks still own that call" {
+    // Clean: the one type spelled as a call.
+    assert TypeCalleeReports("namespace Probe\n\ntype UserId = newtype int\n\nfunc Run(): UserId {\n    return UserId(5)\n}\n") == ""
+
+    // A wrong construction is the newtype's own report, not NL415 on top of it.
+    errors := TypeCalleeErrors("namespace Probe\n\ntype UserId = newtype int\n\nfunc Run(): UserId {\n    return UserId(5, 6)\n}\n")
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.InvalidSyntax
+}
+
+test "a delegate-typed VALUE is still called — a local, a parameter, a field — and so is a function" {
+    source := "namespace Probe\n\nimport System\n\nclass Button {\n    OnClick: Func<int, int> = (x: int) => x\n}\n\nfunc Twice(value: int): int {\n    return value * 2\n}\n\nfunc Run(handler: Func<int, int>, button: Button): int {\n    doubler := (x: int) => x * 2\n    return doubler(1) + handler(2) + button.OnClick(3) + Twice(4)\n}\n"
+    assert TypeCalleeReports(source) == ""
+}
+
+test "a local whose value is of a class type is a VALUE callee, never NL415, even though it answers the same type" {
+    // `current` answers `Widget` exactly as the class does. Only the channel it came from separates
+    // them, and a class-typed value is not callable for a different reason than a type is — so
+    // whatever else it earns, it must not be told to write `new`.
+    for error in TypeCalleeErrors("namespace Probe\n\nclass Widget {\n}\n\nfunc Run(current: Widget) {\n    current()\n}\n") {
+        assert error.Code != ErrorCode.TypeNotCallable
+    }
+}

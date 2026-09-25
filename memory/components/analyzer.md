@@ -2694,6 +2694,19 @@ value and cannot be called is NL413 — reported by `AnalyzerMemberAccess.Report
 which re-resolves the same name as a VALUE and stays silent when that answers nothing, so the
 undefined-member report is still the one an unknown name gets.
 
+A BARE callee that names a TYPE is NL415 — `Widget()`, `Box<int>()`, `Console()`, `int(5)`,
+`Func<int, int>(f)`. A type answer and a value of that type are the same `TypeInfo`, so the
+identifier rule says which CHANNEL answered: `AnalyzerIdentifierResolution.CallTarget` hands back
+`namesType` (channel 1's type walk, channels 3, 4 and 6 — `AnalyzerScopeStack.ResolveBindingTarget`
+reports which of its two walks answered), and `AnalyzerCallAnalysis.BeginCallee` judges it in
+`ReportTypeCalledLikeFunctionIfNeeded`, after resolving aliases. A NEWTYPE is exempt (`UserId(5)` is
+its construction, validated by `Dispatch`); a delegate TYPE is not, because nothing in the walk binds
+it. The suggestion follows the type's kind (`TypeCalleeKind`): `new` only for a type that can be
+created. A callee written with type arguments that misses all six channels is also probed as a
+referenced generic of that arity (`List<T>` is `List`1` in metadata), which is what turns
+`List<int>()` from NL412 into NL415. Before NL415 the walk answered `unknown` in silence and the
+program was refused at emit with `emit.call.bare-unresolved`.
+
 A CONSTRUCTOR argument is an argument: `AnalyzerConstruction.DelegateConstructorParameterType` reads
 the delegate a position wants from the constructors themselves (external ones through CLR metadata,
 declared ones through their written parameter types) and only when every arity-compatible

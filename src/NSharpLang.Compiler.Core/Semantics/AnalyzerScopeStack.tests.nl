@@ -718,16 +718,20 @@ test "an identifier binds to a SYMBOL before a TYPE of the same name, and record
     outer.Types["Shape"] = ScopeSymbolOf("as-type")
     outer.RecordDeclarationLocation("Shape", "decl.nl", 11, 2, "variable")
 
-    assert ScopeTypeName(stack.ResolveBindingTarget(bindings, "use.nl", "Shape", 30, 4)) == "as-symbol"
+    namesType := true
+    assert ScopeTypeName(stack.ResolveBindingTarget(bindings, "use.nl", "Shape", 30, 4, out namesType)) == "as-symbol"
+    assert !namesType
     assert bindings.BindingCount == 1
 
-    // With no symbol of that name the TYPE walk answers.
+    // With no symbol of that name the TYPE walk answers, and says so.
     typeOnly := ScopeStackOf(model, [ScopeKind.Global])
     typeOnly.GlobalScope().Types["Shape"] = ScopeSymbolOf("as-type")
-    assert ScopeTypeName(typeOnly.ResolveBindingTarget(bindings, "use.nl", "Shape", 31, 4)) == "as-type"
+    assert ScopeTypeName(typeOnly.ResolveBindingTarget(bindings, "use.nl", "Shape", 31, 4, out namesType)) == "as-type"
+    assert namesType
 
     // Nothing bound anywhere is a null answer, and the caller decides what that means.
-    assert typeOnly.ResolveBindingTarget(bindings, "use.nl", "Missing", 32, 4) == null
+    assert typeOnly.ResolveBindingTarget(bindings, "use.nl", "Missing", 32, 4, out namesType) == null
+    assert !namesType
 }
 
 test "type names in scope come out innermost first, which is the suggestion tie-breaker" {

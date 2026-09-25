@@ -151,6 +151,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL412`](./NL412.md) | A call target that is not a function, method or callable value. |
 | [`NL413`](./NL413.md) | A member named before `(` whose value is not a delegate. |
 | [`NL414`](./NL414.md) | A call that two overloads match equally well. |
+| [`NL415`](./NL415.md) | A type named before `(` like a function, where N# wants `new`. |
 
 ## Patterns — `NL5xx`
 

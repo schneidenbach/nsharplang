@@ -348,7 +348,13 @@ class AnalyzerScopeStack {
 
     // Symbols first, then types: an identifier in scope means the VALUE, and only then the type of
     // that name. Both walks record the declaration binding they land on.
-    func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int): TypeInfo? {
+    //
+    // `namesType` says WHICH walk answered. The two answers are the same `TypeInfo` shape — a local
+    // `w: Widget` and the class `Widget` both answer `Widget` — so a caller that must tell a value
+    // from a type (a callee position: a delegate value is callable, a class is not) can only learn it
+    // here.
+    func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int, out namesType: bool): TypeInfo? {
+        namesType = false
         symbolIndex := scopes.Count - 1
         while symbolIndex >= 0 {
             symbolScope := scopes[symbolIndex]
@@ -369,6 +375,7 @@ class AnalyzerScopeStack {
             typeCandidate := new TypeInfo()
             if typeScope.Types.TryGetValue(name, out typeCandidate) {
                 RecordDeclarationBinding(bindings, filePath, typeScope, name, name, line, column)
+                namesType = true
                 return typeCandidate
             }
 
@@ -378,6 +385,7 @@ class AnalyzerScopeStack {
                 fallbackCandidate := new TypeInfo()
                 if typeScope.Types.TryGetValue(fallbackKey, out fallbackCandidate) {
                     RecordDeclarationBinding(bindings, filePath, typeScope, fallbackKey, name, line, column)
+                    namesType = true
                     return fallbackCandidate
                 }
             }

@@ -209,6 +209,19 @@ class CallAnalysisState {
     }
 }
 
+// What kind of type NL415 found before `(`, which decides the fix it offers: `new` is the answer only
+// for a type that can be created.
+enum TypeCalleeKind {
+    Creatable,
+    Primitive,
+    StaticClass,
+    AbstractClass,
+    Interface,
+    Enum,
+    Union,
+    Delegate
+}
+
 // EVERYTHING THE ANALYZER DECIDES ABOUT A CALL EXPRESSION, as a walk that suspends at each step it
 // cannot take itself.
 //
@@ -1599,7 +1612,19 @@ class AnalyzerCallAnalysis {
         state.Phase = 2
         identifier := call.Callee as IdentifierExpression
         if identifier != null {
-            state.CalleeType = identifierResolution.CallTarget(identifier)
+            typeArgumentCount := 0
+            typeArguments := call.TypeArguments
+            if typeArguments != null {
+                typeArgumentCount = typeArguments.Count
+            }
+
+            namesType := false
+            calleeType := identifierResolution.CallTarget(identifier, typeArgumentCount, out namesType)
+            if namesType && ReportTypeCalledLikeFunctionIfNeeded(call, identifier, calleeType) {
+                calleeType = BuiltInTypes.Unknown
+            }
+
+            state.CalleeType = calleeType
             return null
         }
 
@@ -1608,6 +1633,184 @@ class AnalyzerCallAnalysis {
         request := new CallAnalysisRequest(6)
         request.Node = call.Callee
         return request
+    }
+
+    // NL415: A TYPE NAMED BARE BEFORE `(` IS NOT A CALL. N# creates an instance with `new`, so
+    // `Widget()` is a mistake the analyzer must name — left alone it answered `unknown` in silence and
+    // the program was refused only at emit, with a message about the emitter rather than the code.
+    //
+    // ONE kind of type IS called by name and is left alone: a NEWTYPE, whose construction is spelled
+    // `UserId(5)` and which `Dispatch` validates. A DELEGATE type is not exempt — `Func<int, int>(f)`
+    // binds nothing here and was refused at emit exactly like `Widget()` — while a delegate-typed
+    // VALUE never reaches this report, because a value is not a type answer. An alias is judged by
+    // what it aliases. The fix the report offers depends on what the type is, because `new` is only
+    // the answer for a type that can be created.
+    //
+    // Answers whether it reported, so the callee stops being treated as a type from here on and the
+    // walk ends at `unknown` without a second report.
+    func ReportTypeCalledLikeFunctionIfNeeded(call: CallExpression, identifier: IdentifierExpression, calleeType: TypeInfo): bool {
+        resolved := declarationContext.ResolveDeclaredAlias(calleeType)
+        if BuiltInTypes.IsUnknown(resolved) || resolved is NewtypeInfo {
+            return false
+        }
+
+        writtenType := WrittenTypeText(identifier.Name, call.TypeArguments)
+        diagnostics.Report(
+            ErrorCode.TypeNotCallable,
+            TypeCalledLikeFunctionMessage(writtenType, resolved),
+            identifier.Line,
+            identifier.Column,
+            TypeCalledLikeFunctionSuggestion(writtenType, resolved, call.Arguments.Count),
+            Math.Max(1, identifier.Name.Length)
+        )
+        return true
+    }
+
+    // A delegate type, spelled as a function type, a CLR delegate or `Func`/`Action`.
+    static func IsDelegateTypeAnswer(resolved: TypeInfo): bool {
+        if resolved is FunctionTypeInfo {
+            return true
+        }
+
+        reflection := resolved as ReflectionTypeInfo
+        if reflection != null {
+            return AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflection.Type) || AnalyzerCallableReferenceFacts.IsMetadataDelegateType(reflection.Type)
+        }
+
+        generic := resolved as GenericTypeInfo
+        if generic != null {
+            return generic.Name == "Func" || generic.Name == "Action" || TypeInfoIdentityFacts.IsRuntimeDelegateDefinition(generic)
+        }
+
+        return false
+    }
+
+    // WHAT THE TYPE IS, as the report says it. The CLR shapes are read off the reflected type, which
+    // answers the same way for a runtime type and a `MetadataLoadContext` one.
+    static func TypeCalleeKindOf(resolved: TypeInfo): TypeCalleeKind {
+        if IsDelegateTypeAnswer(resolved) {
+            return TypeCalleeKind.Delegate
+        }
+
+        if resolved is InterfaceTypeInfo {
+            return TypeCalleeKind.Interface
+        }
+
+        if resolved is EnumTypeInfo {
+            return TypeCalleeKind.Enum
+        }
+
+        if resolved is UnionTypeInfo {
+            return TypeCalleeKind.Union
+        }
+
+        sourceClass := resolved as ClassTypeInfo
+        if sourceClass != null && sourceClass.IsAbstract {
+            return TypeCalleeKind.AbstractClass
+        }
+
+        reflection := resolved as ReflectionTypeInfo
+        if reflection != null {
+            clrType := reflection.Type
+            if clrType.IsInterface {
+                return TypeCalleeKind.Interface
+            }
+
+            if clrType.IsEnum {
+                return TypeCalleeKind.Enum
+            }
+
+            if clrType.IsPrimitive || clrType.FullName == "System.Decimal" {
+                return TypeCalleeKind.Primitive
+            }
+
+            if clrType.IsAbstract && clrType.IsSealed {
+                return TypeCalleeKind.StaticClass
+            }
+
+            if clrType.IsAbstract {
+                return TypeCalleeKind.AbstractClass
+            }
+        }
+
+        return TypeCalleeKind.Creatable
+    }
+
+    static func TypeCalledLikeFunctionMessage(writtenType: string, resolved: TypeInfo): string {
+        kind := TypeCalleeKindOf(resolved)
+        described := "a type"
+        if kind == TypeCalleeKind.Interface {
+            described = "an interface"
+        } else if kind == TypeCalleeKind.Enum {
+            described = "an enum"
+        } else if kind == TypeCalleeKind.Union {
+            described = "a union"
+        } else if kind == TypeCalleeKind.AbstractClass {
+            described = "an abstract class"
+        } else if kind == TypeCalleeKind.StaticClass {
+            described = "a static class"
+        } else if kind == TypeCalleeKind.Delegate {
+            described = "a delegate type"
+        }
+
+        return "`" + writtenType + "` is " + described + ", not a function, so it cannot be called"
+    }
+
+    // THE FIX, written with the developer's own spelling of the type so it can be pasted back.
+    static func TypeCalledLikeFunctionSuggestion(writtenType: string, resolved: TypeInfo, argumentCount: int): string {
+        kind := TypeCalleeKindOf(resolved)
+        if kind == TypeCalleeKind.Primitive {
+            return "N# converts between built-in types with a cast: write `(" + writtenType + ")value`."
+        }
+
+        if kind == TypeCalleeKind.StaticClass {
+            return "A static class has no instances. Call one of its members instead: `" + writtenType + ".Member(...)`."
+        }
+
+        if kind == TypeCalleeKind.Enum {
+            return "Name one of its members, such as `" + writtenType + ".Member`, or convert a number with a cast: `(" + writtenType + ")value`."
+        }
+
+        if kind == TypeCalleeKind.Delegate {
+            return "A delegate is made from a function or a lambda: assign one to a variable of this type (`handler: " + writtenType + " = ...`), or write `new " + writtenType + "(...)`."
+        }
+
+        if kind == TypeCalleeKind.Union {
+            return "Create one of its cases with `new`: `new " + writtenType + ".Case(...)`."
+        }
+
+        if kind == TypeCalleeKind.Interface {
+            return "An interface cannot be created. Create a type that implements `" + writtenType + "` with `new`."
+        }
+
+        if kind == TypeCalleeKind.AbstractClass {
+            return "An abstract class cannot be created. Create a type derived from `" + writtenType + "` with `new`."
+        }
+
+        arguments := argumentCount == 0 ? "()" : "(...)"
+        return "N# creates an instance with `new`: write `new " + writtenType + arguments + "`."
+    }
+
+    // The type as the call wrote it, type arguments included, so `Box<int>()` is told to write
+    // `new Box<int>()` rather than a name the developer did not type.
+    static func WrittenTypeText(name: string, typeArguments: List<TypeReference>?): string {
+        if typeArguments == null || typeArguments.Count == 0 {
+            return name
+        }
+
+        written := name + "<"
+        index := 0
+        while index < typeArguments.Count {
+            if index > 0 {
+                written = written + ", "
+            }
+
+            boxed: object = typeArguments[index]
+            written = written + boxed.ToString()
+            index = index + 1
+        }
+
+        return written + ">"
     }
 
     // The call's own possible-null report, anchored on the CALLEE.
@@ -2032,6 +2235,9 @@ class AnalyzerCallAnalysis {
             }
         }
 
+        // SILENT HERE: a callee that cannot be called is reported where it was RESOLVED, not here — a
+        // bare type by `BeginCallee` (NL415), a bare miss by the identifier rule (NL412), a member
+        // value by member access (NL413).
         state.Result = BuiltInTypes.Unknown
         state.Phase = 99
         return null

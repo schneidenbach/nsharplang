@@ -621,7 +621,8 @@ test "`BeginAnalysis` takes the REPLACED semantic model and binding map, not the
     // The call-target form writes the IDE records. They must land in the model this analysis owns —
     // both are REPLACED per analysis rather than cleared, so holding them from construction would
     // write every file's hover types into the first file's model.
-    harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
+    namesType := false
+    harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3), 0, out namesType)
 
     assert replacementModel.ExpressionTypes.ContainsKey((Line: 7, Column: 3))
     assert !harness.Model.ExpressionTypes.ContainsKey((Line: 7, Column: 3))
@@ -652,17 +653,45 @@ test "`CallTarget` resolves as a FUNCTION and records both IDE facts" {
     harness := IdentifierRuleOf()
     IdentifierDeclare(harness, "handler", BuiltInTypes.Int)
 
-    answer := harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
+    namesType := false
+    answer := harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3), 0, out namesType)
 
     assert IdentifierTypeName(answer) == "simple:int"
+    assert !namesType
     assert IdentifierTypeName(harness.Model.ExpressionTypes[(Line: 7, Column: 3)]) == "simple:int"
     assert harness.Model.ExpressionNullStates.ContainsKey((Line: 7, Column: 3))
+}
+
+test "`CallTarget` says when the callee names a TYPE, which a value of that same type does not" {
+    harness := IdentifierRuleOf()
+    widget := BuiltInTypes.String
+    harness.Scopes.Peek().Types["Widget"] = widget
+    IdentifierDeclare(harness, "current", widget)
+
+    // The two answers are the SAME `TypeInfo`, so the flag is the only thing the call arm can tell
+    // `Widget()` from `current()` by — and only the first is a type being called like a function.
+    namesType := false
+    typeAnswer := harness.Rule.CallTarget(new IdentifierExpression("Widget", 7, 3), 0, out namesType)
+    assert IdentifierTypeName(typeAnswer) == "simple:string"
+    assert namesType
+
+    valueAnswer := harness.Rule.CallTarget(new IdentifierExpression("current", 8, 3), 0, out namesType)
+    assert IdentifierTypeName(valueAnswer) == "simple:string"
+    assert !namesType
+
+    // A miss names nothing, type or otherwise.
+    harness.Rule.CallTarget(new IdentifierExpression("Nonesuch", 9, 3), 0, out namesType)
+    assert !namesType
+
+    // Judging a type callee is the call arm's business: this rule reports nothing for it.
+    assert IdentifierCodes(harness.Errors) == "412"
 }
 
 test "`CallTarget` on a miss reports NL412 rather than NL301" {
     harness := IdentifierRuleOf()
 
-    answer := harness.Rule.CallTarget(new IdentifierExpression("Nonesuch", 7, 3))
+    namesType := false
+    answer := harness.Rule.CallTarget(new IdentifierExpression("Nonesuch", 7, 3), 0, out namesType)
 
     assert IdentifierTypeName(answer) == "unknown"
     assert IdentifierCodes(harness.Errors) == "412"
@@ -676,7 +705,8 @@ test "`CallTarget` applies the nullability FLOW type, which is what the plain ru
     // reaches its callee without going through the dispatch host, so if this form did not apply the
     // flow type the callee would be the only expression position in the language that did not.
     plain := harness.Rule.Resolve("handler", 7, 3, true)
-    flowed := harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
+    namesType := false
+    flowed := harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3), 0, out namesType)
 
     assert IdentifierTypeName(plain) == "nullable(simple:int)"
     assert IdentifierTypeName(flowed) == "nullable(simple:int)"
@@ -689,7 +719,8 @@ test "both consumers share ONE resolution, so a miss is reported once per positi
 
     // The dispatch arm and the call arm ask the SAME rule. Neither wraps the other and neither
     // re-implements it, which is what stops a callee from being resolved twice with two reports.
-    harness.Rule.CallTarget(new IdentifierExpression("Nonesuch", 2, 11))
+    namesType := false
+    harness.Rule.CallTarget(new IdentifierExpression("Nonesuch", 2, 11), 0, out namesType)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.UndefinedFunction
