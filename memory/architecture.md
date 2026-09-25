@@ -187,6 +187,25 @@ builds). What the carve is:
   answered `ColumnarParserRecovery`/`ColumnarNodeTable`/`ColumnarExpressionNodeKind` for them, and a
   referenced one needs its import (62 NL002s);
 - Step 2d checks Model, Syntax (both 0), then Core.
+Measured edit -> test (`./scripts/dev.sh --estate <file>Tests`, a one-line body edit, twice each, with
+another session's gate on the box): a Syntax file (`Lexer.nl`, rows `LexerTests`) 227 / 320 s at
+`353fb69f7`, **65-80 s** on the pre-carve seed (which still compiles Syntax WITH analysis, because its
+emit-only switch predates Syntax) and **26 / 26 s** on a scratch stage-2 seed packed from the carve --
+a body edit leaves Syntax's reference assembly unchanged, so neither Core nor its tests-included build
+re-emits, and Core's estate answers "no row matches" in seconds; a Core file
+(`Driver/RunCommandKernels.nl`) 362 / 218 s at the base, 297 / 330 s and 202 / 214 s on the same two
+seeds -- Core's own and tests-included emits are the whole cost there, as before.
+What the next carve (Semantics) repeats: its front door at 0 first (product, and estate if its rows
+move); its name in the `project:` chain (Core -> Semantics -> Syntax), `CompilerSliceAssemblyNames`,
+the emit-only switch and the SDK payload/`Inputs`, `ShippedPayloadAssemblies`, the release set
+(packages.sh, verify-release.py and its test), reseed.sh's `COMPILER_PROJECT_DIRS` (and
+`ESTATE_PROJECTS`, dev.sh's and Step 3a's lists, if its rows move -- with `excludeTests: true`), the
+format loops, the `dll:` consumers and every assembly-qualified `..., NSharpLang.Compiler.Core` name of
+a type it takes (`Analyzer`, `SemanticModel`, `SystemsAnalyzer` ...); the NL002 imports its referenced
+types then need in Core; and the seed republished with the emit-only switch naming it BEFORE its build
+relies on that (until then the seed compiles it WITH analysis, so its own diagnostics must already be
+zero, estate included). Whether its rows can move is the slice graph's estate-reach answer plus a scan
+for Core rows calling its estate's helpers, as it was here.
 
 ## Data Flow
 
