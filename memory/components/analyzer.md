@@ -183,9 +183,17 @@ caller decides what that means. Its two entry points are NOT interchangeable.
   interface, union, enum and newtype — because a caller holding a `Type` must be able to trust that
   it denotes the type the program actually wrote.
 - `TryConvertTypeInfoToClrTypeForBinding(TypeInfo)` is the SURROGATE conversion. Where the exact one
-  gives up on an N#-declared type it substitutes `object` so CLR-level method binding can proceed;
-  the real N# types stay tracked separately as TypeInfo bindings. Never use it where the answer is
-  treated as the program's type.
+  gives up on an N#-declared type it substitutes the nearest CLR type the type is known to be — the
+  external base its `:` chain reaches when the CLR can name it exactly, `object` otherwise — so
+  CLR-level method binding can proceed; the real N# types stay tracked separately as TypeInfo
+  bindings. Never use it where the answer is treated as the program's type.
+- `TryResolveDeclaredExternalBase(TypeInfo)` is that chain walk's own answer, as a TypeInfo: the
+  first base outside the source, SUBSTITUTED through every generic link (`Deep: Mid<string>` over
+  `Mid<U>: List<U>` is `List<string>`) and keeping the spelling (`List<string?>` keeps its `?`). The
+  reflected binder's receiver inference reads it (`TryPopulateReceiverGenericTypeBindings`), and so
+  does the call arm's implicit receiver for a BARE call inside a type
+  (`AnalyzerCallAnalysis.ImplicitReflectionReceiver`) — which is what makes `ToArray()` and
+  `this.ToArray()` bind the same way on a closed external base.
 - `TryConstructDelegateType(FunctionTypeInfo)` is public only because the lambda-to-delegate path
   asks for a delegate directly rather than through a type-shaped entry point. A `void` return picks
   the `Action` family (arities 0-4), anything else picks `Func` (parameter arities 0-4), and a wider

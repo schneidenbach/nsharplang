@@ -167,7 +167,8 @@ func ClrConversionGenericReference(name: string, argument: string): GenericTypeR
 }
 
 // A context whose declarations are the two-link chain `Deeper: Names: List<string>`, so the walk has a
-// SOURCE link to cross before it reaches the external one.
+// SOURCE link to cross before it reaches the external one — and the GENERIC chain
+// `Deep: Mid<string>` over `Mid<U>: List<U>`, whose middle link has to be substituted on the way.
 func ClrConversionInheritanceContext(path: string): AnalyzerDeclarationContext {
     context := new AnalyzerDeclarationContext()
     assemblies := new List<Assembly>()
@@ -176,6 +177,10 @@ func ClrConversionInheritanceContext(path: string): AnalyzerDeclarationContext {
     declarations.Add(new NSharpLang.Compiler.TestStubs.ClassDeclaration("Names", ClrConversionGenericReference("List", "string")))
     declarations.Add(new NSharpLang.Compiler.TestStubs.ClassDeclaration("Deeper", new SimpleTypeReference("Names")))
     declarations.Add(new NSharpLang.Compiler.TestStubs.ClassDeclaration("Rootless", null))
+    middle := new NSharpLang.Compiler.TestStubs.ClassDeclaration("Mid", ClrConversionGenericReference("List", "U"))
+    middle.TypeParameters.Add(new TypeParameter("U"))
+    declarations.Add(middle)
+    declarations.Add(new NSharpLang.Compiler.TestStubs.ClassDeclaration("Deep", ClrConversionGenericReference("Mid", "string")))
     context.Reset("/tmp", assemblies)
     context.AddCompilationUnit(path, new AnalyzerContextTestUnit(declarations))
     return context
@@ -675,6 +680,78 @@ test "a declared base that is itself source keeps walking to the external base" 
         deeper := declarationContext.ResolveTypeReference(new SimpleTypeReference("Deeper"), path, null, null)
         assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(deeper)) == "System.Collections.Generic.List`1<System.String>"
         assert funnel.TryConvertTypeInfoToClrType(deeper) == null
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// A GENERIC MIDDLE LINK IS SUBSTITUTED, NOT STOPPED AT. `Deep: Mid<string>` over `Mid<U>: List<U>`
+// is a `List<string>`; the walk used to ask the middle link for its shape with no substitution, get
+// nothing back for an instantiation, and leave `Deep`'s surrogate at `object` — so every `List<T>`
+// call on a `Deep` bound against nothing.
+test "a generic middle link carries its type arguments to the external base" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        facts := ClrConversionFacts(context)
+        path := "/tmp/clr-inherit-generic.nl"
+        declarationContext := ClrConversionInheritanceContext(path)
+        funnel := new AnalyzerClrTypeConversion(declarationContext, facts)
+
+        deep := declarationContext.ResolveTypeReference(new SimpleTypeReference("Deep"), path, null, null)
+        assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(deep)) == "System.Collections.Generic.List`1<System.String>"
+
+        deepBase := funnel.TryResolveDeclaredExternalBase(deep)
+        assert deepBase != null
+        assert deepBase.ToString() == "List<string>"
+
+        // The middle link on its own reaches the base still spelled over its OWN parameter: there is
+        // no argument to substitute, and the CLR has no exact name for `List<U>`, so the surrogate
+        // stays `object`. The definition is taken from `Deep`'s own clause, because a generic
+        // declaration is keyed by its arity and the bare name `Mid` names nothing.
+        deepShape := new AnalyzerSourceMemberShape()
+        assert declarationContext.TryGetSourceMemberShape(deep, null, out deepShape)
+        deepDeclaredBase := deepShape.BaseType as GenericTypeInfo
+        assert deepDeclaredBase != null
+        middle := deepDeclaredBase.GenericDefinition
+        assert middle != null
+        middleBase := funnel.TryResolveDeclaredExternalBase(middle)
+        assert middleBase != null
+        assert middleBase.ToString() == "List<U>"
+        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(middle)) == "System.Object"
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// WHAT THE WALK ANSWERS IS THE SPELLED BASE, and it answers only for a source type that has one.
+test "the declared external base is the spelled clause, and nothing for a type with no external base" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        facts := ClrConversionFacts(context)
+        path := "/tmp/clr-inherit-spelled.nl"
+        declarationContext := ClrConversionInheritanceContext(path)
+        funnel := new AnalyzerClrTypeConversion(declarationContext, facts)
+
+        names := declarationContext.ResolveTypeReference(new SimpleTypeReference("Names"), path, null, null)
+        deeper := declarationContext.ResolveTypeReference(new SimpleTypeReference("Deeper"), path, null, null)
+        rootless := declarationContext.ResolveTypeReference(new SimpleTypeReference("Rootless"), path, null, null)
+
+        namesBase := funnel.TryResolveDeclaredExternalBase(names)
+        assert namesBase != null
+        assert namesBase.ToString() == "List<string>"
+        deeperBase := funnel.TryResolveDeclaredExternalBase(deeper)
+        assert deeperBase != null
+        assert deeperBase.ToString() == "List<string>"
+
+        // No `:` clause, a record (which names no base class), and a type that is ALREADY external.
+        assert funnel.TryResolveDeclaredExternalBase(rootless) == null
+        assert funnel.TryResolveDeclaredExternalBase(ClrConversionRecord("Point")) == null
+        assert funnel.TryResolveDeclaredExternalBase(new GenericTypeInfo("List", ClrConversionArgs(BuiltInTypes.String))) == null
+        assert funnel.TryResolveDeclaredExternalBase(BuiltInTypes.String) == null
     } finally {
         scan.Dispose()
     }

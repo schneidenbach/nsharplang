@@ -551,22 +551,54 @@ class AnalyzerClrTypeConversion {
         return null
     }
 
-    // THE NEAREST CLR TYPE A SOURCE-DECLARED TYPE IS KNOWN TO BE, by walking the `:` clause.
+    // THE NEAREST CLR TYPE A SOURCE-DECLARED TYPE IS KNOWN TO BE: the external base its declared
+    // chain reaches, when the CLR can name that base exactly. `class Deeper: Names` and
+    // `class Names: List<string>` answer `List<string>` for both. A base the CLR cannot name — an
+    // external generic instantiated over a source type, say — contributes no surrogate of its own,
+    // and the caller falls back to `object` exactly as it did before.
+    func TryConvertDeclaredBaseChainToClrType(sourceType: TypeInfo): Type? {
+        externalBase := TryResolveDeclaredExternalBase(sourceType)
+        if externalBase == null {
+            return null
+        }
+
+        return TryConvertTypeInfoToClrType(externalBase)
+    }
+
+    // THE FIRST BASE OUTSIDE THE SOURCE THAT A SOURCE-DECLARED TYPE'S `:` CLAUSES REACH, spelled as
+    // the TypeInfo those clauses substitute to — or null for a type that is not source-declared, or
+    // whose chain never leaves the source.
     //
     // The walk is the DECLARED base chain, not the CLR one, because the derived links have no CLR
-    // form yet: `class Deeper: Names` and `class Names: List<string>` answer `List<string>` for both.
-    // Only the EXACT conversion is accepted for a link, so a base the CLR cannot name either — a
-    // source generic instantiated over a source type, say — keeps walking rather than contributing a
-    // surrogate of its own; the chain then ends at `object` exactly as it did before.
+    // form yet. It CARRIES EACH LINK'S TYPE ARGUMENTS: `class Deep: Mid<string>` over
+    // `class Mid<U>: List<U>` reaches `List<string>`, not `List<U>`. Without the substitution the
+    // chain stopped at the generic middle link, so `Deep`'s surrogate was `object` and every call on
+    // `Deep` that `List<T>` declares bound against nothing.
+    //
+    // The answer keeps the SPELLING — `List<string?>` stays `List<string?>` — which is what lets a
+    // receiver's generic inference read the argument's nullability off the base, something the CLR
+    // surrogate cannot carry.
     //
     // The depth bound is what makes a cyclic `:` clause a null answer instead of a hang. A cycle is a
     // program error the declaration walk reports; this owner reports nothing, so it must simply stop.
-    func TryConvertDeclaredBaseChainToClrType(sourceType: TypeInfo): Type? {
-        current := sourceType
+    func TryResolveDeclaredExternalBase(sourceType: TypeInfo): TypeInfo? {
+        current := declarationContext.ResolveDeclaredAlias(sourceType)
         depth := 0
         while depth < 64 {
+            substitution: Dictionary<string, TypeInfo>? = null
+            generic := current as GenericTypeInfo
+            if generic != null {
+                definition := generic.GenericDefinition
+                if definition == null || !IsSourceDeclaredLink(definition) {
+                    return null
+                }
+
+                substitution = declarationContext.CreateGenericSubstitution(definition, generic.TypeArguments)
+                current = definition
+            }
+
             shape := new AnalyzerSourceMemberShape()
-            if !declarationContext.TryGetSourceMemberShape(current, null, out shape) {
+            if !declarationContext.TryGetSourceMemberShape(current, substitution, out shape) {
                 return null
             }
 
@@ -576,9 +608,12 @@ class AnalyzerClrTypeConversion {
             }
 
             resolvedBase := declarationContext.ResolveDeclaredAlias(declaredBase)
-            externalBase := TryConvertTypeInfoToClrType(resolvedBase)
-            if externalBase != null {
-                return externalBase
+            if BuiltInTypes.IsUnknown(resolvedBase) {
+                return null
+            }
+
+            if !IsSourceDeclaredLink(resolvedBase) {
+                return resolvedBase
             }
 
             current = resolvedBase
@@ -586,6 +621,18 @@ class AnalyzerClrTypeConversion {
         }
 
         return null
+    }
+
+    // WHETHER A BASE-CHAIN LINK IS STILL SOURCE: a declared type, or a generic instantiated over a
+    // declared definition. An instantiation over a REFLECTED definition is the external base itself.
+    static func IsSourceDeclaredLink(link: TypeInfo): bool {
+        generic := link as GenericTypeInfo
+        if generic != null {
+            definition := generic.GenericDefinition
+            return definition != null && IsSurrogateUserDefinedType(definition)
+        }
+
+        return IsSurrogateUserDefinedType(link)
     }
 
     // The seven N#-declared families that get a CLR surrogate. Everything else — simple types,

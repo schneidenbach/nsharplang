@@ -1050,6 +1050,13 @@ class AnalyzerReflectionArgumentBinder {
 
     // The RECEIVER's contribution to generic inference, for a call on a generic type. A declaring
     // type that mentions no type parameter contributes nothing and is not a failure.
+    //
+    // A SOURCE-DECLARED RECEIVER CONTRIBUTES THROUGH THE EXTERNAL BASE ITS `:` CLAUSES REACH. `Names`
+    // has no CLR form and no type arguments of its own, so what `List<T>`'s `T` is on a `Names` is
+    // written in `class Names: List<string?>` — or two links up, in `class Deep: Mid<string>` over
+    // `class Mid<U>: List<U>`. Reading the spelled base is what binds `T` to `string?` rather than to
+    // the `string` the CLR surrogate alone would say, and it is the same answer a receiver declared
+    // as `List<string?>` gets.
     func TryPopulateReceiverGenericTypeBindings(declaringType: Type?, receiverClrType: Type, receiverTypeInfo: TypeInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>): bool {
         if declaringType == null || !declaringType.IsGenericType || !declaringType.ContainsGenericParameters {
             return true
@@ -1060,11 +1067,22 @@ class AnalyzerReflectionArgumentBinder {
             receiverSignatureType = declaringType.GetGenericTypeDefinition()
         }
 
-        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(receiverSignatureType, receiverClrType, bindings, true) {
+        bindingReceiverClrType := receiverClrType
+        bindingReceiverTypeInfo := receiverTypeInfo
+        externalBase := clrTypeConversion.TryResolveDeclaredExternalBase(receiverTypeInfo)
+        if externalBase != null {
+            bindingReceiverTypeInfo = externalBase
+            externalBaseClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(externalBase)
+            if externalBaseClrType != null {
+                bindingReceiverClrType = externalBaseClrType
+            }
+        }
+
+        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(receiverSignatureType, bindingReceiverClrType, bindings, true) {
             return false
         }
 
-        PopulateTypeInfoBindingsFromType(receiverSignatureType, receiverTypeInfo, typeInfoBindings, true)
+        PopulateTypeInfoBindingsFromType(receiverSignatureType, bindingReceiverTypeInfo, typeInfoBindings, true)
         return true
     }
 

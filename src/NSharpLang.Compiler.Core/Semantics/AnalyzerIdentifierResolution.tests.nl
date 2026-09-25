@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // Native contracts for the identifier arm — what a BARE NAME means.
 //
@@ -693,4 +694,84 @@ test "both consumers share ONE resolution, so a miss is reported once per positi
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.UndefinedFunction
+}
+
+// ---- a bare name that finds a member of a CLOSED EXTERNAL BASE ----------------------------------
+//
+// Channel 2 answers a bare `ToArray` inside `class Names: List<string>` with `List<string>`'s method
+// group, exactly as `this.ToArray` is answered. The CALL was where the two came apart: the reflected
+// bind closes the declaring type's `T` over the RECEIVER, and a bare call wrote none, so `ToArray()`
+// typed as the open `T[]`, `IndexOf(5)` was accepted against a `List<string>`, and a lambda passed to
+// `ConvertAll` had no parameter type. A bare call inside a type now binds through the enclosing
+// instance, which is what C#'s simple-name rule says it is.
+//
+// Every row states the TYPE rather than only the absence of a report: an `int`-returning twin must be
+// told it returns `string`, which is what keeps a row from passing because the base never resolved.
+
+// The sources run through the real `Analyzer.Analyze` entry, over the framework's common assemblies —
+// the one thing the other source harnesses here leave out, and without it `List` is not a type at
+// all. Error-severity messages only, in report order.
+func InheritedBaseSourceErrors(source: string): List<string> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-inherited-base-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    messages := new List<string>()
+    analyzer := new Analyzer()
+    try {
+        analyzer.LoadSystemAssemblies()
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                messages.Add(error.Message)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return messages
+}
+
+test "a bare call to a closed external base's member returns the base's type argument, as `this.` does" {
+    agreed := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Names: List<string> {\n    func FirstBare(): string => ToArray()[0]\n    func FirstViaThis(): string => this.ToArray()[0]\n    func LengthsBare(): List<int> => ConvertAll(s => s.Length)\n}\n")
+    assert agreed.Count == 0
+
+    mistyped := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Names: List<string> {\n    func FirstBare(): int => ToArray()[0]\n    func FirstViaThis(): int => this.ToArray()[0]\n}\n")
+    assert mistyped.Count == 2
+    assert mistyped[0] == "Function 'FirstBare' should return int but returns string"
+    assert mistyped[1] == "Function 'FirstViaThis' should return int but returns string"
+}
+
+test "a bare call's ARGUMENTS are checked against the base's type argument, as `this.` checks them" {
+    refused := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Names: List<string> {\n    func Bare(): int => IndexOf(5)\n    func ViaThis(): int => this.IndexOf(5)\n}\n")
+    assert refused.Count == 2
+    assert refused[0] == "No overload of 'IndexOf' accepts 1 argument with these types"
+    assert refused[1] == "No overload of 'IndexOf' accepts 1 argument with these types"
+}
+
+// A SOURCE BASE BETWEEN the type and the external one: `Deep: Mid<string>` over `Mid<U>: List<U>`.
+// The middle link's `U` is substituted on the way, so `T` is `string` for both spellings and for a
+// receiver outside the type (`deep.Add(...)`), which had bound against nothing.
+test "a generic source base between the type and the external base is substituted, not stopped at" {
+    agreed := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Mid<U>: List<U> {\n}\n\nclass Deep: Mid<string> {\n    func FirstBare(): string => ToArray()[0]\n    func FirstViaThis(): string => this.ToArray()[0]\n}\n\nfunc Fill(deep: Deep) {\n    deep.Add(\"a\")\n}\n")
+    assert agreed.Count == 0
+
+    mistyped := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Mid<U>: List<U> {\n}\n\nclass Deep: Mid<string> {\n    func FirstBare(): int => ToArray()[0]\n    func FirstViaThis(): int => this.ToArray()[0]\n}\n")
+    assert mistyped.Count == 2
+    assert mistyped[0] == "Function 'FirstBare' should return int but returns string"
+    assert mistyped[1] == "Function 'FirstViaThis' should return int but returns string"
+}
+
+// THE SPELLED ARGUMENT'S NULLABILITY IS PART OF THE ANSWER. The CLR surrogate of `List<string?>` is
+// `List<string>`; only the written base says the element may be null, and both spellings read it.
+test "a nullable type argument on the external base is what both spellings answer" {
+    maybe := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass MaybeNames: List<string?> {\n    func FirstBare(): string => ToArray()[0]\n    func FirstViaThis(): string => this.ToArray()[0]\n}\n")
+    assert maybe.Count == 2
+    assert maybe[0] == "Function 'FirstBare' should return string but returns string?"
+    assert maybe[1] == "Function 'FirstViaThis' should return string but returns string?"
 }

@@ -499,7 +499,7 @@ func use() {
     names[0] = "beta"            // the base's indexer
     print names.Count.ToString() // the base's property
     print names.Exists(name => name.Length == 4).ToString()
-    lengths := names.ConvertAll<int>(name => name.Length)
+    lengths := names.ConvertAll(name => name.Length)   // TOutput is int, from the lambda
 
     sequence: IEnumerable<string> = names   // the base's interfaces are yours too
     for name in sequence {
@@ -513,6 +513,25 @@ overloads, methods taking a lambda, and generic methods), indexers, events, and 
 through the derived type. `base.Member` reaches the base's own implementation non-virtually;
 `this.Member` and the bare name dispatch virtually. The chain is followed as written, so
 `class Deeper: Names` reaches `List<string>`'s members through `Names` as well.
+
+A bare call and a `this.` call bind the same way: the base's type arguments decide the result type,
+which arguments are accepted, and what a lambda's parameters are. A generic link in the chain passes
+its own arguments along, and a `?` written on a type argument is part of the answer:
+
+```n#
+class Mid<U>: List<U> {
+}
+
+class Words: Mid<string> {
+    func First(): string => ToArray()[0]                 // string: Mid<string> makes List<U> a List<string>
+    func Lengths(): List<int> => ConvertAll(w => w.Length) // `w` is a string
+    func Position(word: string): int => IndexOf(word)    // IndexOf(5) is NL402, as this.IndexOf(5) is
+}
+
+class MaybeWords: List<string?> {
+    func First(): string? => ToArray()[0]                // string?, not string
+}
+```
 
 `: base(...)` chains to the external base's constructor, chosen by the arguments you wrote:
 

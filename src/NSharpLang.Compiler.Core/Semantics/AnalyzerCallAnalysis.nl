@@ -531,6 +531,12 @@ class AnalyzerCallAnalysis {
         memberAccess := state.Call.Callee as MemberAccessExpression
         if memberAccess == null {
             state.Phase = 32
+            implicitReceiver := ImplicitReflectionReceiver(state)
+            if implicitReceiver != null {
+                state.ReflectionReceiverTypeInfo = implicitReceiver
+                state.Phase = 31
+            }
+
             return null
         }
 
@@ -539,6 +545,31 @@ class AnalyzerCallAnalysis {
         request := new CallAnalysisRequest(16)
         request.Node = memberAccess.Object
         return request
+    }
+
+    // THE RECEIVER A BARE CALL NEVER WROTE. Inside a type, a simple name that finds a member of the
+    // enclosing type IS that member accessed through the enclosing instance (or, for a static member,
+    // through the type) — C#'s simple-name rule — so `ToArray()` in `class Names: List<string>` is
+    // `this.ToArray()` and must bind the same way. With no receiver the bind had nothing to close the
+    // external base's `T` over: the call typed as the open `T`, an argument the base would refuse
+    // (`IndexOf(5)`) was accepted, and a lambda argument (`ConvertAll(s => s.Length)`) had no
+    // parameter type to take.
+    //
+    // It answers ONLY for an enclosing type whose `:` chain reaches an external base, because that is
+    // the only way a reflected method with type parameters of its own declaring type is a member
+    // found by a bare name; `object`'s members declare none. The receiver cannot turn the call into
+    // an extension call either: that needs a written member access (`IsExtensionMethodCall`).
+    func ImplicitReflectionReceiver(state: CallAnalysisState): TypeInfo? {
+        if state.Call.Callee as IdentifierExpression == null {
+            return null
+        }
+
+        enclosingType := scopes.CurrentTypeScope()
+        if enclosingType == null || clrTypeConversion.TryResolveDeclaredExternalBase(enclosingType) == null {
+            return null
+        }
+
+        return enclosingType
     }
 
     // PHASE 31 — THE RECEIVER AS A CLR TYPE, BY EITHER OF TWO DOORS. The ordinary conversion answers

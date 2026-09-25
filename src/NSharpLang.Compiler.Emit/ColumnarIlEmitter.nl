@@ -3977,6 +3977,87 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // A METHOD THE ENCLOSING TYPE INHERITS FROM A BASE THIS COMPILATION DID NOT WRITE, named bare (or
+    // through `this.`), with an argument the direct-call planner cannot type ahead of its target.
+    //
+    // The planner already owns an inherited external call whose arguments all type up front — that is
+    // `SetItem(index, item)` inside a `Collection<string>` subclass. A LAMBDA has no type until a
+    // parameter gives it one, so `ConvertAll(s => s.Length)` inside `class Names: List<string>` came
+    // here, where no tier looked past the source chain, and declined as an unresolvable bare call — in
+    // both spellings — while the same call on a `List<string>` local emitted. The member is chosen off
+    // the external base by the ordinary runtime selection that local call uses, and every argument is
+    // emitted against its declared parameter type, which is what shapes the lambda.
+    //
+    // THE BASE IS THE SUBSTITUTED ONE: `Deep: Mid<string>` over `Mid<U>: List<U>` answers
+    // `List<string>`. An instance member needs an instance context whose `this` is the object itself —
+    // not a value type, which cannot inherit, and not a closure display, whose `this` is the display;
+    // a static member is asked of the enclosing type in either context.
+    private func TryEmitInheritedExternalBareCall(callIdx: int, name: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        if (_currentStruct != null && _currentStruct.IsReference && !_currentStruct.IsClosureDisplay) {
+            instanceBase := ColumnarInheritedExternalBase.Resolve(_currentStruct, null)
+            if (instanceBase != null) {
+                // The selection and the argument admission are asked BEFORE `this` is loaded, so a
+                // call this tier cannot write leaves nothing on the stack for the tier after it. They
+                // are the ordinary instance door's own, which is what an outside receiver gets.
+                instanceSelection := SelectOrdinaryRuntimeCall(callIdx, instanceBase, name, argCount, false)
+                if (instanceSelection.IsSelected && instanceSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, instanceSelection.ParameterTypes)) {
+                    _il.Emit(OpCodes.Ldarg_0)
+                    return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, instanceSelection, out columnarResolvedType)
+                }
+                // A GENERIC method whose type arguments only the lambda can decide
+                // (`ConvertAll<TOutput>`) is not an ordinary selection; the contextual one infers
+                // them, as it does for a local of the base's type.
+                let instanceResultType: System.Type? = null
+                if (TryGetPreflightContextualInstanceCallType(instanceBase, name, callIdx, out instanceResultType)) {
+                    _il.Emit(OpCodes.Ldarg_0)
+                    return TryEmitContextualInstanceCall(callIdx, instanceBase, name, argCount, out columnarResolvedType)
+                }
+            }
+        }
+        if (_enclosingType == null) {
+            return false
+        }
+        staticBase := ColumnarInheritedExternalBase.Resolve(_enclosingType, null)
+        if (staticBase == null) {
+            return false
+        }
+        return TryEmitOrdinaryRuntimeStaticCall(callIdx, staticBase, name, argCount, out columnarResolvedType) || TryEmitContextualStaticCall(callIdx, staticBase, name, argCount, out columnarResolvedType)
+    }
+
+    // What `TryEmitInheritedExternalBareCall` would produce, asked without emitting — the same bases,
+    // the same selection and the same argument admission, in the same order, so a bare inherited call
+    // used as an OPERAND (`ConvertAll(s => s.Length).Count`) is typed exactly as it is then written.
+    private func TryGetPreflightInheritedExternalBareCallType(callIdx: int, name: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_currentStruct != null && _currentStruct.IsReference && !_currentStruct.IsClosureDisplay) {
+            instanceBase := ColumnarInheritedExternalBase.Resolve(_currentStruct, null)
+            if (instanceBase != null && (TryGetPreflightOrdinaryRuntimeInstanceCallType(callIdx, instanceBase, name, out columnarResolvedType) || TryGetPreflightContextualInstanceCallType(instanceBase, name, callIdx, out columnarResolvedType))) {
+                return true
+            }
+        }
+        if (_enclosingType == null) {
+            return false
+        }
+        staticBase := ColumnarInheritedExternalBase.Resolve(_enclosingType, null)
+        if (staticBase == null) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callIdx) - 1
+        staticSelection := SelectOrdinaryRuntimeCall(callIdx, staticBase, name, argCount, true)
+        if (staticSelection.IsSelected && staticSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, staticSelection.ParameterTypes)) {
+            columnarResolvedType = staticSelection.ReturnType
+            return true
+        }
+        let staticCandidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
+        if (!TryResolveContextualDirectCandidate(callIdx, staticBase, name, argCount, true, out staticCandidate) || staticCandidate == null) {
+            return false
+        }
+        columnarResolvedType = staticCandidate.ReturnType
+        return true
+    }
+
     // Emit a bare (implicit-`this`) INSTANCE method call: `ldarg.0; <args>; call/callvirt`. Used by tiers 1 and 4
     // of the bare-call resolution (own-declared and inherited instance methods). Declines on an arity or arg-type
     // mismatch. A reference `this` calls via callvirt (matching the external-receiver path); a value-type `this`
@@ -13879,6 +13960,9 @@ sealed class ColumnarIlEmitter {
                     }
                     return false
                 }
+                if (TryEmitInheritedExternalBareCall(idx, name, out columnarResolvedType)) {
+                    return true
+                }
                 // A DELEGATE-TYPED FIELD, INVOKED BY ITS BARE NAME. Last of the bare-call tiers, because
                 // a same-named METHOD wins over a field holding a delegate — the tiers above have all
                 // declined by the time this one is asked. It is what makes `Changed(this, args)`, the
@@ -23027,7 +23111,7 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = ownStatic.ReturnType
                 return true
             }
-            return false
+            return TryGetPreflightInheritedExternalBareCallType(node, calleeName, out columnarResolvedType)
         } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.IndexAccessExpression {
             let indexedType: System.Type? = null
             if (_nodes.ChildCount(node) != 2 || !TryGetPreflightExpressionType(Child(node, 0), out indexedType)) {
@@ -23517,6 +23601,13 @@ sealed class ColumnarIlEmitter {
         // assembly). The selection and the admission are the emission door's own, so what this promises
         // is what that door then writes.
         if (TryGetPreflightOrdinaryRuntimeInstanceCallType(callIdx, receiverType, member, out columnarResolvedType)) {
+            return true
+        }
+        // THE SAME TWO RESOLUTIONS ASKED OF THE BASE THIS COMPILATION DID NOT WRITE, which is what the
+        // emission door asks when the receiver is a source type: a `TypeBuilder` answers no member
+        // query, so without these `names.Exists(s => ...)` emitted but could not be typed as an operand.
+        inheritedReceiverType := ColumnarInheritedExternalBase.ResolveForReceiver(receiverType, _structRegistry.Values)
+        if (inheritedReceiverType != null && (TryGetPreflightOrdinaryRuntimeInstanceCallType(callIdx, inheritedReceiverType, member, out columnarResolvedType) || TryGetPreflightContextualInstanceCallType(inheritedReceiverType, member, callIdx, out columnarResolvedType))) {
             return true
         }
         if (!legacyWholeSubtreePlanning) {
@@ -25358,6 +25449,14 @@ sealed class ColumnarIlEmitter {
         // already keeps one tier above. A TYPE PARAMETER's instance members are the ones its
         // constraint declares, so that arm answers the same question and keeps the same precedence.
         if (TryEmitContextualInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        // ...AND OF THE BASE THIS COMPILATION DID NOT WRITE, for the same reason the ordinary tier
+        // above asks it: a source receiver is a `TypeBuilder` with no members to infer against, so
+        // `names.ConvertAll(s => s.Length)` on `class Names: List<string>` had no candidate whose
+        // `TOutput` the lambda could decide, and only the explicit `ConvertAll<int>(...)` emitted.
+        if (inheritedReceiverType != null && TryEmitContextualInstanceCall(callIdx, inheritedReceiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 
