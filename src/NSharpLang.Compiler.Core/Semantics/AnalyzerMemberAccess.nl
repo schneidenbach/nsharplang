@@ -125,6 +125,7 @@ class AnalyzerMemberAccess {
     soaEscapeValue: AnalyzerSoaEscape
     ambientValue: AnalyzerAmbientContext
     projectSourcesValue: AnalyzerProjectSourceProvider
+    sourceMemberDeclarationsValue: AnalyzerSourceMemberDeclarations
     projectDiscoveryValue: AnalyzerProjectTypeDiscovery
     externalTypeProbeValue: AnalyzerExternalTypeProbe
     typeSubstitutionValue: AnalyzerTypeSubstitution
@@ -159,7 +160,7 @@ class AnalyzerMemberAccess {
     builtInBooleanInstanceMembersValue: HashSet<string>
     builtInArrayMembersValue: HashSet<string>
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, nullFlow: AnalyzerNullFlow, soaEscape: AnalyzerSoaEscape, ambient: AnalyzerAmbientContext, projectSources: AnalyzerProjectSourceProvider, projectDiscovery: AnalyzerProjectTypeDiscovery, externalTypeProbe: AnalyzerExternalTypeProbe, typeSubstitution: AnalyzerTypeSubstitution, identifierResolution: AnalyzerIdentifierResolution, extensionMethods: List<FunctionDeclaration>, usingNamespaces: List<string>, usingAliases: Dictionary<string, string>, importedSymbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo>>, importedDeclarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration>>, mlcAssemblies: List<Assembly>, memberResolution: AnalyzerMemberResolution, clrTypeConversion: AnalyzerClrTypeConversion, extensionMethodResolution: AnalyzerExtensionMethodResolution, bindings: BindingMap) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, nullFlow: AnalyzerNullFlow, soaEscape: AnalyzerSoaEscape, ambient: AnalyzerAmbientContext, projectSources: AnalyzerProjectSourceProvider, sourceMemberDeclarations: AnalyzerSourceMemberDeclarations, projectDiscovery: AnalyzerProjectTypeDiscovery, externalTypeProbe: AnalyzerExternalTypeProbe, typeSubstitution: AnalyzerTypeSubstitution, identifierResolution: AnalyzerIdentifierResolution, extensionMethods: List<FunctionDeclaration>, usingNamespaces: List<string>, usingAliases: Dictionary<string, string>, importedSymbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo>>, importedDeclarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration>>, mlcAssemblies: List<Assembly>, memberResolution: AnalyzerMemberResolution, clrTypeConversion: AnalyzerClrTypeConversion, extensionMethodResolution: AnalyzerExtensionMethodResolution, bindings: BindingMap) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -168,6 +169,7 @@ class AnalyzerMemberAccess {
         soaEscapeValue = soaEscape
         ambientValue = ambient
         projectSourcesValue = projectSources
+        sourceMemberDeclarationsValue = sourceMemberDeclarations
         projectDiscoveryValue = projectDiscovery
         externalTypeProbeValue = externalTypeProbe
         typeSubstitutionValue = typeSubstitution
@@ -1302,23 +1304,16 @@ class AnalyzerMemberAccess {
         bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, member.Line, memberColumn, member.MemberName.Length, declaration)
     }
 
-    // WHERE A MEMBER IS DECLARED: the owner's own members first, then the extension methods. The
-    // extension fallback is what makes go-to-definition work on `value.MyExtension()`, and its
-    // declaration is attributed to the CURRENT file because an extension `func` is only visible from
-    // one that imported it.
+    // WHERE A MEMBER IS DECLARED: the owner's source members first — the answer the bare-name rule
+    // records from too — then the extension methods. The extension fallback is what makes
+    // go-to-definition work on `value.MyExtension()`, and its declaration is attributed to the
+    // CURRENT file because an extension `func` is only visible from one that imported it.
     func TryFindMemberDeclaration(objectType: TypeInfo, memberName: string, out declaration: SymbolDeclaration?): bool {
-        resolvedOwner := declarationContextValue.ResolveDeclaredAlias(objectType)
-        selection := new AnalyzerMemberSelection()
-        if declarationContextValue.TryFindMember(resolvedOwner, memberName, out selection) {
-            if selection.Member != null {
-                declaration = CreateSymbolDeclaration(selection.Member, selection.FilePath, selection.KindName)
-            } else {
-                declaration = new SymbolDeclaration(memberName, selection.FilePath, selection.Line, selection.Column, selection.KindName)
-            }
-
+        if sourceMemberDeclarationsValue.TryFind(objectType, memberName, out declaration) {
             return true
         }
 
+        resolvedOwner := declarationContextValue.ResolveDeclaredAlias(objectType)
         for candidate in extensionMethodsValue {
             if candidate.Name == memberName && extensionMethodResolutionValue.IsExtensionReceiverApplicable(candidate, resolvedOwner) {
                 declaration = new SymbolDeclaration(candidate.Name, diagnosticsValue.CurrentFilePath, candidate.Line, candidate.Column, "function")
@@ -1328,17 +1323,6 @@ class AnalyzerMemberAccess {
 
         declaration = null
         return false
-    }
-
-    // The declaration's own column is re-derived from the declaring file's TEXT rather than trusted
-    // from the parsed node, so go-to-definition lands on the NAME and not on the modifier that
-    // precedes it.
-    // The KIND WORD comes from the selection rather than off the member, because the word depends on
-    // the OWNER the member was found on: an interface's instance value member is a property, and only
-    // the lookup that walked the owner knows that.
-    func CreateSymbolDeclaration(member: DeclaredMemberInfo, filePath: string?, kindName: string): SymbolDeclaration {
-        sourceText := projectSourcesValue.TryGetProjectSourceText(filePath)
-        return new SymbolDeclaration(member.Name, filePath, member.Line, AnalyzerDiagnosticSpanFacts.FindIdentifierNameColumn(sourceText, member.Name, member.Line, member.Column), kindName)
     }
 
     // WHETHER A MISS IS WORTH REPORTING, which is a question about the RECEIVER and not about the

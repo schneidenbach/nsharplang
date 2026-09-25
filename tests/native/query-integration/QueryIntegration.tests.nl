@@ -1872,6 +1872,91 @@ test "an interface's value member is a property to definition, the way it alread
     }
 }
 
+// A BARE call to a member the type INHERITS from a source base is the same member `this.Label()`
+// names, and every navigation surface must say so. Before the analyzer recorded a binding for the
+// bare form, definition answered nothing, references missed the call and hover described only the
+// call's string value ("primitive Label: string").
+test "a bare call to an inherited source member defines, hovers and finds references like `this.` does" {
+    projectRoot := QueryTempRoot()
+    try {
+        QueryWriteProjectYaml(
+            projectRoot,
+            "name: Shadow\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: App.nl\n"
+        )
+        QueryWriteSource(
+            projectRoot,
+            "App.nl",
+            "namespace Shadow\n\nclass Base {\n    func Label(): string => \"base member\"\n}\n\nclass Widget: Base {\n    func Show(): string => Label()\n    func Via(): string => this.Label()\n}\n\nfunc main() {\n    print new Widget().Show()\n}\n"
+        )
+
+        snapshot := QueryLoadProject(projectRoot)
+        definition := QueryFindDefinition(snapshot, "App.nl", 8, 28)
+        if definition == null {
+            throw new InvalidOperationException("The production definition query answered nothing for the bare inherited call.")
+        }
+
+        assert QueryText(definition, "Name") == "Label"
+        assert QueryText(definition, "Kind") == "function"
+        assert QueryText(definition, "File") == "App.nl"
+        assert QueryInt(definition, "Line") == 4
+        assert QueryInt(definition, "Column") == 10
+
+        bareHover := QueryGetHoverInfo(snapshot, "App.nl", 8, 28)
+        viaHover := QueryGetHoverInfo(snapshot, "App.nl", 9, 32)
+        if bareHover == null || viaHover == null {
+            throw new InvalidOperationException("The production hover query answered nothing.")
+        }
+
+        assert QueryText(bareHover, "Kind") == "function"
+        assert QueryText(bareHover, "Signature") == QueryText(viaHover, "Signature")
+        assert QueryText(bareHover, "DefinedIn") == "App.nl"
+
+        references := QueryFindReferences(snapshot, "App.nl", 4, 10)
+        positions := new List<string>()
+        index := 0
+        while index < references.Count {
+            item := references[index]
+            if item != null {
+                position := QueryText(item, "Line") + ":" + QueryText(item, "Column")
+                if !positions.Contains(position) {
+                    positions.Add(position)
+                }
+            }
+            index = index + 1
+        }
+
+        positions.Sort(StringComparer.Ordinal)
+        assert string.Join(",", positions) == "4:10,8:28,9:32"
+        assert QueryDefinitionReferenceCount(references) == 1
+    } finally {
+        QueryDeleteTemp(projectRoot)
+    }
+}
+
+// The other half of the same rule: a bare member only a REFLECTED base declares has no source
+// declaration, so the binding the bare form now records must not invent one. It still resolves —
+// the project checks clean — and definition answers nothing rather than a wrong source position.
+test "a bare call to a member only a reflected base declares defines nothing and still checks" {
+    projectRoot := QueryTempRoot()
+    try {
+        QueryWriteProjectYaml(
+            projectRoot,
+            "name: ReflectedBase\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n"
+        )
+        QueryWriteSource(
+            projectRoot,
+            "App.nl",
+            "namespace ReflectedBase\n\nimport System\n\nclass Failure: Exception {\n    func Text(): string => Message\n}\n"
+        )
+
+        snapshot := QueryLoadProject(projectRoot)
+        assert QueryGetDiagnostics(snapshot, null).Count == 0
+        assert QueryIsNothing(QueryFindDefinition(snapshot, "App.nl", 6, 28))
+    } finally {
+        QueryDeleteTemp(projectRoot)
+    }
+}
+
 test "020 s39 query integration: Definition IssueTracker RecordDeclaration Resolves — Issue is a record at Models.nl line 35 (was QueryIntegrationTests.Definition_IssueTracker_RecordDeclaration_Resolves)" {
     result := QueryFindDefinition(QueryIssueTracker(), "Models.nl", 35, 8)
     if result == null {

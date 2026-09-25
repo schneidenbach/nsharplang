@@ -81,8 +81,8 @@ func IndexArmOf(inAssignmentTarget: bool): IndexAccessHarness {
     soaEscape := new AnalyzerSoaEscape(sink, spans, scopes, context)
     ambient := new AnalyzerAmbientContext(sink, spans, soaEscape)
     nullFlow := new AnalyzerNullFlow(sink, spans, scopes, context)
-    identifierResolution := new AnalyzerIdentifierResolution(sink, scopes, resolver, discovery, probe, functionTypes, ambient, nullFlow, extensions, members, model, bindings)
-    memberAccess := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, discovery, probe, substitution, identifierResolution, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
+    identifierResolution := new AnalyzerIdentifierResolution(sink, scopes, resolver, discovery, probe, functionTypes, ambient, nullFlow, extensions, members, new AnalyzerSourceMemberDeclarations(context, provider), model, bindings)
+    memberAccess := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, new AnalyzerSourceMemberDeclarations(context, provider), discovery, probe, substitution, identifierResolution, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
     constantFacts := new AnalyzerConstantExpressionFacts(scopes, context)
 
     arm := new AnalyzerIndexAccess(sink, spans, context, ambient, nullFlow, soaEscape, memberAccess, constantFacts)

@@ -271,3 +271,79 @@ func main(): void {
         LshDeleteTree(root)
     }
 }
+
+// A BARE call to a member the type INHERITS from a source base names the same member `this.Label()`
+// does, so every editor gesture on it must land where that form's does: definition on the base's
+// declaration, hover on the member's signature rather than the call's `string` value, and rename
+// through the declaration and both call forms.
+test "definition, hover and rename on a bare inherited member call reach the base's declaration" {
+    docs := LshNewDocs()
+    types := LshNewTypes()
+    root := LshTempRoot("nsharp-lsp-bare-inherited-")
+    try {
+        LshWrite(root, "project.yml", LshRaw(
+            """
+name: TempBareInherited
+backend: il
+outputType: exe
+targetFramework: net10.0
+entry: App.nl
+"""
+        ))
+
+        source := LshRaw(
+            """
+namespace TempBareInherited
+
+class Base {
+    func Label(): string => "base member"
+}
+
+class Widget: Base {
+    func Show(): string => Label()
+    func Via(): string => this.Label()
+}
+
+func main() {
+    print new Widget().Show()
+}
+"""
+        )
+        sourcePath := LshWrite(root, "App.nl", source)
+        uri := LshFileUri(sourcePath)
+        LshOpen(docs, uri, source)
+
+        declarationLine := LshMarkerLine(source, "func Label()")
+        declarationCharacter := LshLineColumn(source, declarationLine, "Label")
+        bareLine := LshMarkerLine(source, "=> Label()")
+        bareCharacter := LshLineColumn(source, bareLine, "Label")
+        viaLine := LshMarkerLine(source, "this.Label()")
+        viaCharacter := LshLineColumn(source, viaLine, "Label")
+
+        definition := LshDefinition(docs, uri, bareLine, bareCharacter)
+        assert definition != null
+        location := LshSingleLocation(definition)
+        assert location.Uri.ToString() == uri
+        assert location.Range.Start.Line == declarationLine
+        assert location.Range.Start.Character == declarationCharacter
+
+        bareHover := LshHover(docs, types, uri, bareLine, bareCharacter)
+        viaHover := LshHover(docs, types, uri, viaLine, viaCharacter)
+        assert bareHover != null
+        assert viaHover != null
+        bareMarkdown := LshHoverMarkdown(bareHover)
+        assert bareMarkdown.Contains("function Label", StringComparison.Ordinal)
+        assert !bareMarkdown.Contains("primitive", StringComparison.Ordinal)
+        assert bareMarkdown == LshHoverMarkdown(viaHover)
+
+        edit := LshRename(docs, uri, bareLine, bareCharacter, "Caption")
+        assert edit != null
+        edits := LshEditsFor(edit, uri)
+        assert edits.Count == 3
+        assert LshHasEditAt(edits, "Caption", declarationLine, declarationCharacter)
+        assert LshHasEditAt(edits, "Caption", bareLine, bareCharacter)
+        assert LshHasEditAt(edits, "Caption", viaLine, viaCharacter)
+    } finally {
+        LshDeleteTree(root)
+    }
+}

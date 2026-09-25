@@ -136,6 +136,7 @@ func IdentifierRuleOf(): IdentifierHarness {
         nullFlow,
         extensions,
         members,
+        new AnalyzerSourceMemberDeclarations(context, provider),
         model,
         bindings
     )
@@ -774,4 +775,123 @@ test "a nullable type argument on the external base is what both spellings answe
     assert maybe.Count == 2
     assert maybe[0] == "Function 'FirstBare' should return string but returns string?"
     assert maybe[1] == "Function 'FirstViaThis' should return string but returns string?"
+}
+
+// ---- channel 2: the binding a bare member records --------------------------------------------------
+//
+// End to end over real source, because the question is which DECLARATION the binding map points at,
+// and only a real analysis has a declaration context with source types, bases and texts in it. The
+// type's OWN members are channel 1's (its type scope); every inherited one reaches channel 2, and
+// before channel 2 recorded, a bare inherited call had no definition, no references and a hover
+// that described only the call's value. This harness has no reference assemblies, so the member a
+// REFLECTED base declares is stated in `tests/native/query-integration`, over a real project.
+func BareMemberProbeSource(): string {
+    return "namespace Probe\n" + "\n" + "class Root {\n" + "    func Origin(): string => \"root\"\n" + "}\n" + "\n" + "class Base: Root {\n" + "    Count: int => 3\n" + "    func Label(): string => \"base\"\n" + "    static func Make(): int => 1\n" + "}\n" + "\n" + "class Widget: Base {\n" + "    func Own(): string => \"own\"\n" + "    func Show(): string => Label() + Own() + Origin() + this.Label()\n" + "    func Size(): int => Count + Make()\n" + "}\n" + "\n" + "class Holder<T> {\n" + "    func Describe(): string => \"holder\"\n" + "}\n" + "\n" + "class IntHolder: Holder<int> {\n" + "    func Show(): string => Describe()\n" + "}\n"
+}
+
+class BareMemberProbe {
+    FilePath: string
+    Bindings: BindingMap
+
+    constructor(filePath: string, bindings: BindingMap) {
+        FilePath = filePath
+        Bindings = bindings
+    }
+
+    func At(line: int, column: int): string {
+        declaration := Bindings.GetBindingAt(FilePath, line, column)
+        if declaration == null {
+            return "<none>"
+        }
+
+        return declaration.Name + "@" + declaration.Line.ToString() + ":" + declaration.Column.ToString() + " " + declaration.Kind
+    }
+}
+
+func BareMemberAnalysis(): BareMemberProbe {
+    source := BareMemberProbeSource()
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-bare-member-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    try {
+        // The snapshot the CLI and the Language Server always supply. A declaration's NAME column is
+        // re-derived from it, so without it both member forms would land on the `func` keyword.
+        snapshot := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        snapshot[filePath] = source
+        analyzer.SetProjectSourceTexts(snapshot)
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        report := ""
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                report = report + "[" + error.Line.ToString() + ":" + error.Column.ToString() + "] " + error.Message + " | "
+            }
+        }
+
+        if report != "" {
+            throw new InvalidOperationException("The probe source must analyse cleanly: " + report)
+        }
+
+        bindings := result.Bindings
+        assert bindings != null
+        return new BareMemberProbe(filePath, bindings ?? new BindingMap())
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "a bare call to an INHERITED method binds to the base's declaration" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(15, 28) == "Label@9:10 function"
+}
+
+test "the bare form and the `this.` form bind ONE declaration, so references see both" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(15, 62) == probe.At(15, 28)
+
+    declaration := probe.Bindings.GetBindingAt(probe.FilePath, 15, 28)
+    assert declaration != null
+    columns := new List<int>()
+    for usage in probe.Bindings.GetReferences(declaration) {
+        if usage.Line == 15 && !columns.Contains(usage.Column) {
+            columns.Add(usage.Column)
+        }
+    }
+
+    columns.Sort()
+    assert columns.Count == 2
+    assert columns[0] == 28
+    assert columns[1] == 62
+}
+
+test "a bare member two bases up binds to the grandparent that declares it" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(15, 46) == "Origin@4:10 function"
+}
+
+test "a bare OWN member still binds through channel 1, beside the inherited ones" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(15, 38) == "Own@14:10 function"
+}
+
+test "a bare inherited PROPERTY and a bare inherited STATIC method bind too" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(16, 25) == "Count@8:5 property"
+    assert probe.At(16, 33) == "Make@10:17 function"
+}
+
+test "a bare member of a CLOSED GENERIC base binds to the generic definition's declaration" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(24, 28) == "Describe@20:10 function"
 }

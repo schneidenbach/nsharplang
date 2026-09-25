@@ -25,7 +25,9 @@ import NSharpLang.Compiler.Ast
 //      free function of this file, in the global scope — does not answer when the type has a member
 //      of that name: a member hides a free function, as C# looks in the type before the namespace.
 //   2  the ENCLOSING TYPE's members, static ones included, so a field or property used bare inside
-//      its own type resolves without `this.`, and an inherited one wins over any free function.
+//      its own type resolves without `this.`, and an inherited one wins over any free function. It
+//      RECORDS the binding for a member a source type declares, as channels 1, 4 and 5 do, so a bare
+//      inherited member navigates exactly as the `this.` form does.
 //   3  the BUILT-IN TYPE KEYWORDS, so `int.Parse`, `string.IsNullOrEmpty` and `int.TryParse` have a
 //      receiver.
 //   4  project-wide TYPE discovery, which also RECORDS the binding and the semantic-model type.
@@ -63,6 +65,7 @@ class AnalyzerIdentifierResolution {
     nullFlowValue: AnalyzerNullFlow
     extensionMethodsValue: List<FunctionDeclaration>
     memberResolutionValue: AnalyzerMemberResolution
+    sourceMemberDeclarationsValue: AnalyzerSourceMemberDeclarations
     wellKnownTypesValue: AnalyzerWellKnownTypes?
     importUsageCreditValue: AnalyzerImportUsageCredit?
     semanticModelValue: SemanticModel
@@ -77,7 +80,7 @@ class AnalyzerIdentifierResolution {
     // the target first, so it is NOT suppressed.
     SuppressErrorTupleResultUse: bool => suppressErrorTupleResultUseValue
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, projectDiscovery: AnalyzerProjectTypeDiscovery, externalTypeProbe: AnalyzerExternalTypeProbe, functionTypeFactory: AnalyzerFunctionTypeFactory, ambient: AnalyzerAmbientContext, nullFlow: AnalyzerNullFlow, extensionMethods: List<FunctionDeclaration>, memberResolution: AnalyzerMemberResolution, semanticModel: SemanticModel, bindings: BindingMap) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, projectDiscovery: AnalyzerProjectTypeDiscovery, externalTypeProbe: AnalyzerExternalTypeProbe, functionTypeFactory: AnalyzerFunctionTypeFactory, ambient: AnalyzerAmbientContext, nullFlow: AnalyzerNullFlow, extensionMethods: List<FunctionDeclaration>, memberResolution: AnalyzerMemberResolution, sourceMemberDeclarations: AnalyzerSourceMemberDeclarations, semanticModel: SemanticModel, bindings: BindingMap) {
         diagnosticsValue = diagnostics
         scopesValue = scopes
         typeResolverValue = typeResolver
@@ -88,6 +91,7 @@ class AnalyzerIdentifierResolution {
         nullFlowValue = nullFlow
         extensionMethodsValue = extensionMethods
         memberResolutionValue = memberResolution
+        sourceMemberDeclarationsValue = sourceMemberDeclarations
         wellKnownTypesValue = null
         importUsageCreditValue = null
         semanticModelValue = semanticModel
@@ -277,10 +281,24 @@ class AnalyzerIdentifierResolution {
         }
 
         // 2. The enclosing type's members, static ones included.
+        //
+        // The type's OWN members were answered by channel 1 — they live in its type scope — so what
+        // reaches this channel is chiefly an INHERITED one, and it RECORDS its binding exactly as
+        // `this.Label()` does: from the same source declaration, so definition, references, hover
+        // and rename read one answer whichever way the member was written. A member only a reflected
+        // base declares has no source position and records nothing.
         currentType := scopesValue.CurrentTypeScope()
         if currentType != null {
             memberType := ResolveEnclosingMember(currentType, name)
             if !BuiltInTypes.IsUnknown(memberType) {
+                memberDeclaration: SymbolDeclaration? = null
+                if sourceMemberDeclarationsValue.TryFind(currentType, name, out memberDeclaration) {
+                    // TOTAL on this path: the finder materialises the declaration before answering `true`.
+                    if memberDeclaration != null {
+                        bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, line, column, name.Length, memberDeclaration)
+                    }
+                }
+
                 resolvedType = memberType
                 return true
             }

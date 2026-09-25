@@ -105,9 +105,9 @@ func MemberArmOf(): MemberAccessHarness {
     soaEscape := new AnalyzerSoaEscape(sink, spans, scopes, context)
     ambient := new AnalyzerAmbientContext(sink, spans, soaEscape)
     nullFlow := new AnalyzerNullFlow(sink, spans, scopes, context)
-    identifierResolution := new AnalyzerIdentifierResolution(sink, scopes, resolver, discovery, probe, functionTypes, ambient, nullFlow, extensions, members, model, bindings)
+    identifierResolution := new AnalyzerIdentifierResolution(sink, scopes, resolver, discovery, probe, functionTypes, ambient, nullFlow, extensions, members, new AnalyzerSourceMemberDeclarations(context, provider), model, bindings)
 
-    arm := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, discovery, probe, substitution, identifierResolution, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
+    arm := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, new AnalyzerSourceMemberDeclarations(context, provider), discovery, probe, substitution, identifierResolution, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
     return new MemberAccessHarness(arm, errors, scopes, model, bindings, sink, context, importedSymbols, importedDeclarations, members, extensionResolution, nullFlow)
 }
 

@@ -1752,6 +1752,18 @@ machine's factory copies `this` with `ldobj`. Contracts: `tests/native/census-fr
 function is an NL202 at compile time), `tests/native/census-iterators/CensusIteratorMemberCalls*.nl`,
 `ColumnarSiblingHiding.tests.nl`, `ColumnarIteratorBodyScope.tests.nl`, `AnalyzerScopeStack.tests.nl`.
 
+**A BARE INHERITED MEMBER NAVIGATES LIKE `this.` ONE** (2026-09-24). Channel 2 used to answer an
+inherited member's TYPE and record nothing, so `Label()` inside `Widget: Base` had no definition, no
+references (rename missed it) and a hover built from the call's value (`primitive Label: string`);
+own members never had the gap, because channel 1's type scope records a declaration binding. Channel 2
+now records its binding from `AnalyzerSourceMemberDeclarations.TryFind` — the SAME finder
+`AnalyzerMemberAccess.TryFindMemberDeclaration` asks first (it adds only the extension-method
+fallback a written receiver can select) — so both forms bind one declaration, through source bases,
+grandparents and closed generic bases. A member only a REFLECTED base declares has no source
+position and records nothing. Contracts: `AnalyzerIdentifierResolution.tests.nl` (channel-2 rows),
+`tests/native/query-integration` (definition/hover/references, and the reflected-base row) and
+`tests/native/language-server-handlers` (`DefinitionNavigation.tests.nl`: definition, hover, rename).
+
 **EXPORT IS REQUIRED ONLY ACROSS NAMESPACES, AND ONE OWNER SAYS SO.**
 `SimpleNamePrecedence.RequiresExport(currentNamespace, candidateNamespace)` is that half of the rule:
 a declaration is reachable from its OWN namespace whatever its casing — camelCase is

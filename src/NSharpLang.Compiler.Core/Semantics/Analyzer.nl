@@ -91,6 +91,7 @@ class Analyzer: IDisposable {
     private readonly PassThroughOperands: AnalyzerPassThroughOperands
     private readonly TargetTypedOperands: AnalyzerTargetTypedOperands
     private OperatorExpressions: AnalyzerOperatorExpressions
+    private readonly SourceMemberDeclarations: AnalyzerSourceMemberDeclarations
     private readonly IdentifierResolution: AnalyzerIdentifierResolution
     private readonly MemberAccess: AnalyzerMemberAccess
     private readonly IndexAccess: AnalyzerIndexAccess
@@ -312,6 +313,7 @@ class Analyzer: IDisposable {
         PatternAnalysis = CreatePatternAnalysis()
         FlowNarrowing = CreateFlowNarrowing()
         VariableDeclaration = CreateVariableDeclaration()
+        SourceMemberDeclarations = new AnalyzerSourceMemberDeclarations(DeclarationContext, ProjectSources)
         IdentifierResolution = new AnalyzerIdentifierResolution(
             Diagnostics,
             Scopes,
@@ -323,6 +325,7 @@ class Analyzer: IDisposable {
             NullFlow,
             ExtensionMethods,
             MemberResolution,
+            SourceMemberDeclarations,
             SemanticModel,
             BindingMap
         )
@@ -335,6 +338,7 @@ class Analyzer: IDisposable {
             SoaEscape,
             Ambient,
             ProjectSources,
+            SourceMemberDeclarations,
             ProjectDiscovery,
             ExternalTypeProbe,
             TypeSubstitution,
