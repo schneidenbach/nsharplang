@@ -9,8 +9,9 @@ import System.Text
 //
 // Compiler.Core's files sit in eight slice directories, lowest first: Model, Syntax, Semantics,
 // Backend.Plan, Backend.Emit, CodeIntel, Tooling, Driver. Each directory is the project a PR carves
-// it into (`src/NSharpLang.Compiler.<Slice>`; Model, Syntax, CodeIntel, Tooling and Driver are
-// carved), so a file may read a top-level name declared in its own slice or in a LOWER one, and never
+// it into (`src/NSharpLang.Compiler.<Slice>`, a backend slice without its `Backend.` prefix; Model,
+// Syntax, Emit, CodeIntel, Tooling and Driver are carved), so a file may read a top-level name
+// declared in its own slice or in a LOWER one, and never
 // in a higher one - between assemblies a reach upward is a reference cycle and the build cannot
 // exist. Inside Core nothing but this walk sees such a reach, because one project compiles every
 // direction alike, so the walk reads Core and every carved project together, each file ranked by the
@@ -31,9 +32,14 @@ func SliceNames(): string[] {
     return ["Model", "Syntax", "Semantics", "Backend.Plan", "Backend.Emit", "CodeIntel", "Tooling", "Driver"]
 }
 
-// The project a slice becomes once it is carved out of Compiler.Core: `src/NSharpLang.Compiler.<Slice>`.
+// The project a slice becomes once it is carved out of Compiler.Core: `src/NSharpLang.Compiler.<Slice>`,
+// where a backend slice's project is named for what it holds (`Backend.Emit` is `NSharpLang.Compiler.Emit`).
 func SliceProjectName(rank: int): string {
-    return "NSharpLang.Compiler." + SliceNames()[rank]
+    name := SliceNames()[rank]
+    if name.StartsWith("Backend.", StringComparison.Ordinal) {
+        name = name.Substring("Backend.".Length)
+    }
+    return "NSharpLang.Compiler." + name
 }
 
 // The slice a path (always `/`-separated) sits in, or -1 outside every slice. A path is either

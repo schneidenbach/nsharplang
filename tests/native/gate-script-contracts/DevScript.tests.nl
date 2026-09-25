@@ -181,8 +181,8 @@ func DevSinceWords(run: ProcessRun): string {
 }
 
 test "dev since selects each Compiler.Core slice directory's own subsystem" {
-    slices: string[] = ["Semantics", "Backend.Plan", "Backend.Emit"]
-    expected: string[] = ["Analyzer estate", "Columnar estate", "Columnar estate"]
+    slices: string[] = ["Semantics", "Backend.Plan"]
+    expected: string[] = ["Analyzer estate", "Columnar estate"]
     index := 0
     while index < slices.Length {
         run := DevSinceRun("src/NSharpLang.Compiler.Core/" + slices[index] + "/Probe.nl")
@@ -237,6 +237,20 @@ test "dev since selects the carved Compiler.Tooling project's subsystem, and run
     }
 }
 
+test "dev since selects the carved Compiler.Emit project's subsystem, and runs everything for its build configuration" {
+    run := DevSinceRun("src/NSharpLang.Compiler.Emit/Probe.nl")
+    assert run.ExitCode == 0, run.Report()
+    assert DevSinceWords(run) == "Columnar estate", "selected '" + DevSinceWords(run) + "': " + run.Report()
+    assert !run.Stderr.Contains("EVERYTHING (fail-safe)"), run.Report()
+
+    for configuration in ["project.yml", "NSharpLang.Compiler.Emit.csproj", "global.json"] {
+        configured := DevSinceRun("src/NSharpLang.Compiler.Emit/" + configuration)
+        assert configured.ExitCode == 0, configuration + ": " + configured.Report()
+        assert configured.Stderr.Contains("Change-aware selection: EVERYTHING (fail-safe). Triggers:"), configuration + ": " + configured.Report()
+        assert configured.Stderr.Contains("src/NSharpLang.Compiler.Emit/" + configuration + " (Compiler.Emit build config)"), configuration + ": " + configured.Report()
+    }
+}
+
 test "dev since selects the carved Compiler.CodeIntel project's subsystem, and runs everything for its build configuration" {
     run := DevSinceRun("src/NSharpLang.Compiler.CodeIntel/Probe.nl")
     assert run.ExitCode == 0, run.Report()
@@ -277,8 +291,9 @@ test "dev list names the slice directories and the carved projects that hold est
     run := Run(BashLaunch("scripts/dev.sh --list", 60000))
 
     assert run.ExitCode == 0, run.Report()
-    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices: Backend.Emit Backend.Plan Model Semantics)"), run.Report()
+    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices: Backend.Plan Model Semantics)"), run.Report()
     assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Syntax/*.tests.nl (run with --estate)"), run.Report()
+    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Emit/*.tests.nl (run with --estate)"), run.Report()
     assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.CodeIntel/*.tests.nl (run with --estate)"), run.Report()
     assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Tooling/*.tests.nl (run with --estate)"), run.Report()
     assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Driver/*.tests.nl (run with --estate)"), run.Report()

@@ -8,7 +8,7 @@ import System.Reflection
 // witnesses cannot silently fall back to the deleted Compiler-assembly implementation.
 func ColumnarIlEmitterType(): Type {
     owner := Type.GetType(
-        "NSharpLang.Compiler.Columnar.ColumnarIlEmitter, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.Columnar.ColumnarIlEmitter, NSharpLang.Compiler.Emit"
     )
     if owner == null {
         throw new InvalidOperationException("Missing N# ColumnarIlEmitter")
@@ -114,7 +114,19 @@ test "the N# columnar IL emitter owns its complete public and private metadata s
     owner := ColumnarIlEmitterType()
     assert owner.get_IsPublic(), "the N# emitter must retain its public cross-assembly surface"
     assert owner.get_IsSealed(), "the N# emitter must retain sealed metadata"
-    assert Object.ReferenceEquals(owner.get_Assembly(), ColumnarInputBuilderType().get_Assembly()), "the emitter and input builder must share the compiler-core assembly owner"
+    // Since the Emit carve the emitter is its own slice assembly, above the Core assembly that builds
+    // its program input, and it binds that exact Core rather than a copy of the builder.
+    emitterAssembly := owner.get_Assembly()
+    builderAssembly := ColumnarInputBuilderType().get_Assembly()
+    assert emitterAssembly.GetName().Name == "NSharpLang.Compiler.Emit", "the N# emitter must be owned by the Compiler.Emit slice assembly"
+    assert builderAssembly.GetName().Name == "NSharpLang.Compiler.Core", "the program input builder must stay in the Compiler.Core assembly"
+    coreReferenced := false
+    for reference in emitterAssembly.GetReferencedAssemblies() {
+        if reference.Name == "NSharpLang.Compiler.Core" {
+            coreReferenced = true
+        }
+    }
+    assert coreReferenced, "the emitter's assembly must reference the Core assembly that builds its input"
     assert Type.GetType("NSharpLang.Compiler.Columnar.ColumnarIlEmitter, Compiler") == null, "the deleted Compiler-assembly emitter must not remain as a second owner"
 
     publicConstructors := owner.GetConstructors(
@@ -144,7 +156,7 @@ test "the N# columnar IL emitter owns its complete public and private metadata s
     assert parameters[1].get_ParameterType() == typeof(string)
     assert parameters[2].get_Name() == "program"
     assert parameters[2].get_ParameterType().get_FullName() == "NSharpLang.Compiler.Columnar.ColumnarProgramInput"
-    assert Object.ReferenceEquals(parameters[2].get_ParameterType().get_Assembly(), owner.get_Assembly())
+    assert Object.ReferenceEquals(parameters[2].get_ParameterType().get_Assembly(), builderAssembly), "the program input is the Core assembly's own type"
     assert parameters[3].get_Name() == "isExecutable"
     assert parameters[3].get_ParameterType() == typeof(bool)
     assert parameters[4].get_Name() == "assembly"
