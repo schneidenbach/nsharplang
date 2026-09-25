@@ -177,6 +177,40 @@ test "the test command's failure and progress sentences are exactly these" {
     assert TestCommandKernels.GetFailedMessage("boom") == "Test failed: boom"
 }
 
+test "a text run names every failed row with its method and its indented message, and a green run names nothing" {
+    passed := new NativeTestResult("Demo.Tests.Adds", "adds", TestCommandKernels.GetPassedOutcome(), "0.001s", null, "adds")
+    skipped := new NativeTestResult("Demo.Tests.Later", "later", TestCommandKernels.GetSkippedOutcome(), "0.000s", "not today", "later")
+    failed := new NativeTestResult("Demo.Tests.Subtracts", "subtracts", TestCommandKernels.GetFailedOutcome(), "0.002s", "expected 1\r\ngot 2\n", "subtracts")
+    runnerError := new NativeTestResult(
+        TestCommandKernels.GetXunitRunnerErrorName(),
+        TestCommandKernels.GetXunitRunnerErrorDisplayName(),
+        TestCommandKernels.GetFailedOutcome(),
+        TestCommandKernels.GetZeroTestDuration(),
+        "",
+        TestCommandKernels.GetXunitRunnerErrorDisplayName()
+    )
+    sameName := new NativeTestResult("Plain.Fact", "Plain.Fact", TestCommandKernels.GetFailedOutcome(), "0.000s", "boom", null)
+
+    green := new List<NativeTestResult>()
+    green.Add(passed)
+    green.Add(skipped)
+    assert TestCommandKernels.GetFailureReport(green) == null
+
+    red := new List<NativeTestResult>()
+    red.Add(passed)
+    red.Add(failed)
+    red.Add(skipped)
+    red.Add(runnerError)
+    red.Add(sameName)
+    report := TestCommandKernels.GetFailureReport(red) ?? ""
+
+    expected := "Failed tests (3):\n" + "\n  1. subtracts\n" + "     at Demo.Tests.Subtracts\n" + "     expected 1\n" + "     got 2\n" + "\n  2. xUnit runner\n" + "     at xunit.runner\n" + "     " + TestCommandKernels.GetFailureWithoutMessageText() + "\n" + "\n  3. Plain.Fact\n" + "     boom\n"
+    assert report == expected, report
+    // Only failures are named: a pass or a skip never appears in the report.
+    assert !report.Contains("adds"), report
+    assert !report.Contains("later"), report
+}
+
 test "the verbose per-test sentences are exactly these" {
     assert TestCommandKernels.GetVerbosePassedMessage("adds person", "12") == "Passed adds person [12 ms]"
     assert TestCommandKernels.GetVerboseSkippedMessage("adds person", "not today") == "Skipped adds person: not today"

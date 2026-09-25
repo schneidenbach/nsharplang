@@ -178,6 +178,11 @@ static class TestCommandHost {
             if TestCommandKernels.IsJsonOutputMode(outputMode) {
                 OutputNativeTestJson(projectRoot, summary.Ok, testRun.Results, summary, null, runTimings)
             } else {
+                failureReport := TestCommandKernels.GetFailureReport(testRun.Results)
+                if failureReport != null {
+                    Console.WriteLine(failureReport)
+                }
+
                 Console.WriteLine(TestCommandKernels.GetSummaryMessage(summary.Passed, summary.Failed, summary.Skipped, summary.Total))
                 Console.WriteLine(TestCommandKernels.GetCompletedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(stopwatch.ElapsedMilliseconds)))
                 ReportTimings(runTimings)

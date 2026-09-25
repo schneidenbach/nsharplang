@@ -622,6 +622,58 @@ class TestCommandKernels {
         return "Passed: " + passed.ToString() + ", Failed: " + failed.ToString() + ", Skipped: " + skipped.ToString() + ", Total: " + total.ToString()
     }
 
+    // ── THE FAILURES A TEXT RUN NAMES ─────────────────────────────────────────
+    //
+    // A red text run that prints only `Passed: 27, Failed: 1, …` has told its reader THAT something
+    // failed and nothing about WHAT: CI run 36165060886 is exactly that log, and the only way to
+    // learn the row was to rerun the job with `--json`. So the default output names every failed row
+    // before the summary — the sentence the reader wrote, the method it lowered to, and the failure
+    // message indented under it — and a green run prints nothing new. The JSON envelope already
+    // carries the same three facts per row (`displayName`, `name`, `errorMessage`), so this is the
+    // text route catching up, not a new fact.
+    //
+    // The report comes BEFORE the summary so the summary stays the last line a script reads.
+    static func GetFailureReport(testResults: IReadOnlyList<NativeTestResult>): string? {
+        failures := new List<NativeTestResult>()
+        for testResult in testResults {
+            if testResult.Outcome == GetFailedOutcome() {
+                failures.Add(testResult)
+            }
+        }
+
+        if failures.Count == 0 {
+            return null
+        }
+
+        report := new StringBuilder()
+        report.Append("Failed tests (" + failures.Count.ToString() + "):\n")
+        index := 0
+        while index < failures.Count {
+            failure := failures[index]
+            report.Append("\n  " + (index + 1).ToString() + ". " + failure.DisplayName + "\n")
+            if failure.Name != failure.DisplayName {
+                report.Append("     at " + failure.Name + "\n")
+            }
+
+            message := failure.ErrorMessage ?? ""
+            if string.IsNullOrWhiteSpace(message) {
+                message = GetFailureWithoutMessageText()
+            }
+
+            for line in message.Replace("\r\n", "\n").TrimEnd('\n').Split('\n') {
+                report.Append("     " + line + "\n")
+            }
+
+            index = index + 1
+        }
+
+        return report.ToString()
+    }
+
+    static func GetFailureWithoutMessageText(): string {
+        return "(the test runner reported this failure without a message)"
+    }
+
     static func GetCompletedElapsedMessage(elapsedText: string): string {
         return "  Tests completed in " + elapsedText
     }

@@ -3557,6 +3557,59 @@ test "nlc check and nlc test read the same file list, so a clean test file keeps
     }
 }
 
+// A RED TEXT RUN NAMES ITS FAILURES. CI run 36165060886 printed `Passed: 27, Failed: 1, Skipped: 0,
+// Total: 28` and nothing else, so the log a reader had was the one place the failed row could not be
+// learned from. The default route now names each failed row and its message before the summary; the
+// JSON route is the control that the facts are the same ones the envelope already carried, and the
+// passing row is the control that only failures are named.
+test "a failing nlc test run names each failed test and its message on the default route, and the envelope agrees" {
+    directory := NewTempDirectory("nlc-test-names-failures")
+    try {
+        WriteProjectYml(directory, "name: NamedFailures\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Suite.tests.nl"),
+            "namespace NamedFailures\n\ntest \"one plus one is two\" {\n    assert 1 + 1 == 2\n}\n\ntest \"two plus two is five\" {\n    assert 2 + 2 == 5, \"arithmetic said 4\"\n}\n\ntest \"a bare assert still names itself\" {\n    assert 1 == 2\n}\n"
+        )
+
+        text := NlcIn(directory, "test --no-cache")
+        assert text.ExitCode == 1, text.Stdout + text.Stderr
+        assert text.Stdout.Contains("Failed tests (2):"), text.Stdout
+        assert text.Stdout.Contains(". two plus two is five\n"), text.Stdout
+        assert text.Stdout.Contains("     arithmetic said 4\n"), text.Stdout
+        assert text.Stdout.Contains(". a bare assert still names itself\n"), text.Stdout
+        assert text.Stdout.Contains("     Assertion failed\n"), text.Stdout
+        assert !text.Stdout.Contains("one plus one is two"), text.Stdout
+        // The report precedes the summary, so the summary is still the last thing a script reads.
+        assert text.Stdout.IndexOf("Failed tests (2):") < text.Stdout.IndexOf("Passed: 1, Failed: 2, Skipped: 0, Total: 3"), text.Stdout
+
+        json := NlcIn(directory, "test --no-cache --json")
+        assert json.ExitCode == 1, json.Stdout + json.Stderr
+        assert !json.Stdout.Contains("Failed tests ("), json.Stdout
+        document := JsonDocument.Parse(json.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("schemaVersion").GetInt32() == 1, json.Stdout
+        assert root.GetProperty("summary").GetProperty("failed").GetInt32() == 2, json.Stdout
+        namedFailures := 0
+        for result in root.GetProperty("results").EnumerateArray() {
+            if TextOf(result.GetProperty("outcome")) == "failed" {
+                assert text.Stdout.Contains(". " + TextOf(result.GetProperty("displayName")) + "\n"), text.Stdout
+                assert text.Stdout.Contains("     " + TextOf(result.GetProperty("errorMessage")) + "\n"), text.Stdout
+                namedFailures = namedFailures + 1
+            }
+        }
+        assert namedFailures == 2, json.Stdout
+        document.Dispose()
+
+        // A green run prints no report at all.
+        File.WriteAllText(Path.Combine(directory, "Suite.tests.nl"), "namespace NamedFailures\n\ntest \"one plus one is two\" {\n    assert 1 + 1 == 2\n}\n")
+        green := NlcIn(directory, "test --no-cache")
+        assert green.ExitCode == 0, green.Stdout + green.Stderr
+        assert !green.Stdout.Contains("Failed tests ("), green.Stdout
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 // ═══ NL111: A DEEPLY NESTED EXPRESSION IS REFUSED, NOT A CRASH ════════════════════════════════
 //
 // Measured at 0bd1cf46d: a generated source of 2,000 nested parentheses killed `nlc check`,
