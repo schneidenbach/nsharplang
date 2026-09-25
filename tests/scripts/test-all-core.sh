@@ -485,10 +485,16 @@ else
     # not new source: NL010 11, NL002 11, NL011 6, NL907 4, NL001 1, NL012 1. Driver's 56 were fixed
     # in Core before the carve, so it starts at 0.
     #
+    # 2026-09-25, before Compiler.Tooling is carved out of Core (above Core, below Driver): Core 1,202.
+    # Tooling's own files carried 3 of the 1,205 (NL010 2 in its estate, NL303 1) and are now clean,
+    # for the same reason Driver's were: once Tooling is its own project above Core its count is its
+    # own, and it starts at zero. Measured with the same tip CLI against both trees, the identity
+    # diff is zero additions and those 3 removals, every one in a Tooling file.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
-        1205
+        1202
         0
         34
         0

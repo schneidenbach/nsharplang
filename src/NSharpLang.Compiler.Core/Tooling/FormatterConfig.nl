@@ -105,11 +105,14 @@ class FormatterConfig {
 
     static func ParseRequiredInt(value: string): int {
         parsed := FormatterConfigKernels.ParseInt(value)
-        if !parsed.HasValue {
-            throw new FormatException()
+        // COMPILER: after an early-exit `if !parsed.HasValue { throw }` guard the analyzer narrows
+        // `parsed` to `int` and refuses `parsed.Value` (NL303), while the same read inside
+        // `if parsed.HasValue { ... }` is accepted; the value is read inside the positive branch.
+        if parsed.HasValue {
+            return parsed.Value
         }
 
-        return parsed.Value
+        throw new FormatException()
     }
 
     static func FindEditorConfig(dir: string): string? {
