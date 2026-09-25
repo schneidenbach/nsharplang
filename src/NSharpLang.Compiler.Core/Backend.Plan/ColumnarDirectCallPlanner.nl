@@ -2023,6 +2023,20 @@ class ColumnarDirectCallPlanner {
         }
 
         if explicitThis {
+            // AN INHERITED MEMBER THIS PLANNER DOES NOT SELECT IS YIELDED, NOT REFUSED, exactly as the
+            // bare spelling of the same call is. `this.Shuffle(items)` inside `class Dice: Random` names
+            // a GENERIC method whose type argument the argument decides, which the fixed-shape selection
+            // above excludes; the residual's inherited tier (`TryEmitInheritedExternalBareCall`) infers
+            // it, and it reads `this.Shuffle` and `Shuffle` as the same name. Refusing here made the
+            // bare call emit while the `this.` call declined. A name no base exposes is still refused,
+            // and so is one a value binding also answers to, which the residual would read first.
+            if currentDefinition != null && !bindings.IsValueBinding(memberName) && ColumnarSiblingHiding.ExposesToDerivedType(ResolveExternalRuntimeBase(currentDefinition), memberName) {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+                plan.Rollback(checkpoint)
+                return false
+            }
+
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             plan.Rollback(checkpoint)
             return false

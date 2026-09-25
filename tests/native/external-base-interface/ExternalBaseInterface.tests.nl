@@ -379,7 +379,7 @@ test "an ambiguous cross-namespace base name declines rather than guessing" {
 // `System.Exception` and `System.Random` are stable CoreLib bases mirroring the generated Web API's
 // `WeatherController: ControllerBase` shape (`Ok(data)` -> ControllerBase.Ok(object)).
 //
-// Decline cases (arity mismatch, generic method) stay on the MultiFileCompiler harness because they
+// The decline case (an arity no overload has) stays on the MultiFileCompiler harness because it
 // must fail compilation and so cannot live in this project's own source.
 // -----------------------------------------------------------------------------------------------
 
@@ -426,6 +426,23 @@ class HidingRoller: System.Random {
 
     func Play(): int {
         return Next()
+    }
+}
+
+// A GENERIC method the external base declares: `Random.Shuffle<T>(T[])`, whose `T` the argument
+// decides exactly as C# infers it. The planner's fixed-shape selection excludes a generic method, so
+// it yields the call -- in BOTH spellings -- to the residual's inherited tier, which infers `int`.
+// The explicit-this spelling used to be claimed and refused there while the bare one emitted.
+class ShufflingDice: System.Random {
+    constructor(): base(7) {
+    }
+
+    func MixBare(items: int[]) {
+        Shuffle(items)
+    }
+
+    func MixThis(items: int[]) {
+        this.Shuffle(items)
     }
 }
 
@@ -477,18 +494,25 @@ class Dice: System.Random {
     Cleanup(compilation)
 }
 
-test "a generic method inherited from the external base is not bound and declines" {
-    // System.Random.Shuffle<T>(T[]) is a generic instance method; the fixed-arity fence excludes it,
-    // so the bare inherited call must decline rather than silently binding a generic method.
-    compilation := CompileExternalBaseFixture(
-        """
-class Dice: System.Random {
-    func Mix(items: int[]) {
-        Shuffle(items)
+test "a generic method inherited from the external base binds in both spellings and executes" {
+    bare := [1, 2, 3, 4, 5, 6, 7, 8]
+    new ShufflingDice().MixBare(bare)
+    qualified := [1, 2, 3, 4, 5, 6, 7, 8]
+    new ShufflingDice().MixThis(qualified)
+
+    // The same seed runs the same algorithm, so the two spellings must leave the same permutation --
+    // and it must BE one: every element kept, and not all of them left where they were.
+    total := 0
+    moved := false
+    index := 0
+    while index < bare.Length {
+        assert bare[index] == qualified[index], "Shuffle(items) and this.Shuffle(items) must be the same call."
+        total = total + bare[index]
+        if bare[index] != index + 1 {
+            moved = true
+        }
+        index = index + 1
     }
-}
-"""
-    )
-    assert !compilation.Succeeded, compilation.Diagnostics
-    Cleanup(compilation)
+    assert total == 36, "Shuffle<int>(int[]) must permute the elements, not replace them."
+    assert moved, "The inherited Random.Shuffle<int> must actually run."
 }
