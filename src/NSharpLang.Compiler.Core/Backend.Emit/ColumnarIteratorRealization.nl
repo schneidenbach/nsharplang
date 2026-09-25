@@ -89,26 +89,7 @@ class ColumnarIteratorRealization {
             )
         }
 
-        input: ColumnarStructInput? = null
-        structEnumerator := StructInputEnumerator(program.Structs)
-        structMovement := structEnumerator as IEnumerator
-        try {
-            if structMovement == null {
-                throw new NullReferenceException()
-            }
-            while structMovement.MoveNext() {
-                candidate := structEnumerator.get_Current()
-                if candidate.Name == structDef.DeclaredTypeName || structDef.DeclaredTypeName.EndsWith("." + candidate.Name, StringComparison.Ordinal) {
-                    input = candidate
-                    break
-                }
-            }
-        } finally {
-            structDisposable := structEnumerator as IDisposable
-            if structDisposable != null {
-                structDisposable.Dispose()
-            }
-        }
+        input := StructInputFor(program, structDef)
         if input == null {
             return Declined(
                 "emit.iterator.instance-unsupported",
@@ -117,22 +98,34 @@ class ColumnarIteratorRealization {
             )
         }
 
+        // EVERY INSTANCE FIELD THE BODY CAN NAME, exactly as an ordinary member body names them. The
+        // machine is NESTED in the declaring type, so that type's own fields are reachable whatever
+        // their visibility — a camelCase field and a `private` one alike. An inherited source field is
+        // reachable unless the base that declares it made it `private`, which is the ordinary member
+        // body's answer too. Walking nearest-first, the first declaration of a name is the one it means.
         fieldNames := new List<string>()
         fieldCanonicals := new List<string>()
         fieldHandles := new List<FieldInfo>()
-        fieldIndex := 0
-        while fieldIndex < input.FieldNames.Length {
-            name := input.FieldNames[fieldIndex]
-            if name.Length > 0 && char.IsUpper(name[0]) {
+        fieldOwner: ColumnarStructDef? = structDef
+        fieldOwnerInput: ColumnarStructInput? = input
+        while fieldOwner != null && fieldOwnerInput != null {
+            ownerDefinition := (ColumnarStructDef)fieldOwner
+            ownerInput := (ColumnarStructInput)fieldOwnerInput
+            isDeclaringType := Object.ReferenceEquals(ownerDefinition, structDef)
+            fieldIndex := 0
+            while fieldIndex < ownerInput.FieldNames.Length {
+                name := ownerInput.FieldNames[fieldIndex]
                 fieldBuilder: FieldBuilder = null
-                if structDef.Fields.TryGetValue(name, out fieldBuilder) {
+                if name.Length > 0 && !fieldNames.Contains(name) && ownerDefinition.Fields.TryGetValue(name, out fieldBuilder) && (isDeclaringType || !fieldBuilder.IsPrivate) {
                     fieldNames.Add(name)
-                    fieldCanonicals.Add(input.FieldTypeCanonicals[fieldIndex])
+                    fieldCanonicals.Add(ownerInput.FieldTypeCanonicals[fieldIndex])
                     fieldHandle: FieldInfo = fieldBuilder
                     fieldHandles.Add(fieldHandle)
                 }
+                fieldIndex = fieldIndex + 1
             }
-            fieldIndex = fieldIndex + 1
+            fieldOwner = ownerDefinition.BaseDef
+            fieldOwnerInput = fieldOwner == null ? null : StructInputFor(program, (ColumnarStructDef)fieldOwner)
         }
 
         methodNames := new List<string>()
@@ -235,6 +228,32 @@ class ColumnarIteratorRealization {
         )
     }
 
+    // The source row a definition was built from: the first whose name is the definition's declared
+    // name or its unqualified tail.
+    static func StructInputFor(program: ColumnarProgramInput, definition: ColumnarStructDef): ColumnarStructInput? {
+        input: ColumnarStructInput? = null
+        structEnumerator := StructInputEnumerator(program.Structs)
+        structMovement := structEnumerator as IEnumerator
+        try {
+            if structMovement == null {
+                throw new NullReferenceException()
+            }
+            while structMovement.MoveNext() {
+                candidate := structEnumerator.get_Current()
+                if candidate.Name == definition.DeclaredTypeName || definition.DeclaredTypeName.EndsWith("." + candidate.Name, StringComparison.Ordinal) {
+                    input = candidate
+                    break
+                }
+            }
+        } finally {
+            structDisposable := structEnumerator as IDisposable
+            if structDisposable != null {
+                structDisposable.Dispose()
+            }
+        }
+        return input
+    }
+
     static func StructInputEnumerator(
         inputs: IEnumerable<ColumnarStructInput>
     ): IEnumerator<ColumnarStructInput> {
@@ -281,10 +300,7 @@ class ColumnarIteratorRealization {
             return Declined(shape.DeclineSite, shape.DeclineMessage, declineLabel)
         }
 
-        sm := module.DefineType(
-            shape.TypeName,
-            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
-        )
+        sm := DefineMachineType(module, shape.TypeName, enclosingType)
         smTypeParamMap: Dictionary<string, Type>? = null
         smTypeParams := System.Type.EmptyTypes
         smSpecialConstraints := System.Array.Empty<int>()
@@ -756,6 +772,23 @@ class ColumnarIteratorRealization {
         ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl, modifiedMemberReferences)
         synthesizedTypes.Add(sm)
         return Completed()
+    }
+
+    // A MEMBER machine is NESTED in its declaring type, as C# nests its own: its body is a member body,
+    // and a member body reaches every member of its type — `private` ones included — which only a
+    // nested type can. A free function's machine has no such owner and stays at the top level.
+    static func DefineMachineType(module: ModuleBuilder, typeName: string, enclosingType: Type?): TypeBuilder {
+        owner := enclosingType as TypeBuilder
+        if owner != null {
+            return owner.DefineNestedType(
+                typeName,
+                TypeAttributes.NestedAssembly | TypeAttributes.Class | TypeAttributes.Sealed
+            )
+        }
+        return module.DefineType(
+            typeName,
+            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
+        )
     }
 
     static func Completed(): ColumnarIteratorRealizationResult {

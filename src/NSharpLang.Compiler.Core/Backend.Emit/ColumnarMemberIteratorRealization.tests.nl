@@ -683,7 +683,14 @@ test "member iterator takes the first source row and disposes before field and o
         false
     )
     positiveState.RepairRows.Add(first)
-    positiveState.RepairFieldCanonicals = IteratorOne("int")
+    // The camelCase `lower` is published like any other field the definition holds, so its canonical
+    // is read; `Absent` is not in the definition, so the repaired row stops short of it and would
+    // throw if it were read.
+    repairedCanonicals := new string[](3)
+    repairedCanonicals[0] = "int"
+    repairedCanonicals[1] = "int"
+    repairedCanonicals[2] = "int"
+    positiveState.RepairFieldCanonicals = repairedCanonicals
     positiveRows := MemberIteratorControlsWrapReadOnlyList(
         "MemberIteratorFirstRows",
         typeof(ColumnarStructInput),

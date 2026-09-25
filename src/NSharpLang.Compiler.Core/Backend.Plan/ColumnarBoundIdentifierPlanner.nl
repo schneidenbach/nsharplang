@@ -795,6 +795,18 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         if ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node) {
+            // Inside an instance iterator `this` is the receiver the machine captured, never the
+            // machine: its fields are the body's own bindings, and a binding that hides a member's bare
+            // name does not hide `this.member`.
+            if bindings.ThisIsCapturedReceiver {
+                if !bindings.ReceiverMembers.ContainsKey(name) {
+                    return false
+                }
+                receiverMember := bindings.ReceiverMembers[name]
+                selection = CapturedInstanceFieldSelection(receiverMember.Item1, receiverMember.Item2)
+                return true
+            }
+
             // Written `this.Member` names the LEXICAL owner's member, which inside a display is the
             // captured receiver's — the same answer the bare name gets, by the same two hops.
             return TryResolveCurrentInstance(name, bindings, out selection) || TryResolveCapturedEnclosingInstance(name, bindings, out selection)
@@ -841,23 +853,7 @@ class ColumnarBoundIdentifierPlanner {
             }
 
             captured := bindings.CapturedInstanceFields[name]
-            receiverField := captured.Item1
-            memberField := captured.Item2
-            if receiverField == null || memberField == null {
-                throw new InvalidOperationException("Captured-instance-field facts cannot be null.")
-            }
-
-            displayType := receiverField.DeclaringType
-            if displayType == null || displayType.IsValueType || receiverField.IsStatic || memberField.IsStatic {
-                throw new InvalidOperationException("Captured-instance-field facts do not identify an exact instance receiver and member.")
-            }
-
-            memberType := memberField.FieldType
-            RequireStorableValueType(memberType, "Captured-instance-field facts must identify a readable member value.")
-
-            capturedReceiverChain := new FieldInfo[](1)
-            capturedReceiverChain[0] = receiverField
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, memberType, -1, -1, null, receiverField, memberField, null, null, displayType, false, capturedReceiverChain)
+            selection = CapturedInstanceFieldSelection(captured.Item1, captured.Item2)
 
             return true
         }
@@ -989,6 +985,26 @@ class ColumnarBoundIdentifierPlanner {
         // name shadows the member in the source the display was made from, so a name the outer scope
         // binds must decline here rather than quietly resolve to a field of the enclosing type.
         return TryResolveCurrentInstance(name, bindings, out selection) || TryResolveCapturedEnclosingInstance(name, bindings, out selection)
+    }
+
+    // A member read through the receiver field argument 0 holds: `ldarg.0; ldfld <receiver>; ldfld
+    // <member>`.
+    static func CapturedInstanceFieldSelection(receiverField: FieldInfo, memberField: FieldInfo): ColumnarBoundIdentifierSelection {
+        if receiverField == null || memberField == null {
+            throw new InvalidOperationException("Captured-instance-field facts cannot be null.")
+        }
+
+        displayType := receiverField.DeclaringType
+        if displayType == null || displayType.IsValueType || receiverField.IsStatic || memberField.IsStatic {
+            throw new InvalidOperationException("Captured-instance-field facts do not identify an exact instance receiver and member.")
+        }
+
+        memberType := memberField.FieldType
+        RequireStorableValueType(memberType, "Captured-instance-field facts must identify a readable member value.")
+
+        capturedReceiverChain := new FieldInfo[](1)
+        capturedReceiverChain[0] = receiverField
+        return new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, memberType, -1, -1, null, receiverField, memberField, null, null, displayType, false, capturedReceiverChain)
     }
 
     // `base.Name` AS A VALUE — the field or property the BASE declares.

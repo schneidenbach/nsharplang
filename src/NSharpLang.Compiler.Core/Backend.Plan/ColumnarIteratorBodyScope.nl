@@ -133,17 +133,34 @@ class ColumnarIteratorBodyFacts {
 // With those two published, `ColumnarMethodBodyPlanner.TryAppendValue` plans a call, a `new`, an array
 // literal, an indexer, a member access or a binary inside a `func*` body by the SAME rows it appends in
 // an ordinary body, and the iterator owns none of that decision.
+//
+// A BODY BINDING HIDES A MEMBER OF THE SAME SPELLING WHILE IT IS IN SCOPE — the rule every ordinary
+// member body follows. A parameter hides it for the whole body; a local hides it from the statement
+// after its declaration to the end of its block; `this.member` reaches it whatever hides it. The
+// machine stores every local in ONE flat field per name, so where a name's storage LIVES says nothing
+// about whether the binding is in scope: that answer is kept here, by the lowering telling this scope
+// where each binding comes into and goes out of scope. A member is in `CapturedInstanceFields` exactly
+// while no binding hides it, and any storage the lowering published early for a binding of that name
+// (its loop-capture box, a display's hop to it) waits aside until the binding does.
 class ColumnarIteratorBodyScope {
     StateMachineType: Type
     Facts: ColumnarIteratorBodyFacts
     Bindings: ColumnarFragmentBindings
     instanceFacts: ColumnarCurrentInstanceFacts
+    // The body bindings in lexical scope, innermost last; a name is hidden while it appears here.
+    hidingNames: List<string>
+    // The binding storage a VISIBLE member displaced from the name tables, restored when it is hidden.
+    displacedCaptures: Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>
+    displacedBoxes: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>
 
     constructor(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, bindings: ColumnarFragmentBindings, instanceFacts: ColumnarCurrentInstanceFacts) {
         StateMachineType = stateMachineType
         Facts = facts
         Bindings = bindings
         this.instanceFacts = instanceFacts
+        hidingNames = new List<string>()
+        displacedCaptures = new Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>(StringComparer.Ordinal)
+        displacedBoxes = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
     }
 
     // `stateMachineType` is the SAME handle the MoveNext plan pools as argument 0 — a closed generic
@@ -213,6 +230,10 @@ class ColumnarIteratorBodyScope {
             throw new InvalidOperationException("A published iterator box requires a name, field and value type.")
         }
         let entry: (BoxField: FieldInfo, ValueType: Type) = (boxField, valueType)
+        if IsEnclosingMemberVisible(name) {
+            displacedBoxes[name] = entry
+            return
+        }
         Bindings.BoxedCaptures[name] = entry
     }
 
@@ -228,13 +249,118 @@ class ColumnarIteratorBodyScope {
         return field
     }
 
-    // An enclosing-type member an INSTANCE machine reads through its captured receiver. The captured
-    // `<>__this` field is the box; the member field is the value — the BoxedCapture selection verbatim.
-    func PublishEnclosingMember(name: string, capturedReceiverField: FieldInfo, memberField: FieldInfo) {
-        if name == null || name.Length == 0 || capturedReceiverField == null || memberField == null {
-            throw new InvalidOperationException("A published enclosing member requires a captured receiver field and the member's exact field handle.")
+    // The enclosing-type members an INSTANCE machine reads through its captured receiver. The captured
+    // `<>__this` field is the box; each member field is the value — the BoxedCapture selection verbatim.
+    // Publishing them also makes `this` mean that receiver, so `this.member` reads the member even where
+    // a binding hides its bare name.
+    func PublishEnclosingMembers(capturedReceiverField: FieldInfo, names: string[], memberFields: FieldInfo[]) {
+        if capturedReceiverField == null || names == null || memberFields == null {
+            throw new InvalidOperationException("Published enclosing members require a captured receiver field and the members' exact field handles.")
         }
-        Bindings.CapturedInstanceFields[name] = (ReceiverField: capturedReceiverField, MemberField: memberField)
+        bindings := Bindings
+        bindings.ThisIsCapturedReceiver = true
+        index := 0
+        while index < names.Length && index < memberFields.Length {
+            name := names[index]
+            memberField := memberFields[index]
+            if name == null || name.Length == 0 || memberField == null {
+                throw new InvalidOperationException("A published enclosing member requires a name and the member's exact field handle.")
+            }
+            Bindings.ReceiverMembers[name] = (ReceiverField: capturedReceiverField, MemberField: memberField)
+            if !hidingNames.Contains(name) {
+                Reveal(name)
+            }
+            index = index + 1
+        }
+    }
+
+    // A MACHINE FIELD A PER-ITERATION DISPLAY REACHES THROUGH ITS `<>__machine` HOP. It is the storage of a
+    // body binding, not a member, so a visible member of the same spelling keeps the name until a
+    // binding hides it.
+    func PublishDisplayedMachineField(name: string, machineField: FieldInfo, field: FieldInfo) {
+        if name == null || name.Length == 0 || machineField == null || field == null {
+            throw new InvalidOperationException("A displayed machine field requires a name, the display's machine hop and the machine field.")
+        }
+        let entry: (ReceiverField: FieldInfo, MemberField: FieldInfo) = (machineField, field)
+        if IsEnclosingMemberVisible(name) {
+            displacedCaptures[name] = entry
+            return
+        }
+        Bindings.CapturedInstanceFields[name] = entry
+    }
+
+    // Whether a bare `name` written HERE means the enclosing-type member rather than a body binding.
+    func IsEnclosingMemberVisible(name: string): bool {
+        return Bindings.ReceiverMembers.ContainsKey(name) && !hidingNames.Contains(name)
+    }
+
+    // A body binding named `name` comes into scope: from here to the matching `ExitBindingScope`, the
+    // bare name is the binding's and a member of that spelling is reachable only as `this.name`.
+    func HideEnclosingMember(name: string) {
+        if name == null || name.Length == 0 {
+            throw new InvalidOperationException("A hiding binding requires a name.")
+        }
+        wasVisible := IsEnclosingMemberVisible(name)
+        hidingNames.Add(name)
+        if !wasVisible {
+            return
+        }
+        Bindings.CapturedInstanceFields.Remove(name)
+        if displacedCaptures.ContainsKey(name) {
+            Bindings.CapturedInstanceFields[name] = displacedCaptures[name]
+            displacedCaptures.Remove(name)
+        }
+        if displacedBoxes.ContainsKey(name) {
+            Bindings.BoxedCaptures[name] = displacedBoxes[name]
+            displacedBoxes.Remove(name)
+        }
+    }
+
+    // A lexical scope opens: the mark is what `ExitBindingScope` unwinds to.
+    func EnterBindingScope(): int {
+        return hidingNames.Count
+    }
+
+    // A lexical scope closes: every binding it brought into scope goes out, and a member that no
+    // remaining binding hides takes its bare name back.
+    func ExitBindingScope(mark: int) {
+        if mark < 0 || mark > hidingNames.Count {
+            throw new InvalidOperationException("A binding scope can only close back to a mark it opened.")
+        }
+        while hidingNames.Count > mark {
+            last := hidingNames.Count - 1
+            name := hidingNames[last]
+            hidingNames.RemoveAt(last)
+            if IsEnclosingMemberVisible(name) {
+                Reveal(name)
+            }
+        }
+    }
+
+    // A lambda's body starts in the scope the lambda was written in: every binding hiding a member
+    // there still hides it inside the lambda.
+    func HideAsIn(outer: ColumnarIteratorBodyScope) {
+        if outer == null {
+            throw new InvalidOperationException("A lambda body scope inherits its hiding bindings from an outer iterator scope.")
+        }
+        for name in outer.hidingNames {
+            HideEnclosingMember(name)
+        }
+    }
+
+    private func Reveal(name: string) {
+        member := Bindings.ReceiverMembers[name]
+        if Bindings.CapturedInstanceFields.ContainsKey(name) {
+            existing := Bindings.CapturedInstanceFields[name]
+            if !Object.ReferenceEquals(existing.Item2, member.Item2) {
+                displacedCaptures[name] = existing
+            }
+        }
+        if Bindings.BoxedCaptures.ContainsKey(name) {
+            displacedBoxes[name] = Bindings.BoxedCaptures[name]
+            Bindings.BoxedCaptures.Remove(name)
+        }
+        Bindings.CapturedInstanceFields[name] = member
     }
 
     // THE EXPRESSION DOOR. One call, one owner: `ColumnarRangeIndexPlanner`'s append-mode value

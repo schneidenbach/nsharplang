@@ -30,6 +30,14 @@ class ColumnarFragmentBindings {
     // and a different pair of handles. The receiver field is the FIRST hop and the member field is the
     // second; both are exact live handles, so no name is resolved by reflection at emission.
     CapturedInstanceFields: Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>
+    // THE MEMBERS `this.member` READS WHEN `this` IS A CAPTURED RECEIVER. An instance iterator's
+    // argument 0 is its state machine, never the object the source wrote `this` about, and a body
+    // binding of the same spelling takes a member's BARE name out of `CapturedInstanceFields` while it
+    // is in scope. Written `this.member` still means the member, so it resolves here — and only here
+    // while `ThisIsCapturedReceiver` is set. Every body whose `this` is argument 0 itself leaves both
+    // at their empty defaults.
+    ReceiverMembers: Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>
+    ThisIsCapturedReceiver: bool
     CurrentInstance: ColumnarCurrentInstanceFacts?
     // Exact live handles for every method/type generic parameter visible to this body. Method
     // parameters are installed first; an enclosing type parameter with the same name must never
@@ -86,6 +94,8 @@ class ColumnarFragmentBindings {
         LiftedLocals = new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
         BoxedCaptures = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
         CapturedInstanceFields = new Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>(StringComparer.Ordinal)
+        ReceiverMembers = new Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>(StringComparer.Ordinal)
+        ThisIsCapturedReceiver = false
         CurrentInstance = null
         typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
         SourceTypeDefinitions = new List<ColumnarStructDef>()

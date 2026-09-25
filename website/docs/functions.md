@@ -1519,6 +1519,32 @@ statement gets outside a generator, and the store lands on the object the genera
 is observable after the sequence has been enumerated, and not before. An instance generator may write
 its enclosing type's members too.
 
+### Instance generators
+
+A `func*` declared inside a class is a member body like any other method. It reads and writes every
+field its type declares — public, camelCase and `private` alike — and the public and camelCase fields
+of a base class declared in the same program.
+
+A parameter or local with the same name as a field hides that field while it is in scope, exactly as
+it does in an ordinary method: a parameter for the whole body, a local from the statement after its
+declaration to the end of its block, a `for..in` or `catch` variable for its body alone. `this.name`
+always means the field.
+
+```n#
+import System.Collections.Generic
+
+class Ledger {
+    private note: string = "field"
+
+    func* Notes(): IEnumerable<string> {
+        yield note               // "field"
+        note := note + "!"       // the initializer still reads the field
+        yield note               // "field!" — the local
+        yield this.note          // "field"
+    }
+}
+```
+
 ### Cleanup: `try`/`finally` around a `yield`
 
 A generator may suspend inside a `try` whose only handler is a `finally`, and the handler runs on

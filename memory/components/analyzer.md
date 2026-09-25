@@ -4523,6 +4523,32 @@ Inside a generator, `ColumnarIteratorBodyPlanner.EmitStoreTargetAssignment` rout
 member or an indexer still declines (it would evaluate the receiver twice, and this owner does not yet
 hold the single-evaluation temporaries).
 
+### An instance generator's fields, and the bindings that hide them
+
+`ColumnarIteratorRealization.EmitMember` publishes EVERY instance field of the declaring type — any
+visibility — plus each inherited source field its declaring base did not make `private` (nearest
+declaration of a name wins). That is sound because a member machine is NESTED in its declaring type
+(`DefineMachineType`, `NestedAssembly`), and a per-iteration lambda display nests in the machine
+(`TryCreateLambdaDisplay`), so the IL reaches private fields exactly as a nested C# type does. A free
+function's machine stays top-level.
+
+The shadowing rule is the ordinary member body's: a parameter hides a same-named field for the whole
+body; a local from the statement AFTER its declaration (its own initializer reads the field) to the
+end of its block; a `for..in` variable for its loop body; a `catch` variable for its handler; a lambda
+parameter inside its lambda. `this.name` always reads the field. The machine stores each local in ONE
+flat field per name, so where storage lives says nothing about scope. `ColumnarIteratorBodyScope`
+owns that answer: the lowering calls `EnterBindingScope`/`ExitBindingScope` around blocks, `using`,
+counted `for`, loop bodies and catch handlers, and `HideEnclosingMember` as each binding comes into
+scope. A member is present in `CapturedInstanceFields` exactly while nothing hides it; storage the
+lowering published early for a same-named binding (a loop-capture box, a display's hop to a machine
+field) waits in the scope's displaced tables until the binding hides the member. So
+`ColumnarBoundIdentifierPlanner`'s "a captured-instance member cannot overlap another live value
+binding" stays an invariant, never a reachable crash. `this.name` resolves through
+`ColumnarFragmentBindings.ReceiverMembers` (armed by `ThisIsCapturedReceiver`), which hiding never
+touches; assignments, postfix steps and `for..in` sources ask `ColumnarIteratorEmitContext.
+NamesEnclosingMember` the same question. A lambda's scope starts from the hiding set where it was
+written (`HideAsIn`) plus its own parameters.
+
 ### The annotated loop variable, inside a generator
 
 `for v: T in e` (node kind 76) shares ONE classification walk and ONE emission walk with the
