@@ -51,7 +51,7 @@ jobs:
 
     - name: Canonical formatting
       run: |
-        for project in examples templates tests/fixtures/issue-tracker src/NSharpLang.Compiler.Model src/NSharpLang.Compiler.Syntax src/NSharpLang.Compiler.Core src/NSharpLang.Compiler.Driver; do
+        for project in examples templates tests/fixtures/issue-tracker src/NSharpLang.Compiler.Model src/NSharpLang.Compiler.Syntax src/NSharpLang.Compiler.Core src/NSharpLang.Compiler.Tooling src/NSharpLang.Compiler.Driver; do
           dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll format --project "$project" --check
         done
 
@@ -59,6 +59,7 @@ jobs:
       run: |
         dotnet test src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj -c Release -p:NSharpExcludeTests=false
         dotnet test src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj -c Release -p:NSharpExcludeTests=false
+        dotnet test src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj -c Release -p:NSharpExcludeTests=false
         dotnet test src/NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj -c Release -p:NSharpExcludeTests=false
 
     - name: Ownership audit

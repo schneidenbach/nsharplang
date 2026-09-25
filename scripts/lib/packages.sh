@@ -11,6 +11,7 @@ NSHARP_PACKAGE_SPECS=(
     "NSharpLang.Compiler.Model|NSharpLang.Compiler.Model|src/NSharpLang.Compiler.Model/NSharpLang.Compiler.Model.csproj"
     "NSharpLang.Compiler.Syntax|NSharpLang.Compiler.Syntax|src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj"
     "NSharpLang.Compiler.Core|NSharpLang.Compiler.Core|src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
+    "NSharpLang.Compiler.Tooling|NSharpLang.Compiler.Tooling|src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj"
     "NSharpLang.Compiler.Driver|NSharpLang.Compiler.Driver|src/NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj"
     "NSharpLang.Compiler|NSharpLang.Compiler|src/NSharpLang.Compiler/Compiler.csproj"
 )
@@ -143,6 +144,7 @@ nsharp_print_release_artifact_set() {
     echo "  - NSharpLang.Compiler.Model - N# compiler model (AST, types, diagnostics, project config)"
     echo "  - NSharpLang.Compiler.Syntax - N# compiler syntax (lexer, preprocessor, parser, node table)"
     echo "  - NSharpLang.Compiler.Core - N# compiler implementation dependency"
+    echo "  - NSharpLang.Compiler.Tooling - N# compiler tooling (formatter, JSON output models)"
     echo "  - NSharpLang.Compiler.Driver - N# compiler driver (CLI command kernels, multi-file compiler, MSBuild tasks)"
     echo "  - NSharpLang.Compiler - Compiler API library"
     echo "  - nsharp-toolset.tar.gz - package-manager-ready nlc and nsharp-lsp payloads"

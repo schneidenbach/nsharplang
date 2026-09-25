@@ -314,6 +314,7 @@ format_rc=0
     dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Model --check || format_rc=1
     dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Syntax --check || format_rc=1
     dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Core --check || format_rc=1
+    dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Tooling --check || format_rc=1
     dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Driver --check || format_rc=1
 } > "$FORMAT_OUTPUT" 2>&1
 cat "$FORMAT_OUTPUT"
@@ -579,11 +580,13 @@ else
     NATIVE_STEP_OK=1
     # Every project whose own directory holds estate rows, lowest slice first: a slice carved out of
     # Compiler.Core whose rows reach only itself and the slices below it carries them into its own
-    # project (Compiler.Syntax and Compiler.Driver do); the rest still sit in Core's slice directories.
+    # project (Compiler.Syntax, Compiler.Tooling and Compiler.Driver do); the rest still sit in Core's
+    # slice directories.
     # Each is restored and run on its own, and each must show its own nonempty, failure-free summary.
     BOOTSTRAP_TEST_PROJECTS=(
         "src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj"
         "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
+        "src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj"
         "src/NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj"
     )
     for BOOTSTRAP_TEST_PROJECT in "${BOOTSTRAP_TEST_PROJECTS[@]}"; do
@@ -635,7 +638,7 @@ else
     #
     # Every `dll:` dependency these projects name is a prebuilt binary under `src/*/bin/Debug/...`
     # produced ONCE, serially, by Step 2 (Cli, Build.Tasks, LanguageServer, Playground; the Cli
-    # build carries Compiler, Compiler.Driver and the slices below it, TestHost and the Runtime with
+    # build carries Compiler, Compiler.Driver and the slices below it, Tooling included, TestHost and the Runtime with
     # it). Nothing in this step builds them, so no two workers can race to produce one. The preflight below proves they are
     # all present before the first worker starts, rather than letting 120 parallel processes each
     # discover the same missing file.

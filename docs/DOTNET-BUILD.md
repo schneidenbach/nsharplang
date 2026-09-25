@@ -140,7 +140,8 @@ Do not add project settings to a hand-authored `.csproj`; fix the SDK/project.ym
 src/
 ├── NSharpLang.Compiler.Model/    # N# compiler model: AST, types, diagnostics, project config
 ├── NSharpLang.Compiler.Syntax/   # N# compiler syntax: lexer, preprocessor, parser kernels, node table
-├── NSharpLang.Compiler.Core/     # N# compiler core: analysis, planning, emit, code intelligence, tooling
+├── NSharpLang.Compiler.Core/     # N# compiler core: analysis, planning, emit, code intelligence
+├── NSharpLang.Compiler.Tooling/  # N# compiler tooling: the formatter and the JSON output models
 ├── NSharpLang.Compiler.Driver/   # N# compiler driver: CLI command kernels, MultiFileCompiler, the SDK's MSBuild tasks
 ├── NSharpLang.Build.Tasks/       # C# project-configuration bootstrap tasks
 │   └── NSharpLang.Build.targets

@@ -103,6 +103,12 @@ test "a carved slice's product is read from its own project, and none of it is l
     assert driver[0] > 80, driver[0].ToString()
     assert driver[1] > 50, driver[1].ToString()
     assert driver[2] == 0, driver[2].ToString()
+    // Tooling is carved above Core and below Driver: nothing in Core may name it, and its rows reach
+    // only Tooling and the slices below it, so its estate moved with its product.
+    tooling := CarvedSliceCounts(graph, 6)
+    assert tooling[0] > 5, tooling[0].ToString()
+    assert tooling[1] > 5, tooling[1].ToString()
+    assert tooling[2] == 0, tooling[2].ToString()
 }
 
 test "no Compiler.Core product file reaches a top-level name a higher slice owns" {

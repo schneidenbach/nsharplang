@@ -82,11 +82,14 @@ test "the synchronous package loop traces runtime once and exact compiler PDB fl
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Sdk/NSharpLang.Sdk.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-v|<arg>q|\n"
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>templates/NSharpLang.Templates.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-v|<arg>q|\n"
         // Compiler.Model and Compiler.Syntax are carved out of Core and packed before it, lowest first:
-        // Syntax's package depends on Model's, and Core's on Syntax's. Compiler.Driver is carved out
-        // ABOVE Core and packed after it, before the Compiler facade whose package depends on it.
+        // Syntax's package depends on Model's, and Core's on Syntax's. Compiler.Tooling and
+        // Compiler.Driver are carved out ABOVE Core and packed after it, in that order (Driver's package
+        // depends on Tooling's, Tooling's on Core's), before the Compiler facade whose package depends
+        // on Driver's.
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Compiler.Model/NSharpLang.Compiler.Model.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>" + restore + "|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
+        expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Compiler/Compiler.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
 

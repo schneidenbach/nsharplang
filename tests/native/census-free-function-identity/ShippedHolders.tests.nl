@@ -90,7 +90,7 @@ func ShippedSeedAssemblies(): List<ShippedAssembly> {
 func ShippedPayloadAssemblies(): List<ShippedAssembly> {
     payload := Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(ShippedRepositoryRoot(), "src"), "NSharpLang.Build.Tasks"), "bin"), "Debug"), "net10.0")
     assemblies := new List<ShippedAssembly>()
-    for name in ["NSharpLang.Build.Tasks.dll", "Compiler.dll", "NSharpLang.Compiler.Model.dll", "NSharpLang.Compiler.Syntax.dll", "NSharpLang.Compiler.Core.dll", "NSharpLang.Compiler.Driver.dll", "NSharpLang.Runtime.dll"] {
+    for name in ["NSharpLang.Build.Tasks.dll", "Compiler.dll", "NSharpLang.Compiler.Model.dll", "NSharpLang.Compiler.Syntax.dll", "NSharpLang.Compiler.Core.dll", "NSharpLang.Compiler.Tooling.dll", "NSharpLang.Compiler.Driver.dll", "NSharpLang.Runtime.dll"] {
         path := Path.Combine(payload, name)
         if !File.Exists(path) {
             throw new InvalidOperationException("The SDK payload is not built: " + path + " is missing (build src/NSharpLang.Build.Tasks first).")
