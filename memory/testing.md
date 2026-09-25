@@ -1204,6 +1204,7 @@ rows moved whole, and the fixture's pack-once contract moved with them.
 |---|---|---|
 | `InstalledToolchain.tests.nl` | 13, all `[DockerFact]` | the twelve ported rows — template listing, the canonical csproj-free shape, `nlc new`/`dotnet new` parity, console scaffold/build/run, library build, `nlc test` of the test template, the web API build, every `templates/README.md` quickstart replayed, `nlc --version`, and `nsharp-lsp` on PATH — plus the fixture's own pack-and-publish step, which needs no container and is what CI run 35806417973 failed |
 | `ToolchainCommandContracts.tests.nl` | 15, ungated | every `docker` argv, the pack/build command lines against the release path's own dry run, the release set against the compiler's `project:` graph, the `publish-toolset.sh` flags, the Dockerfile's description of the fresh machine, the quickstart document's parse and rewrites, and the gate's own three-state decision |
+| `DockerIsolation.tests.nl` | 8, ungated | the per-run identity (two fixtures in one process get distinct names and labels), teardown of the container AND the image on a timed-out build, on a failed start and on a clean finish (once, and quietly when the daemon is gone), a failed start not retried by the rows behind it, the stale-leftover reclaim rule against a recording host (a live owner's objects are never touched), owner liveness by pid and start time, and a killed command's report naming the command, its last build step and its output tail |
 
 **The conversion fixed a defect the C# fixture carried, and the fix is held by a row.** Direct N# IL
 emission writes no `.pdb`, the base SDK defaults `DebugType` to `portable`, and pack then demands the
@@ -1246,13 +1247,32 @@ sets `Skip`; see `memory/components/cli-toolchain.md`, "A `test` block may carry
 attribute's semantics, unchanged, and it is deliberate: the alternative is evidence nobody ever sees
 outside CI. The project is in the native sweep's SERIAL group
 (`native_requires_serial_run` in `tests/scripts/test-all-core.sh`) because it packs into the shared
-`src/*/obj` and `src/*/bin` and binds one fixed container name.
+`src/*/obj` and `src/*/bin`.
 
-**The container reaps itself.** A `test` block has no per-project teardown hook, so there is no place
-to put the `IAsyncLifetime.DisposeAsync` the C# fixture used. The container is started
-`--detach --rm` with a bounded `sleep` instead, and the fixture force-removes a stale container of the
-same name before starting a new one — so a crashed run leaves at most one container that removes
-itself, and the next run reclaims the name regardless.
+**Every run owns its own image and container.** Runs of this project overlap on one machine — a
+product gate in its isolated `/tmp` tree beside an agent's sweep, or two gates — and one daemon serves
+them all. Until 2026-09-25 they shared ONE tag and ONE container name: the second run's pre-start
+`rm --force` killed the first run's container mid-row, and a gate at b75070d46 had its `docker build`
+time out (exit 124, both streams empty) with every Docker row failing. Now the tag and the name are
+`nsharp-installed-toolchain-integration-<pid>-<utc>-<random>` (`:local` for the image), and both carry
+the labels `nsharp.test=installed-toolchain-integration`, `nsharp.test.run`, `nsharp.test.owner-pid`,
+`nsharp.test.owner-started` (the owner's start time, so a recycled pid does not read as the owner),
+`nsharp.test.owner-host` and `nsharp.test.created`. `docker ps --filter
+label=nsharp.test=installed-toolchain-integration` lists every leftover and says whose it is.
+
+**Teardown is owned.** A `test` block has no per-project teardown hook, so the fixture registers one on
+`AppDomain.ProcessExit` and on its own load context's `Unloading`; either removes the container and
+then the image, and a build or start that fails removes them on the spot (and the failure is
+remembered, so the rows behind it fail at once instead of each rebuilding for thirty minutes). The
+staged build context is removed at exit too. What a SIGKILL leaves is bounded twice: the container
+runs `--rm` with `--entrypoint sleep 7200` (the image's `tail -f /dev/null` entrypoint took a trailing
+`sleep 7200` as more files to follow, so the old "bounded" container never ended), and the next run's
+reclaim removes this project's labelled leftovers whose owner is provably gone — a same-host owner pid
+that is no longer the process that labelled it, or anything older than a day — and never a live run's.
+
+**A killed command says where it stopped.** Both pipes are drained line by line as they arrive, so a
+command the ceiling kills keeps what it printed; its report names the command line, the last BuildKit
+step it started (`docker build --progress plain`) and the last 40 lines in arrival order.
 
 
 ## Test Categories

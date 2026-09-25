@@ -71,9 +71,8 @@ test "a native project whose claim is about the machine, or that touches state o
     // Builds one two-project MSBuild tree four times over and judges which emit targets RAN. A
     // sibling writing the shared `src/*/obj` under it would change that answer.
     assert body.Contains("tests/native/sdk-reference-incrementality)")
-    // Packs the whole checkout, publishes the toolset, builds a Docker image and drives a container
-    // under a FIXED name. The packs write the shared `src/*/obj` and `src/*/bin`, and two runs of it
-    // would fight over that one name.
+    // Packs the whole checkout, publishes the toolset, builds a Docker image and drives a container.
+    // The packs write the shared `src/*/obj` and `src/*/bin`; the image and container are per-run.
     assert body.Contains("tests/native/installed-toolchain-integration)")
     // Walks the whole working tree and counts what it finds there.
     assert body.Contains("tests/native/ownership-audit)")

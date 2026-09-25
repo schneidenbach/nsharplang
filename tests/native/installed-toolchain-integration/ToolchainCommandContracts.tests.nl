@@ -32,16 +32,30 @@ test "the daemon probe is the command the deleted DockerFactAttribute ran" {
     assert ToolchainProbeTimeoutMilliseconds() == 10 * 1000
 }
 
+// A run with a fixed identity, so the rows below can spell the exact argv it produces.
+func ContractDockerRun(): ToolchainDockerRun {
+    return new ToolchainDockerRun("4242-20260925t120000-abc123", 4242, 1790000000, "contract-host", 1790000100)
+}
+
+func ContractLabelArguments(): string {
+    return "--label nsharp.test=installed-toolchain-integration --label nsharp.test.run=4242-20260925t120000-abc123 --label nsharp.test.owner-pid=4242 --label nsharp.test.owner-started=1790000000 --label nsharp.test.owner-host=contract-host --label nsharp.test.created=1790000100"
+}
+
 test "the image is built from the staged context with the Dockerfile the project keeps" {
     contextDirectory := Path.Combine(Path.GetTempPath(), "nsharp-integration-contract")
-    arguments := DockerBuildArguments(contextDirectory)
+    run := ContractDockerRun()
+    arguments := DockerBuildArguments(run, contextDirectory)
 
-    assert ToolchainJoinArguments(arguments) == "build --file " + Path.Combine(contextDirectory, "Dockerfile.toolchain") + " --tag " + DockerImageTag() + " " + contextDirectory, ToolchainJoinArguments(arguments)
+    assert ToolchainJoinArguments(arguments) == "build --progress plain --file " + Path.Combine(contextDirectory, "Dockerfile.toolchain") + " --tag nsharp-installed-toolchain-integration-4242-20260925t120000-abc123:local " + ContractLabelArguments() + " " + contextDirectory, ToolchainJoinArguments(arguments)
 
     // `--file` is not optional: the file is `Dockerfile.toolchain`, so a build without it would pick
     // up a `Dockerfile` that does not exist. The deleted fixture said the same thing as
     // `WithDockerfile("Dockerfile.toolchain")`.
-    assert arguments[1] == "--file", ToolchainJoinArguments(arguments)
+    assert arguments.Contains("--file"), ToolchainJoinArguments(arguments)
+
+    // `--progress plain` is what the timeout report reads the last build step out of: one line per
+    // event, `#<n> [<stage>] <instruction>`, whether or not a terminal is attached.
+    assert arguments[1] == "--progress" && arguments[2] == "plain", ToolchainJoinArguments(arguments)
 
     // The CONTEXT is the staged directory and not the repository: the Dockerfile `COPY`s `toolset/`
     // and `packages/`, which exist only there, and a repository-rooted context would send the whole
@@ -49,23 +63,26 @@ test "the image is built from the staged context with the Dockerfile the project
     assert arguments[arguments.Count - 1] == contextDirectory, ToolchainJoinArguments(arguments)
 }
 
-test "the container is started detached, self-removing and time-bounded" {
-    arguments := DockerRunArguments()
+test "the container is started detached, self-removing, labelled and time-bounded" {
+    run := ContractDockerRun()
+    arguments := DockerRunArguments(run)
 
-    assert ToolchainJoinArguments(arguments) == "run --detach --rm --name " + DockerContainerName() + " " + DockerImageTag() + " sleep " + ToolchainContainerLifetimeSeconds().ToString(), ToolchainJoinArguments(arguments)
+    assert ToolchainJoinArguments(arguments) == "run --detach --rm --name nsharp-installed-toolchain-integration-4242-20260925t120000-abc123 " + ContractLabelArguments() + " --entrypoint sleep nsharp-installed-toolchain-integration-4242-20260925t120000-abc123:local " + ToolchainContainerLifetimeSeconds().ToString(), ToolchainJoinArguments(arguments)
 
-    // `--rm` AND a bounded `sleep` together ARE the teardown. A `test` block has no per-project
-    // teardown hook, so the container cannot be disposed the way the deleted `IAsyncLifetime` disposed
-    // it; dropping either of these leaves a container running on the developer's machine forever.
+    // `--rm` AND a bounded `sleep` together are the backstop for a run that dies without running
+    // its own teardown. The `sleep` must be the ENTRYPOINT: the image's is `tail -f /dev/null`, and
+    // trailing arguments after the image only become more files for `tail` to follow forever.
     assert arguments.Contains("--rm"), ToolchainJoinArguments(arguments)
-    assert arguments.Contains("sleep"), ToolchainJoinArguments(arguments)
+    entrypoint := arguments.IndexOf("--entrypoint")
+    assert entrypoint > 0 && arguments[entrypoint + 1] == "sleep", ToolchainJoinArguments(arguments)
+    assert entrypoint < arguments.IndexOf(run.ImageTag), "a flag after the image is an argument to the entrypoint, not to docker run"
+    assert arguments[arguments.Count - 1] == ToolchainContainerLifetimeSeconds().ToString(), ToolchainJoinArguments(arguments)
     assert ToolchainContainerLifetimeSeconds() > 0
     assert ToolchainContainerLifetimeSeconds() <= 24 * 60 * 60, "an idle container must not outlive a working day"
 
-    // The name is FIXED, which is what makes a stale container reclaimable rather than fatal.
-    assert DockerContainerName() == "nsharp-installed-toolchain-integration", DockerContainerName()
-    removal := DockerRemoveArguments()
-    assert ToolchainJoinArguments(removal) == "rm --force " + DockerContainerName(), ToolchainJoinArguments(removal)
+    // Teardown names THIS run's container and image and nothing broader.
+    assert ToolchainJoinArguments(DockerRemoveContainerArguments(run.ContainerName)) == "rm --force " + run.ContainerName
+    assert ToolchainJoinArguments(DockerRemoveImageArguments(run.ImageTag)) == "image rm --force " + run.ImageTag
 }
 
 test "one container command is bash -c with the whole command as a single argv entry" {
@@ -73,11 +90,12 @@ test "one container command is bash -c with the whole command as a single argv e
     // re-split it, `find` would receive `'*.csproj'` as several arguments and the shape assertion
     // would pass for the wrong reason.
     command := "test -z \"$(find /workspace/x -maxdepth 1 -name '*.csproj' -print -quit)\" && nlc build"
-    arguments := DockerExecArguments(command)
+    run := ContractDockerRun()
+    arguments := DockerExecArguments(run, command)
 
     assert arguments.Count == 5, ToolchainJoinArguments(arguments)
     assert arguments[0] == "exec"
-    assert arguments[1] == DockerContainerName()
+    assert arguments[1] == run.ContainerName
     assert arguments[2] == "bash"
     assert arguments[3] == "-c"
 

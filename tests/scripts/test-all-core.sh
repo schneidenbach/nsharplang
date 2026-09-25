@@ -681,7 +681,7 @@ else
             tests/native/template-project-smoke) return 0 ;;
             # Packs this whole checkout, runs `scripts/publish-toolset.sh`, then builds a Docker image
             # and drives a container. The packs write the shared `src/*/obj` and `src/*/bin` the same
-            # way its neighbours' do, and the container it starts binds a FIXED name.
+            # way its neighbours' do. Its image and container are per-run and labelled, so they are not why.
             tests/native/installed-toolchain-integration) return 0 ;;
             # Walks the whole working tree and counts what it finds there.
             tests/native/ownership-audit) return 0 ;;

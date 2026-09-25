@@ -5,6 +5,8 @@ import System.Collections.Generic
 import System.Diagnostics
 import System.IO
 import System.IO.Compression
+import System.Runtime.Loader
+import System.Text
 import System.Text.RegularExpressions
 
 // ─── THE INSTALLED TOOLCHAIN, ON A MACHINE THAT HAS NOTHING BUT THE .NET SDK ───────────────────
@@ -30,11 +32,22 @@ import System.Text.RegularExpressions
 // `scripts/publish-toolset.sh`) is produced once per process
 // and the container is started once per process, whichever row arrives first.
 //
-// THE CONTAINER REAPS ITSELF, because nothing here gets a teardown hook. `IAsyncLifetime.DisposeAsync`
-// disposed the Testcontainers container; a `test` block has no per-project teardown, so the container
-// is started with `--rm` and a BOUNDED `sleep` instead, and the fixture force-removes a stale
-// container of the same name before it starts a new one. A crashed run therefore leaves at most one
-// container that removes itself, and the next run reclaims the name regardless.
+// EVERY RUN OWNS ITS OWN IMAGE AND CONTAINER. Two runs of this project overlap on one machine as a
+// matter of course — a product gate in its isolated /tmp tree beside an agent's native sweep, or two
+// gates — and one daemon serves them both. A fixed tag and a fixed container name made them fight:
+// the second run's `rm --force` killed the first run's container mid-row, and one tag rebuilt under
+// another run's feet. So the tag and the name are derived from a per-run id
+// (`nsharp-installed-toolchain-integration-<pid>-<utc>-<random>`), and both carry `nsharp.test`
+// labels naming the run, its owning process (pid AND start time, so a recycled pid is not mistaken
+// for the owner), the host and the creation time — which is what makes a leftover identifiable.
+//
+// TEARDOWN IS OWNED, NOT HOPED FOR. A `test` block has no per-project teardown hook, so the fixture
+// registers one on the process (`ProcessExit`) and on its own load context (`Unloading`, which
+// `nlc test` raises when it disposes the collectible scope the rows ran in); either removes the
+// container and the per-run image, and a failed build or start removes them on the spot. What a
+// SIGKILL still leaves behind is bounded twice over: the container runs a `sleep` that ends and
+// `--rm` reaps it, and the next run's reclaim removes leftovers of THIS project whose owner is
+// provably gone — never a live run's, whoever that run belongs to.
 //
 // THE DOCKER GATE IS IN `DockerGate.tests.nl`, and it is the reason a machine without Docker still
 // reports these rows: they come back `skipped` with a named reason and a nonzero skip count, never
@@ -44,18 +57,85 @@ class ToolchainRun {
     Stdout: string
     Stderr: string
 
+    // What was running, and whether the ceiling killed it. A timeout is reported as exit 124 like
+    // `timeout(1)`, but 124 alone with two empty streams told the reader nothing: the report below
+    // names the command, the last build step it had started and the last lines it printed.
+    CommandLine: string
+    TimedOut: bool
+    TimeoutMilliseconds: int
+
+    // Every line of both streams in the order they ARRIVED, which is the order a reader of a
+    // terminal would have seen them; `docker build` writes its progress to stderr and a hang is
+    // only legible with stdout interleaved.
+    Lines: List<string>
+
     constructor(exitCode: int, stdout: string, stderr: string) {
         ExitCode = exitCode
         Stdout = stdout
         Stderr = stderr
+        CommandLine = ""
+        TimedOut = false
+        TimeoutMilliseconds = 0
+        Lines = new List<string>()
     }
 
     // The failure text of the deleted `AssertSuccess`, verbatim: the exit code, then both streams
     // under their own banners, so a red row names the command AND what the container printed
-    // without a second run.
+    // without a second run. A run the ceiling killed is reported by `ToolchainTimeoutReport`
+    // instead: its streams may be thirty minutes long, and what matters is where it stopped.
     func Report(context: string): string {
+        if TimedOut {
+            return ToolchainTimeoutReport(context, CommandLine, TimeoutMilliseconds, Lines)
+        }
+
         return context + " failed (exit code " + ExitCode.ToString() + ")\n--- stdout ---\n" + Stdout + "\n--- stderr ---\n" + Stderr
     }
+}
+
+// How many trailing lines a timeout report quotes: enough to show the step that hung and what it
+// last said, few enough that the report is read rather than scrolled.
+func ToolchainTimeoutTailLineCount(): int {
+    return 40
+}
+
+// The last BuildKit step a `docker build --progress plain` log STARTED — `#7 [4/5] RUN dotnet new
+// install ...` — or "" when the log names none (a command that is not a build, or a build killed
+// before its first step). A step line is `#<n> [<stage>] <instruction>`; the `#<n> DONE` / `#<n>
+// CACHED` lines that follow a step are not steps.
+func ToolchainLastBuildStep(lines: List<string>): string {
+    index := lines.Count - 1
+    while index >= 0 {
+        if Regex.IsMatch(lines[index], "^#[0-9]+ \\[[^\\]]+\\] ") {
+            return lines[index]
+        }
+
+        index = index - 1
+    }
+
+    return ""
+}
+
+func ToolchainTimeoutReport(context: string, commandLine: string, timeoutMilliseconds: int, lines: List<string>): string {
+    report := context + " timed out after " + timeoutMilliseconds.ToString() + " ms (exit code 124) and was killed.\n"
+    report = report + "--- command ---\n" + commandLine + "\n"
+    step := ToolchainLastBuildStep(lines)
+    if step != "" {
+        report = report + "--- last build step started ---\n" + step + "\n"
+    }
+
+    if lines.Count == 0 {
+        return report + "--- output ---\n(the command wrote nothing to stdout or stderr before it was killed)"
+    }
+
+    first := Math.Max(0, lines.Count - ToolchainTimeoutTailLineCount())
+    report = report + "--- last " + (lines.Count - first).ToString() + " of " + lines.Count.ToString() + " output lines (stdout and stderr, in arrival order) ---\n"
+    index := first
+    while index < lines.Count {
+        report = report + lines[index] + "\n"
+        index = index + 1
+    }
+
+    return report
 }
 
 // A child process described declaratively. Arguments are carried as a LIST rather than a command
@@ -96,10 +176,13 @@ class DockerProbe {
     }
 }
 
+// The process's ONE fixture. The lock is held across the pack and the image build: rows of this
+// project may run beside each other, and pack-once / start-once must hold for them too.
 class ToolchainFixtureState {
     static BuildContextDirectory: string = ""
     static ContextPrepared: bool = false
-    static ContainerStarted: bool = false
+    static Gate: object = new object()
+    static Docker: ToolchainDockerFixture? = null
 }
 
 // ─── CEILINGS ─────────────────────────────────────────────────────────────────────────────────
@@ -135,6 +218,20 @@ func ToolchainContainerLifetimeSeconds(): int {
     return 7200
 }
 
+// One `docker rm`, `docker image rm`, `docker ps` or `docker inspect`. These answer in a second on
+// an idle daemon; a minute is what a daemon busy with another run's build may need.
+func ToolchainDockerHousekeepingTimeoutMilliseconds(): int {
+    return 60 * 1000
+}
+
+// A leftover whose owner this machine cannot ask about — it was labelled by a process on another
+// host sharing the daemon, or its labels do not parse — is reclaimed only once it is this old. Its
+// container stopped itself after `ToolchainContainerLifetimeSeconds`, so a day is generous: no run
+// of this project is still using anything that old.
+func ToolchainStaleLeftoverAgeSeconds(): long {
+    return 24 * 60 * 60
+}
+
 // ─── THE PROCESS KERNEL ───────────────────────────────────────────────────────────────────────
 //
 // Start the child, drain BOTH pipes as tasks BEFORE waiting — that is what keeps a chatty `dotnet
@@ -161,32 +258,82 @@ func ToolchainRunProcess(launch: ToolchainLaunch): ToolchainRun {
         environmentIndex = environmentIndex + 1
     }
 
+    capture := new ToolchainOutputCapture()
     process := new Process { StartInfo: startInfo }
-    process.Start()
-    stdoutTask := process.StandardOutput.ReadToEndAsync()
-    stderrTask := process.StandardError.ReadToEndAsync()
-    if !process.WaitForExit(launch.TimeoutMilliseconds) {
-        process.Kill(true)
-        process.WaitForExit()
-        timedOutStdout := ""
-        if stdoutTask.IsCompleted {
-            timedOutStdout = stdoutTask.Result
-        }
-
-        timedOutStderr := ""
-        if stderrTask.IsCompleted {
-            timedOutStderr = stderrTask.Result
-        }
-
-        process.Dispose()
-        return new ToolchainRun(124, timedOutStdout, timedOutStderr + "\nTimed out after " + launch.TimeoutMilliseconds.ToString() + " ms.")
+    on process.OutputDataReceived (sender, received) => {
+        capture.Append(received.Data, false)
+    }
+    on process.ErrorDataReceived (sender, received) => {
+        capture.Append(received.Data, true)
     }
 
-    stdout := stdoutTask.Result
-    stderr := stderrTask.Result
+    process.Start()
+    process.BeginOutputReadLine()
+    process.BeginErrorReadLine()
+    commandLine := launch.FileName + " " + ToolchainJoinArguments(launch.Arguments)
+    if !process.WaitForExit(launch.TimeoutMilliseconds) {
+        process.Kill(true)
+        // BOUNDED even here: a grandchild that escaped the tree kill and still holds a pipe must not
+        // turn a reported timeout back into a hang. What arrived before the kill is already captured.
+        process.WaitForExit(ToolchainProbeTimeoutMilliseconds())
+        process.Dispose()
+        timedOut := capture.Snapshot(124, commandLine)
+        timedOut.TimedOut = true
+        timedOut.TimeoutMilliseconds = launch.TimeoutMilliseconds
+        timedOut.Stderr = timedOut.Stderr + "\nTimed out after " + launch.TimeoutMilliseconds.ToString() + " ms."
+        return timedOut
+    }
+
+    // The unbounded wait is what drains the asynchronous readers to end-of-stream once the process
+    // has exited, exactly as reading both streams to the end did.
+    process.WaitForExit()
     exitCode := process.ExitCode
     process.Dispose()
-    return new ToolchainRun(exitCode, stdout, stderr)
+    return capture.Snapshot(exitCode, commandLine)
+}
+
+// Both pipes, drained line by line AS THEY ARRIVE rather than read to the end after the fact. That
+// is the difference between a timeout that says where it stopped and one that says nothing: a
+// `ReadToEndAsync` that has not completed when the ceiling fires has returned no text at all.
+class ToolchainOutputCapture {
+    gate: object
+    stdout: StringBuilder
+    stderr: StringBuilder
+    lines: List<string>
+
+    constructor() {
+        gate = new object()
+        stdout = new StringBuilder()
+        stderr = new StringBuilder()
+        lines = new List<string>()
+    }
+
+    // `null` is the reader's end-of-stream signal, not a line.
+    func Append(line: string?, fromStderr: bool) {
+        if line == null {
+            return
+        }
+
+        text := line ?? ""
+        lock gate {
+            if fromStderr {
+                stderr.Append(text).Append('\n')
+            } else {
+                stdout.Append(text).Append('\n')
+            }
+
+            lines.Add(text)
+        }
+    }
+
+    func Snapshot(exitCode: int, commandLine: string): ToolchainRun {
+        lock gate {
+            run := new ToolchainRun(exitCode, stdout.ToString(), stderr.ToString())
+            run.CommandLine = commandLine
+            run.Lines.AddRange(lines)
+            return run
+        }
+    }
 }
 
 // ─── THE REPOSITORY ───────────────────────────────────────────────────────────────────────────
@@ -250,65 +397,215 @@ func DockerInfoArguments(): List<string> {
     return arguments
 }
 
-func DockerImageTag(): string {
-    return "nsharp-installed-toolchain-integration:local"
+// ─── ONE RUN'S IDENTITY ────────────────────────────────────────────────────────────────────────
+//
+// Every image and container this project creates is named from this prefix and a run id, and is
+// labelled `nsharp.test=installed-toolchain-integration`. The prefix is what a human reads in
+// `docker ps`; the label is what the reclaim below trusts, because a NAME can be chosen by anyone.
+func DockerResourcePrefix(): string {
+    return "nsharp-installed-toolchain-integration-"
 }
 
-// A FIXED name rather than a random one, which is what makes a stale container reclaimable: the
-// fixture force-removes this name before it starts, so a previous crashed run can never make this
-// one fail to start.
-func DockerContainerName(): string {
-    return "nsharp-installed-toolchain-integration"
+func DockerTestLabelKey(): string {
+    return "nsharp.test"
+}
+
+func DockerTestLabelValue(): string {
+    return "installed-toolchain-integration"
+}
+
+func DockerRunLabelKey(): string {
+    return "nsharp.test.run"
+}
+
+func DockerOwnerPidLabelKey(): string {
+    return "nsharp.test.owner-pid"
+}
+
+func DockerOwnerStartedLabelKey(): string {
+    return "nsharp.test.owner-started"
+}
+
+func DockerOwnerHostLabelKey(): string {
+    return "nsharp.test.owner-host"
+}
+
+func DockerCreatedLabelKey(): string {
+    return "nsharp.test.created"
+}
+
+// Who owns one run's image and container. The OWNER is the process hosting the rows, named by pid
+// AND by its start time: a pid alone is recycled, and a leftover whose pid now belongs to some
+// unrelated process must still read as orphaned.
+class ToolchainDockerRun {
+    RunId: string
+    OwnerPid: int
+    OwnerStartedUnixSeconds: long
+    OwnerHost: string
+    CreatedUnixSeconds: long
+    ContainerName: string
+    ImageTag: string
+
+    constructor(runId: string, ownerPid: int, ownerStartedUnixSeconds: long, ownerHost: string, createdUnixSeconds: long) {
+        RunId = runId
+        OwnerPid = ownerPid
+        OwnerStartedUnixSeconds = ownerStartedUnixSeconds
+        OwnerHost = ownerHost
+        CreatedUnixSeconds = createdUnixSeconds
+        ContainerName = DockerResourcePrefix() + runId
+        ImageTag = ContainerName + ":local"
+    }
+}
+
+// A run id is `<pid>-<utc yyyymmddThhmmss>-<6 hex>`: the pid and the time make a leftover readable
+// at a glance, and the random tail is what keeps two fixtures created by ONE process in the same
+// second apart. Lowercase throughout, because an image repository name must be.
+func ToolchainNewRunId(pid: int, utcNow: DateTime): string {
+    return pid.ToString() + "-" + utcNow.ToString("yyyyMMdd't'HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 6)
+}
+
+func ToolchainUnixSeconds(instant: DateTime): long {
+    return new DateTimeOffset(instant.ToUniversalTime()).ToUnixTimeSeconds()
+}
+
+// The run this process owns. The start time is read through the same API the liveness check reads
+// it through, so the two agree to the second on the same process.
+func ToolchainNewDockerRun(): ToolchainDockerRun {
+    pid := Environment.ProcessId
+    current := Process.GetCurrentProcess()
+    started := ToolchainUnixSeconds(current.StartTime)
+    current.Dispose()
+    now := DateTime.UtcNow
+    return new ToolchainDockerRun(ToolchainNewRunId(pid, now), pid, started, Environment.MachineName, ToolchainUnixSeconds(now))
+}
+
+// `--label key=value` for every ownership label, on the image AND on the container: the container
+// would inherit the image's, but a container is what a reader lists first and it must not depend on
+// how the image it came from was built.
+func DockerLabelArguments(run: ToolchainDockerRun): List<string> {
+    arguments := new List<string>()
+    arguments.Add("--label")
+    arguments.Add(DockerTestLabelKey() + "=" + DockerTestLabelValue())
+    arguments.Add("--label")
+    arguments.Add(DockerRunLabelKey() + "=" + run.RunId)
+    arguments.Add("--label")
+    arguments.Add(DockerOwnerPidLabelKey() + "=" + run.OwnerPid.ToString())
+    arguments.Add("--label")
+    arguments.Add(DockerOwnerStartedLabelKey() + "=" + run.OwnerStartedUnixSeconds.ToString())
+    arguments.Add("--label")
+    arguments.Add(DockerOwnerHostLabelKey() + "=" + run.OwnerHost)
+    arguments.Add("--label")
+    arguments.Add(DockerCreatedLabelKey() + "=" + run.CreatedUnixSeconds.ToString())
+    return arguments
 }
 
 // `--file` is passed explicitly because the Dockerfile is named `Dockerfile.toolchain`, exactly as
 // the deleted fixture's `WithDockerfile("Dockerfile.toolchain")` did, and the build context is the
-// staged directory rather than the repository.
-func DockerBuildArguments(buildContextDirectory: string): List<string> {
+// staged directory rather than the repository. `--progress plain` makes the build's log one line per
+// event whatever the terminal, which is what the timeout report reads its last step out of.
+func DockerBuildArguments(run: ToolchainDockerRun, buildContextDirectory: string): List<string> {
     arguments := new List<string>()
     arguments.Add("build")
+    arguments.Add("--progress")
+    arguments.Add("plain")
     arguments.Add("--file")
     arguments.Add(Path.Combine(buildContextDirectory, "Dockerfile.toolchain"))
     arguments.Add("--tag")
-    arguments.Add(DockerImageTag())
+    arguments.Add(run.ImageTag)
+    arguments.AddRange(DockerLabelArguments(run))
     arguments.Add(buildContextDirectory)
     return arguments
 }
 
-// `--detach --rm` plus a bounded `sleep` IS the teardown. The deleted Dockerfile's
-// `ENTRYPOINT ["tail", "-f", "/dev/null"]` keeps a container alive forever, which is correct when
-// something disposes it; nothing here does, so the command overrides the entrypoint's argument with
-// a `sleep` that ends and a `--rm` that reaps.
-func DockerRunArguments(): List<string> {
+// `--detach --rm` plus a bounded `sleep` is the backstop teardown for a run that dies without its
+// own. The `sleep` must REPLACE the image's entrypoint, not follow it: the Dockerfile's
+// `ENTRYPOINT ["tail", "-f", "/dev/null"]` takes trailing arguments as more files to follow, so
+// `<image> sleep 7200` ran `tail -f /dev/null sleep 7200` — forever — and the orphaned container a
+// killed gate left behind never removed itself.
+func DockerRunArguments(run: ToolchainDockerRun): List<string> {
     arguments := new List<string>()
     arguments.Add("run")
     arguments.Add("--detach")
     arguments.Add("--rm")
     arguments.Add("--name")
-    arguments.Add(DockerContainerName())
-    arguments.Add(DockerImageTag())
+    arguments.Add(run.ContainerName)
+    arguments.AddRange(DockerLabelArguments(run))
+    arguments.Add("--entrypoint")
     arguments.Add("sleep")
+    arguments.Add(run.ImageTag)
     arguments.Add(ToolchainContainerLifetimeSeconds().ToString())
     return arguments
 }
 
 // `docker exec <container> bash -c <command>` — the four argv entries the deleted
 // `_fixture.Container.ExecAsync(["bash", "-c", command])` produced, with the command as ONE entry.
-func DockerExecArguments(command: string): List<string> {
+func DockerExecArguments(run: ToolchainDockerRun, command: string): List<string> {
     arguments := new List<string>()
     arguments.Add("exec")
-    arguments.Add(DockerContainerName())
+    arguments.Add(run.ContainerName)
     arguments.Add("bash")
     arguments.Add("-c")
     arguments.Add(command)
     return arguments
 }
 
-func DockerRemoveArguments(): List<string> {
+// The two halves of a run's teardown, each by the run's OWN name, so neither can reach another run.
+func DockerRemoveContainerArguments(containerReference: string): List<string> {
     arguments := new List<string>()
     arguments.Add("rm")
     arguments.Add("--force")
-    arguments.Add(DockerContainerName())
+    arguments.Add(containerReference)
+    return arguments
+}
+
+func DockerRemoveImageArguments(imageReference: string): List<string> {
+    arguments := new List<string>()
+    arguments.Add("image")
+    arguments.Add("rm")
+    arguments.Add("--force")
+    arguments.Add(imageReference)
+    return arguments
+}
+
+// Every container and every image carrying this project's label, by full id — running or not, this
+// run's or another's. What to DO with each is `DockerReclaimDecisionFor`'s question, not the filter's.
+func DockerListLabelledContainersArguments(): List<string> {
+    arguments := new List<string>()
+    arguments.Add("ps")
+    arguments.Add("--all")
+    arguments.Add("--quiet")
+    arguments.Add("--no-trunc")
+    arguments.Add("--filter")
+    arguments.Add("label=" + DockerTestLabelKey() + "=" + DockerTestLabelValue())
+    return arguments
+}
+
+func DockerListLabelledImagesArguments(): List<string> {
+    arguments := new List<string>()
+    arguments.Add("image")
+    arguments.Add("ls")
+    arguments.Add("--quiet")
+    arguments.Add("--no-trunc")
+    arguments.Add("--filter")
+    arguments.Add("label=" + DockerTestLabelKey() + "=" + DockerTestLabelValue())
+    return arguments
+}
+
+// One tab-separated line per object: its id, then the five ownership labels in a fixed order. Both
+// `container inspect` and `image inspect` expose `.Config.Labels`, so one format reads both, and a
+// label that is absent reads as an empty field rather than failing the template.
+func DockerLeftoverInspectFormat(): string {
+    return "{{.Id}}\t{{index .Config.Labels \"" + DockerRunLabelKey() + "\"}}\t{{index .Config.Labels \"" + DockerOwnerPidLabelKey() + "\"}}\t{{index .Config.Labels \"" + DockerOwnerStartedLabelKey() + "\"}}\t{{index .Config.Labels \"" + DockerOwnerHostLabelKey() + "\"}}\t{{index .Config.Labels \"" + DockerCreatedLabelKey() + "\"}}"
+}
+
+// `kind` is `container` or `image`.
+func DockerInspectLeftoversArguments(kind: string, ids: List<string>): List<string> {
+    arguments := new List<string>()
+    arguments.Add(kind)
+    arguments.Add("inspect")
+    arguments.Add("--format")
+    arguments.Add(DockerLeftoverInspectFormat())
+    arguments.AddRange(ids)
     return arguments
 }
 
@@ -594,10 +891,9 @@ func ToolchainBuildContextPrefix(): string {
     return "nsharp-integration-"
 }
 
-// A context holds the release package set and a published toolset, and — like the container — there is no
-// teardown hook to delete it: `IAsyncLifetime.DisposeAsync` removed the C# fixture's, and a `test`
-// block has no equivalent. So each run sweeps the ones EARLIER runs left, which bounds the leak to
-// one context rather than one per gate run.
+// A context holds the release package set and a published toolset. The process that staged it
+// removes it on exit, but a process that is KILLED runs no handler, so each run also sweeps the ones
+// EARLIER runs left, which bounds that leak to what a day of killed runs leaves.
 //
 // ONLY DIRECTORIES A DAY OLD, and only best-effort. A newer one may belong to a run happening right
 // now in another worktree — this project is serial within one gate, not across machines-worth of
@@ -636,14 +932,26 @@ func SweepStaleBuildContexts() {
 // directory holding `packages/`, `toolset/` and the Dockerfile. NOTHING here needs Docker, which is
 // why it is a function of its own: the row that proves it runs on a machine with no daemon at all.
 func ToolchainPrepareBuildContext(): string {
-    if ToolchainFixtureState.ContextPrepared {
+    lock ToolchainFixtureState.Gate {
+        if !ToolchainFixtureState.ContextPrepared {
+            ToolchainFixtureState.BuildContextDirectory = toolchainStageBuildContext()
+            ToolchainFixtureState.ContextPrepared = true
+        }
+
         return ToolchainFixtureState.BuildContextDirectory
     }
+}
 
+// The staging itself, run once per process under the fixture's lock. The directory is removed when
+// the process exits, like the image made from it; the sweep above covers a process that could not.
+func toolchainStageBuildContext(): string {
     repositoryRoot := ToolchainRepositoryRoot()
     SweepStaleBuildContexts()
     buildContextDirectory := Path.Combine(Path.GetTempPath(), ToolchainBuildContextPrefix() + Guid.NewGuid().ToString("N").Substring(0, 12))
     Directory.CreateDirectory(buildContextDirectory)
+    on AppDomain.CurrentDomain.ProcessExit (sender, args) => {
+        DeleteBuildContextDirectory(buildContextDirectory)
+    }
 
     packagesDirectory := Path.Combine(buildContextDirectory, "packages")
     Directory.CreateDirectory(packagesDirectory)
@@ -687,41 +995,321 @@ func ToolchainPrepareBuildContext(): string {
     ToolchainRequireSuccess(ToolchainRunProcess(publishLaunch), "scripts/publish-toolset.sh")
 
     File.Copy(ToolchainDockerfilePath(), Path.Combine(buildContextDirectory, "Dockerfile.toolchain"), true)
-
-    ToolchainFixtureState.BuildContextDirectory = buildContextDirectory
-    ToolchainFixtureState.ContextPrepared = true
     return buildContextDirectory
 }
 
-// ─── THE CONTAINER ────────────────────────────────────────────────────────────────────────────
+// ─── THE HOST SEAM ────────────────────────────────────────────────────────────────────────────
+//
+// The fixture reaches the daemon and the process table through this and nothing else, so its
+// lifecycle — reclaim, build, start, teardown on every path — is a contract a machine with no Docker
+// can hold to rows (`DockerIsolation.tests.nl`) with a recording host in place of this one.
+interface IToolchainDockerHost {
+    func Docker(arguments: List<string>, timeoutMilliseconds: int): ToolchainRun
 
-func ToolchainEnsureContainer() {
-    if ToolchainFixtureState.ContainerStarted {
-        return
+    func OwnerAlive(pid: int, startedUnixSeconds: long): bool
+}
+
+class ProcessDockerHost: IToolchainDockerHost {
+    func Docker(arguments: List<string>, timeoutMilliseconds: int): ToolchainRun {
+        return ToolchainRunDocker(arguments, timeoutMilliseconds)
     }
 
-    buildContextDirectory := ToolchainPrepareBuildContext()
-    ToolchainRequireSuccess(
-        ToolchainRunDocker(DockerBuildArguments(buildContextDirectory), ToolchainImageBuildTimeoutMilliseconds()),
-        "docker build of " + DockerImageTag()
-    )
+    func OwnerAlive(pid: int, startedUnixSeconds: long): bool {
+        return ToolchainOwnerProcessAlive(pid, startedUnixSeconds)
+    }
+}
 
-    // Reclaim the name before using it. A previous run that died between `run` and its `sleep`
-    // expiry still owns it, and "name already in use" is not a product defect worth a red row.
-    ToolchainRunDocker(DockerRemoveArguments(), ToolchainProbeTimeoutMilliseconds())
-    ToolchainRequireSuccess(
-        ToolchainRunDocker(DockerRunArguments(), ToolchainImageBuildTimeoutMilliseconds()),
-        "docker run of " + DockerContainerName()
-    )
+// Is the process that labelled a leftover still the process with that pid? No process with the pid
+// is a NO. A process whose start time differs from the label's is a NO too — the pid was recycled.
+// A process this user may not inspect is a YES: when ownership cannot be disproved, the leftover is
+// someone's and stays.
+func ToolchainOwnerProcessAlive(pid: int, startedUnixSeconds: long): bool {
+    try {
+        process := Process.GetProcessById(pid)
+        try {
+            return Math.Abs(ToolchainUnixSeconds(process.StartTime) - startedUnixSeconds) <= 2
+        } finally {
+            process.Dispose()
+        }
+    } catch missing: ArgumentException {
+        return false
+    } catch unknowable: Exception {
+        return true
+    }
+}
 
-    ToolchainFixtureState.ContainerStarted = true
+// ─── WHAT A LEFTOVER IS, AND WHEN IT MAY BE TAKEN ─────────────────────────────────────────────
+
+// One labelled container or image, as `DockerLeftoverInspectFormat` prints it. A label that is
+// absent or does not parse reads as `-1` / "", which `DockerReclaimDecisionFor` treats as "cannot
+// prove the owner is gone".
+class DockerLeftover {
+    Kind: string
+    Id: string
+    RunId: string
+    OwnerPid: int
+    OwnerStartedUnixSeconds: long
+    OwnerHost: string
+    CreatedUnixSeconds: long
+
+    constructor(kind: string, id: string, runId: string, ownerPid: int, ownerStartedUnixSeconds: long, ownerHost: string, createdUnixSeconds: long) {
+        Kind = kind
+        Id = id
+        RunId = runId
+        OwnerPid = ownerPid
+        OwnerStartedUnixSeconds = ownerStartedUnixSeconds
+        OwnerHost = ownerHost
+        CreatedUnixSeconds = createdUnixSeconds
+    }
+}
+
+func ToolchainParseLabelInt(value: string): int {
+    parsed := 0
+    if int.TryParse(value, out parsed) {
+        return parsed
+    }
+
+    return -1
+}
+
+func ToolchainParseLabelLong(value: string): long {
+    parsed: long = 0
+    if long.TryParse(value, out parsed) {
+        return parsed
+    }
+
+    return -1
+}
+
+func ToolchainParseDockerLeftovers(kind: string, inspectOutput: string): List<DockerLeftover> {
+    leftovers := new List<DockerLeftover>()
+    for line in inspectOutput.Split('\n') {
+        fields := line.TrimEnd('\r').Split('\t')
+        if fields.Length == 6 && fields[0].Trim() != "" {
+            leftovers.Add(new DockerLeftover(
+                kind,
+                fields[0].Trim(),
+                fields[1],
+                ToolchainParseLabelInt(fields[2]),
+                ToolchainParseLabelLong(fields[3]),
+                fields[4],
+                ToolchainParseLabelLong(fields[5])
+            ))
+        }
+    }
+
+    return leftovers
+}
+
+class DockerReclaimDecision {
+    Reclaim: bool
+    Reason: string
+
+    constructor(reclaim: bool, reason: string) {
+        Reclaim = reclaim
+        Reason = reason
+    }
+}
+
+// THE WHOLE RECLAIM RULE, as a function of values. A leftover is taken only when its owner is
+// PROVABLY gone: labelled by a process on THIS host whose pid is no longer that process, or so old
+// that no run of this project can still be using it. Everything else — this run's own objects, a
+// live owner, an owner on another host sharing the daemon, labels that do not parse — stays.
+// `ownerAlive` is the host's answer for the leftover's pid and start time; it is consulted only
+// when the leftover names this host.
+func DockerReclaimDecisionFor(leftover: DockerLeftover, currentRunId: string, localHost: string, ownerAlive: bool, nowUnixSeconds: long, maxAgeSeconds: long): DockerReclaimDecision {
+    if leftover.RunId == currentRunId {
+        return new DockerReclaimDecision(false, "belongs to this run")
+    }
+
+    ownerKnown := leftover.OwnerHost == localHost && leftover.OwnerPid > 0 && leftover.OwnerStartedUnixSeconds > 0
+    if ownerKnown && ownerAlive {
+        return new DockerReclaimDecision(false, "owner pid " + leftover.OwnerPid.ToString() + " is still running")
+    }
+
+    if ownerKnown {
+        return new DockerReclaimDecision(true, "owner pid " + leftover.OwnerPid.ToString() + " on " + localHost + " is no longer running")
+    }
+
+    if leftover.CreatedUnixSeconds > 0 && nowUnixSeconds - leftover.CreatedUnixSeconds > maxAgeSeconds {
+        return new DockerReclaimDecision(true, "created " + (nowUnixSeconds - leftover.CreatedUnixSeconds).ToString() + " s ago, past the " + maxAgeSeconds.ToString() + " s limit")
+    }
+
+    return new DockerReclaimDecision(false, "owner cannot be checked from this host and the leftover is not yet " + maxAgeSeconds.ToString() + " s old")
+}
+
+// ─── THE FIXTURE ──────────────────────────────────────────────────────────────────────────────
+
+// One run's image and container, from reclaim to teardown. Every path out of `Start` that did not
+// leave a running container removes what it made; `Teardown` is idempotent and never throws, because
+// it runs from process-exit and unload handlers where a throw would be lost or fatal.
+class ToolchainDockerFixture {
+    Run: ToolchainDockerRun
+    Host: IToolchainDockerHost
+    Started: bool
+    StartFailure: string
+    TornDown: bool
+    Reclaimed: List<string>
+    gate: object
+
+    constructor(run: ToolchainDockerRun, host: IToolchainDockerHost) {
+        Run = run
+        Host = host
+        Started = false
+        StartFailure = ""
+        TornDown = false
+        Reclaimed = new List<string>()
+        gate = new object()
+    }
+
+    // A failed start is REMEMBERED, not retried: a thirty-minute build that timed out once would
+    // time out again for each of the twelve rows behind it, and each row would report the same
+    // cause. Every later row fails at once with the first failure's report.
+    func Start(buildContextDirectory: string) {
+        lock gate {
+            if Started {
+                return
+            }
+
+            if StartFailure != "" {
+                throw new InvalidOperationException("the container for this run failed to start earlier and is not retried:\n" + StartFailure)
+            }
+
+            if TornDown {
+                throw new InvalidOperationException("the Docker fixture for run " + Run.RunId + " was already torn down")
+            }
+
+            ReclaimStale(ToolchainUnixSeconds(DateTime.UtcNow))
+            try {
+                ToolchainRequireSuccess(
+                    Host.Docker(DockerBuildArguments(Run, buildContextDirectory), ToolchainImageBuildTimeoutMilliseconds()),
+                    "docker build of " + Run.ImageTag
+                )
+                ToolchainRequireSuccess(
+                    Host.Docker(DockerRunArguments(Run), ToolchainImageBuildTimeoutMilliseconds()),
+                    "docker run of " + Run.ContainerName
+                )
+                Started = true
+            } catch startFailure: Exception {
+                StartFailure = startFailure.Message
+                Teardown()
+                throw
+            }
+        }
+    }
+
+    func Exec(command: string): ToolchainRun {
+        return Host.Docker(DockerExecArguments(Run, command), ToolchainExecTimeoutMilliseconds())
+    }
+
+    // The container first, because an image a container still uses cannot be removed.
+    func Teardown() {
+        lock gate {
+            if TornDown {
+                return
+            }
+
+            TornDown = true
+            BestEffortDocker(DockerRemoveContainerArguments(Run.ContainerName))
+            BestEffortDocker(DockerRemoveImageArguments(Run.ImageTag))
+        }
+    }
+
+    // Remove every labelled leftover whose owner is provably gone, containers before images. Best
+    // effort throughout: a reclaim that cannot list or remove is not a reason for this run to fail.
+    func ReclaimStale(nowUnixSeconds: long) {
+        ReclaimKind("container", DockerListLabelledContainersArguments(), nowUnixSeconds)
+        ReclaimKind("image", DockerListLabelledImagesArguments(), nowUnixSeconds)
+    }
+
+    func ReclaimKind(kind: string, listArguments: List<string>, nowUnixSeconds: long) {
+        listing := BestEffortDocker(listArguments)
+        if listing.ExitCode != 0 {
+            return
+        }
+
+        ids := new List<string>()
+        for line in listing.Stdout.Split('\n') {
+            id := line.Trim()
+            if id != "" && !ids.Contains(id) {
+                ids.Add(id)
+            }
+        }
+
+        if ids.Count == 0 {
+            return
+        }
+
+        inspected := BestEffortDocker(DockerInspectLeftoversArguments(kind, ids))
+        if inspected.ExitCode != 0 {
+            return
+        }
+
+        for leftover in ToolchainParseDockerLeftovers(kind, inspected.Stdout) {
+            alive := true
+            if leftover.OwnerHost == Run.OwnerHost && leftover.OwnerPid > 0 && leftover.OwnerStartedUnixSeconds > 0 {
+                alive = Host.OwnerAlive(leftover.OwnerPid, leftover.OwnerStartedUnixSeconds)
+            }
+
+            decision := DockerReclaimDecisionFor(leftover, Run.RunId, Run.OwnerHost, alive, nowUnixSeconds, ToolchainStaleLeftoverAgeSeconds())
+            if decision.Reclaim {
+                if kind == "container" {
+                    BestEffortDocker(DockerRemoveContainerArguments(leftover.Id))
+                } else {
+                    BestEffortDocker(DockerRemoveImageArguments(leftover.Id))
+                }
+
+                Reclaimed.Add(kind + " " + leftover.Id + " (run " + leftover.RunId + "): " + decision.Reason)
+            }
+        }
+    }
+
+    func BestEffortDocker(arguments: List<string>): ToolchainRun {
+        try {
+            return Host.Docker(arguments, ToolchainDockerHousekeepingTimeoutMilliseconds())
+        } catch unavailable: Exception {
+            return new ToolchainRun(127, "", unavailable.Message)
+        }
+    }
+}
+
+// The process's fixture, created on first use with its teardown already registered — BEFORE the
+// build starts, so a run killed mid-build by its own ceiling still removes what it made.
+func ToolchainDocker(): ToolchainDockerFixture {
+    lock ToolchainFixtureState.Gate {
+        existing := ToolchainFixtureState.Docker
+        if existing != null {
+            return existing
+        }
+
+        fixture := new ToolchainDockerFixture(ToolchainNewDockerRun(), new ProcessDockerHost())
+        on AppDomain.CurrentDomain.ProcessExit (sender, args) => {
+            fixture.Teardown()
+        }
+        loadContext := AssemblyLoadContext.GetLoadContext(typeof(ToolchainDockerFixture).Assembly)
+        if loadContext != null {
+            on loadContext.Unloading unloading => {
+                fixture.Teardown()
+            }
+        }
+
+        ToolchainFixtureState.Docker = fixture
+        return fixture
+    }
+}
+
+func ToolchainEnsureContainer(): ToolchainDockerFixture {
+    lock ToolchainFixtureState.Gate {
+        fixture := ToolchainDocker()
+        fixture.Start(ToolchainPrepareBuildContext())
+        return fixture
+    }
 }
 
 // ONE CONTAINER COMMAND. Every row's assertions read the value this returns, exactly as the deleted
 // `Bash` helper's `ExecResult` was read.
 func ToolchainBash(command: string): ToolchainRun {
-    ToolchainEnsureContainer()
-    return ToolchainRunDocker(DockerExecArguments(command), ToolchainExecTimeoutMilliseconds())
+    return ToolchainEnsureContainer().Exec(command)
 }
 
 func ToolchainAssertSuccess(result: ToolchainRun, context: string) {
