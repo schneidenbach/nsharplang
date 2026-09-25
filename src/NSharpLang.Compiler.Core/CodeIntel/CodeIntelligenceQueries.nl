@@ -146,8 +146,9 @@ class CodeIntelligenceQueries {
         // A REFLECTED MEMBER IS ASKED FIRST AND OUTRANKS THE TYPE ROUTE, because it knows strictly
         // more: the type route can only ever say what the expression EVALUATES TO, and for a
         // metadata member that discards the parameters, the return type and the declaring type —
-        // which was half of defect D2. It cannot shadow a source symbol: the receiver has to resolve
-        // to a CLR type for this to answer at all, and a project-declared receiver never does.
+        // which was half of defect D2. It cannot shadow a source symbol: a CLR receiver has no source
+        // members, and a project-declared receiver — `this`, or the enclosing type behind a bare name —
+        // is answered here only for a name no class on its source chain declares and no binding holds.
         reflected := ReflectedHoverResult(snapshot, CodeIntelligenceNavigation.ReflectedMemberAtPosition(snapshot, queryFile, line, col))
         if reflected != null {
             return reflected

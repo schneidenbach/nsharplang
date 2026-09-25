@@ -117,10 +117,20 @@ class AstPositionVisitor {
     func VisitDeclaration(declaration: object) {
         typeName := declaration.GetType().Name
 
+        // A FUNCTION HAS ONE BODY OR THE OTHER. `func Text(): string => Message` carries its whole
+        // body as an EXPRESSION and no block, and before this arm read it every position inside one
+        // answered nothing — hover and `query type` said "No symbol found" over `this`, a member or
+        // a call the analyzer had bound without complaint.
         if typeName == "FunctionDeclaration" {
             body := GetOptionalProperty(declaration, "Body")
             if body != null {
                 VisitStatement(body)
+                return
+            }
+
+            expressionBody := GetOptionalProperty(declaration, "ExpressionBody")
+            if expressionBody != null {
+                SetFoundExpression(FindExpression(expressionBody))
             }
             return
         }

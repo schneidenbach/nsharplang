@@ -2257,6 +2257,94 @@ test "chip A: a metadata PROPERTY still answers with its TYPE, so only the metho
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
 
+// ─── A MEMBER A SOURCE TYPE INHERITS FROM A REFERENCED BASE ──────────────────────────────────
+// `Message` inside `class Failure: Exception` hovered to "No symbol found" in BOTH spellings. The
+// reflected route only knew a receiver with a CLR type of its own, and `this` — like the enclosing
+// type behind a bare name — is a SOURCE type; the member lives one `:` edge further up. The bodies
+// are EXPRESSION bodies on purpose, as in the report: the position finder never descended into one,
+// so even `this` itself answered nothing there.
+func InheritedHoverProject(): object {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, "name: Gaps\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "namespace Gaps\n\nimport System\nimport System.Collections.ObjectModel\n\nclass Failure: Exception {\n    func Text(): string => Message\n    func Text2(): string => this.Message\n    func Of(other: Failure): string => other.Message\n    func Shown(): string => ToString()\n    func Named(Message: string): string => Message\n    func Local(): string {\n        HelpLink := \"x\"\n        return HelpLink\n    }\n}\n\nclass Coded: Failure {\n    Source: string? = null\n    func Origin(): string? => Source\n    func Trace(): string? => StackTrace\n}\n\nclass Bag: Collection<string> {\n    func Size(): int => Items.Count\n}\n"
+    )
+    return QueryLoadProject(projectRoot)
+}
+
+test "inherited reflected member: a bare name and a `this.` member both hover to the base's signature, declaring type and summary" {
+    snapshot := InheritedHoverProject()
+
+    assert D2HoverSignature(snapshot, "func Text(): string => Message", "Message") == "property Message: string { get; }|property|System.Exception"
+    assert D2HoverSignature(snapshot, "func Text2(): string => this.Message", "Message") == "property Message: string { get; }|property|System.Exception"
+
+    // The summary is the reference packs' — the same text `DateTime.Now` receivers already get.
+    bare := D2HoverDocumentation(snapshot, "func Text(): string => Message", "Message")
+    assert bare.Contains("message that describes the current exception", StringComparison.Ordinal)
+    assert D2HoverDocumentation(snapshot, "func Text2(): string => this.Message", "Message") == bare
+
+    // ANY source-typed receiver climbs the same way; only `this` also admits `protected`.
+    assert D2HoverSignature(snapshot, "func Of(other: Failure): string => other.Message", "Message") == "property Message: string { get; }|property|System.Exception"
+
+    // `this` ITSELF is still `this`: the reflected route answers the MEMBER, never its receiver.
+    assert D2HoverSignature(snapshot, "func Text2(): string => this.Message", "this") == "class this: Failure|class|"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "inherited reflected member: the walk climbs a source base first, and a bare inherited call agrees with `query type`" {
+    snapshot := InheritedHoverProject()
+
+    // TWO EDGES: `Coded: Failure: Exception`. The source link in the middle declares nothing called
+    // `StackTrace`, so the walk passes through it.
+    assert D2HoverSignature(snapshot, "func Trace(): string? => StackTrace", "StackTrace") == "property StackTrace: string? { get; }|property|System.Exception"
+
+    // A bare CALL is its callee, and `Exception` overrides `ToString`, so it is the declaring type.
+    assert D2HoverSignature(snapshot, "func Shown(): string => ToString()", "ToString") == "method ToString: string ToString()|method|System.Exception"
+    assert D2TypeAgreesWithHover(snapshot, "func Shown(): string => ToString()", "ToString") == "string ToString()"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "inherited reflected member: a `protected` member of the referenced base hovers with its access level" {
+    snapshot := InheritedHoverProject()
+
+    // `Collection<T>.Items` is `protected`; a derived type reads it bare, and the compiler binds it.
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, "func Size(): int => Items.Count")
+    hover := QueryRequire(QueryGetHoverInfo(snapshot, "Program.nl", line, FindColumnInFile(programPath, line, "Items")), "Items")
+    assert QueryText(hover, "Signature").StartsWith("property Items: IList<", StringComparison.Ordinal)
+    assert QueryText(hover, "Accessibility") == "protected"
+    assert QueryText(hover, "DeclaringType").StartsWith("System.Collections.ObjectModel.Collection<", StringComparison.Ordinal)
+
+    QueryDeleteTemp(projectRoot)
+}
+
+test "inherited reflected member: a parameter, a local and a source member of the same name still win" {
+    snapshot := InheritedHoverProject()
+
+    // CHANNEL 1 BEFORE CHANNEL 2. Each of these names is ALSO a member of `System.Exception`, and the
+    // metadata answer would be wrong for every one of them.
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    namedLine := FindLineInFile(programPath, "func Named(Message: string): string => Message")
+    parameterUse := QueryRequire(QueryGetHoverInfo(snapshot, "Program.nl", namedLine, FindColumnInFileAt(programPath, namedLine, "Message", 2)), "the parameter use")
+    assert QueryText(parameterUse, "Signature") == "variable Message: string"
+    assert QueryText(parameterUse, "DeclaringType") == ""
+
+    assert D2HoverSignature(snapshot, "        return HelpLink", "HelpLink") == "local HelpLink: string|local|"
+
+    // A SOURCE DECLARATION HIDES THE BASE'S MEMBER: `Coded.Source` is the project's own field, not
+    // `Exception.Source`, so no declaring type is claimed for it.
+    source := D2HoverSignature(snapshot, "func Origin(): string? => Source", "Source")
+    assert !source.Contains("System.Exception", StringComparison.Ordinal)
+
+    QueryDeleteTemp(projectRoot)
+}
+
 test "IDE D1: a member inside an interpolated-string hole hovers to its DECLARED type, not to `string`" {
     projectRoot := QueryTempRoot()
     QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())

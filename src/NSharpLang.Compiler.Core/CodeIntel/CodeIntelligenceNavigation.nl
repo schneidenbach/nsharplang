@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
+import System.Collections
 import System.Collections.Generic
 import System.IO
 import System.Reflection
@@ -447,7 +448,7 @@ class CodeIntelligenceNavigation {
         // kind the answer is about to carry rather than a second list of type tests that could
         // drift from it. Every other kind keeps the type it always had.
         if kind == "method" {
-            methodSignature := ReflectedMethodSignatureText(expr, FindEnclosingCallAtPositionRobust(cu, line, col), semanticModel, snapshot, cu)
+            methodSignature := ReflectedMethodSignatureText(expr, FindEnclosingCallAtPositionRobust(cu, line, col), semanticModel, snapshot, cu, filePath, line, col)
             if methodSignature != null {
                 resolvedType = methodSignature ?? ""
             }
@@ -483,7 +484,20 @@ class CodeIntelligenceNavigation {
         semanticModel: SemanticModel? = null
         snapshot.SemanticModels.TryGetValue(unitMatch.FilePath, out semanticModel)
 
-        return ReflectedMemberAtExpression(FindExpressionAtPositionRobust(cu, line, col), FindEnclosingCallAtPositionRobust(cu, line, col), semanticModel, snapshot, cu)
+        return ReflectedMemberAtNode(FindExpressionAtPositionRobust(cu, line, col), FindEnclosingCallAtPositionRobust(cu, line, col), semanticModel, snapshot, cu, unitMatch.FilePath, line, col)
+    }
+
+    // BOTH SPELLINGS OF A MEMBER, AND THE POSITION IS WHAT THE SECOND ONE NEEDS. A written receiver
+    // — `DateTime.Now`, `this.Message` — carries everything the answer needs in the expression. A
+    // BARE name does not: `Message` inside `class Failure: Exception` names a member only because of
+    // WHERE it is written, so the file, the line and the binding map are handed down with it.
+    static func ReflectedMemberAtNode(expr: Expression?, enclosingCall: CallExpression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit, filePath: string, line: int, col: int): ReflectedMemberHandle? {
+        written := ReflectedMemberAtExpression(expr, enclosingCall, semanticModel, snapshot, currentUnit)
+        if written != null {
+            return written
+        }
+
+        return InheritedReflectedMemberAtIdentifier(expr, enclosingCall, semanticModel, snapshot, currentUnit, filePath, line, col)
     }
 
     // THE SAME QUESTION ASKED OF AN EXPRESSION THE CALLER ALREADY HAS. `TypeAtPosition` walks the
@@ -514,7 +528,218 @@ class CodeIntelligenceNavigation {
             return null
         }
 
-        return CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForCall(receiverType, memberAccess.MemberName, argumentTypes)
+        direct := CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForCall(receiverType, memberAccess.MemberName, argumentTypes)
+        if direct != null {
+            return direct
+        }
+
+        // A SOURCE RECEIVER HAS NO CLR TYPE, BUT ITS BASE MAY. `this.Message` inside
+        // `class Failure: Exception` is `Exception.Message`, and only `this` is read as the deriving
+        // type's own instance — the receiver the `protected` rule admits.
+        return InheritedReflectedMember(receiverType, memberAccess.MemberName, argumentTypes, memberAccess.Object as ThisExpression != null, snapshot)
+    }
+
+    // ── A member the project's type inherits from a referenced base ─────
+    // THE SOURCE CLASS CHAIN IS CLIMBED UNTIL IT LEAVES THE PROJECT, AND A SOURCE DECLARATION ON THE
+    // WAY ENDS THE SEARCH. A member the project wrote belongs to the declaration route, which answers
+    // it with its file and doc comment; answering it here instead would put a metadata signature on
+    // it, and would let a base's member win over the source member that hides it. So a name any
+    // class on the chain declares declines, and only a name NONE of them declares is asked of the
+    // first base the project did not write.
+    //
+    // THE EDGES ARE THE ANALYZER'S OWN. Each `:` clause is read back as the type the analyzer
+    // recorded at that reference, from the model that owns the declaration — the same edge
+    // completion's inherited-member walk reads — so `Failure: Exception` reaches `System.Exception`
+    // from the compiler's metadata universe, and a generic base carries its closed arguments through
+    // the receiver's substitution.
+    static func InheritedReflectedMember(receiverType: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?, inheritedProtected: bool, snapshot: ProjectSnapshot): ReflectedMemberHandle? {
+        semanticModels := snapshot.SemanticModels.Values
+        declarationPath := new List<TypeInfo>()
+        current := receiverType
+        while true {
+            declaration: TypeInfo? = null
+            substitution: Dictionary<string, TypeInfo>? = null
+            if !CompletionInheritanceFacts.TryGetSourceDeclaration(current, out declaration, out substitution) || declaration == null {
+                break
+            }
+
+            // A malformed cycle (`A: B`, `B: A`) has no referenced base to reach.
+            if CompletionInheritanceFacts.ContainsExactType(declarationPath, declaration) {
+                return null
+            }
+            declarationPath.Add(declaration)
+
+            if DeclaresMemberNamed(declaration, memberName) {
+                return null
+            }
+
+            baseReference := LoopSequenceTypeFacts.DeclaredBaseClassOf(declaration)
+            if baseReference == null {
+                return null
+            }
+
+            baseType := CompletionInheritanceFacts.RecordedTypeReferenceType(baseReference, semanticModels, declaration)
+            if baseType == null {
+                return null
+            }
+
+            current = CompletionInheritanceFacts.ApplySubstitution(baseType, substitution)
+        }
+
+        // The receiver itself was not a source type: the caller already asked it directly.
+        if declarationPath.Count == 0 {
+            return null
+        }
+
+        return CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForCall(current, memberName, argumentTypes, inheritedProtected)
+    }
+
+    static func DeclaresMemberNamed(declaration: TypeInfo, memberName: string): bool {
+        members := CompletionDeclarationFacts.DeclaredMembersOfType(declaration)
+        if members == null {
+            return false
+        }
+
+        for member in members {
+            if member.Name == memberName {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // A BARE NAME IN A TYPE BODY IS THE ANALYZER'S CHANNEL 2 — the enclosing type's members — AND
+    // THE TWO CHANNELS IN FRONT OF IT DECIDE WHETHER IT IS ASKED AT ALL. A binding at the position
+    // means the name already resolved to something the project declared (a local, a parameter, a
+    // source member), and a scope entry of that name means channel 1 holds it; in either case the
+    // name is not a metadata member and this declines, so the declaration route answers exactly as
+    // it did. A source member that left no binding is still caught by the chain walk's own
+    // declaration test.
+    static func InheritedReflectedMemberAtIdentifier(expr: Expression?, enclosingCall: CallExpression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit, filePath: string, line: int, col: int): ReflectedMemberHandle? {
+        identifier := BareIdentifierAtPosition(expr)
+        if identifier == null || semanticModel == null {
+            return null
+        }
+
+        if TryResolveDefinitionViaBindings(snapshot, filePath, line, col) != null {
+            return null
+        }
+
+        if semanticModel.LookupIdentifierAtPosition(identifier.Name, identifier.Line, identifier.Column) != null {
+            return null
+        }
+
+        enclosingType := EnclosingSourceTypeInfo(currentUnit, semanticModel, line)
+        if enclosingType == null {
+            return null
+        }
+
+        return InheritedReflectedMember(enclosingType, identifier.Name, CallArgumentTypeInfos(enclosingCall, semanticModel, snapshot, currentUnit), true, snapshot)
+    }
+
+    // As `MemberAccessAtPosition`: a call is its callee, so `ToString()` and `ToString` are one name.
+    static func BareIdentifierAtPosition(expr: Expression?): IdentifierExpression? {
+        identifier := expr as IdentifierExpression
+        if identifier != null {
+            return identifier
+        }
+
+        call := expr as CallExpression
+        if call != null {
+            return call.Callee as IdentifierExpression
+        }
+
+        return null
+    }
+
+    // THE INNERMOST TYPE DECLARATION WHOSE LINES CONTAIN THE POSITION, answered with the `TypeInfo`
+    // its own file's model recorded for it — the handle `InheritedReflectedMember` needs to read that
+    // declaration's `:` edge back out of the same model. A position at namespace scope has none.
+    static func EnclosingSourceTypeInfo(unit: CompilationUnit, semanticModel: SemanticModel, line: int): TypeInfo? {
+        declaration: Declaration? = null
+        candidates: IList? = unit.Declarations
+        while candidates != null {
+            inner: Declaration? = null
+            for candidateItem in candidates {
+                candidate := candidateItem as Declaration
+                if candidate != null && DeclarationFacts.GetDeclarationMembers(candidate) != null && candidate.Line <= line && line <= candidate.EndLine {
+                    inner = candidate
+                }
+            }
+
+            if inner == null {
+                break
+            }
+
+            declaration = inner
+            candidates = DeclarationFacts.GetDeclarationMembers(inner)
+        }
+
+        if declaration == null {
+            return null
+        }
+
+        return RecordedDeclarationTypeInfo(semanticModel, declaration)
+    }
+
+    // The model keys its types by name; the declaration's own position is what tells two same-named
+    // declarations (a nested `Node` in two different outer types) apart.
+    static func RecordedDeclarationTypeInfo(semanticModel: SemanticModel, declaration: Declaration): TypeInfo? {
+        seen := new List<TypeInfo>()
+        for entry in semanticModel.TypesByIdentity {
+            found := FindDeclaredTypeInfo(entry.Value, declaration, seen)
+            if found != null {
+                return found
+            }
+        }
+
+        return null
+    }
+
+    static func FindDeclaredTypeInfo(candidate: TypeInfo, declaration: Declaration, seen: List<TypeInfo>): TypeInfo? {
+        for seenItem in seen {
+            if Object.ReferenceEquals(seenItem, candidate) {
+                return null
+            }
+        }
+        seen.Add(candidate)
+
+        nestedTypes: NestedTypeInfo[]? = null
+        classType := candidate as ClassTypeInfo
+        if classType != null {
+            if classType.Line == declaration.Line && classType.Column == declaration.Column && classType.Name == DeclarationFacts.GetDeclarationName(declaration) {
+                return classType
+            }
+            nestedTypes = classType.NestedTypes
+        }
+
+        // Only a class has a `:` base to inherit through, but a class can be nested in any of these.
+        structType := candidate as StructTypeInfo
+        if structType != null {
+            nestedTypes = structType.NestedTypes
+        }
+        recordType := candidate as RecordTypeInfo
+        if recordType != null {
+            nestedTypes = recordType.NestedTypes
+        }
+        interfaceType := candidate as InterfaceTypeInfo
+        if interfaceType != null {
+            nestedTypes = interfaceType.NestedTypes
+        }
+
+        if nestedTypes == null {
+            return null
+        }
+
+        for nestedType in nestedTypes {
+            found := FindDeclaredTypeInfo(nestedType.Type, declaration, seen)
+            if found != null {
+                return found
+            }
+        }
+
+        return null
     }
 
     // THE METHOD SIGNATURE `query type` PRINTS, WHICH IS HOVER'S SIGNATURE AND NOT A SECOND ONE.
@@ -523,8 +748,8 @@ class CodeIntelligenceNavigation {
     // was defect A. The placeholder itself is not touched: it is the analyzer's own text and its
     // messages are pinned on it. What changes is that this seam, which is the only place a
     // placeholder reaches a USER as an answer, asks the signature renderer instead.
-    static func ReflectedMethodSignatureText(expr: Expression?, enclosingCall: CallExpression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): string? {
-        handle := ReflectedMemberAtExpression(expr, enclosingCall, semanticModel, snapshot, currentUnit)
+    static func ReflectedMethodSignatureText(expr: Expression?, enclosingCall: CallExpression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit, filePath: string, line: int, col: int): string? {
+        handle := ReflectedMemberAtNode(expr, enclosingCall, semanticModel, snapshot, currentUnit, filePath, line, col)
         if handle == null {
             return null
         }

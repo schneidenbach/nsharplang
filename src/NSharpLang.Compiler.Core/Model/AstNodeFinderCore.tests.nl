@@ -194,6 +194,19 @@ test "020 s23 finder: `print(count)` holds NO CallExpression — the open paren 
     assert AnfAt(source, 3, 11) == "Identifier@4:11|Name=count"
 }
 
+// AN EXPRESSION BODY IS A BODY. `func Text(): string => this.Message` has no block, and the walk read
+// only `Body`, so every column of the line answered nothing — hover said "No symbol found" over
+// `this`, over `Message` and over a call, in code the analyzer had bound. The sweep pins the three
+// runs a block body's `return` already gave: nothing up to the arrow's operand, the receiver, then
+// the member access from its dot. A top-level function's expression body answers the same way.
+// No parse census here: this file sits in `Model`, below the parser's slice, and the slice-direction
+// ratchet counts every new estate row that reaches upward — the sweeps name real nodes on every run.
+test "finder: an expression-bodied member function answers its receiver and its member access, and a top-level one answers its call" {
+    source := "class Failure {\n    func Text(): string => this.Message\n}\n\nfunc Twice(): int => Compute()"
+    assert AnfSweep(source, 1, 38) == "0-26=<none>;27-30=ThisExpression@2:28;31-38=MemberAccess@2:32|Member=Message|Object=ThisExpression@2:28;"
+    assert AnfSweep(source, 4, 30) == "0-20=<none>;21-27=Identifier@5:22|Name=Compute;28-30=Call@5:29|Callee=Identifier@5:22|Name=Compute;"
+}
+
 // AN `on` SUBSCRIPTION IS NOT A LEAF, AND AN `off` STATEMENT IS NOT ONE EITHER. Both were, which is
 // the D1/D2 defect this file's own comment describes, in the two nodes whose children are a whole
 // member chain and a whole lambda body: every cursor inside `on widget.Clicked (s, a) => { … }`

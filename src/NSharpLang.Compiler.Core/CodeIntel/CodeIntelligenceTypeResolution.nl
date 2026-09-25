@@ -404,11 +404,18 @@ class CodeIntelligenceTypeResolution {
     // THERE IS. The distinction is not "how many arguments" — a call with zero arguments is still a
     // call, and `Next()` means the nullary overload where a bare `Next` means the group.
     static func ReflectedMemberOfTypeForCall(receiverType: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?): ReflectedMemberHandle? {
+        return ReflectedMemberOfTypeForCall(receiverType, memberName, argumentTypes, false)
+    }
+
+    // `inheritedProtected` IS THE SAME RECEIVER RULE THE ANALYZER'S MEMBER RESOLUTION TAKES FROM ITS
+    // CALLER: the member is being read through the derived type's own instance, so what the
+    // referenced base declares `protected` is reachable exactly as the compiler already binds it.
+    static func ReflectedMemberOfTypeForCall(receiverType: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?, inheritedProtected: bool): ReflectedMemberHandle? {
         genericType := UnwrapGenericReceiver(receiverType)
         if genericType != null {
             definition := KnownReceiverSpellings.KnownReceiverGenericDefinition(genericType.Name)
             if definition != null && definition.GetGenericArguments().Length == genericType.TypeArguments.Count {
-                return ReflectedMemberOfClrType(definition, memberName, argumentTypes, BuildGenericArgumentOverride(definition, genericType))
+                return ReflectedMemberOfClrType(definition, memberName, argumentTypes, BuildGenericArgumentOverride(definition, genericType), inheritedProtected)
             }
         }
 
@@ -417,7 +424,7 @@ class CodeIntelligenceTypeResolution {
             return null
         }
 
-        return ReflectedMemberOfClrType(clrType, memberName, argumentTypes, null)
+        return ReflectedMemberOfClrType(clrType, memberName, argumentTypes, null, inheritedProtected)
     }
 
     static func UnwrapGenericReceiver(receiverType: TypeInfo): GenericTypeInfo? {
@@ -456,25 +463,37 @@ class CodeIntelligenceTypeResolution {
     // instantiation throws `NotSupportedException`. A hover request that throws is a broken editor,
     // so every failure here is a DECLINE and the caller falls back to the bare rendering.
     static func ReflectedMemberOfClrType(clrType: Type, memberName: string, argumentTypes: TypeInfo?[]?, typeOverride: AnalyzerReflectionTypeOverride?): ReflectedMemberHandle? {
+        return ReflectedMemberOfClrType(clrType, memberName, argumentTypes, typeOverride, false)
+    }
+
+    // `NonPublic` IS ASKED FOR ONLY ON THE INHERITED-BASE WALK, AND IT ADMITS NOTHING BY ITSELF.
+    // Metadata hands back `private` and `internal` members too once it is asked, so every candidate
+    // is put to `CompletionReflectionFacts.IsReachableInheritedMember` — the relation completion and
+    // the analyzer already share — and a member the derived type could not reach is not an answer.
+    static func ReflectedMemberOfClrType(clrType: Type, memberName: string, argumentTypes: TypeInfo?[]?, typeOverride: AnalyzerReflectionTypeOverride?, inheritedProtected: bool): ReflectedMemberHandle? {
         // The flags are a LOCAL, not an inline `|`: an inline flag expression does not type as
         // `BindingFlags` at the call site and the instance call declines as unmodeled. That is
         // `AnalyzerIndexAccess.FindReflectedIndexerProperty`'s note, and it holds here too.
         flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
+        if inheritedProtected {
+            flags = flags | BindingFlags.NonPublic
+        }
+
         try {
             property := clrType.GetProperty(memberName, flags)
-            if property != null {
+            if property != null && CompletionReflectionFacts.IsReachableInheritedMember(CompletionReflectionFacts.PropertyAccessibilityLevel(property), inheritedProtected) {
                 return new ReflectedMemberHandle(property, null, null, property.Name, DeclaringTypeText(property.DeclaringType), typeOverride, 1)
             }
 
             field := clrType.GetField(memberName, flags)
-            if field != null {
+            if field != null && CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.LevelOfField(field), inheritedProtected) {
                 return new ReflectedMemberHandle(null, field, null, field.Name, DeclaringTypeText(field.DeclaringType), typeOverride, 1)
             }
 
             matching := new List<MethodInfo>()
             methods := clrType.GetMethods(flags)
             for method in methods {
-                if method.Name == memberName && !method.IsSpecialName {
+                if method.Name == memberName && !method.IsSpecialName && CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.LevelOfMethod(method), inheritedProtected) {
                     matching.Add(method)
                 }
             }
