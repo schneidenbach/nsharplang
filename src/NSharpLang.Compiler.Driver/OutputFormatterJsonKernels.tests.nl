@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 import System.Text.Json
+import NSharpLang.Compiler.Performance
 
 
 // `OutputFormatterJsonKernels`: THE VERSIONED ENVELOPES EVERY `nlc query --json` ANSWER TRAVELS IN.

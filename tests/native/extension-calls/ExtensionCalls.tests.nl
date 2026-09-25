@@ -113,7 +113,7 @@ func CompileNamedExtensionCallFixtureFiles(
     projectYml := "name: " + projectName + "\nversion: 1.0.0\nbackend: il\noutputType: " + outputType + "\ntargetFramework: net10.0\ndependencies:\n  - dll: " + coreLib + "\n  - dll: " + runtimeDll + "\n  - dll: " + linqDll + "\n"
     File.WriteAllText(Path.Combine(fixtureRoot, "project.yml"), projectYml)
 
-    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.Core")
+    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.Driver")
     projectFileParserType := Type.GetType(
         "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.Model"
     )
@@ -228,7 +228,7 @@ func CleanupExtensionCompilation(compilation: ExtensionCallCompilation) {
 
 func RunGenericCallProgram(outputPath: string, workingDirectory: string): ExtensionCallRunResult {
     runnerType := Type.GetType(
-        "NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Core"
+        "NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Driver"
     )
     if runnerType == null {
         throw new InvalidOperationException("The production dotnet runner was not loadable.")

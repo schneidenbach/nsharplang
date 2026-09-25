@@ -133,7 +133,7 @@ func SdkBoundaryCopyRuntime(root: string, destination: string) {
 // SDK's project and `Sdk/` tree are copied into a directory of their own under the system temp root,
 // with the `tools/` payload beside them, and packed there. The payload is Build.Tasks' own output,
 // built in place first in Release - the configuration `dotnet pack` builds - which touches Build.Tasks,
-// Compiler and Compiler.Core but never the Runtime project, and is a no-op when they are current; the
+// Compiler and the compiler's slices but never the Runtime project, and is a no-op when they are current; the
 // copied SDK project is then packed with `NoBuild`, which is how its `None` items pick the copied
 // payload up rather than rebuilding it. Nothing a row CLAIMS changes: each row still writes its own
 // `global.json`, its own `NuGet.config` and its own throwaway `globalPackagesFolder`, and still

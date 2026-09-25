@@ -41,10 +41,12 @@ BOOTSTRAP_DIR="${NSHARP_RESEED_BOOTSTRAP_DIR:-$NSHARP_REPO_ROOT/bootstrap}"
 STAGE_ROOT="${NSHARP_RESEED_STAGE_ROOT:-$NSHARP_REPO_ROOT/artifacts/reseed}"
 STOP_AFTER="${NSHARP_RESEED_STOP_AFTER:-}"
 CORE_PROJECT="src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
-# Every project the Core build compiles with the seed: Core itself and each slice carved out of it,
-# which Core's `project:` dependencies build first. Building CORE_PROJECT builds them all.
-COMPILER_PROJECT_DIRS=("src/NSharpLang.Compiler.Model" "src/NSharpLang.Compiler.Syntax" "src/NSharpLang.Compiler.Core")
-ESTATE_PROJECTS=("src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj" "$CORE_PROJECT")
+# The TOP of the compiler's slice graph: Compiler.Driver, carved out of Core and ABOVE it, takes Core
+# with `project:`, and Core takes the slices below it the same way. Building it builds them all.
+DRIVER_PROJECT="src/NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj"
+# Every project that build compiles with the seed: Driver, Core, and each slice below Core.
+COMPILER_PROJECT_DIRS=("src/NSharpLang.Compiler.Model" "src/NSharpLang.Compiler.Syntax" "src/NSharpLang.Compiler.Core" "src/NSharpLang.Compiler.Driver")
+ESTATE_PROJECTS=("src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj" "$CORE_PROJECT" "$DRIVER_PROJECT")
 SEED_PACKAGES=("NSharpLang.Sdk" "NSharpLang.Runtime")
 
 reseed_absolute_path() {
@@ -215,16 +217,16 @@ reseed_rebuild() {
     for project_dir in "${COMPILER_PROJECT_DIRS[@]}"; do
         nsharp_run rm -rf "$NSHARP_REPO_ROOT/$project_dir/obj" "$NSHARP_REPO_ROOT/$project_dir/bin"
     done
-    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet restore "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$CORE_PROJECT" --force-evaluate -v q
+    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet restore "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$DRIVER_PROJECT" --force-evaluate -v q
     reseed_verify_restored_packages
-    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet build "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$CORE_PROJECT" --no-restore -v q
+    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet build "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$DRIVER_PROJECT" --no-restore -v q
 }
 
 # STEP 8 -- the estate. The seed is only republishable if the compiler it produces still passes the
 # compiler-service tests, and those need their own restore: `NSharpExcludeTests` is evaluated at
 # RESTORE time, so a `dotnet test` after any other build silently runs zero tests and exits 0.
-# Every compiler project whose own directory holds estate rows runs them (Compiler.Syntax carries its
-# own; the rest still sit in Core's slice directories).
+# Every compiler project whose own directory holds estate rows runs them (Compiler.Syntax and
+# Compiler.Driver carry their own; the rest still sit in Core's slice directories).
 reseed_estate() {
     local estate_project
     nsharp_log "Running the compiler-service estate against the new seed"

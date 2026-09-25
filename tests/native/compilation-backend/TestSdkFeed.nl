@@ -288,6 +288,7 @@ func EnumerateSdkFeedInputs(repositoryRoot: string): List<string> {
         Path.Combine(sourceRoot, "NSharpLang.Compiler.Model"),
         Path.Combine(sourceRoot, "NSharpLang.Compiler.Syntax"),
         Path.Combine(sourceRoot, "NSharpLang.Compiler.Core"),
+        Path.Combine(sourceRoot, "NSharpLang.Compiler.Driver"),
         Path.Combine(sourceRoot, "NSharpLang.Compiler"),
         Path.Combine(sourceRoot, "NSharpLang.Build.Tasks"),
         Path.Combine(sourceRoot, "NSharpLang.Runtime"),

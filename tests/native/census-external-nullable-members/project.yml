@@ -8,5 +8,6 @@ dependencies:
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Model.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Syntax.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Driver.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/xunit.runner.utility.netcoreapp10.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/xunit.abstractions.dll

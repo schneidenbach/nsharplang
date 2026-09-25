@@ -635,7 +635,7 @@ class MultiFileCompiler {
         }
         isExecutable := ColumnarEmissionPlanner.IsExecutableOutput(outputType)
         ColumnarDeclineTrace.Reset()
-        let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput? = null
+        let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput = null
         if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out program)) {
             return false
         }

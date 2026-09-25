@@ -197,9 +197,9 @@ func ResolverContainsPath(paths: IEnumerable<string>, target: string): bool {
 }
 
 func ResolverOwnerType(): Type {
-    owner := Type.GetType("NSharpLang.Cli.CompilationReferenceResolver, NSharpLang.Compiler.Core")
+    owner := Type.GetType("NSharpLang.Cli.CompilationReferenceResolver, NSharpLang.Compiler.Driver")
     if owner == null {
-        throw new InvalidOperationException("The N# CompilationReferenceResolver owner was not loadable from Compiler Core.")
+        throw new InvalidOperationException("The N# CompilationReferenceResolver owner was not loadable from Compiler.Driver.")
     }
     return owner
 }

@@ -10,3 +10,4 @@ dependencies:
   - project: ../../fixtures/census-external-nullability-library/project.yml
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Model.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Driver.dll

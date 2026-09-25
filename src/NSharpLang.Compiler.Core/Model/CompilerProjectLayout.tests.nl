@@ -6,9 +6,10 @@ import System.IO
 
 // THE COMPILER'S OWN PROJECTS, READ THROUGH ITS SLICE LAYOUT.
 //
-// Compiler.Core is carved into slice projects lowest first (`src/NSharpLang.Compiler.Model` and
-// `src/NSharpLang.Compiler.Syntax` are carved), and Core reaches every carved slice through the
-// `project:` dependencies of its project.yml, transitively.
+// Compiler.Core is carved into slice projects (`src/NSharpLang.Compiler.Model` and
+// `src/NSharpLang.Compiler.Syntax` below it, `src/NSharpLang.Compiler.Driver` above it), and the top
+// slice, Driver, reaches every other one -- Core included -- through the `project:` dependencies of
+// its project.yml, transitively.
 // A row that reads the compiler's own source or build output finds it by following that graph, never
 // by assuming it sits under Core: a file carved into a slice project is still the compiler's, and a
 // row that looks only under Core stops seeing it -- or, worse, reads a stale copy left behind.
@@ -31,12 +32,12 @@ func CompilerLayoutRepositoryRoot(): string {
     throw new InvalidOperationException("Could not locate the repository root above the estate's output directory.")
 }
 
-// Compiler.Core's project directory first, then every project its project.yml reaches through a
-// `project:` dependency, transitively, each once.
+// The top slice's project directory first (Compiler.Driver), then every project its project.yml
+// reaches through a `project:` dependency, transitively, each once.
 func CompilerProjectDirectories(): List<string> {
-    core := Path.GetFullPath(Path.Combine(Path.Combine(CompilerLayoutRepositoryRoot(), "src"), "NSharpLang.Compiler.Core"))
+    top := Path.GetFullPath(Path.Combine(Path.Combine(CompilerLayoutRepositoryRoot(), "src"), "NSharpLang.Compiler.Driver"))
     directories := new List<string>()
-    directories.Add(core)
+    directories.Add(top)
     index := 0
     while index < directories.Count {
         directory := directories[index]

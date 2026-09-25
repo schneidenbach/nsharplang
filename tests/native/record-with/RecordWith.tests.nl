@@ -120,7 +120,7 @@ func CompileRecordWithFixture(source: string): RecordWithFixtureResult {
     Directory.CreateDirectory(fixtureRoot)
     File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), source)
 
-    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.Core")
+    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.Driver")
     projectConfigType := Type.GetType(
         "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Model"
     )

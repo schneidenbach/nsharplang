@@ -5,7 +5,7 @@ import System.Reflection
 
 test "the SDK config task has one N# production owner and its exact MSBuild surface" {
     owner := SdkTaskOwnerType("NSharpLang.Build.Tasks.LoadProjectConfig")
-    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Core"
+    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Driver"
     assert Type.GetType("NSharpLang.Build.Tasks.LoadProjectConfig, NSharpLang.Build.Tasks") == null
     legacyAssembly := SdkTaskLegacyAssembly()
     assert !Object.ReferenceEquals(owner.get_Assembly(), legacyAssembly)

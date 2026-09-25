@@ -36,9 +36,9 @@ func EmitTaskRequiredString(value: string?, description: string): string {
 
 func EmitTaskOwnerType(): Type {
     fixtureDirectory := Path.GetDirectoryName(typeof(SdkBoundaryRun).get_Assembly().get_Location()) ?? ""
-    assemblyPath := Path.Combine(fixtureDirectory, "NSharpLang.Compiler.Core.dll")
+    assemblyPath := Path.Combine(fixtureDirectory, "NSharpLang.Compiler.Driver.dll")
     if !File.Exists(assemblyPath) {
-        throw new InvalidOperationException("The Compiler Core fixture dependency was not found at " + assemblyPath)
+        throw new InvalidOperationException("The Compiler.Driver fixture dependency was not found at " + assemblyPath)
     }
     assembly := Assembly.LoadFile(assemblyPath)
     return EmitTaskRequireType(assembly.GetType("NSharpLang.Build.Tasks.EmitIlAssembly"), "N# EmitIlAssembly owner")
@@ -55,9 +55,9 @@ func EmitTaskLegacyAssembly(): Assembly {
 
 func SdkTaskOwnerType(fullName: string): Type {
     fixtureDirectory := Path.GetDirectoryName(typeof(SdkBoundaryRun).get_Assembly().get_Location()) ?? ""
-    assemblyPath := Path.Combine(fixtureDirectory, "NSharpLang.Compiler.Core.dll")
+    assemblyPath := Path.Combine(fixtureDirectory, "NSharpLang.Compiler.Driver.dll")
     if !File.Exists(assemblyPath) {
-        throw new InvalidOperationException("The Compiler Core fixture dependency was not found at " + assemblyPath)
+        throw new InvalidOperationException("The Compiler.Driver fixture dependency was not found at " + assemblyPath)
     }
     assembly := Assembly.LoadFile(assemblyPath)
     return EmitTaskRequireType(assembly.GetType(fullName), "N# " + fullName + " owner")
@@ -128,7 +128,7 @@ func EmitTaskRequiredPrivateMethod(name: string, parameterCount: int): MethodInf
     return selected
 }
 
-// The reference-assembly writer is the Compiler Core owner the Cecil mechanics moved to; its rows
+// The reference-assembly writer is the Compiler.Driver owner the Cecil mechanics moved to; its rows
 // reach it exactly the way the task's rows reach the task.
 func EmitTaskReferenceWriterType(): Type {
     return SdkTaskOwnerType("NSharpLang.Compiler.ColumnarReferenceAssemblyWriter")

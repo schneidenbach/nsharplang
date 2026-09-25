@@ -181,8 +181,8 @@ func DevSinceWords(run: ProcessRun): string {
 }
 
 test "dev since selects each Compiler.Core slice directory's own subsystem" {
-    slices: string[] = ["Semantics", "Backend.Plan", "Backend.Emit", "CodeIntel", "Tooling", "Driver"]
-    expected: string[] = ["Analyzer estate", "Columnar estate", "Columnar estate", "LanguageServer completion doc estate query", "estate", "cli daemon estate"]
+    slices: string[] = ["Semantics", "Backend.Plan", "Backend.Emit", "CodeIntel", "Tooling"]
+    expected: string[] = ["Analyzer estate", "Columnar estate", "Columnar estate", "LanguageServer completion doc estate query", "estate"]
     index := 0
     while index < slices.Length {
         run := DevSinceRun("src/NSharpLang.Compiler.Core/" + slices[index] + "/Probe.nl")
@@ -223,6 +223,20 @@ test "dev since selects the carved Compiler.Syntax project's subsystem, and runs
     }
 }
 
+test "dev since selects the carved Compiler.Driver project's subsystem, and runs everything for its build configuration" {
+    run := DevSinceRun("src/NSharpLang.Compiler.Driver/Probe.nl")
+    assert run.ExitCode == 0, run.Report()
+    assert DevSinceWords(run) == "cli daemon estate", "selected '" + DevSinceWords(run) + "': " + run.Report()
+    assert !run.Stderr.Contains("EVERYTHING (fail-safe)"), run.Report()
+
+    for configuration in ["project.yml", "NSharpLang.Compiler.Driver.csproj", "global.json"] {
+        configured := DevSinceRun("src/NSharpLang.Compiler.Driver/" + configuration)
+        assert configured.ExitCode == 0, configuration + ": " + configured.Report()
+        assert configured.Stderr.Contains("Change-aware selection: EVERYTHING (fail-safe). Triggers:"), configuration + ": " + configured.Report()
+        assert configured.Stderr.Contains("src/NSharpLang.Compiler.Driver/" + configuration + " (Compiler.Driver build config)"), configuration + ": " + configured.Report()
+    }
+}
+
 test "dev since still runs everything for a Compiler.Core file outside every slice directory" {
     run := DevSinceRun("src/NSharpLang.Compiler.Core/Stray.nl")
 
@@ -235,6 +249,7 @@ test "dev list names the slice directories and the carved projects that hold est
     run := Run(BashLaunch("scripts/dev.sh --list", 60000))
 
     assert run.ExitCode == 0, run.Report()
-    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices: Backend.Emit Backend.Plan CodeIntel Driver Model Semantics Tooling)"), run.Report()
+    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices: Backend.Emit Backend.Plan CodeIntel Model Semantics Tooling)"), run.Report()
     assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Syntax/*.tests.nl (run with --estate)"), run.Report()
+    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Driver/*.tests.nl (run with --estate)"), run.Report()
 }

@@ -129,7 +129,7 @@ func PgCompilerType(): Type {
 }
 
 func PgExamplesType(): Type {
-    examplesType := Type.GetType("NSharpLang.Playground.PlaygroundExamples, NSharpLang.Compiler.Core")
+    examplesType := Type.GetType("NSharpLang.Playground.PlaygroundExamples, NSharpLang.Compiler.Driver")
     if examplesType == null {
         throw new InvalidOperationException("The production playground examples class was not loadable.")
     }
@@ -149,7 +149,7 @@ func PgNewCompiler(): object {
 }
 
 func PgFileType(): Type {
-    fileType := Type.GetType("NSharpLang.Playground.PlaygroundFile, NSharpLang.Compiler.Core")
+    fileType := Type.GetType("NSharpLang.Playground.PlaygroundFile, NSharpLang.Compiler.Driver")
     if fileType == null {
         throw new InvalidOperationException("The production playground file record was not loadable.")
     }

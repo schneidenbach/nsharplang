@@ -51,9 +51,9 @@ func ResolverQuote(value: string): string {
 }
 
 func ResolverRunProcess(fileName: string, arguments: string, workingDirectory: string): ResolverRun {
-    runnerType := Type.GetType("NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Core")
+    runnerType := Type.GetType("NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Driver")
     if runnerType == null {
-        throw new InvalidOperationException("The N# DotnetRunner owner was not loadable from Compiler Core.")
+        throw new InvalidOperationException("The N# DotnetRunner owner was not loadable from Compiler.Driver.")
     }
     methods := runnerType.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly)
     runProcess: MethodInfo? = null
@@ -265,9 +265,10 @@ func ResolverWriteFacadeInteropFixture(scratch: string, compilerOutput: string):
     producerDll := Path.Combine(producerOutput, "FacadeInterop.Library.dll")
     compilerDll := Path.Combine(compilerOutput, "Compiler.dll")
     coreDll := Path.Combine(compilerOutput, "NSharpLang.Compiler.Core.dll")
+    driverDll := Path.Combine(compilerOutput, "NSharpLang.Compiler.Driver.dll")
     ResolverWrite(
         Path.Combine(consumerRoot, "project.yml"),
-        "name: FacadeInterop.Consumer\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: Consumer.nl\ndependencies:\n  - dll: " + producerDll + "\n  - dll: " + compilerDll + "\n  - dll: " + coreDll + "\n"
+        "name: FacadeInterop.Consumer\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: Consumer.nl\ndependencies:\n  - dll: " + producerDll + "\n  - dll: " + compilerDll + "\n  - dll: " + coreDll + "\n  - dll: " + driverDll + "\n"
     )
     ResolverWrite(
         Path.Combine(consumerRoot, "Consumer.nl"),

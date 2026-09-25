@@ -89,7 +89,7 @@ func EmitterCanonicalDecodedSource(source: string): string {
 }
 
 func EmitterCanonicalCompilerType(): Type {
-    owner := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.Core")
+    owner := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.Driver")
     if owner == null {
         throw new InvalidOperationException("The production MultiFileCompiler was not loadable")
     }
@@ -299,7 +299,7 @@ func EmitterCanonicalCompileConfigured(
 
 func EmitterCanonicalApplyCliDefines(config: object, rawDefines: string) {
     defineOwner := Type.GetType(
-        "NSharpLang.Cli.DefineArgumentKernels, NSharpLang.Compiler.Core"
+        "NSharpLang.Cli.DefineArgumentKernels, NSharpLang.Compiler.Driver"
     )
     if defineOwner == null {
         throw new InvalidOperationException("The N# define argument owner was not loadable")
@@ -325,7 +325,7 @@ func EmitterCanonicalApplyCliDefines(config: object, rawDefines: string) {
     }
 
     buildOwner := Type.GetType(
-        "NSharpLang.Cli.BuildCommandKernels, NSharpLang.Compiler.Core"
+        "NSharpLang.Cli.BuildCommandKernels, NSharpLang.Compiler.Driver"
     )
     if buildOwner == null {
         throw new InvalidOperationException("The N# build command owner was not loadable")
@@ -496,7 +496,7 @@ func EmitterCanonicalCleanup(compilation: EmitterCanonicalCompilation) {
 
 func EmitterCanonicalRun(compilation: EmitterCanonicalCompilation): EmitterCanonicalRunResult {
     artifactsType := Type.GetType(
-        "NSharpLang.Compiler.CompilationArtifacts, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.CompilationArtifacts, NSharpLang.Compiler.Driver"
     )
     if artifactsType == null {
         throw new InvalidOperationException("The N# compilation-artifact writer was not loadable")
@@ -514,7 +514,7 @@ func EmitterCanonicalRun(compilation: EmitterCanonicalCompilation): EmitterCanon
     ignoredArtifactResult := writeRuntimeConfig.Invoke(null, artifactArguments)
     _ = ignoredArtifactResult
     runnerType := Type.GetType(
-        "NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Core"
+        "NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Driver"
     )
     if runnerType == null {
         throw new InvalidOperationException("The N# dotnet runner was not loadable")

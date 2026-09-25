@@ -5,7 +5,7 @@ outputType: library
 targetFramework: net10.0
 
 dependencies:
-  - project: ../NSharpLang.Compiler.Core/project.yml
+  - project: ../NSharpLang.Compiler.Driver/project.yml
   - nuget: System.Reflection.MetadataLoadContext
     version: 10.0.5
   - nuget: YamlDotNet

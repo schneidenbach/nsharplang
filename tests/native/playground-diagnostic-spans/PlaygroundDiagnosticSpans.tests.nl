@@ -122,7 +122,7 @@ func PgNewCompiler(): object {
 }
 
 func PgFileType(): Type {
-    fileType := Type.GetType("NSharpLang.Playground.PlaygroundFile, NSharpLang.Compiler.Core")
+    fileType := Type.GetType("NSharpLang.Playground.PlaygroundFile, NSharpLang.Compiler.Driver")
     if fileType == null {
         throw new InvalidOperationException("The production playground file record was not loadable.")
     }

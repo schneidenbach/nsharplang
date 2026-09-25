@@ -122,7 +122,7 @@ Hello from N#!
    defined in an assembly that is not referenced.`
 7. MSBuild continues with the normal .NET pipeline using the emitted assembly, references, and runtime assets.
 
-Every decision in steps 4 and 6 lives in N#. `src/NSharpLang.Compiler.Core/Driver/EmitIlAssembly.nl`
+Every decision in steps 4 and 6 lives in N#. `src/NSharpLang.Compiler.Driver/EmitIlAssembly.nl`
 owns the MSBuild task and Mono.Cecil orchestration, while `SdkEmitTaskKernels.nl` owns its pure
 selection and formatting rules.
 
@@ -140,7 +140,8 @@ Do not add project settings to a hand-authored `.csproj`; fix the SDK/project.ym
 src/
 ├── NSharpLang.Compiler.Model/    # N# compiler model: AST, types, diagnostics, project config
 ├── NSharpLang.Compiler.Syntax/   # N# compiler syntax: lexer, preprocessor, parser kernels, node table
-├── NSharpLang.Compiler.Core/     # N# compiler core and EmitIlAssembly task
+├── NSharpLang.Compiler.Core/     # N# compiler core: analysis, planning, emit, code intelligence, tooling
+├── NSharpLang.Compiler.Driver/   # N# compiler driver: CLI command kernels, MultiFileCompiler, the SDK's MSBuild tasks
 ├── NSharpLang.Build.Tasks/       # C# project-configuration bootstrap tasks
 │   └── NSharpLang.Build.targets
 └── NSharpLang.Sdk/               # MSBuild SDK package

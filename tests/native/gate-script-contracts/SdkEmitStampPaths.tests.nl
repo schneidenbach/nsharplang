@@ -81,10 +81,11 @@ test "splitting the intermediate paths did not relax the emit stamp's content id
 // -- slower, and a different pipeline from the one that compiles the rest of the compiler. And the
 // reseed's clean self-rebuild deletes each project's `obj`/`bin` from its own list: a slice it does
 // not name keeps a `project.assets.json` pinned to the OLD seed, and the rebuild proves nothing about
-// it. Both lists must be exactly Core and the projects Core's project.yml reaches through `project:`.
-func CompilerProjectDirectoriesFromCore(): List<string> {
+// it. Both lists must be exactly the top of the compiler's slice graph -- Compiler.Driver, carved
+// out ABOVE Core -- and the projects its project.yml reaches through `project:`, transitively.
+func CompilerProjectDirectoriesFromDriver(): List<string> {
     directories := new List<string>()
-    directories.Add("src/NSharpLang.Compiler.Core")
+    directories.Add("src/NSharpLang.Compiler.Driver")
     index := 0
     while index < directories.Count {
         projectDirectory := Path.Combine(RepositoryRoot(), directories[index])
@@ -106,9 +107,10 @@ func CompilerProjectDirectoriesFromCore(): List<string> {
 }
 
 test "every compiler project the seed builds is compiled emit-only and cleaned by the reseed" {
-    compilerProjects := CompilerProjectDirectoriesFromCore()
+    compilerProjects := CompilerProjectDirectoriesFromDriver()
     assert compilerProjects.Contains("src/NSharpLang.Compiler.Model"), "Core must reach the carved Compiler.Model through project.yml: " + string.Join(", ", compilerProjects)
     assert compilerProjects.Contains("src/NSharpLang.Compiler.Syntax"), "Core must reach the carved Compiler.Syntax through project.yml: " + string.Join(", ", compilerProjects)
+    assert compilerProjects.Contains("src/NSharpLang.Compiler.Core"), "The carved Compiler.Driver must reach Core through project.yml: " + string.Join(", ", compilerProjects)
 
     targets := ReadSdkFile("Sdk.targets")
     emitOnly := RequireMatch(

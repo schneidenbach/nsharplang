@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System.Collections.Generic
 import System.Text.Json
+import NSharpLang.Compiler.Performance
 
 class OutputFormatterJsonKernels {
     static func CreateWriteIndentedOptions(): JsonSerializerOptions {

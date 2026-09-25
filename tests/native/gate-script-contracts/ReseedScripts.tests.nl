@@ -118,8 +118,8 @@ case "${1:-}" in
     restore_seed_packages
     ;;
   build)
-    if [[ "$*" == *"NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"* ]]; then
-      printf '%s\n' core-build >> "$FAKE_RESEED_TRACE"
+    if [[ "$*" == *"NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj"* ]]; then
+      printf '%s\n' compiler-build >> "$FAKE_RESEED_TRACE"
     fi
     ;;
 esac
@@ -309,7 +309,7 @@ test "reseed compares matching cache bytes in spaced paths before both self-buil
         run := RunReseedFixture(fixture, "match", false)
 
         assert run.ExitCode == 0, run.Report()
-        assert ReseedTraceCount(fixture, "core-build") == 2, run.Report()
+        assert ReseedTraceCount(fixture, "compiler-build") == 2, run.Report()
         assert File.Exists(ReseedCachePackagePath(fixture, "NSharpLang.Sdk"))
         assert File.Exists(ReseedCachePackagePath(fixture, "NSharpLang.Runtime"))
         assert ReseedBytesMatch(File.ReadAllBytes(ReseedBootstrapPackagePath(fixture, "NSharpLang.Sdk")), File.ReadAllBytes(ReseedCachePackagePath(fixture, "NSharpLang.Sdk")))
@@ -329,7 +329,7 @@ test "reseed refuses a restored package whose bytes differ from verified bootstr
         assert run.ExitCode != 0, run.Report()
         assert run.Stderr.Contains("restored NuGet cache package differs from verified bootstrap"), run.Report()
         assert run.Stderr.Contains(ReseedCachePackagePath(fixture, "NSharpLang.Sdk")), run.Report()
-        assert ReseedTraceCount(fixture, "core-build") == 0, run.Report()
+        assert ReseedTraceCount(fixture, "compiler-build") == 0, run.Report()
     } finally {
         DeleteTempDirectory(fixture.Root)
     }
@@ -343,7 +343,7 @@ test "reseed refuses a restored package that is missing from the effective NuGet
         assert run.ExitCode != 0, run.Report()
         assert run.Stderr.Contains("restored NuGet cache package is missing"), run.Report()
         assert run.Stderr.Contains(ReseedCachePackagePath(fixture, "NSharpLang.Runtime")), run.Report()
-        assert ReseedTraceCount(fixture, "core-build") == 0, run.Report()
+        assert ReseedTraceCount(fixture, "compiler-build") == 0, run.Report()
     } finally {
         DeleteTempDirectory(fixture.Root)
     }
@@ -357,7 +357,7 @@ test "reseed refuses a restored package when SHA256 calculation fails" {
         assert run.ExitCode != 0, run.Report()
         assert run.Stderr.Contains("could not calculate SHA256"), run.Report()
         assert run.Stderr.Contains(ReseedCachePackagePath(fixture, "NSharpLang.Sdk")), run.Report()
-        assert ReseedTraceCount(fixture, "core-build") == 0, run.Report()
+        assert ReseedTraceCount(fixture, "compiler-build") == 0, run.Report()
     } finally {
         DeleteTempDirectory(fixture.Root)
     }
@@ -371,7 +371,7 @@ test "reseed refuses an empty SHA256 result for a restored package" {
         assert run.ExitCode != 0, run.Report()
         assert run.Stderr.Contains("SHA256 command returned an invalid digest"), run.Report()
         assert run.Stderr.Contains(ReseedCachePackagePath(fixture, "NSharpLang.Sdk")), run.Report()
-        assert ReseedTraceCount(fixture, "core-build") == 0, run.Report()
+        assert ReseedTraceCount(fixture, "compiler-build") == 0, run.Report()
     } finally {
         DeleteTempDirectory(fixture.Root)
     }
@@ -387,7 +387,7 @@ test "reseed resolves a relative NuGet cache override from its repository root" 
         run := RunReseedFixtureWithPaths(fixture, "match", "pass", false, relativePackages, caller)
 
         assert run.ExitCode == 0, run.Report()
-        assert ReseedTraceCount(fixture, "core-build") == 2, run.Report()
+        assert ReseedTraceCount(fixture, "compiler-build") == 2, run.Report()
         assert File.Exists(ReseedCachePackagePathIn(effectivePackages, "NSharpLang.Sdk")), run.Report()
         assert File.Exists(ReseedCachePackagePathIn(effectivePackages, "NSharpLang.Runtime")), run.Report()
     } finally {
@@ -405,7 +405,7 @@ test "reseed resolves a relative NUGET_PACKAGES root from its repository root" {
         run := RunReseedFixtureWithCacheRoot(fixture, "match", "pass", false, "NUGET_PACKAGES", relativePackages, caller)
 
         assert run.ExitCode == 0, run.Report()
-        assert ReseedTraceCount(fixture, "core-build") == 2, run.Report()
+        assert ReseedTraceCount(fixture, "compiler-build") == 2, run.Report()
         assert File.Exists(ReseedCachePackagePathIn(effectivePackages, "NSharpLang.Sdk")), run.Report()
         assert File.Exists(ReseedCachePackagePathIn(effectivePackages, "NSharpLang.Runtime")), run.Report()
     } finally {

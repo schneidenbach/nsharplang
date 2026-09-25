@@ -20,7 +20,7 @@ func ResolverAssertPublicMethod(owner: Type, name: string, parameterTypes: Type[
 
 test "CompilationReferenceResolver has exactly the two cross assembly entries and keeps its HTTP state private" {
     owner := ResolverOwnerType()
-    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Core"
+    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Driver"
     assert Type.GetType("NSharpLang.Cli.CompilationReferenceResolver, NSharpLang.Cli") == null
     assert owner.get_IsPublic()
     assert owner.get_IsSealed()

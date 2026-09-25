@@ -5,7 +5,7 @@ import System.Reflection
 
 test "the SDK emit task has one N# production owner and its exact MSBuild surface" {
     owner := EmitTaskOwnerType()
-    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Core"
+    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Driver"
     assert Type.GetType("NSharpLang.Build.Tasks.EmitIlAssembly, NSharpLang.Build.Tasks") == null
     legacyAssembly := EmitTaskLegacyAssembly()
     assert !Object.ReferenceEquals(owner.get_Assembly(), legacyAssembly)
@@ -167,11 +167,11 @@ test "all reference mutation and Cecil mechanics stay private to the N# task" {
 }
 
 // THE CECIL MECHANICS MOVED, AND THEY MOVED WHOLE. Every owner scan, rescope and assembly-reference
-// operation the task used to perform is now the reference-assembly WRITER's, in Compiler Core,
+// operation the task used to perform is now the reference-assembly WRITER's, in Compiler.Driver,
 // because a reference assembly is the compiler's output and not a build task's rewrite of one.
 test "the reference-assembly writer owns the surface pruning and the Cecil mechanics" {
     writer := EmitTaskReferenceWriterType()
-    assert writer.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Core"
+    assert writer.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Driver"
     assert writer.get_IsPublic()
 
     publicMethods := writer.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly)

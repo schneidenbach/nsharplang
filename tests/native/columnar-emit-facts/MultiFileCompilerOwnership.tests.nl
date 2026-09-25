@@ -180,7 +180,7 @@ func MultiFileOwnerCompileWithPipelineFlags(
 // controls cover the remaining public metadata, live-state and pre-emission failure gaps.
 test "the N# MultiFileCompiler owns the exact public surface without a Compiler fallback" {
     owner := EmitterCanonicalCompilerType()
-    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Core"
+    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Driver"
     assert Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler") == null
     assert owner.get_IsPublic()
     assert !owner.get_IsSealed()
@@ -196,13 +196,13 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
         BindingFlags.Public | BindingFlags.NonPublic
     ) == null
     assert Type.GetType(
-        "NSharpLang.Compiler.MultiFileCompilerEmissionThreadState, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.MultiFileCompilerEmissionThreadState, NSharpLang.Compiler.Driver"
     ) == null
     assert Type.GetType(
-        "NSharpLang.Compiler.MultiFileCompilerDefaults, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.MultiFileCompilerDefaults, NSharpLang.Compiler.Driver"
     ) == null
     assert Type.GetType(
-        "NSharpLang.Compiler.MultiFileCompilerSystemsReport, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.MultiFileCompilerSystemsReport, NSharpLang.Compiler.Driver"
     ) == null
 
     configType := MultiFileOwnerRequiredType(

@@ -173,7 +173,7 @@ class ExternalAssemblyScan {
     // rest of the project's closure resolves it out of that context's own cache.
     //
     // THE CONTEXT THE DEFAULT ONE IS **NOT** ALLOWED TO STAND IN FOR IS THE COMPILER'S OWN. Under
-    // MSBuild the build task IS `NSharpLang.Compiler.Core.dll`, loaded into MSBuild's task context,
+    // MSBuild the build task IS `NSharpLang.Compiler.Driver.dll`, loaded into MSBuild's task context,
     // and a project that references the compiler (`src/NSharpLang.Playground`,
     // `src/NSharpLang.TestHost`) has a DIFFERENT build of that same identity on its reference path.
     // Answering that path with the task's own assembly leaves the project's `Compiler.dll` -- which
@@ -955,10 +955,11 @@ class ExternalAssemblyScan {
 
     // THE COMPILER IS SEVERAL ASSEMBLIES. Compiler.Core is being carved into slice projects, lowest
     // first, and each slice is a separately built assembly of the one compiler: this one
-    // (`NSharpLang.Compiler.Model`), `NSharpLang.Compiler.Syntax` above it, and Core above both.
-    // `Compiler` is the facade over them, not a slice.
+    // (`NSharpLang.Compiler.Model`), `NSharpLang.Compiler.Syntax` above it, Core above both, and
+    // `NSharpLang.Compiler.Driver` -- the command kernels, MultiFileCompiler and the SDK's MSBuild
+    // tasks -- on top. `Compiler` is the facade over them, not a slice.
     static func CompilerSliceAssemblyNames(): string[] {
-        return ["NSharpLang.Compiler.Model", "NSharpLang.Compiler.Syntax", "NSharpLang.Compiler.Core"]
+        return ["NSharpLang.Compiler.Model", "NSharpLang.Compiler.Syntax", "NSharpLang.Compiler.Core", "NSharpLang.Compiler.Driver"]
     }
 
     static func IsCompilerSliceAssemblyName(name: string): bool {

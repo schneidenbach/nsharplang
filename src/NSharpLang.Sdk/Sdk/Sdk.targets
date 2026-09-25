@@ -12,17 +12,17 @@
   <PropertyGroup>
     <!-- The compiler compiles ITSELF emit-only: Compiler Core and every slice carved out of it. Their
          analysis is the self-host front door's job (test-all-core.sh Step 2d), not the seed's. -->
-    <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == '' And ('$(MSBuildProjectName)' == 'NSharpLang.Compiler.Core' Or '$(MSBuildProjectName)' == 'NSharpLang.Compiler.Syntax' Or '$(MSBuildProjectName)' == 'NSharpLang.Compiler.Model')">false</NSharpEmitValidateWithLegacyAnalysis>
+    <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == '' And ('$(MSBuildProjectName)' == 'NSharpLang.Compiler.Driver' Or '$(MSBuildProjectName)' == 'NSharpLang.Compiler.Core' Or '$(MSBuildProjectName)' == 'NSharpLang.Compiler.Syntax' Or '$(MSBuildProjectName)' == 'NSharpLang.Compiler.Model')">false</NSharpEmitValidateWithLegacyAnalysis>
     <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == ''">true</NSharpEmitValidateWithLegacyAnalysis>
     <_NSharpEmitStamp>$(IntermediateOutputPath)nsharp.emit.stamp</_NSharpEmitStamp>
   </PropertyGroup>
 
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectReferences"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll" />
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Driver.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectConfig"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll" />
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Driver.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.EmitIlAssembly"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll" />
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Driver.dll" />
 
   <!-- Apply project.yml in THIS invocation as well as through obj/project.g.props, so direct dotnet builds and
        ProjectReference consumers work even before nlc restore has generated the compatibility props file. -->
@@ -198,7 +198,7 @@
           AfterTargets="CoreCompile"
           BeforeTargets="CopyFilesToOutputDirectory"
           DependsOnTargets="FindReferenceAssembliesForReferences"
-          Inputs="@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);@(ReferencePathWithRefAssemblies);$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll;$(MSBuildThisFileDirectory)../tools/Compiler.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Model.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Syntax.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll"
+          Inputs="@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);@(ReferencePathWithRefAssemblies);$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll;$(MSBuildThisFileDirectory)../tools/Compiler.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Model.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Syntax.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Driver.dll"
           Outputs="$(_NSharpEmitStamp);@(IntermediateAssembly)"
           Condition="'$(EnableNSharpCompilation)' == 'true' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')">
     <ItemGroup>
