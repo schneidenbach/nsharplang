@@ -284,6 +284,13 @@ and Driver reaches Tooling (42 names). What the carve is:
   switch, so until the next republish it compiles Tooling WITH analysis, product and rows; Tooling's
   zero front door is what lets that build pass unchanged (measured: 0 errors on the committed seed as
   on a scratch stage-2 seed packed from the carve).
+Measured edit -> test (`./scripts/dev.sh --estate FormatterConfigTests`, a one-line body edit of
+`FormatterConfig.nl` and its revert, after a warm run): **162 / 166 s** on the pre-carve tree and the
+committed seed (`a1a226991`) -- Core's own and tests-included emits -- **23 / 24 s** on the carve and
+that same committed seed (which compiles Tooling WITH analysis), and **26 / 30 s** on a scratch
+stage-2 seed packed from the carve. A Tooling body edit re-emits only Tooling and Driver above it
+(product-only for the CLI, tests-included for Tooling's rows); Syntax, Core and Driver answer "no row
+matches" in seconds.
 
 ## Data Flow
 
