@@ -702,3 +702,46 @@ test "a parameterless `Finalize` on an UNRELATED slot is an ordinary method" {
     ownSlot := MemberResolutionSourceErrors("namespace P\n\nclass Sweeper {\n    Swept: int\n\n    public func Finalize(): void {\n        Swept = Swept + 1\n    }\n\n    public func Run(): int {\n        this.Finalize()\n        return Swept\n    }\n}\n")
     assert ownSlot.Count == 0
 }
+
+// ── an EXTERNAL generic instantiated over an OPEN type parameter ──────────────────────────────
+//
+// `List<U>` inside `func FirstOf<U>` or `class Mid<U>: List<U>` has no CLR handle for `U`, so neither
+// the exact nor the surrogate conversion answered for it and every member of it resolved to
+// `unknown`. The unknown-member path is lenient, so the free function's wrong return type was never
+// reported at all (the emitter then declined against an empty type), and inside `Mid<U>` the same
+// members were NL303 through `this.`, NL412 as a bare call and NL301 as a bare property. Each row
+// pairs the correct program with a wrong-type TWIN, because "no errors" alone would also be what the
+// lenient path produced: the twin is what proves the member is TYPED, and typed as the spelled `U`.
+
+test "a member of `List<U>` over a FUNCTION's type parameter is typed with the spelled `U`" {
+    typed := MemberResolutionSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nfunc FirstOf<U>(xs: List<U>): U => xs.ToArray()[0]\n\nfunc CountOf<U>(xs: List<U>): int => xs.Count\n")
+    assert typed.Count == 0
+
+    twin := MemberResolutionSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nfunc FirstOf<U>(xs: List<U>): int => xs.ToArray()[0]\n")
+    assert twin.Count == 1
+    assert twin[0] == "Function 'FirstOf' should return int but returns U"
+}
+
+test "inside `class Mid<U>: List<U>` the base's members resolve, and `this.` and the bare spelling agree" {
+    typed := MemberResolutionSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Mid<U>: List<U> {\n    func A(): U => this.ToArray()[0]\n    func B(): U => ToArray()[0]\n    func C(): int => Count\n    func D(): int => this.Count\n}\n")
+    assert typed.Count == 0
+
+    thisTwin := MemberResolutionSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Mid<U>: List<U> {\n    func A(): int => this.ToArray()[0]\n}\n")
+    assert thisTwin.Count == 1
+    assert thisTwin[0] == "Function 'A' should return int but returns U"
+
+    bareTwin := MemberResolutionSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Mid<U>: List<U> {\n    func B(): int => ToArray()[0]\n}\n")
+    assert bareTwin.Count == 1
+    assert bareTwin[0] == "Function 'B' should return int but returns U"
+}
+
+test "a bare call to a CLOSED external base's method reads its type arguments off the base" {
+    // The bare spelling had no receiver to read `T` from, so `ToArray()[0]` inside
+    // `class Names: List<string>` typed as the open `T` while `this.ToArray()[0]` typed as `string`.
+    typed := MemberResolutionSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Names: List<string> {\n    func A(): string => this.ToArray()[0]\n    func B(): string => ToArray()[0]\n}\n")
+    assert typed.Count == 0
+
+    twin := MemberResolutionSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Names: List<string> {\n    func B(): int => ToArray()[0]\n}\n")
+    assert twin.Count == 1
+    assert twin[0] == "Function 'B' should return int but returns string"
+}

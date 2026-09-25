@@ -153,7 +153,7 @@ class AnalyzerClrTypeConversion {
 
         genericType := resolvedType as GenericTypeInfo
         if genericType != null {
-            return ConstructSurrogateGenericType(facts, genericType)
+            return ConstructSurrogateGenericType(facts, genericType, false)
         }
 
         nullableType := resolvedType as NullableTypeInfo
@@ -313,9 +313,42 @@ class AnalyzerClrTypeConversion {
         return CloseGenericDefinition(typeDefinition, genericType.Name, arguments)
     }
 
+    // AN EXTERNAL GENERIC INSTANTIATED OVER AN OPEN TYPE PARAMETER, CLOSED FOR BINDING ONLY.
+    //
+    // `func FirstOf<U>(xs: List<U>)` and `class Mid<U>: List<U>` name a `List<U>` whose `U` has no CLR
+    // handle anywhere in the analysis — it is the parameter the CALLER will fix — so both conversions
+    // above answer null for it, and every member of the instantiation answered `unknown`: the call was
+    // never bound, its result was silently untyped, and the emitter then declined with a return-type
+    // mismatch against an empty type. A type parameter used as a type ARGUMENT is the same situation a
+    // source type is in, and it gets the same surrogate: `object` in that slot, so the definition's
+    // members can be found and a method group bound. The spelled `U` is what the answer carries — the
+    // member arms read off the OPEN definition and the binder rebuilds every signature position from
+    // the spelled receiver — so the `object` never survives into a type the program sees.
+    //
+    // A SEPARATE ENTRY POINT, NOT A WIDER `TryConvertTypeInfoToClrTypeForBinding`. That one also
+    // measures ARGUMENTS for overload applicability, and `List<U>` passed where `List<object>` is
+    // expected is not a conversion the CLR makes; this answer is only ever used where the instantiation
+    // is the RECEIVER whose members are being looked up. A bare `U` still answers null, exactly as
+    // `AnalyzerReflectionArgumentBinder.IsOpenWrittenTypeArgument` expects of a written type argument.
+    func TryConvertOpenInstantiationForBinding(typeInfo: TypeInfo): Type? {
+        facts := wellKnownTypes
+        if facts == null {
+            return null
+        }
+
+        genericType := declarationContext.ResolveDeclaredAlias(typeInfo) as GenericTypeInfo
+        if genericType == null {
+            return null
+        }
+
+        return ConstructSurrogateGenericType(facts, genericType, true)
+    }
+
     // The surrogate half of generic construction. It reads the SMALLER surrogate vocabulary, and
     // every type argument converts through the surrogate entry point rather than the exact one.
-    func ConstructSurrogateGenericType(facts: AnalyzerWellKnownTypes, genericType: GenericTypeInfo): Type? {
+    // `admitOpenTypeParameters` is the receiver-only widening `TryConvertOpenInstantiationForBinding`
+    // asks for; every other caller passes false.
+    func ConstructSurrogateGenericType(facts: AnalyzerWellKnownTypes, genericType: GenericTypeInfo, admitOpenTypeParameters: bool): Type? {
         definition := genericType.GenericDefinition
         candidateDefinition: Type? = null
         if definition == null {
@@ -336,7 +369,7 @@ class AnalyzerClrTypeConversion {
         arguments := new Type[](count)
         index := 0
         while index < count {
-            clrTypeArgument := TryConvertTypeInfoToClrTypeForBinding(genericType.TypeArguments[index])
+            clrTypeArgument := SurrogateTypeArgument(facts, genericType.TypeArguments[index], admitOpenTypeParameters)
             if clrTypeArgument == null {
                 return null
             }
@@ -346,6 +379,45 @@ class AnalyzerClrTypeConversion {
         }
 
         return CloseGenericDefinition(typeDefinition, genericType.Name, arguments)
+    }
+
+    // ONE TYPE ARGUMENT OF A SURROGATE INSTANTIATION. The ordinary surrogate answers first; only when
+    // it cannot, and only when the caller admitted open parameters, does a type parameter — bare, or
+    // nested inside another external generic such as `Dictionary<string, List<U>>` — bind as `object`.
+    func SurrogateTypeArgument(facts: AnalyzerWellKnownTypes, typeArgument: TypeInfo, admitOpenTypeParameters: bool): Type? {
+        converted := TryConvertTypeInfoToClrTypeForBinding(typeArgument)
+        if converted != null || !admitOpenTypeParameters {
+            return converted
+        }
+
+        resolved := declarationContext.ResolveDeclaredAlias(typeArgument)
+        if IsOpenTypeParameter(facts, resolved) {
+            return facts.Object
+        }
+
+        nested := resolved as GenericTypeInfo
+        if nested != null {
+            return ConstructSurrogateGenericType(facts, nested, true)
+        }
+
+        return null
+    }
+
+    // THE ANALYZER SPELLS A TYPE PARAMETER IN SCOPE AS A BARE `SimpleTypeInfo` (see
+    // `AnalyzerScopeStack.DeclareTypeParameter`). Every built-in is spelled that way too, and every one
+    // of them converts through `BuiltInClrType`; the four with no CLR form are excluded by name, and a
+    // name that resolved to nothing is `unknown`, never a parameter.
+    func IsOpenTypeParameter(facts: AnalyzerWellKnownTypes, candidate: TypeInfo): bool {
+        simple := candidate as SimpleTypeInfo
+        if simple == null || BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        if BuiltInTypes.Is(candidate, BuiltInTypes.Null) || BuiltInTypes.Is(candidate, BuiltInTypes.Never) || BuiltInTypes.Is(candidate, BuiltInTypes.Void) {
+            return false
+        }
+
+        return BuiltInClrType(facts, simple) == null
     }
 
     // Closing a definition over converted arguments must stay INSIDE one reflection context. The
@@ -582,6 +654,60 @@ class AnalyzerClrTypeConversion {
             }
 
             current = resolvedBase
+            depth = depth + 1
+        }
+
+        return null
+    }
+
+    // THE EXTERNAL BASE A SOURCE TYPE'S `:` CLAUSE REACHES, AS WRITTEN — the TypeInfo twin of
+    // `TryConvertDeclaredBaseChainToClrType`, and the reason it exists is the one position that walk
+    // cannot express. `class Mid<U>: List<U>` IS a `List<U>`, but `List<U>` has no exact CLR form, so
+    // the CLR walk stepped past it and answered nothing; and even for `class Names: List<string>`,
+    // which it does answer, it hands back a CLR type with the spelling gone. A call on a `Mid<U>`
+    // receiver binds against `List<T>`'s members, and the binder reads `T` off the receiver's SPELLED
+    // type arguments — so the receiver it is given has to be the base as the source wrote it.
+    //
+    // A SOURCE GENERIC receiver (`Mid<int>` written outside the declaration) walks its definition
+    // under the substitution its arguments induce, so the answer is `List<int>` rather than
+    // `List<U>`. The answer is only ever an instantiation the CLR can bind against — exactly or through
+    // `TryConvertOpenInstantiationForBinding` — and a receiver that is not a source type at all, or
+    // whose chain ends without reaching one, answers null. The depth bound is a cyclic `:` clause's
+    // null answer, as it is in the CLR walk above.
+    func TryResolveDeclaredExternalBase(sourceType: TypeInfo): TypeInfo? {
+        current := declarationContext.ResolveDeclaredAlias(sourceType)
+        depth := 0
+        while depth < 64 {
+            owner := current
+            substitution: Dictionary<string, TypeInfo>? = null
+            sourceGeneric := current as GenericTypeInfo
+            if sourceGeneric != null {
+                definition := sourceGeneric.GenericDefinition
+                if definition != null && definition as ReflectionTypeInfo == null {
+                    substitution = declarationContext.CreateGenericSubstitution(definition, sourceGeneric.TypeArguments)
+                    owner = definition
+                }
+            }
+
+            shape := new AnalyzerSourceMemberShape()
+            if !declarationContext.TryGetSourceMemberShape(owner, substitution, out shape) {
+                if depth == 0 {
+                    return null
+                }
+
+                if TryConvertTypeInfoToClrType(current) != null || TryConvertOpenInstantiationForBinding(current) != null {
+                    return current
+                }
+
+                return null
+            }
+
+            declaredBase := shape.BaseType
+            if declaredBase == null {
+                return null
+            }
+
+            current = declarationContext.ResolveDeclaredAlias(declaredBase)
             depth = depth + 1
         }
 

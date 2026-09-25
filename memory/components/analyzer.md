@@ -3094,6 +3094,36 @@ Only PUBLIC inherited members are reachable: `TrySelectAdmittedProperty` and the
 call resolver both filter to public, and N# does not yet model access to an external base's
 `protected` surface. Do not add a base-type allowlist and do not grow a second base walk.
 
+**An external base over an OPEN type parameter (2026-09-25).** `class Mid<U>: List<U>` and
+`func FirstOf<U>(xs: List<U>)` name a `List<U>` whose `U` is a bare `SimpleTypeInfo` with no CLR
+handle, so neither conversion answered and every member resolved to `unknown` — lenient, so a wrong
+return type went unreported and the emitter declined against an empty type. Three pieces fix it:
+
+- `AnalyzerClrTypeConversion.TryConvertOpenInstantiationForBinding` closes such an instantiation with
+  `object` in the type-parameter slots (nested ones too). It is a RECEIVER-only door, separate from
+  `TryConvertTypeInfoToClrTypeForBinding`, because that one also measures ARGUMENTS and `List<U>` is
+  not a `List<object>`. `ResolveMember` tries it after the surrogate, so the existing definition arms
+  (`TryResolveConstructedGenericPropertyOrField`, the surrogate method group) answer with the SPELLED
+  `U`; `AnalyzerCallAnalysis.ConvertReflectionReceiver` tries it for the call's receiver, and the
+  binder reads `T` as `U` off the spelled receiver.
+- `AnalyzerClrTypeConversion.TryResolveDeclaredExternalBase` is the TypeInfo twin of
+  `TryConvertDeclaredBaseChainToClrType`: the external base as WRITTEN (`List<U>`, `List<string>`),
+  substituted through source generic links. `ConvertReflectionReceiver` retargets a source receiver
+  to it, so `this.ToArray()` inside `Mid<U>` binds against `List<U>` rather than `object`.
+- `AnalyzerCallAnalysis.ImplicitReflectionReceiver` gives a BARE call the enclosing instance as its
+  receiver when every candidate is an instance method and the name reads as a member of this type.
+  Without it `ToArray()[0]` inside even the CLOSED `class Names: List<string>` typed as the open `T`.
+
+The emitter needed nothing for members used INSIDE the type (`ColumnarDirectCallPlanner`'s bare and
+`this.` arms already plan against the open base). Rows: `AnalyzerMemberResolution.tests.nl` (each
+with a wrong-type twin) and `tests/native/census-free-function-identity/OpenBaseMembers.tests.nl`.
+
+Still open, in the EMITTER and independent of the above: calling an inherited external member from
+OUTSIDE on a constructed source generic — `m.Add("a")` on `m: Mid<string>` — emits an image the CLR
+refuses (`BadImageFormatException`), and over a value argument (`Mid<int>`) declines at
+`emit.internal-error` "expected 'Type: U', found 'System.Int32'". The member reference is built on the
+open `List<U>` instead of being substituted with the receiver's arguments.
+
 ## Columnar Type Admissibility Over Type Parameters
 
 `ColumnarTypeOfPlanner.IsSupportedType` is the compiler's type-admissibility head. When a type is

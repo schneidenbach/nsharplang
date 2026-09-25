@@ -514,6 +514,29 @@ through the derived type. `base.Member` reaches the base's own implementation no
 `this.Member` and the bare name dispatch virtually. The chain is followed as written, so
 `class Deeper: Names` reaches `List<string>`'s members through `Names` as well.
 
+A generic type can pass its own type parameter through to the base. The inherited members are then
+typed in that parameter, and the bare name and `this.` agree:
+
+```n#
+class Pile<T>: List<T> {
+    func Push(item: T) {
+        Add(item)                  // Add(T)
+    }
+
+    func Peek(): T {
+        return this[Count - 1]     // the base's indexer, typed T
+    }
+
+    func Bottom(): T {
+        return ToArray()[0]        // ToArray() is T[], exactly as this.ToArray() is
+    }
+}
+```
+
+The same holds for a generic function's parameter: inside `func FirstOf<U>(xs: List<U>): U`,
+`xs.ToArray()` is a `U[]`, so returning `xs.ToArray()[0]` from a function declared to return `int`
+is reported as returning `U`.
+
 `: base(...)` chains to the external base's constructor, chosen by the arguments you wrote:
 
 ```n#

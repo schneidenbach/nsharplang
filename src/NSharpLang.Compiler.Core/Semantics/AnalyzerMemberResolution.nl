@@ -264,7 +264,18 @@ class AnalyzerMemberResolution {
                 } else {
                     // Only a SURROGATE CLR type exists. Metadata may still answer for a property or
                     // a field, but the method arm is deliberately not reached through it.
+                    //
+                    // AN OPEN TYPE PARAMETER IN AN ARGUMENT SLOT IS THE SAME CASE. `List<U>` inside
+                    // `func FirstOf<U>` or `class Mid<U>: List<U>` has no CLR handle for `U` either,
+                    // and without this second door every member of it answered `unknown` — which the
+                    // lenient unknown-member path let through untyped. The arms below already read
+                    // off the open definition and substitute the SPELLED arguments, so `ToArray()`
+                    // comes back `U[]` and `Count` comes back `int` without `U` ever needing a handle.
                     bindingClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(current)
+                    if bindingClrType == null {
+                        bindingClrType = clrTypeConversion.TryConvertOpenInstantiationForBinding(current)
+                    }
+
                     if bindingClrType != null {
                         // THE SURROGATE IS A BINDING DEVICE, NOT AN ANSWER. `Comparer<Item>` binds
                         // as `Comparer<object>` because `Item` has no CLR handle while it is being
