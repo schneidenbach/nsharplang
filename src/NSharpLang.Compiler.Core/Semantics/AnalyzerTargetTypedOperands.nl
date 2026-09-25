@@ -392,9 +392,9 @@ class AnalyzerTargetTypedOperands {
         return newNode != null && newNode.Type == null
     }
 
-    // A CAST IS ITS WRITTEN TARGET TYPE, and neither escape changes that except by refusing outright.
-    // The operand's own type is consulted for exactly one thing — whether it is a row view — and is
-    // never the answer.
+    // A CAST IS ITS WRITTEN TARGET TYPE — a SAFE cast its nullable form — and neither escape changes
+    // that except by refusing outright. The operand's own type is consulted for whether it is a row
+    // view and for whether a safe cast can fail, and is never the answer.
     func FinishCast(state: TargetTypedOperandState, castNode: CastExpression) {
         if soaEscapeValue.ReportSoaRowEscapeIfNeeded(castNode.Expression, state.OperandType, "cast") {
             state.ResultType = BuiltInTypes.Unknown
@@ -412,6 +412,14 @@ class AnalyzerTargetTypedOperands {
         reachability := state.Reachability
         if reachability != null {
             reachability.CheckCastExpression(castNode, state.OperandType, state.CastTargetType)
+        }
+
+        // A SAFE CAST IS ITS TARGET MADE NULLABLE unless the conversion cannot fail — a question
+        // about the conversion, so the oracle that answers the cast report answers it too. A walk
+        // driven without one keeps the written target, as every other oracle question does.
+        if castNode.Kind == CastKind.Safe && reachability != null {
+            state.ResultType = reachability.SafeCastResultType(state.OperandType, state.CastTargetType)
+            return
         }
 
         state.ResultType = state.CastTargetType

@@ -109,14 +109,23 @@ class AnalyzerFieldInitializerRules {
             return
         }
 
+        // Only a class or a record has an instance a field initializer could reach into; each branch
+        // reads its own type, so neither dereferences the other's maybe-null `as` result.
         declaringType := scopes.CurrentTypeScope()
+        declaredMembers: DeclaredMemberInfo[] = []
+        primaryParameters: ParameterDeclarationInfo[] = []
         classType := declaringType as ClassTypeInfo
         recordType := declaringType as RecordTypeInfo
-        if classType == null && recordType == null {
+        if classType != null {
+            declaredMembers = classType.DeclaredMembers
+            primaryParameters = classType.PrimaryConstructorParameters
+        } else if recordType != null {
+            declaredMembers = recordType.DeclaredMembers
+            primaryParameters = recordType.PrimaryConstructorParameters
+        } else {
             return
         }
 
-        declaredMembers := classType != null ? classType.DeclaredMembers : recordType.DeclaredMembers
         instanceMemberNames := new HashSet<string>(StringComparer.Ordinal)
         for member in declaredMembers {
             if !member.IsStatic {
@@ -129,7 +138,6 @@ class AnalyzerFieldInitializerRules {
         // before the object is, which is why C# lets a record's positional parameters appear in a
         // field initializer and why `class Box(value: int) { Doubled: int = value * 2 }` is fine.
         shadowedNames := new HashSet<string>(StringComparer.Ordinal)
-        primaryParameters := classType != null ? classType.PrimaryConstructorParameters : recordType.PrimaryConstructorParameters
         for parameter in primaryParameters {
             shadowedNames.Add(parameter.Name)
         }

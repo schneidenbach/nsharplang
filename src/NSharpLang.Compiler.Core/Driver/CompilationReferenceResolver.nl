@@ -250,15 +250,16 @@ sealed class CompilationReferenceResolver {
     private static func FormatCompilerDiagnostics(errors: IEnumerable<CompilerError>): string[] {
         formattedDiagnostics := new List<string>()
         errorEnumerator := errors.GetEnumerator()
-        let errorEnumeratorObject: object = errorEnumerator
-        movement := errorEnumeratorObject as System.Collections.IEnumerator
+        // `MoveNext` is declared on the non-generic interface every `IEnumerator<T>` extends, so the
+        // enumerator is read through that one: an upcast, which cannot fail.
+        movement := errorEnumerator as System.Collections.IEnumerator
         try {
             while movement.MoveNext() {
                 error := errorEnumerator.get_Current()
                 formattedDiagnostics.Add(error.Format(false))
             }
         } finally {
-            disposable := errorEnumeratorObject as IDisposable
+            disposable := errorEnumerator as IDisposable
             if disposable != null {
                 disposable.Dispose()
             }
@@ -677,6 +678,9 @@ sealed class CompilationReferenceResolver {
         try {
             while enumerator.MoveNext() {
                 element := enumerator.get_Current() as XElement
+                if element == null {
+                    continue
+                }
                 elementName := element.Name
                 elementLocalName := elementName.LocalName
                 if elementLocalName == localName {
@@ -702,6 +706,9 @@ sealed class CompilationReferenceResolver {
         try {
             while enumerator.MoveNext() {
                 element := enumerator.get_Current() as XElement
+                if element == null {
+                    continue
+                }
                 elementName := element.Name
                 elementLocalName := elementName.LocalName
                 if elementLocalName == localName {
@@ -737,6 +744,9 @@ sealed class CompilationReferenceResolver {
         try {
             while groupElements.MoveNext() {
                 group := groupElements.get_Current() as XElement
+                if group == null {
+                    continue
+                }
                 groupName := group.Name
                 groupLocalName := groupName.LocalName
                 if groupLocalName == "group" {

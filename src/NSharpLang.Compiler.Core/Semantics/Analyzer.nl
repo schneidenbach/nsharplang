@@ -1960,7 +1960,7 @@ class Analyzer: IDisposable {
                 // An argument's target comes from its parameter, never the enclosing call's result.
                 previousArgumentTarget := Ambient.EnterExpectedType(step.CarriedType)
                 try {
-                    answer = AnalyzeExpressionWithExpectedType(step.Node, step.CarriedType, step.Flag)
+                    answer = AnalyzeArgumentValue(step.Node, step.CarriedType, step.Flag)
                 } finally {
                     Ambient.ExitExpectedType(previousArgumentTarget)
                 }
@@ -2015,6 +2015,24 @@ class Analyzer: IDisposable {
         } finally {
             Ambient.ExitExpectedType(previousExpectedType)
             Ambient.ExitAllowUnboundCallableReference(previousAllowUnboundCallableReference)
+        }
+        return result
+    }
+
+    // AN ARGUMENT IS A READ OF ITS OWN VALUE, WHEREVER ITS CALL SITS. The left operand of `??` and an
+    // assignment target are walked with the flow type suppressed, because what they denote is the
+    // declared storage — but the suppression was inherited by every argument nested inside them, so
+    // `Take(literal) ?? fallback` read a narrowed `literal` as the `Lit?` it was declared with and
+    // reported NL202 against the very check that proved it, while `x := Take(literal)` on the line
+    // before did not. The suppression belongs to the operand, not to the values its calls consume.
+    private func AnalyzeArgumentValue(expression: Expression, expectedType: TypeInfo?, allowUnboundCallableReference: bool): TypeInfo {
+        previousSuppressFlowType := NullFlow.SuppressFlowType
+        NullFlow.SetSuppressFlowType(false)
+        result: TypeInfo = null
+        try {
+            result = AnalyzeExpressionWithExpectedType(expression, expectedType, allowUnboundCallableReference)
+        } finally {
+            NullFlow.SetSuppressFlowType(previousSuppressFlowType)
         }
         return result
     }
@@ -2114,7 +2132,7 @@ class Analyzer: IDisposable {
                 answer = AnalyzeExpression(step.Node)
             }
             if kind == 2 {
-                answer = AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
+                answer = AnalyzeArgumentValue(step.Node, step.ExpectedType, false)
             }
             Construction.Supply(state, answer)
             step = Construction.NextStep(state)

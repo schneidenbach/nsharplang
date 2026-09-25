@@ -5,6 +5,7 @@ namespace Census.Nullability
 // Every position here states its nullability in source, and the emitter writes it into metadata as
 // `NullableAttribute`. The native project analyses one consumer twice -- with this file in the SAME
 // project, and against this project's built assembly -- and the two must report the same NL202s.
+// `tests/native/census-safe-casts` does the same with consumers that reach these classes through `as`.
 class Node {
     Name: string
 

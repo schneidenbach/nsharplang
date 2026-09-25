@@ -429,8 +429,7 @@ func PatternTypeName(candidate: TypeInfo?): string {
 
 func PatternRenderStep(step: PatternAnalysisRequest): string {
     if step.Kind == 1 {
-        node := step.Node
-        nodeObject := node as object
+        nodeObject: object = must step.Node
         return "expr:" + nodeObject.GetType().Name
     }
 
@@ -451,8 +450,7 @@ func PatternRenderStep(step: PatternAnalysisRequest): string {
         return "scope-"
     }
 
-    nested := step.Pattern
-    nestedObject := nested as object
+    nestedObject: object = must step.Pattern
     return "analyze:" + nestedObject.GetType().Name + ":" + PatternTypeName(step.CarriedType)
 }
 

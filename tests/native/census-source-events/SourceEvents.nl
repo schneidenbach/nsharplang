@@ -129,7 +129,7 @@ class Counter {
 
     func WatchPrices(ticker: Ticker) {
         subscription := on ticker.PriceChanged (sender, args) => {
-            Last = (args as PriceArgs).Amount
+            Last = (must (args as PriceArgs)).Amount
         }
         ticker.Publish(42)
         off subscription

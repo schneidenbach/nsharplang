@@ -551,7 +551,7 @@ test "every reference family resolves through the dispatch, composing inner reso
     elements.Add(new TupleTypeElement(new SimpleTypeReference("string", 3, 12), null))
     tuple := resolver.ResolveType(new TupleTypeReference(elements))
     assert ResolverTypeName(tuple) == "tuple/2"
-    tupleInfo := tuple as TupleTypeInfo
+    tupleInfo := must (tuple as TupleTypeInfo)
     assert tupleInfo.Elements[0].Name == "first"
     assert ResolverTypeName(tupleInfo.Elements[0].Type) == "simple:int"
     // An unnamed element keeps its null name rather than being given a positional one.
@@ -563,7 +563,7 @@ test "every reference family resolves through the dispatch, composing inner reso
         new FunctionTypeReference(parameterTypes, new SimpleTypeReference("bool", 3, 14))
     )
     assert ResolverTypeName(functionType) == "function/1"
-    assert ResolverTypeName((functionType as FunctionTypeInfo).ReturnType) == "simple:bool"
+    assert ResolverTypeName((must (functionType as FunctionTypeInfo)).ReturnType) == "simple:bool"
 
     // The unmodelled arm answers unknown rather than throwing.
     assert ResolverTypeName(resolver.ResolveType(new TypeReference())) == "unknown"
@@ -626,7 +626,7 @@ test "a locally-declared generic at the wrong arity is NL207, with the count in 
     resolved := resolver.ResolveDeclaredType(new GenericTypeReference("Box", oneArgument, 4, 5))
     assert errors.Count == 1
     assert ResolverTypeName(resolved) == "generic:Box/1"
-    assert (resolved as GenericTypeInfo).GenericDefinition != null
+    assert (must (resolved as GenericTypeInfo)).GenericDefinition != null
 }
 
 test "a NON-generic name given type arguments gets the other NL207 wording" {
@@ -691,7 +691,7 @@ test "a generic reference with no position resolves its arguments and reports no
     // The whole head block — the name probe, the arity table and all three reports — is gated on a
     // real position, so there is no definition and no diagnostic.
     assert ResolverTypeName(resolved) == "generic:Plain/1"
-    assert (resolved as GenericTypeInfo).GenericDefinition == null
+    assert (must (resolved as GenericTypeInfo)).GenericDefinition == null
     assert errors.Count == 0
 }
 
@@ -946,7 +946,7 @@ test "an alias-qualified type resolves to the very same TypeInfo the bare spelli
     recorded := new TypeInfo()
     assert model.TypesByIdentity.TryGetValue("Txt.StringBuilder", out recorded)
     assert (recorded as ReflectionTypeInfo) != null
-    assert (recorded as ReflectionTypeInfo).Type == bare.Type
+    assert (must (recorded as ReflectionTypeInfo)).Type == bare.Type
 }
 
 test "the expansion is the alias ROOT only, so an unknown leaf and an unknown root both stay unresolved" {

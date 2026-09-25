@@ -227,6 +227,22 @@ struct Slot<T> {
 applies only where `null` is a value of the target type — a class, an interface or an array, never a
 plain struct.
 
+Because it can yield `null`, `value as Dog` has the type `Dog?`, and the null-safety rules treat it
+like any other maybe-null value: dereferencing it unchecked is [`NL905`](./errors/NL905.md), and
+passing it where a `Dog` is required is [`NL202`](./errors/NL202.md). Check it first, or use `is`:
+
+```n#
+dog := animal as Dog
+if dog != null {
+    print dog.Bark()          // narrowed: `dog` is a `Dog` here
+}
+
+print (animal as Dog)?.Name ?? "not a dog"
+```
+
+A conversion that cannot fail keeps the operand's own null state: `dog as Animal` and `text as object`
+hand back the reference they were given, so a not-null operand gives a not-null result.
+
 ### 5. Property Patterns
 
 Match based on object properties:

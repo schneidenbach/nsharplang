@@ -81,7 +81,7 @@ test "a member access reports on the member name, located in the line" {
     account: Expression = new MemberAccessExpression(SpanIdentifier("customer", 3, 14), "Account", false, 3, 22)
 
     // The node's own column is the dot at 22; `Account` starts at 23.
-    assert spans.GetMemberNameColumn(account as MemberAccessExpression) == 23
+    assert spans.GetMemberNameColumn(must (account as MemberAccessExpression)) == 23
 }
 
 test "THE MEMBER-COLUMN FALLBACK STEPS ONE PAST `.` AND TWO PAST `?.`" {

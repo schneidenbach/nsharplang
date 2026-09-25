@@ -40,7 +40,7 @@ test "an object array row yields a boxed int, a string and a nested string array
     second := rows[1]
     assert (second[0] as string) == "outline"
     assert second[1].ToString() == "2"
-    nestedSecond := second[2] as string[]
+    nestedSecond := must (second[2] as string[])
     assert nestedSecond.Length == 2
     assert nestedSecond[1] == "Program.nl"
 }

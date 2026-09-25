@@ -433,6 +433,40 @@ test "THE DOOR TABLE — A HARD CAST OVER default OR new() NAMES THE TARGET, EVE
     assert harness.Errors.Count == 0
 }
 
+func TargetTypedSafeCastResult(harness: TargetTypedHarness, operandType: TypeInfo, targetName: string): string {
+    state := harness.Operands.Begin(TargetTypedSafeCast(TargetTypedIdentifier("value", 2, 11), targetName), harness.Reachability)
+    TargetTypedRun(harness, state, TargetTypedOne(operandType))
+    return TargetTypedTypeText(harness.Operands.Result(state))
+}
+
+test "A SAFE CAST IS ITS TARGET MADE NULLABLE UNLESS THE CONVERSION CANNOT FAIL" {
+    harness := TargetTypedDefault()
+
+    // A conversion that may fail answers maybe-null, whatever the operand was.
+    assert TargetTypedSafeCastResult(harness, BuiltInTypes.Object, "string") == "string?"
+    assert TargetTypedSafeCastResult(harness, BuiltInTypes.Null, "string") == "string?"
+
+    // An identity or implicit reference conversion hands back the reference it was given, so the
+    // operand's own null state is the answer.
+    assert TargetTypedSafeCastResult(harness, BuiltInTypes.String, "object") == "object"
+    assert TargetTypedSafeCastResult(harness, BuiltInTypes.String, "string") == "string"
+    assert TargetTypedSafeCastResult(harness, new NullableTypeInfo(BuiltInTypes.String), "object") == "object?"
+
+    // A non-nullable VALUE target has no null to hand back, and an unknown operand is no fact.
+    assert TargetTypedSafeCastResult(harness, BuiltInTypes.Object, "int") == "int"
+    assert TargetTypedSafeCastResult(harness, BuiltInTypes.Unknown, "string") == "string"
+    assert harness.Errors.Count == 0
+
+    // A HARD cast is still its written target, and a walk driven without the conversion oracle keeps
+    // the written target for a safe one too.
+    hard := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("value", 2, 11), "string"), harness.Reachability)
+    TargetTypedRun(harness, hard, TargetTypedOne(BuiltInTypes.Object))
+    assert TargetTypedTypeText(harness.Operands.Result(hard)) == "string"
+    unaided := harness.Operands.Begin(TargetTypedSafeCast(TargetTypedIdentifier("value", 2, 11), "string"))
+    TargetTypedRun(harness, unaided, TargetTypedOne(BuiltInTypes.Object))
+    assert TargetTypedTypeText(harness.Operands.Result(unaided)) == "string"
+}
+
 test "A CAST OVER A ROW VIEW IS REFUSED AND ANSWERS unknown" {
     harness := TargetTypedDefault()
     state := harness.Operands.Begin(TargetTypedHardCast(TargetTypedIdentifier("row", 2, 11), "int"), harness.Reachability)

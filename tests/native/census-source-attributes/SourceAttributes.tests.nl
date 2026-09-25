@@ -15,12 +15,12 @@ func RequiredMethod(name: string): MethodInfo {
 }
 
 func MarkOn(name: string): MarkAttribute {
-    found := RequiredMethod(name).GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (RequiredMethod(name).GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     return found
 }
 
 test "a source-declared attribute on a class carries its positional arguments" {
-    found := typeof(Target).GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (typeof(Target).GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the class"
     assert found.Count == 7
 }
@@ -44,14 +44,14 @@ test "a named argument sets an exported field" {
 }
 
 test "a named argument sets a property through its setter" {
-    found := RequiredMethod("NamedProperty").GetCustomAttribute(typeof(NotedAttribute), false) as NotedAttribute
+    found := must (RequiredMethod("NamedProperty").GetCustomAttribute(typeof(NotedAttribute), false) as NotedAttribute)
     assert found.Note == "through a setter"
 }
 
 // THE WIDTHS ARE THE POINT OF THIS TEST. A blob writes each value at the width its PARAMETER declares,
 // so a wrong width reads back as a different number rather than as an error.
 test "every primitive width round-trips at its declared width" {
-    found := RequiredMethod("Widths").GetCustomAttribute(typeof(WidthsAttribute), false) as WidthsAttribute
+    found := must (RequiredMethod("Widths").GetCustomAttribute(typeof(WidthsAttribute), false) as WidthsAttribute)
     assert found.Flag
     assert found.Letter == 'x'
     assert found.Small == -8
@@ -67,7 +67,7 @@ test "every primitive width round-trips at its declared width" {
 }
 
 test "typeof, a string array and a null reference round-trip" {
-    found := RequiredMethod("TypedArguments").GetCustomAttribute(typeof(TypedAttribute), false) as TypedAttribute
+    found := must (RequiredMethod("TypedArguments").GetCustomAttribute(typeof(TypedAttribute), false) as TypedAttribute)
     assert found.Subject == typeof(Target)
     assert found.Names.Length == 2
     assert found.Names[0] == "a"
@@ -76,14 +76,14 @@ test "typeof, a string array and a null reference round-trip" {
 }
 
 test "typeof of a built-in type names the runtime type" {
-    found := RequiredMethod("BuiltInTypeArgument").GetCustomAttribute(typeof(TypedAttribute), false) as TypedAttribute
+    found := must (RequiredMethod("BuiltInTypeArgument").GetCustomAttribute(typeof(TypedAttribute), false) as TypedAttribute)
     assert found.Subject == typeof(int)
     assert found.Names.Length == 1
     assert found.Note == "kept"
 }
 
 test "a source enum, an external flags enum and a boxed int round-trip" {
-    found := RequiredMethod("Levelled").GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute
+    found := must (RequiredMethod("Levelled").GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute)
     assert found.Level == Level.High
     expectedTargets := AttributeTargets.Method | AttributeTargets.Class
     assert found.Targets == expectedTargets
@@ -92,7 +92,7 @@ test "a source enum, an external flags enum and a boxed int round-trip" {
 }
 
 test "a boxed string argument keeps its own type" {
-    found := RequiredMethod("BoxedString").GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute
+    found := must (RequiredMethod("BoxedString").GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute)
     assert found.Level == Level.Low
     assert found.Targets == AttributeTargets.All
     payload := must found.Payload
@@ -102,34 +102,34 @@ test "a boxed string argument keeps its own type" {
 // A NAMED ARGUMENT DECLARED BY THE BASE is bound by walking the declaration's base chain, which is the
 // only way to reach `Count` from `DerivedMarkAttribute`.
 test "an attribute deriving from a source attribute binds inherited and own named arguments" {
-    found := RequiredMethod("Derived").GetCustomAttribute(typeof(DerivedMarkAttribute), false) as DerivedMarkAttribute
+    found := must (RequiredMethod("Derived").GetCustomAttribute(typeof(DerivedMarkAttribute), false) as DerivedMarkAttribute)
     assert found.Tag == "derived"
     assert found.Count == 3
     assert found.Extra == "own"
 }
 
 test "an attribute deriving from an external attribute base is emitted" {
-    found := RequiredMethod("ExternallyBased").GetCustomAttribute(typeof(ExternallyBasedAttribute), false) as ExternallyBasedAttribute
+    found := must (RequiredMethod("ExternallyBased").GetCustomAttribute(typeof(ExternallyBasedAttribute), false) as ExternallyBasedAttribute)
     assert found.Reason == "because"
 }
 
 test "an attribute on a parameter is emitted on the parameter" {
     parameters := RequiredMethod("WithParameter").GetParameters()
     assert parameters.Length == 1
-    found := parameters[0].GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (parameters[0].GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the parameter"
 }
 
 // THE EXTERNAL RATCHET. Both of these were silently DROPPED from the assembly before source attributes
 // were implemented, because the old writer only knew all-string constructors.
 test "an external attribute with a non-string argument is emitted" {
-    found := RequiredMethod("ExternalTwoArguments").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    found := must (RequiredMethod("ExternalTwoArguments").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute)
     assert found.Message == "gone"
     assert found.IsError
 }
 
 test "an external attribute with only a named argument is emitted" {
-    found := RequiredMethod("ExternalNamedOnly").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    found := must (RequiredMethod("ExternalNamedOnly").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute)
     assert found.DiagnosticId == "NL9999"
 }
 
@@ -178,7 +178,7 @@ test "positional enum arguments preserve their constructor payload" {
 func DefaultedOn(name: string): DefaultedAttribute {
     declared: MethodInfo? = typeof(DefaultCarrier).GetMethod(name)
     method := must declared
-    return method.GetCustomAttribute(typeof(DefaultedAttribute), false) as DefaultedAttribute
+    return must (method.GetCustomAttribute(typeof(DefaultedAttribute), false) as DefaultedAttribute)
 }
 
 // AN OMITTED OPTIONAL ARGUMENT IS WRITTEN AS THE DECLARED DEFAULT. Exact arity used to be required,
@@ -242,7 +242,7 @@ test "the emitted row carries one fixed argument per parameter" {
 test "an int array literal fills a byte array parameter element by element" {
     declared: MethodInfo? = typeof(DefaultCarrier).GetMethod("NarrowedElements")
     method := must declared
-    found := method.GetCustomAttribute(typeof(BytesAttribute), false) as BytesAttribute
+    found := must (method.GetCustomAttribute(typeof(BytesAttribute), false) as BytesAttribute)
     assert found.Values.Length == 3
     assert found.Values[0] == 1
     assert found.Values[1] == 2
@@ -253,7 +253,7 @@ test "an int array literal fills a byte array parameter element by element" {
 test "two array arguments each convert against their own element type" {
     declared: MethodInfo? = typeof(DefaultCarrier).GetMethod("TwoArrays")
     method := must declared
-    found := method.GetCustomAttribute(typeof(BytesAttribute), false) as BytesAttribute
+    found := must (method.GetCustomAttribute(typeof(BytesAttribute), false) as BytesAttribute)
     assert found.Values.Length == 1
     assert found.Values[0] == 1
     assert found.Widths.Length == 2
@@ -267,7 +267,7 @@ test "two array arguments each convert against their own element type" {
 test "an attribute chaining to an external base constructor passes its argument up" {
     declared: MethodInfo? = typeof(DefaultCarrier).GetMethod("Relaxed")
     method := must declared
-    found := method.GetCustomAttribute(typeof(RelaxedAttribute), false) as CompilationRelaxationsAttribute
+    found := must (method.GetCustomAttribute(typeof(RelaxedAttribute), false) as CompilationRelaxationsAttribute)
     assert found.CompilationRelaxations == 8
 }
 
@@ -276,13 +276,13 @@ test "an attribute chaining to an external base constructor passes its argument 
 // TEXT with no declaration position for the attribute reader to scan back from.
 test "an instance field's attribute is emitted on the field row" {
     field := must typeof(FieldCarrier).GetField("Value")
-    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the instance field"
 }
 
 test "a static field's attribute is emitted on the field row" {
     field := must typeof(FieldCarrier).GetField("Shared", BindingFlags.Public | BindingFlags.Static)
-    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the static field"
 }
 
@@ -290,19 +290,19 @@ test "a const field carries both its literal value and its attribute" {
     field := must typeof(FieldCarrier).GetField("Limit", BindingFlags.Public | BindingFlags.Static)
     assert field.IsLiteral
     assert (must field.GetRawConstantValue()).ToString() == "10"
-    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the const"
 }
 
 test "an external attribute on a field is emitted" {
     field := must typeof(FieldCarrier).GetField("Legacy")
-    found := field.GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    found := must (field.GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute)
     assert found.Message == "field went away"
 }
 
 test "a field's attribute carries enum, flags and boxed arguments like any other position" {
     field := must typeof(FieldCarrier).GetField("Described")
-    found := field.GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute
+    found := must (field.GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute)
     assert found.Level == Level.High
     assert found.Targets == AttributeTargets.Field
     payload := must found.Payload
@@ -316,7 +316,7 @@ test "a field the source wrote no attribute on carries none" {
 
 test "a value type's field carries its attribute too" {
     marked := must typeof(FieldPoint).GetField("X")
-    found := marked.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (marked.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the struct field"
 
     plain := must typeof(FieldPoint).GetField("Y")
@@ -326,14 +326,14 @@ test "a value type's field carries its attribute too" {
 test "a property's attribute is emitted on the property row" {
     declared: PropertyInfo? = typeof(Carrier).GetProperty("Described")
     property := must declared
-    found := property.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (property.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the property"
 }
 
 test "a constructor's attribute is emitted on the constructor" {
     constructors := typeof(Carrier).GetConstructors()
     assert constructors.Length == 1
-    found := constructors[0].GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (constructors[0].GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the constructor"
 }
 
@@ -342,7 +342,7 @@ test "inherit true finds an attribute written on the overridden method" {
     overriding := must declared
     own := overriding.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute?
     assert own == null
-    inherited := overriding.GetCustomAttribute(typeof(MarkAttribute), true) as MarkAttribute
+    inherited := must (overriding.GetCustomAttribute(typeof(MarkAttribute), true) as MarkAttribute)
     assert inherited.Tag == "inherited"
 }
 
@@ -351,15 +351,15 @@ test "inherit true finds an attribute written on the overridden method" {
 test "an attribute declaring AllowMultiple is emitted twice" {
     found := RequiredMethod("Tagged").GetCustomAttributes(typeof(TagAttribute), false)
     assert found.Length == 2
-    first := found[0] as TagAttribute
-    second := found[1] as TagAttribute
+    first := must (found[0] as TagAttribute)
+    second := must (found[1] as TagAttribute)
     assert first.Name != second.Name
     assert first.Name == "first" || first.Name == "second"
     assert second.Name == "first" || second.Name == "second"
 }
 
 test "the emitted attribute type carries its own AttributeUsage" {
-    usage := typeof(TagAttribute).GetCustomAttribute(typeof(AttributeUsageAttribute), false) as AttributeUsageAttribute
+    usage := must (typeof(TagAttribute).GetCustomAttribute(typeof(AttributeUsageAttribute), false) as AttributeUsageAttribute)
     assert usage.AllowMultiple
     assert usage.ValidOn == AttributeTargets.Method
 }
@@ -404,7 +404,7 @@ func PositionalParameter(name: string): ParameterInfo {
 }
 
 test "an attribute declared for fields lands on the field a positional parameter declares" {
-    found := PositionalField("Summary").GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute
+    found := must (PositionalField("Summary").GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute)
     assert found.Note == "on the member"
     assert PositionalParameter("Summary").GetCustomAttribute(typeof(MemberOnlyAttribute), false) == null
 }
@@ -422,7 +422,7 @@ test "an attribute declared for both rows lands on the parameter" {
 }
 
 test "an attribute declared for every target lands on the parameter" {
-    found := PositionalParameter("Wide").GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (PositionalParameter("Wide").GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "wide open"
     assert PositionalField("Wide").GetCustomAttribute(typeof(MarkAttribute), false) == null
 }
@@ -432,7 +432,7 @@ test "an attribute declared for every target lands on the parameter" {
 // no parameter, so it lands on the field; `[CompilerGenerated]` is declared for `All` and stays on
 // the parameter the source wrote it on.
 test "an external attribute whose usage excludes parameters lands on the field" {
-    found := PositionalField("Legacy").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    found := must (PositionalField("Legacy").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute)
     assert found.Message == "the field went away"
     assert PositionalParameter("Legacy").GetCustomAttribute(typeof(ObsoleteAttribute), false) == null
 }
@@ -447,7 +447,7 @@ test "an external attribute whose usage admits parameters stays on the parameter
 // prefix and reaches the same row, because `JsonIgnore` is declared for properties and fields and
 // for no parameter.
 test "the shape the census found reaches the member the serializer reads" {
-    found := PositionalField("Ignored").GetCustomAttribute(typeof(JsonIgnoreAttribute), false) as JsonIgnoreAttribute
+    found := must (PositionalField("Ignored").GetCustomAttribute(typeof(JsonIgnoreAttribute), false) as JsonIgnoreAttribute)
     assert found.Condition == JsonIgnoreCondition.WhenWritingDefault
     assert PositionalParameter("Ignored").GetCustomAttribute(typeof(JsonIgnoreAttribute), false) == null
 }
@@ -468,7 +468,7 @@ test "a positional parameter keeps its default beside its attribute" {
 
 test "a class's primary constructor parameter routes the same way" {
     field := must typeof(PositionalCarrier).GetField("seed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-    found := field.GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute
+    found := must (field.GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute)
     assert found.Note == "on the class member"
 
     constructors := typeof(PositionalCarrier).GetConstructors()
@@ -481,7 +481,7 @@ test "a class's primary constructor parameter routes the same way" {
 
 test "a value type's primary constructor parameter routes the same way" {
     field := must typeof(PositionalPoint).GetField("X", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-    found := field.GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute
+    found := must (field.GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute)
     assert found.Note == "on the struct member"
 
     constructors := typeof(PositionalPoint).GetConstructors()
@@ -499,7 +499,7 @@ test "an explicit constructor's parameter carries its attribute" {
     assert constructors.Length == 1
     parameters := constructors[0].GetParameters()
     assert parameters.Length == 2
-    found := parameters[0].GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (parameters[0].GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the constructor parameter"
     assert parameters[1].GetCustomAttribute(typeof(MarkAttribute), false) == null
 }
@@ -517,7 +517,7 @@ test "an enum member's attribute is emitted on the literal field" {
     field := must typeof(Marked).GetField("None", BindingFlags.Public | BindingFlags.Static)
     assert field.IsLiteral
     assert (must field.GetRawConstantValue()).ToString() == "0"
-    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the first member"
 }
 
@@ -526,15 +526,15 @@ test "an enum member carries every attribute written on it" {
     data := field.GetCustomAttributesData()
     assert data.Count == 2
 
-    marked := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    marked := must (field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert marked.Tag == "on the second member"
-    obsolete := field.GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    obsolete := must (field.GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute)
     assert obsolete.Message == "member went away"
 }
 
 test "an enum member's attribute carries enum, flags and boxed arguments like any other field" {
     field := must typeof(Marked).GetField("High", BindingFlags.Public | BindingFlags.Static)
-    found := field.GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute
+    found := must (field.GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute)
     assert found.Level == Level.High
     assert found.Targets == AttributeTargets.Field
     payload := must found.Payload
@@ -548,7 +548,7 @@ test "an enum member the source wrote no attribute on carries none" {
 
 // THE ENUM'S OWN ATTRIBUTES STAY ON THE TYPE, and `[Flags]` still reaches it.
 test "the enum declaration keeps its own attributes beside its members'" {
-    found := typeof(Marked).GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (typeof(Marked).GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the enum"
     assert typeof(Marked).GetCustomAttribute(typeof(FlagsAttribute), false) != null
     combined: Marked = Marked.Low | Marked.High
@@ -572,7 +572,7 @@ test "a string-backed enum member's attribute is emitted on its literal field" {
     field := must textType.GetField("Warm", BindingFlags.Public | BindingFlags.Static)
     assert field.IsLiteral
     assert (must field.GetRawConstantValue()).ToString() == "warm"
-    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the text member"
 
     plain := must textType.GetField("Cool", BindingFlags.Public | BindingFlags.Static)
@@ -587,7 +587,7 @@ test "a nested enum's member carries its attribute and the host still loads" {
     nestedType := (must typeof(EnumHost).GetField("Current")).FieldType
     assert nestedType.IsEnum
     field := must nestedType.GetField("First", BindingFlags.Public | BindingFlags.Static)
-    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    found := must (field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the nested member"
     assert new EnumHost().Label() == "First"
 }

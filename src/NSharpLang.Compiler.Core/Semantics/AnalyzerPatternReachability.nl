@@ -107,6 +107,40 @@ class AnalyzerPatternReachability {
         diagnosticsValue.Report(ErrorCode.InvalidCast, message, span.Line, span.Column, suggestion, span.Length)
     }
 
+    // WHAT `e as T` IS WORTH: `T?`, because `as` answers null when the value is not a `T` — the one
+    // thing that separates it from a hard cast. Typed as the bare `T`, `(a as Dog).Bark()` and
+    // `Take(a as Dog)` into a `Dog` parameter were accepted in silence, and the flow analysis had
+    // nothing to narrow: `r != null` proved a fact nobody had asked for.
+    //
+    // THE OPERAND'S OWN NULL STATE IS KEPT WHEN THE CONVERSION CANNOT FAIL, which is the rule C#'s
+    // nullable analysis applies to the same operator. An identity or implicit reference conversion —
+    // `name as object`, `dog as Animal` — hands back the very reference it was given, so a not-null
+    // operand stays not-null and a maybe-null one stays maybe-null. Every other conversion may fail,
+    // and its result is maybe-null whatever the operand was.
+    //
+    // THREE TARGETS ARE LEFT AS WRITTEN. One already nullable (`o as int?`, `o as string?`) says so
+    // itself; an unknown one has already been reported or is not modeled, and NL905 must never be a
+    // guess; and a non-nullable VALUE target has no null to hand back — the backend refuses it, and
+    // lifting it here would invent a `Nullable<T>` the program never spelled. An UNKNOWN OPERAND is
+    // not a fact either way, so its result is the target as written too.
+    func SafeCastResultType(sourceType: TypeInfo, targetType: TypeInfo): TypeInfo {
+        resolvedTarget := declarationContextValue.ResolveDeclaredAlias(targetType)
+        if BuiltInTypes.IsUnknown(resolvedTarget) || resolvedTarget as NullableTypeInfo != null || !AnalyzerConversionFacts.IsReferenceType(resolvedTarget) {
+            return targetType
+        }
+
+        resolvedSource := declarationContextValue.ResolveDeclaredAlias(sourceType)
+        if BuiltInTypes.IsUnknown(resolvedSource) {
+            return targetType
+        }
+
+        if resolvedSource as NullableTypeInfo == null && !BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) && assignabilityValue.IsAssignable(targetType, sourceType) {
+            return targetType
+        }
+
+        return new NullableTypeInfo(targetType)
+    }
+
     // TRUE MEANS "SOME CONVERSION EXISTS", and everything the analyzer does not fully model is
     // admitted — the same conservatism `IsPatternPossible` opens with, for the same reason.
     func IsCastPossible(sourceType: TypeInfo, targetType: TypeInfo): bool {

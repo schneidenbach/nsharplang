@@ -667,6 +667,28 @@ The over-approximation is deliberate and matches the postcondition machinery bes
 a conditionally-evaluated position (an `&&` right operand, a ternary arm) still records, because the
 author asserted it and the runtime check is real.
 
+### `x as T` is `T?` (census 2026-09-24)
+
+`AnalyzerTargetTypedOperands.FinishCast` types a SAFE cast through
+`AnalyzerPatternReachability.SafeCastResultType`, the conversion oracle the cast report already
+uses: the written target made nullable, so an unchecked dereference is NL905 and a not-null
+parameter, local or return refuses it with NL202, while `!= null`, `== null { return }`, `is T t`,
+`?.` and `??` narrow it exactly as they narrow any `T?`. Three targets stay as written — one already
+nullable, an unknown one, and a non-nullable VALUE target (the backend refuses `as int`; lifting it
+would invent a `Nullable<int>`) — and an unknown OPERAND is no fact either way. A conversion that
+cannot fail keeps the operand's own null state (C#'s rule): `dog as Animal` and `text as object` are
+not-null for a not-null operand and maybe-null for a maybe-null one. A walk driven without the oracle
+(hand-built estate harnesses) keeps the written target. Pinned by `tests/native/census-safe-casts`,
+in one project and against the referenced fixture library.
+
+AN ARGUMENT IS A READ OF ITS OWN VALUE. The left operand of `??` and an assignment target are walked
+with `AnalyzerNullFlow.SuppressFlowType` set, and that suppression used to reach every call and
+constructor ARGUMENT nested inside them, so `Label(node) ?? node.Name` reported NL202 on a `node` the
+enclosing `if` had proved. `Analyzer.AnalyzeArgumentValue` clears it for the argument walk; the
+operand's own root still reads its declared type. Measured through Compiler.Core's front door: the
+lift found 20 unchecked safe-cast uses in Core's own source (one of them this false positive, in
+`ColumnarParserRecovery.FormatAllowValue`), and the rest were fixed in the source.
+
 ### A loop's back edge (census 2026-09-13, §FLOW6)
 
 `AnalyzerLoopCarriedNullFacts` collects every stable path a loop body — and, for a `for`, its update

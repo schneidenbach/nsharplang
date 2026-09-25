@@ -349,7 +349,7 @@ class AnalyzerAssignability {
             sourceIsDeclaredFunction = AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(sourceFunction)
         }
 
-        if sourceIsDeclaredFunction {
+        if sourceFunction != null && sourceIsDeclaredFunction {
             if !assignabilityFacts.CanBindCallableReferenceToExpectedType(resolvedTarget) {
                 return false
             }
