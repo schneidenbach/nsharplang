@@ -42,12 +42,12 @@ separately. Historical allowlist labels below do not establish current completio
 ## Compiler.Core slice directories
 
 `src/NSharpLang.Compiler.Core` is being carved into eight slice projects, lowest first, and ordered so
-a file names only its own slice or a lower one. **S0, S1, S6 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
-`src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Tooling` and `src/NSharpLang.Compiler.Driver`
+a file names only its own slice or a lower one. **S0, S1, S5, S6 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
+`src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling` and `src/NSharpLang.Compiler.Driver`
 are each their own N#-SDK project (one-line csproj, `project.yml`, the SDK's `global.json` pin); Syntax
-takes Model with `project:`, Core takes Syntax, Tooling takes Core, Driver takes Tooling, the `Compiler`
-facade takes Driver, and every consumer builds the Model -> Syntax -> Core -> Tooling -> Driver DAG
-through those edges. The other four are still directories of Core:
+takes Model with `project:`, Core takes Syntax, CodeIntel takes Core, Tooling takes CodeIntel, Driver
+takes Tooling, the `Compiler` facade takes Driver, and every consumer builds the Model -> Syntax -> Core
+-> CodeIntel -> Tooling -> Driver DAG through those edges. The other three are still directories of Core:
 
 | directory | slice | holds |
 |---|---|---|
@@ -56,7 +56,7 @@ through those edges. The other four are still directories of Core:
 | `Semantics/` | S2 | the analyzer, the systems analyzer, flow and nullability |
 | `Backend.Plan/` | S3 | the columnar planners and binding scope, and the metadata-blob writers |
 | `Backend.Emit/` | S4 | `ColumnarIlEmitter` and the IL realizations |
-| `CodeIntel/` | S5 | completion, hover, signature help, code fixes, DocQuery and the Linter |
+| `src/NSharpLang.Compiler.CodeIntel/` (product AND estate) | S5 | completion, hover, signature help, navigation, code fixes, DocQuery and the Linter |
 | `src/NSharpLang.Compiler.Tooling/` (product AND estate) | S6 | the formatter and the JSON output models |
 | `src/NSharpLang.Compiler.Driver/` (product AND estate) | S7 | the CLI command kernels, `MultiFileCompiler`, the reference resolver, and the SDK's three MSBuild tasks |
 
@@ -291,6 +291,49 @@ that same committed seed (which compiles Tooling WITH analysis), and **26 / 30 s
 stage-2 seed packed from the carve. A Tooling body edit re-emits only Tooling and Driver above it
 (product-only for the CLI, tests-included for Tooling's rows); Syntax, Core and Driver answer "no row
 matches" in seconds.
+
+**Compiler.CodeIntel is carved** (2026-09-25, `census/carve-codeintel`), TOP-DOWN like Tooling:
+completion, hover, signature help, navigation, code fixes, the fix applicator, DocQuery and the Linter
+become `src/NSharpLang.Compiler.CodeIntel`, a project ABOVE Core and below Tooling (CodeIntel takes Core
+with `project:` and declares the `System.Reflection.MetadataLoadContext` package its own rows spell;
+Tooling takes CodeIntel; user decision D-A). The top-down measurement found no product reach into
+CodeIntel but 19 estate reaches in 7 rows below it, and one Backend.Plan row that spelled a CodeIntel
+kernel as an assembly-qualified string -- a reach no name graph sees. All were cut in Core first, each
+by moving the row to the slice that can read both sides or by reading a lower slice's owner instead:
+the linter's placeholder door and the source-event rendering and backtick-rule rows moved beside their
+CodeIntel subjects, the analyzer's reference-pack fixtures locate the packs through Model's
+`CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates` rather than DocQuery's discovery, and
+the two resolver rows read Model and Semantics types (`FileResolver`,
+`AnalyzerMemberResolution.TryResolveReflectionPropertyOrField`) instead of CodeIntel ones; the estate's
+upward-reach ceiling fell 160 -> 141. What the carve is:
+- CodeIntel's 173 front-door diagnostics fixed in Core FIRST (Core 1,202 -> 1,029; NL905 118, NL010 24,
+  NL202 15, NL012 11, NL002 4, NL907 1, 146 of them in its estate), so it starts at 0. Two analyzer gaps
+  are routed around with `// COMPILER:` notes: `ref p` over a `&T` parameter is typed `&&T` and refused,
+  so `FixApplicatorEditEngine` forwards its by-ref parameters bare; and `==` between a maybe-null source
+  class value and a non-null one of the same class is refused (`string` is accepted), so
+  `LinterNullCheckPolicy`'s rows narrow first. `TryExtractCompletionPrefix` lost its two unread
+  parameters (its one caller is the facade's `CompletionEngine`), and the `CodeFixProvider` family names
+  the arguments it does not read with a leading underscore;
+- the product (100 files) AND its estate (66) as pure renames, with `excludeTests: true` and its own
+  estate project in dev.sh, Step 3a, reseed step 8 and both CI workflows (Syntax 1,376 + Core 7,238 +
+  Tooling 353 + Driver 708 -> Syntax 1,376 + Core 6,106 + CodeIntel 1,132 + Tooling 353 + Driver 708:
+  9,675/9,675);
+- the SDK packs `tools/NSharpLang.Compiler.CodeIntel.dll` and names it in the emit target's `Inputs` and
+  the emit-only switch; reseed.sh cleans and estate-runs it; `SdkEmitStampPaths` walks Driver -> Tooling
+  -> CodeIntel -> Core; `CompilerSliceAssemblyNames` names it; packages.sh packs it between Core and
+  Tooling (release set, verify-release.py and its test);
+- 43 `dll:` consumers, the NL924 boundary probe's closure and the facade-interop consumer take
+  `NSharpLang.Compiler.CodeIntel.dll`; five assembly-qualified names of CodeIntel types (`Linter`,
+  `LinterConfig`, `ProjectSnapshot` twice, `DocQuery`, `DiagnosticResult`) say
+  `NSharpLang.Compiler.CodeIntel`;
+- Step 2d checks CodeIntel (0) between Core and Tooling; the slice-direction guard counts CodeIntel's
+  product and estate in its own project;
+- the committed seed does not name CodeIntel in its emit-only switch, so until the next republish it
+  compiles CodeIntel WITH analysis, product and rows; its zero front door is what lets that analysis
+  pass. Carving turned one call into a referenced-assembly call that the columnar emitter -- the
+  seed's and the tip's -- declines: a static call taking a `cond ? null : value` argument
+  (`emit.call.static-member-unmodeled`, `ImportEditPlanner.IsNamespaceInScope`; a source callee takes
+  it). The argument is bound to a local with a `// COMPILER:` note until the emitter models it.
 
 ## Data Flow
 

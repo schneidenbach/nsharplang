@@ -373,7 +373,7 @@ section "Step 2d: Self-Host Front Door"
 #
 # EACH PROJECT IS CHECKED AGAINST ITS DEPENDENCIES' BUILT ASSEMBLIES (`nlc check
 # --use-built-references`): Step 2 has just built every `project:` dependency of every project here
-# (the Cli build carries Compiler, Driver, Tooling, Core, Syntax and Model; Playground is built on
+# (the Cli build carries Compiler, Driver, Tooling, CodeIntel, Core, Syntax and Model; Playground is built on
 # its own), so a project's front door measures ITS OWN source and never waits on a dependency's. Before this, a
 # project that referenced Core began its check by compiling Core from source, which cannot succeed
 # while Core's own front door reports anything -- so Compiler, Playground and (once carved) Driver
@@ -392,6 +392,7 @@ else
         "src/NSharpLang.Compiler.Model"
         "src/NSharpLang.Compiler.Syntax"
         "src/NSharpLang.Compiler.Core"
+        "src/NSharpLang.Compiler.CodeIntel"
         "src/NSharpLang.Compiler.Tooling"
         "src/NSharpLang.Compiler.Driver"
         "src/NSharpLang.Compiler"
@@ -507,10 +508,17 @@ else
     # at zero. Measured with the same tip CLI against both trees, the identity diff is zero additions
     # and those 173 removals, every one in a CodeIntel file.
     #
+    # 2026-09-25, Compiler.CodeIntel carved out of Core into its own project, rows included, ABOVE
+    # Core and below Tooling (`census/carve-codeintel`): Model 0, Syntax 0, Core 1,029 (the identity
+    # diff against the pre-carve tree through the same tip CLI is zero additions and zero removals),
+    # CodeIntel 0 (its 166 files, estate included, against built Core), Tooling 0 (now against built
+    # CodeIntel), Driver 0, Compiler 34, Playground 0, Build.Tasks 0.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
         1029
+        0
         0
         0
         34

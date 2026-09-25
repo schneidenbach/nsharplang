@@ -2,7 +2,7 @@
 
 ## Test Suite
 
-**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/<slice>/*.tests.nl` and the carved `src/NSharpLang.Compiler.Syntax/*.tests.nl`, `src/NSharpLang.Compiler.Tooling/*.tests.nl` and `src/NSharpLang.Compiler.Driver/*.tests.nl`, each run through its own project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
+**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/<slice>/*.tests.nl` and the carved `src/NSharpLang.Compiler.Syntax/*.tests.nl`, `src/NSharpLang.Compiler.CodeIntel/*.tests.nl`, `src/NSharpLang.Compiler.Tooling/*.tests.nl` and `src/NSharpLang.Compiler.Driver/*.tests.nl`, each run through its own project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
 
 ## Test Organization
 
@@ -1035,8 +1035,8 @@ build, fixture, or unmapped changes run the full unit suite rather than silently
 narrowing. A Compiler.Core change maps by its SLICE DIRECTORY: the carved
 `src/NSharpLang.Compiler.Syntax/` (product and rows; its `project.yml`, csproj and `global.json`
 run everything), `Backend.Plan/` and `Backend.Emit/` select the estate's `Columnar` rows and the
-columnar native projects, `Semantics/` the `Analyzer` ones, `CodeIntel/` the
-completion/query/doc/LanguageServer ones, the carved `src/NSharpLang.Compiler.Driver/` the
+columnar native projects, `Semantics/` the `Analyzer` ones, the carved
+`src/NSharpLang.Compiler.CodeIntel/` the completion/query/doc/LanguageServer ones, the carved `src/NSharpLang.Compiler.Driver/` the
 cli/daemon ones and the carved `src/NSharpLang.Compiler.Tooling/` the whole estate (each carved
 project's `project.yml`, csproj and `global.json` run everything), and `src/NSharpLang.Compiler.Model/` (the carved
 project holding the AST and shared model every slice reads), Core's `Model/`
