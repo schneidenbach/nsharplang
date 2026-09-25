@@ -238,7 +238,10 @@ test "x" {
     }
 }
 
-test "CompileToIlAssembly_ReceiverStyleGenericFunctionDeclinesInsteadOfCrashing" {
+// `value.ToString()` on a receiver typed `T` used to decline at `emit.call.instance-member-unmodeled`
+// (these two rows pinned that it declined rather than crashed). It is now `constrained. !T; callvirt`
+// over the parameter's address; `tests/native/census-type-parameter-receivers` owns the shapes.
+test "CompileToIlAssembly_ReceiverStyleGenericFunctionCallsObjectMemberOnTypeParameter" {
     compilation := EmitterCanonicalCompileSingle(
         "ReceiverGenericDecline",
         "library",
@@ -249,19 +252,16 @@ func Tag<T>(this value: T, note: string): string {
 """
     )
     try {
-        error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL103")
-        assert !compilation.Succeeded
-        assert EmitterCanonicalErrorText(error, "Message").Contains(
-            "Declined at emit.call.instance-member-unmodeled:",
-            StringComparison.Ordinal
-        )
-        assert EmitterCanonicalErrorText(error, "Message").Contains("'T.ToString'", StringComparison.Ordinal)
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        assert compilation.Errors.Count == 0, EmitterCanonicalDiagnostics(compilation)
     } finally {
         EmitterCanonicalCleanup(compilation)
     }
 }
 
-test "CompileToIlAssembly_ExactReceiverGenericCheckFixtureReportsOneNl103" {
+// The BODY of the same function now emits, so the one decline left is the CALL: a generic receiver-
+// style function called with receiver syntax (`5.Tag("ok")`) is not bound at the call site yet.
+test "CompileToIlAssembly_ExactReceiverGenericCheckFixtureDeclinesOnlyAtTheReceiverStyleCall" {
     compilation := EmitterCanonicalCompile(
         "ReceiverGenericCheck",
         "name: ReceiverGenericCheck\noutputType: exe\ntargetFramework: net10.0",
@@ -283,9 +283,10 @@ func main() { Console.WriteLine(5.Tag("ok")) }
         assert compilation.Errors.Count == 1, EmitterCanonicalDiagnostics(compilation)
         error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL103")
         assert EmitterCanonicalErrorText(error, "Message").Contains(
-            "instance call 'T.ToString'",
+            "instance call 'Int32.Tag'",
             StringComparison.Ordinal
         )
+        assert !EmitterCanonicalErrorText(error, "Message").Contains("'T.ToString'", StringComparison.Ordinal)
         assert EmitterCanonicalErrorText(error, "Message").Contains(
             "Declined at emit.call.instance-member-unmodeled:",
             StringComparison.Ordinal

@@ -5505,3 +5505,33 @@ types). `List<Row>` works because it is a builder-bound CONSTRUCTION and reaches
 its generic DEFINITION; a non-generic source type has no definition to go through. It is the same
 family as the wave-12 `OfType`/`Cast` finding and needs the registry threaded into the resolver, which
 is its own pass.
+
+## A receiver typed by a type parameter calls through `constrained. !T` (2026-09-25)
+
+`stored.ToString()` on a `T` field passed analysis and declined at emit as
+`emit.call.instance-member-unmodeled` ("instance call 'T.ToString' is not modeled"): no tier of
+`ColumnarIlEmitter.TryEmitInstanceCall` answered `object`'s members for a generic parameter, and the
+only type-parameter arm (`TryEmitGenericParameterConstrainedInterfaceCall`) answered SOURCE interface
+constraints only, sat after the `legacyWholeSubtreePlanning` cut-off, was called twice, and always
+called on a spilled COPY.
+
+One selector now answers both member kinds: `TrySelectGenericParameterReceiverMember` asks the
+interface constraints first (a constraint's `Equals(T)` is the better overload for a `T` argument)
+and then `object` through `ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity`, checking
+every argument before anything is emitted. The call is ECMA-335 III.2.1's `constrained. !T; callvirt`
+over a MANAGED POINTER, Roslyn's shape, correct for a value-type and a reference-type argument alike:
+
+* **Storage the receiver owns** is loaded by address at the call site, ahead of `EmitExpression`
+  (`TryEmitGenericParameterReceiverStorageCall`): a local (`ldloca`), a parameter (`ldarga`, or the
+  pointer itself when by-reference), or an instance field DECLARED by the reference type whose body
+  this is (`ldarg.0; ldflda`, the field bound onto the current instantiation by
+  `ColumnarSourceSelfInstantiation.BindField`). A struct `T`'s mutating constraint member therefore
+  mutates that storage, as in C#.
+* **Everything else** — a call result, a `readonly` (`initonly`) field, an inherited field, a field of
+  a struct or closure-display body, a lifted or boxed capture — takes the value path, and
+  `TryEmitGenericParameterConstrainedCall` spills it to a temp and calls through `ldloca`. C# copies
+  a readonly field the same way; an address into one outside a constructor is unverifiable.
+
+`tests/native/census-type-parameter-receivers` runs each shape for value and reference arguments,
+pins the in-place versus copy semantics with a struct counter, and reads the IL bytes of the field and
+parameter shapes.

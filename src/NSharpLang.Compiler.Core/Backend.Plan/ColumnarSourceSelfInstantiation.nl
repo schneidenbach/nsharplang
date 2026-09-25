@@ -88,4 +88,29 @@ class ColumnarSourceSelfInstantiation {
         }
         return rebound
     }
+
+    // THE SAME RULE FOR A FIELD. A `FieldBuilder` on a generic `TypeBuilder` names the field of the
+    // OPEN type, so `ldflda` through it inside `Box<T>`'s own body needs the field of `Box<T>` — the
+    // current instantiation — exactly as a method handle does.
+    static func BindField(field: FieldBuilder): FieldInfo {
+        if field == null {
+            throw new InvalidOperationException("Source self-instantiation field handle cannot be null.")
+        }
+
+        declaringType := field.DeclaringType
+        if declaringType == null {
+            return field
+        }
+
+        ownerType := Of(declaringType)
+        if !ColumnarTypeOfPlanner.IsClosedSourceGeneric(ownerType) {
+            return field
+        }
+
+        rebound := TypeBuilder.GetField(ownerType, field)
+        if rebound == null {
+            throw new InvalidOperationException("TypeBuilder.GetField returned no exact self-instantiated source field.")
+        }
+        return rebound
+    }
 }

@@ -1438,6 +1438,30 @@ intContainer := new Container<int>(42)
 stringContainer := new Container<string>("hello")
 ```
 
+A value typed by a type parameter has every member `object` gives every type — `ToString()`,
+`GetHashCode()`, `Equals(other)` and `GetType()` — plus the members its interface constraints
+declare. One compiled body serves every type argument:
+
+```n#
+class Holder<T> {
+    stored: T
+
+    constructor(value: T) {
+        stored = value
+    }
+
+    func Show(): string => stored.ToString()
+}
+
+new Holder<int>(3).Show()        // "3"
+new Holder<string>("s").Show()   // "s"
+```
+
+The call runs on the receiver's own storage, exactly as C# runs it (`constrained.` over the value's
+address), so a struct argument is never boxed to reach a member it implements, and a struct method
+that changes the struct changes the local, parameter or field it was called on. A `readonly` field and
+a call result are the exceptions: they are copied first, and the method changes the copy.
+
 ### Generic Constraints
 
 A `where` clause constrains a type parameter, on a `class`, `struct`, `record`, `interface` or

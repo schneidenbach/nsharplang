@@ -17517,6 +17517,12 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        // THE SAME RULE FOR A TYPE-PARAMETER VARIABLE, whose `T` may be a struct: its constraint's and
+        // `object`'s members are called through its own address with `constrained. !T`.
+        if (TryEmitGenericParameterReceiverStorageCall(callIdx, receiver, memberName, argCount, out resolvedClrType)) {
+            return true
+        }
+
         // A CALL ON A VALUE-TYPE VARIABLE ACTS ON THE VARIABLE, NOT ON A COPY. A struct's instance
         // method takes `this` as a managed pointer, and that pointer has to be the RECEIVER'S OWN
         // storage. The instance-call arm below spills the receiver VALUE to a temp and calls through
@@ -25334,6 +25340,13 @@ sealed class ColumnarIlEmitter {
             }
         }
 
+        // A TYPE PARAMETER'S MEMBERS — its interface constraints' and `System.Object`'s — through
+        // `constrained. !T`. It sits with the other INSTANCE tiers, ahead of every extension tier,
+        // because an instance member of the receiver wins against an extension of the same name.
+        if (TryEmitGenericParameterConstrainedCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
         if (!legacyWholeSubtreePlanning) {
             return false
         }
@@ -25386,10 +25399,6 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        if (receiverType.IsGenericParameter && TryEmitGenericParameterConstrainedInterfaceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
-            return true
-        }
-
         if (TryEmitContextualExtensionCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
@@ -25403,10 +25412,6 @@ sealed class ColumnarIlEmitter {
         }
 
         if (TryEmitExtensionStaticMethodCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
-            return true
-        }
-
-        if (receiverType.IsGenericParameter && TryEmitGenericParameterConstrainedInterfaceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 
@@ -26547,10 +26552,31 @@ sealed class ColumnarIlEmitter {
 
     private func TryConvertAlreadyEmittedValue(sourceType: Type, targetType: Type): bool => TypesEquivalent(sourceType, targetType) || TryEmitImplicitWidening(sourceType, targetType) || TryEmitSpanConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(sourceType, targetType) || TryEmitUserDefinedConversion(sourceType, targetType, false)
 
-    private func TryEmitGenericParameterConstrainedInterfaceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
-        columnarResolvedType = null
+    // A TYPE PARAMETER'S INSTANCE MEMBERS, AND THE ONE INSTRUCTION THAT CALLS ALL OF THEM.
+    //
+    // A value typed `T` has two kinds of instance member: the ones its interface constraints declare
+    // and the ones every type inherits from `System.Object` (`ToString`, `GetHashCode`,
+    // `Equals(object)`, `GetType`). Neither can be called with a plain `callvirt` on the value, because
+    // the value is not a reference until `T` is known to be one — and it never is at emit time. The CLR
+    // answer is ECMA-335 III.2.1's `constrained. !T` prefix over a MANAGED POINTER to the value: for a
+    // reference-type argument the pointer is dereferenced and the call dispatches virtually; for a
+    // value-type argument that implements the method the call is direct, with no box; and for one that
+    // does not (an inherited `object` member) the value is boxed then and only then. It is the IL C#
+    // emits for the same call, which is why one instantiation of the method is right for every `T`.
+    //
+    // An interface constraint's member is asked first, as before: `Equals(other: T)` declared by a
+    // constraint is the better overload for a `T` argument than `object.Equals(object)`, and a
+    // constraint that does not declare the name leaves the question to `object`. Nothing is emitted
+    // here; every argument is checked against the selected signature first, so a refusal costs nothing.
+    private func TrySelectGenericParameterReceiverMember(callIdx: int, receiverType: Type, member: string, argCount: int, out method: MethodInfo, out paramTypes: Type[], out returnType: Type): bool {
+        method = null
+        paramTypes = Array.Empty<Type>()
+        returnType = null
+        if (receiverType == null || !receiverType.IsGenericParameter) {
+            return false
+        }
+
         constraints := GetGenericInterfaceConstraints(receiverType)
-        emittedConstrainedCall := false
         for constraintIndex := 0; constraintIndex < constraints.Length; constraintIndex++ {
             constraint := constraints[constraintIndex]
             let interfaceDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
@@ -26558,38 +26584,110 @@ sealed class ColumnarIlEmitter {
             if (!ColumnarSourceDefinitionResolver.TryResolveInterface(constraint, structDefinitions, out interfaceDef)) {
                 continue
             }
-            let method: System.Reflection.MethodInfo? = null
-            let paramTypes: System.Type[]? = null
-            let returnType: System.Type? = null
-            if (!TrySelectClosedInterfaceMethodForCall(
-                constraint,
-                interfaceDef,
-                member,
-                callIdx,
-                argCount,
-                out method,
-                out paramTypes,
-                out returnType
-            )) {
-                continue
+            if (TrySelectClosedInterfaceMethodForCall(constraint, interfaceDef, member, callIdx, argCount, out method, out paramTypes, out returnType)) {
+                return true
             }
-
-            receiverTemp := _il.DeclareLocal(receiverType)
-            _il.Emit(OpCodes.Stloc, receiverTemp)
-            _il.Emit(OpCodes.Ldloca, receiverTemp)
-            for a := 0; a < paramTypes.Length; a++ {
-                if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), paramTypes[a], true)) {
-                    return false
-                }
-            }
-            _il.Emit(OpCodes.Constrained, receiverType)
-            _il.Emit(OpCodes.Callvirt, method)
-            columnarResolvedType = returnType
-            emittedConstrainedCall = true
-            break
         }
 
-        return emittedConstrainedCall
+        objectSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(object), member, argCount, false)
+        if (!objectSelection.IsSelected || objectSelection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, objectSelection.ParameterTypes)) {
+            method = null
+            paramTypes = Array.Empty<Type>()
+            returnType = null
+            return false
+        }
+        method = objectSelection.Method
+        paramTypes = objectSelection.ParameterTypes
+        returnType = objectSelection.ReturnType
+        return true
+    }
+
+    // The call itself, with the receiver's ADDRESS already on the stack.
+    private func EmitGenericParameterConstrainedCall(callIdx: int, receiverType: Type, method: MethodInfo, paramTypes: Type[], returnType: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        for a := 0; a < paramTypes.Length; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), paramTypes[a], true)) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Constrained, receiverType)
+        _il.Emit(OpCodes.Callvirt, method)
+        columnarResolvedType = returnType
+        return true
+    }
+
+    // A RECEIVER WITH NO STORAGE OF ITS OWN — a call result, a property read — arrives here as a value
+    // on the stack. It is spilled to a temp and the temp's address taken, which is the IL C# emits for
+    // the same receiver: a mutating member acts on that copy, because there is nothing else to act on.
+    // A receiver that DOES have storage (a local, a parameter, a field of this type) never reaches
+    // here; the call site loads its own address instead (`TryEmitGenericParameterReceiverStorageCall`).
+    private func TryEmitGenericParameterConstrainedCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let method: System.Reflection.MethodInfo? = null
+        let paramTypes: System.Type[]? = null
+        let returnType: System.Type? = null
+        if (!TrySelectGenericParameterReceiverMember(callIdx, receiverType, member, argCount, out method, out paramTypes, out returnType)) {
+            return false
+        }
+        receiverTemp := _il.DeclareLocal(receiverType)
+        _il.Emit(OpCodes.Stloc, receiverTemp)
+        _il.Emit(OpCodes.Ldloca, receiverTemp)
+        return EmitGenericParameterConstrainedCall(callIdx, receiverType, method, paramTypes, returnType, out columnarResolvedType)
+    }
+
+    // A TYPE-PARAMETER RECEIVER WITH STORAGE OF ITS OWN IS CALLED THROUGH THAT STORAGE. `stored.Bump()`
+    // on a `T` field, where `T` turns out to be a struct, has to bump the FIELD — the `constrained.`
+    // pointer is the `this` the callee writes through — so the address is the local's (`ldloca`), the
+    // parameter's (`ldarga`, or the pointer itself for a by-reference one) or the field's
+    // (`ldarg.0; ldflda`), never a temp's. That is Roslyn's shape for the same call.
+    //
+    // A field is admitted only when the address is the real storage and taking it is verifiable: an
+    // instance field DECLARED by the reference type whose body this is (a struct body reaches its
+    // fields through a copy, and an inherited field of a generic base would need that base's
+    // instantiation), and not `initonly` — C# copies a readonly field before a constrained call for the
+    // same reason. Everything else keeps the value path and its spill, and nothing is emitted here
+    // before the member and every argument have been selected.
+    private func TryEmitGenericParameterReceiverStorageCall(callIdx: int, receiverNode: int, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        receiverNode = UnwrapParenthesizedNode(receiverNode)
+        if (_nodes.Kind(receiverNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
+            return false
+        }
+        name := ColumnarNodeTextFacts.Text(_nodes, _source, receiverNode)
+        if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {
+            return false
+        }
+
+        let receiverType: System.Type? = null
+        let storageField: System.Reflection.FieldInfo? = null
+        let local: System.Reflection.Emit.LocalBuilder? = null
+        let paramType: System.Type? = null
+        let ownField: System.Reflection.Emit.FieldBuilder? = null
+        let fieldOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (_locals.TryGetValue(name, out local)) {
+            receiverType = local.LocalType
+        } else if (_paramTypes.TryGetValue(name, out paramType)) {
+            receiverType = paramType.IsByRef ? paramType.GetElementType() : paramType
+        } else if (_currentStruct != null && _currentStruct.IsReference && !_currentStruct.IsClosureDisplay && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out fieldOwner, out ownField) && Object.ReferenceEquals(fieldOwner, _currentStruct) && ownField != null && !ownField.IsStatic && !ownField.IsInitOnly) {
+            receiverType = ownField.FieldType
+            storageField = ColumnarSourceSelfInstantiation.BindField(ownField)
+        } else {
+            return false
+        }
+
+        let method: System.Reflection.MethodInfo? = null
+        let paramTypes: System.Type[]? = null
+        let returnType: System.Type? = null
+        if (!TrySelectGenericParameterReceiverMember(callIdx, receiverType, member, argCount, out method, out paramTypes, out returnType)) {
+            return false
+        }
+        if (storageField != null) {
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Ldflda, storageField)
+        } else if (!EmitAddressOfByRefTarget(receiverNode, receiverType)) {
+            return false
+        }
+        return EmitGenericParameterConstrainedCall(callIdx, receiverType, method, paramTypes, returnType, out columnarResolvedType)
     }
 
     private func GetGenericInterfaceConstraints(columnarResolvedType: Type): Type[] => ColumnarGenericConstraintPlanner.ResolveCallConstraints(_genericInterfaceConstraints, columnarResolvedType)
