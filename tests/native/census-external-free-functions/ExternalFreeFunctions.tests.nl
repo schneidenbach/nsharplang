@@ -144,6 +144,24 @@ test "a referenced free function in an enclosing namespace outranks an imported 
     assert FreeRun(Path.Combine(Path.Combine(root, "out"), "FreeFunctionsNearestEmit.dll"), "Census.FreeFunctions.Consumer.NearUses", "Answer") == "enclosing-referenced"
 }
 
+// A MEMBER OF THE ENCLOSING TYPE HIDES A REFERENCED FREE FUNCTION OF THE SAME NAME, exactly as it
+// hides a source one (`ColumnarSiblingHiding`, `AnalyzerIdentifierResolution.EnclosingTypeHasMember`):
+// the type is asked before any namespace. The library's `Twice` returns an `int` and the member a
+// `string`, so an analysis that bound the free function would not compile; `Nearest` and `Describe`
+// return `string` either way, so the answer is what tells the member from the function.
+test "a member of the enclosing type hides a referenced assembly's free function of the same name" {
+    root := FreeRoot("MemberHides")
+    File.WriteAllText(Path.Combine(root, "Hides.nl"), "namespace Census.FreeFunctions.Consumer\n\nclass HidingBase {\n    func Describe(value: int): string => \"inherited \" + value.ToString()\n}\n\nclass MemberHides: HidingBase {\n    func Twice(value: int): string => \"member \" + value.ToString()\n    static func Nearest(): string => \"static member\"\n    func Uses(): string => Twice(2) + \"|\" + Nearest() + \"|\" + Describe(3)\n    static func Answer(): string => new MemberHides().Uses() + \"|\" + Outside.Answer()\n}\n\nclass Outside {\n    static func Answer(): string => Twice(2).ToString() + \"|\" + Nearest()\n}\n")
+
+    analysed := FreeCompile(root, "FreeFunctionsMemberHides", true)
+    assert analysed.Success, FreeText(analysed.Errors)
+    assert FreeRun(Path.Combine(Path.Combine(root, "out"), "FreeFunctionsMemberHides.dll"), "Census.FreeFunctions.Consumer.MemberHides", "Answer") == "member 2|static member|inherited 3|4|enclosing-referenced"
+
+    emitted := FreeCompile(root, "FreeFunctionsMemberHidesEmit", false)
+    assert emitted.Success, FreeText(emitted.Errors)
+    assert FreeRun(Path.Combine(Path.Combine(root, "out"), "FreeFunctionsMemberHidesEmit.dll"), "Census.FreeFunctions.Consumer.MemberHides", "Answer") == "member 2|static member|inherited 3|4|enclosing-referenced"
+}
+
 test "an unexported referenced free function is not a name another assembly can call" {
     root := FreeRoot("Hidden")
     File.WriteAllText(Path.Combine(root, "Hidden.nl"), "namespace Census.FreeFunctions.Consumer\n\nclass HiddenUses {\n    static func Answer(): int => hiddenHelper()\n}\n")
