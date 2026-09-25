@@ -45,7 +45,6 @@ import System.Reflection
 // body does. A display with no enclosing receiver — a lambda written in a FREE function — has no type
 // around it and hides nothing.
 class ColumnarSiblingHiding {
-
     static func IsHiddenByEnclosingMember(enclosingType: ColumnarStructDef?, name: string): bool {
         if name == null || name.Length == 0 {
             return false

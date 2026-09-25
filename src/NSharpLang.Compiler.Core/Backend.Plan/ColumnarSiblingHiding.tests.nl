@@ -5,7 +5,6 @@ import System.Collections.Generic
 import System.Collections.ObjectModel
 import System.Reflection.Emit
 
-
 func HidingSiblingFacts(): ColumnarSiblingCallFacts {
     method := typeof(string).GetMethod("IsNullOrEmpty", [typeof(string)])
     return new ColumnarSiblingCallFacts(must method, [typeof(string)], [0], typeof(bool), 0)

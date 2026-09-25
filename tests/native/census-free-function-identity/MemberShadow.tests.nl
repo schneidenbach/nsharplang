@@ -1,6 +1,5 @@
 namespace Census.FreeFunctionIdentity.MemberShadow
 
-
 test "a member of the enclosing type hides a same-file free function of the same name" {
     shadowing := new Shadowing()
     assert shadowing.Direct() == "member"
