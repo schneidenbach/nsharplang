@@ -106,6 +106,19 @@ test "G6: a narrowed nullable member of a third assembly's type is passed on and
     }
 }
 
+test "G7: a maybe-null referenced class value compares by identity, and a declared == still decides for it" {
+    shape := new Shape("s")
+    node := new Node(1, 1)
+    assert OperandUses.MaybeSameShape(shape, shape)
+    assert !OperandUses.MaybeSameShape(new Shape("s"), shape)
+    assert !OperandUses.MaybeSameShape(null, shape)
+    assert !OperandUses.MaybeNodesDiffer(node, node)
+    assert OperandUses.MaybeNodesDiffer(null, node)
+    assert !OperandUses.MaybeNodesDiffer(null, null)
+    assert OperandUses.MaybeTalliesMatch(new Tally(2), new Tally(2))
+    assert !OperandUses.MaybeTalliesMatch(new Tally(2), new Tally(3))
+}
+
 test "G9: a &T parameter is passed on by reference to a referenced &T parameter" {
     assert OperandUses.Forwarded() == "6 15"
 }

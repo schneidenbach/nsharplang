@@ -884,6 +884,51 @@ test "A REFERENCE ANNOTATION IS NOT A LIFT EITHER" {
     assert harness.Errors.Count == 1
 }
 
+// A SOURCE CLASS, as the declaration walk hands it over: no base, no members, no operator of its own.
+func OperatorClass(name: string): TypeInfo {
+    return new ClassTypeInfo(name, 1, 1, false, null, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0), true)
+}
+
+func OperatorEqualityOver(left: TypeInfo, right: TypeInfo): string {
+    harness := OperatorDefault()
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.Equal))
+    OperatorRun(harness, state, OperatorAnswers(left, right))
+    if harness.Errors.Count > 0 {
+        return OperatorErrorText(harness, 0)
+    }
+
+    return OperatorTypeText(harness.Operators.Result(state))
+}
+
+// A REFERENCE `?` SAYS THE VALUE MAY BE THE NULL REFERENCE, WHICH IDENTITY ALREADY COMPARES. `node ==
+// other` where `node: Node?` was refused with a sentence listing "reference values" among the things
+// equality takes, for two reference values, while the same pair over `string` compared -- because
+// `string`'s own `operator ==` is declared over `string?` and a source class has no operator to ask.
+// The annotation is looked through on either side and on both, for a source class and a reflected
+// framework one, and against `object?`.
+test "A REFERENCE ? ON EITHER SIDE, OR BOTH, STILL COMPARES BY IDENTITY" {
+    node := OperatorClass("Node")
+    maybeNode: TypeInfo = new NullableTypeInfo(node)
+    assert OperatorEqualityOver(maybeNode, node) == "bool"
+    assert OperatorEqualityOver(node, maybeNode) == "bool"
+    assert OperatorEqualityOver(maybeNode, maybeNode) == "bool"
+    assert OperatorEqualityOver(new NullableTypeInfo(BuiltInTypes.Object), node) == "bool"
+    assert OperatorEqualityOver(maybeNode, OperatorClass("Other")) == "bool"
+
+    uri: TypeInfo = new ReflectionTypeInfo(typeof(Uri))
+    assert OperatorEqualityOver(new NullableTypeInfo(uri), uri) == "bool"
+    assert OperatorEqualityOver(uri, new NullableTypeInfo(uri)) == "bool"
+}
+
+// Looking through the annotation never reaches the primitive arm: `Node?` against `int` is a
+// reference against a value, and it is refused exactly as `Node` against `int` is.
+test "A REFERENCE ? DOES NOT LET A REFERENCE COMPARE WITH A VALUE" {
+    node := OperatorClass("Node")
+    assert OperatorEqualityOver(node, BuiltInTypes.Int).StartsWith("The '==' operator doesn't work with 'Node' and 'int'")
+    assert OperatorEqualityOver(new NullableTypeInfo(node), BuiltInTypes.Int).StartsWith("The '==' operator doesn't work with 'Node?' and 'int'")
+    assert OperatorEqualityOver(BuiltInTypes.Int, new NullableTypeInfo(node)).StartsWith("The '==' operator doesn't work with 'int' and 'Node?'")
+}
+
 test "&& AND || OVER A bool? ARE REFUSED, WITH THE == true FIX IN THE SUGGESTION" {
     harness := OperatorDefault()
     nullableBool: TypeInfo = new NullableTypeInfo(BuiltInTypes.Bool)

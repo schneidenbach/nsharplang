@@ -169,6 +169,20 @@ class OperandUses {
 
     // EVERY ANSWER ABOVE, ONE LINE EACH. The emit-only contract runs the same file through the other path
     // and compares this string, so a shape that emits but emits something else fails there too.
+    // G7: `==`/`!=` with a maybe-null REFERENCED class value on either side, or both, is identity; a
+    // referenced type's own `==` still decides for a maybe-null operand.
+    static func MaybeSameShape(left: Shape?, right: Shape): bool {
+        return left == right
+    }
+
+    static func MaybeNodesDiffer(left: Node?, right: Node?): bool {
+        return left != right
+    }
+
+    static func MaybeTalliesMatch(left: Tally?, right: Tally): bool {
+        return left == right
+    }
+
     // G9: a `&T` parameter passed on by reference to a referenced `&T` parameter, one hop and two.
     static func BumpThrough(slot: &int, amount: int) {
         OperandFacts.Bump(ref slot, amount)
@@ -227,6 +241,7 @@ class OperandUses {
         lines.Add("order " + Ordering() + " " + ordered.Line.ToString() + ":" + ordered.Column.ToString())
         lines.Add("pick " + PickText("a").Chosen + " " + PickCount(21).Chosen)
         lines.Add("scan " + ContextName(new Scan(null, null)) + " " + LabelLength(new Scan(null, "four")).ToString() + " " + LabelLength(new Scan(null, null)).ToString())
+        lines.Add("maybe " + MaybeSameShape(shape, shape).ToString() + " " + MaybeSameShape(null, shape).ToString() + " " + MaybeNodesDiffer(node, node).ToString() + " " + MaybeNodesDiffer(null, node).ToString() + " " + MaybeNodesDiffer(null, null).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(2)).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(3)).ToString())
         lines.Add("forwarded " + Forwarded())
         return string.Join("\n", lines)
     }

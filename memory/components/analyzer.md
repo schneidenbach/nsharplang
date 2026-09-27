@@ -903,6 +903,20 @@ throwing arm emits NO branch to the merge — the exception ends that path, so t
 reached only from the arm that produces a value. BOTH arms throwing still declines
 (`emit.conditional.both-arms-throw`), which C# refuses too.
 
+### A reference `?` does not choose the equality (2026-09-27, the Compiler.CodeIntel carve)
+
+`CanCompareWithEqualityOperator`'s reference tail looks through a reference annotation
+(`AnalyzerAssignability.WithoutReferenceNullability`) on either side: `Node? == Node` and even
+`Node? == Node?` were refused for a source class while `string? == string` compared (its runtime
+operator is declared over `string?`) and a REFERENCED class's `operator ==` already bound through its
+CLR type. `EqualityResult` retries operator resolution on the annotation-free operands BEFORE the
+identity tail, so a source `Tally? == Tally` calls `Tally`'s own `operator ==` exactly as the referenced
+form did — identity is never chosen over a declared operator. A `?` on a reference never reaches the
+primitive arm (`Node? == int` is refused as `Node == int` is), and a `?` over an OPEN type parameter is
+never looked through (`WithoutReferenceAnnotation`): under `where T : struct` it is a real `Nullable<T>`
+spelled as a bare name the reference test reads as a class, so `T? == U?` stays refused. Pinned by the estate's operator rows,
+`census-flow-rules/NullableReferenceEquality` and `census-external-operands` G7.
+
 ### Reachability attributes — where a call sends control (census 2026-09-13, §FLOW4)
 
 `AnalyzerReachabilityAttributes.nl` is the reachability companion of the nullability vocabulary

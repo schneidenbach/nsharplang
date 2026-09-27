@@ -789,6 +789,17 @@ class AnalyzerOperatorExpressions {
             return ComparisonOverloadResult(expression, left, right, overloadResult, "equality operators must return 'bool'")
         }
 
+        // A REFERENCE `?` DOES NOT CHOOSE THE EQUALITY. It is an annotation on the one CLR type, not a
+        // type of its own, so `Tally? == Tally` asks `Tally`'s own `operator ==` exactly as
+        // `Tally == Tally` does -- the operator a class declares receives a possibly-null operand in
+        // C# too, and a REFERENCED class's operator already bound this way through its CLR type. Only
+        // when no operator claims the pair does the identity rule below answer.
+        withoutLeftAnnotation := WithoutReferenceAnnotation(left)
+        withoutRightAnnotation := WithoutReferenceAnnotation(right)
+        if (!Object.ReferenceEquals(withoutLeftAnnotation, left) || !Object.ReferenceEquals(withoutRightAnnotation, right)) && TryResolveBinaryOperatorOverload(expression.Operator, withoutLeftAnnotation, withoutRightAnnotation, out overloadResult) {
+            return ComparisonOverloadResult(expression, left, right, overloadResult, "equality operators must return 'bool'")
+        }
+
         if TryReportNullComparisonWithValueType(expression, left, right) {
             return BuiltInTypes.Unknown
         }
@@ -1934,7 +1945,9 @@ class AnalyzerOperatorExpressions {
     // primitives compare when they have a common type; the same flags enum compares; the same record
     // struct compares BY REFERENCE IDENTITY of its type info, which is what makes two DIFFERENT
     // record structs not comparable; the SAME open type parameter compares, `?` or not; and two
-    // reference types always compare, because reference equality is always meaningful.
+    // reference types always compare, because reference equality is always meaningful -- whether or
+    // not either one carries a `?`, which says only that the value may be the null reference the
+    // comparison already handles.
     func CanCompareWithEqualityOperator(left: TypeInfo, right: TypeInfo): bool {
         resolvedLeft := declarationsValue.ResolveDeclaredAlias(left)
         resolvedRight := declarationsValue.ResolveDeclaredAlias(right)
@@ -1962,7 +1975,19 @@ class AnalyzerOperatorExpressions {
             return true
         }
 
-        return AnalyzerConversionFacts.IsReferenceType(resolvedLeft) && AnalyzerConversionFacts.IsReferenceType(resolvedRight)
+        return AnalyzerConversionFacts.IsReferenceType(WithoutReferenceAnnotation(resolvedLeft)) && AnalyzerConversionFacts.IsReferenceType(WithoutReferenceAnnotation(resolvedRight))
+    }
+
+    // The operand with a REFERENCE `?` taken off, and every other operand as it is. A `?` over an open
+    // type parameter is not looked through: under `where T : struct` it is a real `Nullable<T>`, and
+    // the analyzer spells that parameter as a bare name the reference test cannot tell from a class,
+    // so `T? == U?` would reach identity. Equality over a parameter is `CanCompareOpenTypeParameter`'s.
+    func WithoutReferenceAnnotation(candidate: TypeInfo): TypeInfo {
+        if OpenTypeParameterName(candidate) != null {
+            return candidate
+        }
+
+        return assignabilityValue.WithoutReferenceNullability(candidate)
     }
 
     // `a == b` WHERE BOTH SIDES ARE THE SAME OPEN TYPE PARAMETER, `?` OR NOT.

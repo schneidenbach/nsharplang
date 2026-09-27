@@ -1627,6 +1627,12 @@ C#: the same class, a base against a derived one, an interface, or `object` agai
 does not matter whether the types were declared in your project or in a referenced assembly. A type
 that declares `operator ==` keeps it; identity is never chosen over an operator the type declares.
 
+A `?` on either side, or on both, changes neither answer. `node == other` where `node: Node?` compares
+identity (so a `null` equals only `null`), and `tally == other` where `tally: Tally?` calls `Tally`'s own
+`operator ==` exactly as it would for a `Tally` — the `?` says the value may be the null reference,
+which is not a different type to compare. As in C#, an operator that can be handed `null` should say so
+in its parameter types (`left: Tally?`) and handle it.
+
 ### Conversion operators
 
 A conversion operator is a member like any other, so the ones a referenced assembly's type declares
