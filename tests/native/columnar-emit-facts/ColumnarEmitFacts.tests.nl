@@ -3,12 +3,12 @@ namespace NSharpLang.ColumnarEmitFacts.Tests
 import System
 import System.Reflection
 
-// ColumnarDeclineTrace, ColumnarProgramInputBuilder and ColumnarIlEmitter are owned by
-// compiler-core N#. The production witnesses resolve those owners there exactly; no assembly
-// fallback is allowed.
+// ColumnarDeclineTrace and ColumnarProgramInputBuilder are owned by the Compiler.Plan slice and
+// ColumnarIlEmitter by Compiler.Emit, all N#. The production witnesses resolve those owners there
+// exactly; no assembly fallback is allowed.
 func ColumnarTraceTestMethod(methodName: string): MethodInfo {
     owner := Type.GetType(
-        "NSharpLang.Compiler.Columnar.ColumnarDeclineTrace, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.Columnar.ColumnarDeclineTrace, NSharpLang.Compiler.Plan"
     )
     if owner == null {
         throw new InvalidOperationException("Missing N# ColumnarDeclineTrace")

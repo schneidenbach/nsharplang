@@ -15,12 +15,12 @@
 #
 #   * the ESTATE — the compiler-service contracts that live beside their owners as
 #     `src/NSharpLang.Compiler.Core/<slice>/*.tests.nl`, `src/NSharpLang.Compiler.Syntax/*.tests.nl`,
-#     `src/NSharpLang.Compiler.Emit/*.tests.nl`, `src/NSharpLang.Compiler.CodeIntel/*.tests.nl`,
-#     `src/NSharpLang.Compiler.Tooling/*.tests.nl` and `src/NSharpLang.Compiler.Driver/*.tests.nl`, each
-#     run through its own project with `-p:NSharpExcludeTests=false`. This is the slow one: it
-#     re-restores and rebuilds each estate project with its tests included. Syntax, Emit, CodeIntel,
-#     Tooling and Driver (carved out of Core, Syntax below it, Emit, CodeIntel, Tooling and Driver
-#     above it)
+#     `src/NSharpLang.Compiler.Plan/*.tests.nl`, `src/NSharpLang.Compiler.Emit/*.tests.nl`,
+#     `src/NSharpLang.Compiler.CodeIntel/*.tests.nl`, `src/NSharpLang.Compiler.Tooling/*.tests.nl` and
+#     `src/NSharpLang.Compiler.Driver/*.tests.nl`, each run through its own project with
+#     `-p:NSharpExcludeTests=false`. This is the slow one: it re-restores and rebuilds each estate
+#     project with its tests included. Syntax, Plan, Emit, CodeIntel, Tooling and Driver (carved out of
+#     Core, Syntax below it, Plan, Emit, CodeIntel, Tooling and Driver above it)
 #     carry their own rows, because each one's rows reach only itself and the slices below it;
 #     `src/NSharpLang.Compiler.Model` has none yet: its estate stays in Core's `Model/` directory.
 #   * the NATIVE PROJECTS — every `tests/native/<dir>` with a `project.yml` and a
@@ -86,6 +86,7 @@ CLI_DLL="src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
 ESTATE_PROJECTS=(
     "src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj"
     "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
+    "src/NSharpLang.Compiler.Plan/NSharpLang.Compiler.Plan.csproj"
     "src/NSharpLang.Compiler.Emit/NSharpLang.Compiler.Emit.csproj"
     "src/NSharpLang.Compiler.CodeIntel/NSharpLang.Compiler.CodeIntel.csproj"
     "src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj"
@@ -314,6 +315,7 @@ if [ "$LIST_ONLY" = "1" ]; then
     done
     echo "estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices:$estate_slices)"
     echo "estate    src/NSharpLang.Compiler.Syntax/*.tests.nl (run with --estate)"
+    echo "estate    src/NSharpLang.Compiler.Plan/*.tests.nl (run with --estate)"
     echo "estate    src/NSharpLang.Compiler.Emit/*.tests.nl (run with --estate)"
     echo "estate    src/NSharpLang.Compiler.CodeIntel/*.tests.nl (run with --estate)"
     echo "estate    src/NSharpLang.Compiler.Tooling/*.tests.nl (run with --estate)"
@@ -386,14 +388,19 @@ derive_slices_from_diff() {
                 full=1; reasons="$reasons
   - $f (Compiler.CodeIntel build config)" ;;
             src/NSharpLang.Compiler.CodeIntel/*)           terms="$terms estate completion query doc LanguageServer" ;;
-            # Emit is its own project, rows included, ABOVE Core and below CodeIntel. Its build
+            # Emit is its own project, rows included, ABOVE Plan and below CodeIntel. Its build
             # configuration is the compiler's build configuration: central.
             src/NSharpLang.Compiler.Emit/project.yml|src/NSharpLang.Compiler.Emit/*.csproj|src/NSharpLang.Compiler.Emit/global.json)
                 full=1; reasons="$reasons
   - $f (Compiler.Emit build config)" ;;
             src/NSharpLang.Compiler.Emit/*)                terms="$terms estate Columnar" ;;
+            # Plan is its own project, rows included, ABOVE Core and below Emit. Its build
+            # configuration is the compiler's build configuration: central.
+            src/NSharpLang.Compiler.Plan/project.yml|src/NSharpLang.Compiler.Plan/*.csproj|src/NSharpLang.Compiler.Plan/global.json)
+                full=1; reasons="$reasons
+  - $f (Compiler.Plan build config)" ;;
+            src/NSharpLang.Compiler.Plan/*)                terms="$terms estate Columnar" ;;
             src/NSharpLang.Compiler.Core/Semantics/*)      terms="$terms estate Analyzer" ;;
-            src/NSharpLang.Compiler.Core/Backend.Plan/*)   terms="$terms estate Columnar" ;;
             src/NSharpLang.Compiler.Core/*)
                 full=1; reasons="$reasons
   - $f (shared compiler file)" ;;

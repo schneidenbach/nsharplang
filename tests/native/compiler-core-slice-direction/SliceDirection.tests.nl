@@ -128,7 +128,14 @@ test "a carved slice's product is read from its own project, and none of it is l
     assert tooling[0] > 5, tooling[0].ToString()
     assert tooling[1] > 5, tooling[1].ToString()
     assert tooling[2] == 0, tooling[2].ToString()
-    // Emit is carved above Core and below CodeIntel: nothing in Core may name it, and its rows reach
+    // Plan is carved above Core and below Emit: nothing in Core may name it, and its rows reach only
+    // Plan and the slices below it -- with its own fixtures, never another slice's estate helpers --
+    // so its estate moved with its product.
+    plan := CarvedSliceCounts(graph, 3)
+    assert plan[0] > 100, plan[0].ToString()
+    assert plan[1] > 100, plan[1].ToString()
+    assert plan[2] == 0, plan[2].ToString()
+    // Emit is carved above Plan and below CodeIntel: nothing below may name it, and its rows reach
     // only Emit and the slices below it -- with its own fixtures, never another slice's estate
     // helpers -- so its estate moved with its product.
     emit := CarvedSliceCounts(graph, 4)

@@ -56,10 +56,10 @@ func ColumnarIlEmitterExceptionTypeName(error: Exception): string {
 
 func ColumnarIlEmitterBootstrapType(name: string): Type {
     owner := Type.GetType(
-        "NSharpLang.Compiler.Columnar." + name + ", NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.Columnar." + name + ", NSharpLang.Compiler.Plan"
     )
     if owner == null {
-        throw new InvalidOperationException("Missing compiler-core type " + name)
+        throw new InvalidOperationException("Missing Compiler.Plan type " + name)
     }
     return owner
 }
@@ -114,19 +114,20 @@ test "the N# columnar IL emitter owns its complete public and private metadata s
     owner := ColumnarIlEmitterType()
     assert owner.get_IsPublic(), "the N# emitter must retain its public cross-assembly surface"
     assert owner.get_IsSealed(), "the N# emitter must retain sealed metadata"
-    // Since the Emit carve the emitter is its own slice assembly, above the Core assembly that builds
-    // its program input, and it binds that exact Core rather than a copy of the builder.
+    // Since the Emit carve the emitter is its own slice assembly, and since the Plan carve its program
+    // input is built by the Plan slice assembly directly beneath it; the emitter binds that exact Plan
+    // rather than a copy of the builder.
     emitterAssembly := owner.get_Assembly()
     builderAssembly := ColumnarInputBuilderType().get_Assembly()
     assert emitterAssembly.GetName().Name == "NSharpLang.Compiler.Emit", "the N# emitter must be owned by the Compiler.Emit slice assembly"
-    assert builderAssembly.GetName().Name == "NSharpLang.Compiler.Core", "the program input builder must stay in the Compiler.Core assembly"
-    coreReferenced := false
+    assert builderAssembly.GetName().Name == "NSharpLang.Compiler.Plan", "the program input builder must be owned by the Compiler.Plan slice assembly"
+    planReferenced := false
     for reference in emitterAssembly.GetReferencedAssemblies() {
-        if reference.Name == "NSharpLang.Compiler.Core" {
-            coreReferenced = true
+        if reference.Name == "NSharpLang.Compiler.Plan" {
+            planReferenced = true
         }
     }
-    assert coreReferenced, "the emitter's assembly must reference the Core assembly that builds its input"
+    assert planReferenced, "the emitter's assembly must reference the Plan assembly that builds its input"
     assert Type.GetType("NSharpLang.Compiler.Columnar.ColumnarIlEmitter, Compiler") == null, "the deleted Compiler-assembly emitter must not remain as a second owner"
 
     publicConstructors := owner.GetConstructors(
@@ -156,7 +157,7 @@ test "the N# columnar IL emitter owns its complete public and private metadata s
     assert parameters[1].get_ParameterType() == typeof(string)
     assert parameters[2].get_Name() == "program"
     assert parameters[2].get_ParameterType().get_FullName() == "NSharpLang.Compiler.Columnar.ColumnarProgramInput"
-    assert Object.ReferenceEquals(parameters[2].get_ParameterType().get_Assembly(), builderAssembly), "the program input is the Core assembly's own type"
+    assert Object.ReferenceEquals(parameters[2].get_ParameterType().get_Assembly(), builderAssembly), "the program input is the Plan assembly's own type"
     assert parameters[3].get_Name() == "isExecutable"
     assert parameters[3].get_ParameterType() == typeof(bool)
     assert parameters[4].get_Name() == "assembly"

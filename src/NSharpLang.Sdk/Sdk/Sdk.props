@@ -170,10 +170,10 @@
   <Import Project="Sdk.props" Sdk="$(_NSharpBaseSdk)" />
 
   <!-- Runtime-backed language features must restore without users editing the
-       intentionally minimal .csproj. Compiler Core and Compiler Emit, whose own source names
-       runtime types, declare the runtime package through project.yml so the native CLI and MSBuild
-       agree on the edge. -->
-  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(EnableNSharpRuntimePackageReference)' == 'true' And '$(MSBuildProjectName)' != 'NSharpLang.Compiler.Core' And '$(MSBuildProjectName)' != 'NSharpLang.Compiler.Emit'">
+       intentionally minimal .csproj. Compiler Core, Compiler Plan and Compiler Emit, whose own source
+       names runtime types, declare the runtime package through project.yml so the native CLI and
+       MSBuild agree on the edge. -->
+  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(EnableNSharpRuntimePackageReference)' == 'true' And '$(MSBuildProjectName)' != 'NSharpLang.Compiler.Core' And '$(MSBuildProjectName)' != 'NSharpLang.Compiler.Plan' And '$(MSBuildProjectName)' != 'NSharpLang.Compiler.Emit'">
     <PackageReference Include="NSharpLang.Runtime" Version="$(NSharpLangRuntimeVersion)" />
   </ItemGroup>
 

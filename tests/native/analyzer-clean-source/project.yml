@@ -17,6 +17,7 @@ dependencies:
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Model.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Syntax.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Plan.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Emit.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.CodeIntel.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Tooling.dll

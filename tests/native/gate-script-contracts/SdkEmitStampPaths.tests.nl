@@ -82,8 +82,8 @@ test "splitting the intermediate paths did not relax the emit stamp's content id
 // reseed's clean self-rebuild deletes each project's `obj`/`bin` from its own list: a slice it does
 // not name keeps a `project.assets.json` pinned to the OLD seed, and the rebuild proves nothing about
 // it. Both lists must be exactly the top of the compiler's slice graph -- Compiler.Driver, carved
-// out ABOVE Core with Compiler.Tooling, Compiler.CodeIntel and Compiler.Emit between them -- and the
-// projects its project.yml reaches through `project:`, transitively.
+// out ABOVE Core with Compiler.Tooling, Compiler.CodeIntel, Compiler.Emit and Compiler.Plan between
+// them -- and the projects its project.yml reaches through `project:`, transitively.
 func CompilerProjectDirectoriesFromDriver(): List<string> {
     directories := new List<string>()
     directories.Add("src/NSharpLang.Compiler.Driver")
@@ -114,7 +114,8 @@ test "every compiler project the seed builds is compiled emit-only and cleaned b
     assert compilerProjects.Contains("src/NSharpLang.Compiler.Tooling"), "The carved Compiler.Driver must reach the carved Compiler.Tooling through project.yml: " + string.Join(", ", compilerProjects)
     assert compilerProjects.Contains("src/NSharpLang.Compiler.CodeIntel"), "The carved Compiler.Tooling must reach the carved Compiler.CodeIntel through project.yml: " + string.Join(", ", compilerProjects)
     assert compilerProjects.Contains("src/NSharpLang.Compiler.Emit"), "The carved Compiler.CodeIntel must reach the carved Compiler.Emit through project.yml: " + string.Join(", ", compilerProjects)
-    assert compilerProjects.Contains("src/NSharpLang.Compiler.Core"), "The carved Compiler.Emit must reach Core through project.yml: " + string.Join(", ", compilerProjects)
+    assert compilerProjects.Contains("src/NSharpLang.Compiler.Plan"), "The carved Compiler.Emit must reach the carved Compiler.Plan through project.yml: " + string.Join(", ", compilerProjects)
+    assert compilerProjects.Contains("src/NSharpLang.Compiler.Core"), "The carved Compiler.Plan must reach Core through project.yml: " + string.Join(", ", compilerProjects)
 
     targets := ReadSdkFile("Sdk.targets")
     emitOnly := RequireMatch(
