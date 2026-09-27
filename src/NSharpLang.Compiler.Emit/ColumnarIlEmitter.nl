@@ -14790,37 +14790,16 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = eventType
                     return true
                 }
-                // WHITELISTED exception constructions (E1/E3): parameterless, one-string, and two-string
-                // ctors of the same exception types accepted by typed catches and Compiler Core throws.
+                // A RUNTIME EXCEPTION TYPE IS RESOLVED BY ITS OWN OWNER and constructed like any other
+                // referenced type. The exception resolver answers a bare runtime exception name the way a
+                // typed `catch` does; which constructor the arguments bind to is the referenced-construction
+                // tier's question, answered from the type's metadata with every written argument checked
+                // before the first is emitted. A hand-picked subset of constructors used to stand here, and
+                // an argument only the host can emit -- an interpolated string -- beside an `Exception`
+                // inner exception declined at `new Exception($"{a} {b}", inner)`.
                 let exceptionType: System.Type? = null
                 if (ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(newTypeName, out exceptionType)) {
-                    exceptionArgCount := _nodes.ChildCount(idx) - 1
-                    let exceptionCtor: System.Reflection.ConstructorInfo? = null
-                    if (exceptionArgCount == 0) {
-                        exceptionCtor = exceptionType.GetConstructor(Type.EmptyTypes)
-                    } else {
-                        if (exceptionArgCount == 1) {
-                            exceptionCtor = exceptionType.GetConstructor([typeof(string)])
-                            if (exceptionCtor == null || !EmitArg(idx, 1, typeof(string))) {
-                                return false
-                            }
-                        } else {
-                            if (exceptionArgCount == 2) {
-                                exceptionCtor = exceptionType.GetConstructor([typeof(string), typeof(string)])
-                                if (exceptionCtor == null || !EmitArg(idx, 1, typeof(string)) || !EmitArg(idx, 2, typeof(string))) {
-                                    return false
-                                }
-                            } else {
-                                return false
-                            }
-                        }
-                    }
-                    if (exceptionCtor == null) {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Newobj, exceptionCtor)
-                    columnarResolvedType = exceptionType
-                    return true
+                    return TryEmitReferencedConstructionOf(idx, exceptionType, out columnarResolvedType)
                 }
                 let columnarDiscard48: string = null
                 let positionalCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
@@ -25078,9 +25057,8 @@ sealed class ColumnarIlEmitter {
     // constructors with the closed arguments substituted, then rebinds the handle onto the closed type.
     private func TryEmitReferencedConstruction(callIdx: int, typeNode: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        argCount := _nodes.ChildCount(callIdx) - 1
         typeKind := _nodes.Kind(typeNode)
-        if (argCount < 0 || (typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression)) {
+        if (typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression) {
             return false
         }
 
@@ -25090,7 +25068,15 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        if (constructedType.IsGenericTypeDefinition || constructedType.IsGenericParameter || constructedType.IsAbstract || constructedType.IsInterface || constructedType.IsArray || constructedType.IsByRef || constructedType.IsPointer) {
+        return TryEmitReferencedConstructionOf(callIdx, constructedType, out columnarResolvedType)
+    }
+
+    // The constructor of an already-resolved referenced type, chosen from its own metadata: the
+    // exact-arity tier first, the trailing-optional tier only when that tier found nothing.
+    private func TryEmitReferencedConstructionOf(callIdx: int, constructedType: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        if (argCount < 0 || constructedType.IsGenericTypeDefinition || constructedType.IsGenericParameter || constructedType.IsAbstract || constructedType.IsInterface || constructedType.IsArray || constructedType.IsByRef || constructedType.IsPointer) {
             return false
         }
 
