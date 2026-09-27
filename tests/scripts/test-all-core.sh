@@ -530,10 +530,17 @@ else
     # files, estate included, against built Core), CodeIntel 0 (now against built Emit), Tooling 0,
     # Driver 0, Compiler 34, Playground 0, Build.Tasks 0.
     #
+    # 2026-09-27, the stranded bare-member fixes landed on census/merge (`census/stranded-fixes`):
+    # Core 766. The five removed are NL905 "`current` is maybe-null" in ColumnarDirectCallPlanner,
+    # which the member-generator slice (627311a16) replaced with the implicit-instance answers; they
+    # were measured as the whole identity diff (zero additions, five removals) against fde28e9e6's
+    # tree through its own CLI, and they sit in a Core file, so Emit stays 0. Every other project
+    # unmoved.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
-        771
+        766
         0
         0
         0
