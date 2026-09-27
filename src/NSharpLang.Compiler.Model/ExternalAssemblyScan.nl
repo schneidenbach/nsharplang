@@ -4,6 +4,9 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Reflection.Metadata
+import System.Reflection.Metadata.Ecma335
+import System.Reflection.PortableExecutable
 import System.Runtime.InteropServices
 import System.Runtime.Loader
 import NSharpLang.Cli
@@ -35,6 +38,8 @@ class ExternalAssemblyCatalogEntry {
     MetadataAssembly: Assembly?
     RuntimeAssembly: Assembly?
     IsInspectable: bool
+    private topLevelTypeNames: HashSet<string>?
+    private topLevelTypeNamesRead: bool
 
     constructor(identityName: AssemblyName?, identity: string, metadataPath: string, runtimeAssembly: Assembly?, isInspectable: bool) {
         IdentityName = identityName
@@ -43,6 +48,8 @@ class ExternalAssemblyCatalogEntry {
         MetadataAssembly = null
         RuntimeAssembly = runtimeAssembly
         IsInspectable = isInspectable
+        topLevelTypeNames = null
+        topLevelTypeNamesRead = false
     }
 
     func AttachRuntimeAssembly(runtimeAssembly: Assembly?) {
@@ -51,11 +58,41 @@ class ExternalAssemblyCatalogEntry {
 
     func AttachMetadataAssembly(metadataAssembly: Assembly) {
         MetadataAssembly = metadataAssembly
+        topLevelTypeNames = null
+        topLevelTypeNamesRead = false
     }
 
     func MarkUninspectable() {
         IsInspectable = false
         MetadataAssembly = null
+        topLevelTypeNames = null
+        topLevelTypeNamesRead = false
+    }
+
+    // WHETHER THIS ENTRY'S METADATA CAN ANSWER A LOOKUP OF THE TOP-LEVEL TYPE `namespace.Name`.
+    //
+    // `Assembly.GetType` on a metadata assembly finds a top-level type exactly when the name is one of
+    // the module's TYPE DEFINITIONS or one of its EXPORTED TYPES (a forwarder), and a miss is not
+    // cheap: the load context parses the name and builds, then discards, a `TypeLoadException` with a
+    // localized message, about 6 us. `ExternalAssemblyScan.FindExactType` asks every entry in order,
+    // so a name NO reference declares -- a simple name probed against each imported namespace, which
+    // is most of what binding asks -- cost ~180 misses, about a millisecond, and those misses were
+    // most of the time of emitting Compiler.Emit. The two tables, read once per entry, answer "not
+    // here" for a hash probe. An entry whose tables cannot be read answers "maybe", which keeps the
+    // lookup exactly what it was.
+    func MayDeclareTopLevelType(qualifiedName: string): bool {
+        if !topLevelTypeNamesRead {
+            metadataAssembly := MetadataAssembly
+            location := ""
+            if metadataAssembly != null {
+                location = metadataAssembly.Location
+            }
+            topLevelTypeNames = ExternalAssemblyScan.ReadTopLevelTypeNames(location)
+            topLevelTypeNamesRead = true
+        }
+
+        names := topLevelTypeNames
+        return names == null || names.Contains(qualifiedName)
     }
 }
 
@@ -1297,9 +1334,14 @@ class ExternalAssemblyScan {
             return UnknownResolution()
         }
 
+        topLevelName := PlainTopLevelTypeName(fullName)
         for entry in scan.Entries {
             if entry == null || !entry.IsInspectable || entry.MetadataAssembly == null {
                 return UnknownResolution()
+            }
+
+            if topLevelName.Length > 0 && !entry.MayDeclareTopLevelType(topLevelName) {
+                continue
             }
 
             try {
@@ -1313,6 +1355,101 @@ class ExternalAssemblyScan {
         }
 
         return MissingResolution()
+    }
+
+    // The top-level type a PLAIN type name names -- `A.B.C` is `A.B.C`, `A.B.C+D+E` is `A.B.C` -- or
+    // "" for any other spelling (generic arguments, assembly qualification, escapes, pointers, an
+    // empty segment), which `FindExactType` then asks every entry about exactly as before. Only for a
+    // plain name is "neither defined nor forwarded here" the same answer as a `GetType` miss.
+    static func PlainTopLevelTypeName(fullName: string): string {
+        topLevelEnd := fullName.Length
+        segmentLength := 0
+        index := 0
+        while index < fullName.Length {
+            character := fullName[index]
+            if character == '.' || character == '+' {
+                if segmentLength == 0 {
+                    return ""
+                }
+                if character == '+' && topLevelEnd == fullName.Length {
+                    topLevelEnd = index
+                }
+                if character == '.' && topLevelEnd != fullName.Length {
+                    return ""
+                }
+                segmentLength = 0
+            } else if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_' || (segmentLength > 0 && ((character >= '0' && character <= '9') || character == '`')) {
+                segmentLength = segmentLength + 1
+            } else {
+                return ""
+            }
+            index = index + 1
+        }
+
+        if segmentLength == 0 {
+            return ""
+        }
+
+        return fullName.Substring(0, topLevelEnd)
+    }
+
+    // The top-level type names an assembly's metadata DEFINES or FORWARDS, as `Namespace.Name`, or null
+    // when the file cannot be read. Nested definitions and nested forwarders are reached through their
+    // top-level type, so they are not listed.
+    static func ReadTopLevelTypeNames(path: string): HashSet<string>? {
+        if string.IsNullOrEmpty(path) || !File.Exists(path) {
+            return null
+        }
+
+        try {
+            stream := File.OpenRead(path)
+            try {
+                pe := new PEReader(stream)
+                try {
+                    if !pe.HasMetadata {
+                        return null
+                    }
+
+                    reader := pe.GetMetadataReader()
+                    names := new HashSet<string>(StringComparer.Ordinal)
+                    typeCount := reader.TypeDefinitions.Count
+                    row := 1
+                    while row <= typeCount {
+                        definition := reader.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(row))
+                        if definition.GetDeclaringType().IsNil {
+                            names.Add(QualifiedMetadataTypeName(reader.GetString(definition.Namespace), reader.GetString(definition.Name)))
+                        }
+                        row = row + 1
+                    }
+
+                    exportedCount := reader.ExportedTypes.Count
+                    row = 1
+                    while row <= exportedCount {
+                        exported := reader.GetExportedType(MetadataTokens.ExportedTypeHandle(row))
+                        if exported.Implementation.Kind != HandleKind.ExportedType {
+                            names.Add(QualifiedMetadataTypeName(reader.GetString(exported.Namespace), reader.GetString(exported.Name)))
+                        }
+                        row = row + 1
+                    }
+
+                    return names
+                } finally {
+                    pe.Dispose()
+                }
+            } finally {
+                stream.Dispose()
+            }
+        } catch {
+            return null
+        }
+    }
+
+    static func QualifiedMetadataTypeName(namespaceName: string, name: string): string {
+        if namespaceName.Length == 0 {
+            return name
+        }
+
+        return namespaceName + "." + name
     }
 
     static func FindExactOrNestedType(scan: ExternalAssemblyScanResult, fullName: string): ExternalAssemblyTypeResolution {

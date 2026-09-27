@@ -832,3 +832,109 @@ test "the owned reference context leaves an identity the compiler does not refer
     assert owned != null
     assert Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(owned), ExternalAssemblyScan.ExactIdentityLoadContext())
 }
+
+// ─── THE TOP-LEVEL NAME INDEX `FindExactType` ASKS BEFORE `GetType` ────────────────────────────
+//
+// A miss in a metadata assembly costs a name parse and a discarded `TypeLoadException`, and a name no
+// reference declares used to be a miss in EVERY entry. Each entry now answers "not here" from its
+// own definition and forwarder tables. These rows pin that the index can only ever skip a miss: it
+// never answers "not here" for a name `GetType` finds, and a spelling it cannot reduce to a plain
+// top-level name is asked of every entry exactly as before.
+
+test "a plain type name names its top-level type, and every other spelling names none" {
+    assert ExternalAssemblyScan.PlainTopLevelTypeName("System.String") == "System.String"
+    assert ExternalAssemblyScan.PlainTopLevelTypeName("Program") == "Program"
+    assert ExternalAssemblyScan.PlainTopLevelTypeName("System.Collections.Generic.List`1") == "System.Collections.Generic.List`1"
+    assert ExternalAssemblyScan.PlainTopLevelTypeName("System.Environment+SpecialFolder") == "System.Environment"
+    assert ExternalAssemblyScan.PlainTopLevelTypeName("A.B+C+D2") == "A.B"
+    assert ExternalAssemblyScan.PlainTopLevelTypeName("_Private.Name_1") == "_Private.Name_1"
+
+    // Anything a type-name parser reads as more than a dotted path is not reduced.
+    for spelling in ["", "A.", ".A", "A..B", "A+", "A+B.C", "1A", "A.1B", "`1", "List`1[System.Int32]", "System.String, System.Private.CoreLib", "A&", "A*", "A[]", "<Module>", "A\\+B", "A B", "Ä.B"] {
+        assert ExternalAssemblyScan.PlainTopLevelTypeName(spelling) == "", spelling
+    }
+}
+
+test "an assembly's top-level names are its definitions and its forwarders, and nothing nested" {
+    coreLibrary := ExternalAssemblyScan.ReadTopLevelTypeNames(typeof(object).Assembly.Location)
+    assert coreLibrary != null
+    names := coreLibrary
+    assert names.Contains("System.String")
+    assert names.Contains("System.Collections.Generic.List`1")
+    assert names.Contains("System.Environment")
+    assert !names.Contains("System.Environment+SpecialFolder")
+    assert !names.Contains("System.Environment.SpecialFolder")
+    assert !names.Contains("SpecialFolder")
+
+    // The implementation `System.Runtime` defines almost nothing and FORWARDS the rest.
+    facadePath := Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "System.Runtime.dll")
+    facade := ExternalAssemblyScan.ReadTopLevelTypeNames(facadePath)
+    assert facade != null
+    assert facade.Contains("System.String")
+    assert facade.Contains("System.Uri")
+
+    // A path that is not an assembly is "unknown", never "declares nothing".
+    assert ExternalAssemblyScan.ReadTopLevelTypeNames("") == null
+    assert ExternalAssemblyScan.ReadTopLevelTypeNames("/nsharp/does-not-exist/missing.dll") == null
+}
+
+test "the name index never says not-here for a type an entry defines or forwards" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        checkedTypes := 0
+        for entry in scan.Entries {
+            metadataAssembly := entry.MetadataAssembly
+            if !entry.IsInspectable || metadataAssembly == null {
+                continue
+            }
+
+            definedTypes: Type[] = System.Array.Empty<Type>()
+            try {
+                definedTypes = metadataAssembly.GetTypes()
+            } catch {
+                definedTypes = System.Array.Empty<Type>()
+            }
+            for definedType in definedTypes {
+                if definedType.IsNested {
+                    continue
+                }
+                fullName := definedType.FullName ?? ""
+                if fullName.Length > 0 {
+                    assert entry.MayDeclareTopLevelType(fullName), entry.Identity + ": " + fullName
+                    checkedTypes = checkedTypes + 1
+                }
+            }
+
+            forwardedTypes: Type[] = System.Array.Empty<Type>()
+            try {
+                forwardedTypes = metadataAssembly.GetForwardedTypes()
+            } catch {
+                forwardedTypes = System.Array.Empty<Type>()
+            }
+            for forwardedType in forwardedTypes {
+                if forwardedType.IsNested {
+                    continue
+                }
+                fullName := forwardedType.FullName ?? ""
+                if fullName.Length > 0 {
+                    assert entry.MayDeclareTopLevelType(fullName), entry.Identity + " forwards " + fullName
+                    checkedTypes = checkedTypes + 1
+                }
+            }
+
+            assert !entry.MayDeclareTopLevelType("NSharpLang.NoSuchNamespace.NoSuchType"), entry.Identity
+        }
+        assert checkedTypes > 1000, checkedTypes.ToString()
+
+        // And the lookups the index sits in front of answer as they did: a definition, a forwarder, a
+        // plain nested name and a name no entry declares.
+        assert ExternalAssemblyScan.FindExactType(scan, "System.Environment").Status == ExternalAssemblyTypeLookupStatus.Found
+        assert ExternalAssemblyScan.FindExactType(scan, "System.Uri").Status == ExternalAssemblyTypeLookupStatus.Found
+        nested := ExternalAssemblyScan.FindExactType(scan, "System.Environment+SpecialFolder")
+        assert nested.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert nested.RuntimeType.FullName == "System.Environment+SpecialFolder"
+        assert ExternalAssemblyScan.FindExactType(scan, "NSharpLang.NoSuchNamespace.NoSuchType").Status == ExternalAssemblyTypeLookupStatus.Missing
+    } finally {
+        scan.Dispose()
+    }
+}
