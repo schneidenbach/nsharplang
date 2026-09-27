@@ -183,6 +183,29 @@ class OperandUses {
         return left == right
     }
 
+    // G8: a conditional with a `null` arm, passed to a referenced static or instance method that is
+    // chosen by its arguments. Either arm may be the `null`, a derived class reaches a base parameter,
+    // and a value arm lifts to an `int?` one.
+    static func DescribeNullFirst(flag: bool, label: string): string {
+        return OperandFacts.Describe(flag ? null : label, 1)
+    }
+
+    static func DescribeNullSecond(flag: bool, label: string): string {
+        return OperandFacts.Describe(flag ? label : null, 2)
+    }
+
+    static func NameOfAlias(flag: bool, alias: AliasShape): string {
+        return OperandFacts.NameOf(flag ? null : alias)
+    }
+
+    static func CountOrAbsent(flag: bool, count: int): int {
+        return OperandFacts.CountOf(flag ? null : count)
+    }
+
+    static func LabelOrPrefix(flag: bool, labeler: Labeler, suffix: string): string {
+        return labeler.Label(flag ? null : suffix)
+    }
+
     // G9: a `&T` parameter passed on by reference to a referenced `&T` parameter, one hop and two.
     static func BumpThrough(slot: &int, amount: int) {
         OperandFacts.Bump(ref slot, amount)
@@ -242,6 +265,7 @@ class OperandUses {
         lines.Add("pick " + PickText("a").Chosen + " " + PickCount(21).Chosen)
         lines.Add("scan " + ContextName(new Scan(null, null)) + " " + LabelLength(new Scan(null, "four")).ToString() + " " + LabelLength(new Scan(null, null)).ToString())
         lines.Add("maybe " + MaybeSameShape(shape, shape).ToString() + " " + MaybeSameShape(null, shape).ToString() + " " + MaybeNodesDiffer(node, node).ToString() + " " + MaybeNodesDiffer(null, node).ToString() + " " + MaybeNodesDiffer(null, null).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(2)).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(3)).ToString())
+        lines.Add("conditional " + DescribeNullFirst(true, "a") + " " + DescribeNullFirst(false, "a") + " " + DescribeNullSecond(true, "b") + " " + DescribeNullSecond(false, "b") + " " + NameOfAlias(true, alias) + " " + NameOfAlias(false, alias) + " " + CountOrAbsent(true, 3).ToString() + " " + CountOrAbsent(false, 3).ToString() + " " + LabelOrPrefix(true, new Labeler("p"), "!") + " " + LabelOrPrefix(false, new Labeler("p"), "!"))
         lines.Add("forwarded " + Forwarded())
         return string.Join("\n", lines)
     }

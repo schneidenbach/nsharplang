@@ -59,3 +59,69 @@ func PickLong(flag: bool, value: long): long? => flag ? value : null
 func PickShade(flag: bool, value: Shade): Shade? => flag ? value : null
 
 func ShadeOrDefault(value: Shade?): Shade => value ?? Shade.Light
+
+// AN ARGUMENT WHOSE CALLEE IS CHOSEN BY ITS ARGUMENTS. A static or instance method the emitter binds by
+// asking whether every argument can match a declared parameter -- a framework method, and a method of a
+// class in a REFERENCED assembly (`census-external-operands` holds that half) -- was told a conditional
+// with a typeless arm could not match, so `string.IsNullOrEmpty(flag ? null : name)` declined the whole
+// program at `emit.call.static-member-unmodeled` while a sibling `func` took the same argument. The
+// methods below are the SAME-assembly controls, and a framework static is the external one this project
+// can reach on its own. A typed arm that is a DERIVED class reaches a base-class parameter, as it does
+// when it is passed alone.
+class Shape {
+    Name: string
+
+    constructor(name: string) {
+        Name = name
+    }
+}
+
+class Circle: Shape {
+    constructor(name: string): base(name) {
+    }
+}
+
+class Describer {
+    Prefix: string
+
+    constructor(prefix: string) {
+        Prefix = prefix
+    }
+
+    static func Describe(label: string?, count: int): string {
+        if label == null {
+            return "none:" + count.ToString()
+        }
+        return label + ":" + count.ToString()
+    }
+
+    static func NameOf(shape: Shape?): string {
+        if shape == null {
+            return "<none>"
+        }
+        return shape.Name
+    }
+
+    static func CountOf(value: int?): int => value ?? -1
+
+    func Label(suffix: string?): string {
+        if suffix == null {
+            return Prefix
+        }
+        return Prefix + suffix
+    }
+}
+
+func StaticNullFirst(flag: bool, label: string): string => Describer.Describe(flag ? null : label, 1)
+
+func StaticNullSecond(flag: bool, label: string): string => Describer.Describe(flag ? label : null, 2)
+
+func DerivedArm(flag: bool, circle: Circle): string => Describer.NameOf(flag ? null : circle)
+
+func LiftedArm(flag: bool, n: int): int => Describer.CountOf(flag ? null : n)
+
+func InstanceArgument(flag: bool, describer: Describer, suffix: string): string => describer.Label(flag ? null : suffix)
+
+func FrameworkStatic(flag: bool, text: string): bool => string.IsNullOrEmpty(flag ? null : text)
+
+func FrameworkStaticNullSecond(flag: bool, text: string): bool => string.IsNullOrEmpty(flag ? text : null)

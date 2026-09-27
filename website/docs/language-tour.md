@@ -2577,6 +2577,30 @@ The *typed* arm decides nothing here; the target does. That is what lets a value
 `int?`) rather than having to match a `null` it can never equal, and what gives a `null` a type when
 the only other arm raises.
 
+A parameter is a target wherever the method is declared — in your project, in a referenced N#
+library, or in the framework — and a typed arm converts to it the way it would if it were passed
+alone, so a `Circle` arm reaches a `Shape?` parameter:
+
+```n#
+class Shape {
+    Name: string
+
+    constructor(name: string) {
+        Name = name
+    }
+}
+
+class Circle: Shape {
+    constructor(): base("circle") {
+    }
+}
+
+func nameOf(shape: Shape?): string => shape?.Name ?? "<none>"
+
+func describe(flag: bool, circle: Circle): string => nameOf(flag ? null : circle)
+func isBlank(flag: bool, text: string): bool => string.IsNullOrEmpty(flag ? null : text)
+```
+
 The one shape with nothing to take is **both** arms throwing (`ok ? throw a : throw b`): there is no
 value either way, so write the `throw` as a statement instead. C# refuses that shape too.
 

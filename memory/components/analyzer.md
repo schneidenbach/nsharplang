@@ -903,6 +903,17 @@ throwing arm emits NO branch to the merge — the exception ends that path, so t
 reached only from the arm that produces a value. BOTH arms throwing still declines
 (`emit.conditional.both-arms-throw`), which C# refuses too.
 
+THE PREFLIGHT HAS A TWIN (2026-09-27, the Compiler.CodeIntel carve). A tier that picks its callee by
+asking whether every argument can match a declared parameter — `TryEmitOrdinaryRuntimeStaticCall` and
+its instance form, i.e. every framework method and every method of a class in a REFERENCED assembly —
+asks `CanDeclaredCallArgumentMatch`, which had no arm for this shape, so `string.IsNullOrEmpty(flag ?
+null : s)` declined the whole program at `emit.call.static-member-unmodeled` while a sibling `func`
+took it. `CanEmitConditionalAsType`/`CanEmitConditionalArmAsType` ask the emitting twin's questions in
+its order. A typed arm now also takes the implicit REFERENCE conversions a declared argument takes
+(derived → base, interface, `object`), since each arm is its own branch into the merge. Pinned by
+`census-flow-rules/TargetTypedConditionalArms` (same assembly, framework) and
+`census-external-operands` G8 (referenced assembly, analysis AND emit-only paths).
+
 ### A reference `?` does not choose the equality (2026-09-27, the Compiler.CodeIntel carve)
 
 `CanCompareWithEqualityOperator`'s reference tail looks through a reference annotation

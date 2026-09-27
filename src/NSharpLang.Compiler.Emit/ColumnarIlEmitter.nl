@@ -21368,7 +21368,9 @@ sealed class ColumnarIlEmitter {
     // for a value written where a type is already known: the lifted conversion when the target is a
     // `Nullable<T>` (which is what makes the `int` arm of `flag ? n : null` a `Nullable<int>`), the
     // keyword zero values, an adopted integer literal, and otherwise the ordinary walk measured against
-    // the target.
+    // the target -- which admits the implicit REFERENCE conversions a declared argument admits, so the
+    // `Derived` arm of `flag ? null : derived` reaches a `Base` target, an implementer an interface one,
+    // and any value `object`. Each arm is its own branch into the merge, so each converts on its own.
     private func EmitConditionalArmAsType(node: int, target: Type): bool {
         let armType: System.Type? = null
         if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
@@ -21383,7 +21385,57 @@ sealed class ColumnarIlEmitter {
         if (!EmitExpression(node, out armType)) {
             return false
         }
-        return TypesEquivalent(armType, target)
+        return TypesEquivalent(armType, target) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(armType, target) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(armType, target, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(armType, target, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(armType, target, _structRegistry, _il)
+    }
+
+    // THE PREFLIGHT TWIN OF `TryEmitConditionalAsType`, asked before anything is on the stack. A tier
+    // that chooses its callee by asking whether every argument can match a declared parameter -- the
+    // ordinary static and instance calls into a referenced assembly -- has to be told that a
+    // conditional with a typeless arm matches, or it refuses the call and the whole program declines at
+    // `emit.call.static-member-unmodeled` although the argument door below would have emitted it. Every
+    // question here is one the emitting twin asks, in its order, so the two cannot disagree.
+    private func CanEmitConditionalAsType(node: int, target: Type): bool {
+        if (target == null || _nodes.Kind(node) != ColumnarExpressionNodeKind.TernaryExpression || _nodes.ChildCount(node) != 3) {
+            return false
+        }
+        thenNode := Child(node, 1)
+        elseNode := Child(node, 2)
+        if (!IsTypelessConditionalArm(thenNode) && !IsTypelessConditionalArm(elseNode)) {
+            return false
+        }
+        thenThrows := IsThrowExpressionNode(thenNode)
+        elseThrows := IsThrowExpressionNode(elseNode)
+        if (thenThrows && elseThrows) {
+            return false
+        }
+        return (thenThrows || CanEmitConditionalArmAsType(thenNode, target)) && (elseThrows || CanEmitConditionalArmAsType(elseNode, target))
+    }
+
+    // The predicate half of `EmitConditionalArmAsType`, door for door.
+    private func CanEmitConditionalArmAsType(node: int, target: Type): bool {
+        kind := _nodes.Kind(node)
+        if (kind == ColumnarExpressionNodeKind.DefaultExpression) {
+            return CanEmitDefaultValueOfType(target)
+        }
+        if (kind == ColumnarExpressionNodeKind.NullLiteralExpression) {
+            return !target.IsValueType || ColumnarTypeOfPlanner.IsSupportedNullable(target)
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
+            nullableElement := target.GetGenericArguments()[0]
+            if (CanAdoptIntLiteralAsType(node, nullableElement)) {
+                return true
+            }
+            let liftedArmType: System.Type? = null
+            return TryGetPreflightExpressionType(node, out liftedArmType) && (TypesEquivalent(liftedArmType, target) || TypesEquivalent(liftedArmType, nullableElement))
+        }
+        if (CanAdoptIntLiteralAsType(node, target)) {
+            return true
+        }
+        let armType: System.Type? = null
+        if (!TryGetPreflightExpressionType(node, out armType)) {
+            return false
+        }
+        return TypesEquivalent(armType, target) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(armType, target) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(armType, target)
     }
 
     // THE TWO KEYWORD LITERALS THAT SPELL A TARGET TYPE'S ZERO VALUE, in the one place that knows the
@@ -26862,6 +26914,9 @@ sealed class ColumnarIlEmitter {
         }
         if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.NullLiteralExpression) {
             return !expectedParamType.IsValueType || ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)
+        }
+        if (CanEmitConditionalAsType(argNode, expectedParamType)) {
+            return true
         }
         if (CanUseTargetTypedNewAsType(argNode, expectedParamType)) {
             return true

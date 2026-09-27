@@ -80,10 +80,11 @@ class ImportEditPlanner {
             return false
         }
 
-        // COMPILER: the columnar emitter (the committed seed's and the tip's) declines a static call
-        // into a referenced assembly that takes a `cond ? null : value` argument
-        // (`emit.call.static-member-unmodeled`); a source callee takes it. The maybe-null candidate is
-        // bound to a local first.
+        // COMPILER: the committed seed's columnar emitter declines a static call into a referenced
+        // assembly that takes a `cond ? null : value` argument (`emit.call.static-member-unmodeled`);
+        // a source callee takes it. The tip emits it (`census-external-operands` G8), but this file is
+        // compiled by the seed, so the maybe-null candidate stays bound to a local until the next
+        // reseed; then the argument is `namespaceName.Length == 0 ? null : namespaceName`.
         candidateNamespace: string? = null
         if namespaceName.Length > 0 {
             candidateNamespace = namespaceName

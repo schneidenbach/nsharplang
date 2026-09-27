@@ -119,6 +119,21 @@ test "G7: a maybe-null referenced class value compares by identity, and a declar
     assert !OperandUses.MaybeTalliesMatch(new Tally(2), new Tally(3))
 }
 
+test "G8: a conditional with a null arm is a referenced static's or instance method's argument" {
+    assert OperandUses.DescribeNullFirst(true, "a") == "none:1"
+    assert OperandUses.DescribeNullFirst(false, "a") == "a:1"
+    assert OperandUses.DescribeNullSecond(true, "b") == "b:2"
+    assert OperandUses.DescribeNullSecond(false, "b") == "none:2"
+    alias := new AliasShape("a", new Shape("s"))
+    assert OperandUses.NameOfAlias(true, alias) == "<none>"
+    assert OperandUses.NameOfAlias(false, alias) == "a"
+    assert OperandUses.CountOrAbsent(true, 3) == -1
+    assert OperandUses.CountOrAbsent(false, 3) == 3
+    labeler := new Labeler("p")
+    assert OperandUses.LabelOrPrefix(true, labeler, "!") == "p"
+    assert OperandUses.LabelOrPrefix(false, labeler, "!") == "p!"
+}
+
 test "G9: a &T parameter is passed on by reference to a referenced &T parameter" {
     assert OperandUses.Forwarded() == "6 15"
 }

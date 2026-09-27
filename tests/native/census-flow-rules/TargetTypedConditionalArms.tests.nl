@@ -52,3 +52,24 @@ test "a wider element and an enum element take the same lifted route" {
     assert PickShade(false, Shade.Dark) == null
     assert ShadeOrDefault(PickShade(false, Shade.Dark)) == Shade.Light
 }
+
+test "a typeless arm reaches a method the emitter binds by its arguments, in both arm orders" {
+    assert StaticNullFirst(true, "a") == "none:1"
+    assert StaticNullFirst(false, "a") == "a:1"
+    assert StaticNullSecond(true, "b") == "b:2"
+    assert StaticNullSecond(false, "b") == "none:2"
+    assert FrameworkStatic(true, "x")
+    assert !FrameworkStatic(false, "x")
+    assert !FrameworkStaticNullSecond(true, "x")
+    assert FrameworkStaticNullSecond(false, "x")
+}
+
+test "a derived arm reaches a base parameter, a value arm a lifted one, and an instance method takes it too" {
+    assert DerivedArm(true, new Circle("c")) == "<none>"
+    assert DerivedArm(false, new Circle("c")) == "c"
+    assert LiftedArm(true, 3) == -1
+    assert LiftedArm(false, 3) == 3
+    describer := new Describer("p")
+    assert InstanceArgument(true, describer, "!") == "p"
+    assert InstanceArgument(false, describer, "!") == "p!"
+}

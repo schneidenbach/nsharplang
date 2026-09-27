@@ -216,10 +216,27 @@ class Tally {
     static func operator !=(left: Tally, right: Tally): bool => left.Count != right.Count
 }
 
-// Callees a consumer reaches by ASKING WHETHER ITS ARGUMENTS MATCH: the ordinary static tier into a
-// referenced assembly, which chooses a member by its declared parameters. A `&T` parameter is handed a
-// `&T` the consumer was itself given.
+// Callees a consumer reaches by ASKING WHETHER ITS ARGUMENTS MATCH: the ordinary static and instance
+// tiers into a referenced assembly, which choose a member by its declared parameters. A conditional
+// with a `null` arm is target-typed by the maybe-null parameter it is passed to, and a `&T` parameter
+// is handed a `&T` the consumer was itself given.
 class OperandFacts {
+    static func Describe(label: string?, count: int): string {
+        if label == null {
+            return "none:" + count.ToString()
+        }
+        return label + ":" + count.ToString()
+    }
+
+    static func NameOf(shape: Shape?): string {
+        if shape == null {
+            return "<none>"
+        }
+        return shape.Name
+    }
+
+    static func CountOf(value: int?): int => value ?? -1
+
     static func Bump(slot: &int, amount: int) {
         Interlocked.Add(ref slot, amount)
     }
@@ -231,4 +248,19 @@ class OperandFacts {
 
 struct Counter {
     Value: int
+}
+
+class Labeler {
+    Prefix: string
+
+    constructor(prefix: string) {
+        Prefix = prefix
+    }
+
+    func Label(suffix: string?): string {
+        if suffix == null {
+            return Prefix
+        }
+        return Prefix + suffix
+    }
 }
