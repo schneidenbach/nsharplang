@@ -274,11 +274,17 @@ func SaltedEnvNames(coreScript: string): List<string> {
 // synthetic tree. This is how the end-to-end row proves the SHIPPED hasher's behavior rather than
 // a re-implementation of it.
 func ExtractStepHashPython(coreScript: string): string {
-    lines := coreScript.Split('\n')
+    return ExtractPythonHeredoc(coreScript, "STEP_HASH_OUTPUT=\"$(python3", "tests/scripts/test-all-core.sh")
+}
+
+// The body of the first `<<'PY'` heredoc that opens on the line containing `openingMarker`, up to
+// its `PY` terminator: the shipped python, byte for byte, ready to be written to a file and run.
+func ExtractPythonHeredoc(script: string, openingMarker: string, scriptName: string): string {
+    lines := script.Split('\n')
     start := -1
     index := 0
     while index < lines.Length {
-        if start < 0 && lines[index].Contains("STEP_HASH_OUTPUT=\"$(python3") {
+        if start < 0 && lines[index].Contains(openingMarker) {
             start = index
         }
 
@@ -286,7 +292,7 @@ func ExtractStepHashPython(coreScript: string): string {
     }
 
     if start < 0 {
-        throw new InvalidOperationException("Could not find the STEP_HASH_OUTPUT python heredoc in tests/scripts/test-all-core.sh.")
+        throw new InvalidOperationException("Could not find the python heredoc opened by '" + openingMarker + "' in " + scriptName + ".")
     }
 
     end := -1
@@ -300,7 +306,7 @@ func ExtractStepHashPython(coreScript: string): string {
     }
 
     if end <= start {
-        throw new InvalidOperationException("Could not find the PY heredoc terminator in tests/scripts/test-all-core.sh.")
+        throw new InvalidOperationException("Could not find the PY heredoc terminator after '" + openingMarker + "' in " + scriptName + ".")
     }
 
     builder := new StringBuilder()

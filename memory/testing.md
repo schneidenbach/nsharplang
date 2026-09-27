@@ -1666,9 +1666,19 @@ return the recorded green result quickly. Plain `./scripts/test-all.sh` may use
 that cache for development feedback. Integration and release evidence uses
 `--commit` (or `--release`) so cached results are not accepted.
 
-The dependency cache can contain gate-generated SDK versions without the bootstrap version.
-Each invocation refreshes the caller's bootstrap SDK/runtime package trees before compiling, even
-when those package-ID directories already exist; gate-specific sibling versions are retained.
+Any number of gates, at any mix of commits, may run on one machine at once. Each run restores
+into its OWN `NUGET_PACKAGES` under its temporary root, because a run mutates that folder (its
+first restore extracts the seed, Step 4b deletes the NSharpLang packages and later steps restore
+the SDK the run just packed under the same version). The stage-0 seed therefore always comes from
+the copied tree's `bootstrap/` — verified against its `SHA256SUMS` after the copy — and never from
+the user's global cache or another gate. What runs share is the NuGet store at
+`<cache root>/nuget-store/v1/<id>/<version>/<sha512 of the .nupkg>/`: nuget.org packages only
+(never an NSharpLang identity, never a local-feed package), each published once by a verified
+staging copy and a single atomic `rename` whose loser discards its copy, and never modified after.
+A run starts from a copy-on-write clone of the entries its dependency key recorded last time
+(`dependencies/<key>/nuget-store-index.txt`), about half a second warm; `nlc` reads
+`NUGET_PACKAGES` directly, which is why the store is cloned rather than used as a NuGet fallback
+folder. `tests/native/gate-script-contracts/NuGetStore.tests.nl` races the shipped store program.
 
 The full isolated run:
 1. Runs all unit tests (`dotnet test`)

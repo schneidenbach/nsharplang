@@ -11,7 +11,10 @@ automation, and agent instructions already call those paths.
 
 - `test-all.sh` - isolated, validated full product verification gate. Stable
   command: `./scripts/test-all.sh`. It runs the core gate from a temporary
-  copy with isolated HOME, temp, NuGet, and npm state; successful runs write a
+  copy with isolated HOME, temp, NuGet, and npm state (each run restores into
+  its own packages folder, cloned from an immutable shared store of nuget.org
+  packages; the seed is always the copied tree's `bootstrap/`, so concurrent
+  gates at different commits never touch each other); successful runs write a
   content-addressed cache record so unchanged follow-up runs can validate and
   return quickly. Use `--no-cache`, `--rebuild-cache`, or `--clean` to force a
   fresh isolated run. Use `./scripts/test-all.sh --commit` before committing;

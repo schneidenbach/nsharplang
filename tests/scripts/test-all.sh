@@ -429,6 +429,205 @@ RUN_HOME="$RUN_ROOT/home"
 RUN_TMP="$RUN_ROOT/tmp"
 RUN_DEPS="$CACHE_ROOT/dependencies/$DEPENDENCY_KEY"
 
+# ONE PACKAGES FOLDER PER RUN, OVER A SHARED STORE THAT IS NEVER WRITTEN IN PLACE.
+#
+# Every run restores into its OWN `NUGET_PACKAGES`, because a run mutates that folder: its first
+# restore extracts the tree's stage-0 seed there, Step 4b deletes the NSharpLang packages and the
+# steps after it restore the SDK this tree just packed under the SAME version, and the release pack
+# path rewrites the restored SDK's `Sdk.props`. When that folder was shared per dependency key, a
+# gate at one commit deleted or replaced the SDK another gate at a different commit was reading
+# (MSB3030 on `nsharplang.runtime/0.1.0/.../NSharpLang.Runtime.dll`), and a run could compile with
+# a seed that was not its own.
+#
+# What runs share is `NUGET_STORE`: immutable entries `<id>/<version>/<sha512 of the .nupkg>/`,
+# one per nuget.org package a run restored. An entry is written once -- cloned into a staging
+# directory inside the store, verified there, then published with a single `rename` that fails if
+# the entry already exists, so the loser of a race discards its copy -- and never modified after.
+# A reader therefore sees an entry whole or not at all. The NSharpLang packages are never shared:
+# the tree under test owns every version of them. `nlc` reads `NUGET_PACKAGES` directly rather than
+# NuGet's fallback folders, so a run starts from a copy-on-write clone of the entries its dependency
+# key used last time (`NUGET_STORE_INDEX`), which costs a fraction of a second on APFS.
+RUN_PACKAGES="$RUN_ROOT/nuget/packages"
+NUGET_STORE="$CACHE_ROOT/nuget-store/v1"
+NUGET_STORE_INDEX="$RUN_DEPS/nuget-store-index.txt"
+
+# nuget_store materialize|promote <store> <index> <packages-folder>
+nuget_store() {
+    python3 - "$@" <<'PY'
+import base64
+import binascii
+import hashlib
+import json
+import os
+import shutil
+import sys
+import time
+import uuid
+
+NUGET_ORG = "https://api.nuget.org/v3/index.json"
+TREE_OWNED_PREFIX = "nsharplang."
+STALE_STAGING_SECONDS = 24 * 60 * 60
+
+
+def recorded_digest(package_dir, package_id, version):
+    """Hex SHA-512 the entry's `.nupkg.sha512` records, or None when it is absent or malformed."""
+    path = os.path.join(package_dir, f"{package_id}.{version}.nupkg.sha512")
+    try:
+        with open(path, encoding="ascii") as handle:
+            return binascii.hexlify(base64.b64decode(handle.read().strip(), validate=True)).decode("ascii")
+    except (OSError, ValueError):
+        return None
+
+
+def verified_digest(package_dir, package_id, version):
+    """The recorded digest, only when the `.nupkg` bytes beside it actually hash to it."""
+    recorded = recorded_digest(package_dir, package_id, version)
+    if recorded is None:
+        return None
+    digest = hashlib.sha512()
+    try:
+        with open(os.path.join(package_dir, f"{package_id}.{version}.nupkg"), "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return recorded if digest.hexdigest() == recorded else None
+
+
+def shareable(package_dir, package_id):
+    # The tree under test owns every NSharpLang identity: seeds, local-feed packs, same-version
+    # replacements. Anything else must have come from nuget.org, whose packages never change under
+    # an id and version. `nlc`'s own resolver downloads from nuget.org only and writes no
+    # `.nupkg.metadata`; NuGet's restore writes one naming the source it extracted from, and one
+    # with no source at all when it adopts a package `nlc` already installed.
+    if package_id.startswith(TREE_OWNED_PREFIX):
+        return False
+    metadata = os.path.join(package_dir, ".nupkg.metadata")
+    if not os.path.exists(metadata):
+        return True
+    try:
+        with open(metadata, encoding="utf-8") as handle:
+            return json.load(handle).get("source", NUGET_ORG) == NUGET_ORG
+    except (OSError, ValueError):
+        return False
+
+
+def clone_tree(source, destination):
+    # Copy-on-write where the filesystem has it (one `clonefile` per package on APFS), else a copy.
+    if sys.platform == "darwin":
+        import ctypes
+        libc = ctypes.CDLL("libc.dylib", use_errno=True)
+        if libc.clonefile(os.fsencode(source), os.fsencode(destination), 0) == 0:
+            return
+    shutil.copytree(source, destination, symlinks=True)
+
+
+def safe_name(name):
+    return bool(name) and name not in (".", "..") and "/" not in name and "\\" not in name
+
+
+def read_index(index):
+    entries = set()
+    try:
+        with open(index, encoding="utf-8") as handle:
+            for line in handle:
+                parts = line.split()
+                if len(parts) == 3 and all(safe_name(part) for part in parts):
+                    entries.add(tuple(parts))
+    except OSError:
+        pass
+    return entries
+
+
+def write_index(index, entries):
+    os.makedirs(os.path.dirname(index), exist_ok=True)
+    temporary = f"{index}.{uuid.uuid4().hex}.tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        for entry in sorted(entries):
+            handle.write(" ".join(entry) + "\n")
+    os.replace(temporary, index)
+
+
+def materialize(store, index, packages):
+    identities = {}
+    for package_id, version, digest in read_index(index):
+        identities.setdefault((package_id, version), set()).add(digest)
+    cloned = 0
+    for (package_id, version), digests in sorted(identities.items()):
+        if len(digests) != 1:
+            continue
+        digest = next(iter(digests))
+        entry = os.path.join(store, package_id, version, digest)
+        destination = os.path.join(packages, package_id, version)
+        if os.path.exists(destination) or verified_digest(entry, package_id, version) != digest:
+            continue
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        clone_tree(entry, destination)
+        cloned += 1
+    print(f"NuGet store: {cloned} packages cloned into this run's packages folder from {store}")
+
+
+def publish(package_dir, entry, staging_root, package_id, version, digest):
+    os.makedirs(staging_root, exist_ok=True)
+    staging = os.path.join(staging_root, uuid.uuid4().hex)
+    os.mkdir(staging)
+    try:
+        candidate = os.path.join(staging, "entry")
+        clone_tree(package_dir, candidate)
+        if verified_digest(candidate, package_id, version) != digest:
+            return False
+        os.makedirs(os.path.dirname(entry), exist_ok=True)
+        try:
+            os.rename(candidate, entry)
+        except OSError:
+            # Another run published this content first. Its entry stands; this copy is discarded.
+            return False
+        return True
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def promote(store, index, packages):
+    staging_root = os.path.join(store, ".staging")
+    now = time.time()
+    try:
+        for name in os.listdir(staging_root):
+            path = os.path.join(staging_root, name)
+            if now - os.path.getmtime(path) > STALE_STAGING_SECONDS:
+                shutil.rmtree(path, ignore_errors=True)
+    except OSError:
+        pass
+
+    known = set()
+    published = 0
+    for package_id in sorted(os.listdir(packages)) if os.path.isdir(packages) else []:
+        id_dir = os.path.join(packages, package_id)
+        if not safe_name(package_id) or not os.path.isdir(id_dir):
+            continue
+        for version in sorted(os.listdir(id_dir)):
+            package_dir = os.path.join(id_dir, version)
+            if not safe_name(version) or not os.path.isdir(package_dir) or not shareable(package_dir, package_id):
+                continue
+            digest = recorded_digest(package_dir, package_id, version)
+            if digest is None:
+                continue
+            entry = os.path.join(store, package_id, version, digest)
+            if not os.path.isdir(entry):
+                if verified_digest(package_dir, package_id, version) != digest:
+                    continue
+                if publish(package_dir, entry, staging_root, package_id, version, digest):
+                    published += 1
+            if os.path.isdir(entry):
+                known.add((package_id, version, digest))
+    write_index(index, read_index(index) | known)
+    print(f"NuGet store: {published} new packages published, {len(known)} recorded for this dependency key")
+
+
+command, store, index, packages = sys.argv[1:5]
+{"materialize": materialize, "promote": promote}[command](store, index, packages)
+PY
+}
+
 cleanup_run() {
     if ! is_enabled "$KEEP_RUN"; then
         rm -rf "$RUN_ROOT"
@@ -484,24 +683,16 @@ echo "  Deps:   $RUN_DEPS"
 echo "  Key:    ${CACHE_KEY:0:16}"
 echo "  DepKey: ${DEPENDENCY_KEY:0:16}"
 
-python3 "$SOURCE_ROOT/scripts/verify-bootstrap.py"
 python3 "$SOURCE_ROOT/tests/scripts/test-release-workflows.py"
 copy_source_tree
-mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_DEPS/nuget/packages" "$RUN_DEPS/npm-cache"
-
-BOOTSTRAP_NUGET_PACKAGES="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
-copy_bootstrap_nuget_package() {
-    local package_id="$1"
-    local package_dir="$BOOTSTRAP_NUGET_PACKAGES/$package_id"
-
-    if [ -d "$package_dir" ]; then
-        mkdir -p "$RUN_DEPS/nuget/packages"
-        cp -R "$package_dir" "$RUN_DEPS/nuget/packages/"
-    fi
-}
-
-copy_bootstrap_nuget_package nsharplang.sdk
-copy_bootstrap_nuget_package nsharplang.runtime
+# THE SEED IS THE TREE'S OWN. The run's packages folder starts with no NSharpLang package at all, so
+# the first restore extracts the stage-0 SDK/runtime from the COPIED tree's `bootstrap/` (the root
+# NuGet.config source), and these are the bytes checked against its SHA256SUMS -- never whatever
+# seed the user's global cache or another gate happens to hold under the same version.
+python3 "$RUN_REPO/scripts/verify-bootstrap.py"
+mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_PACKAGES" "$RUN_DEPS/npm-cache"
+nuget_store materialize "$NUGET_STORE" "$NUGET_STORE_INDEX" "$RUN_PACKAGES" \
+    || echo "Could not materialize cached NuGet packages; this run restores them itself." >&2
 
 START_TIME="$(date +%s)"
 
@@ -513,7 +704,7 @@ set +e
     export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
     export DOTNET_CLI_TELEMETRY_OPTOUT=1
     export DOTNET_NOLOGO=1
-    export NUGET_PACKAGES="$RUN_DEPS/nuget/packages"
+    export NUGET_PACKAGES="$RUN_PACKAGES"
     export NPM_CONFIG_CACHE="$RUN_DEPS/npm-cache"
     export NSHARP_VSCODE_TEST_CACHE="$RUN_DEPS/vscode-test"
     export NSHARP_VSCODE_PROFILE_ROOT="$RUN_TMP/vscode-profiles"
@@ -532,6 +723,10 @@ set +e
 )
 CORE_EXIT=$?
 set -e
+
+# Carried out on a failing run too: what a nuget.org package holds does not depend on the verdict.
+nuget_store promote "$NUGET_STORE" "$NUGET_STORE_INDEX" "$RUN_PACKAGES" \
+    || echo "Could not promote this run's NuGet packages into the shared store; the gate's verdict is unaffected." >&2
 
 # THE RECORDS THE GATE LEAVES BEHIND, CARRIED OUT OF THE COPY IT DELETES. Step 3a writes
 # `artifacts/native-sweep/<UTC time>.json` and the compile-time bench writes
