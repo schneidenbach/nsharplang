@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // Native contracts for what a condition proves about the code it guards.
 //
@@ -28,17 +29,20 @@ class FlowNarrowingHarness {
     Scopes: AnalyzerScopeStack
     Context: AnalyzerDeclarationContext
     Postconditions: AnalyzerNullabilityPostconditions
+    NullFlow: AnalyzerNullFlow
 
     constructor(
         owner: AnalyzerFlowNarrowing,
         scopes: AnalyzerScopeStack,
         context: AnalyzerDeclarationContext,
-        postconditions: AnalyzerNullabilityPostconditions
+        postconditions: AnalyzerNullabilityPostconditions,
+        nullFlow: AnalyzerNullFlow
     ) {
         Owner = owner
         Scopes = scopes
         Context = context
         Postconditions = postconditions
+        NullFlow = nullFlow
     }
 }
 
@@ -79,11 +83,13 @@ func FlowNarrowingDefault(): FlowNarrowingHarness {
     assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
 
     postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
+    nullFlow := new AnalyzerNullFlow(diagnostics, new AnalyzerDiagnosticSpans(diagnostics), scopes, context)
     return new FlowNarrowingHarness(
-        new AnalyzerFlowNarrowing(scopes, resolver, assignability, postconditions),
+        new AnalyzerFlowNarrowing(scopes, resolver, assignability, postconditions, nullFlow),
         scopes,
         context,
-        postconditions
+        postconditions,
+        nullFlow
     )
 }
 
@@ -619,41 +625,87 @@ test "a DOTTED path is never arm-subtracted, because the symbol lookup is by sim
 }
 
 // ── the HasValue shapes ───────────────────────────────────────────────────
+//
+// `x.HasValue` IS `x != null`: a NULL FACT on the receiver's path, not-null when true and null when
+// false, and never a rewritten type. It used to rebind the name to the inner type, which a guard
+// clause then wrote into the scope that DECLARED the name — erasing the `int?` that `.Value` and a
+// later `x = null` both needed. Whether a node is that test is the member-access arm's verdict,
+// recorded in `AnalyzerNullFlow` when it bound `Nullable<T>`'s own `HasValue`; these rows record it
+// the same way and pin what the writer does with it. The whole-program rows below drive the
+// recording through the real binder.
 
-test "`x.HasValue` proves the nullable's INNER type in the then branch" {
+test "a recorded `x.HasValue` proves x NOT-NULL when true and NULL when false, as a fact and not a type" {
     harness := FlowNarrowingDefault()
     harness.Scopes.Peek().Symbols["x"] = new NullableTypeInfo(BuiltInTypes.Int)
     condition := new MemberAccessExpression(FnName("x"), "HasValue", false, 3, 5)
+    harness.NullFlow.RecordNullableHasValueTest(condition)
 
     split := harness.Owner.ExtractFlowNarrowings(condition)
 
     assert split.Then.Count == 1
     assert split.Then[0].Path == "x"
     assert split.Then[0].NullState == NullState.NotNull
-    assert BuiltInTypes.Is(split.Then[0].NarrowedType, BuiltInTypes.Int)
-    assert split.Else.Count == 0
+    assert split.Then[0].NarrowedType == null
+    assert split.Else.Count == 1
+    assert split.Else[0].Path == "x"
+    assert split.Else[0].NullState == NullState.Null
+    assert split.Else[0].NarrowedType == null
 }
-test "`!x.HasValue` puts the SAME narrowing in the ELSE branch" {
+test "`!x.HasValue` proves the SAME two facts with the branches swapped" {
     harness := FlowNarrowingDefault()
     harness.Scopes.Peek().Symbols["x"] = new NullableTypeInfo(BuiltInTypes.Int)
     access := new MemberAccessExpression(FnName("x"), "HasValue", false, 3, 5)
+    harness.NullFlow.RecordNullableHasValueTest(access)
     condition := new UnaryExpression(UnaryOperator.Not, access, 3, 5)
 
     split := harness.Owner.ExtractFlowNarrowings(condition)
 
-    assert split.Then.Count == 0
+    assert split.Then.Count == 1
+    assert split.Then[0].NullState == NullState.Null
     assert split.Else.Count == 1
     assert split.Else[0].Path == "x"
-    assert BuiltInTypes.Is(split.Else[0].NarrowedType, BuiltInTypes.Int)
+    assert split.Else[0].NullState == NullState.NotNull
+    assert split.Else[0].NarrowedType == null
 }
-test "HasValue on a NON-nullable symbol narrows nothing" {
+test "`x.HasValue` and `x != null` prove IDENTICAL splits" {
     harness := FlowNarrowingDefault()
-    harness.Scopes.Peek().Symbols["x"] = BuiltInTypes.Int
+    harness.Scopes.Peek().Symbols["x"] = new NullableTypeInfo(BuiltInTypes.Int)
+    access := new MemberAccessExpression(FnName("x"), "HasValue", false, 3, 5)
+    harness.NullFlow.RecordNullableHasValueTest(access)
+
+    viaHasValue := harness.Owner.ExtractFlowNarrowings(access)
+    viaComparison := harness.Owner.ExtractFlowNarrowings(FnBinary(FnName("x"), BinaryOperator.NotEqual, FnNull()))
+
+    assert viaHasValue.Then.Count == viaComparison.Then.Count
+    assert viaHasValue.Else.Count == viaComparison.Else.Count
+    assert viaHasValue.Then[0].Path == viaComparison.Then[0].Path
+    assert viaHasValue.Then[0].NullState == viaComparison.Then[0].NullState
+    assert viaHasValue.Else[0].NullState == viaComparison.Else[0].NullState
+}
+test "installing a HasValue guard's surviving fact leaves the DECLARED nullable in the symbol table" {
+    harness := FlowNarrowingDefault()
+    declared := new NullableTypeInfo(BuiltInTypes.Int)
+    harness.Scopes.Peek().Symbols["x"] = declared
+    access := new MemberAccessExpression(FnName("x"), "HasValue", false, 3, 5)
+    harness.NullFlow.RecordNullableHasValueTest(access)
+    condition := new UnaryExpression(UnaryOperator.Not, access, 3, 5)
+
+    // `if !x.HasValue { throw }`: the surviving flow is the condition's ELSE side, installed into
+    // the scope that declared `x` — the exact shape that used to overwrite the declaration.
+    harness.Owner.ApplyNarrowingsToScope(harness.Owner.ExtractFlowNarrowings(condition).Else)
+
+    assert Object.ReferenceEquals(harness.Scopes.Peek().Symbols["x"], declared)
+    assert harness.Scopes.Peek().NullStates["x"] == NullState.NotNull
+}
+test "an UNRECORDED HasValue narrows nothing, whatever the receiver's symbol says" {
+    harness := FlowNarrowingDefault()
+    harness.Scopes.Peek().Symbols["x"] = new NullableTypeInfo(BuiltInTypes.Int)
     condition := new MemberAccessExpression(FnName("x"), "HasValue", false, 3, 5)
 
     split := harness.Owner.ExtractFlowNarrowings(condition)
 
     assert split.Then.Count == 0
+    assert split.Else.Count == 0
 }
 test "a member named something OTHER than HasValue narrows nothing" {
     harness := FlowNarrowingDefault()
@@ -664,14 +716,36 @@ test "a member named something OTHER than HasValue narrows nothing" {
 
     assert split.Then.Count == 0
 }
-test "HasValue on something that is not a bare NAME narrows nothing" {
+test "a recorded HasValue on a member PATH narrows the path, as `box.Item != null` would" {
     harness := FlowNarrowingDefault()
     inner := new MemberAccessExpression(FnName("box"), "Item", false, 3, 5)
     condition := new MemberAccessExpression(inner, "HasValue", false, 3, 5)
+    harness.NullFlow.RecordNullableHasValueTest(condition)
 
     split := harness.Owner.ExtractFlowNarrowings(condition)
 
-    assert split.Then.Count == 0
+    assert split.Then.Count == 1
+    assert split.Then[0].Path == "box.Item"
+    assert split.Then[0].NullState == NullState.NotNull
+    assert split.Else.Count == 1
+    assert split.Else[0].Path == "box.Item"
+    assert split.Else[0].NullState == NullState.Null
+}
+test "a `?.` HasValue is never recorded, because its receiver may never have been reached" {
+    harness := FlowNarrowingDefault()
+    guarded := new MemberAccessExpression(FnName("x"), "HasValue", true, 3, 5)
+    harness.NullFlow.RecordNullableHasValueTest(guarded)
+
+    assert harness.NullFlow.NullableHasValueTestPath(guarded) == null
+    assert harness.Owner.ExtractFlowNarrowings(guarded).Then.Count == 0
+}
+test "a HasValue on a receiver with no stable path is never recorded" {
+    harness := FlowNarrowingDefault()
+    call := new CallExpression(FnName("Next"), new List<Argument>(), null, 3, 5)
+    condition := new MemberAccessExpression(call, "HasValue", false, 3, 5)
+    harness.NullFlow.RecordNullableHasValueTest(condition)
+
+    assert harness.NullFlow.NullableHasValueTestPath(condition) == null
 }
 test "a NOT over something that is not a member access narrows nothing" {
     harness := FlowNarrowingDefault()
@@ -991,4 +1065,109 @@ test "an && whose right operand is a call carries that call's true-branch facts"
 
     assert split.Then.Count == 2
     assert split.Else.Count == 0
+}
+
+// ── HasValue through the real binder ───────────────────────────────────────────────────────────
+//
+// THE BUG THESE ROWS PIN. After `if !x.HasValue { throw }` on an `x: int?` local the analyzer
+// rebound `x` to `int` IN ITS DECLARING SCOPE, so `x.Value` reported NL303 "Member 'Value' not
+// found on type 'int'" and `x = null` a type mismatch — while `if x.HasValue { x.Value }`, and the
+// same guard spelt `x == null`, were fine. The rule now is one sentence: `x.HasValue` proves what
+// `x != null` proves. So every row states a shape in BOTH spellings and asserts the same answer.
+//
+// The answers are compared as `Code@Line` strings over the WHOLE diagnostic list, warnings
+// included, because the point of the rule is that `.Value` past a proof is SILENT (no NL907) and
+// `.Value` without one is not — an error-only filter would miss the half that regressed silently.
+// The positive half RUNS in `tests/native/census-flow-rules/HasValueGuards`.
+func FlowNarrowingSourceDiagnostics(source: string): List<string> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-flow-hasvalue-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    diagnostics := new List<string>()
+    analyzer := new Analyzer()
+    try {
+        analyzer.LoadSystemAssemblies()
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            diagnostics.Add(error.Code.ToString() + "@" + error.Line.ToString())
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return diagnostics
+}
+
+// One function body, wrapped in a namespace with the shared declarations every row reads.
+func FlowNarrowingHasValueProgram(body: string): string {
+    return "namespace P\n\nimport System\n\nstruct Money {\n    Amount: int\n}\n\nclass Holder {\n    Slot: int?\n    Held: Money?\n}\n\nfunc Parse(s: string): int? {\n    if s.Length == 0 {\n        return null\n    }\n    return s.Length\n}\n\n" + body
+}
+
+func FlowNarrowingAssertClean(body: string) {
+    diagnostics := FlowNarrowingSourceDiagnostics(FlowNarrowingHasValueProgram(body))
+    if diagnostics.Count != 0 {
+        throw new InvalidOperationException("expected no diagnostics, got " + string.Join(", ", diagnostics) + " for:\n" + body)
+    }
+}
+
+test "a `!x.HasValue` THROW guard leaves x.Value and the bare x usable, exactly as `x == null` does" {
+    FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if !x.HasValue {\n        throw new FormatException()\n    }\n    return x.Value + x\n}\n")
+    FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if x == null {\n        throw new FormatException()\n    }\n    return x.Value + x\n}\n")
+}
+test "a `!x.HasValue` RETURN guard narrows the surviving flow in both spellings" {
+    FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if !x.HasValue {\n        return -1\n    }\n    y: int = x\n    return x.Value + y\n}\n")
+    FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if !(x != null) {\n        return -1\n    }\n    y: int = x\n    return x.Value + y\n}\n")
+}
+test "a `!x.HasValue` CONTINUE guard narrows the rest of the loop body" {
+    FlowNarrowingAssertClean("func F(items: string[]): int {\n    total := 0\n    for s in items {\n        x := Parse(s)\n        if !x.HasValue {\n            continue\n        }\n        total = total + x.Value + x\n    }\n    return total\n}\n")
+    FlowNarrowingAssertClean("func F(items: string[]): int {\n    total := 0\n    for s in items {\n        x := Parse(s)\n        if x == null {\n            continue\n        }\n        total = total + x.Value + x\n    }\n    return total\n}\n")
+}
+test "the POSITIVE branch reads x.Value and the bare x in every spelling" {
+    FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if x.HasValue {\n        return x.Value + x\n    }\n    return 0\n}\n")
+    FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if x != null {\n        return x.Value + x\n    }\n    return 0\n}\n")
+    FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if x.HasValue && x.Value > 1 {\n        return x + 1\n    }\n    return 0\n}\n")
+}
+test "a guard over a STRUCT nullable reads the unwrap and the narrowed struct's own members" {
+    FlowNarrowingAssertClean("func F(m: Money?): int {\n    local := m\n    if !local.HasValue {\n        return 0\n    }\n    return local.Value.Amount + local.Amount\n}\n")
+    FlowNarrowingAssertClean("func F(m: Money?): int {\n    local := m\n    if local == null {\n        return 0\n    }\n    return local.Value.Amount + local.Amount\n}\n")
+    FlowNarrowingAssertClean("func F(m: Money?): int {\n    local := m\n    if local.HasValue {\n        return local.Value.Amount + local.Amount\n    }\n    return 0\n}\n")
+}
+test "a HasValue guard keeps the DECLARED nullable, so the name can still be written null" {
+    FlowNarrowingAssertClean("func F(s: string): int? {\n    x := Parse(s)\n    if !x.HasValue {\n        return null\n    }\n    x = null\n    return x\n}\n")
+}
+test "a HasValue guard on a member PATH narrows the path, exactly as `!= null` does" {
+    FlowNarrowingAssertClean("func F(h: Holder): int {\n    if !h.Slot.HasValue {\n        return 0\n    }\n    return h.Slot.Value + h.Slot.GetValueOrDefault()\n}\n")
+    FlowNarrowingAssertClean("func F(h: Holder): int {\n    if h.Held.HasValue {\n        return h.Held.Value.Amount\n    }\n    return 0\n}\n")
+}
+test "an `||` of two HasValue tests narrows BOTH names past the guard" {
+    FlowNarrowingAssertClean("func F(a: int?, b: int?): int {\n    if !a.HasValue || !b.HasValue {\n        return 0\n    }\n    return a.Value + b\n}\n")
+}
+test "`.Value` the flow did NOT prove still warns NL907, in every spelling" {
+    program := FlowNarrowingHasValueProgram("func Unguarded(s: string): int {\n    x := Parse(s)\n    return x.Value\n}\n\nfunc NotLeaving(s: string): int {\n    x := Parse(s)\n    if !x.HasValue {\n        print \"none\"\n    }\n    return x.Value\n}\n\nfunc ElseOfPositive(s: string): int {\n    x := Parse(s)\n    if x.HasValue {\n        return 1\n    } else {\n        return x.Value\n    }\n}\n")
+    diagnostics := FlowNarrowingSourceDiagnostics(program)
+    // Line numbers are the program's own: the prelude is 20 lines, so the three reads sit at 23,
+    // 31 and 39.
+    assert diagnostics.Count == 3
+    assert diagnostics.Contains("NullabilityWarning@23")
+    assert diagnostics.Contains("NullabilityWarning@31")
+    assert diagnostics.Contains("NullabilityWarning@39")
+}
+test "a `must` on a value a HasValue guard proved is redundant, exactly as after `x == null`" {
+    viaHasValue := FlowNarrowingSourceDiagnostics(FlowNarrowingHasValueProgram("func F(s: string): int {\n    x := Parse(s)\n    if !x.HasValue {\n        return 0\n    }\n    return must x\n}\n"))
+    viaComparison := FlowNarrowingSourceDiagnostics(FlowNarrowingHasValueProgram("func F(s: string): int {\n    x := Parse(s)\n    if x == null {\n        return 0\n    }\n    return must x\n}\n"))
+    assert viaHasValue.Count == 1
+    assert viaHasValue[0] == "NullabilityWarning@26"
+    assert viaComparison.Count == 1
+    assert viaComparison[0] == viaHasValue[0]
+}
+test "a CLASS's own `HasValue` on a reference `T?` proves nothing about the class's members" {
+    program := "namespace P\n\nclass Box {\n    HasValue: bool\n    Name: string?\n\n    constructor() {\n        HasValue = true\n        Name = null\n    }\n}\n\nfunc F(b: Box?): int {\n    if b == null {\n        return 0\n    }\n    if !b.HasValue {\n        return 0\n    }\n    return b.Name.Length\n}\n"
+    diagnostics := FlowNarrowingSourceDiagnostics(program)
+    assert diagnostics.Count == 1
+    assert diagnostics[0] == "PossibleNullAccess@20"
 }

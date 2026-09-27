@@ -628,6 +628,16 @@ CONDITIONAL FACTS ARE FILED AGAINST THE CALL NODE RATHER THAN APPLIED, because a
 is analysed BEFORE the `if` walk asks what the condition proves; `AnalyzerFlowNarrowing`'s call arm
 reads them back when it meets the same node, so `&&`, `||`, `!` and the ternary compose for free.
 
+`x.HasValue` IS `x != null` (2026-09-27). The member-access arm records every `HasValue` it binds to
+`Nullable<T>`'s OWN member (`AnalyzerNullFlow.RecordNullableHasValueTest`, keyed by node, receiver's
+stable path, never through `?.`), and `AnalyzerFlowNarrowing.TryExtractHasValueNarrowing` turns the
+recorded node into the comparison's two FACTS — not-null when true, null when false, `NarrowedType`
+null. It used to REBIND the name to the inner type, which a guard clause installed into the scope
+that DECLARED the name: `.Value` after `if !x.HasValue { throw }` found no nullable origin (NL303 on
+`int`), `x = null` below it was NL202, a member path (`h.Slot.HasValue`) proved nothing, and a class's
+own `HasValue` on a reference `T?` "proved" its receiver. Contracts: `AnalyzerFlowNarrowing.tests.nl`
+(unit + whole-`Analyzer.Analyze` rows) and `tests/native/census-flow-rules/HasValueGuards`.
+
 `c == true` IS `c` (census 2026-09-13, §FLOW5). `AnalyzerFlowNarrowing.TryExtractBooleanLiteralComparison`
 is the one rule behind all four spellings: the comparison holds when the operand is TRUE exactly when
 `(operator is ==) == (literal is true)`, which passes the two lists through, and otherwise swaps them

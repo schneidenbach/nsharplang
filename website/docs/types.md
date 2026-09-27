@@ -2278,6 +2278,24 @@ needs no guard. `Value` does throw, so the compiler warns when you read it witho
 is there ([NL907](./errors/NL907.md)) — `must`, a null check or `GetValueOrDefault` are the three
 ways to say what you mean.
 
+**`HasValue` is a null check.** `x.HasValue` proves exactly what `x != null` proves — the value is
+there when it is true and absent when it is false — so it narrows a positive branch, a guard clause's
+surviving flow, and a property path the same way the comparison does:
+
+```n#
+func ParseRequired(text: string): int {
+    parsed := Parse(text)            // int?
+    if !parsed.HasValue {
+        throw new FormatException()
+    }
+
+    return parsed.Value + parsed     // the unwrap, then the narrowed read — no NL907
+}
+```
+
+The narrowing is a fact about the value, not a new type for the name: `parsed` is still declared
+`int?`, so `parsed = null` below the guard is legal and ends the narrowing, as any write does.
+
 **A name `Nullable<T>` declares binds on the nullable; every other name binds on `T`.** The two
 types share three names — `ToString`, `Equals` and `GetHashCode`, which `Nullable<T>` overrides —
 and those are the nullable's, exactly as they are in C#. All three are null-safe — for an ABSENT

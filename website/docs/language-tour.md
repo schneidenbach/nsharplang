@@ -2341,6 +2341,7 @@ The connectives compose the two sets rather than merging them:
 | Condition | True branch knows | False branch knows |
 |---|---|---|
 | `a != null` | `a` non-null | `a` null |
+| `a.HasValue` (`a` a value `T?`) | `a` non-null | `a` null |
 | `a && b` | everything `a` and `b` prove | **nothing** — the negation is `!a \|\| !b` |
 | `a \|\| b` | **nothing** | everything `!a` and `!b` prove |
 | `!c` | what `c` proves when false | what `c` proves when true |
@@ -2359,6 +2360,12 @@ func lengthOrDefault(value: string?): int {
 
 A `?.` chain compared against null narrows the **whole chain**: `x?.M == null` being false means
 both `x` and `x.M` are non-null, because a null `x` would have made the whole expression null.
+
+`a.HasValue` on a nullable value type is the same test as `a != null`, in every position a
+comparison can take — a guard clause, a positive branch, either side of `&&` or `||`, and a property
+path like `h.Slot` as well as a local. Past `if !parsed.HasValue { throw ... }`, `parsed.Value` is
+the unwrap, the bare `parsed` reads as its `int`, and `parsed` is still an `int?` you can assign
+`null` to. On a *reference* `T?`, `HasValue` is whatever the class declares and proves nothing.
 
 ```n#
 func textLength(doc: Document?): int {

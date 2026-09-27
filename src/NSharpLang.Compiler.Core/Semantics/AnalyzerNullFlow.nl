@@ -43,6 +43,7 @@ class AnalyzerNullFlow {
     declarationContextValue: AnalyzerDeclarationContext
     reportedDiagnostics: HashSet<ValueTuple<int, int, string, string>>
     narrowedNullableOrigins: Dictionary<object, NullableTypeInfo>
+    hasValueTestPaths: Dictionary<object, string>
     suppressedFlowTypeNodeValue: Expression?
 
     constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext) {
@@ -52,6 +53,7 @@ class AnalyzerNullFlow {
         declarationContextValue = declarationContext
         reportedDiagnostics = new HashSet<ValueTuple<int, int, string, string>>()
         narrowedNullableOrigins = new Dictionary<object, NullableTypeInfo>()
+        hasValueTestPaths = new Dictionary<object, string>()
         suppressedFlowTypeNodeValue = null
     }
 
@@ -100,6 +102,43 @@ class AnalyzerNullFlow {
         suppressedFlowTypeNodeValue = null
         reportedDiagnostics.Clear()
         narrowedNullableOrigins.Clear()
+        hasValueTestPaths.Clear()
+    }
+
+    // `Nullable<T>.HasValue` IS A NULL TEST, WRITTEN DOWN WHERE THE BINDER DECIDED IT WAS ONE.
+    //
+    // `x.HasValue` proves exactly what `x != null` proves — not-null when true, null when false — and
+    // it proves it about the same stable PATH, so a local, a parameter and a member path like
+    // `h.Slot` are all narrowed by it the way the comparison narrows them. Whether a `.HasValue` IS
+    // that test is a binding question, not a spelling one: a reference `T?` is an annotation, and a
+    // class that declares its own `HasValue` proves nothing about its receiver. So the member-access
+    // arm records the node when — and only when — it bound the name to `Nullable<T>`'s own member,
+    // and the narrowing writer reads the verdict back when it meets the same node in a condition,
+    // the same gap a call's conditional postconditions bridge.
+    //
+    // A `?.` link is not recorded: `x?.HasValue` and `a?.B.HasValue` test a receiver the chain may
+    // never have reached, so their result is a lifted `bool?` and not this test.
+    func RecordNullableHasValueTest(member: MemberAccessExpression) {
+        if member.IsNullConditional || AnalyzerNullConditionalChainFacts.IsMemberContinuation(member) {
+            return
+        }
+
+        path := AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(member.Object)
+        if path == null {
+            return
+        }
+
+        hasValueTestPaths[member] = path
+    }
+
+    // The receiver path a recorded `HasValue` test narrows, and null for every other member access.
+    func NullableHasValueTestPath(member: MemberAccessExpression): string? {
+        path: string? = null
+        if hasValueTestPaths.TryGetValue(member, out path) {
+            return path
+        }
+
+        return null
     }
 
     // WHAT THE COLLAPSE COLLAPSED, WRITTEN DOWN AT THE ONE POINT BOTH TYPES EXIST.

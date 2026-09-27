@@ -76,8 +76,9 @@ class ColumnarFlowNarrowingFacts {
             return
         }
 
-        // 8 MemberAccess — `x.HasValue` proves `x` present in the true branch and nothing in the
-        // false one (the analyzer's `TryExtractHasValueNarrowing`, which likewise files no else fact).
+        // 8 MemberAccess — `x.HasValue` proves `x` present in the true branch, exactly as `x != null`
+        // does (the analyzer's `TryExtractHasValueNarrowing`). What its false branch proves is that `x`
+        // is ABSENT, which is not a name this reader collects, so nothing is filed there.
         if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             if ColumnarNodeTextFacts.Text(nodes, source, condition) == "HasValue" && nodes.ChildCount(condition) == 1 {
                 receiverName := SimpleName(nodes, source, nodes.Child(condition, 0))

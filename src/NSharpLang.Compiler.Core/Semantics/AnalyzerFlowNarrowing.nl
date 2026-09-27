@@ -38,7 +38,7 @@ class FlowNarrowingSplit {
 // is a disjunction and a disjunction proves nothing about either side. `a || b` is the mirror: it
 // proves both negations in the FALSE branch and nothing in the true one. `x is T` proves T in the
 // true branch, and — only when the tested value is an ANONYMOUS UNION — proves the union MINUS the
-// matched arm in the false branch. `x.HasValue` proves the nullable's inner type.
+// matched arm in the false branch. `x.HasValue` IS `x != null` — see `TryExtractHasValueNarrowing`.
 //
 // A PARENTHESIS AND A `!` ARE TRANSPARENT, AND THAT IS WHY THEY ARE THE FIRST TWO ARMS. `(c)`
 // proves what `c` proves, and `!c` proves what `c` proves with the two lists SWAPPED — one rule
@@ -71,12 +71,14 @@ class AnalyzerFlowNarrowing {
     typeResolverValue: AnalyzerTypeResolver
     assignabilityValue: AnalyzerAssignability
     postconditionsValue: AnalyzerNullabilityPostconditions
+    nullFlowValue: AnalyzerNullFlow
 
-    constructor(scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, assignability: AnalyzerAssignability, postconditions: AnalyzerNullabilityPostconditions) {
+    constructor(scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, assignability: AnalyzerAssignability, postconditions: AnalyzerNullabilityPostconditions, nullFlow: AnalyzerNullFlow) {
         scopesValue = scopes
         typeResolverValue = typeResolver
         assignabilityValue = assignability
         postconditionsValue = postconditions
+        nullFlowValue = nullFlow
     }
 
     // Applies narrowings to the current scope, intersecting duplicate symbols
@@ -221,8 +223,7 @@ class AnalyzerFlowNarrowing {
         } else {
             hasValueAccess := condition as MemberAccessExpression
             if hasValueAccess != null {
-                if TryExtractHasValueNarrowing(hasValueAccess, thenNarrowings) {
-                }
+                TryExtractHasValueNarrowing(hasValueAccess, thenNarrowings, elseNarrowings)
             }
 
             // A CALL CAN PROVE SOMETHING ITS TYPE CANNOT SPELL. `dict.TryGetValue(k, out v)` leaves
@@ -423,19 +424,27 @@ class AnalyzerFlowNarrowing {
         }
     }
 
-    func TryExtractHasValueNarrowing(memberAccess: MemberAccessExpression, narrowings: List<FlowNarrowing>): bool {
-        identifier := memberAccess.Object as IdentifierExpression
-        if memberAccess.MemberName != "HasValue" || identifier == null {
-            return false
+    // `x.HasValue` PROVES WHAT `x != null` PROVES, BOTH WAYS, AND NOTHING MORE. Not-null in the true
+    // branch, null in the false one, as a NULL FACT on the receiver's stable path — so a local, a
+    // parameter and a member path narrow alike, a guard clause's surviving flow inherits it, and
+    // the read collapses `int?` to `int` exactly where the comparison would have.
+    //
+    // IT IS A FACT, NOT A REBOUND TYPE, AND THAT IS THE FIX. Rewriting the symbol to the inner type
+    // was harmless in a branch's own scope, but a guard clause installs its facts into the scope
+    // that DECLARED the name, and there the rewrite erased the `int?` itself: `.Value` after
+    // `if !x.HasValue { throw }` found no nullable to unwrap (NL303 on `int`), and `x = null`
+    // afterwards was a type mismatch — while the same program spelt `x == null` compiled.
+    //
+    // WHETHER THE NODE IS THAT TEST IS THE BINDER'S ANSWER, read back from `AnalyzerNullFlow`: only
+    // a `HasValue` bound to `Nullable<T>`'s own member narrows, and a class's own `HasValue` on a
+    // reference `T?` narrows nothing.
+    func TryExtractHasValueNarrowing(memberAccess: MemberAccessExpression, thenNarrowings: List<FlowNarrowing>, elseNarrowings: List<FlowNarrowing>) {
+        path := nullFlowValue.NullableHasValueTestPath(memberAccess)
+        if path == null {
+            return
         }
 
-        symbolType := scopesValue.LookupSymbol(identifier.Name)
-        nullable := symbolType as NullableTypeInfo
-        if nullable == null {
-            return false
-        }
-
-        narrowings.Add(new FlowNarrowing(identifier.Name, nullable.InnerType, NullState.NotNull))
-        return true
+        thenNarrowings.Add(new FlowNarrowing(path, null, NullState.NotNull))
+        elseNarrowings.Add(new FlowNarrowing(path, null, NullState.Null))
     }
 }

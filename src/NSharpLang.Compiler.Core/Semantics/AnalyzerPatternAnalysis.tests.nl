@@ -128,7 +128,7 @@ func PatternAnalysisDefault(): PatternAnalysisHarness {
         escape,
         ambient,
         scopes,
-        new AnalyzerFlowNarrowing(scopes, resolver, assignability, new AnalyzerNullabilityPostconditions(scopes, context))
+        new AnalyzerFlowNarrowing(scopes, resolver, assignability, new AnalyzerNullabilityPostconditions(scopes, context), new AnalyzerNullFlow(diagnostics, spans, scopes, context))
     )
 }
 

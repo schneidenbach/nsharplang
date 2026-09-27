@@ -85,7 +85,8 @@ class MemberAccessState {
 //      member resolution, because `int?` has no such members in metadata — and `Value` on a nullable
 //      that flow narrowing did NOT prove non-null is warned about, while the same access inside
 //      `if x != null { … }` is silent. That difference is the whole reason the fork reads the
-//      ENCLOSING nullable symbol as well as the receiver's own type.
+//      ENCLOSING nullable symbol as well as the receiver's own type. A `HasValue` bound here is
+//      also RECORDED as the null test it is, which is how `if !x.HasValue { return }` narrows.
 //   2  the null DEREFERENCE report, which belongs to `AnalyzerNullFlow` and is merely asked here.
 //   3  the receiver's ALIAS and `ref` unwraps, twice, because a `ref` to an alias is both.
 //   4  the three SoA null-conditional refusals — a table, a row view, a direct column — each of
@@ -530,7 +531,10 @@ class AnalyzerMemberAccess {
             return false
         }
 
+        // THE ONE PLACE `HasValue` IS KNOWN TO BE `Nullable<T>`'S — so the null test it performs is
+        // recorded here, for the narrowing writer to read back when this node is a condition.
         if member.MemberName == "HasValue" {
+            nullFlowValue.RecordNullableHasValueTest(member)
             memberType = BuiltInTypes.Bool
             return true
         }

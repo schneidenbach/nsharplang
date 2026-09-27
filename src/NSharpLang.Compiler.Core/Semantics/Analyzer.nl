@@ -539,7 +539,7 @@ class Analyzer: IDisposable {
     }
 
     private func CreateFlowNarrowing(): AnalyzerFlowNarrowing {
-        return new AnalyzerFlowNarrowing(Scopes, TypeResolver, Assignability, NullabilityPostconditions)
+        return new AnalyzerFlowNarrowing(Scopes, TypeResolver, Assignability, NullabilityPostconditions, NullFlow)
     }
 
     private func CreateVariableDeclaration(): AnalyzerVariableDeclaration {

@@ -136,7 +136,7 @@ func AssignmentHarnessWith(sourceText: string?): AssignmentHarness {
     indexAccess := new AnalyzerIndexAccess(sink, spans, context, ambient, nullFlow, soaEscape, memberAccess, constantFacts)
     writeTargets := new AnalyzerWriteTargets(sink, spans, scopes, context, substitution, clrConversion, ambient, soaEscape, memberAccess, indexAccess)
     postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
-    narrowing := new AnalyzerFlowNarrowing(scopes, resolver, assignability, postconditions)
+    narrowing := new AnalyzerFlowNarrowing(scopes, resolver, assignability, postconditions, nullFlow)
     operators := new AnalyzerOperatorExpressions(sink, spans, scopes, context, substitution, assignability, clrConversion, probe, soaEscape, ambient, narrowing, writeTargets)
     arm := new AnalyzerAssignment(sink, spans, scopes, context, ambient, nullFlow, soaEscape, identifiers, assignability, facts, writeTargets, operators)
     return new AssignmentHarness(arm, errors, ambient, scopes, nullFlow, identifiers, context)
