@@ -1074,6 +1074,66 @@ runtime assets remain verifier references rather than being mistaken for N#
 outputs. Standalone `scripts/ilverify.sh` and CI build the product surface and
 selected native regression assemblies themselves before verification.
 
+### 7a. The Slice Edit -> Test Cycle
+Splitting Compiler.Core exists to make one slice's edit -> test cycle fast. The measurement is
+`./scripts/dev.sh --estate <Rows>` after a warm run: a one-line body edit (a comment inside the first
+function body of the file) and its revert, each timed. The files and rows are the ones each carve
+recorded: Emit `ColumnarIlEmitter.nl` / `ColumnarLambdaStatementBodyTests`, Model
+`AnalyzerConversionFacts.nl` / `AnalyzerConversionFactsTests`, Syntax `Lexer.nl` / `LexerTests`, CodeIntel
+`UnifiedDiff.nl` / `UnifiedDiffTests`, Tooling `FormatterConfig.nl` / `FormatterConfigTests`, Driver
+`RunCommandKernels.nl` / `RunCommandKernelsTests`. Both columns with private
+`NUGET_PACKAGES` (2026-09-27, `census/slice-cycle` on `d304a764f`, 10 cores, other sessions' builds on
+the box):
+
+| slice | before: `d304a764f` dev.sh + the committed seed | after: this dev.sh + a scratch seed packed from it |
+|---|---:|---:|
+| Emit | 73 / 75 s (load 5.5) | **7 / 8 s** (load 6.0); 16 / 15 s at load 13 |
+| Model | 30 / 27 s (load 6.9) | **7 / 5 s** (load 10.8) |
+| Syntax | 45 / 37 s (load 9.9) | **8 / 10 s** (load 9.1) |
+| CodeIntel | 44 / 47 s (load 6.0) | **9 / 9 s** (load 7.8) |
+| Tooling | 36 / 30 s (load 6.3) | **5 / 5 s** (load 6.9) |
+| Driver | 52 / 78 s (load 9-15) | **10 / 9 s** (load 7.5) |
+
+The committed seed at `d304a764f` compiles Emit emit-only, so its 73 / 75 s replaces the Emit carve's
+295 / 262 s (which compiled Emit WITH analysis). The same series on the pre-rebase base (`7578872a1`
+with scratch seeds on both sides) gave 76/83 -> 7/8, 30/29 -> 7/6, 57/77 -> 9/8, 42/36 -> 12/11,
+33/28 -> 6/6 and 45/39 -> 9/9 s.
+
+Where the Emit cycle went before (MSBuild binlog replayed with `-clp:PerformanceSummary`, stack samples
+with `dotnet-stack`):
+
+1. **dev.sh built the whole CLI first** -- 32 s, 28 s of it Emit re-emitted PRODUCT-ONLY -- and then the
+   estate re-emitted Emit TESTS-INCLUDED (38 s). No estate row runs `nlc`, so an estate-only selection
+   no longer builds the CLI.
+2. **dev.sh visited all six estate projects**: a restore, a graph build and a test-host start each, ~3 s
+   apiece for "no row matches". A filter now runs only the projects whose row names can contain it
+   (`estate_filter_projects`; fail-safe: expressions, odd `test` lines and filters matching nothing run
+   every project; checked against all 9,675 real row names, zero under-selections).
+3. **The columnar parse was O(declarations x file tokens)**: every per-declaration kernel sized its
+   scratch by the WHOLE FILE. `ColumnarIlEmitter.nl` (585 functions, 191,000 tokens) allocated 57 GB to
+   parse, mostly large-object-heap arrays. Scratch is now sized by the declaration's own extent
+   (`ColumnarDeclarationScratchCapacity`): 1.1 GB.
+4. **Type-name misses asked every reference**: `ExternalAssemblyScan.FindExactType` asked each of ~180
+   catalog entries in turn, and a `MetadataLoadContext` miss costs ~6 us (it builds and discards a
+   `TypeLoadException`), so a name no reference declares cost ~1 ms -- ~60% of the remaining emit. Each
+   entry now answers "not here" from its own definition and forwarder tables.
+
+Items 3 and 4 run in the SEED's SDK task, so the loop sees them only on a seed packed from a tree that
+has them. Separated on the Emit cycle (load ~5): the new dev.sh on the old seed 26 / 30 s; the old
+dev.sh on the new seed 33 / 34 s; both 7 / 8 s. Emit's tests-included emit alone: 39 s -> 7.6 s; the
+two-stage scratch reseed (pack, clean rebuild, repack, clean rebuild, estate) takes 5 m 39 s.
+
+**The reference-assembly work (R1-R3) was already in place and working** -- `Sdk.targets` reads
+`@(ReferencePathWithRefAssemblies)`, the MVID is a content hash, and `ColumnarReferenceAssemblyWriter`
+writes a metadata-only surface. After an Emit body edit `obj/.../ref/NSharpLang.Compiler.Emit.dll`
+kept its bytes and timestamp and CodeIntel, Tooling and Driver skipped `EmitNSharpIlAssembly`. The carve
+record that blamed the 94 s on missing R1-R3 was wrong; `tests/native/sdk-reference-incrementality`
+now pins the reference assembly's bytes and timestamp across a body-only edit, not only the dependent's
+skip.
+
+What remains: a cold MSBuild process JITs the compiler on every emit (~2 s of Emit's ~5 s), and
+Core's tests-included emit is still ~55 s (its 400,000 lines are the S2/S3 sub-split's job).
+
 ### 8. The Compile-Time Gate And Benchmark (`tests/native/compile-time-bench`)
 The gate has one compile-speed step, and it is N#-owned rather than a shell step because the
 ownership ratchet (`tests/native/ownership-audit`) admits a new shell or JSON file only as an

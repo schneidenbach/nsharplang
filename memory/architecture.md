@@ -419,9 +419,12 @@ Core's own and tests-included emits -- **295 / 262 s** on the carve and that sam
 31k-line emitter every time), and **94 / 99 s** on a scratch stage-2 seed packed from the carve. An
 Emit body edit re-emits Emit and what sits above it (CodeIntel, Tooling, Driver and the facade
 product-only for the CLI, 38 s of the cycle, Emit tests-included for its rows); Syntax and Core answer
-"no row matches" without re-emitting. The split plan's ~14 s is not reached: it assumes the
-reference-assembly work (R1-R3: the emit target keyed on byte-stable reference assemblies), without
-which every dependent re-emits on a body edit.
+"no row matches" without re-emitting. CORRECTED by `census/slice-cycle`: R1-R3 were in place, and the
+binlog shows CodeIntel, Tooling and Driver SKIPPING their emit with Emit's reference assembly unchanged.
+The 94 s was dev.sh building the CLI (Emit re-emitted product-only) before the estate re-emitted it
+tests-included, visiting all six estate projects, a columnar parse that was O(declarations x file
+tokens), and type-name misses asked of every reference; with those fixed the same cycle is **7 / 8 s**
+(`memory/testing.md` section 7a).
 
 ## Data Flow
 
