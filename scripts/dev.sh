@@ -27,6 +27,11 @@
 #     `*.tests.nl` beside it, each run by the freshly built `nlc test`. These are seconds
 #     apiece, and a pattern usually wants only one or two of them.
 #
+# An ESTATE-ONLY selection does not build the CLI -- no estate row runs `nlc`, and each estate
+# project's own `dotnet test` builds what it references -- and a filter runs only the estate projects
+# whose row names can contain it (`estate_filter_projects`). Both keep an edit to one slice from paying
+# for the others; the commit gate still builds and runs everything.
+#
 # Usage:
 #     ./scripts/dev.sh [pattern]        build CLI, then run the slices matching pattern
 #     ./scripts/dev.sh                  build CLI only (fastest: just confirm it compiles)
@@ -171,6 +176,60 @@ native_slices_matching() {
             *"$wanted"*) printf '%s\n' "$dir" ;;
         esac
     done < <(native_slices)
+}
+
+# WHICH ESTATE PROJECTS CAN HOLD A ROW THE FILTER NAMES. Each estate project is a restore, a build
+# of its whole reference closure and a test-host start even when none of its rows match -- seconds
+# apiece, which is most of an inner loop whose edit touched one slice. A row's fully-qualified name is
+# `<namespace>.<stem>Tests.<sentence, PascalCased>`, and PascalCasing only drops and re-cases
+# characters (`ColumnarTestTypeNames`, `TestDescriptionToMethodName`), so a row can match only when
+# the filter, lowercased and reduced to letters and digits, is a substring of the same reduction of
+# namespace + stem + `tests` + sentence. That reduction can over-select, never under-select -- except
+# where the reduction is not exact, and every such case keeps the whole project:
+#   * a filter with any character but letters, digits, `.` and `_` (a filter EXPRESSION),
+#   * a test file with no `namespace`, a `test` line that is not `test "…" {`, or a `\x` or
+#     `\u00XX` escape that may decode to a letter or digit (every other escape decodes to a
+#     character the name drops, so the reduction drops the escape),
+#   * a trailing run of digits in the filter is also tried without it, for a `_2` duplicate suffix.
+# A filter that selects no project at all runs every project, so the existing zero-rows evidence
+# rules still decide the verdict.
+estate_filter_projects() {
+    local filter="$1" project dir hit="" verdict
+    if [ -z "$filter" ] || [[ ! "$filter" =~ ^[A-Za-z0-9._]+$ ]]; then
+        printf '%s\n' "${ESTATE_PROJECTS[@]}"
+        return 0
+    fi
+    for project in "${ESTATE_PROJECTS[@]}"; do
+        dir="$(dirname "$project")"
+        verdict="$(find "$dir" -name '*.tests.nl' -not -path '*/bin/*' -not -path '*/obj/*' -print0 \
+            | xargs -0 awk -v filter="$filter" '
+                function reduce(text) { text = tolower(text); gsub(/[^a-z0-9]/, "", text); return text }
+                BEGIN { wanted = reduce(filter); bare = wanted; sub(/[0-9]+$/, "", bare) }
+                FNR == 1 {
+                    stem = FILENAME; sub(/.*\//, "", stem); sub(/\.tests\.nl$/, "", stem)
+                    typename = reduce(stem); if (typename !~ /tests$/) typename = typename "tests"
+                    namespace = ""
+                }
+                /^namespace[ \t]/ && namespace == "" { namespace = reduce($2) }
+                /^[ \t]*test[ \t]+"/ {
+                    if (namespace == "" || $0 !~ /^[ \t]*test[ \t]+"([^"\\]|\\.)*"[ \t]*\{[ \t]*$/) { print "hit"; exit }
+                    sentence = $0; sub(/^[ \t]*test[ \t]+"/, "", sentence); sub(/"[ \t]*\{[ \t]*$/, "", sentence)
+                    gsub(/\\\\/, "", sentence)
+                    if (sentence ~ /\\(x|u00[3-7])/) { print "hit"; exit }
+                    gsub(/\\u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]/, "", sentence); gsub(/\\./, "", sentence)
+                    method = reduce(sentence); if (method !~ /^[a-z]/) method = "test" method
+                    name = namespace typename method
+                    if (index(name, wanted) > 0 || (bare != "" && index(name, bare) > 0)) { print "hit"; exit }
+                }' || true)"
+        if [[ "$verdict" == *hit* ]]; then
+            hit="$hit $project"
+        fi
+    done
+    if [ -z "${hit// /}" ]; then
+        printf '%s\n' "${ESTATE_PROJECTS[@]}"
+    else
+        printf '%s\n' $hit
+    fi
 }
 
 while [ $# -gt 0 ]; do
@@ -439,6 +498,15 @@ fi
 
 START_TIME=$(date +%s)
 
+# AN ESTATE-ONLY RUN DOES NOT BUILD THE CLI. Nothing it runs executes `nlc`: each estate project's
+# `dotnet test` builds that project tests-included and the product-only closure it references. The
+# CLI build would compile the edited slice a SECOND time, product-only, plus every project above it
+# -- for an edit to Compiler.Emit, the single largest cost of the whole loop.
+if [ "$DO_BUILD" = "1" ] && [ "$DO_TESTS" = "1" ] && [ "$WANT_ESTATE" = "1" ] && [ -z "${SELECTED_NATIVE// /}" ]; then
+    DO_BUILD=0
+    echo "Estate rows only: the CLI is not built (no selected slice runs nlc; --build-only builds it)."
+fi
+
 if [ "$DO_BUILD" = "1" ]; then
     echo -e "${YELLOW}>>> Building N# CLI (compiler + nlc)${NC}"
     if dotnet build $DOTNET_STABLE_FLAGS "$CLI_PROJECT" -v q; then
@@ -467,7 +535,17 @@ if [ "$DO_TESTS" = "1" ] && [ "$WANT_ESTATE" = "1" ]; then
     # project reports rows. A project that says neither proved nothing, and fails the run.
     ESTATE_EVIDENCE=0
     ESTATE_OUTPUTS=()
+    ESTATE_SELECTED=()
+    while IFS= read -r ESTATE_PROJECT; do
+        ESTATE_SELECTED+=("$ESTATE_PROJECT")
+    done < <(estate_filter_projects "$ESTATE_FILTER")
     for ESTATE_PROJECT in "${ESTATE_PROJECTS[@]}"; do
+        case " ${ESTATE_SELECTED[*]} " in
+            *" $ESTATE_PROJECT "*) ;;
+            *) echo "    $(basename "$ESTATE_PROJECT" .csproj): skipped, no row name can contain '$ESTATE_FILTER'" ;;
+        esac
+    done
+    for ESTATE_PROJECT in "${ESTATE_SELECTED[@]}"; do
         ESTATE_NAME="$(basename "$ESTATE_PROJECT" .csproj)"
         if ! dotnet restore $DOTNET_STABLE_FLAGS "$ESTATE_PROJECT" -p:NSharpExcludeTests=false --force-evaluate -v q; then
             echo -e "${RED}✗ Estate restore failed ($ESTATE_NAME)${NC}"

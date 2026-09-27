@@ -111,6 +111,99 @@ test "dev estate preserves a nonzero test process exit" {
     assert !run.Stdout.Contains("Estate rows passed"), run.Report()
 }
 
+// ─── AN EDIT TO ONE SLICE PAYS FOR THAT SLICE ─────────────────────────────────────────────────
+//
+// An estate-only run used to build the whole CLI first -- compiling the edited slice product-only
+// and then again tests-included -- and to restore, build and start a test host for all six estate
+// projects whatever the filter named. These rows run the real script with a fake `dotnet` that
+// RECORDS every invocation, so the rows read which builds and which projects the script asked for.
+func RecordingFakeDotnetScript(log: string): string {
+    return "#!/usr/bin/env bash\n" + "printf '%s\\n' \"$*\" >> '" + log + "'\n" + "if [ \"${1:-}\" = \"test\" ]; then\n" + "  echo 'Passed!  - Failed: 0, Passed: 2, Skipped: 0, Total: 2, Duration: 18 ms'\n" + "fi\n" + "exit 0\n"
+}
+
+class RecordedDevRun {
+    Run: ProcessRun
+    Invocations: string[]
+    constructor(run: ProcessRun, invocations: string[]) {
+        Run = run
+        Invocations = invocations
+    }
+}
+
+func RunDevWithRecordingDotnet(arguments: string[]): RecordedDevRun {
+    temporaryRoot := NewTempDirectory("nsharp-dev-recorded")
+    try {
+        log := Path.Combine(temporaryRoot, "dotnet.log")
+        File.WriteAllText(log, "")
+        bin := Path.Combine(temporaryRoot, "bin")
+        Directory.CreateDirectory(bin)
+        dotnet := Path.Combine(bin, "dotnet")
+        File.WriteAllText(dotnet, RecordingFakeDotnetScript(log))
+        chmod := new ProcessLaunch("chmod", RepositoryRoot(), 60000)
+        chmod.Arguments.Add("+x")
+        chmod.Arguments.Add(dotnet)
+        chmodRun := Run(chmod)
+        if chmodRun.ExitCode != 0 {
+            throw new InvalidOperationException("Could not make the recording dotnet executable: " + chmodRun.Report())
+        }
+
+        launch := new ProcessLaunch("bash", RepositoryRoot(), 60000)
+        launch.Arguments.Add("scripts/dev.sh")
+        for argument in arguments {
+            launch.Arguments.Add(argument)
+        }
+        launch.WithEnvironment("PATH", bin + ":" + (Environment.GetEnvironmentVariable("PATH") ?? ""))
+        run := Run(launch)
+        return new RecordedDevRun(run, File.ReadAllLines(log))
+    } finally {
+        DeleteTempDirectory(temporaryRoot)
+    }
+}
+
+func RecordedInvocationsStartingWith(recorded: RecordedDevRun, verb: string): List<string> {
+    matching := new List<string>()
+    for invocation in recorded.Invocations {
+        if invocation.StartsWith(verb + " ", StringComparison.Ordinal) {
+            matching.Add(invocation)
+        }
+    }
+
+    return matching
+}
+
+test "dev estate builds no CLI when only estate rows are selected, and still builds it for a native slice" {
+    estateOnly := RunDevWithRecordingDotnet(["--estate", "ColumnarLambdaStatementBodyTests"])
+    assert estateOnly.Run.ExitCode == 0, estateOnly.Run.Report()
+    assert estateOnly.Run.Stdout.Contains("Estate rows only: the CLI is not built"), estateOnly.Run.Report()
+    assert RecordedInvocationsStartingWith(estateOnly, "build").Count == 0, string.Join("\n", estateOnly.Invocations)
+
+    buildOnly := RunDevWithRecordingDotnet(["--build-only"])
+    assert buildOnly.Run.ExitCode == 0, buildOnly.Run.Report()
+    builds := RecordedInvocationsStartingWith(buildOnly, "build")
+    assert builds.Count == 1, string.Join("\n", buildOnly.Invocations)
+    assert builds[0].Contains("src/NSharpLang.Cli/Cli.csproj"), builds[0]
+}
+
+test "dev estate runs only the estate projects whose row names can contain the filter" {
+    recorded := RunDevWithRecordingDotnet(["--no-build", "--estate", "ColumnarLambdaStatementBodyTests"])
+    assert recorded.Run.ExitCode == 0, recorded.Run.Report()
+    tests := RecordedInvocationsStartingWith(recorded, "test")
+    assert tests.Count == 1, string.Join("\n", recorded.Invocations)
+    assert tests[0].Contains("src/NSharpLang.Compiler.Emit/NSharpLang.Compiler.Emit.csproj"), tests[0]
+    for skipped in ["Syntax", "Core", "CodeIntel", "Tooling", "Driver"] {
+        assert recorded.Run.Stdout.Contains("NSharpLang.Compiler." + skipped + ": skipped, no row name can contain 'ColumnarLambdaStatementBodyTests'"), skipped + ": " + recorded.Run.Report()
+    }
+}
+
+test "dev estate runs every estate project when the filter is an expression or no row name can contain it" {
+    for filter in ["DeliberatelyMissing", "Columnar|Analyzer"] {
+        recorded := RunDevWithRecordingDotnet(["--no-build", "--estate", filter])
+        assert recorded.Run.ExitCode == 0, filter + ": " + recorded.Run.Report()
+        assert RecordedInvocationsStartingWith(recorded, "test").Count == 6, filter + ": " + string.Join("\n", recorded.Invocations)
+        assert !recorded.Run.Stdout.Contains("skipped, no row name"), filter + ": " + recorded.Run.Report()
+    }
+}
+
 // ─── `--since` BY COMPILER.CORE SLICE DIRECTORY ───────────────────────────────────────────────
 //
 // Compiler.Core's sources sit in eight slice directories, and `dev.sh --since` maps a changed path
