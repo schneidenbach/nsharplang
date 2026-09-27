@@ -106,7 +106,7 @@ class ColumnarForeachLoopPlanner {
 
         sourceDefinition := ColumnarSourceDefinitionResolver.FindDirectType(definitions, collectionType)
         if sourceDefinition != null {
-            return PlanSourceCollection(sourceDefinition, collectionType, definitions)
+            return PlanSourceCollection(sourceDefinition, definitions)
         }
 
         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(collectionType) && !collectionType.IsGenericType {
@@ -119,7 +119,7 @@ class ColumnarForeachLoopPlanner {
     // A SOURCE COLLECTION ANSWERS FROM ITS OWN DEFINITION. Its members are `MethodBuilder`s, which
     // ARE `MethodInfo`s, so the plan the emitter consumes is the same shape either way — only the
     // lookup differs, because a `TypeBuilder` cannot be reflected on before it is baked.
-    static func PlanSourceCollection(definition: ColumnarStructDef, collectionType: Type, definitions: IReadOnlyDictionary<string, ColumnarStructDef>): ColumnarForeachPlan? {
+    static func PlanSourceCollection(definition: ColumnarStructDef, definitions: IReadOnlyDictionary<string, ColumnarStructDef>): ColumnarForeachPlan? {
         getEnumerator := FindSourceParameterlessMethod(definition, "GetEnumerator")
         if getEnumerator != null {
             enumeratorType := getEnumerator.ReturnType

@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler.Columnar
 
-import System
-
 
 // THE kind-38 CHILD LAYOUT, PINNED AGAINST A HAND-BUILT TABLE.
 //

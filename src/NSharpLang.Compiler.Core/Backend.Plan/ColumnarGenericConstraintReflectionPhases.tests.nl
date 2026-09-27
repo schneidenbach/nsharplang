@@ -186,7 +186,7 @@ func GenericConstraintReflectionProbeTypeCore(
     }
     owner.DefineMethodOverride(constraintsImplementation, constraintsTarget)
 
-    baked := IdentityBake(owner)
+    baked := PlanFixtureBake(owner)
     bakedConstructor := ExecutorRequiredConstructor(baked, constructorParameters)
     arguments := new object[](3)
     ExecutorSetObject(arguments, 0, delegatedType)

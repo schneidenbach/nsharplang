@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections
 import System.Reflection
 import System.Reflection.Emit
 
@@ -225,7 +224,6 @@ test "closed source descriptors retain open and effective identities from one su
     assert ColumnarStructuralTypeKeyFacts.KeysEqual(openMappingKey, openContextKey)
     assert openDescriptor.Validate(table)
 
-    closedArguments := ClosedSourceSingleType(typeof(int))
     closedType := ClosedSourceClose(definition, typeof(int))
     effectiveParameters := ClosedSourceSingleType(typeof(int))
     binding := ClosedSourceRequiredBinding(
@@ -635,9 +633,9 @@ test "closed source execution validates every structural pair before any attachm
         completion.Apply(owner, body, table)
     }
 
-    firstRuntimeDefinition := IdentityBake(firstInterface.Builder)
-    _secondRuntimeDefinition := IdentityBake(secondInterface.Builder)
-    ownerRuntime := IdentityBake(owner)
+    firstRuntimeDefinition := PlanFixtureBake(firstInterface.Builder)
+    _secondRuntimeDefinition := PlanFixtureBake(secondInterface.Builder)
+    ownerRuntime := PlanFixtureBake(owner)
     firstRuntimeClosed := firstRuntimeDefinition.MakeGenericType(closedArguments)
     targets := SourceInterfaceMethodMapTargets(ownerRuntime, firstRuntimeClosed)
     assert targets.Count == 1

@@ -915,7 +915,7 @@ class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.for-in-unsupported", "unsupported for..in statement in an iterator body")
                 return false
             }
-            return WalkForIn(nodes, source, node, nodes.Child(node, 0), nodes.Child(node, 1), nodes.Text(source, node), "", state)
+            return WalkForIn(nodes, source, nodes.Child(node, 0), nodes.Child(node, 1), nodes.Text(source, node), "", state)
         }
         if kind == ColumnarStatementNodeKind.AwaitForeachStatement {
             // `await foreach` composes two machines. What it needs is an AWAIT INSIDE A HANDLER — the
@@ -982,7 +982,7 @@ class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.for-in-unsupported", "unsupported for..in statement in an iterator body")
                 return false
             }
-            return WalkForIn(nodes, source, node, nodes.Child(node, 1), nodes.Child(node, 2), nodes.Text(source, nodes.Child(node, 0)), nodes.Text(source, node), state)
+            return WalkForIn(nodes, source, nodes.Child(node, 1), nodes.Child(node, 2), nodes.Text(source, nodes.Child(node, 0)), nodes.Text(source, node), state)
         }
         state.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
@@ -993,7 +993,7 @@ class ColumnarIteratorPlanner {
     // they share this walk and `declaredCanonical` carries that one difference. An annotated variable
     // hoists at its annotation (the field's type is what the author wrote); an inferred one hoists
     // UNRESOLVED and realization defines it from the element the planned source actually produces.
-    static func WalkForIn(nodes: ColumnarNodeTable, source: string, node: int, sourceNode: int, bodyNode: int, varName: string, declaredCanonical: string, state: ColumnarIteratorWalkState): bool {
+    static func WalkForIn(nodes: ColumnarNodeTable, source: string, sourceNode: int, bodyNode: int, varName: string, declaredCanonical: string, state: ColumnarIteratorWalkState): bool {
         if nodes.Kind(sourceNode) == ColumnarExpressionNodeKind.IdentifierExpression {
             sourceName := nodes.Text(source, sourceNode)
             arrayElement := ArrayElementCanonicalOf(state.LookupCanonical(sourceName))
@@ -3309,9 +3309,10 @@ class ColumnarIteratorBodyPlanner {
             ownerType = receiverType
         }
 
-        let handlerType: System.Type? = null
-        let addMethod: System.Reflection.MethodInfo? = null
-        let removeMethod: System.Reflection.MethodInfo? = null
+        // Declared with the out parameters' own types: the accessors' `true` answer writes all three.
+        let handlerType: System.Type = null
+        let addMethod: System.Reflection.MethodInfo = null
+        let removeMethod: System.Reflection.MethodInfo = null
         if !TryResolveIteratorEventAccessors(emit, ownerType, eventName, receiverLocal < 0, out handlerType, out addMethod, out removeMethod) {
             emit.Context.Decline("emit.iterator.on-event-lookup", "no accessible event '" + eventName + "' on '" + ownerType.Name + "'")
             return false
@@ -5549,7 +5550,7 @@ class ColumnarIteratorBodyPlanner {
 
         EndHoistedHandlerRegion(emit, true, pendingName)
         emit.HoistedHandlerDepth = emit.HoistedHandlerDepth + 1
-        AppendAsyncEnumeratorRelease(emit, enumPool, enumeratorType)
+        AppendAsyncEnumeratorRelease(emit, enumPool)
         emit.HoistedHandlerDepth = emit.HoistedHandlerDepth - 1
         if emit.Context.Declined {
             return false
@@ -5561,7 +5562,7 @@ class ColumnarIteratorBodyPlanner {
 
     // The hoisted handler's body: release the enumerator and clear the slot, so a second pass through
     // the handler (an abandoned machine unwinding a loop that already exited) releases nothing twice.
-    static func AppendAsyncEnumeratorRelease(emit: ColumnarMoveNextEmit, enumPool: int, enumeratorType: Type) {
+    static func AppendAsyncEnumeratorRelease(emit: ColumnarMoveNextEmit, enumPool: int) {
         skipLabel := emit.Plan.DefineLabel()
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), enumPool)

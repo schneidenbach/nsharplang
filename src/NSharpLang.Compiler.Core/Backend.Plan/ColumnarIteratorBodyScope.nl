@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 
 
 // THE LIVE SEMANTIC FACTS AN ITERATOR BODY NEEDS TO PLAN AN ORDINARY EXPRESSION.

@@ -89,6 +89,7 @@ test "TWO lambdas fix TWO type parameters, and the first does not fix the second
     candidate := ContextualCandidateFor(ContextualToDictionary())
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(List<string>), 2, out binding)
+    assert binding != null
 
     let keyInputs: Type[]? = null
     assert ColumnarContextualExtensionInference.TryGetLambdaInputTypes(binding, 0, out keyInputs)
@@ -109,6 +110,7 @@ test "TWO lambdas fix TWO type parameters, and the first does not fix the second
     assert ColumnarContextualExtensionInference.IsFullyInferred(binding)
     let closed: ColumnarExtensionMethodCandidate? = null
     assert ColumnarContextualExtensionInference.TryClose(binding, out closed)
+    assert closed != null
     assert closed.ReturnType == typeof(Dictionary<string, int>)
 }
 
@@ -116,6 +118,7 @@ test "a return position that is already CLOSED is a match, not an inference site
     candidate := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "Count", 2))
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(List<string>), 1, out binding)
+    assert binding != null
 
     // `Func<TSource, bool>` returns `bool` whatever `TSource` turns out to be, so the predicate's
     // body has to AGREE with it rather than decide it.
@@ -129,11 +132,13 @@ test "a position that wants no delegate is not a delegate position, whatever is 
     candidate := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "Count", 2))
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(List<string>), 1, out binding)
+    assert binding != null
     assert ColumnarContextualExtensionInference.IsDelegatePosition(binding, 0)
 
     contains := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "Contains", 2))
     let containsBinding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBegin(contains, typeof(List<string>), 1, out containsBinding)
+    assert containsBinding != null
     assert !ColumnarContextualExtensionInference.IsDelegatePosition(containsBinding, 0)
 }
 
@@ -143,6 +148,7 @@ test "a method group's whole signature folds into the delegate's positions" {
     candidate := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "Select", 2))
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(List<string>), 1, out binding)
+    assert binding != null
 
     groupParameters := new Type[](1)
     groupParameters[0] = typeof(string)
@@ -150,6 +156,7 @@ test "a method group's whole signature folds into the delegate's positions" {
 
     let closed: ColumnarExtensionMethodCandidate? = null
     assert ColumnarContextualExtensionInference.TryClose(binding, out closed)
+    assert closed != null
     assert closed.ReturnType == typeof(IEnumerable<int>)
 }
 
@@ -157,6 +164,7 @@ test "a method group whose arity disagrees with the delegate does not fold" {
     candidate := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "Select", 2))
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(List<string>), 1, out binding)
+    assert binding != null
 
     groupParameters := new Type[](2)
     groupParameters[0] = typeof(string)
@@ -172,6 +180,7 @@ test "a direct binding spends no parameter on a receiver" {
 
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBeginDirect(convertAll, 2, out binding)
+    assert binding != null
     assert binding.ParameterOffset == 0
 
     // Phase one: the array argument fixes `TInput`, and the lambda's inputs follow from it.
@@ -184,6 +193,7 @@ test "a direct binding spends no parameter on a receiver" {
     assert ColumnarContextualExtensionInference.TryUnifyLambdaReturn(binding, 1, typeof(int))
     let closed: ColumnarExtensionMethodCandidate? = null
     assert ColumnarContextualExtensionInference.TryClose(binding, out closed)
+    assert closed != null
     assert closed.ReturnType == typeof(int[])
 }
 
@@ -191,6 +201,7 @@ test "a partial inference never closes" {
     convertAll := typeof(Array).GetMethod("ConvertAll")
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBeginDirect(convertAll, 2, out binding)
+    assert binding != null
     assert ColumnarContextualExtensionInference.TryUnifyArgument(binding, 0, typeof(string[]))
 
     assert !ColumnarContextualExtensionInference.IsFullyInferred(binding)
@@ -240,17 +251,19 @@ test "an argument slot reads the actual type through its implementations too" {
     candidate := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "SelectMany", 2))
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(List<string>), 1, out binding)
+    assert binding != null
 
     // The selector returns `IEnumerable<TResult>` and the lambda body answered `char[]`. An array is
     // not a generic type at all, so the slot has to read it through `IEnumerable<char>`.
     assert ColumnarContextualExtensionInference.TryUnifyLambdaReturn(binding, 0, typeof(char[]))
     let closed: ColumnarExtensionMethodCandidate? = null
     assert ColumnarContextualExtensionInference.TryClose(binding, out closed)
+    assert closed != null
     assert closed.ReturnType == typeof(IEnumerable<char>)
 }
 
 test "a type parameter bound twice must agree with itself" {
-    typeParameters := typeof(Array).GetMethod("ConvertAll").GetGenericArguments()
+    typeParameters := (must typeof(Array).GetMethod("ConvertAll")).GetGenericArguments()
     inferred := new Type[](typeParameters.Length)
     assert ColumnarContextualExtensionInference.TryUnifySlot(typeParameters[0], typeof(string), typeParameters, inferred)
     assert ColumnarContextualExtensionInference.TryUnifySlot(typeParameters[0], typeof(string), typeParameters, inferred)
@@ -258,7 +271,7 @@ test "a type parameter bound twice must agree with itself" {
 }
 
 test "a slot with nothing open in it carries no inference and refuses nothing" {
-    typeParameters := typeof(Array).GetMethod("ConvertAll").GetGenericArguments()
+    typeParameters := (must typeof(Array).GetMethod("ConvertAll")).GetGenericArguments()
     inferred := new Type[](typeParameters.Length)
     assert ColumnarContextualExtensionInference.TryUnifySlot(typeof(int), typeof(string), typeParameters, inferred)
     assert inferred[0] == null
@@ -310,9 +323,11 @@ test "the closed signature is SUBSTITUTED from the declaration, not read back of
     candidate := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "First", 1))
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(List<string>), 0, out binding)
+    assert binding != null
 
     let closed: ColumnarExtensionMethodCandidate? = null
     assert ColumnarContextualExtensionInference.TryClose(binding, out closed)
+    assert closed != null
     assert closed.ParameterTypes.Length == 1
     assert closed.ParameterTypes[0] == typeof(IEnumerable<string>)
     assert closed.ReturnType == typeof(string)
@@ -322,9 +337,11 @@ test "an array receiver reaches the sequence extension the same way a list does"
     candidate := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "First", 1))
     let binding: ColumnarContextualExtensionBinding? = null
     assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(string[]), 0, out binding)
+    assert binding != null
 
     let closed: ColumnarExtensionMethodCandidate? = null
     assert ColumnarContextualExtensionInference.TryClose(binding, out closed)
+    assert closed != null
     assert closed.ReturnType == typeof(string)
     assert ColumnarExtensionMethodResolver.ReferenceAssignableFrom(closed.ParameterTypes[0], typeof(string[]))
 }

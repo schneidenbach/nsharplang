@@ -678,8 +678,7 @@ class ColumnarInstanceMemberPlanner {
                 // `n.Count` is a read the CLR can answer. The external base comes from the one
                 // inherited-base walk, re-expressed through the arguments this link carries.
                 externalBase = ColumnarInheritedExternalBase.Resolve(current, currentExactType)
-                current = null
-                continue
+                break
             }
 
             exactBaseTemplate := current.ExactBaseType
@@ -938,7 +937,9 @@ class ColumnarInstanceMemberPlanner {
             }
 
             fast = next.BaseDef
-            if slow != null && slow == fast {
+            // COMPILER: `==` between a class and its `?` annotation is refused (NL202), so the cycle
+            // test says what it means -- the same node -- with `Object.ReferenceEquals`.
+            if slow != null && Object.ReferenceEquals(slow, fast) {
                 throw new InvalidOperationException("Source instance-member hierarchy contains a cycle.")
             }
         }
@@ -983,7 +984,9 @@ class ColumnarInstanceMemberPlanner {
             }
 
             fast = next.BaseFacts
-            if slow != null && slow == fast {
+            // COMPILER: `==` between a class and its `?` annotation is refused (NL202), so the cycle
+            // test says what it means -- the same node -- with `Object.ReferenceEquals`.
+            if slow != null && Object.ReferenceEquals(slow, fast) {
                 throw new InvalidOperationException("Exact instance-member hierarchy contains a cycle.")
             }
         }
@@ -1018,7 +1021,7 @@ class ColumnarInstanceMemberPlanner {
         getter := selection.Getter
         methodIndex := plan.AddMethodWithSignature(getter, selection.DeclaringType, new Type[](0), selection.ResultType, false, getter.IsAbstract)
 
-        plan.AppendMethodInstruction(selection.ReceiverIsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+        plan.AppendMethodInstruction((short)(selection.ReceiverIsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
     }
 
     // THE RECEIVER IS SPELLED `ITestCase`; THE SLOT BELONGS TO `INamed`.
@@ -1182,10 +1185,9 @@ class ColumnarInstanceMemberPlanner {
         while owner != null {
             if owner.MemberLabeledCanonicals.ContainsKey(memberName) {
                 memberLabeled = owner.MemberLabeledCanonicals[memberName]
-                owner = null
-            } else {
-                owner = owner.BaseDef
+                break
             }
+            owner = owner.BaseDef
         }
 
         if memberLabeled == "" {

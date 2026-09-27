@@ -142,11 +142,11 @@ func OverrideResolverBakedCandidateOwner(): Type {
         OverrideResolverParameterPair(typeof(int), typeof(string))
     )
     OverrideResolverEmitIntBody(pairRoute)
-    return IdentityBake(builder)
+    return PlanFixtureBake(builder)
 }
 
 func OverrideResolverBakedEmptyType(name: string, assemblyIdentity: string): Type {
-    return IdentityBake(TypeOfCreateBuilder(name, assemblyIdentity, 0))
+    return PlanFixtureBake(TypeOfCreateBuilder(name, assemblyIdentity, 0))
 }
 
 func OverrideResolverBakedReferenceSignatureOwner(returnType: Type, parameterType: Type): Type {
@@ -159,7 +159,7 @@ func OverrideResolverBakedReferenceSignatureOwner(returnType: Type, parameterTyp
     parameters[0] = parameterType
     method := builder.DefineMethod("Twin", (MethodAttributes)454, returnType, parameters)
     OverrideResolverEmitNullBody(method)
-    return IdentityBake(builder)
+    return PlanFixtureBake(builder)
 }
 
 func OverrideResolverDeclaredMethodReadThrows(owner: Type): bool {

@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.Reflection
 import System.Threading
 
 

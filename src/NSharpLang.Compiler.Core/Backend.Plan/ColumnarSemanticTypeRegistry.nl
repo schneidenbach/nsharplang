@@ -554,10 +554,11 @@ class ColumnarExactTypeResolver {
         if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
-        definitionName := valueType.GetGenericTypeDefinition().FullName
-        if definitionName == null || definitionName.Length == 0 {
+        definitionFullName := valueType.GetGenericTypeDefinition().FullName
+        if definitionFullName == null || definitionFullName.Length == 0 {
             return false
         }
+        definitionName: string = definitionFullName
         arityIndex := definitionName.IndexOf('`')
         if arityIndex >= 0 {
             definitionName = definitionName.Substring(0, arityIndex)

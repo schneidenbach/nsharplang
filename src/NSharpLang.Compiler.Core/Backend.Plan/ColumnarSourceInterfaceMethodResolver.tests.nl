@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections
-import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -620,9 +619,9 @@ test "ordinary override execution validates every direct binding before attachin
         malformedCompletion.Apply(owner, body, firstTable)
     }
 
-    firstRuntime := IdentityBake(firstInterface.Builder)
-    _secondRuntime := IdentityBake(secondInterface.Builder)
-    ownerRuntime := IdentityBake(owner)
+    firstRuntime := PlanFixtureBake(firstInterface.Builder)
+    _secondRuntime := PlanFixtureBake(secondInterface.Builder)
+    ownerRuntime := PlanFixtureBake(owner)
     targetMethods := SourceInterfaceMethodMapTargets(ownerRuntime, firstRuntime)
     assert targetMethods.Count == 1
     mappedTarget := SourceInterfaceMethodRequiredMethod(targetMethods[0])
@@ -676,8 +675,8 @@ test "ordinary override execution consumes the validated unbaked source binding"
     assert completion.Targets[0].SourceInterfaceBinding != null
     completion.Apply(owner, body, table)
 
-    sourceRuntime := IdentityBake(source.Builder)
-    ownerRuntime := IdentityBake(owner)
+    sourceRuntime := PlanFixtureBake(source.Builder)
+    ownerRuntime := PlanFixtureBake(owner)
     targetMethods := SourceInterfaceMethodMapTargets(ownerRuntime, sourceRuntime)
     assert targetMethods.Count == 1
     mappedTarget := SourceInterfaceMethodRequiredMethod(targetMethods[0])

@@ -147,7 +147,7 @@ test "type admission validates closed generic arguments from an external assembl
         "CatalogExternalGenericArgumentAsm",
         0
     )
-    foreign := IdentityBake(foreignBuilder)
+    foreign := PlanFixtureBake(foreignBuilder)
     listOfReference := AdmissibilityClosed1("System.Collections.Generic.List`1", foreign)
     readOnlyListOfReference := AdmissibilityClosed1("System.Collections.Generic.IReadOnlyList`1", foreign)
     readOnlyDictionaryOfReference := AdmissibilityClosed2("System.Collections.Generic.IReadOnlyDictionary`2", typeof(string), foreign)
@@ -169,7 +169,7 @@ test "type admission validates closed generic arguments from an external assembl
         "CatalogForeignCollectionHeadAsm",
         1
     )
-    foreignHead := IdentityBake(foreignHeadBuilder)
+    foreignHead := PlanFixtureBake(foreignHeadBuilder)
     foreignArguments := new Type[](1)
     foreignArguments[0] = foreign
     foreignClosed := foreignHead.MakeGenericType(foreignArguments)

@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections
 import System.IO
 import System.Reflection
 import System.Reflection.Emit
@@ -272,7 +271,7 @@ test "ordinary completion realizes the host declaration name and copied resolved
     il := TypeOfMethodBuilderIL(body)
     il.Emit(OpCodes.Ldc_I4_0)
     il.Emit(OpCodes.Ret)
-    runtimeOwner := IdentityBake(owner)
+    runtimeOwner := PlanFixtureBake(owner)
     runtimeBody := ExecutorRequiredMethod(
         runtimeOwner,
         "HostCompare",
@@ -347,7 +346,7 @@ test "ordinary nonoverride realization retains the supplied wrapped return and o
     il := TypeOfMethodBuilderIL(body)
     il.Emit(OpCodes.Ldnull)
     il.Emit(OpCodes.Ret)
-    runtimeOwner := IdentityBake(owner)
+    runtimeOwner := PlanFixtureBake(owner)
     runtimeBody := ExecutorRequiredMethod(
         runtimeOwner,
         "AsyncWorker",
@@ -502,7 +501,7 @@ test "base binding participates in all-target validation before any override is 
         completion.Apply(owner, body, table)
     }
 
-    runtimeOwner := IdentityBake(owner)
+    runtimeOwner := PlanFixtureBake(owner)
     result := BaseBindingInvokeNoArguments(runtimeOwner, "ToString")
     assert Convert.ToString(result) != "base target was attached before validation completed"
 
@@ -541,7 +540,7 @@ test "base binding participates in all-target validation before any override is 
     positiveIl.Emit(OpCodes.Ldstr, "validated base target attached")
     positiveIl.Emit(OpCodes.Ret)
     positiveCompletion.Apply(positiveOwner, positiveBody, positiveTable)
-    positiveRuntimeOwner := IdentityBake(positiveOwner)
+    positiveRuntimeOwner := PlanFixtureBake(positiveOwner)
     positiveResult := BaseBindingInvokeNoArguments(positiveRuntimeOwner, "ToString")
     assert Convert.ToString(positiveResult) == "validated base target attached"
 }

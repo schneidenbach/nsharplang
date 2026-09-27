@@ -2064,9 +2064,12 @@ test "a SOURCE constructor with optional parameters refuses more arguments than 
 }
 
 // THE METADATA HALF OF THE SAME QUESTION, asked of a real signature: optional parameters are trailing
-// by construction, so the required count is the position of the first optional one.
+// by construction, so the required count is the position of the first optional one. The signature is
+// the compiler's own `SoaColumnDeclaration(name, typeReference, line = 0, column = 0)`, whose defaults
+// the N# emitter wrote as metadata.
 test "a metadata signature's required count stops at its first optional parameter" {
-    constructors := typeof(ColumnarSourceAttributeInput).GetConstructors()
+    constructors := typeof(SoaColumnDeclaration).GetConstructors()
+    assert constructors.Length == 1
     parameters := constructors[0].GetParameters()
     assert parameters.Length == 4
     assert AnalyzerAttributeValidator.RequiredParameterCount(parameters) == 2

@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.IO
-import System.Reflection
 
 
 // EVERY READABLE PROPERTY OF AN EXCEPTION, NOT A LIST OF NAMES.

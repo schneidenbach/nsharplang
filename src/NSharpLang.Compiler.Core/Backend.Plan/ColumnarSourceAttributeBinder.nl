@@ -100,7 +100,7 @@ class ColumnarSourceAttributeBinder {
 
             memberType: Type = null
             isField := false
-            if !TryResolveNamedMember(attributeType, sourceDefinition, resolution, argumentName, out memberType, out isField) {
+            if !TryResolveNamedMember(attributeType, sourceDefinition, argumentName, out memberType, out isField) {
                 return false
             }
 
@@ -452,7 +452,7 @@ class ColumnarSourceAttributeBinder {
     // A NAMED ARGUMENT NAMES SOMETHING THE CLR CAN SET IN METADATA: a settable property or a mutable
     // field, declared by the attribute type or inherited from its base. The search walks the base
     // chain because `[Derived(Reason = "x")]` may be setting a property `Base` declared.
-    static func TryResolveNamedMember(attributeType: Type, sourceDefinition: ColumnarStructDef, resolution: ColumnarSemanticTypeResolution, memberName: string, out memberType: Type, out isField: bool): bool {
+    static func TryResolveNamedMember(attributeType: Type, sourceDefinition: ColumnarStructDef, memberName: string, out memberType: Type, out isField: bool): bool {
         memberType = null
         isField = false
         definition: ColumnarStructDef = sourceDefinition

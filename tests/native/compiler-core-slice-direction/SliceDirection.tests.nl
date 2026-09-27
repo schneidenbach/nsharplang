@@ -57,9 +57,16 @@ func CoreSliceGraph(): SliceGraph {
 // friend-declaration row) moved beside their Emit subjects with fixtures of their own, the
 // constructor decline-trace row moved beside the emitted hostile list it drives the planner with, the
 // Cecil admission rows that never reached the emitter moved down beside the planner's, and the
-// generic-call row reads a captured error's runtime type itself (29 reaches).
+// generic-call row reads a captured error's runtime type itself (29 reaches). 51 before the Plan carve,
+// whose planners and estate helpers the rows below it may not name once Plan is an assembly above
+// Core's: the rows whose subject is a planner type (the external type catalog, the void-gap and
+// numeric-limit agreements, the inherited-member relation the planner asks too, the extension index
+// over an unreadable host, the generic index's nullability) moved beside their Plan subjects, and
+// Core's rows that borrowed the planner rows' Reflection.Emit helpers (`TypeOfCreateBuilder`,
+// `ExecutorRequiredMethod`, `TypeOfRequiredInvocation` ...) spell the calls through Core's own
+// `CoreEstateFixtures` (61 reaches).
 func EstateUpwardCeiling(): int {
-    return 112
+    return 51
 }
 
 test "every Compiler.Core source file sits in one of the eight slice directories" {

@@ -321,7 +321,7 @@ func ConstructorDeclarationControlsExternalBase(
         ExecutorRequiredConstructor(typeof(object), Type.EmptyTypes)
     )
     il.Emit(OpCodes.Ret)
-    return IdentityBake(builder)
+    return PlanFixtureBake(builder)
 }
 
 func ConstructorDeclarationControlsExternalDerived(
@@ -797,7 +797,7 @@ test "constructor declaration owner emits the exact external base call and decli
         ExecutorRequiredConstructor(typeof(object), Type.EmptyTypes)
     )
     il.Emit(OpCodes.Ret)
-    baked := IdentityBake(derived.Builder)
+    baked := PlanFixtureBake(derived.Builder)
     constructors := baked.GetConstructors()
     assert constructors.Length == 1
     emitted := constructors[0]

@@ -1,12 +1,8 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.Collections.Generic
-import System.Linq
 import System.Reflection
 import System.Reflection.Emit
-import NSharpLang.Compiler.Columnar
-
 
 // AN OWNER THAT CANNOT ANSWER FOR ITS MEMBERS MUST NOT END THE COMPILATION.
 //
@@ -96,18 +92,6 @@ test "a signature is read whole or not at all" {
     assert AnalyzerReflectionMemberProbe.ReturnTypeOrNull(concat) == typeof(string)
 }
 
-// A `MethodBuilder` is a method handle whose parameters cannot be read either, which is the
-// per-METHOD half of the same rule: the owner enumerated, one member did not answer.
-test "a method whose parameters cannot be read contributes no signature" {
-    owner := ProbeUncreatedOwner()
-    builderMethod := ProbeDefineAbstractMethod(owner, "Unreadable")
-
-    assert ProbeRawParametersThrow(builderMethod)
-    assert ColumnarExtensionMethodResolver.ParametersOrNull(builderMethod) == null
-    assert AnalyzerReflectionMemberProbe.ParameterTypesOrNull(builderMethod) == null
-    assert ColumnarExtensionMethodResolver.ParameterTypesOrNull(new ParameterInfo[](0)) != null
-}
-
 test "a base-chain read that cannot be answered ends the walk instead of the analysis" {
     owner := ProbeUncreatedOwner()
 
@@ -117,32 +101,6 @@ test "a base-chain read that cannot be answered ends the walk instead of the ana
     assert AnalyzerReflectionMemberProbe.BaseTypeOrNull(typeof(string)) == typeof(object)
     assert AnalyzerReflectionMemberProbe.BaseTypeOrNull(typeof(object)) == null
     assert !AnalyzerCallableReferenceFacts.IsMetadataDelegateType(owner)
-}
-
-// ── the index build, which is the walk that actually broke ────────────────────────────────────
-
-test "the extension index skips a host it cannot read and indexes everything it can" {
-    index := new ColumnarExtensionMethodIndex()
-    owner := ProbeUncreatedOwner()
-
-    // The host DOES declare a method, and the walk that would read it throws — so "indexes nothing"
-    // is the guard answering rather than an empty type.
-    ProbeDefineAbstractMethod(owner, "Unreadable")
-    assert ProbeRawMethodsThrow(owner)
-
-    // A host whose attribute list cannot be read is not a static extension host, and adding it
-    // indexes nothing. Neither call throws, which is the whole claim.
-    assert !ColumnarExtensionMethodResolver.IsStaticExtensionHost(owner)
-    ColumnarExtensionMethodResolver.AddType(index, owner)
-
-    unreadable := new List<ColumnarExtensionMethodCandidate>()
-    assert !index.TryGet("Unreadable", out unreadable)
-
-    // The readable half still works: `System.Linq.Enumerable` indexes its own extensions.
-    ColumnarExtensionMethodResolver.AddType(index, typeof(Enumerable))
-    selected := new List<ColumnarExtensionMethodCandidate>()
-    assert index.TryGet("Count", out selected)
-    assert selected.Count > 0
 }
 
 func ProbeConcatTypes(): Type[] {

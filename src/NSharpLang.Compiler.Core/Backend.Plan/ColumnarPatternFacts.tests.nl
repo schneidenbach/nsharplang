@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler.Columnar
 
-import System
-
 
 // THE CANONICAL CONTRACTS FOR `ColumnarPatternFacts`, IN N#.
 //

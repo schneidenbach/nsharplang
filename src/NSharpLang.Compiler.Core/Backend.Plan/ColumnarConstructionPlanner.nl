@@ -889,7 +889,7 @@ class ColumnarConstructionPlanner {
             if requiresModifierRepair {
                 plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, setter)
             }
-            plan.AppendMethodInstruction(setter.IsVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+            plan.AppendMethodInstruction((short)(setter.IsVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
             index += 2
         }
         return true

@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -114,7 +113,7 @@ class ColumnarSourceGenericStaticMemberFacts {
         fieldType = typeof(object)
         declaringDefinition: ColumnarStructDef? = null
         declaringType := typeof(object)
-        if !TryFindDeclaringType(receiverType, receiverDefinition, name, true, out declaringDefinition, out declaringType) {
+        if !TryFindDeclaringType(receiverType, receiverDefinition, name, true, out declaringDefinition, out declaringType) || declaringDefinition == null {
             return false
         }
 
@@ -136,7 +135,7 @@ class ColumnarSourceGenericStaticMemberFacts {
         propertyType = typeof(object)
         declaringDefinition: ColumnarStructDef? = null
         declaringType := typeof(object)
-        if !TryFindDeclaringType(receiverType, receiverDefinition, name, false, out declaringDefinition, out declaringType) {
+        if !TryFindDeclaringType(receiverType, receiverDefinition, name, false, out declaringDefinition, out declaringType) || declaringDefinition == null {
             return false
         }
 

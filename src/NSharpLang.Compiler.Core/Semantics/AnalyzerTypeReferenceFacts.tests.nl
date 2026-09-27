@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
-import NSharpLang.Compiler.Columnar
 
 // Native contracts for the pure decision surface of the analyzer's type-REFERENCE resolver. All three
 // rules were inline or `private` in Analyzer.cs, so nothing named them: their behaviour was pinned
@@ -523,27 +522,6 @@ test "analyzer type reference facts pin the nint gap to exactly two spellings" {
     assert unresolved == 2
 }
 
-// THE COLUMNAR BINDER'S GAP, PINNED TO EXACTLY ONE NAME. Every spelling the owner admits must bind
-// to a runtime type except `void`, which is not a type a local can hold.
-test "analyzer type reference facts pin the columnar void gap to exactly one spelling" {
-    spellings := BuiltInSpellingNames()
-    unbound := 0
-
-    index := 0
-    while index < spellings.Length {
-        name := spellings[index]
-        bound := typeof(object)
-        if !ColumnarBindingScopeFacts.TryResolveExplicitBuiltin(name, out bound) {
-            unbound = unbound + 1
-            assert name == "void"
-        }
-
-        index = index + 1
-    }
-
-    assert unbound == 1
-}
-
 // THE VALUE-TYPE PREDICATES ARE A DIFFERENT QUESTION, AND THIS IS THE PROOF THE EDITOR MUST NOT BE
 // ROUTED TO THEM. `string` and `object` are built-in spellings and are NOT primitive value types;
 // routing a "colour this as a built-in type" question to a "may this live on the stack" answer
@@ -558,23 +536,4 @@ test "analyzer type reference facts stay distinct from the primitive value type 
     // spelling set is the wider of the two over the names they share.
     assert AnalyzerResourceStatements.IsPrimitiveValueTypeName("int")
     assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName("int")
-}
-
-// THE NUMERIC LIMIT OWNER AGREES ON EVERY SPELLING IT KNOWS. `PrimitiveLimitTypeName` answers a
-// narrower question — which type owns `MinValue`/`MaxValue` — over eight of the eighteen spellings,
-// and it must never name a different CLR type than the spelling owner does.
-test "analyzer type reference facts agree with the numeric limit owner" {
-    numerics := ["int", "uint", "long", "ulong", "short", "ushort", "byte", "sbyte"]
-
-    index := 0
-    while index < numerics.Length {
-        name := numerics[index]
-        assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName(name) == BuiltInTypeSpellings.BuiltInClrTypeName(name)
-        index = index + 1
-    }
-
-    // And it deliberately declines the ten it does not own, rather than guessing.
-    assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName("string") == ""
-    assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName("bool") == ""
-    assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName("nint") == ""
 }

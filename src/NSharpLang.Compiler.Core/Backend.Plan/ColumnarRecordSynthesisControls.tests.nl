@@ -236,7 +236,7 @@ test "record synthesis retains an earlier completed record when a later stale ha
 
     // Equals was defined before the later hash-slot guard, but that handle alone would not prove
     // its body reached execution. Bake and invoke it after the caught failure.
-    laterRuntime := IdentityBake(later.Builder)
+    laterRuntime := PlanFixtureBake(later.Builder)
     laterValue := RecordSynthesisControlsNewInstance(laterRuntime)
     sameLaterValue := RecordSynthesisControlsNewInstance(laterRuntime)
     laterEquals := RecordSynthesisControlsRequiredMethod(laterRuntime, "Equals", RecordSynthesisControlsOneObject())
@@ -244,7 +244,7 @@ test "record synthesis retains an earlier completed record when a later stale ha
     ExecutorSetObject(laterEqualsArguments, 0, sameLaterValue)
     assert Convert.ToBoolean(laterEquals.Invoke(laterValue, laterEqualsArguments))
 
-    firstRuntime := IdentityBake(first.Builder)
+    firstRuntime := PlanFixtureBake(first.Builder)
     firstValue := RecordSynthesisControlsNewInstance(firstRuntime)
     sameValue := RecordSynthesisControlsNewInstance(firstRuntime)
     equals := RecordSynthesisControlsRequiredMethod(firstRuntime, "Equals", RecordSynthesisControlsOneObject())
@@ -278,7 +278,7 @@ test "record synthesis retains an earlier completed record when a later stale ha
     assert cleanLater.RecordGetHashCode != null
     assert cleanLater.RecordClone != null
 
-    cleanLaterRuntime := IdentityBake(cleanLater.Builder)
+    cleanLaterRuntime := PlanFixtureBake(cleanLater.Builder)
     cleanLaterValue := RecordSynthesisControlsNewInstance(cleanLaterRuntime)
     sameCleanLaterValue := RecordSynthesisControlsNewInstance(cleanLaterRuntime)
     cleanLaterEquals := RecordSynthesisControlsRequiredMethod(cleanLaterRuntime, "Equals", RecordSynthesisControlsOneObject())

@@ -87,7 +87,7 @@ func ListEnumeratorControlForeignSameName(element: Type): Type {
         "Enumerator",
         1
     )
-    foreignOpen := IdentityBake(enumerator)
+    foreignOpen := PlanFixtureBake(enumerator)
     arguments := new Type[](1)
     arguments[0] = element
     return foreignOpen.MakeGenericType(arguments)

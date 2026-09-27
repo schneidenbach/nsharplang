@@ -1197,7 +1197,7 @@ test "ordinary override completion owns all four exact MethodAttributes outcomes
     bodyIl := TypeOfMethodBuilderIL(body)
     bodyIl.Emit(OpCodes.Ldstr, "realized")
     bodyIl.Emit(OpCodes.Ret)
-    runtimeOwner := IdentityBake(owner)
+    runtimeOwner := PlanFixtureBake(owner)
     runtimeBody := ExecutorRequiredMethod(
         runtimeOwner,
         "RealizedToString",

@@ -459,7 +459,7 @@ func TypeOfRequiredInvocation(
 
 func TypeOfRequiredConstruction(
     constructorInfo: ConstructorInfo,
-    arguments: object[]
+    arguments: object?[]
 ): object {
     value := constructorInfo.Invoke(arguments)
     if value == null {

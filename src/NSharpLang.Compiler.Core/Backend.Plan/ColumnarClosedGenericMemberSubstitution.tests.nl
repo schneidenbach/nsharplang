@@ -263,9 +263,9 @@ test "closed generic member resolver normalises a method declared on a construct
     inherited := ClosedGenericMemberRequiredOpenMethod(observableDefinition, "GetEnumerator", 0)
     inheritedDeclaring := inherited.get_DeclaringType()
     assert inheritedDeclaring != null
-    assert (must inheritedDeclaring).get_IsGenericType()
-    assert !(must inheritedDeclaring).get_IsGenericTypeDefinition()
-    assert (must inheritedDeclaring).get_ContainsGenericParameters()
+    assert inheritedDeclaring.get_IsGenericType()
+    assert !inheritedDeclaring.get_IsGenericTypeDefinition()
+    assert inheritedDeclaring.get_ContainsGenericParameters()
 
     collectionDefinition := typeof(Collection<int>).GetGenericTypeDefinition()
     builderOwner := TypeOfCreateBuilder(
@@ -288,8 +288,8 @@ test "closed generic member resolver normalises a method declared on a construct
     assert normalised.get_Name() == "GetEnumerator"
     normalisedDeclaring := normalised.get_DeclaringType()
     assert normalisedDeclaring != null
-    assert (must normalisedDeclaring).get_IsGenericTypeDefinition()
-    assert (must normalisedDeclaring) == collectionDefinition
+    assert normalisedDeclaring.get_IsGenericTypeDefinition()
+    assert normalisedDeclaring == collectionDefinition
 
     // The whole point: the rebind that used to throw
     // "The specified method cannot be dynamic or global and must be declared on a generic type

@@ -1,10 +1,8 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections
 import System.Collections.Generic
 import System.Reflection
-import System.Reflection.Emit
 
 func IteratorMemberRequiredType(name: string): Type {
     resolved := Type.GetType(name)
@@ -327,7 +325,7 @@ test "generic iterator binding keeps external open VAR separate from machine VAR
     assert binding.Target.get_DeclaringType() == context.EnumeratorContext
     assert !ColumnarConstructionPlanner.SameObject(binding.Target, binding.OpenMethod)
 
-    openOwnerArguments := binding.OpenMethod.get_DeclaringType().GetGenericArguments()
+    openOwnerArguments := (must binding.OpenMethod.get_DeclaringType()).GetGenericArguments()
     assert openOwnerArguments.Length == 1
     assert ColumnarConstructionPlanner.SameObject(binding.OpenReturn.RuntimeType, openOwnerArguments[0])
     assert ColumnarConstructionPlanner.SameObject(binding.EffectiveReturn.RuntimeType, machineParameter)

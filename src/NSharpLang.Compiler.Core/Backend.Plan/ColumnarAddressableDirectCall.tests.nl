@@ -90,7 +90,7 @@ func AddressableDirectCallPlan(fixture: ColumnarAddressableDirectCallFixture, lo
     method := plan.AddMethodWithSignature(fixture.MoveNext, fixture.EnumeratorType, noTypes, typeof(bool), false, false)
 
     plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), holder)
-    plan.AppendFieldInstruction(loadAddress ? ColumnarCodePlanContract.Ldflda() : ColumnarCodePlanContract.Ldfld(), field)
+    plan.AppendFieldInstruction((short)(loadAddress ? ColumnarCodePlanContract.Ldflda() : ColumnarCodePlanContract.Ldfld()), field)
     plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), method)
     plan.CompleteFragment(root, typeof(bool))
     plan.CompleteV3(typeof(bool))

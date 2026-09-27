@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 
 func EnumeratorProtocolRequiredType(fullName: string): Type {
     valueType := Type.GetType(fullName)
@@ -84,7 +85,7 @@ test "exact typed enumerators are admitted only as storable protocol state" {
     assert ColumnarTypeOfPlanner.IsSupportedType(unsupportedEnumerator)
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(unsupportedElement)
 
-    foreignDefinition := IdentityBake(
+    foreignDefinition := PlanFixtureBake(
         TypeOfCreateBuilder(
             "System.Collections.Generic.IEnumerator`1",
             "ColumnarSourceDiscoveryForeignEnumerator",

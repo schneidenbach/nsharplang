@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Reflection
 import System.Reflection.Emit
 import System.Text.Json
 
@@ -103,15 +102,15 @@ test "open ValueTuple definitions cover direct arities and the exact CLR Rest he
     assert ColumnarTypeOfPlanner.OpenValueTupleType(7) == typeof(ValueTuple<int, int, int, int, int, int, int>).GetGenericTypeDefinition()
 
     // Every returned definition is OPEN and carries exactly its arity's parameters.
-    assert ColumnarTypeOfPlanner.OpenValueTupleType(4).get_IsGenericTypeDefinition()
-    assert ColumnarTypeOfPlanner.OpenValueTupleType(4).GetGenericArguments().Length == 4
+    assert (must ColumnarTypeOfPlanner.OpenValueTupleType(4)).get_IsGenericTypeDefinition()
+    assert (must ColumnarTypeOfPlanner.OpenValueTupleType(4)).GetGenericArguments().Length == 4
 
     assert ColumnarTypeOfPlanner.OpenValueTupleType(-1) == null
     assert ColumnarTypeOfPlanner.OpenValueTupleType(0) == null
     assert ColumnarTypeOfPlanner.OpenValueTupleType(1) == null
     assert ColumnarTypeOfPlanner.OpenValueTupleType(8) == Type.GetType("System.ValueTuple`8")
-    assert ColumnarTypeOfPlanner.OpenValueTupleType(8).get_IsGenericTypeDefinition()
-    assert ColumnarTypeOfPlanner.OpenValueTupleType(8).GetGenericArguments().Length == 8
+    assert (must ColumnarTypeOfPlanner.OpenValueTupleType(8)).get_IsGenericTypeDefinition()
+    assert (must ColumnarTypeOfPlanner.OpenValueTupleType(8)).GetGenericArguments().Length == 8
     assert ColumnarTypeOfPlanner.OpenValueTupleType(9) == null
 }
 

@@ -16,8 +16,15 @@ enum TypeEquivalenceProbeEnum {
     One = 1
 }
 
+// A second, unrelated int-backed enum: the enum arm must tell two enums apart by declaration.
+enum TypeEquivalenceOtherProbeEnum {
+    Zero = 0,
+    One = 1,
+    Four = 4
+}
+
 func TypeEquivalenceBuilder(name: string, assemblyIdentity: string, arity: int): Type {
-    return TypeOfCreateBuilder(name, assemblyIdentity, arity)
+    return CoreFixtureTypeBuilder(name, assemblyIdentity, arity)
 }
 
 func TypeEquivalenceClosed(definition: Type, argument: Type): Type {
@@ -51,7 +58,7 @@ test "type equivalence equates two distinct closed instantiations of one builder
 
     first := TypeEquivalenceClosed(definition, typeof(int))
     second := TypeEquivalenceClosed(definition, typeof(int))
-    assert !ColumnarConstructionPlanner.SameObject(first, second)
+    assert !Object.ReferenceEquals(first, second)
     assert ColumnarTypeEquivalenceFacts.TypesEquivalent(first, second)
 
     // The ARGUMENT still decides: a different closure of the same definition is a different type.
@@ -102,7 +109,7 @@ test "declared identity refuses two same-named builders from different modules" 
     first := TypeEquivalenceBuilder("EquivalenceTwin", "ColumnarTypeEquivalenceTests.TwinLeft", 0)
     second := TypeEquivalenceBuilder("EquivalenceTwin", "ColumnarTypeEquivalenceTests.TwinRight", 0)
 
-    assert !ColumnarConstructionPlanner.SameObject(first, second)
+    assert !Object.ReferenceEquals(first, second)
     assert first.get_FullName() == second.get_FullName()
     assert !ColumnarTypeEquivalenceFacts.SameDeclaredIdentity(first, second)
     assert !ColumnarTypeEquivalenceFacts.TypesEquivalent(first, second)
@@ -135,14 +142,14 @@ test "the guarded reflection reads answer for baked and unbaked shapes" {
 // The enum arm runs BEFORE every other arm, so an enum is never compared as a generic or as a builder.
 test "enum identity is answered by the enum arm rather than the generic one" {
     assert ColumnarTypeEquivalenceFacts.IsSameEnumType(typeof(TypeEquivalenceProbeEnum), typeof(TypeEquivalenceProbeEnum))
-    assert !ColumnarTypeEquivalenceFacts.IsSameEnumType(typeof(TypeEquivalenceProbeEnum), typeof(ColumnarRangePlannerProbeEnum))
+    assert !ColumnarTypeEquivalenceFacts.IsSameEnumType(typeof(TypeEquivalenceProbeEnum), typeof(TypeEquivalenceOtherProbeEnum))
 
     // A non-enum pair is refused BY THIS FUNCTION even when the two types are equal, because it is the
     // enum question and not the equality question.
     assert !ColumnarTypeEquivalenceFacts.IsSameEnumType(typeof(int), typeof(int))
 
     assert ColumnarTypeEquivalenceFacts.TypesEquivalent(typeof(TypeEquivalenceProbeEnum), typeof(TypeEquivalenceProbeEnum))
-    assert !ColumnarTypeEquivalenceFacts.TypesEquivalent(typeof(TypeEquivalenceProbeEnum), typeof(ColumnarRangePlannerProbeEnum))
+    assert !ColumnarTypeEquivalenceFacts.TypesEquivalent(typeof(TypeEquivalenceProbeEnum), typeof(TypeEquivalenceOtherProbeEnum))
 
     // An enum against its own underlying type is refused by the enum arm — one side being an enum is
     // enough to take that arm, which is what stops `int` and an int-backed enum being one type here.

@@ -4,7 +4,6 @@ import System
 import System.Collections.Generic
 import System.Numerics
 import System.Reflection
-import System.Reflection.Emit
 
 // Generic external methods closed by inference from their arguments. `System.Numerics.Vector`'s static
 // surface is the witness for inference through a CONSTRUCTED generic argument; `System.HashCode` and

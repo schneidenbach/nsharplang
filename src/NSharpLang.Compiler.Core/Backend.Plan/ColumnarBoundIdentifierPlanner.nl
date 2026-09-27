@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -597,7 +598,7 @@ class ColumnarBoundIdentifierPlanner {
             if bindings.ParameterOrdinals.ContainsKey(name) {
                 argumentIndex := GetOrAddArgument(plan, bindings.ParameterOrdinals[name], resultType, byRefParameter)
 
-                plan.AppendArgumentInstruction(byRefParameter ? ColumnarCodePlanContract.Ldarg() : ColumnarCodePlanContract.Ldarga(), argumentIndex)
+                plan.AppendArgumentInstruction((short)(byRefParameter ? ColumnarCodePlanContract.Ldarg() : ColumnarCodePlanContract.Ldarga()), argumentIndex)
 
                 isAddress = true
                 return true

@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 
 class ColumnarBaseMethodMatchParameter {
     readonly parameterValue: ParameterInfo
@@ -263,7 +264,7 @@ class ColumnarSourceBaseMethodMatch {
         foundName := false
 
         if baseDefinition != null && name != null && name.Length > 0 && returnType != null && parameterTypes != null {
-            current := baseDefinition
+            current: ColumnarStructDef? = baseDefinition
             guard := 0
             while current != null && !matched && guard <= 64 {
                 overloads: List<ColumnarInstanceMethodDef>? = null

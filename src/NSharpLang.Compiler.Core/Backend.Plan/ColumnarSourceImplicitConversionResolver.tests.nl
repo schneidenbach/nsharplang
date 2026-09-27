@@ -101,8 +101,9 @@ test "source implicit conversion requires exact source-owned parameter and retur
 
     assert selected.Status == ColumnarSourceImplicitConversionStatus.Selected
     assert selected.IsSelected
-    assert selected.SourceDefinition == source
-    assert selected.OperatorDefinition == definition
+    // COMPILER: `==` between a definition and a `?`-annotated one is refused (NL202); identity is meant.
+    assert Object.ReferenceEquals(selected.SourceDefinition, source)
+    assert Object.ReferenceEquals(selected.OperatorDefinition, definition)
     assert selected.SourceType == sourceType
     assert selected.TargetType == targetType
     assert selected.DeclaringType == sourceType

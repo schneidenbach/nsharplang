@@ -731,7 +731,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
     // The candidate's parameters when its shape admits this site, or null. The exclusions are the
     // inference tier's, plus the written-arity rule.
     static func AdmittedParameters(candidate: MethodInfo?, lookupType: Type, memberName: string, typeArgumentCount: int, argumentCount: int, expectedStatic: bool): ParameterInfo[]? {
-        if !ColumnarRuntimeGenericMethodResolver.IsInferableCandidateShape(candidate, lookupType, memberName, expectedStatic) {
+        if candidate == null || !ColumnarRuntimeGenericMethodResolver.IsInferableCandidateShape(candidate, lookupType, memberName, expectedStatic) {
             return null
         }
         if candidate.GetGenericArguments().Length != typeArgumentCount {

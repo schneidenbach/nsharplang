@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
+import System
 import System.Collections.Generic
 import System.Numerics
 import System.Reflection
@@ -1998,9 +1999,10 @@ test "construction planner owns explicit and aliased runtime generic constructio
         generic,
         ColumnarRangePlannerEmptyBindings()
     )
-    assert genericPlan.ResultType.get_IsGenericType()
-    assert genericPlan.ResultType.GetGenericTypeDefinition().FullName == "System.Collections.Generic.List`1"
-    assert genericPlan.ResultType.GetGenericArguments()[0] == typeof(int)
+    genericPlanResult := must genericPlan.ResultType
+    assert genericPlanResult.get_IsGenericType()
+    assert genericPlanResult.GetGenericTypeDefinition().FullName == "System.Collections.Generic.List`1"
+    assert genericPlanResult.GetGenericArguments()[0] == typeof(int)
     assert genericPlan.ConstructorCount == 1
     assert genericPlan.ConstructorParameterTypes[0].Length == 0
 
@@ -2143,10 +2145,11 @@ test "construction planner rebinds aliased source generic constructors to the cl
         ConstructionBindings(SourceCallDefinitions(owner))
     )
 
-    assert plan.ResultType.get_IsGenericType()
-    assert !plan.ResultType.get_IsGenericTypeDefinition()
-    assert plan.ResultType.GetGenericTypeDefinition() == ownerType
-    assert plan.ResultType.GetGenericArguments()[0] == typeof(int)
+    planResult := must plan.ResultType
+    assert planResult.get_IsGenericType()
+    assert !planResult.get_IsGenericTypeDefinition()
+    assert planResult.GetGenericTypeDefinition() == ownerType
+    assert planResult.GetGenericArguments()[0] == typeof(int)
     assert plan.ConstructorCount == 1
     assert plan.ConstructorDeclaringTypes[0] == plan.ResultType
     assert plan.ConstructorParameterTypes[0].Length == 1
@@ -2191,8 +2194,9 @@ test "construction planner ranks substituted source generic constructor conversi
         ConstructionBindings(SourceCallDefinitions(owner))
     )
 
-    assert plan.ResultType.get_IsGenericType()
-    assert !plan.ResultType.get_IsGenericTypeDefinition()
+    planResult := must plan.ResultType
+    assert planResult.get_IsGenericType()
+    assert !planResult.get_IsGenericTypeDefinition()
     assert plan.ConstructorCount == 1
     assert plan.ConstructorDeclaringTypes[0] == plan.ResultType
     assert plan.ConstructorParameterTypes[0].Length == 1
@@ -2221,13 +2225,14 @@ test "construction planner rebinds a synthesized default constructor on a closed
         ConstructionBindings(SourceCallDefinitions(owner))
     )
 
-    assert plan.ResultType.get_IsGenericType()
-    assert !plan.ResultType.get_IsGenericTypeDefinition()
+    planResult := must plan.ResultType
+    assert planResult.get_IsGenericType()
+    assert !planResult.get_IsGenericTypeDefinition()
     assert ColumnarConstructionPlanner.SameObject(
-        plan.ResultType.GetGenericTypeDefinition(),
+        planResult.GetGenericTypeDefinition(),
         owner.Builder
     )
-    assert plan.ResultType.GetGenericArguments()[0] == typeof(int)
+    assert planResult.GetGenericArguments()[0] == typeof(int)
     assert plan.ConstructorCount == 1
     assert plan.ConstructorDeclaringTypes[0] == plan.ResultType
     assert plan.ConstructorParameterTypes[0].Length == 0
@@ -3613,9 +3618,10 @@ test "construction planner blocks a visible type parameter when its live handle 
         liveVisible
     )
     livePlan := ConstructionPlan(liveTree, bindings)
-    assert livePlan.ResultType.get_IsSZArray()
+    livePlanResult := must livePlan.ResultType
+    assert livePlanResult.get_IsSZArray()
     assert ColumnarConstructionPlanner.SameObject(
-        livePlan.ResultType.GetElementType(),
+        livePlanResult.GetElementType(),
         arguments[0]
     )
     assert ColumnarConstructionPlanner.SameObject(
@@ -3660,8 +3666,9 @@ test "construction planner resolves exact aliases and nested live type parameter
         visible
     )
     nestedPlan := ConstructionPlan(nested, bindings)
-    assert nestedPlan.ResultType.get_IsSZArray(), "outer array result"
-    firstElement := nestedPlan.ResultType.GetElementType()
+    nestedPlanResult := must nestedPlan.ResultType
+    assert nestedPlanResult.get_IsSZArray(), "outer array result"
+    firstElement := nestedPlanResult.GetElementType()
     if firstElement == null {
         throw new InvalidOperationException(
             "Nested generic array did not retain its element type."
@@ -3995,7 +4002,8 @@ test "a constructor the allow-list did not list now plans end to end" {
     )
     ConstructionStampScope(randomTree, "import System\n")
     randomPlan := ConstructionPlan(randomTree, ColumnarRangePlannerEmptyBindings())
-    assert randomPlan.ResultType.FullName == "System.Random"
+    randomPlanResult := must randomPlan.ResultType
+    assert randomPlanResult.FullName == "System.Random"
     assert randomPlan.ConstructorCount == 1
     assert randomPlan.ConstructorParameterTypes[0].Length == 0
     assert randomPlan.OpCodeValues[randomPlan.OperationCount - 1] == ColumnarCodePlanContract.Newobj()

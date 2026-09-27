@@ -4,7 +4,6 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
-import NSharpLang.Compiler.Columnar
 import NSharpLang.Compiler.TestStubs
 
 class AnalyzerContextTestUnit {
@@ -1026,7 +1025,7 @@ test "runtime Result structural members preserve nominal source arguments" {
     arguments := new List<TypeInfo>()
     arguments.Add(sourceOk)
     arguments.Add(BuiltInTypes.String)
-    resultDefinition := TypeOfCreateBuilder(
+    resultDefinition := CoreFixtureTypeBuilder(
         "NSharpLang.Runtime.Result`2",
         "NSharpLang.Runtime",
         2
@@ -1345,22 +1344,21 @@ test "runtime array AsSpan extension preserves element identity and System impor
     assert spanDefinition.Type == typeof(Span<int>).GetGenericTypeDefinition()
 }
 
+// A type the runtime library itself declares, read from that assembly by name.
+func DeclarationContextCoreLibType(name: string): Type {
+    found := typeof(Type).get_Assembly().GetType(name)
+    if found == null {
+        throw new InvalidOperationException("Required runtime type was not found: " + name)
+    }
+    return found
+}
+
 test "runtime interface method resolution includes inherited IDisposable members" {
     context := new AnalyzerDeclarationContext()
     memberType := BuiltInTypes.Unknown as TypeInfo
-    runtimeTypeOwner := typeof(Type)
-    runtimeOwnerDefinition := TypeOfRequiredRuntimeType(
-        runtimeTypeOwner,
-        "System.Buffers.IMemoryOwner`1"
-    )
-    runtimeListDefinition := TypeOfRequiredRuntimeType(
-        runtimeTypeOwner,
-        "System.Collections.Generic.List`1"
-    )
-    runtimeDisposable := TypeOfRequiredRuntimeType(
-        runtimeTypeOwner,
-        "System.IDisposable"
-    )
+    runtimeOwnerDefinition := DeclarationContextCoreLibType("System.Buffers.IMemoryOwner`1")
+    runtimeListDefinition := DeclarationContextCoreLibType("System.Collections.Generic.List`1")
+    runtimeDisposable := DeclarationContextCoreLibType("System.IDisposable")
     runtimeArguments := new Type[](1)
     runtimeArguments[0] = typeof(byte)
     runtimeOwner := runtimeOwnerDefinition.MakeGenericType(runtimeArguments)

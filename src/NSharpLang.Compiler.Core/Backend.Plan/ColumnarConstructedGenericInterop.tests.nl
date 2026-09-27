@@ -82,7 +82,7 @@ test "a builder-bound construction over complete arguments is an ordinary storab
 test "an emitted namesake definition is not an external head" {
     parameterOwner := InteropSourceOwner("Interop.NamesakeOwner`1", 1)
     parameter := InteropTypeParameter(parameterOwner)
-    namesake := IdentityBake(
+    namesake := PlanFixtureBake(
         TypeOfCreateBuilder(
             "System.Collections.Generic.EqualityComparer`1",
             "ColumnarConstructedGenericInterop.Namesake",

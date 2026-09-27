@@ -48,7 +48,7 @@ test "literal field metadata publishes a CLR constant row and rejects init-only 
     field := baked.GetField("Answer", BindingFlags.Public | BindingFlags.Static)
     assert field != null
     assert field.get_IsLiteral()
-    assert field.GetRawConstantValue().ToString() == "17"
+    assert (must field.GetRawConstantValue()).ToString() == "17"
 }
 
 test "the first source literal field slice accepts only unsuffixed int values" {

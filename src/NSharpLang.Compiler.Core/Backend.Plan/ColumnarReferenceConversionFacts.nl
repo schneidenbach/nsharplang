@@ -11,6 +11,17 @@ import System.Reflection.Emit
 // that N# admits in one place so overload selection and sealed-plan validation cannot drift.
 class ColumnarReferenceConversionFacts {
 
+    // The guarded runtime question: a closed shell over an unbaked builder answers
+    // `NotSupportedException` rather than an edge, and that is "not assignable by this question", so
+    // the exact edges below still get to answer.
+    static func IsAssignableFromOrUnanswered(targetType: Type, sourceType: Type): bool {
+        try {
+            return targetType.IsAssignableFrom(sourceType)
+        } catch ex: NotSupportedException {
+            return false
+        }
+    }
+
     // The emitter's complete reference-conversion decision. Reflection.Emit cannot answer
     // IsAssignableFrom for every closed shell that still contains an unbaked source builder, so the
     // guarded runtime question is followed by the exact collection edges already owned by emission.
@@ -25,11 +36,8 @@ class ColumnarReferenceConversionFacts {
         if sourceType == ColumnarTypeOfPlanner.RequiredVoidType() || sourceType.IsValueType || targetType.IsValueType {
             return false
         }
-        try {
-            if targetType.IsAssignableFrom(sourceType) {
-                return true
-            }
-        } catch ex: NotSupportedException {
+        if IsAssignableFromOrUnanswered(targetType, sourceType) {
+            return true
         }
 
         if IsArrayCovariantConversion(sourceType, targetType) {
@@ -556,6 +564,7 @@ class ColumnarReferenceConversionFacts {
                 depth = depth + 1
             }
         } catch ex: NotSupportedException {
+            return false
         }
 
         return false

@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
-import NSharpLang.Compiler
 
 
 // HOW A `using` RELEASES ITS RESOURCE, decided once and emitted once.

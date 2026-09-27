@@ -66,7 +66,7 @@ test "record value-member owner defines and executes all three reference-record 
     }
     assert Convert.ToInt32(cloneBuilder.get_Attributes()) == 134
 
-    runtimeType := IdentityBake(definition.Builder)
+    runtimeType := PlanFixtureBake(definition.Builder)
     constructor := RecordFactsRequiredConstructor(runtimeType, System.Type.EmptyTypes)
     first := constructor.Invoke(new object[](0))
     second := constructor.Invoke(new object[](0))

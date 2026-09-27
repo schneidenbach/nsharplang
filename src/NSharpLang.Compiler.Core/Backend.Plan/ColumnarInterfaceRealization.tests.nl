@@ -282,8 +282,8 @@ test "interface realization finalizes an interface base before its derived metad
 
     assert InterfaceRealizationIsCreated(baseDefinition.Builder)
     assert InterfaceRealizationIsCreated(derivedDefinition.Builder)
-    derivedRuntime := IdentityBake(derivedDefinition.Builder)
-    baseRuntime := IdentityBake(baseDefinition.Builder)
+    derivedRuntime := PlanFixtureBake(derivedDefinition.Builder)
+    baseRuntime := PlanFixtureBake(baseDefinition.Builder)
     assert InterfaceRealizationContainsInterface(derivedRuntime, baseRuntime)
 }
 
@@ -371,9 +371,9 @@ test "duck registration preserves inherited metadata once and skips default-only
     )
     assert InterfaceRealizationIsCreated(root.Builder)
     assert InterfaceRealizationIsCreated(derived.Builder)
-    sourceRuntime := IdentityBake(sourceDefinition.Builder)
-    rootRuntime := IdentityBake(root.Builder)
-    derivedRuntime := IdentityBake(derived.Builder)
+    sourceRuntime := PlanFixtureBake(sourceDefinition.Builder)
+    rootRuntime := PlanFixtureBake(root.Builder)
+    derivedRuntime := PlanFixtureBake(derived.Builder)
     assert InterfaceRealizationContainsInterface(sourceRuntime, rootRuntime)
     assert InterfaceRealizationContainsInterface(sourceRuntime, derivedRuntime)
 }

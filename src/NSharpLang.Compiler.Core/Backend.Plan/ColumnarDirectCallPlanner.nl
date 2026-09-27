@@ -2789,7 +2789,7 @@ class ColumnarDirectCallPlanner {
                 extension := ColumnarExtensionMethodSelection.None()
                 if scope.TryResolveExtensionMethod(receiverType, memberName, argumentTypes, argumentFacts, out extension) && extension.IsSelected {
                     ownership = ColumnarDirectCallOwnership.OwnedRejected
-                    if !AppendExtensionSelection(nodes, source, callNode, receiverNode, receiverType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, extension, out resultType) {
+                    if !AppendExtensionSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, extension, out resultType) {
                         plan.Rollback(checkpoint)
                         return false
                     }
@@ -2831,7 +2831,7 @@ class ColumnarDirectCallPlanner {
     // first argument, emit each explicit argument on its exact parameter type, fill every trailing
     // optional from its null metadata default, and dispatch the static method. The receiver's value
     // is verifiably assignable to the extension's declared receiver parameter, so no cast is emitted.
-    static func AppendExtensionSelection(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, receiverType: Type, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, selection: ColumnarExtensionMethodSelection, out resultType: Type): bool {
+    static func AppendExtensionSelection(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, selection: ColumnarExtensionMethodSelection, out resultType: Type): bool {
         resultType = typeof(int)
         method := selection.Method
         if !selection.IsSelected || method == null {

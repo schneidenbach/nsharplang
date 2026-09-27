@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Reflection
 import NSharpLang.Compiler
 
 // WHERE AN ATTRIBUTE MAY BE WRITTEN, ASKED AT EMIT TIME.

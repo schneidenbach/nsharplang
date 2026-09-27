@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler.Columnar
 
-import NSharpLang.Compiler
-
 
 // THE COLUMNAR HALF OF THE CONSTRUCTED-GENERIC-TYPE RECEIVER: the kernel lookahead that decides,
 // from the `<` alone, whether a run of tokens is a type-argument list or a comparison chain.

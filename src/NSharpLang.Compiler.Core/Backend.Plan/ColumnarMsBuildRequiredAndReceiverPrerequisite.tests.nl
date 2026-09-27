@@ -4,7 +4,6 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
-import Microsoft.Build.Framework
 
 class SmcRequiredEmissionProbe {
     private storedValue: string
@@ -88,7 +87,7 @@ func SmcRequiredProperty(owner: Type, name: string): PropertyInfo {
 // asserted by accident.
 func SmcAttributeRowCount(property: PropertyInfo, attributeType: Type): int {
     attributes := property.GetCustomAttributesData()
-    total := NullabilityProbeSequenceCount(attributes)
+    total := PlanFixtureSequenceCount(attributes)
     matches := 0
     index := 0
     while index < total {
@@ -104,7 +103,7 @@ func SmcAttributeRowCount(property: PropertyInfo, attributeType: Type): int {
 
 func SmcFirstAttributeRow(property: PropertyInfo, attributeType: Type): CustomAttributeData {
     attributes := property.GetCustomAttributesData()
-    total := NullabilityProbeSequenceCount(attributes)
+    total := PlanFixtureSequenceCount(attributes)
     index := 0
     while index < total {
         candidate := attributes.get_Item(index)
@@ -126,8 +125,8 @@ func SmcAssertSingleNoArgumentAttribute(property: PropertyInfo, attributeType: T
     assert constructor.GetParameters().Length == 0
     constructorArguments := attribute.get_ConstructorArguments()
     namedArguments := attribute.get_NamedArguments()
-    assert NullabilityProbeSequenceCount(constructorArguments) == 0
-    assert NullabilityProbeSequenceCount(namedArguments) == 0
+    assert PlanFixtureSequenceCount(constructorArguments) == 0
+    assert PlanFixtureSequenceCount(namedArguments) == 0
 }
 
 func SmcAssertSingleNoArgumentRequiredAttribute(property: PropertyInfo) {

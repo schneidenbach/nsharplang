@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Reflection
 import System.Reflection.Emit
 
 func ArrayEmptyBindingPlan(ownerName: string, typeArgumentName: string, argumentTypeNames: string[]): ColumnarExternalCallPlan {
@@ -439,8 +438,8 @@ test "direct call planner closes bare and qualified Array Empty over a source cl
     expectedReturnType := elementType.MakeArrayType()
     assert ColumnarTypeEquivalenceFacts.TypesEquivalent(shortPlan.ResultType, expectedReturnType)
     assert ColumnarTypeEquivalenceFacts.TypesEquivalent(qualifiedPlan.ResultType, expectedReturnType)
-    assert shortPlan.ResultType.GetElementType() == elementType
-    assert qualifiedPlan.ResultType.GetElementType() == elementType
+    assert (must shortPlan.ResultType).GetElementType() == elementType
+    assert (must qualifiedPlan.ResultType).GetElementType() == elementType
     assert shortPlan.OperationCount == 1
     assert qualifiedPlan.OperationCount == 1
     assert shortPlan.OpCodeValues[0] == ColumnarCodePlanContract.Call()

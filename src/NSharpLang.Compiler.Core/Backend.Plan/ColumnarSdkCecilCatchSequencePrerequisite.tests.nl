@@ -5,7 +5,6 @@ import System.Collections
 import System.Collections.Generic
 import System.IO
 import System.Reflection
-import System.Reflection.Emit
 import Mono.Cecil
 
 func ScsClosedMetadataEnumerable(context: MetadataLoadContext, elementType: Type): Type {

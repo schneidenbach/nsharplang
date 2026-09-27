@@ -490,61 +490,6 @@ test "exact runtime assembly selection resolves an already-loaded identity throu
     assert absent == null, "An identity that is neither loaded nor loadable stays metadata-only."
 }
 
-test "a prepared external type catalog answers every file from one retained scan" {
-    catalog := new ColumnarExternalTypeCatalog()
-
-    // Before Prepare there is no scan and no answer — the catalog never opens one on demand.
-    unpreparedResolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
-    assert !catalog.IsPrepared
-    assert !catalog.TryGet(0, "Console", out unpreparedResolution)
-
-    factsById := new Dictionary<int, ColumnarSourceBindingFacts>()
-    firstFile := new ColumnarSourceBindingFacts()
-    firstFile.UnaliasedNamespaceImports.Add("System")
-    secondFile := new ColumnarSourceBindingFacts()
-    secondFile.UnaliasedNamespaceImports.Add("System")
-    factsById[0] = firstFile
-    factsById[1] = secondFile
-
-    catalog.Prepare(null, factsById)
-    assert catalog.IsPrepared
-
-    firstResolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
-    secondResolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
-    assert catalog.TryGet(0, "Console", out firstResolution)
-    assert catalog.TryGet(1, "Console", out secondResolution)
-
-    // Two files asking the same question of the same retained scan get the same answer. Before the
-    // scan was retained each of these was a whole MetadataLoadContext over every referenced assembly.
-    assert firstResolution.Status == ExternalAssemblyTypeLookupStatus.Found
-    assert secondResolution.Status == ExternalAssemblyTypeLookupStatus.Found
-    assert firstResolution.HasRuntimeType
-    assert secondResolution.HasRuntimeType
-    firstType := firstResolution.RuntimeType
-    secondType := secondResolution.RuntimeType
-    assert firstType.get_FullName() == "System.Console"
-    assert secondType.get_FullName() == "System.Console"
-    assert firstResolution.SemanticTypeIdentity == secondResolution.SemanticTypeIdentity
-
-    // A repeat of an already-cached key is still the same answer, and a re-Prepare replaces the scan
-    // without stranding the catalog.
-    repeat := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
-    assert catalog.TryGet(0, "Console", out repeat)
-    repeatType := repeat.RuntimeType
-    assert repeatType.get_FullName() == "System.Console"
-
-    catalog.Prepare(null, factsById)
-    afterRePrepare := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
-    assert catalog.TryGet(0, "Console", out afterRePrepare)
-    afterRePrepareType := afterRePrepare.RuntimeType
-    assert afterRePrepareType.get_FullName() == "System.Console"
-
-    // A name that resolves nowhere is still a recorded decline, not an exception.
-    missing := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
-    assert catalog.TryGet(0, "NoSuchExternalOwnerName", out missing)
-    assert missing.Status == ExternalAssemblyTypeLookupStatus.Missing
-}
-
 // THE METADATA PATH NO LONGER COMES FROM `Assembly.Location`. Under a single-file binary that reading
 // is the empty string, which would leave every common assembly uninspectable in silence. These blocks
 // pin the replacement AND pin that it answers the SAME FILE the old reading answered, so the

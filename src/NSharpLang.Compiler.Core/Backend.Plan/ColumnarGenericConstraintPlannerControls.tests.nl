@@ -25,11 +25,11 @@ class ConstraintControlsDifferentName<U> {
 // A deliberately non-CLR comparer demonstrates that the initial lookup stays the supplied map's
 // TryGetValue, rather than being replaced with Type equality or weak fallback enumeration.
 class ConstraintControlsAllTypeComparer: IEqualityComparer<Type> {
-    func Equals(left: Type?, right: Type?): bool {
+    func Equals(_left: Type?, _right: Type?): bool {
         return true
     }
 
-    func GetHashCode(value: Type): int {
+    func GetHashCode(_value: Type): int {
         return 0
     }
 }
@@ -43,11 +43,11 @@ class ConstraintControlsDelayedThrowComparer: IEqualityComparer<Type> {
         ThrowOnLookup = false
     }
 
-    func Equals(left: Type?, right: Type?): bool {
+    func Equals(_left: Type?, _right: Type?): bool {
         return true
     }
 
-    func GetHashCode(value: Type): int {
+    func GetHashCode(_value: Type): int {
         if ThrowOnLookup {
             throw new InvalidOperationException("constraint comparer lookup failed")
         }
@@ -356,7 +356,7 @@ func ConstraintControlsWeakRows(
     }
     owner.DefineMethodOverride(dispose, disposeTarget)
 
-    baked := IdentityBake(owner)
+    baked := PlanFixtureBake(owner)
     instanceConstructor := ExecutorRequiredConstructor(baked, noParameters)
     instance := instanceConstructor.Invoke(noParameters)
     if instance == null {
@@ -450,11 +450,12 @@ class ConstraintControlsHostileMapState {
 // The emitted interface methods call these small typed routines so the test observes the actual
 // planner out local without relying on an unmodelled Stind_Ref opcode in the fixture itself.
 class ConstraintControlsHostileMapRuntime {
-    static func TryGet(
-        state: ConstraintControlsHostileMapState,
-        requested: Type,
-        out value: Type[]
-    ): bool {
+
+    // `ref`, not `out`: the row reads what the planner's own out local held on the way IN
+    // (`InitialOut`), which an `out` parameter may not. Both are the same `Type[]&` in metadata.
+    // COMPILER: a `ref` parameter that starts its own line of a wrapped parameter list does not
+    // parse (NL107 "Missing closing ')'"), so this signature is written on one line.
+    static func TryGet(state: ConstraintControlsHostileMapState, requested: Type, ref value: Type[]?): bool {
         state.LookupCount = state.LookupCount + 1
         state.InitialOut = value
         if state.Exact && state.Key == requested {
@@ -640,7 +641,7 @@ func ConstraintControlsHostileMap(
     ConstraintControlsEmitInvalidOperation(nongenericGetEnumeratorIl, "hostile nongeneric map enumeration reached")
     owner.DefineMethodOverride(nongenericGetEnumerator, nongenericGetEnumeratorTarget)
 
-    baked := IdentityBake(owner)
+    baked := PlanFixtureBake(owner)
     instanceConstructor := ExecutorRequiredConstructor(baked, noParameters)
     instance := instanceConstructor.Invoke(noParameters)
     if instance == null {

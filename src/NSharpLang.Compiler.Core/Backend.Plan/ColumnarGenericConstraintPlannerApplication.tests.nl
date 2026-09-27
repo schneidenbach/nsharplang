@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.Reflection
 import System.Reflection.Emit
 import NSharpLang.Compiler.Columnar
 
@@ -181,7 +180,7 @@ func GenericConstraintApplicationBakedParameterConstraints(
     fixture: GenericConstraintApplicationFixture,
     index: int
 ): Type[] {
-    baked := IdentityBake(fixture.Owner)
+    baked := PlanFixtureBake(fixture.Owner)
     parameters := baked.GetGenericArguments()
     if index < 0 || index >= parameters.Length {
         throw new InvalidOperationException("The baked generic-constraint fixture did not retain its requested parameter.")

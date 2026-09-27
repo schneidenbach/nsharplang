@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -201,7 +202,7 @@ test "ordinary runtime direct calls select fixed byref and exclude generic param
     paramsCall := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(activatorType, "CreateInstance", OrdinaryRuntimeArgumentTypes2(typeof(Type), typeof(object[])), true)
     assert paramsCall.IsSelected, "Activator.CreateInstance(Type, object[]) status was " + paramsCall.Status.ToString()
     assert paramsCall.Method != null
-    assert !paramsCall.IsExpanded, "expanded element was " + (paramsCall.ExpandedElementType == null ? "<null>" : (must paramsCall.ExpandedElementType).ToString())
+    assert !paramsCall.IsExpanded, "expanded element was " + (paramsCall.ExpandedElementType == null ? "<null>" : paramsCall.ExpandedElementType.ToString())
     assert paramsCall.ExpandedElementType == null
     assert paramsCall.ParameterTypes.Length == 2, "parameter count was " + paramsCall.ParameterTypes.Length.ToString()
     assert paramsCall.ParameterTypes[1] == typeof(object[]), "second parameter was " + paramsCall.ParameterTypes[1].ToString()
@@ -212,7 +213,7 @@ test "ordinary runtime direct calls select fixed byref and exclude generic param
     expandedCall := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(string), "Join", OrdinaryRuntimeArgumentTypes4(typeof(string), typeof(string), typeof(string), typeof(string)), true)
     assert expandedCall.IsSelected, "string.Join(4 strings) status was " + expandedCall.Status.ToString()
     assert expandedCall.IsExpanded
-    assert expandedCall.ExpandedElementType == typeof(string), "element was " + (expandedCall.ExpandedElementType == null ? "<null>" : (must expandedCall.ExpandedElementType).ToString())
+    assert expandedCall.ExpandedElementType == typeof(string), "element was " + (expandedCall.ExpandedElementType == null ? "<null>" : expandedCall.ExpandedElementType.ToString())
     assert expandedCall.FixedArgumentCount == 1, "fixed count was " + expandedCall.FixedArgumentCount.ToString()
     assert expandedCall.ParameterTypes.Length == 4
     assert expandedCall.ParameterTypes[0] == typeof(string)

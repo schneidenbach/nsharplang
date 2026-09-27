@@ -3,10 +3,8 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.Reflection
-import System.Reflection.Emit
 import System.Text.Json
 import NSharpLang.Compiler.Ast
-import NSharpLang.Compiler.Columnar
 
 func IdentityTypeList(first: TypeInfo): List<TypeInfo> {
     result := new List<TypeInfo>()
@@ -62,68 +60,12 @@ func IdentityClass(name: string): ClassTypeInfo {
     )
 }
 
-func IdentityBake(builder: TypeBuilder): Type {
-    createType := ExecutorRequiredMethod(
-        typeof(TypeBuilder),
-        "CreateType",
-        new Type[](0)
-    )
-    value := TypeOfRequiredInvocation(
-        createType,
-        builder,
-        new object[](0)
-    )
-    baked := value as Type
-    if baked == null {
-        throw new InvalidOperationException(
-            "The identity fixture did not produce a runtime type."
-        )
-    }
-    return baked
-}
-
 func IdentityRankedArrayType(elementType: Type, rank: int): Type {
-    parameterTypes := new Type[](1)
-    parameterTypes[0] = typeof(int)
-    makeArrayType := ExecutorRequiredMethod(
-        typeof(Type),
-        "MakeArrayType",
-        parameterTypes
-    )
-    arguments := new object[](1)
-    ExecutorSetObject(arguments, 0, rank)
-    value := TypeOfRequiredInvocation(
-        makeArrayType,
-        elementType,
-        arguments
-    )
-    arrayType := value as Type
-    if arrayType == null {
-        throw new InvalidOperationException(
-            "The identity fixture did not produce a ranked array type."
-        )
-    }
-    return arrayType
+    return elementType.MakeArrayType(rank)
 }
 
 func IdentityByRefType(elementType: Type): Type {
-    makeByRefType := ExecutorRequiredMethod(
-        typeof(Type),
-        "MakeByRefType",
-        new Type[](0)
-    )
-    value := TypeOfRequiredInvocation(
-        makeByRefType,
-        elementType,
-        new object[](0)
-    )
-    byRefType := value as Type
-    if byRefType == null {
-        throw new InvalidOperationException(
-            "The identity fixture did not produce a by-reference type."
-        )
-    }
-    return byRefType
+    return elementType.MakeByRefType()
 }
 
 func IdentityRequiredRuntimeType(identity: string): Type {
@@ -710,12 +652,12 @@ test "type info identity compares recursive CLR identities" {
         arrayMethodParameter
     )
 
-    leftBuilder := TypeOfCreateBuilder(
+    leftBuilder := CoreFixtureTypeBuilder(
         "IdentityShape",
         "NSharpLang.Identity.Dynamic",
         1
     )
-    rightBuilder := TypeOfCreateBuilder(
+    rightBuilder := CoreFixtureTypeBuilder(
         "IdentityShape",
         "NSharpLang.Identity.Dynamic",
         1
@@ -731,18 +673,18 @@ test "type info identity compares recursive CLR identities" {
         rightBuilderParameter
     )
 
-    leftBakedBuilder := TypeOfCreateBuilder(
+    leftBakedBuilder := CoreFixtureTypeBuilder(
         "IdentityBakedShape",
         "NSharpLang.Identity.BakedDynamic",
         0
     )
-    rightBakedBuilder := TypeOfCreateBuilder(
+    rightBakedBuilder := CoreFixtureTypeBuilder(
         "IdentityBakedShape",
         "NSharpLang.Identity.BakedDynamic",
         0
     )
-    leftBaked := IdentityBake(leftBakedBuilder)
-    rightBaked := IdentityBake(rightBakedBuilder)
+    leftBaked := CoreFixtureBake(leftBakedBuilder)
+    rightBaked := CoreFixtureBake(rightBakedBuilder)
     assert !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(
         leftBaked,
         rightBaked

@@ -122,7 +122,7 @@ test "parameter-default emitter defines method rows with exact metadata and sour
     ), "method metadata application unexpectedly declined"
     TypeOfMethodBuilderIL(method).Emit(OpCodes.Ret)
 
-    baked := IdentityBake(owner)
+    baked := PlanFixtureBake(owner)
     emitted := baked.GetMethod("Apply")
     if emitted == null {
         throw new InvalidOperationException("The parameter-default method was not baked.")
@@ -202,7 +202,7 @@ test "parameter-default emitter defines constructor rows with bool and null meta
     )
     ParameterDefaultEmitObjectConstructor(constructorBuilder)
 
-    baked := IdentityBake(owner)
+    baked := PlanFixtureBake(owner)
     emitted := ExecutorRequiredConstructor(baked, parameterTypes)
     parameters := emitted.GetParameters()
     assert parameters.Length == 2
@@ -273,7 +273,7 @@ test "parameter-default emitter bounds default columns uses object fallback and 
     ), "method fallback row unexpectedly accepted"
     TypeOfMethodBuilderIL(method).Emit(OpCodes.Ret)
 
-    baked := IdentityBake(owner)
+    baked := PlanFixtureBake(owner)
     emitted := baked.GetMethod("Partial")
     if emitted == null {
         throw new InvalidOperationException("The partial parameter-default method was not baked.")
@@ -311,7 +311,7 @@ test "parameter-default emitter bounds default columns uses object fallback and 
         registry
     ), "constructor fallback row unexpectedly accepted"
     ParameterDefaultEmitObjectConstructor(constructorBuilder)
-    bakedConstructorOwner := IdentityBake(constructorOwner)
+    bakedConstructorOwner := PlanFixtureBake(constructorOwner)
     emittedConstructor := ExecutorRequiredConstructor(
         bakedConstructorOwner,
         declaredTypes

@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Reflection
 
 func SemanticEnumIndex(
     definitions: Dictionary<string, ColumnarEnumDef>
@@ -577,6 +578,7 @@ test "semantic enum registry preserves erased source identity before runtime ide
         out rightClaimed
     )
     assert rightClaimed
+    assert rightReference.Key != null
     assert rightReference.Key.Kind == ColumnarStructuralTypeReferenceKind.Primitive
     assert rightReference.RuntimeType == typeof(string)
     assert rightReference.SourceProvenanceName == "Right.SemanticState"
@@ -1127,4 +1129,56 @@ test "synthesized program views reject parent method type parameters in signatur
         visibleArray,
         program.Builder
     )
+}
+
+// ── the nullability reader over the planner's own generic index ────────────────────────────────
+//
+// These two rows used to sit with the substitution rows in Core's `Model/` estate; they read a
+// PLANNER type, so they live with the planner. Their lookups are their own: Core's estate helpers are
+// not visible from Compiler.Plan's assembly.
+
+func SemanticIndexMethod(owner: Type, name: string): MethodInfo {
+    method := owner.GetMethod(name)
+    if method == null {
+        throw new InvalidOperationException(owner.Name + "." + name + " was not found.")
+    }
+    return method
+}
+
+func SemanticIndexProperty(owner: Type, name: string): PropertyInfo {
+    property := owner.GetProperty(name, BindingFlags.Public | BindingFlags.Instance)
+    if property == null {
+        throw new InvalidOperationException(owner.Name + "." + name + " was not found.")
+    }
+    return property
+}
+
+// A bare, not-nullable `string` -- `Simple(string)` in the substitution rows' rendering.
+func SemanticIndexIsBareString(typeInfo: TypeInfo?): bool {
+    simple := typeInfo as SimpleTypeInfo
+    return simple != null && simple.Name == "string"
+}
+
+test "THE COMPILER'S OWN GENERIC MEMBERS READ THE SAME WAY AS THE BCL'S" {
+    // `ColumnarSemanticDefinitionIndex<TDefinition>.TryGetExact(name, out TDefinition)` is an N#
+    // declaration in this very assembly (the planner's), so its metadata is what the N# EMITTER wrote
+    // rather than what Roslyn wrote — and the rule has to read it identically. The `out` position is a bare
+    // parameter, and closing the type over a non-nullable reference argument makes it non-nullable.
+    closed := typeof(ColumnarSemanticDefinitionIndex<string>)
+    tryGetExact := SemanticIndexMethod(closed, "TryGetExact")
+    outParameter := tryGetExact.GetParameters()[1]
+
+    openType := NullabilityGenericSubstitution.OpenParameterType(outParameter)
+    assert openType.get_IsByRef()
+    assert NullabilityGenericSubstitution.IsTypeParameterPosition(openType)
+    assert SemanticIndexIsBareString(NullabilityMetadataReflection.ConvertParameter(outParameter))
+}
+
+test "A COMPILER GENERIC'S LIST-OF-PARAMETER MEMBER IS NOT A SUBSTITUTED POSITION" {
+    closed := typeof(ColumnarSemanticDefinitionIndex<string>)
+    values := SemanticIndexProperty(closed, "Values")
+
+    // `List<TDefinition>` mentions the parameter but IS NOT one: the outer `List` has a nullability
+    // of its own and the element is substituted by the ordinary walk.
+    assert !NullabilityGenericSubstitution.IsTypeParameterPosition(NullabilityGenericSubstitution.OpenPropertyType(values))
 }

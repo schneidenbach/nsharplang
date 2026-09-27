@@ -4,7 +4,6 @@ import System
 import System.Collections.Generic
 import System.Numerics
 import System.Reflection
-import System.Reflection.Emit
 
 // The runtime operator resolver's selection contract. `System.Numerics.Vector<T>` is the witness for
 // constructed external generics precisely because nothing in the resolver names it; `DateTime`,

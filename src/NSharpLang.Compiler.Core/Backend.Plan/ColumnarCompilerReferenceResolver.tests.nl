@@ -123,7 +123,7 @@ test "compiler reference resolver sees supported dynamic ASP.NET types in AppDom
         "ColumnarCompilerReferenceResolver.Dynamic",
         0
     )
-    dynamicType := IdentityBake(dynamicBuilder)
+    dynamicType := PlanFixtureBake(dynamicBuilder)
     dynamicAssembly := dynamicType.get_Assembly()
     assert dynamicAssembly.get_IsDynamic()
     // `TypeOfCreateBuilder` returns an unfinished TypeBuilder. Confirm the runtime lookup sees
@@ -147,10 +147,10 @@ test "compiler reference resolver sees supported dynamic ASP.NET types in AppDom
         "ColumnarCompilerReferenceResolver.Unsupported",
         0
     )
-    unsupportedType := IdentityBake(unsupportedBuilder)
+    unsupportedType := PlanFixtureBake(unsupportedBuilder)
     unsupported: Type = typeof(int)
     assert !ColumnarCompilerReferenceResolver.TryResolveLoadedExternalType(
-        unsupportedType.get_FullName(),
+        must unsupportedType.get_FullName(),
         out unsupported
     )
     assert unsupported == null
@@ -176,14 +176,14 @@ test "compiler reference resolver uses loaded test attributes, excludes filtered
         "ColumnarCompilerReferenceResolver.DynamicTestFramework",
         0
     )
-    dynamicTestFrameworkType := IdentityBake(dynamicTestFrameworkBuilder)
+    dynamicTestFrameworkType := PlanFixtureBake(dynamicTestFrameworkBuilder)
     assert dynamicTestFrameworkType.get_Assembly().get_IsDynamic()
     assert !CompilerReferenceAssemblyIn(ExternalAssemblyScan.Loaded(), dynamicTestFrameworkType.get_Assembly())
 
     filteredDynamicCaught := false
     try {
         ColumnarCompilerReferenceResolver.ResolveTestFrameworkType(
-            dynamicTestFrameworkType.get_FullName(),
+            must dynamicTestFrameworkType.get_FullName(),
             null,
             new string[](0)
         )

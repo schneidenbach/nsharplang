@@ -192,15 +192,15 @@ class ColumnarExternalTypeCatalog {
         resolvedOwners.Clear()
         holdersByNamespace.Clear()
         fileFactsById = sourceFactsById
-        referenceCount := 0
-        if referenceAssemblyPaths != null {
-            referenceCount = referenceAssemblyPaths.Count
-        }
-        this.referenceAssemblyPaths = new string[](referenceCount)
-        referenceIndex := 0
-        while referenceIndex < referenceCount {
-            this.referenceAssemblyPaths[referenceIndex] = referenceAssemblyPaths[referenceIndex]
-            referenceIndex = referenceIndex + 1
+        if referenceAssemblyPaths == null {
+            this.referenceAssemblyPaths = new string[](0)
+        } else {
+            this.referenceAssemblyPaths = new string[](referenceAssemblyPaths.Count)
+            referenceIndex := 0
+            while referenceIndex < referenceAssemblyPaths.Count {
+                this.referenceAssemblyPaths[referenceIndex] = referenceAssemblyPaths[referenceIndex]
+                referenceIndex = referenceIndex + 1
+            }
         }
 
         // Signature emission resolves runtime Type handles before any expression planner asks

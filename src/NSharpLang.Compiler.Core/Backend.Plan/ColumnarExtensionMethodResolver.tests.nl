@@ -3,7 +3,9 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections
 import System.Collections.Generic
+import System.Linq
 import System.Reflection
+import System.Reflection.Emit
 import NSharpLang.Compiler
 
 func RequiredExtensionFixtureType(fullName: string): Type {
@@ -95,6 +97,7 @@ test "extension index build binds non-generic Linq extensions on interface and a
 
     interfaceMin := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "Min", new Type[](0), facts)
     assert interfaceMin.IsSelected, "An interface-typed int receiver must resolve the same non-generic Min extension by identity."
+    assert interfaceMin.Method != null
     assert !interfaceMin.Method.get_IsGenericMethod(), "The interface receiver must also select the non-generic Min(IEnumerable<int>) handle."
     assert interfaceMin.ReturnType == typeof(int)
 }
@@ -317,6 +320,7 @@ test "explicit type arguments skip inference and close the candidate of that wri
     // call could infer, which is exactly why the site writes it.
     cast := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(List<object>), "Cast", ExtensionOneType(typeof(string)), new Type[](0), facts)
     assert cast.IsSelected, "IEnumerable.Cast<string>() must close Enumerable.Cast<string>."
+    assert cast.Method != null
     assert cast.Method.get_IsGenericMethod()
     assert !cast.Method.get_IsGenericMethodDefinition()
     assert cast.ParameterTypes.Length == 1
@@ -383,4 +387,83 @@ test "a slot that is still OPEN names no shape a receiver can be said to have" {
     assert ColumnarExtensionMethodResolver.ExpectedSlotDefinitionOrNull(openDefinition) == null
     assert ColumnarExtensionMethodResolver.ExpectedSlotDefinitionOrNull(openDefinition.GetGenericArguments()[0]) == null
     assert ColumnarExtensionMethodResolver.ExpectedSlotDefinitionOrNull(openDefinition.GetGenericArguments()[0].MakeArrayType()) == null
+}
+
+// ── an owner that cannot answer for its members, and the index build that broke on one ─────────
+//
+// `AnalyzerReflectionMemberProbe.tests.nl` pins the analyzer's guarded reads over the same fixture;
+// these rows pin the extension-method resolver's, whose INDEX walk -- every extension method of every
+// referenced assembly -- is the one that actually ended a check on a signature it could not read.
+// Their fixture is their own: Core's estate helpers are not visible from Compiler.Plan's assembly.
+
+// An uncreated `TypeBuilder`: its members cannot be enumerated until it is baked.
+func ExtensionProbeUncreatedOwner(): Type {
+    assemblyName := "NSharpTests.ExtensionMethodProbe"
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    return dynamicModule.DefineType("NSharpTests.ExtensionMethodProbe.Owner", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+}
+
+func ExtensionProbeDefineAbstractMethod(owner: Type, name: string): MethodInfo {
+    builder := owner as TypeBuilder
+    if builder == null {
+        throw new InvalidOperationException("The extension probe owner is not a TypeBuilder.")
+    }
+    return builder.DefineMethod(name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.Abstract, typeof(int), new Type[](0))
+}
+
+// The raw reads the guards wrap, asserted to FAIL on the fixture. A fixture that stopped failing
+// would make every contract here vacuous, and these are what would say so.
+func ExtensionProbeRawMethodsThrow(owner: Type): bool {
+    try {
+        ignored := owner.GetMethods(BindingFlags.Public | BindingFlags.Static)
+        return ignored == null
+    } catch {
+        return true
+    }
+}
+
+func ExtensionProbeRawParametersThrow(method: MethodInfo): bool {
+    try {
+        ignored := method.GetParameters()
+        return ignored == null
+    } catch {
+        return true
+    }
+}
+
+// A `MethodBuilder` is a method handle whose parameters cannot be read either, which is the
+// per-METHOD half of the same rule: the owner enumerated, one member did not answer.
+test "a method whose parameters cannot be read contributes no signature" {
+    owner := ExtensionProbeUncreatedOwner()
+    builderMethod := ExtensionProbeDefineAbstractMethod(owner, "Unreadable")
+
+    assert ExtensionProbeRawParametersThrow(builderMethod)
+    assert ColumnarExtensionMethodResolver.ParametersOrNull(builderMethod) == null
+    assert AnalyzerReflectionMemberProbe.ParameterTypesOrNull(builderMethod) == null
+    assert ColumnarExtensionMethodResolver.ParameterTypesOrNull(new ParameterInfo[](0)) != null
+}
+
+test "the extension index skips a host it cannot read and indexes everything it can" {
+    index := new ColumnarExtensionMethodIndex()
+    owner := ExtensionProbeUncreatedOwner()
+
+    // The host DOES declare a method, and the walk that would read it throws — so "indexes nothing"
+    // is the guard answering rather than an empty type.
+    ExtensionProbeDefineAbstractMethod(owner, "Unreadable")
+    assert ExtensionProbeRawMethodsThrow(owner)
+
+    // A host whose attribute list cannot be read is not a static extension host, and adding it
+    // indexes nothing. Neither call throws, which is the whole claim.
+    assert !ColumnarExtensionMethodResolver.IsStaticExtensionHost(owner)
+    ColumnarExtensionMethodResolver.AddType(index, owner)
+
+    unreadable := new List<ColumnarExtensionMethodCandidate>()
+    assert !index.TryGet("Unreadable", out unreadable)
+
+    // The readable half still works: `System.Linq.Enumerable` indexes its own extensions.
+    ColumnarExtensionMethodResolver.AddType(index, typeof(Enumerable))
+    selected := new List<ColumnarExtensionMethodCandidate>()
+    assert index.TryGet("Count", out selected)
+    assert selected.Count > 0
 }

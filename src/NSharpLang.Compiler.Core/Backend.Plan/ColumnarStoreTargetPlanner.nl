@@ -120,9 +120,11 @@ class ColumnarStoreTargetPlanner {
             return true
         }
 
+        // Not a field, so a property whose setter the selection above already required.
+        storeSetter := must setter
         setterParameters := new Type[](1)
         setterParameters[0] = selection.ResultType
-        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethodWithSignature(setter, selection.DeclaringType, setterParameters, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.IsAbstract))
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethodWithSignature(storeSetter, selection.DeclaringType, setterParameters, ColumnarTypeOfPlanner.RequiredVoidType(), false, storeSetter.IsAbstract))
         return true
     }
 

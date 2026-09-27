@@ -171,7 +171,7 @@ class ColumnarAttributeBlobs {
     // SerString (II.23.3): a NULL string is the single byte 0xFF, an empty string is a zero length,
     // and anything else is a PackedLen count of UTF-8 BYTES followed by those bytes. The count is the
     // byte count, never the character count -- which is why the UTF-8 encoding happens first.
-    static func WriteSerString(blob: List<byte>, value: string) {
+    static func WriteSerString(blob: List<byte>, value: string?) {
         if value == null {
             Append(blob, 255)
             return

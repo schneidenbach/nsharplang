@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections.Generic
 
 
 // CONTRACTS FOR THE System.Xml.Linq CATALOG ROWS (task 019 slice 22, stage 1).

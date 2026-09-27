@@ -52,7 +52,7 @@ class ColumnarGenericCallBindingPlanner {
         if declared.IsGenericParameter {
             return TryUnifyTypeParam(typeParams, binding, declared, actual)
         }
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declared) && declared.GetElementType().IsGenericParameter {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declared) && (must declared.GetElementType()).IsGenericParameter {
             return ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(actual) && TryUnifyTypeParam(
                 typeParams,
                 binding,
@@ -139,7 +139,7 @@ class ColumnarGenericCallBindingPlanner {
             return false
         }
 
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declaredReturn) && declaredReturn.GetElementType().IsGenericParameter {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declaredReturn) && (must declaredReturn.GetElementType()).IsGenericParameter {
             element := declaredReturn.GetElementType()
             parameterIndex := 0
             while parameterIndex < typeParams.Length {

@@ -1433,6 +1433,7 @@ test "the external static-member root sequence is the sequence Plan runs" {
     assert viaAppend.MethodCount == planned.MethodCount
     assert viaAppend.Methods[0].get_Name() == planned.Methods[0].get_Name()
     declaringType := viaAppend.Methods[0].get_DeclaringType()
+    assert declaringType != null
     assert declaringType.FullName == "System.Environment"
     assert viaAppend.FragmentCount == planned.FragmentCount
     assert viaAppend.OpenFragmentCount == 0

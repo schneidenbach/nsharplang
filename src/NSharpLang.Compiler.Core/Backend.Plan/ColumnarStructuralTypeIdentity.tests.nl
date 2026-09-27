@@ -226,8 +226,8 @@ test "same-named baked external types in distinct assemblies retain distinct ide
         "ColumnarStructuralIdentity.ExternalRight",
         0
     )
-    leftRuntime := IdentityBake(leftBuilder)
-    rightRuntime := IdentityBake(rightBuilder)
+    leftRuntime := PlanFixtureBake(leftBuilder)
+    rightRuntime := PlanFixtureBake(rightBuilder)
     assert leftRuntime.get_FullName() == "External.Namesake"
     assert rightRuntime.get_FullName() == "External.Namesake"
     assert leftRuntime.get_Assembly().GetName().get_FullName() != rightRuntime.get_Assembly().GetName().get_FullName()

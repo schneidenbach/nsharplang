@@ -909,7 +909,9 @@ class ColumnarCurrentInstanceFacts {
             }
 
             fast = next.BaseDef
-            if slow != null && slow == fast {
+            // COMPILER: `==` between a class and its `?` annotation is refused (NL202), so the cycle
+            // test says what it means -- the same node -- with `Object.ReferenceEquals`.
+            if slow != null && Object.ReferenceEquals(slow, fast) {
                 throw new InvalidOperationException("Current-instance source hierarchy contains a cycle.")
             }
         }
@@ -929,7 +931,9 @@ class ColumnarCurrentInstanceFacts {
             }
 
             fast = next.BaseFacts
-            if slow != null && slow == fast {
+            // COMPILER: `==` between a class and its `?` annotation is refused (NL202), so the cycle
+            // test says what it means -- the same node -- with `Object.ReferenceEquals`.
+            if slow != null && Object.ReferenceEquals(slow, fast) {
                 throw new InvalidOperationException("Current-instance runtime hierarchy contains a cycle.")
             }
         }

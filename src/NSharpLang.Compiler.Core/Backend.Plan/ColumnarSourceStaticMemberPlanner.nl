@@ -88,7 +88,8 @@ class ColumnarSourceStaticMemberPlanner {
             return true
         }
 
-        storageType = property.PropertyType
+        // A resolved target that is not a field is a property: the resolver answers one of the two.
+        storageType = (must property).PropertyType
         return true
     }
 
@@ -105,9 +106,11 @@ class ColumnarSourceStaticMemberPlanner {
             return true
         }
 
-        bound := ColumnarSourceSelfInstantiation.Bind(property.Setter)
+        // A resolved target that is not a field is a property: the resolver answers one of the two.
+        storeProperty := must property
+        bound := ColumnarSourceSelfInstantiation.Bind(storeProperty.Setter)
         parameterTypes := new Type[](1)
-        parameterTypes[0] = property.PropertyType
+        parameterTypes[0] = storeProperty.PropertyType
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(bound, bound.DeclaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), true, false))
         return true
     }

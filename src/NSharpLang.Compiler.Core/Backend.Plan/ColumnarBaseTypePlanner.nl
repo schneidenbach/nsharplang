@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Reflection
 import System.Reflection.Emit
 
 
@@ -155,6 +154,7 @@ class ColumnarBaseTypePlanner {
                     return FindDefByBuilder(definition)
                 }
             } catch {
+                return null
             }
         }
         // A builder-backed instantiation may expose only a narrow reflection surface.

@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -73,7 +72,7 @@ func CatalogReferenceArrayForgedIdentityType(
     identityIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(identityImplementation, identityTarget)
 
-    baked := IdentityBake(owner)
+    baked := PlanFixtureBake(owner)
     bakedConstructor := ExecutorRequiredConstructor(baked, constructorParameters)
     arguments := new object[](1)
     ExecutorSetObject(arguments, 0, delegated)
@@ -115,7 +114,7 @@ test "catalog reference elements require the reproduced foreign assembly identit
         "CatalogReferenceArrayForeignAsm",
         0
     )
-    foreign := IdentityBake(foreignBuilder)
+    foreign := PlanFixtureBake(foreignBuilder)
     foreignName := foreign.get_FullName() ?? ""
     foreignIdentity := foreign.get_AssemblyQualifiedName() ?? ""
     if foreignName.Length == 0 || foreignIdentity.Length == 0 {

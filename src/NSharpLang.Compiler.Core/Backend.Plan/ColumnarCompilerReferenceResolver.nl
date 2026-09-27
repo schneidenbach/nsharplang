@@ -59,9 +59,9 @@ class ColumnarCompilerReferenceResolver {
                     }
                 }
             } catch {
-
                 // A name this host cannot spell, or a type whose own dependencies will not load, is
                 // not the answer; the next candidate name is.
+                continue
             }
         }
 
@@ -182,9 +182,9 @@ class ColumnarCompilerReferenceResolver {
                 return true
             }
         } catch {
-
             // A path with no readable identity, or an image with no executable handle, is not an
             // answer; the caller's next reference path is.
+            return false
         }
 
         return false

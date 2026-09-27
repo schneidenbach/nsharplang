@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
@@ -248,7 +247,7 @@ func SourceDiscoveryTimingWrapRows(
     nongenericGetEnumeratorIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(nongenericGetEnumerator, nongenericGetEnumeratorTarget)
 
-    baked := IdentityBake(owner)
+    baked := PlanFixtureBake(owner)
     instanceConstructor := ExecutorRequiredConstructor(baked, noParameters)
     instance := instanceConstructor.Invoke(new object[](0))
     if instance == null {
@@ -401,7 +400,7 @@ func SourceDiscoveryTimingThrowingDisposeRows(
     disposeIl.Emit(OpCodes.Throw)
     owner.DefineMethodOverride(dispose, disposeTarget)
 
-    baked := IdentityBake(owner)
+    baked := PlanFixtureBake(owner)
     instanceConstructor := ExecutorRequiredConstructor(baked, noParameters)
     instance := instanceConstructor.Invoke(new object[](0))
     if instance == null {

@@ -1554,7 +1554,7 @@ test "static call plans bind exact styled Int32 TryParse overload" {
 test "static call plans own String.Join over string sequences with the enumerable overload" {
     listArguments := new string[](2)
     listArguments[0] = "System.String"
-    listArguments[1] = typeof(List<string>).FullName
+    listArguments[1] = must typeof(List<string>).FullName
     enumerableIdentity := typeof(IEnumerable<string>).get_AssemblyQualifiedName()
 
     listPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
@@ -1574,7 +1574,7 @@ test "static call plans own String.Join over string sequences with the enumerabl
     // The fully qualified owner spelling resolves the same overload.
     qualifiedArguments := new string[](2)
     qualifiedArguments[0] = "System.String"
-    qualifiedArguments[1] = typeof(List<string>).FullName
+    qualifiedArguments[1] = must typeof(List<string>).FullName
     qualifiedPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
         "System.String",
         "Join",
@@ -1588,7 +1588,7 @@ test "static call plans own String.Join over string sequences with the enumerabl
     // ownership claim the owner resolver cannot satisfy).
     lowerArguments := new string[](2)
     lowerArguments[0] = "System.String"
-    lowerArguments[1] = typeof(List<string>).FullName
+    lowerArguments[1] = must typeof(List<string>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "string",
         "Join",
@@ -1598,7 +1598,7 @@ test "static call plans own String.Join over string sequences with the enumerabl
     // A direct IEnumerable<string> value flows to the identical overload.
     enumerableArguments := new string[](2)
     enumerableArguments[0] = "System.String"
-    enumerableArguments[1] = typeof(IEnumerable<string>).FullName
+    enumerableArguments[1] = must typeof(IEnumerable<string>).FullName
     enumerablePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "Join",
@@ -1640,7 +1640,7 @@ test "String.Join plans close the generic overload for int sequences with pinned
 
     intListArguments := new string[](2)
     intListArguments[0] = "System.String"
-    intListArguments[1] = typeof(List<int>).FullName
+    intListArguments[1] = must typeof(List<int>).FullName
     listPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "Join",
@@ -1652,7 +1652,7 @@ test "String.Join plans close the generic overload for int sequences with pinned
 
     intEnumerableArguments := new string[](2)
     intEnumerableArguments[0] = "System.String"
-    intEnumerableArguments[1] = typeof(IEnumerable<int>).FullName
+    intEnumerableArguments[1] = must typeof(IEnumerable<int>).FullName
     enumerablePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "Join",
@@ -1665,7 +1665,7 @@ test "String.Join plans close the generic overload for int sequences with pinned
     // The non-generic string rows stay exactly as before: no pinned type arguments.
     stringListArguments := new string[](2)
     stringListArguments[0] = "System.String"
-    stringListArguments[1] = typeof(List<string>).FullName
+    stringListArguments[1] = must typeof(List<string>).FullName
     assert ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "Join",
@@ -1696,7 +1696,7 @@ test "String.Join plans close the generic overload for supported primitive eleme
     // A List<double> now binds String.Join<Double> (previously legacy-owned by the deleted C# arm).
     doubleListArguments := new string[](2)
     doubleListArguments[0] = "System.String"
-    doubleListArguments[1] = typeof(List<double>).FullName
+    doubleListArguments[1] = must typeof(List<double>).FullName
     doublePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "Join",
@@ -1709,7 +1709,7 @@ test "String.Join plans close the generic overload for supported primitive eleme
     // A read-only list of byte binds String.Join<Byte>.
     byteReadOnlyArguments := new string[](2)
     byteReadOnlyArguments[0] = "System.String"
-    byteReadOnlyArguments[1] = typeof(IReadOnlyList<byte>).FullName
+    byteReadOnlyArguments[1] = must typeof(IReadOnlyList<byte>).FullName
     bytePlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "Join",
@@ -1722,7 +1722,7 @@ test "String.Join plans close the generic overload for supported primitive eleme
     // An IEnumerable<char> binds String.Join<Char>.
     charEnumerableArguments := new string[](2)
     charEnumerableArguments[0] = "System.String"
-    charEnumerableArguments[1] = typeof(IEnumerable<char>).FullName
+    charEnumerableArguments[1] = must typeof(IEnumerable<char>).FullName
     charPlan := ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "Join",
@@ -1749,7 +1749,7 @@ test "String.Join plans decline outside the modeled sequence contracts" {
     // element set, so it is declined (only the modeled primitive elements close the generic).
     decimalListArguments := new string[](2)
     decimalListArguments[0] = "System.String"
-    decimalListArguments[1] = typeof(List<decimal>).FullName
+    decimalListArguments[1] = must typeof(List<decimal>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "Join",
@@ -1759,7 +1759,7 @@ test "String.Join plans decline outside the modeled sequence contracts" {
     // A non-string separator, wrong arity, and mis-spelled member all decline.
     charSeparatorArguments := new string[](2)
     charSeparatorArguments[0] = "System.Char"
-    charSeparatorArguments[1] = typeof(List<string>).FullName
+    charSeparatorArguments[1] = must typeof(List<string>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "Join",
@@ -1776,7 +1776,7 @@ test "String.Join plans decline outside the modeled sequence contracts" {
 
     listArguments := new string[](2)
     listArguments[0] = "System.String"
-    listArguments[1] = typeof(List<string>).FullName
+    listArguments[1] = must typeof(List<string>).FullName
     assert !ColumnarExternalBindingPlans.GetStaticCallPlan(
         "String",
         "join",
@@ -2452,4 +2452,23 @@ test "the migrated legacy arms are on the plan surface with their exact identiti
         "Dispose",
         new string[](0)
     ).IsSupported
+}
+
+// THE NUMERIC LIMIT OWNER AGREES ON EVERY SPELLING IT KNOWS. `PrimitiveLimitTypeName` answers a
+// narrower question — which type owns `MinValue`/`MaxValue` — over eight of the eighteen spellings,
+// and it must never name a different CLR type than the spelling owner does.
+test "analyzer type reference facts agree with the numeric limit owner" {
+    numerics := ["int", "uint", "long", "ulong", "short", "ushort", "byte", "sbyte"]
+
+    index := 0
+    while index < numerics.Length {
+        name := numerics[index]
+        assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName(name) == BuiltInTypeSpellings.BuiltInClrTypeName(name)
+        index = index + 1
+    }
+
+    // And it deliberately declines the ten it does not own, rather than guessing.
+    assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName("string") == ""
+    assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName("bool") == ""
+    assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName("nint") == ""
 }

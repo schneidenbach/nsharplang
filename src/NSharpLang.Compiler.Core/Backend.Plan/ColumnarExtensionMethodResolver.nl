@@ -374,10 +374,11 @@ class ColumnarExtensionMethodResolver {
                     return declared
                 }
             } catch {
+                // A granting assembly whose declared surface cannot be enumerated falls back to the
+                // exported one rather than contributing nothing.
+                return ExportedTypesOrEmpty(assembly)
             }
         }
-        // A granting assembly whose declared surface cannot be enumerated falls back to the
-        // exported one rather than contributing nothing.
 
         return ExportedTypesOrEmpty(assembly)
     }

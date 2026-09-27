@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
@@ -178,7 +177,7 @@ func ExternalMemberBakeInterface(
     if !method.Builder.get_IsAbstract() {
         SourceInterfaceMethodEmitVoid(method.Builder)
     }
-    return IdentityBake(definition.Builder)
+    return PlanFixtureBake(definition.Builder)
 }
 
 func ExternalMemberBakeModifiedInterface(typeName: string): Type {
@@ -230,7 +229,7 @@ func ExternalMemberBakeModifiedInterface(typeName: string): Type {
     ExecutorSetObject(arguments, 4, parameterRequired)
     ExecutorSetObject(arguments, 5, parameterOptional)
     setSignature.Invoke(method, arguments)
-    return IdentityBake(definition.Builder)
+    return PlanFixtureBake(definition.Builder)
 }
 
 func ExternalMemberInterfaceList(first: Type, second: Type?): List<Type> {
@@ -718,7 +717,7 @@ test "external selection and completeness retain declared iteration and first Me
     // REFUSED and named, and the same implementer that declares `Run` is accepted.
     inherited := SourceCallInterfaceDefinition("ExternalMemberInheritedOnly")
     inherited.Builder.AddInterfaceImplementation(left)
-    inheritedRuntime := IdentityBake(inherited.Builder)
+    inheritedRuntime := PlanFixtureBake(inherited.Builder)
     assert inheritedRuntime.GetMethods().Length == 0
     assert !ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
         missingDefault,
@@ -810,7 +809,7 @@ test "external override execution validates every descriptor before any attachme
         completion.Apply(owner, body, table)
     }
 
-    ownerRuntime := IdentityBake(owner)
+    ownerRuntime := PlanFixtureBake(owner)
     firstTargets := SourceInterfaceMethodMapTargets(ownerRuntime, firstInterface)
     secondTargets := SourceInterfaceMethodMapTargets(ownerRuntime, secondInterface)
     assert firstTargets.Count == 1

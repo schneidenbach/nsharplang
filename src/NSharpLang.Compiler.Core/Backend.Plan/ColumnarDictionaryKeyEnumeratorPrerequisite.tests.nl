@@ -54,7 +54,7 @@ func DictionaryKeyEnumeratorControlForeignSameName(key: Type, value: Type): Type
         "Enumerator",
         2
     )
-    foreignOpen := IdentityBake(enumerator)
+    foreignOpen := PlanFixtureBake(enumerator)
     arguments := new Type[](2)
     arguments[0] = key
     arguments[1] = value

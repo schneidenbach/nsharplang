@@ -2,8 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Reflection
-import System.Reflection.Emit
 
 
 // The resolved placement of a reference type's instance field initializers. A class/record field

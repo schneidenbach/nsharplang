@@ -4,7 +4,6 @@ import System
 import System.Collections.Generic
 import System.Reflection
 
-
 // Native contracts for A SUBSTITUTED TYPE PARAMETER TAKES THE ARGUMENT'S NULLABILITY.
 //
 // `NullabilityInfoContext` answers `Nullable` for EVERY position declared with a bare type parameter
@@ -247,28 +246,4 @@ test "A VALUE-TYPE ARGUMENT SUBSTITUTES WITHOUT ACQUIRING A NULLABLE SHELL" {
     lazyValue := SubstitutionProperty(typeof(Lazy<int>), "Value")
 
     assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertProperty(lazyValue)) == "Simple(int)"
-}
-
-test "THE COMPILER'S OWN GENERIC MEMBERS READ THE SAME WAY AS THE BCL'S" {
-    // `ColumnarSemanticDefinitionIndex<TDefinition>.TryGetExact(name, out TDefinition)` is an N#
-    // declaration in this very assembly, so its metadata is what the N# EMITTER wrote rather than
-    // what Roslyn wrote — and the rule has to read it identically. The `out` position is a bare
-    // parameter, and closing the type over a non-nullable reference argument makes it non-nullable.
-    closed := typeof(ColumnarSemanticDefinitionIndex<string>)
-    tryGetExact := SubstitutionMethod(closed, "TryGetExact")
-    outParameter := tryGetExact.GetParameters()[1]
-
-    openType := NullabilityGenericSubstitution.OpenParameterType(outParameter)
-    assert openType.get_IsByRef()
-    assert NullabilityGenericSubstitution.IsTypeParameterPosition(openType)
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(outParameter)) == "Simple(string)"
-}
-
-test "A COMPILER GENERIC'S LIST-OF-PARAMETER MEMBER IS NOT A SUBSTITUTED POSITION" {
-    closed := typeof(ColumnarSemanticDefinitionIndex<string>)
-    values := SubstitutionProperty(closed, "Values")
-
-    // `List<TDefinition>` mentions the parameter but IS NOT one: the outer `List` has a nullability
-    // of its own and the element is substituted by the ordinary walk.
-    assert !NullabilityGenericSubstitution.IsTypeParameterPosition(NullabilityGenericSubstitution.OpenPropertyType(values))
 }

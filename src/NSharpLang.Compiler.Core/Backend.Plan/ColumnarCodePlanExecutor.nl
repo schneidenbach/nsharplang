@@ -39,6 +39,9 @@ class ColumnarCodePlanReflectionContract {
 // Evaluation-stack nodes are immutable and persistent. Straight-line validation moves a state
 // without copying its stack, fragment entry facts retain a node identity, and branches share their
 // common tail. Only a genuinely divergent merge walks and rebuilds the divergent prefix.
+// COMPILER: `==` between a node and a `ColumnarCodePlanStackNode?` is refused (NL202: the analyzer's
+// reference-equality tail does not see through a `?` annotation on a class), so every identity test
+// of a node in this file is written `Object.ReferenceEquals` -- which is what `==` meant here anyway.
 class ColumnarCodePlanStackNode {
     ValueType: Type
     IsAddress: bool
@@ -113,7 +116,7 @@ class ColumnarCodePlanStackState {
     }
 
     func PushDuplicate(value: ColumnarCodePlanStackNode) {
-        if value != Head {
+        if !Object.ReferenceEquals(value, Head) {
             throw new InvalidOperationException("Columnar code-plan dup origin must be the current stack head.")
         }
         duplicate := new ColumnarCodePlanStackNode(value.ValueType, value.IsAddress, value.ValueKind, value.LiteralKnown, value.LiteralValue, Head)
@@ -1718,13 +1721,13 @@ class ColumnarCodePlanExecutor {
             resultValue := exitState.Head
             resultType := plan.FragmentResultTypes[fragmentIndex]
             if IsVoidType(resultType) {
-                if fragmentIndex != 0 || !fragmentEntryCaptured[fragmentIndex] || exitState.Count != entryCount || resultValue != fragmentEntryHeads[fragmentIndex] {
+                if fragmentIndex != 0 || !fragmentEntryCaptured[fragmentIndex] || exitState.Count != entryCount || !Object.ReferenceEquals(resultValue, fragmentEntryHeads[fragmentIndex]) {
                     throw new InvalidOperationException("A " + schemaNameLower + " void root fragment must add no stack values.")
                 }
                 fragmentIndex = endingFragmentNext[fragmentIndex]
                 continue
             }
-            if !fragmentEntryCaptured[fragmentIndex] || resultValue == null || exitState.Count != entryCount + 1 || resultValue.Previous != fragmentEntryHeads[fragmentIndex] {
+            if !fragmentEntryCaptured[fragmentIndex] || resultValue == null || exitState.Count != entryCount + 1 || !Object.ReferenceEquals(resultValue.Previous, fragmentEntryHeads[fragmentIndex]) {
                 throw new InvalidOperationException("Every " + schemaNameLower + " fragment must add exactly one reachable stack value.")
             }
             if resultValue.IsAddress || !IsStackCompatible(resultType, resultValue.ValueType, resultValue.ValueKind, resultValue.LiteralKnown, resultValue.LiteralValue) {
@@ -1777,14 +1780,14 @@ class ColumnarCodePlanExecutor {
     }
 
     static func MergeStack(target: ColumnarCodePlanStackState, incoming: ColumnarCodePlanStackState, schemaName: string) {
-        if target.Head == incoming.Head {
+        if Object.ReferenceEquals(target.Head, incoming.Head) {
             return
         }
 
         divergentCount := 0
         left := target.Head
         right := incoming.Head
-        while left != right {
+        while !Object.ReferenceEquals(left, right) {
             if left == null || right == null {
                 throw new InvalidOperationException(schemaName + " control-flow stack shapes do not merge.")
             }
@@ -2368,7 +2371,7 @@ class ColumnarCodePlanExecutor {
             ownerFragment := plan.OperationOwnerFragmentIndices[operationIndex]
             preserved := state.Head
             if preserved != null {
-                if isStatic || receiver == null || receiver.IsAddress || receiver.ValueKind != ColumnarCodePlanStackValueKind.Exact() || receiver.DuplicateOf != preserved || !isSpecialName || parameterCount != 1 || !methodName.StartsWith("set_", StringComparison.Ordinal) {
+                if isStatic || receiver == null || receiver.IsAddress || receiver.ValueKind != ColumnarCodePlanStackValueKind.Exact() || !Object.ReferenceEquals(receiver.DuplicateOf, preserved) || !isSpecialName || parameterCount != 1 || !methodName.StartsWith("set_", StringComparison.Ordinal) {
                     throw new InvalidOperationException(schemaName + " residual void calls require an instance setter on an exact duplicated receiver.")
                 }
                 return
@@ -2627,7 +2630,7 @@ class ColumnarCodePlanExecutor {
         }
 
         preserved := state.Head
-        if preserved == null || receiver.DuplicateOf != preserved {
+        if preserved == null || !Object.ReferenceEquals(receiver.DuplicateOf, preserved) {
             throw new InvalidOperationException(schemaName + " reference stfld receivers must duplicate the preserved object-initializer result.")
         }
     }
@@ -2687,7 +2690,7 @@ class ColumnarCodePlanExecutor {
         }
 
         preserved := state.Head
-        if preserved == null || arrayValue.DuplicateOf != preserved {
+        if preserved == null || !Object.ReferenceEquals(arrayValue.DuplicateOf, preserved) {
             throw new InvalidOperationException(schemaName + " stelem arrays must duplicate the preserved array-construction result.")
         }
     }

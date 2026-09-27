@@ -4,9 +4,12 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import System.Threading.Tasks
 
 class ColumnarDirectCallByRefProbe {
-    static func KeepValue(flag: bool, value: int): int {
+
+    // The `bool` slot is the probe's SHAPE -- a by-value argument beside the kept one -- never read.
+    static func KeepValue(_flag: bool, value: int): int {
         return value
     }
 }
@@ -1115,7 +1118,7 @@ test "direct-call planner preserves an addressable value field receiver" {
 
     plan := DirectCallPlan(tree, bindings)
 
-    assert plan.ResultType.FullName == "System.Void"
+    assert (must plan.ResultType).FullName == "System.Void"
     assert plan.OperationCount == 3
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
     assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldflda()
@@ -1458,7 +1461,7 @@ test "direct-call planner executes persisted reference and void runtime handles"
     writerArguments := new object[](1)
     ExecutorSetObject(writerArguments, 0, writer)
     ExecutorRunV3VoidPlan(writerPlan, writerParameters, writerArguments)
-    assert writer.ToString().Contains("persisted")
+    assert (must writer.ToString()).Contains("persisted")
 }
 
 test "direct-call planner preserves exact constructed generic runtime returns" {

@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Reflection
+import System.Reflection.Emit
 
 
 // Direct schema-v3 owner for the modelled primitive binary families: arithmetic (+ - * / %),

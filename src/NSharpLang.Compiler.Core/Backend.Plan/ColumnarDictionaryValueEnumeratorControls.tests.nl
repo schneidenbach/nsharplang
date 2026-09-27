@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 
 
 // Construct the exact nested concrete enumerator through the public Dictionary Values property.
@@ -167,7 +168,7 @@ func DictionaryValueEnumeratorControlForeignSameName(
         "Enumerator",
         2
     )
-    foreignOpen := IdentityBake(enumerator)
+    foreignOpen := PlanFixtureBake(enumerator)
     arguments := new Type[](2)
     arguments[0] = key
     arguments[1] = value
@@ -189,7 +190,7 @@ func DictionaryNestedControlForeignSameName(
         nestedName,
         2
     )
-    foreignOpen := IdentityBake(nested)
+    foreignOpen := PlanFixtureBake(nested)
     arguments := new Type[](2)
     arguments[0] = key
     arguments[1] = value

@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Reflection
 
 // These controls own the thread-local trace contract now that the compiler's decline state is N#.
 // They keep the returned snapshot separate from its mutable per-thread accumulator and exercise the

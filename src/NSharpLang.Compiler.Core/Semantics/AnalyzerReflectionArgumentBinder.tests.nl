@@ -6,7 +6,6 @@ import System.IO
 import System.Reflection
 import System.Reflection.Emit
 import NSharpLang.Compiler.Ast
-import NSharpLang.Compiler.Columnar
 
 // Native contracts for the reflection binder's pure interior.
 //
@@ -232,31 +231,9 @@ func BinderArrayShapeMethod(methodName: string, rank: int): MethodInfo {
     )
     parameters := new Type[](1)
     parameters[0] = typeof(string).MakeArrayType(rank)
-    defineMethodTypes := new Type[](4)
-    defineMethodTypes[0] = typeof(string)
-    defineMethodTypes[1] = typeof(MethodAttributes)
-    defineMethodTypes[2] = typeof(Type)
-    defineMethodTypes[3] = typeof(Type[])
-    defineMethod := ExecutorRequiredMethod(typeof(TypeBuilder), "DefineMethod", defineMethodTypes)
-    defineMethodArguments := new object[](4)
-    reflectedMethodName: object = methodName
-    ExecutorSetObject(defineMethodArguments, 0, reflectedMethodName)
     attributes := MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.Abstract
-    methodAttributes: object = attributes
-    methodReturnType: object = BinderRuntimeType("System.Void, System.Private.CoreLib")
-    methodParameterTypes: object = parameters
-    ExecutorSetObject(defineMethodArguments, 1, methodAttributes)
-    ExecutorSetObject(defineMethodArguments, 2, methodReturnType)
-    ExecutorSetObject(defineMethodArguments, 3, methodParameterTypes)
-    method := TypeOfRequiredInvocation(defineMethod, builder, defineMethodArguments) as MethodBuilder
-    if method == null {
-        throw new InvalidOperationException("The reflected array-shape method was not defined.")
-    }
-    createType := ExecutorRequiredMethod(typeof(TypeBuilder), "CreateType", new Type[](0))
-    created := TypeOfRequiredInvocation(createType, builder, new object[](0)) as Type
-    if created == null {
-        throw new InvalidOperationException("The reflected array-shape fixture did not bake.")
-    }
+    builder.DefineMethod(methodName, attributes, BinderRuntimeType("System.Void, System.Private.CoreLib"), parameters)
+    created := CoreFixtureBake(builder)
 
     resolved := created.GetMethod(methodName)
     if resolved == null {

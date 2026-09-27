@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Reflection
 
 func RangeHandleGenericParameter(): Type {
     definition := typeof(System.Array).GetMethod("Empty")

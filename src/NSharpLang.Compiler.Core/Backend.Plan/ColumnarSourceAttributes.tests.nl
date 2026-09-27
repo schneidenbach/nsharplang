@@ -89,9 +89,13 @@ test "a field's attributes are read from its own declaration position" {
     program := SourceAttributeProgram("import System\nclass Probe {\n    [Obsolete(\"gone\")]\n    Value: int\n    Plain: int\n    constructor() {\n        Value = 1\n        Plain = 2\n    }\n}\n")
     fieldAttributes := program.Structs[0].FieldSourceAttributes
     assert fieldAttributes != null
-    assert program.Structs[0].FieldSourceAttributesAt(0).Length == 1
-    assert program.Structs[0].FieldSourceAttributesAt(0)[0].Name == "Obsolete"
-    assert program.Structs[0].FieldSourceAttributesAt(1).Length == 0
+    first := program.Structs[0].FieldSourceAttributesAt(0)
+    assert first != null
+    assert first.Length == 1
+    assert first[0].Name == "Obsolete"
+    second := program.Structs[0].FieldSourceAttributesAt(1)
+    assert second != null
+    assert second.Length == 0
     assert program.Structs[0].FieldSourceAttributesAt(9) == null
 }
 

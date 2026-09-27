@@ -682,8 +682,9 @@ class ColumnarTypeOfPlanner {
                     return true
                 }
             } catch {
+                // A later loaded assembly may carry the exact supported type.
+                continue
             }
-            // A later loaded assembly may carry the exact supported type.
         }
         return false
     }

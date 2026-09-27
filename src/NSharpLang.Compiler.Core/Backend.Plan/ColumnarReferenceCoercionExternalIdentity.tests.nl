@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -22,7 +21,7 @@ func ReferenceCoercionForeignDisposable(): Type {
         ColumnarTypeOfPlanner.RequiredVoidType(),
         new Type[](0)
     )
-    return IdentityBake(builder)
+    return PlanFixtureBake(builder)
 }
 
 func ReferenceCoercionRuntimeDisposableSource(): ColumnarStructDef {
@@ -115,7 +114,7 @@ test "external interface upcasts use exact assembly identity and execute for the
     )
     upcastIl.Emit(OpCodes.Ret)
 
-    bakedSource := IdentityBake(source.Builder)
+    bakedSource := PlanFixtureBake(source.Builder)
     assert disposableType.IsAssignableFrom(bakedSource)
     assert !foreignDisposable.IsAssignableFrom(bakedSource)
     constructor := bakedSource.GetConstructor(new Type[](0))

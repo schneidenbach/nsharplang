@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Reflection
 import System.Reflection.Emit
 
 
