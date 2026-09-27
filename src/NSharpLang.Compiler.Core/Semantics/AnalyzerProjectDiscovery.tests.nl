@@ -1495,3 +1495,92 @@ test "a folder of standalone scripts with no project.yml is not one program, so 
         Directory.Delete(projectRoot, true)
     }
 }
+
+test "a folder of standalone scripts with no project.yml is not one program, so same-named types in it are not NL339" {
+    // The type half of the rule above: `examples/04-pattern-matching` is single-file programs that
+    // may each declare their own `Person`. Nothing compiles them together, so nothing they declare can
+    // collide — until a `project.yml` says so. The keyword plays no part: `class Person` and
+    // `struct Person` are one CLR type identity.
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-script-folder-types-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        firstPath := Path.Combine(projectRoot, "First.nl")
+        firstSource := "class Person {\n    Name: string = \"first\"\n}\n\nfunc Main() {\n    print new Person().Name\n}\n"
+        secondPath := Path.Combine(projectRoot, "Second.nl")
+        secondSource := "struct Person {\n    Age: int\n}\n\nfunc Main() {\n    print 2\n}\n"
+        File.WriteAllText(firstPath, firstSource)
+        File.WriteAllText(secondPath, secondSource)
+
+        assert NamespaceTwinReports(firstPath, firstSource, projectRoot, true).Count == 0
+        assert NamespaceTwinReports(secondPath, secondSource, projectRoot, true).Count == 0
+
+        // The same two files under a `project.yml` ARE one program, and then both channels report.
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: ScriptFolder\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
+        reports := NamespaceTwinReports(secondPath, secondSource, projectRoot, true)
+        joined := string.Join(" | ", reports)
+        assert reports.Count == 2, joined
+        assert joined.Contains("A type named 'Person' is already declared in this namespace, at First.nl:1"), joined
+        assert joined.Contains("'Main' is already declared in the global namespace by First.nl:5"), joined
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+// The duplicate reports of one file, analysed under `projectRoot` by an analyzer whose DRIVER has
+// (or has not) said the files compile as one program — the playground's shape, which has a project
+// configuration but no `project.yml` on disk.
+func DeclaredProgramTwinReports(filePath: string, source: string, projectRoot: string, declaredOneProgram: bool): List<string> {
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    analyzer := new Analyzer()
+    messages := new List<string>()
+    try {
+        if declaredOneProgram {
+            analyzer.DeclareOneProgram()
+        }
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Code == ErrorCode.DuplicateDeclaration || error.Code == ErrorCode.TypeDeclaredInAnotherFile {
+                messages.Add(error.Code.ToString() + ": " + error.Message)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+    }
+
+    return messages
+}
+
+// NL306 AND NL339 ASK ONE QUESTION. The same two files — a free function and a type each declared in
+// both — report both codes or neither, and what decides it is whether the files compile as one
+// program: the driver's word when it has a project configuration, the root's `project.yml` otherwise.
+test "a driver that compiles its files as one program makes NL306 and NL339 fire together without a project.yml" {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-declared-program-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        firstPath := Path.Combine(projectRoot, "First.nl")
+        firstSource := "namespace Shared\n\nclass Widget {\n}\n\nfunc Helper(): int {\n    return 1\n}\n"
+        secondPath := Path.Combine(projectRoot, "Second.nl")
+        secondSource := "namespace Shared\n\nclass Widget {\n}\n\nfunc Helper(): int {\n    return 2\n}\n"
+        File.WriteAllText(firstPath, firstSource)
+        File.WriteAllText(secondPath, secondSource)
+
+        // No `project.yml` and no driver's word: standalone scripts, so neither code fires.
+        assert DeclaredProgramTwinReports(secondPath, secondSource, projectRoot, false).Count == 0
+
+        // The driver's word alone: both codes, on the same inputs.
+        declared := DeclaredProgramTwinReports(secondPath, secondSource, projectRoot, true)
+        joined := string.Join(" | ", declared)
+        assert declared.Count == 2, joined
+        assert joined.Contains("TypeDeclaredInAnotherFile: A type named 'Widget' is already declared in this namespace, at First.nl:3"), joined
+        assert joined.Contains("DuplicateDeclaration: 'Helper' is already declared in namespace 'Shared' by First.nl:6"), joined
+
+        // A `project.yml` says the same without the driver, and the two codes still agree.
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: DeclaredProgram\nversion: 0.1.0\noutputType: library\ntargetFramework: net10.0\n")
+        assert string.Join(" | ", DeclaredProgramTwinReports(secondPath, secondSource, projectRoot, false)) == joined
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}

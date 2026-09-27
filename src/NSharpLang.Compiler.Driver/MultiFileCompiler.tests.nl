@@ -281,3 +281,28 @@ test "CompileForAnalysis_SyntaxErrorInOneFile_StillReportsSemanticErrors" {
         MfcRecoveryDeleteTemp(root)
     }
 }
+
+// A PROJECT CONFIGURATION IS THE DRIVER'S WORD THAT ITS FILES ARE ONE PROGRAM. The same folder, with
+// no `project.yml`, is standalone scripts when checked as a directory (`nlc check dir/` hands over no
+// configuration) and one program when a caller compiles it from a configuration (the playground's
+// virtual project) — and NL306 and NL339 agree on it either way.
+test "MultiFileCompiler_ProjectConfigWithoutProjectYml_ComparesFilesAsOneProgram" {
+    root := MfcRecoveryTempRoot()
+    try {
+        MfcRecoveryWrite(root, "First.nl", "namespace Shared\n\nclass Widget {\n}\n\nfunc Helper(): int {\n    return 1\n}\n")
+        MfcRecoveryWrite(root, "Second.nl", "namespace Shared\n\nclass Widget {\n}\n\nfunc Helper(): int {\n    return 2\n}\n")
+
+        scripts := new MultiFileCompiler(root, null)
+        scripts.CompileForAnalysis()
+        assert MfcRecoveryCountCode(scripts.AllErrors, ErrorCode.TypeDeclaredInAnotherFile) == 0, MfcRecoveryDescribeErrors(scripts.AllErrors)
+        assert MfcRecoveryCountCode(scripts.AllErrors, ErrorCode.DuplicateDeclaration) == 0, MfcRecoveryDescribeErrors(scripts.AllErrors)
+
+        program := new MultiFileCompiler(root, ProjectFileParser.CreateDefault("SharedProgram"))
+        program.CompileForAnalysis()
+        // NL339 once, at the later declaration; NL306 in each file, naming the other.
+        assert MfcRecoveryCountCode(program.AllErrors, ErrorCode.TypeDeclaredInAnotherFile) == 1, MfcRecoveryDescribeErrors(program.AllErrors)
+        assert MfcRecoveryCountCode(program.AllErrors, ErrorCode.DuplicateDeclaration) == 2, MfcRecoveryDescribeErrors(program.AllErrors)
+    } finally {
+        MfcRecoveryDeleteTemp(root)
+    }
+}

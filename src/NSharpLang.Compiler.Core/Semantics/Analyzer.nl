@@ -768,6 +768,12 @@ class Analyzer: IDisposable {
         }
     }
 
+    // The driver's word that every file it analyses compiles into one assembly — it was handed a
+    // project configuration — which the cross-file declaration rules (NL306, NL339) ask first.
+    func DeclareOneProgram() {
+        ProjectSources.DeclareOneProgram()
+    }
+
     func GetTypeDeclarationFiles(): Dictionary<string, string> {
         source: IDictionary<string, string> = TypeDeclarationFiles
         return new Dictionary<string, string>(source)

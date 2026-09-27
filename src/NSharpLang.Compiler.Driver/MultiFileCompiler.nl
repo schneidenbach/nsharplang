@@ -176,6 +176,12 @@ class MultiFileCompiler {
         _sharedAnalyzer = analyzer
         _sharedAnalyzer.LoadSystemAssemblies()
         _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot)
+        // A caller that hands over a project configuration compiles these files into ONE assembly —
+        // a parsed `project.yml`, or a virtual project like the playground's. A caller with none (a
+        // folder of standalone scripts checked as a directory) leaves the analyzer to ask the root.
+        if config != null {
+            _sharedAnalyzer.DeclareOneProgram()
+        }
     }
 
     private static func BuildProjectInputs(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?, includeTests: bool): MultiFileCompilerInputs {

@@ -1688,7 +1688,10 @@ Two consequences the analyzer owns:
   `parse.declaration-scan` (re-measured on 353fb69f7). The emitter's own word is
   `ColumnarFreeFunctionScope.Declare` answering `false` for a second (namespace, name) row, declined
   at `emit.declaration.duplicate`. The report is asked only when
-  `AnalyzerProjectSourceProvider.CompilesAsOneProgram()` — the analysis root has a `project.yml`:
+  `AnalyzerProjectSourceProvider.CompilesAsOneProgram()` — the driver said so (`MultiFileCompiler`
+  handed a project configuration calls `Analyzer.DeclareOneProgram`, which is how the playground's
+  virtual project counts) or the analysis root has a `project.yml`. NL339 asks the SAME predicate
+  (2026-09-27), so the two codes fire together or not at all:
   `examples/03-functions` and its siblings are standalone single-file programs (five `Main`s, two
   `Sum`s in the global namespace) that the gate's Step 10 checks as ONE directory and the LSP opens
   with the directory as its fallback root; nothing compiles them together, so they cannot collide.

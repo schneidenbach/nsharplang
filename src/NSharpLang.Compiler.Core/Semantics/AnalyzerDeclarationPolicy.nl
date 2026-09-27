@@ -441,9 +441,13 @@ class AnalyzerDeclarationPolicy {
     //
     // A file with no path — an in-memory unit — is skipped: there is no second file to collide with,
     // and no location to name if there were.
+    //
+    // ONLY FILES THAT COMPILE TOGETHER SHARE A NAMESPACE, exactly as for a free function
+    // (`DeclareTopLevelFunction`): a folder of standalone scripts with no `project.yml` is one program
+    // per file, and two of them each declaring `class Person` collide with nothing.
     func ReportTypeDeclaredInAnotherFile(name: string, key: string, arity: int, line: int, nameColumn: int) {
         filePath := currentFilePath
-        if filePath == null || filePath.Length == 0 {
+        if filePath == null || filePath.Length == 0 || !projectDiscovery.CompilesAsOneProgram() {
             return
         }
 

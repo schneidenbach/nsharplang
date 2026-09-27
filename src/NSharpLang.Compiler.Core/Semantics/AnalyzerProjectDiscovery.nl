@@ -76,6 +76,8 @@ class AnalyzerProjectSourceProvider {
     // file full path -> the namespace that file declares, or null.
     fileNamespaceCache: Dictionary<string, string?>
     projectRootValue: string?
+    // Whether the DRIVER said these files compile into one assembly. See `CompilesAsOneProgram`.
+    declaredOneProgramValue: bool
 
     // The project root of the analysis in progress, or null when there is none.
     ProjectRoot: string? => projectRootValue
@@ -87,6 +89,16 @@ class AnalyzerProjectSourceProvider {
         namespaceCache = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
         fileNamespaceCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         projectRootValue = null
+        declaredOneProgramValue = false
+    }
+
+    // THE DRIVER'S WORD THAT ITS FILES ARE ONE PROGRAM. A compiler handed a project configuration
+    // compiles every file it was given into one assembly whether or not a `project.yml` sits on disk:
+    // the playground builds its virtual project from one, and so does the SDK. It lasts for the
+    // analyzer's lifetime, like the source snapshot, because it is a fact about the compilation and
+    // not about one file's analysis.
+    func DeclareOneProgram() {
+        declaredOneProgramValue = true
     }
 
     // ---- the source snapshot -------------------------------------------------------------------
@@ -123,7 +135,16 @@ class AnalyzerProjectSourceProvider {
     // `examples/03-functions` is seven programs, each with its own `Main` — which the CLI builds one
     // file at a time and the Language Server opens with the directory as its fallback root. Rules
     // about what two FILES may declare between them apply only to the first shape.
+    //
+    // A driver that compiles its files together says so directly (`DeclareOneProgram`), and that
+    // answer wins: the playground's files are one program with no `project.yml` on disk. Without the
+    // driver's word, the root's `project.yml` is the evidence — an analysis of a lone folder, or one
+    // run without a driver at all.
     func CompilesAsOneProgram(): bool {
+        if declaredOneProgramValue {
+            return true
+        }
+
         root := projectRootValue
         if root == null || string.IsNullOrWhiteSpace(root) {
             return false

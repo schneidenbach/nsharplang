@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
@@ -59,17 +60,23 @@ func DeclarationPolicyPath(): string {
 }
 
 func DeclarationPolicyHarnessNew(): DeclarationPolicyHarness {
+    return DeclarationPolicyHarnessAt("declaration-policy-root")
+}
+
+// The same harness analysing under `root`. The default root has no `project.yml` on disk, so its
+// files are standalone scripts; a cross-file rule is asked of a root that IS a project.
+func DeclarationPolicyHarnessAt(root: string): DeclarationPolicyHarness {
     errors := new List<CompilerError>()
     context := new AnalyzerDeclarationContext()
     assemblies := new List<Assembly>()
     assemblies.Add(typeof(List<int>).get_Assembly())
-    context.Reset("declaration-policy-root", assemblies)
+    context.Reset(root, assemblies)
     scopes := new AnalyzerScopeStack()
     model := new SemanticModel()
     scopes.Push(model, new Scope(ScopeKind.Global), 1, 1)
     bindings := new BindingMap()
     provider := new AnalyzerProjectSourceProvider()
-    provider.BeginAnalysis("declaration-policy-root")
+    provider.BeginAnalysis(root)
     namespaces := new List<string>()
     aliases := new Dictionary<string, string>(StringComparer.Ordinal)
     symbolsByAlias := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
@@ -701,79 +708,136 @@ func DeclarationPolicyDeclaredType(unit: CompilationUnit, typeName: string): Typ
     throw new InvalidOperationException("The unit declares no class named " + typeName + ".")
 }
 
-test "one type name declared in two files of one namespace is reported at the SECOND, naming the first" {
-    harness := DeclarationPolicyHarnessNew()
-    first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
-    second := DeclarationPolicyOneType("Catalog", "Widget", 0, 7)
-    DeclarationPolicyDeclareAcrossFiles(harness, "declaration-policy-root/First.nl", first, "declaration-policy-root/Second.nl", second, "Widget", 0, 7)
+// A root that IS a project: a fresh directory holding a `project.yml`, because NL339 is asked only of
+// files that compile together. The caller deletes it.
+func DeclarationPolicyProjectRoot(): string {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-declaration-policy-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(root)
+    File.WriteAllText(Path.Combine(root, "project.yml"), "name: DeclarationPolicy\nversion: 0.1.0\noutputType: library\ntargetFramework: net10.0\n")
+    return root
+}
 
-    reports := DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile)
-    assert reports.Count == 1
-    assert reports[0].Message == "A type named 'Widget' is already declared in this namespace, at First.nl:3 — one namespace cannot contain two types with the same name"
-    assert reports[0].Line == 7
-    assert reports[0].Length == 6
+test "one type name declared in two files of one namespace is reported at the SECOND, naming the first" {
+    root := DeclarationPolicyProjectRoot()
+    try {
+        harness := DeclarationPolicyHarnessAt(root)
+        first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
+        second := DeclarationPolicyOneType("Catalog", "Widget", 0, 7)
+        DeclarationPolicyDeclareAcrossFiles(harness, Path.Combine(root, "First.nl"), first, Path.Combine(root, "Second.nl"), second, "Widget", 0, 7)
+
+        reports := DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile)
+        assert reports.Count == 1
+        assert reports[0].Message == "A type named 'Widget' is already declared in this namespace, at First.nl:3 — one namespace cannot contain two types with the same name"
+        assert reports[0].Line == 7
+        assert reports[0].Length == 6
+    } finally {
+        Directory.Delete(root, true)
+    }
 }
 
 test "the FIRST file of the pair reports nothing about itself" {
-    harness := DeclarationPolicyHarnessNew()
-    first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
-    second := DeclarationPolicyOneType("Catalog", "Widget", 0, 7)
-    harness.Context.AddCompilationUnit("declaration-policy-root/Second.nl", second)
-    harness.Context.AddCompilationUnit("declaration-policy-root/First.nl", first)
-    harness.Owner.BeginAnalysis(harness.Model, harness.Bindings, "declaration-policy-root/First.nl", first)
-    harness.Owner.SetDeclarationContextFilePath("declaration-policy-root/First.nl")
-    harness.Owner.DeclareType("Widget", DeclarationPolicyDeclaredType(first, "Widget"), 3, 1)
+    root := DeclarationPolicyProjectRoot()
+    try {
+        harness := DeclarationPolicyHarnessAt(root)
+        first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
+        second := DeclarationPolicyOneType("Catalog", "Widget", 0, 7)
+        firstPath := Path.Combine(root, "First.nl")
+        harness.Context.AddCompilationUnit(Path.Combine(root, "Second.nl"), second)
+        harness.Context.AddCompilationUnit(firstPath, first)
+        harness.Owner.BeginAnalysis(harness.Model, harness.Bindings, firstPath, first)
+        harness.Owner.SetDeclarationContextFilePath(firstPath)
+        harness.Owner.DeclareType("Widget", DeclarationPolicyDeclaredType(first, "Widget"), 3, 1)
 
-    assert DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile).Count == 0
+        assert DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile).Count == 0
+    } finally {
+        Directory.Delete(root, true)
+    }
 }
 
 test "two files in DIFFERENT namespaces may both declare the name" {
-    harness := DeclarationPolicyHarnessNew()
-    first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
-    second := DeclarationPolicyOneType("Catalog.Parts", "Widget", 0, 7)
-    DeclarationPolicyDeclareAcrossFiles(harness, "declaration-policy-root/First.nl", first, "declaration-policy-root/Second.nl", second, "Widget", 0, 7)
+    root := DeclarationPolicyProjectRoot()
+    try {
+        harness := DeclarationPolicyHarnessAt(root)
+        first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
+        second := DeclarationPolicyOneType("Catalog.Parts", "Widget", 0, 7)
+        DeclarationPolicyDeclareAcrossFiles(harness, Path.Combine(root, "First.nl"), first, Path.Combine(root, "Second.nl"), second, "Widget", 0, 7)
 
-    assert DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile).Count == 0
+        assert DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile).Count == 0
+    } finally {
+        Directory.Delete(root, true)
+    }
 }
 
 test "a DIFFERENT generic arity in the second file is a different type and collides with nothing" {
-    harness := DeclarationPolicyHarnessNew()
-    first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
-    second := DeclarationPolicyOneType("Catalog", "Widget", 1, 7)
-    DeclarationPolicyDeclareAcrossFiles(harness, "declaration-policy-root/First.nl", first, "declaration-policy-root/Second.nl", second, "Widget", 1, 7)
+    root := DeclarationPolicyProjectRoot()
+    try {
+        harness := DeclarationPolicyHarnessAt(root)
+        first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
+        second := DeclarationPolicyOneType("Catalog", "Widget", 1, 7)
+        DeclarationPolicyDeclareAcrossFiles(harness, Path.Combine(root, "First.nl"), first, Path.Combine(root, "Second.nl"), second, "Widget", 1, 7)
 
-    assert DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile).Count == 0
+        assert DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile).Count == 0
+    } finally {
+        Directory.Delete(root, true)
+    }
 }
 
 test "the SAME generic arity in two files collides, and the message writes the arity out" {
-    harness := DeclarationPolicyHarnessNew()
-    first := DeclarationPolicyOneType("Catalog", "Pair", 2, 3)
-    second := DeclarationPolicyOneType("Catalog", "Pair", 2, 9)
-    DeclarationPolicyDeclareAcrossFiles(harness, "declaration-policy-root/First.nl", first, "declaration-policy-root/Second.nl", second, "Pair", 2, 9)
+    root := DeclarationPolicyProjectRoot()
+    try {
+        harness := DeclarationPolicyHarnessAt(root)
+        first := DeclarationPolicyOneType("Catalog", "Pair", 2, 3)
+        second := DeclarationPolicyOneType("Catalog", "Pair", 2, 9)
+        DeclarationPolicyDeclareAcrossFiles(harness, Path.Combine(root, "First.nl"), first, Path.Combine(root, "Second.nl"), second, "Pair", 2, 9)
 
-    reports := DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile)
-    assert reports.Count == 1
-    assert reports[0].Message == "A type named 'Pair<T1, T2>' is already declared in this namespace, at First.nl:3 — one namespace cannot contain two types with the same name"
+        reports := DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile)
+        assert reports.Count == 1
+        assert reports[0].Message == "A type named 'Pair<T1, T2>' is already declared in this namespace, at First.nl:3 — one namespace cannot contain two types with the same name"
+    } finally {
+        Directory.Delete(root, true)
+    }
 }
 
 test "two files with NO namespace still share one scope and still collide" {
-    harness := DeclarationPolicyHarnessNew()
-    first := DeclarationPolicyOneType(null, "Widget", 0, 3)
-    second := DeclarationPolicyOneType(null, "Widget", 0, 7)
-    DeclarationPolicyDeclareAcrossFiles(harness, "declaration-policy-root/First.nl", first, "declaration-policy-root/Second.nl", second, "Widget", 0, 7)
+    root := DeclarationPolicyProjectRoot()
+    try {
+        harness := DeclarationPolicyHarnessAt(root)
+        first := DeclarationPolicyOneType(null, "Widget", 0, 3)
+        second := DeclarationPolicyOneType(null, "Widget", 0, 7)
+        DeclarationPolicyDeclareAcrossFiles(harness, Path.Combine(root, "First.nl"), first, Path.Combine(root, "Second.nl"), second, "Widget", 0, 7)
 
-    reports := DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile)
-    assert reports.Count == 1
-    assert reports[0].Message == "A type named 'Widget' is already declared in this namespace, at First.nl:3 — one namespace cannot contain two types with the same name"
+        reports := DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile)
+        assert reports.Count == 1
+        assert reports[0].Message == "A type named 'Widget' is already declared in this namespace, at First.nl:3 — one namespace cannot contain two types with the same name"
+    } finally {
+        Directory.Delete(root, true)
+    }
 }
 
 test "a unit with no file path has no second file to collide with" {
+    root := DeclarationPolicyProjectRoot()
+    try {
+        harness := DeclarationPolicyHarnessAt(root)
+        first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
+        second := DeclarationPolicyOneType("Catalog", "Widget", 0, 7)
+        harness.Context.AddCompilationUnit(Path.Combine(root, "First.nl"), first)
+        harness.Owner.BeginAnalysis(harness.Model, harness.Bindings, null, second)
+        harness.Owner.DeclareType("Widget", DeclarationPolicyDeclaredType(second, "Widget"), 7, 1)
+
+        assert DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile).Count == 0
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+// THE SAME PAIR UNDER A ROOT WITH NO `project.yml`: a folder of standalone scripts is one program per
+// file, so nothing two of its files declare is a duplicate — the free-function rule's guard
+// (`CompilesAsOneProgram`), which this rule had skipped.
+test "two files of a folder with no project.yml are two programs, so the same type name in each is not NL339" {
     harness := DeclarationPolicyHarnessNew()
     first := DeclarationPolicyOneType("Catalog", "Widget", 0, 3)
     second := DeclarationPolicyOneType("Catalog", "Widget", 0, 7)
-    harness.Context.AddCompilationUnit("declaration-policy-root/First.nl", first)
-    harness.Owner.BeginAnalysis(harness.Model, harness.Bindings, null, second)
-    harness.Owner.DeclareType("Widget", DeclarationPolicyDeclaredType(second, "Widget"), 7, 1)
+    DeclarationPolicyDeclareAcrossFiles(harness, "declaration-policy-root/First.nl", first, "declaration-policy-root/Second.nl", second, "Widget", 0, 7)
 
     assert DeclarationPolicyErrors(harness, ErrorCode.TypeDeclaredInAnotherFile).Count == 0
 }

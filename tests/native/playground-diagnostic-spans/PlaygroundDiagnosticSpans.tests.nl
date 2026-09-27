@@ -1413,6 +1413,20 @@ test "020 s37 playground diagnostic spans: CheckProject FileImportCollision Pres
     assert PgRow(other, 1) == "NL701|error|Cannot find import './B'|Program.nl|2|8|5"
 }
 
+// NL306 AND NL339 AGREE ON THE PLAYGROUND'S FILES. They compile as one program — the playground builds
+// them from a project configuration of its own, with no `project.yml` on disk — so a free function
+// declared in two of its files is NL306 exactly as a type declared in two of them is NL339 above. A
+// folder of standalone scripts reports neither (`AnalyzerProjectDiscovery.tests.nl`).
+test "020 s37 playground diagnostic spans: CheckProject FreeFunctionInTwoFiles — NL306 in each file, as the type pair is NL339" {
+    response := PgCheckProject3("Program.nl", "func main() {\n}", "A.nl", "func Helper(): int {\n    return 1\n}", "B.nl", "func Helper(): int {\n    return 2\n}", "Program.nl")
+    assert PgOk(response) == "False"
+    assert PgCount(response) == 2
+    assert PgCensus(response) == "NL306@1:6+6;NL306@1:6+6;", PgCensus(response)
+    assert PgRow(response, 0) == "NL306|error|'Helper' is already declared in the global namespace by B.nl:1 — a free function name must be unique across every file of its namespace|A.nl|1|6|6"
+    assert PgRow(response, 1) == "NL306|error|'Helper' is already declared in the global namespace by A.nl:1 — a free function name must be unique across every file of its namespace|B.nl|1|6|6"
+    assert PgRow(response, 2) == "<no-such-diagnostic>"
+}
+
 test "020 s37 playground diagnostic spans: Check MissingAssignmentValue PreservesTargetSpanForMarkers — NL102@5:5+5;, and the test-file route agrees (was PlaygroundCompilerTests.Check_MissingAssignmentValue_PreservesTargetSpanForMarkers)" {
     source := "package Playground\n\nfunc main() {\n    value := 1\n    value =\n    print value\n}"
     response := PgCheck(source)
