@@ -127,11 +127,6 @@ class PlaygroundRunFacts {
         return "Length"
     }
 
-    // `Exception("boom")` called as a free function, which is how `throw Exception(...)` reads.
-    static func IsExceptionFactoryName(name: string): bool {
-        return string.Equals(name, "Exception", StringComparison.Ordinal)
-    }
-
     // `new Exception(...)` — both the short and the qualified spelling construct the same value.
     static func IsExceptionTypeName(typeName: string): bool {
         if string.Equals(typeName, "Exception", StringComparison.Ordinal) {

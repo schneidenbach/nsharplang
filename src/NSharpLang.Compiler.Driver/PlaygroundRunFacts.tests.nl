@@ -61,9 +61,7 @@ test "021 s11 playground run facts: the runner's four reserved names" {
     assert PlaygroundRunFacts.LengthMemberName() == "Length"
 }
 
-test "021 s11 playground run facts: Exception is recognised as a factory by its short name and as a type by both spellings" {
-    assert PlaygroundRunFacts.IsExceptionFactoryName("Exception")
-    assert !PlaygroundRunFacts.IsExceptionFactoryName("System.Exception")
+test "021 s11 playground run facts: Exception is recognised as a constructed type by both spellings" {
     assert PlaygroundRunFacts.IsExceptionTypeName("Exception")
     assert PlaygroundRunFacts.IsExceptionTypeName("System.Exception")
     assert !PlaygroundRunFacts.IsExceptionTypeName("InvalidOperationException")

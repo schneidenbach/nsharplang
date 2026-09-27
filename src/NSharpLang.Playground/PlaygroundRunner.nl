@@ -507,13 +507,6 @@ internal sealed class PlaygroundRunner {
         if functions.TryGetValue(name, out function) {
             return InvokeFunction(function, arguments, null, depth)
         }
-        if PlaygroundRunFacts.IsExceptionFactoryName(name) && arguments.Count <= 1 {
-            if arguments.Count == 0 {
-                return new RuntimeError("")
-            }
-            errorValue := arguments[0]
-            return new RuntimeError(FormatValue(errorValue))
-        }
         throw Unsupported(PlaygroundRunFacts.UnknownFunction(name))
     }
 
