@@ -2,6 +2,7 @@ namespace NSharpLang.CensusChainedMemberArgument.Tests
 
 import System
 import System.Collections.Generic
+import System.Numerics
 
 test "a two-hop source chain is typable in argument position, and one hop already was" {
     root := NewRoot("alpha", 7)
@@ -45,4 +46,79 @@ test "a chained argument evaluates left to right, after the call's receiver, onc
     assert steps[1] == "outer"
     assert steps[2] == "inner"
     assert OuterHopReadCount() == 1
+}
+
+test "a hop through a referenced type's own indexer reaches the argument, by name and by number" {
+    assert NamedGroupWordCount("colors=red green blue") == 3
+    assert NumberedGroupWordCount("colors=red green blue") == 3
+}
+
+test "two indexers in one chain, and an overload chosen by the indexed member's bool" {
+    assert SecondPairKey("a=1;b=2") == "b!"
+    assert GroupMatched("a=1", "key") == "True"
+    assert GroupMatched("a=1", "missing") == "False"
+}
+
+test "a value-type receiver's indexer reaches the argument through its address" {
+    values := new int[](Vector<int>.Count)
+    index := 0
+    while index < values.Length {
+        values[index] = index * 10
+        index = index + 1
+    }
+    assert LaneOrFloor(values, 1, 5) == 10
+    assert LaneOrFloor(values, 0, 5) == 5
+}
+
+test "an indexer hop evaluates its receiver, then its selector, for reference and value receivers" {
+    steps := IndexerOrder(new OrderLog(), "k=v")
+    assert steps.Count == 4
+    assert steps[0] == "groups"
+    assert steps[1] == "name"
+    assert steps[2] == "vector"
+    assert steps[3] == "lane"
+}
+
+test "a generator yields through a referenced type's indexer, for reference and value receivers" {
+    keys := new List<string>(PairKeys("a=1;bb=2"))
+    assert keys.Count == 2
+    assert keys[0] == "a"
+    assert keys[1] == "bb"
+
+    values := new int[](Vector<int>.Count)
+    values[1] = 42
+    log := new OrderLog()
+    lanes := new List<int>(LanesThenOrder(log, values))
+    assert lanes.Count == 2
+    assert lanes[0] == 42
+    assert lanes[1] == 3
+    assert log.Steps.Count == 2
+    assert log.Steps[0] == "vector"
+    assert log.Steps[1] == "lane"
+}
+
+test "a source constructor takes its arguments through a referenced type's indexer" {
+    leaf := LeafFromPair("key=four")
+    assert leaf.Tag == "key"
+    assert leaf.Size == 4
+}
+
+test "a lambda whose body is a referenced type's indexer read infers its delegate from it" {
+    names := new List<string>()
+    names.Add("value")
+    names.Add("key")
+    groups := GroupsNamed("id=seven", names)
+    assert groups.Count == 2
+    assert groups[0].Value == "seven"
+    assert groups[1].Value == "id"
+}
+
+test "a generator reads an indexer its receiver inherits from a referenced base" {
+    tags := new Tags()
+    tags.Add("first")
+    tags.Add("last")
+    read := new List<string>(TagsThenLast(tags))
+    assert read.Count == 2
+    assert read[0] == "first"
+    assert read[1] == "last!"
 }

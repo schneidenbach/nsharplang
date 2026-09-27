@@ -2,7 +2,10 @@ namespace NSharpLang.CensusChainedMemberArgument.Tests
 
 import System
 import System.Collections.Generic
+import System.Linq
+import System.Numerics
 import System.Text
+import System.Text.RegularExpressions
 
 // A MEMBER READ WHOSE RECEIVER IS ITSELF A MEMBER READ, IN ARGUMENT POSITION.
 //
@@ -187,4 +190,106 @@ func OuterHopReadCount(): int {
     builder := new StringBuilder()
     builder.Append(counter.Inner.Value)
     return counter.Reads
+}
+
+// A HOP THROUGH AN INDEXER A REFERENCED TYPE DECLARES. `match.Groups["id"]` is `GroupCollection`'s
+// own `get_Item(string)`, not one of the collections the element hop above reads by name, and it
+// EMITTED as a local's initializer while it could not be TYPED before emission: the call taking it
+// as an argument then had nothing to choose an overload with and declined as "not modeled". Both
+// selectors the type declares (a name and a group number), a chain of two indexers, an overload set
+// chosen by the indexed member's `bool`, and a VALUE-TYPE receiver (`Vector<int>`, whose instance
+// member takes an address) are the shapes an author writes.
+func PairPattern(): string {
+    return "(?<key>\\w+)=(?<value>[^;]*)"
+}
+
+func NamedGroupWordCount(input: string): int {
+    found := Regex.Match(input, PairPattern())
+    return Regex.Matches(found.Groups["value"].Value, "\\w+").Count
+}
+
+func NumberedGroupWordCount(input: string): int {
+    found := Regex.Match(input, PairPattern())
+    return Regex.Matches(found.Groups[2].Value, "\\w+").Count
+}
+
+func SecondPairKey(input: string): string {
+    pairs := Regex.Matches(input, PairPattern())
+    return string.Concat(pairs[1].Groups["key"].Value, "!")
+}
+
+func GroupMatched(input: string, name: string): string {
+    builder := new StringBuilder()
+    builder.Append(Regex.Match(input, PairPattern()).Groups[name].Success)
+    return builder.ToString()
+}
+
+func LaneOrFloor(values: int[], lane: int, floor: int): int {
+    return Math.Max(new Vector<int>(values)[lane], floor)
+}
+
+// The receiver of the indexer is evaluated before its selector, and both before the call they are
+// an argument to, for a REFERENCE receiver and for a VALUE one alike.
+func IndexerOrder(log: OrderLog, input: string): List<string> {
+    Regex.Matches(LoggedGroups(log, input)[LoggedGroupName(log)].Value, "\\w+")
+    Math.Max(LoggedVector(log)[LoggedLane(log)], 0)
+    return log.Steps
+}
+
+func LoggedGroups(log: OrderLog, input: string): GroupCollection {
+    log.Note("groups")
+    return Regex.Match(input, PairPattern()).Groups
+}
+
+func LoggedGroupName(log: OrderLog): string {
+    log.Note("name")
+    return "value"
+}
+
+func LoggedVector(log: OrderLog): Vector<int> {
+    log.Note("vector")
+    return new Vector<int>(3)
+}
+
+func LoggedLane(log: OrderLog): int {
+    log.Note("lane")
+    return 0
+}
+
+// THE SAME HOPS WHERE THERE IS NO RESIDUAL EMITTER ARM TO FALL BACK TO. A generator's body and a
+// source constructor's arguments are planned whole, so an indexer hop the planner cannot read stops
+// the function: `yield found.Groups["key"].Value` declined the generator at
+// `emit.iterator.unsupported-shape` while `yield found.Value` emitted.
+func* PairKeys(input: string): IEnumerable<string> {
+    for pair in Regex.Matches(input, PairPattern()) {
+        yield pair.Groups["key"].Value
+    }
+}
+
+func* LanesThenOrder(log: OrderLog, values: int[]): IEnumerable<int> {
+    yield new Vector<int>(values)[1]
+    yield LoggedVector(log)[LoggedLane(log)]
+}
+
+func LeafFromPair(input: string): Leaf {
+    found := Regex.Match(input, PairPattern())
+    return new Leaf(found.Groups["key"].Value, found.Groups["value"].Length)
+}
+
+// A LAMBDA WHOSE BODY IS THE INDEXER READ. Its delegate's return type is inferred by typing the body
+// before it is emitted, so `Select(name => found.Groups[name])` declined at the `Select` call while a
+// body ending in `.Value` — a different root — did not.
+func GroupsNamed(input: string, names: List<string>): List<Group> {
+    found := Regex.Match(input, PairPattern())
+    return names.Select(name => found.Groups[name]).ToList()
+}
+
+// AN INDEXER THE RECEIVER INHERITS. `Tags` declares no `get_Item`; it IS a `List<string>`, so `tags[0]`
+// reads the base's indexer with the derived receiver, in a generator's body as anywhere else.
+class Tags: List<string> {
+}
+
+func* TagsThenLast(tags: Tags): IEnumerable<string> {
+    yield tags[0]
+    yield string.Concat(tags[tags.Count - 1], "!")
 }

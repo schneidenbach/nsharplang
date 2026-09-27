@@ -3209,12 +3209,13 @@ so nothing there changed.
 **The emitter's one base walk.** `ColumnarInheritedExternalBase` is the single owner: given a
 `ColumnarStructDef` (or a receiver `Type`) it walks `BaseDef`/`ExactBaseType` to the terminal
 external base, substituting each link's type arguments as it descends, and answers nothing for a
-chain that ends at the implicit `System.Object`. Five call sites use it and no other walk exists:
+chain that ends at the implicit `System.Object`. Six call sites use it and no other walk exists:
 
 | Site | What it answers |
 | --- | --- |
 | `ColumnarInstanceMemberPlanner.TrySelectSourceDefinition` | a property or field read past the source chain |
 | `ColumnarIlEmitter.IndexerLookupType` | which type's `get_Item`/`set_Item` a `[...]` names |
+| `ColumnarRangeIndexPlanner.PlanRuntimeIndexerRead` | the same `get_Item` for a PLANNED value — an argument, a member receiver, a generator body |
 | `ColumnarIlEmitter.TryEmitInstanceCall` | a call with a LAMBDA argument, which the direct-call planner yields |
 | `ColumnarIlEmitter.TryEmitExplicitGenericExternalCall` | a call with EXPLICIT type arguments |
 | `ColumnarDirectCallPlanner.ResolveExternalRuntimeBase` | the pre-existing bare/`base.` call arms, now delegating |

@@ -19930,19 +19930,8 @@ sealed class ColumnarIlEmitter {
     // BCL's own -- `Vector<T>`'s indexer raises IndexOutOfRangeException, and nothing here intercepts it.
     private func TryEmitRuntimeIndexerRead(idx: int, receiverType: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) || receiverType.IsArray || receiverType.IsByRef || receiverType.IsPointer || receiverType.IsGenericParameter) {
-            return false
-        }
-        indexType: System.Type? = null
-        if (!TryGetPreflightExpressionType(Child(idx, 1), out indexType)) {
-            return false
-        }
-
-        argumentTypes := new System.Type[](1)
-        argumentTypes[0] = indexType
-        lookupType := IndexerLookupType(receiverType)
-        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(lookupType, "get_Item", argumentTypes, false)
-        if (!selection.IsSelected || selection.Method == null) {
+        selection := SelectRuntimeIndexerRead(idx, receiverType)
+        if (selection == null) {
             return false
         }
 
@@ -19963,6 +19952,28 @@ sealed class ColumnarIlEmitter {
         }
         resolvedClrType = selection.ReturnType
         return true
+    }
+
+    // THE `get_Item` AN EXTERNAL INDEXER READ BINDS, chosen WITHOUT emitting anything: the emission
+    // arm above writes the call it names, and the preflight `IndexAccessExpression` arm answers its
+    // return type. One owner, so what preflight promises and what the emitter writes cannot disagree.
+    // Null is "this tier does not serve the read".
+    private func SelectRuntimeIndexerRead(idx: int, receiverType: Type): ColumnarOrdinaryRuntimeDirectCallSelection? {
+        if (receiverType == null || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) || receiverType.IsArray || receiverType.IsByRef || receiverType.IsPointer || receiverType.IsGenericParameter) {
+            return null
+        }
+        indexType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(idx, 1), out indexType)) {
+            return null
+        }
+
+        argumentTypes := new System.Type[](1)
+        argumentTypes[0] = indexType
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(IndexerLookupType(receiverType), "get_Item", argumentTypes, false)
+        if (!selection.IsSelected || selection.Method == null) {
+            return null
+        }
+        return selection
     }
 
     private func TryEmitRuntimeUserDefinedBinary(idx: int, op: string, out resolvedClrType: Type): bool {
@@ -23210,6 +23221,19 @@ sealed class ColumnarIlEmitter {
                 }
                 columnarResolvedType = spanElementType
                 return true
+            }
+            // AN INDEXER DECLARED BY AN EXTERNAL TYPE, the twin of `TryEmitRuntimeIndexerRead` and at
+            // the same place in the ladder: after every shape an arm above owns (a `Span<T>` read is the
+            // emitter's own lowering, never this tier), before the array read. Without it the read
+            // EMITTED but could not be TYPED, so every caller that types its arguments before it
+            // selects an overload refused it: `Regex.Matches(m.Groups["x"].Value, p)` declined at
+            // `emit.call.static-member-unmodeled` while the same read bound to a local first emitted.
+            if (!ColumnarTypeOfPlanner.IsSupportedSpanType(indexedType)) {
+                runtimeIndexerRead := SelectRuntimeIndexerRead(node, indexedType)
+                if (runtimeIndexerRead != null) {
+                    columnarResolvedType = runtimeIndexerRead.ReturnType
+                    return true
+                }
             }
             let arrayIndexType: System.Type? = null
             if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(indexedType) || !TryGetPreflightExpressionType(indexNode, out arrayIndexType)) {

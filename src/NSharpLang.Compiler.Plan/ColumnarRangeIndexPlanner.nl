@@ -935,13 +935,18 @@ class ColumnarRangeIndexPlanner {
         isString := indexedType == typeof(string)
         indexerParameterType := typeof(int)
         isIndexedCollection := TryGetOrdinaryIndexerParameterType(indexedType, out indexerParameterType)
-        if !isString && !isIndexedCollection && !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(indexedType) {
+        isRuntimeIndexer := !isString && !isIndexedCollection && !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(indexedType)
+        if isRuntimeIndexer && (!allowOrdinaryIntIndex || !CanPlanRuntimeIndexerReceiver(indexedType)) {
             return false
         }
 
         accessType := typeof(int)
         if !TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 1), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out accessType, out nestedOwnership) {
             return false
+        }
+
+        if isRuntimeIndexer {
+            return PlanRuntimeIndexerRead(plan, indexedType, accessType, bindings, out resultType)
         }
 
         // An indexed COLLECTION exposes only its ordinary `get_Item` indexer — it has no Index/Range
@@ -1028,6 +1033,62 @@ class ColumnarRangeIndexPlanner {
 
         methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, selection.IsAbstract)
         if selection.ReceiverIsReference {
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
+        } else {
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+        }
+
+        resultType = selection.ReturnType
+        return true
+    }
+
+    // AN INDEXER DECLARED BY AN EXTERNAL TYPE — `match.Groups["id"]`, `v[i]` on `Vector<int>` — read
+    // as the ordinary instance call `get_Item` it is, the plan-side twin of the emitter's
+    // `TryEmitRuntimeIndexerRead`. Without it a call ARGUMENT or member RECEIVER written through such
+    // an indexer could not be typed here, so every call taking one fell out of this planner:
+    // `Console.WriteLine(m.Groups["id"].Success)` declined while the same read bound to a local
+    // first emitted. The shapes this planner already lowers by name (string, the admitted
+    // collections, arrays) never reach it, and neither does a `Span<T>`-family receiver, whose
+    // `get_Item` returns a reference the emitter owns the lowering of.
+    static func CanPlanRuntimeIndexerReceiver(receiverType: Type): bool {
+        return receiverType != null && !receiverType.IsArray && !receiverType.IsByRef && !receiverType.IsPointer && !receiverType.IsGenericParameter && !ColumnarTypeOfPlanner.IsSupportedSpanLikeType(receiverType)
+    }
+
+    // The receiver and the selector are already on the stack, in written order. The selector is
+    // converted to the parameter the selected `get_Item` declares; a VALUE receiver is then parked
+    // behind it and re-loaded by address, because an instance member of a struct takes a managed
+    // pointer — the selector is spilled first so the written left-to-right order is the one that ran.
+    static func PlanRuntimeIndexerRead(plan: ColumnarCodePlan, receiverType: Type, selectorType: Type, bindings: ColumnarFragmentBindings, out resultType: Type): bool {
+        resultType = typeof(int)
+        lookupType := ColumnarInheritedExternalBase.ResolveForReceiver(receiverType, bindings.SourceTypeDefinitions) ?? receiverType
+        if lookupType is TypeBuilder {
+            return false
+        }
+
+        indexerArguments := new Type[](1)
+        indexerArguments[0] = selectorType
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(lookupType, "get_Item", indexerArguments, false)
+        method := selection.Method
+        if !selection.IsSelected || method == null || selection.ReturnType.IsByRef || selection.ReturnType.IsPointer || selection.ReturnType == typeof(void) {
+            return false
+        }
+
+        parameterType := selection.ParameterTypes[0]
+        if !ColumnarDirectCallPlanner.AppendArgumentConversion(plan, selectorType, parameterType, bindings.SourceTypeDefinitions) {
+            return false
+        }
+
+        if !selection.ReceiverIsReference {
+            selectorLocal := DeclarePlanLocal(plan, parameterType)
+            receiverLocal := DeclarePlanLocal(plan, receiverType)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), selectorLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), receiverLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), receiverLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), selectorLocal)
+        }
+
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, selection.IsAbstract)
+        if selection.UsesCallVirtual {
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
         } else {
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
