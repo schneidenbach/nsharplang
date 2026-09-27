@@ -4,22 +4,11 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Linq
-import System.Net.Http
-import System.Text
-import System.Text.Json
-import System.Text.RegularExpressions
-import System.Threading
-import System.Threading.Tasks
+import System.Reflection
+import System.Runtime.InteropServices
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.Columnar
 
-
-// THE IMPORTS ABOVE ARE PART OF THE FIXTURE. `LnieDeclares` resolves against the assemblies this test
-// host has LOADED, so a namespace no code in the estate mentions would answer "declares nothing" and
-// the fixture would credit nothing for its names. Naming them here is what loads them.
-func LnieLoadedNamespaceAnchors(): int {
-    return typeof(StringBuilder).Name.Length + typeof(Regex).Name.Length + typeof(HttpClient).Name.Length + typeof(JsonSerializer).Name.Length + typeof(CancellationToken).Name.Length + typeof(Task).Name.Length + typeof(File).Name.Length
-}
 
 // CONTRACTS FOR WHAT MAKES A NAMESPACE IMPORT USED.
 //
@@ -39,7 +28,6 @@ func LnieLoadedNamespaceAnchors(): int {
 // THE ARITHMETIC THAT PRODUCES THE CREDIT IS PINNED TOO, at the bottom. It is the one piece of the
 // rule that can be wrong in a way nothing else would notice, and it is what makes a FULLY QUALIFIED
 // spelling credit nothing at all — the fact behind both of the census's `import System` findings.
-
 func LniuFacts(supplied: string[]): ImportUsageFacts {
     facts := new ImportUsageFacts()
     index := 0
@@ -291,7 +279,7 @@ func LnieCandidateNamespaces(source: string): List<string> {
     return candidates
 }
 
-// Does any loaded assembly declare `<namespace>.<name>`, at any arity a source might write, under
+// Does the shared framework declare `<namespace>.<name>`, at any arity a source might write, under
 // either of an attribute's two legal spellings?
 func LnieDeclares(namespaceName: string, name: string): bool {
     if LnieDeclaresExactly(namespaceName, name) {
@@ -390,21 +378,63 @@ func LnieCalledMemberNames(source: string): List<string> {
 }
 
 func LnieTypeExists(fullName: string): bool {
-    if Type.GetType(fullName) != null {
-        return true
+    return LnieFrameworkTypes.Declares(fullName)
+}
+
+// THE FIXTURE ASKS THE SHARED FRAMEWORK ON DISK, NEVER WHAT THIS TEST HOST HAPPENS TO HAVE LOADED.
+//
+// It used to ask `Type.GetType` and then every assembly in `AppDomain.CurrentDomain`, which answers
+// only for an assembly something in the process has ALREADY loaded. That is not a property of the
+// source under test; it is a property of the host and of the ORDER its rows ran in. Under Core's estate
+// hundreds of rows had loaded `System.Text.Json` long before the linter rows ran. Carved into
+// CodeIntel's own, much smaller host, the typeof-an-ENUM row
+// (`import System.Text.Json` + `typeof(JsonValueKind)`) passed only when a parallel collection happened
+// to load the assembly first: MEASURED, it failed alone on every machine and failed in the whole estate
+// on a Linux CI runner while passing on a laptop. An unloaded assembly declared "nothing", the fixture
+// credited nothing, and a live import was reported dead.
+//
+// The analyzer does not read its host's load list either: it resolves framework names from the
+// runtime directory through a `MetadataLoadContext` (`AnalyzerMetadataLoadSurface`). The fixture now
+// reads the same directory through the product's own context constructor
+// (`ExternalAssemblyScan.CreateMetadataLoadContext`), once, into a set of exported type names. The
+// answer is the same whichever assembly hosts the rows and whichever rows ran before.
+class LnieFrameworkTypes {
+    private static readonly s_exportedTypeNames: HashSet<string> = LnieFrameworkTypes.ReadExportedTypeNames()
+
+    static func Declares(fullName: string): bool {
+        return s_exportedTypeNames.Contains(fullName)
     }
 
-    assemblies := AppDomain.CurrentDomain.GetAssemblies()
-    index := 0
-    while index < assemblies.Length {
-        if assemblies[index].GetType(fullName) != null {
-            return true
+    static func ReadExportedTypeNames(): HashSet<string> {
+        names := new HashSet<string>(StringComparer.Ordinal)
+        paths := Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll")
+        context := ExternalAssemblyScan.CreateMetadataLoadContext(paths)
+        try {
+            for path in paths {
+                LnieFrameworkTypes.AddExportedTypeNames(names, context, path)
+            }
+        } finally {
+            context.Dispose()
         }
 
-        index = index + 1
+        return names
     }
 
-    return false
+    // A runtime directory also carries NATIVE images (`clrjit.dll` and friends on Windows), which have
+    // no metadata to read. They declare no managed type, so they add nothing — which is the same
+    // answer the analyzer's resolver gives them.
+    static func AddExportedTypeNames(names: HashSet<string>, context: MetadataLoadContext, path: string) {
+        try {
+            exportedTypes := context.LoadFromAssemblyPath(path).GetExportedTypes()
+            index := 0
+            while index < exportedTypes.Length {
+                names.Add(exportedTypes[index].FullName ?? "")
+                index = index + 1
+            }
+        } catch ex: BadImageFormatException {
+            return
+        }
+    }
 }
 
 func LnieFacts(source: string): ImportUsageFacts {

@@ -995,6 +995,21 @@ test "NL010 counts a typeof operand that names an ENUM as usage" {
     assert LntCountOf(LntLint("import System.Text.Json\n\nclass R {\n    func Run() {\n        t := typeof(JsonValueKind)\n    }\n}"), "NL010") == 0
 }
 
+test "NL010's fixture resolves a namespace whose assembly THIS HOST NEVER LOADS" {
+    // Regression for the Linux-only red above (CI run 36192302797): the fixture answered from the
+    // assemblies the test host had already loaded, so the ENUM row passed or failed with test order.
+    // Nothing this host references loads System.ComponentModel.Annotations (MEASURED: `System.IO.Pipes`,
+    // `System.IO.Compression` and `System.Xml.Linq` ARE loaded by the time these rows run, so they
+    // cannot be the probe), and under that reading this row failed on every machine. Resolved against
+    // the shared framework on disk it is the answer the analyzer gives: the CLI's own `nlc lint`
+    // reports this file clean and the file without the typeof operand NL010.
+    assert LntCountOf(LntLint("import System.ComponentModel.DataAnnotations\n\nclass R {\n    func Run() {\n        t := typeof(DataType)\n    }\n}"), "NL010") == 0
+
+    // REMOVAL CONTROL: the same file without the typeof operand reports the import, so the row above
+    // is a credit for `PipeDirection` and not a fixture that credits everything.
+    assert LntCountOf(LntLint("import System.ComponentModel.DataAnnotations\n\nclass R {\n    func Run() {\n        t := 5\n    }\n}"), "NL010") == 1
+}
+
 test "NL010 counts a POSITIONAL parameter's declared type as usage" {
     assert LntCountOf(LntLint("import System.Collections.Generic\n\nrecord Foo(items: List<int>)"), "NL010") == 0
 }
