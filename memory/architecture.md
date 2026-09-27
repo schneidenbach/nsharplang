@@ -408,6 +408,17 @@ What the carve is:
 - the committed seed does not name Emit in its emit-only switch, so until the next republish it
   compiles Emit WITH analysis, product and rows (and warns NU1504 for the runtime pair its older
   `Sdk.props` still adds); Emit's zero front door is what lets that analysis pass.
+Measured edit -> test (`./scripts/dev.sh --estate ColumnarLambdaStatementBodyTests`, a one-line body
+edit of `ColumnarIlEmitter.nl` and its revert, after a warm run, with other sessions' builds on the box
+(load average 8-10)): **257 / 235 s** on the pre-carve tree and the committed seed (`fde28e9e6`) --
+Core's own and tests-included emits -- **295 / 262 s** on the carve and that same committed seed
+(which compiles Emit WITH analysis: its emit-only switch predates Emit, and the analyzer walks the
+31k-line emitter every time), and **94 / 99 s** on a scratch stage-2 seed packed from the carve. An
+Emit body edit re-emits Emit and what sits above it (CodeIntel, Tooling, Driver and the facade
+product-only for the CLI, 38 s of the cycle, Emit tests-included for its rows); Syntax and Core answer
+"no row matches" without re-emitting. The split plan's ~14 s is not reached: it assumes the
+reference-assembly work (R1-R3: the emit target keyed on byte-stable reference assemblies), without
+which every dependent re-emits on a body edit.
 
 ## Data Flow
 
