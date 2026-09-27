@@ -177,43 +177,45 @@ func ParseColumnarProductFunctionSignatureInfoInto(source: string, tokenKinds: i
 }
 
 func ParseColumnarFunctionSignatureOnlyInfoCore(source: string, tokens: ColumnarFunctionTokenTable, funcIndex: int, signatureOutputs: ColumnarFunctionSignatureOutputTable, result: ColumnarFunctionResultTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, tokens.Count, funcIndex)
     if result.Values.Length < 6 {
         return -1
     }
 
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.ReturnLabeledTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
-    typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
-    nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
-    children := new ParserChildIndexTable(new int[](tokens.Count + 1))
+    typeStack := new ParserArgumentStack(new int[](declarationCapacity))
+    nodes := new ParserNodeTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    children := new ParserChildIndexTable(new int[](declarationCapacity))
     canonicalNodes := new TypeReferenceCanonicalTable(nodes.Kinds, nodes.ValueStarts, nodes.ValueLengths, nodes.ChildStart, nodes.ChildCount, children.Indices)
-    parameters := new ParserFunctionParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
-    typeParams := new ParserFunctionTypeParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1))
-    whereItems := new ParserFunctionWhereTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    parameters := new ParserFunctionParameterTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    typeParams := new ParserFunctionTypeParameterTable(new int[](declarationCapacity), new int[](declarationCapacity))
+    whereItems := new ParserFunctionWhereTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
     functionSignatureResult := new ParserResultTable(new int[](8))
-    ownerIndices := new FunctionSignatureOwnerIndexTable(new int[](tokens.Count + 1))
-    tupleNames := new FunctionSignatureTupleNameScratchTable(new string[](tokens.Count + 1))
+    ownerIndices := new FunctionSignatureOwnerIndexTable(new int[](declarationCapacity))
+    tupleNames := new FunctionSignatureTupleNameScratchTable(new string[](declarationCapacity))
     signatureResult := new ParserResultTable(result.Values)
     return ParseFunctionSignatureInfoCore(source, signatureTokens, tokens.Count, funcIndex, signatureOutput, typeStack, nodes, children, canonicalNodes, parameters, typeParams, whereItems, functionSignatureResult, ownerIndices, tupleNames, signatureResult)
 }
 
 func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionTokenTable, funcIndex: int, isLocalFunction: int, signatureOutputs: ColumnarFunctionSignatureOutputTable, body: ColumnarFunctionBodyTable, locals: ColumnarFunctionLocalTable, result: ColumnarFunctionResultTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, tokens.Count, funcIndex)
     if result.Values.Length < 9 {
         return -1
     }
 
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.ReturnLabeledTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
-    typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
-    nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
-    children := new ParserChildIndexTable(new int[](tokens.Count + 1))
+    typeStack := new ParserArgumentStack(new int[](declarationCapacity))
+    nodes := new ParserNodeTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    children := new ParserChildIndexTable(new int[](declarationCapacity))
     canonicalNodes := new TypeReferenceCanonicalTable(nodes.Kinds, nodes.ValueStarts, nodes.ValueLengths, nodes.ChildStart, nodes.ChildCount, children.Indices)
-    parameters := new ParserFunctionParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
-    typeParams := new ParserFunctionTypeParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1))
-    whereItems := new ParserFunctionWhereTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    parameters := new ParserFunctionParameterTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    typeParams := new ParserFunctionTypeParameterTable(new int[](declarationCapacity), new int[](declarationCapacity))
+    whereItems := new ParserFunctionWhereTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
     functionSignatureResult := new ParserResultTable(new int[](8))
-    ownerIndices := new FunctionSignatureOwnerIndexTable(new int[](tokens.Count + 1))
-    tupleNames := new FunctionSignatureTupleNameScratchTable(new string[](tokens.Count + 1))
+    ownerIndices := new FunctionSignatureOwnerIndexTable(new int[](declarationCapacity))
+    tupleNames := new FunctionSignatureTupleNameScratchTable(new string[](declarationCapacity))
     signatureResult := new ParserResultTable(new int[](6))
     paramCount := ParseFunctionSignatureInfoCore(source, signatureTokens, tokens.Count, funcIndex, signatureOutput, typeStack, nodes, children, canonicalNodes, parameters, typeParams, whereItems, functionSignatureResult, ownerIndices, tupleNames, signatureResult)
     if paramCount < 0 {
@@ -276,8 +278,9 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
 }
 
 func ParseColumnarFunctionBodyNodesCore(source: string, tokens: ColumnarFunctionTokenTable, bodyBrace: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, tokens.Count, bodyBrace)
     statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
+    argStack := new ParserArgumentStack(new int[](declarationCapacity))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     statementResult := new ParserResultTable(result.Values)
@@ -287,12 +290,13 @@ func ParseColumnarFunctionBodyNodesCore(source: string, tokens: ColumnarFunction
 // AN EXPRESSION BODY AS A BODY NODE. `returnsVoid` chooses which statement the expression becomes:
 // a ReturnStatement (kind 20) carrying the value, or an ExpressionStatement (kind 23) performing it.
 func ParseColumnarFunctionExpressionBodyNodesCore(source: string, tokens: ColumnarFunctionTokenTable, arrowIndex: int, returnsVoid: bool, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, tokens.Count, arrowIndex)
     if arrowIndex < 0 || arrowIndex >= tokens.Count || tokens.Kinds[arrowIndex] != 120 || result.Values.Length < 2 {
         return -1
     }
 
     expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
+    argStack := new ParserArgumentStack(new int[](declarationCapacity))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     st := new ParserState(arrowIndex + 1, 0, 0, 0, 0, 0)
@@ -363,6 +367,7 @@ func ParseColumnarConstructorInfoInto(source: string, tokenKinds: int[], tokenSt
 }
 
 func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructorTokenTable, ctorIndex: int, signatureOutputs: ColumnarConstructorSignatureOutputTable, body: ColumnarConstructorBodyTable, result: ColumnarConstructorResultTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, tokens.Count, ctorIndex)
     if result.Values.Length < 6 {
         return -1
     }
@@ -373,13 +378,13 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
 
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     signatureOutput := new ConstructorSignatureOutputTable(signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.ArgKinds, signatureOutputs.ArgStarts, signatureOutputs.ArgLengths, signatureOutputs.ArgTexts)
-    typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
-    nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
-    children := new ParserChildIndexTable(new int[](tokens.Count + 1))
+    typeStack := new ParserArgumentStack(new int[](declarationCapacity))
+    nodes := new ParserNodeTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    children := new ParserChildIndexTable(new int[](declarationCapacity))
     canonicalNodes := new TypeReferenceCanonicalTable(nodes.Kinds, nodes.ValueStarts, nodes.ValueLengths, nodes.ChildStart, nodes.ChildCount, children.Indices)
-    parameters := new ParserFunctionParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
-    typeParams := new ParserFunctionTypeParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1))
-    whereItems := new ParserFunctionWhereTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    parameters := new ParserFunctionParameterTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    typeParams := new ParserFunctionTypeParameterTable(new int[](declarationCapacity), new int[](declarationCapacity))
+    whereItems := new ParserFunctionWhereTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
     functionSignatureResult := new ParserResultTable(new int[](8))
     signatureResult := new ParserResultTable(new int[](4))
     paramCount := ParseConstructorSignatureInfoCore(source, signatureTokens, tokens.Count, ctorIndex, signatureOutput, typeStack, nodes, children, canonicalNodes, parameters, typeParams, whereItems, functionSignatureResult, signatureResult)
@@ -885,8 +890,9 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
 }
 
 func ParseColumnarConstructorBodyNodesCore(source: string, tokens: ColumnarConstructorTokenTable, bodyBrace: int, body: ColumnarConstructorBodyTable, result: ColumnarConstructorResultTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, tokens.Count, bodyBrace)
     statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
+    argStack := new ParserArgumentStack(new int[](declarationCapacity))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     statementResult := new ParserResultTable(result.Values)

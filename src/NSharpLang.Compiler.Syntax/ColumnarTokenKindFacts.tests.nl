@@ -171,3 +171,47 @@ test "a function or getter body opens with `{` or `=>`; a constructor or setter 
     assert !ColumnarTokenKindFacts.IsSupportedBlockBodyStartKind(Convert.ToInt32(TokenType.RightBrace))
     assert !ColumnarTokenKindFacts.IsSupportedBlockBodyStartKind(-1)
 }
+
+test "the bracket ordinals a declaration's extent is balanced over are the members and spellings they claim" {
+    assert Convert.ToInt32(TokenType.Func) == ColumnarTokenKindFacts.FuncKind
+    assert Convert.ToInt32(TokenType.LeftParen) == ColumnarTokenKindFacts.LeftParenKind
+    assert Convert.ToInt32(TokenType.RightParen) == ColumnarTokenKindFacts.RightParenKind
+    assert Convert.ToInt32(TokenType.RightBrace) == ColumnarTokenKindFacts.RightBraceKind
+    assert Convert.ToInt32(TokenType.LeftBracket) == ColumnarTokenKindFacts.LeftBracketKind
+    assert Convert.ToInt32(TokenType.RightBracket) == ColumnarTokenKindFacts.RightBracketKind
+    assert Convert.ToInt32(TokenType.QuestionBracket) == ColumnarTokenKindFacts.QuestionBracketKind
+
+    assert ColumnarTokenKindFacts.FuncKind == 7
+    assert ColumnarTokenKindFacts.LeftParenKind == 127
+    assert ColumnarTokenKindFacts.RightParenKind == 128
+    assert ColumnarTokenKindFacts.RightBraceKind == 130
+    assert ColumnarTokenKindFacts.LeftBracketKind == 131
+    assert ColumnarTokenKindFacts.RightBracketKind == 132
+    assert ColumnarTokenKindFacts.QuestionBracketKind == 119
+
+    assert TokenKindFactsColumnarKindOf("func") == ColumnarTokenKindFacts.FuncKind
+    assert TokenKindFactsColumnarKindOf("(") == ColumnarTokenKindFacts.LeftParenKind
+    assert TokenKindFactsColumnarKindOf(")") == ColumnarTokenKindFacts.RightParenKind
+    assert TokenKindFactsColumnarKindOf("}") == ColumnarTokenKindFacts.RightBraceKind
+    assert TokenKindFactsColumnarKindOf("[") == ColumnarTokenKindFacts.LeftBracketKind
+    assert TokenKindFactsColumnarKindOf("]") == ColumnarTokenKindFacts.RightBracketKind
+    assert TokenKindFactsColumnarKindOf("?[") == ColumnarTokenKindFacts.QuestionBracketKind
+
+    // `?[` is ONE token that opens a `[`...`]` pair: leaving it out of the openers closed a level
+    // early and cut every extent past an `items?[0]` short.
+    for opener in ["(", "{", "[", "?["] {
+        assert ColumnarTokenKindFacts.IsOpeningBracketKind(TokenKindFactsColumnarKindOf(opener)), opener
+        assert !ColumnarTokenKindFacts.IsClosingBracketKind(TokenKindFactsColumnarKindOf(opener)), opener
+    }
+    for closer in [")", "}", "]"] {
+        assert ColumnarTokenKindFacts.IsClosingBracketKind(TokenKindFactsColumnarKindOf(closer)), closer
+        assert !ColumnarTokenKindFacts.IsOpeningBracketKind(TokenKindFactsColumnarKindOf(closer)), closer
+    }
+
+    // `<` and `>` delimit type arguments but are also comparison operators, so they are not brackets;
+    // `?.` and `=>` are their neighbours in the table.
+    for other in ["<", ">", "?.", "=>", "func"] {
+        assert !ColumnarTokenKindFacts.IsOpeningBracketKind(TokenKindFactsColumnarKindOf(other)), other
+        assert !ColumnarTokenKindFacts.IsClosingBracketKind(TokenKindFactsColumnarKindOf(other)), other
+    }
+}

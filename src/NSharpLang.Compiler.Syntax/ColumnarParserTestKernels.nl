@@ -605,6 +605,10 @@ func ParseColumnarTestInfoInto(source: string, rawTokenKinds: int[], rawTokenSta
         return -1
     }
 
+    // A table row is parsed together with its HEAD (the declared names) and the body, so the whole
+    // declaration from the `test` keyword is the extent, whichever entry was recorded.
+    declarationCapacity := ColumnarDeclarationScratchCapacity(rawTokenKinds, rawCount, headIndex)
+
     descIndex := TestDescriptionIndexAt(declTokens, rawCount, headIndex)
     if descIndex < 0 {
         return -1
@@ -616,7 +620,7 @@ func ParseColumnarTestInfoInto(source: string, rawTokenKinds: int[], rawTokenSta
     outResult[5] = 0
 
     statementTokens := new ParserTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths, source)
-    argStack := new ParserArgumentStack(new int[](rawCount + 1))
+    argStack := new ParserArgumentStack(new int[](declarationCapacity))
     nodes := new ParserExpressionNodeTable(bodyKinds, bodyValueStarts, bodyValueLengths, bodyChildStarts, bodyChildCounts, bodySpanStarts, bodySpanLengths)
     children := new ParserChildIndexTable(bodyChildIndices)
     if caseIndex < 0 {
@@ -632,6 +636,22 @@ func ParseColumnarTestInfoInto(source: string, rawTokenKinds: int[], rawTokenSta
     }
 
     return ParseColumnarTableTestCaseInto(source, declTokens, statementTokens, rawCount, headIndex, caseIndex, bodyBrace, argStack, nodes, children, outResult)
+}
+
+// The scratch capacity for parsing the test entry `testIndex` (`ParseColumnarTestInfoInto`), for a
+// caller that sizes the body columns it hands in: the extent of the whole declaration from its `test`
+// keyword, since a table row is lowered together with its head and the shared body.
+func ColumnarTestDeclarationScratchCapacity(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, testIndex: int): int {
+    if rawCount < 0 || testIndex < 0 || testIndex >= rawCount {
+        return rawCount + 1
+    }
+
+    entry := new int[](2)
+    if !ResolveColumnarTestCaseEntry(source, new ParserDeclarationTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths), rawCount, testIndex, entry) {
+        return rawCount + 1
+    }
+
+    return ColumnarDeclarationScratchCapacity(rawTokenKinds, rawCount, entry[0])
 }
 
 // Which declaration an entry recorded by TopLevelColumnarTestDeclarationIndicesInto belongs to.
@@ -715,15 +735,16 @@ func ResolveColumnarTestCaseEntry(source: string, tokens: ParserDeclarationToken
 // the shared body, then prepend one typed local per table parameter binding that parameter's
 // DECLARED type to the row's own expression. Returns the node count, or -1.
 func ParseColumnarTableTestCaseInto(source: string, declTokens: ParserDeclarationTokenTable, statementTokens: ParserTokenTable, rawCount: int, headIndex: int, caseIndex: int, bodyBrace: int, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, outResult: int[]): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(declTokens.Kinds, rawCount, headIndex)
     withIndex := TestTableWithIndexAt(declTokens, rawCount, headIndex)
     if withIndex < 0 {
         return -1
     }
 
-    nameStarts := new int[](rawCount + 1)
-    nameLengths := new int[](rawCount + 1)
-    typeStarts := new int[](rawCount + 1)
-    typeLengths := new int[](rawCount + 1)
+    nameStarts := new int[](declarationCapacity)
+    nameLengths := new int[](declarationCapacity)
+    typeStarts := new int[](declarationCapacity)
+    typeLengths := new int[](declarationCapacity)
     parameterCount := TestTableParameterSpansInto(declTokens, rawCount, withIndex, nameStarts, nameLengths, typeStarts, typeLengths)
     if parameterCount <= 0 {
         return -1

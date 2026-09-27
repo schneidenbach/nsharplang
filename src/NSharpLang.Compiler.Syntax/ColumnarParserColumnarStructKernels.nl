@@ -105,9 +105,10 @@ class ColumnarStructResultTable {
 // the text/count rows needed by the columnar input builder.
 
 func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, isReference: int, isRecord: int, outFieldNameTexts: string[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitTexts: string[], outFieldDeclTokens: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamTexts: string[], outBaseNameTexts: string[], outStructNameTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[], outStaticInitNodeKinds: int[], outStaticInitValueStarts: int[], outStaticInitValueLengths: int[], outStaticInitChildStart: int[], outStaticInitChildCount: int[], outStaticInitChildIndices: int[], outStaticInitSpanStarts: int[], outStaticInitSpanLengths: int[], outStaticInitResult: int[]): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokenKinds, count, structIndex)
     tokens := new ColumnarStructTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    whereScratch := new ParserDeclarationWhereTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    scratch := new ColumnarStructScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), whereScratch)
+    whereScratch := new ParserDeclarationWhereTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    scratch := new ColumnarStructScratchTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), whereScratch)
     outputs := new ColumnarStructOutputTable(outFieldNameTexts, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts, outFieldDeclTokens, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags, outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts)
     result := new ColumnarStructResultTable(outResult)
     staticInitializerBody := new ColumnarConstructorBodyTable(outStaticInitNodeKinds, outStaticInitValueStarts, outStaticInitValueLengths, outStaticInitChildStart, outStaticInitChildCount, outStaticInitChildIndices, outStaticInitSpanStarts, outStaticInitSpanLengths)
@@ -524,7 +525,7 @@ func ColumnarStructPropertyFlagIsInitOnly(flags: int): bool {
 
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
-    cap := (tokens.Count + 1) * 4
+    cap := ColumnarLargestDeclarationScratchCapacity(tokens.Kinds, tokens.Count, outputs.MethodFuncIndices, methodCount) * 4
     signatureOutputs := new ColumnarFunctionSignatureOutputTable(new string[](1), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap), new int[](cap), new string[](cap), new string[](cap), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap))
     body := new ColumnarFunctionBodyTable(new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap))
     locals := new ColumnarFunctionLocalTable(new int[](cap), new int[](cap))
@@ -532,7 +533,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
     methodParamCounts := new int[](methodCount + 1)
     methodParamStarts := new int[](methodCount + 1)
     methodNameTexts := new string[](methodCount + 1)
-    methodParamTypeTexts := new string[](cap)
+    methodParamTypeTexts := new string[](ColumnarAccumulatedDeclarationScratchCapacity(tokens.Kinds, tokens.Count, outputs.MethodFuncIndices, methodCount, (tokens.Count + 1) * 4))
     nextMethodParamType := 0
 
     for i := 0; i < methodCount; i++ {
@@ -634,14 +635,14 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
 
 func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, ctorCount: int, isReference: int): int {
     constructorTokens := new ColumnarConstructorTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
-    cap := (tokens.Count + 1) * 4
+    cap := ColumnarLargestDeclarationScratchCapacity(tokens.Kinds, tokens.Count, outputs.CtorIndices, ctorCount) * 4
     signatureOutputs := new ColumnarConstructorSignatureOutputTable(new string[](cap), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new int[](cap), new string[](cap))
     body := new ColumnarConstructorBodyTable(new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap))
     result := new ColumnarConstructorResultTable(new int[](6))
     localResults := new LocalFunctionResultTable(new int[](cap), new int[](cap))
     ctorParamCounts := new int[](ctorCount + 1)
     ctorParamStarts := new int[](ctorCount + 1)
-    ctorParamTypeTexts := new string[](cap)
+    ctorParamTypeTexts := new string[](ColumnarAccumulatedDeclarationScratchCapacity(tokens.Kinds, tokens.Count, outputs.CtorIndices, ctorCount, (tokens.Count + 1) * 4))
     nextCtorParamType := 0
 
     for i := 0; i < ctorCount; i++ {

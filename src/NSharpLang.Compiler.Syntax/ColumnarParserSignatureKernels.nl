@@ -512,6 +512,7 @@ func FunctionSignatureDefaultDottedNameText(source: string, tokens: ParserTokenT
 }
 
 func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable, count: int, funcIndex: int, outputs: FunctionSignatureInfoOutputTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, count, funcIndex)
     if funcIndex < 0 || funcIndex >= count || (tokens.Kinds[funcIndex] != 7 && tokens.Kinds[funcIndex] != 85 && tokens.Kinds[funcIndex] != 86) {
         return -1
     }
@@ -550,9 +551,9 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
 
     pos = pos + 1
 
-    typeStack := new ParserArgumentStack(new int[](count + 1))
-    nodes := new ParserNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    children := new ParserChildIndexTable(new int[](count + 1))
+    typeStack := new ParserArgumentStack(new int[](declarationCapacity))
+    nodes := new ParserNodeTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    children := new ParserChildIndexTable(new int[](declarationCapacity))
     st := new ParserState(0, 0, 0, 0, 0, 0)
 
     paramCount := 0
@@ -1374,6 +1375,7 @@ func ConstructorSignatureDefaultKindSupported(kind: int): bool {
 }
 
 func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTable, count: int, ctorIndex: int, outputs: ConstructorSignatureOutputTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, count, ctorIndex)
     if ctorIndex < 0 || ctorIndex >= count || tokens.Kinds[ctorIndex] != 0 {
         return -1
     }
@@ -1389,9 +1391,9 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
 
     pos = pos + 1
 
-    typeStack := new ParserArgumentStack(new int[](count + 1))
-    nodes := new ParserNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    children := new ParserChildIndexTable(new int[](count + 1))
+    typeStack := new ParserArgumentStack(new int[](declarationCapacity))
+    nodes := new ParserNodeTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    children := new ParserChildIndexTable(new int[](declarationCapacity))
     st := new ParserState(0, 0, 0, 0, 0, 0)
 
     paramCount := 0

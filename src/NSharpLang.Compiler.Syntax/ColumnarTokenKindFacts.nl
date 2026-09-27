@@ -45,6 +45,20 @@ class ColumnarTokenKindFacts {
     // `TokenType.LeftBrace` — the `{` that opens a block body.
     static LeftBraceKind: int => 129
 
+    // `TokenType.Func` — the `func` that opens a function, method or local-function declaration.
+    static FuncKind: int => 7
+
+    // `TokenType.LeftParen`/`RightParen`, `RightBrace` and `LeftBracket`/`RightBracket` — the other
+    // five halves of the three bracket pairs a declaration's extent is balanced over.
+    static LeftParenKind: int => 127
+    static RightParenKind: int => 128
+    static RightBraceKind: int => 130
+    static LeftBracketKind: int => 131
+    static RightBracketKind: int => 132
+
+    // `TokenType.QuestionBracket` — the `?[` of `items?[0]`, ONE token that opens a `[`…`]` pair.
+    static QuestionBracketKind: int => 119
+
     // A `ref struct` is a VALUE declaration whose declaration keyword is immediately preceded by
     // `ref`. The caller has already established that the declaration is not a reference type; this
     // answers the remaining half.
@@ -75,5 +89,16 @@ class ColumnarTokenKindFacts {
     // produce a value, and neither of these returns one.
     static func IsSupportedBlockBodyStartKind(kind: int): bool {
         return kind == ColumnarTokenKindFacts.LeftBraceKind
+    }
+
+    // `(`, `{`, `[` and `?[` open a nesting level; `)`, `}` and `]` close one. A declaration's extent
+    // is measured by balancing them (`ColumnarDeclarationTokenEnd`), so an opener missing here closes
+    // a level early and cuts the extent short.
+    static func IsOpeningBracketKind(kind: int): bool {
+        return kind == ColumnarTokenKindFacts.LeftParenKind || kind == ColumnarTokenKindFacts.LeftBraceKind || kind == ColumnarTokenKindFacts.LeftBracketKind || kind == ColumnarTokenKindFacts.QuestionBracketKind
+    }
+
+    static func IsClosingBracketKind(kind: int): bool {
+        return kind == ColumnarTokenKindFacts.RightParenKind || kind == ColumnarTokenKindFacts.RightBraceKind || kind == ColumnarTokenKindFacts.RightBracketKind
     }
 }

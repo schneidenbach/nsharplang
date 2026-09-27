@@ -459,7 +459,7 @@ sealed class ColumnarProgramInputBuilder {
 
     private static func TryParseColumnarTestAt(ck: int[], cs: int[], cv: int[], n: int, testIndex: int, source: string, out input: ColumnarTestInput): bool {
         input = null
-        cap := n + 1
+        cap := ColumnarTestDeclarationScratchCapacity(source, ck, cs, cv, n, testIndex)
         bk := new int[](cap)
         bvs := new int[](cap)
         bvl := new int[](cap)
@@ -610,7 +610,7 @@ sealed class ColumnarProgramInputBuilder {
         enumSlot := 0
         while enumSlot < enumIndexCount {
             enumIndex := enumIndices[enumSlot]
-            cap := n + 1
+            cap := ColumnarDeclarationScratchCapacity(ck, n, enumIndex)
             outNameTexts := new string[](cap)
             outMemberValues := new int[](cap)
             outMemberStringValues := new string[](cap)
@@ -692,7 +692,7 @@ sealed class ColumnarProgramInputBuilder {
             isReference := declReferenceFlags[declSlot] == 1
             isRecord := declRecordFlags[declSlot] == 1
             isRefStruct := !isReference && structIndex > 0 && ColumnarTokenKindFacts.IsRefStructModifierKind(ck[structIndex - 1])
-            cap := n + 1
+            cap := ColumnarDeclarationScratchCapacity(ck, n, structIndex)
             outFieldNameTexts := new string[](cap)
             outFieldTypeTexts := new string[](cap)
             outFieldStaticFlags := new int[](cap)
@@ -972,7 +972,7 @@ sealed class ColumnarProgramInputBuilder {
         unionSlot := 0
         while unionSlot < unionIndexCount {
             unionIndex := unionIndices[unionSlot]
-            cap := n + 1
+            cap := ColumnarDeclarationScratchCapacity(ck, n, unionIndex)
             outCaseNameTexts := new string[](cap)
             outCaseFieldCounts := new int[](cap)
             outFieldNameTexts := new string[](cap)
@@ -1070,7 +1070,7 @@ sealed class ColumnarProgramInputBuilder {
 
     private static func TryParseColumnarFunctionAt(ck: int[], cs: int[], cv: int[], n: int, funcIndex: int, source: string, out input: ColumnarFunctionInput, isStatic: bool = false, isAsync: bool = false, isLocalFunction: bool = false, modifierFlags: int = 0, isBodylessNativeImport: bool = false, isBodylessAbstract: bool = false): bool {
         input = null
-        cap := n + 1
+        cap := ColumnarDeclarationScratchCapacity(ck, n, funcIndex)
         // The two bodyless member shapes read the SAME way: parse the signature, and never look for
         // a body. They differ only in what the emitter does afterwards — a P/Invoke stub or an
         // abstract slot — so the parse decision is one word.
@@ -1413,7 +1413,7 @@ sealed class ColumnarProgramInputBuilder {
 
     private static func TryParseColumnarConstructorAt(ck: int[], cs: int[], cv: int[], n: int, ctorIndex: int, source: string, out input: ColumnarConstructorInput): bool {
         input = null
-        cap := (n + 1) * 4
+        cap := ColumnarDeclarationScratchCapacity(ck, n, ctorIndex) * 4
         paramNameTexts := new string[](cap)
         paramTypeTexts := new string[](cap)
         paramLabeledTypeTexts := new string[](cap)
@@ -1582,7 +1582,7 @@ sealed class ColumnarProgramInputBuilder {
 
     private static func TryParseColumnarPropertyAt(ck: int[], cs: int[], cv: int[], n: int, propIndex: int, source: string, out input: ColumnarPropertyInput, isStatic: bool = false, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false, isRequired: bool = false, isInitOnly: bool = false): bool {
         input = null
-        cap := n + 1
+        cap := ColumnarDeclarationScratchCapacity(ck, n, propIndex)
         gk := new int[](cap)
         gvs := new int[](cap)
         gvl := new int[](cap)
@@ -1730,7 +1730,7 @@ sealed class ColumnarProgramInputBuilder {
         interfaceSlot := 0
         while interfaceSlot < interfaceIndexCount {
             interfaceIndex := interfaceIndices[interfaceSlot]
-            cap := n + 1
+            cap := ColumnarDeclarationScratchCapacity(ck, n, interfaceIndex)
             outMethodFuncIndices := new int[](cap)
             outBaseNameTexts := new string[](cap)
             outInterfaceNameTexts := new string[](1)

@@ -1080,13 +1080,14 @@ func ColumnarFunctionModifierFlagsForGenerator(generatorFlag: int): int {
 }
 
 func ParseDeclarationFunctionSignatureEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, funcIndex: int): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, count, funcIndex)
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    typeStack := new ParserArgumentStack(new int[](count + 1))
-    nodes := new ParserNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    children := new ParserChildIndexTable(new int[](count + 1))
-    parameters := new ParserFunctionParameterTable(new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    typeParams := new ParserFunctionTypeParameterTable(new int[](count + 1), new int[](count + 1))
-    whereItems := new ParserFunctionWhereTable(new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    typeStack := new ParserArgumentStack(new int[](declarationCapacity))
+    nodes := new ParserNodeTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    children := new ParserChildIndexTable(new int[](declarationCapacity))
+    parameters := new ParserFunctionParameterTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    typeParams := new ParserFunctionTypeParameterTable(new int[](declarationCapacity), new int[](declarationCapacity))
+    whereItems := new ParserFunctionWhereTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
     signatureResult := new ParserResultTable(new int[](8))
     paramCount := ParseFunctionSignatureCore(signatureTokens, count, funcIndex, typeStack, nodes, children, parameters, typeParams, whereItems, signatureResult)
     if paramCount < 0 {
@@ -1490,14 +1491,15 @@ func ParseDeclarationSimpleInitializerEndCore(tokens: ParserDeclarationTokenTabl
 }
 
 func ParseDeclarationInitializerExpressionEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, pos: int): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, count, pos)
     if pos < 0 || pos >= count {
         return -1
     }
 
     expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    argStack := new ParserArgumentStack(new int[](count + 1))
-    nodes := new ParserExpressionNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    children := new ParserChildIndexTable(new int[](count + 1))
+    argStack := new ParserArgumentStack(new int[](declarationCapacity))
+    nodes := new ParserExpressionNodeTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    children := new ParserChildIndexTable(new int[](declarationCapacity))
     st := new ParserState(pos, 0, 0, 0, 0, 0)
     valueRoot := ParseLambdaOrAssignmentExpressionNode(expressionTokens, count, st, argStack, nodes, children, 0)
     if valueRoot < 0 || st.Pos <= pos {

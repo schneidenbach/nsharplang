@@ -974,8 +974,9 @@ func ColumnarPropertyDirectLocalFunctionStatus(tokens: ColumnarPropertyTokenTabl
 }
 
 func ParseColumnarPropertyBodyNodesCore(source: string, tokens: ColumnarPropertyTokenTable, bodyBrace: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, tokens.Count, bodyBrace)
     statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
+    argStack := new ParserArgumentStack(new int[](declarationCapacity))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     statementResult := new ParserResultTable(result.Values)
@@ -983,12 +984,13 @@ func ParseColumnarPropertyBodyNodesCore(source: string, tokens: ColumnarProperty
 }
 
 func ParseColumnarPropertyExpressionBodyNodesCore(source: string, tokens: ColumnarPropertyTokenTable, arrowIndex: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, tokens.Count, arrowIndex)
     if arrowIndex < 0 || arrowIndex >= tokens.Count || tokens.Kinds[arrowIndex] != 120 || result.Values.Length < 2 {
         return -1
     }
 
     expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
+    argStack := new ParserArgumentStack(new int[](declarationCapacity))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     st := new ParserState(arrowIndex + 1, 0, 0, 0, 0, 0)

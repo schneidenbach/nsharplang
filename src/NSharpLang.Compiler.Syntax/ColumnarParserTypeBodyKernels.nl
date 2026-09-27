@@ -614,14 +614,15 @@ func ParseDeclarationMemberBodyEndCore(source: string, tokens: ParserDeclaration
 }
 
 func ParseDeclarationExpressionBodyEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, arrowIndex: int): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, count, arrowIndex)
     if arrowIndex < 0 || arrowIndex >= count || tokens.Kinds[arrowIndex] != 120 {
         return -1
     }
 
     expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    argStack := new ParserArgumentStack(new int[](count + 1))
-    nodes := new ParserExpressionNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    children := new ParserChildIndexTable(new int[](count + 1))
+    argStack := new ParserArgumentStack(new int[](declarationCapacity))
+    nodes := new ParserExpressionNodeTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
+    children := new ParserChildIndexTable(new int[](declarationCapacity))
     st := new ParserState(arrowIndex + 1, 0, 0, 0, 0, 0)
     // The scan admits exactly what the body parser admits, `=> throw <exception>` included: the two
     // readings of where a member ENDS must agree, and a scan that stopped at the `throw` would shift
@@ -635,6 +636,7 @@ func ParseDeclarationExpressionBodyEndCore(source: string, tokens: ParserDeclara
 }
 
 func ParseConstructorChainInfoCore(source: string, tokens: ParserDeclarationTokenTable, count: int, ctorIndex: int, args: ConstructorChainArgTable, result: ParserDeclarationResultTable): int {
+    declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, count, ctorIndex)
     result.Values[0] = 0
     result.Values[1] = -1
     pos := ctorIndex + 1
@@ -691,7 +693,7 @@ func ParseConstructorChainInfoCore(source: string, tokens: ParserDeclarationToke
 
     pos = pos + 1
 
-    scratchCapacity := (count + 1) * 4
+    scratchCapacity := declarationCapacity * 4
     expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     expressionArgs := new ParserArgumentStack(new int[](scratchCapacity))
     expressionNodes := new ParserExpressionNodeTable(
