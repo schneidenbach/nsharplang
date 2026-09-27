@@ -37,6 +37,11 @@ test "a dependent does not re-emit when only a referenced project's implementati
         assert !IncrementalityEmitted(noop, "B"), "noop/B " + noop.Stdout
         assert !IncrementalityEmitted(noop, "A"), "noop/A " + noop.Stdout
 
+        referenceAssembly := Path.Combine(Path.Combine(scratch, "B"), Path.Combine("obj", Path.Combine("Debug", Path.Combine("net10.0", Path.Combine("ref", "B.dll")))))
+        assert File.Exists(referenceAssembly)
+        surfaceBefore := File.ReadAllBytes(referenceAssembly)
+        surfaceWrittenBefore := File.GetLastWriteTimeUtc(referenceAssembly)
+
         // A METHOD BODY ONLY. B's implementation is different IL, a different string literal and a
         // different `B.dll`; its SURFACE is the same surface, so its reference assembly is the same
         // bytes, `refint/B.dll` is not rewritten, `ref/B.dll` keeps its timestamp, and A's emit
@@ -47,8 +52,16 @@ test "a dependent does not re-emit when only a referenced project's implementati
         assert IncrementalityEmitted(bodyEdit, "B"), "body/B " + bodyEdit.Stdout
         assert !IncrementalityEmitted(bodyEdit, "A"), "body/A " + bodyEdit.Stdout
 
-        referenceAssembly := Path.Combine(Path.Combine(scratch, "B"), Path.Combine("obj", Path.Combine("Debug", Path.Combine("net10.0", Path.Combine("ref", "B.dll")))))
-        assert File.Exists(referenceAssembly)
+        // THE MECHANISM, NOT ONLY ITS EFFECT: the surface B ships is the same BYTES and was not
+        // rewritten, which is what keeps every project above B -- one level or five -- up to date.
+        surfaceAfter := File.ReadAllBytes(referenceAssembly)
+        assert surfaceAfter.Length == surfaceBefore.Length, "ref/B.dll changed length on a body-only edit"
+        index := 0
+        while index < surfaceBefore.Length {
+            assert surfaceAfter[index] == surfaceBefore[index], "ref/B.dll changed at byte " + index.ToString() + " on a body-only edit"
+            index = index + 1
+        }
+        assert File.GetLastWriteTimeUtc(referenceAssembly) == surfaceWrittenBefore, "ref/B.dll was rewritten on a body-only edit"
 
         // A PUBLIC MEMBER. The surface moved, so the reference assembly moved, so A rebuilds.
         IncrementalityWriteLibrary(scratch, IncrementalityChangedBody(), IncrementalityExtraMember())
@@ -56,6 +69,14 @@ test "a dependent does not re-emit when only a referenced project's implementati
         IncrementalityRequireSuccess(surfaceEdit, "rebuild of A after a surface edit in B")
         assert IncrementalityEmitted(surfaceEdit, "B"), "surface/B " + surfaceEdit.Stdout
         assert IncrementalityEmitted(surfaceEdit, "A"), "surface/A " + surfaceEdit.Stdout
+        movedSurface := File.ReadAllBytes(referenceAssembly)
+        sameSurface := movedSurface.Length == surfaceBefore.Length
+        index = 0
+        while sameSurface && index < movedSurface.Length {
+            sameSurface = movedSurface[index] == surfaceBefore[index]
+            index = index + 1
+        }
+        assert !sameSurface, "ref/B.dll did not change when B gained a public member"
     } finally {
         Directory.Delete(scratch, true)
     }
