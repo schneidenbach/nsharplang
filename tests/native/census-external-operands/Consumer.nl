@@ -169,6 +169,33 @@ class OperandUses {
 
     // EVERY ANSWER ABOVE, ONE LINE EACH. The emit-only contract runs the same file through the other path
     // and compares this string, so a shape that emits but emits something else fails there too.
+    // G9: a `&T` parameter passed on by reference to a referenced `&T` parameter, one hop and two.
+    static func BumpThrough(slot: &int, amount: int) {
+        OperandFacts.Bump(ref slot, amount)
+    }
+
+    static func BumpTwoHops(slot: &int, amount: int) {
+        BumpThrough(ref slot, amount)
+    }
+
+    static func GrowThrough(counter: &Counter, amount: int) {
+        OperandFacts.Grow(ref counter, amount)
+    }
+
+    // The struct starts from `new Counter()` and changes only through the `&T` chain: an object
+    // initializer over a REFERENCED struct (`new Counter { Value: 10 }`) declines at
+    // `emit.local.initializer`, and a field write on a referenced-struct local at
+    // `emit.statement.block-child` -- both measured on this tip, neither one a by-reference question.
+    static func Forwarded(): string {
+        slot := 1
+        BumpThrough(ref slot, 2)
+        BumpTwoHops(ref slot, 3)
+        counter := new Counter()
+        GrowThrough(ref counter, 5)
+        GrowThrough(ref counter, 10)
+        return slot.ToString() + " " + counter.Value.ToString()
+    }
+
     static func Digest(): string {
         shape := new Shape("s")
         alias := new AliasShape("a", shape)
@@ -200,6 +227,7 @@ class OperandUses {
         lines.Add("order " + Ordering() + " " + ordered.Line.ToString() + ":" + ordered.Column.ToString())
         lines.Add("pick " + PickText("a").Chosen + " " + PickCount(21).Chosen)
         lines.Add("scan " + ContextName(new Scan(null, null)) + " " + LabelLength(new Scan(null, "four")).ToString() + " " + LabelLength(new Scan(null, null)).ToString())
+        lines.Add("forwarded " + Forwarded())
         return string.Join("\n", lines)
     }
 }

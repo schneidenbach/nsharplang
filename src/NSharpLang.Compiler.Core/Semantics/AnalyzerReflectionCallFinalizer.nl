@@ -124,6 +124,12 @@ class ReflectionCallFinalizeState {
     // validation has that §10.2.11 applies, and by then the walk no longer has the expression.
     PendingConstant: ConstantOperandFacts
 
+    // THE SPELLING THE OUTSTANDING ARGUMENT WAS PASSED WITH, taken with the constant and for the same
+    // reason: the answer is the written expression's own type, and a `ref` naming a `&T` parameter
+    // answers the reference -- `AnalyzerReflectionArgumentBinder.ReferencedStorageType` needs the
+    // spelling to know the storage behind it is what the parameter's shell is matched against.
+    PendingArgumentModifier: ArgumentModifier
+
     // The written argument and the parameter the outstanding expression was bound to, or -1 when it
     // is not a plain positional argument (a `params` element, a default).
     PendingArgumentIndex: int
@@ -181,6 +187,7 @@ class ReflectionCallFinalizeState {
         PendingOpenParameterType = null
         PendingExpectedType = null
         PendingConstant = ConstantOperandFacts.None()
+        PendingArgumentModifier = ArgumentModifier.None
         PendingArgumentIndex = -1
         PendingParameterIndex = -1
         NullabilityMismatches = new List<ReflectionNullabilityMismatch>()

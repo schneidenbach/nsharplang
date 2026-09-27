@@ -2,6 +2,7 @@ namespace Census.Operands
 
 import System.Collections.Generic
 import System.Reflection
+import System.Threading
 
 
 // THE OPERAND AND ARGUMENT TYPES, COMPILED INTO ANOTHER ASSEMBLY. `tests/native/census-external-operands`
@@ -213,4 +214,21 @@ class Tally {
     static func operator ==(left: Tally, right: Tally): bool => left.Count == right.Count
 
     static func operator !=(left: Tally, right: Tally): bool => left.Count != right.Count
+}
+
+// Callees a consumer reaches by ASKING WHETHER ITS ARGUMENTS MATCH: the ordinary static tier into a
+// referenced assembly, which chooses a member by its declared parameters. A `&T` parameter is handed a
+// `&T` the consumer was itself given.
+class OperandFacts {
+    static func Bump(slot: &int, amount: int) {
+        Interlocked.Add(ref slot, amount)
+    }
+
+    static func Grow(counter: &Counter, amount: int) {
+        counter.Value = counter.Value + amount
+    }
+}
+
+struct Counter {
+    Value: int
 }

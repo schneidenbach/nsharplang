@@ -393,7 +393,7 @@ class AnalyzerCallAnalysis {
         if pending == 32 {
             arguments := state.AnalyzedNonLambdaArguments
             if arguments != null {
-                arguments[state.ReflectionArgumentIndex] = answer
+                arguments[state.ReflectionArgumentIndex] = AnalyzerReflectionArgumentBinder.ReferencedStorageType(state.Call.Arguments[state.ReflectionArgumentIndex].Modifier, answer)
             }
 
             WithdrawUntargetedCollectionReports(state)
@@ -1873,7 +1873,18 @@ class AnalyzerCallAnalysis {
                 // the two sides of a by-ref position meet and it has no other way to learn which of
                 // `ref` and `out` was written. An `out` variable's incoming nullability is the
                 // callee's to replace; a `ref` one's is part of the contract.
-                resolved = new ByRefTypeInfo(resolved, argument.Modifier == ArgumentModifier.Out)
+                //
+                // A TARGET THAT IS ALREADY A REFERENCE IS PASSED ON, NOT RE-REFERENCED. A `&T`
+                // parameter names the caller's storage and reads as `&T`, so `ref p` hands over the
+                // same `&T` the callee was given — the CLR has no `&&T`, and the argument is the
+                // `ldarg` of that one reference. The spelling written here is what the wrapper carries.
+                referenced := resolved
+                alreadyByRef := resolved as ByRefTypeInfo
+                if alreadyByRef != null {
+                    referenced = alreadyByRef.InnerType
+                }
+
+                resolved = new ByRefTypeInfo(referenced, argument.Modifier == ArgumentModifier.Out)
             }
         }
 

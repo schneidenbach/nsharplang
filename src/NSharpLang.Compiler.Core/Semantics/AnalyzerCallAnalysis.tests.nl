@@ -647,6 +647,56 @@ test "a ref argument is analysed against the BYREF's inner type and folded back 
     assert errors.Count == 0
 }
 
+// A `&T` PARAMETER NAMES THE CALLER'S STORAGE AND READS AS `&T`, so `ref p` over it hands the SAME
+// reference on. Wrapping the answer again typed the argument `&&T` -- a type the CLR does not have --
+// and refused the call NL202 for a `&T` parameter, although the argument is only `ldarg` of the
+// reference the callee was given. A by-ref target of a class type, a struct and a primitive all pass on
+// as `&T`, and so does a chain of them: each hop answers what the one before it was handed.
+test "a ref argument over a target that is already a reference passes that reference on" {
+    inners := new List<TypeInfo>()
+    inners.Add(BuiltInTypes.Int)
+    inners.Add(BuiltInTypes.String)
+    inners.Add(new StructTypeInfo("Table", 1, 1, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0)))
+    for inner in inners {
+        errors := CallWalkErrors()
+        harness := CallWalkHarnessOf(errors)
+        signature := CallWalkByRefSignature(inner)
+        CallWalkDeclare(harness, "f", signature)
+        byRef: TypeInfo = new ByRefTypeInfo(inner)
+        CallWalkDeclare(harness, "slot", byRef)
+        call := CallWalkBareCall(CallWalkRefArgs1("slot", ArgumentModifier.Ref))
+        state := harness.Owner.BeginCall(call)
+
+        _ = CallWalkRun(harness.Owner, state, signature, null, byRef, null, 0)
+
+        assert state.ArgTypes.Count == 1
+        assert CallWalkTypeText(state.ArgTypes[0]) == "&" + CallWalkTypeText(inner)
+        assert errors.Count == 0, CallWalkMessages(errors)
+    }
+}
+
+// THE SPELLING WRITTEN AT THE CALL IS THE ONE THE ARGUMENT CARRIES, not the one the target was
+// declared with: `out p` over a `&int` parameter is an `out` argument, whose incoming nullability is
+// the callee's to replace.
+test "an out argument over a by-ref target keeps the out spelling" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkByRefSignature(BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    byRef: TypeInfo = new ByRefTypeInfo(BuiltInTypes.Int)
+    CallWalkDeclare(harness, "slot", byRef)
+    call := CallWalkBareCall(CallWalkRefArgs1("slot", ArgumentModifier.Out))
+    state := harness.Owner.BeginCall(call)
+
+    _ = CallWalkRun(harness.Owner, state, signature, null, byRef, null, 0)
+
+    passed := state.ArgTypes[0] as ByRefTypeInfo
+    assert passed != null
+    assert passed.IsOutArgument
+    assert CallWalkTypeText(passed.InnerType) == "int"
+    assert errors.Count == 0, CallWalkMessages(errors)
+}
+
 // An `unknown` answer is NOT wrapped: `ref <error>` would be a second, invented type for a target
 // that has already failed.
 test "a ref argument whose analysis answered unknown is not wrapped" {

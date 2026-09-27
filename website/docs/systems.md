@@ -255,6 +255,16 @@ reader := new FrameReader(input)
 frame := NextFrame(ref reader)
 ```
 
+A `&T` parameter is passed on the same way. `ref reader` inside a function that was itself handed
+`reader: &FrameReader` gives the next callee that same reference — it is still a `&T`, never a
+reference to a reference — so a write at the end of a chain is the write the first caller sees:
+
+```n#
+func SkipHeader(reader: &FrameReader) {
+    NextFrame(ref reader)
+}
+```
+
 The compiler returns a **return-lifetime fact** for each function (`local`, `param`,
 `heap(owner)`, `static`, or `unknown`). Returning an `unknown` lifetime into a `[hot]`
 caller is rejected. This is a CLR ref-safety model focused on the v1 escape shapes — it

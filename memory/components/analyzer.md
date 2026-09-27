@@ -1036,6 +1036,18 @@ ONLY A REFERENCE ANNOTATION IS DROPPED (`WithoutReferenceNullability`): `int?` i
 `int` is not, so an `int?` variable is still not an `out int` argument. N# has no `in` modifier, so
 that third C# case does not arise.
 
+A TARGET THAT IS ALREADY A REFERENCE IS PASSED ON, NOT RE-REFERENCED (2026-09-27). A `p: &T` parameter
+reads as `&T`, so `CompleteArgument` wrapping `ref p`'s answer typed it `&&T` and refused it NL202 —
+which is why the CodeIntel carve forwarded its `&T` tables bare. The wrap now takes the inner type of a
+`ByRefTypeInfo` answer and keeps the CALL-SITE spelling (`out p` is an `out` argument). The reflected
+binder analyses each argument's VALUE twice (the pre-pass into `AnalyzedNonLambdaArguments`, and the
+finalize walk's kind-3 request), so both read the storage type through
+`AnalyzerReflectionArgumentBinder.ReferencedStorageType` — without it `Interlocked.Increment(ref v)`
+bound for a local and not for `v: &int`. The emitter needed nothing: `EmitByRefCallArgument` already
+loads a by-ref parameter's reference. Pinned by `tests/native/census-by-ref-forwarding` and
+`census-external-operands` G9. Still open: a `&T` parameter in VALUE position (`v + 1`, `v = x` for
+`v: &int`) is typed `&T` and refused, where a `ref v: int` parameter reads as `int`.
+
 ### A `?.` chain and its continuation
 
 `AnalyzerNullConditionalChainFacts.nl` answers where a chain begins and how far right it reaches, and

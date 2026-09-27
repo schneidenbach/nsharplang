@@ -1648,6 +1648,20 @@ class AnalyzerReflectionArgumentBinder {
         }
     }
 
+    // WHAT A `ref`/`out`/`in` ARGUMENT IS SCORED AND CHECKED AS: the type of the storage the reference
+    // reaches, which the parameter's own by-ref shell is matched against. A local answers that type
+    // directly; a `&T` parameter answers `&T`, and matching the shell against the shell would ask
+    // whether `&T` is `T` -- so `Interlocked.Increment(ref count)` bound for `count := 0` and not for
+    // `count: &int`. A by-value argument keeps its answer, since a `&T` value is not a `T` there.
+    static func ReferencedStorageType(modifier: ArgumentModifier, answer: TypeInfo?): TypeInfo? {
+        byRef := answer as ByRefTypeInfo
+        if byRef == null || modifier == ArgumentModifier.None {
+            return answer
+        }
+
+        return byRef.InnerType
+    }
+
     // Fold the answer to the outstanding request back in. A phase-one answer INFERS — it matches the
     // lambda's constructed delegate against the open parameter and, when exactly one type parameter
     // is still unbound, takes the lambda's return type for it. A phase-two expression answer is
@@ -1665,14 +1679,16 @@ class AnalyzerReflectionArgumentBinder {
             }
         } else if state.PendingKind == 3 {
             expectedType := state.PendingExpectedType
-            if expectedType == null || !IsAcceptedReflectionArgument(expectedType, analyzedType, state.PendingConstant) {
+            argumentType := ReferencedStorageType(state.PendingArgumentModifier, analyzedType) ?? analyzedType
+            if expectedType == null || !IsAcceptedReflectionArgument(expectedType, argumentType, state.PendingConstant) {
                 state.Failed = true
-            } else if state.PendingArgumentIndex >= 0 && RefusesMaybeNullArgument(state, expectedType, analyzedType) {
-                state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, expectedType, analyzedType))
+            } else if state.PendingArgumentIndex >= 0 && RefusesMaybeNullArgument(state, expectedType, argumentType) {
+                state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, expectedType, argumentType))
             }
         }
 
         state.PendingKind = 0
+        state.PendingArgumentModifier = ArgumentModifier.None
         state.PendingExpectedType = null
         state.PendingConstant = ConstantOperandFacts.None()
         state.PendingArgumentIndex = -1
@@ -1877,6 +1893,7 @@ class AnalyzerReflectionArgumentBinder {
         state.PendingKind = 3
         state.PendingExpectedType = expectedType
         state.PendingConstant = ConstantOperandFacts.FromExpression(supplied.Argument.Value)
+        state.PendingArgumentModifier = supplied.Argument.Modifier
         if !AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(supplied, parameter) {
             state.PendingArgumentIndex = supplied.ArgumentIndex
             state.PendingParameterIndex = supplied.ParameterIndex

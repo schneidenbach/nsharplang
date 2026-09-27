@@ -105,3 +105,7 @@ test "G6: a narrowed nullable member of a third assembly's type is passed on and
         context.Dispose()
     }
 }
+
+test "G9: a &T parameter is passed on by reference to a referenced &T parameter" {
+    assert OperandUses.Forwarded() == "6 15"
+}

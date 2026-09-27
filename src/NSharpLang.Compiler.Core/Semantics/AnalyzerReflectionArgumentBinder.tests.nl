@@ -2679,3 +2679,21 @@ test "an empty collection expression is applicable at any array target, on the c
     assert !binder.TryScoreEmptyCollectionExpressionArgument(empty, typeof(byte[]).MakeByRefType(), out score)
     assert !binder.TryScoreEmptyCollectionExpressionArgument(empty, typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0].MakeArrayType(), out score)
 }
+
+// A `ref`, `out` or `in` ARGUMENT IS MATCHED BY THE STORAGE IT REACHES. A local answers that storage's
+// type and a `&T` parameter answers `&T`; both must reach a reflected `ref int location` as `int`, or
+// `Interlocked.Increment(ref count)` binds for `count := 0` and not for `count: &int`. A BY-VALUE
+// argument keeps the `&T` it answered, because passing a reference where a value is expected is not
+// the same call.
+test "a by-reference argument is scored as the storage it reaches, and a by-value one as it answered" {
+    storage: TypeInfo = BuiltInTypes.Int
+    byRef: TypeInfo = new ByRefTypeInfo(storage)
+    assert Object.ReferenceEquals(AnalyzerReflectionArgumentBinder.ReferencedStorageType(ArgumentModifier.Ref, byRef), storage)
+    assert Object.ReferenceEquals(AnalyzerReflectionArgumentBinder.ReferencedStorageType(ArgumentModifier.Out, byRef), storage)
+    assert Object.ReferenceEquals(AnalyzerReflectionArgumentBinder.ReferencedStorageType(ArgumentModifier.In, byRef), storage)
+    assert Object.ReferenceEquals(AnalyzerReflectionArgumentBinder.ReferencedStorageType(ArgumentModifier.None, byRef), byRef)
+
+    local: TypeInfo = BuiltInTypes.String
+    assert Object.ReferenceEquals(AnalyzerReflectionArgumentBinder.ReferencedStorageType(ArgumentModifier.Ref, local), local)
+    assert AnalyzerReflectionArgumentBinder.ReferencedStorageType(ArgumentModifier.Ref, null) == null
+}
