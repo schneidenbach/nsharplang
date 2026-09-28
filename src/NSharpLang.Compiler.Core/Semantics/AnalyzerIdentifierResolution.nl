@@ -162,7 +162,7 @@ class AnalyzerIdentifierResolution {
         }
 
         resolved: TypeInfo = BuiltInTypes.Unknown
-        if TryResolveBindingTarget(name, line, column, out resolved, out source, out namesType) {
+        if TryResolveBindingTarget(name, line, column, out resolved, out source, out namesType, reportMissingAsFunction) {
             ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
             ReportCapturedByRefParameterIfNeeded(name, line, column)
             return resolved
@@ -357,7 +357,7 @@ class AnalyzerIdentifierResolution {
     func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo): bool {
         source := BareNameSource.Other
         namesType := false
-        return TryResolveBindingTarget(name, line, column, out resolvedType, out source, out namesType)
+        return TryResolveBindingTarget(name, line, column, out resolvedType, out source, out namesType, false)
     }
 
     // `source` SAYS WHETHER THE ANSWER IS A VALUE, which only the callee door asks: a scope SYMBOL is a
@@ -366,10 +366,14 @@ class AnalyzerIdentifierResolution {
     // function, and a call through one of those is judged by the call arm.
     func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource): bool {
         namesType := false
-        return TryResolveBindingTarget(name, line, column, out resolvedType, out source, out namesType)
+        return TryResolveBindingTarget(name, line, column, out resolvedType, out source, out namesType, false)
     }
 
     func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource, out namesType: bool): bool {
+        return TryResolveBindingTarget(name, line, column, out resolvedType, out source, out namesType, false)
+    }
+
+    func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource, out namesType: bool, preferProjectFunctions: bool): bool {
         source = BareNameSource.Other
         namesType = false
         // 1. Local symbols first, then local types. A symbol declared OUTSIDE the enclosing type — the
@@ -427,6 +431,13 @@ class AnalyzerIdentifierResolution {
             return true
         }
 
+        // A call position resolves an available free function before a project-wide type of the same
+        // name. This preserves the call binding in namespaces where a function and an imported
+        // project type share a spelling; once only the type answers, CallAnalysis can report NL415.
+        if preferProjectFunctions && TryResolveProjectFunctionBinding(name, line, column, out resolvedType) {
+            return true
+        }
+
         // 3a. THE AMBIGUITY GATE, between the channels that cannot tie and the two that can. Every
         // channel above answers from ONE place — a scope, the enclosing type, the built-in table — so
         // a name that reached here is about to be resolved from an import, and an import is exactly
@@ -461,16 +472,9 @@ class AnalyzerIdentifierResolution {
             typeResolverValue.MarkUnresolvedTypeReported(name, line, column)
         }
 
-        // 5. Project-wide function discovery.
-        projectFunctionType: TypeInfo = BuiltInTypes.Unknown
-        projectFunctionDeclaration: SymbolDeclaration? = null
-        if TryResolveVisibleProjectFunction(name, out projectFunctionType, out projectFunctionDeclaration) {
-            resolvedType = projectFunctionType
-            // TOTAL on this path, for the same reason.
-            if projectFunctionDeclaration != null {
-                bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, line, column, name.Length, projectFunctionDeclaration)
-            }
-
+        // 5. Project-wide function discovery. A call position already probed before channel 4, so
+        // this is reached only by an ordinary name read or a callee with no project-wide type answer.
+        if !preferProjectFunctions && TryResolveProjectFunctionBinding(name, line, column, out resolvedType) {
             return true
         }
 
@@ -490,6 +494,22 @@ class AnalyzerIdentifierResolution {
             }
 
             namesType = true
+            return true
+        }
+
+        resolvedType = BuiltInTypes.Unknown
+        return false
+    }
+
+    // Resolve and record the project-wide function answer once, whether it precedes or follows
+    // project-type discovery for the current expression position.
+    private func TryResolveProjectFunctionBinding(name: string, line: int, column: int, out resolvedType: TypeInfo): bool {
+        declaration: SymbolDeclaration? = null
+        if TryResolveVisibleProjectFunction(name, out resolvedType, out declaration) {
+            if declaration != null {
+                bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, line, column, name.Length, declaration)
+            }
+
             return true
         }
 

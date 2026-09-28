@@ -2978,7 +2978,9 @@ answer, after resolving aliases, while `AnalyzerIdentifierResolution.CallTarget`
 non-callable value. Newtypes remain callable constructors. An explicit type-argument list also probes
 referenced generic types by metadata arity (`List<int>()`), which turns the previous NL412 miss into the
 same type-call diagnostic. The suggestion follows the resolved kind: it offers `new` only for types
-that can be instantiated.
+that can be instantiated. In a call position, a visible project free function is resolved before a
+project-discovered type of the same spelling, so a free `Tag()` remains a function call when another
+namespace contributes a project type named `Tag`.
 
 A CONSTRUCTOR argument is an argument: `AnalyzerConstruction.DelegateConstructorParameterType` reads
 the delegate a position wants from the constructors themselves (external ones through CLR metadata,
