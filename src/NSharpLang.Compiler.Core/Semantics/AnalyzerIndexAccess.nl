@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
@@ -100,14 +99,10 @@ class IndexAccessState {
 // allocation report is NOT one of them. It is this arm's own, and it is PUBLISHED because the
 // write-target family asks the same question of the same node.
 //
-// THE INDEXER LOOKUP IS A MEASURED SUBSTITUTION, NOT AN APPROXIMATION. `Analyzer.cs` read a reflected
-// type's indexer through `GetDefaultMembers()`, whose `MemberInfo[]` is not a supported columnar
-// local type. The route around it is the first public instance-or-static property with index
-// parameters, and it is EXACTLY the same function: over 23,645 types in 317 assemblies — the whole
-// of `Microsoft.NETCore.App`, `Microsoft.AspNetCore.App` and the compiler's own output — the two
-// rules disagree on ZERO of the 566 types that have an indexer at all, and the comparator was proved
-// to detect exactly the hazard that made this worth measuring (perturbing the substitute's selection
-// order alone reports six disagreements, `Matrix4x4` and `BitVector32` among them).
+// THE INDEXER LOOKUP IS METADATA'S, AND IT IS NOT OWNED HERE. A reflected receiver and a constructed
+// external generic both read their indexer through `AnalyzerMemberResolution` — the owner of every
+// reflected member read, which also owns the measured `GetDefaultMembers()` substitution — so the
+// index arm and member access never disagree about what a type's indexer is.
 class AnalyzerIndexAccess {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
@@ -427,6 +422,14 @@ class AnalyzerIndexAccess {
             if genericType.TypeArguments.Count == 1 && (name.EndsWith("List", StringComparison.Ordinal) || name.EndsWith("IList", StringComparison.Ordinal) || name.EndsWith("IReadOnlyList", StringComparison.Ordinal) || name.EndsWith("Collection", StringComparison.Ordinal)) {
                 return genericType.TypeArguments[0]
             }
+
+            // Every other constructed generic asks METADATA for its indexer. The name arms above stay
+            // first: they are the hot path of every compiler kernel, and they answer for a
+            // source-declared `List` that metadata has never seen.
+            indexerType: TypeInfo = BuiltInTypes.Unknown
+            if !isRangeAccess && memberAccessValue.TryResolveConstructedGenericIndexer(genericType, out indexerType) {
+                return indexerType
+            }
         }
 
         reflectionType := receiverType as ReflectionTypeInfo
@@ -445,30 +448,13 @@ class AnalyzerIndexAccess {
                 return BuiltInTypes.Unknown
             }
 
-            indexer := FindReflectedIndexerProperty(reflected)
+            indexer := AnalyzerMemberResolution.FindReflectedIndexerProperty(reflected)
             if indexer != null {
                 return AnalyzerReflectionTypeConversion.ConvertReflectionType(indexer.PropertyType)
             }
         }
 
         return BuiltInTypes.Unknown
-    }
-
-    // THE REFLECTED INDEXER. See the type's own note: this is `GetDefaultMembers()`'s answer, reached
-    // without naming `MemberInfo`, and proved identical on every type that has an indexer in the
-    // whole shipped framework.
-    func FindReflectedIndexerProperty(reflected: Type): PropertyInfo? {
-        // The flags are a LOCAL, not an inline `|`: an inline flag expression does not type as
-        // `BindingFlags` at the call site and the instance call declines as unmodeled.
-        flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
-        properties := reflected.GetProperties(flags)
-        for property in properties {
-            if property.GetIndexParameters().Length > 0 {
-                return property
-            }
-        }
-
-        return null
     }
 
     func IsReflectedArrayType(candidate: TypeInfo): bool {

@@ -457,7 +457,7 @@ class CodeIntelligenceTypeResolution {
     static func ReflectedMemberOfClrType(clrType: Type, memberName: string, argumentTypes: TypeInfo?[]?, typeOverride: AnalyzerReflectionTypeOverride?): ReflectedMemberHandle? {
         // The flags are a LOCAL, not an inline `|`: an inline flag expression does not type as
         // `BindingFlags` at the call site and the instance call declines as unmodeled. That is
-        // `AnalyzerIndexAccess.FindReflectedIndexerProperty`'s note, and it holds here too.
+        // `AnalyzerMemberResolution.FindReflectedIndexerProperty`'s note, and it holds here too.
         flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
         try {
             property := clrType.GetProperty(memberName, flags)

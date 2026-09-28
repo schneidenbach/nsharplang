@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // Native contracts for the index arm — what `a[i]` MEANS.
 //
@@ -50,6 +51,12 @@ class IndexAccessHarness {
 }
 
 func IndexArmOf(inAssignmentTarget: bool): IndexAccessHarness {
+    return IndexArmFor(null)
+}
+
+// `facts` is the metadata the real analyzer converts through. Without it the CLR conversion answers
+// only the built-ins, so no constructed generic can be closed and metadata is never asked.
+func IndexArmFor(facts: AnalyzerWellKnownTypes?): IndexAccessHarness {
     errors := new List<CompilerError>()
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
@@ -69,11 +76,11 @@ func IndexArmOf(inAssignmentTarget: bool): IndexAccessHarness {
     probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)
     resolver := new AnalyzerTypeResolver(scopes, context, discovery, probe, sink, usingAliases, importedSymbols, importedDeclarations, model, bindings)
     substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
-    facts := new AnalyzerAssignabilityFacts(context, null)
+    assignabilityFacts := new AnalyzerAssignabilityFacts(context, facts)
     structural := new AnalyzerStructuralAssignability(resolver, probe)
-    clrConversion := new AnalyzerClrTypeConversion(context, null)
+    clrConversion := new AnalyzerClrTypeConversion(context, facts)
     guard := new AnalyzerImplicitConversionGuard()
-    assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
+    assignability := new AnalyzerAssignability(context, assignabilityFacts, structural, substitution, clrConversion, guard)
     functionTypes := new AnalyzerFunctionTypeFactory(context, substitution)
     extensions := new List<FunctionDeclaration>()
     extensionResolution := new AnalyzerExtensionMethodResolution(resolver, assignability, context, functionTypes, clrConversion, extensions, namespaces, assemblies)
@@ -311,7 +318,7 @@ test "a named generic sequence answers by NAME SUFFIX, and a dictionary answers 
     assert mapTrace.Answer == "simple:bool"
 }
 
-test "a generic whose name is NOT a recognised sequence answers unknown" {
+test "a generic that is neither a recognised sequence NOR a reflected definition answers unknown" {
     harness := IndexArmOf(false)
     arguments := new List<TypeInfo>()
     arguments.Add(BuiltInTypes.Int)
@@ -319,6 +326,65 @@ test "a generic whose name is NOT a recognised sequence answers unknown" {
     trace := IndexDrive(harness, IndexAccessOf("box", IndexIntLiteral("0"), false), receiver, BuiltInTypes.Int, false)
 
     assert trace.Answer == "unknown"
+}
+
+func IndexConstructedExternal(name: string, definition: Type, argument: TypeInfo): TypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(argument)
+    receiver: TypeInfo = new GenericTypeInfo(name, arguments, new ReflectionTypeInfo(definition))
+    return receiver
+}
+
+// A generic definition as the analyzer sees it: out of the metadata load context, never the
+// compiler's own runtime, so the conversion closes it inside ONE reflection universe.
+func IndexMetadataDefinition(context: MetadataLoadContext, assemblyName: string, typeName: string): Type {
+    found := context.LoadFromAssemblyName(assemblyName).GetType(typeName)
+    assert found != null
+    return found
+}
+
+// One element read through a constructed external generic, answered by a harness that has the
+// framework's metadata behind it.
+func IndexExternalAnswer(assemblyName: string, typeName: string, spelledName: string, argument: TypeInfo, isRange: bool): string {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        harness := IndexArmFor(new AnalyzerWellKnownTypes(context, context.LoadFromAssemblyName("System.Runtime")))
+        receiver := IndexConstructedExternal(spelledName, IndexMetadataDefinition(context, assemblyName, typeName), argument)
+        index := IndexIntLiteral("0")
+        if isRange {
+            index = new RangeExpression(null, null, 4, 8)
+        }
+
+        trace := IndexDrive(harness, IndexAccessOf("receiver", index, false), receiver, BuiltInTypes.Int, false)
+        assert trace.Reports == 0
+        return trace.Answer
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// `names.Select(n => v[n.Length])` failed overload resolution at NL402 because this read answered
+// `unknown`: the lambda had no return type to fix `TResult` with. The name arms know nothing about
+// `Vector`, so the answer can only come from the definition's own indexer.
+test "a constructed EXTERNAL generic answers its definition's indexer, substituted" {
+    assert IndexExternalAnswer("System.Private.CoreLib", "System.Numerics.Vector`1", "Vector", BuiltInTypes.Int, false) == "simple:int"
+}
+
+test "the SPELLED argument substitutes, so its nullability survives into the element" {
+    assert IndexExternalAnswer("System.Private.CoreLib", "System.ArraySegment`1", "ArraySegment", new NullableTypeInfo(BuiltInTypes.String), false) == "nullable(simple:string)"
+}
+
+// `ObservableCollection<T>` inherits its indexer from `Collection<T>`, whose `T` the receiver's
+// arguments do not index; the name is spelled so that no name arm can answer first.
+test "an INHERITED indexer is read off the exactly-closed type" {
+    assert IndexExternalAnswer("System.ObjectModel", "System.Collections.ObjectModel.ObservableCollection`1", "Observed", BuiltInTypes.String, false) == "simple:string"
+}
+
+test "a constructed external generic with NO indexer, or read as a RANGE, still answers unknown" {
+    assert IndexExternalAnswer("System.Private.CoreLib", "System.Lazy`1", "Lazy", BuiltInTypes.Int, false) == "unknown"
+    assert IndexExternalAnswer("System.Private.CoreLib", "System.Numerics.Vector`1", "Vector", BuiltInTypes.Int, true) == "unknown"
 }
 
 test "a REFLECTED array answers its element and its range answers the array" {
@@ -346,23 +412,21 @@ test "a reflected type's INDEXER answers its property type" {
 }
 
 test "the indexer lookup finds exactly what GetDefaultMembers found" {
-    harness := IndexArmOf(false)
-
     // The substitution's whole claim: the first public property with index parameters IS the default
     // member. These four cover an interface, a class, a struct with two overloads and a type with no
     // indexer at all.
-    listIndexer := harness.Arm.FindReflectedIndexerProperty(Type.GetType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(int))))
+    listIndexer := AnalyzerMemberResolution.FindReflectedIndexerProperty(Type.GetType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(int))))
     assert listIndexer != null
     assert listIndexer.get_PropertyType() == typeof(int)
 
-    stringIndexer := harness.Arm.FindReflectedIndexerProperty(typeof(string))
+    stringIndexer := AnalyzerMemberResolution.FindReflectedIndexerProperty(typeof(string))
     assert stringIndexer != null
     assert stringIndexer.get_PropertyType() == typeof(char)
 
-    matrixIndexer := harness.Arm.FindReflectedIndexerProperty(Type.GetType("System.Numerics.Matrix4x4, System.Numerics.Vectors"))
+    matrixIndexer := AnalyzerMemberResolution.FindReflectedIndexerProperty(Type.GetType("System.Numerics.Matrix4x4, System.Numerics.Vectors"))
     assert matrixIndexer != null
 
-    assert harness.Arm.FindReflectedIndexerProperty(typeof(int)) == null
+    assert AnalyzerMemberResolution.FindReflectedIndexerProperty(typeof(int)) == null
 }
 
 test "a reflected type with NO indexer answers unknown" {
@@ -545,4 +609,49 @@ test "the int-expected rule covers a table, both array shapes and a string, and 
 
     assert !harness.Arm.ShouldUseIntExpectedTypeForIndex(BuiltInTypes.Int)
     assert !harness.Arm.ShouldUseIntExpectedTypeForIndex(new ReflectionTypeInfo(Type.GetType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(int)))))
+}
+
+// ---- a constructed external generic's indexer, end to end -----------------------------------------
+//
+// The whole analyzer over a whole file with the framework loaded, because both failures lived
+// OUTSIDE this arm: an `unknown` element is assignable everywhere, so the mistyped local below passed
+// analysis and was refused only by the emitter, and the lambda gave `Select` no `TResult`, so the call
+// failed overload resolution at NL402.
+func ExternalIndexerErrors(source: string): string {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-external-indexer-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    text := ""
+    try {
+        analyzer.LoadSystemAssemblies()
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                codeValue: int = (int)error.Code
+                text = text + "NL" + codeValue.ToString() + "@" + error.Line.ToString() + "\n"
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return text
+}
+
+test "a lambda whose body reads Vector<int>[int] fixes Select's result type" {
+    source := "import System\nimport System.Collections.Generic\nimport System.Linq\nimport System.Numerics\n\nfunc Main() {\n    v := new Vector<int>(2)\n    names := new List<string>()\n    names.Add(\"k\")\n    x: int = names.Select(n => v[n.Length]).First()\n    Console.WriteLine(x)\n}\n"
+
+    assert ExternalIndexerErrors(source) == ""
+}
+
+test "a Vector<int> element read into a string local is a type error at analysis" {
+    source := "import System\nimport System.Numerics\n\nfunc Main() {\n    v := new Vector<int>(2)\n    s: string = v[0]\n    Console.WriteLine(s)\n}\n"
+
+    assert ExternalIndexerErrors(source) == "NL202@6\n"
 }

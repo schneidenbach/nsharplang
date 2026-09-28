@@ -1789,6 +1789,14 @@ class AnalyzerMemberAccess {
         return new NullableTypeInfo(candidate)
     }
 
+    // THE INDEXER OF A CONSTRUCTED EXTERNAL GENERIC, asked on the index arm's behalf. The arm is built
+    // once and never re-told about metadata, while member resolution is REBUILT with every metadata load
+    // context and handed to this owner each time; asking through here is what keeps the arm reading
+    // the current context rather than one captured at construction.
+    func TryResolveConstructedGenericIndexer(genericType: GenericTypeInfo, out elementType: TypeInfo): bool {
+        return memberResolutionValue.TryResolveConstructedGenericIndexer(genericType, out elementType)
+    }
+
     // The nullable unwrap `Analyzer.cs` performs before every structural question. Its C# original
     // has fourteen other callers and therefore could not move; its two-call body is reproduced rather
     // than reached back for, so nothing here re-enters C#.

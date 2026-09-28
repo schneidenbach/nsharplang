@@ -2838,6 +2838,42 @@ delegate's RETURN position, repeating while anything moves.
   constructor argument, an indexer argument, an object-, anonymous-object- or `with`-initializer
   value, and an array or tuple literal element.
 
+### An index read on a constructed external generic (2026-09-27)
+
+`AnalyzerIndexAccess.ResolveIndexElementType` names arrays, strings, tables and the generic collection
+spellings it recognises BY NAME (`*List`, `*Dictionary`, `*Collection`). Every other generic receiver
+used to answer `unknown`, so `Vector<int>[i]`, `ArraySegment<T>[i]` and `ImmutableArray<T>[i]` had no
+element type. A bare read hid that (`unknown` is assignable everywhere: `s: string = v[0]` passed
+analysis and only the emitter refused it), but a lambda whose body IS the read gave its delegate no
+return type, so `names.Select(n => v[n.Length])` fixed no `TResult` and failed at NL402.
+
+- The name arms stay FIRST: they are every compiler kernel's hot path, and they answer for a
+  source-declared `List` that metadata has never seen. Only a generic they do not recognise asks
+  metadata, and a RANGE read (`v[1..3]`) still answers `unknown`.
+- `AnalyzerMemberResolution.TryResolveConstructedGenericIndexer` reads the indexer off the DEFINITION
+  and substitutes the spelled arguments (`AnalyzerReflectionTypeOverride.ForGenericArguments`), the
+  same rule as `TryResolveSpelledTypeParameterMember`. That keeps the argument's nullability
+  (`ArraySegment<string?>` answers `string?`) and keeps a source-typed argument's surrogate `object`
+  out of the answer (`ArraySegment<Tag>[i].Name` resolves). An INHERITED indexer is spelled in its
+  base's parameters, so it is read off the exactly-closed type, and it answers nothing when the
+  receiver has only a surrogate CLR type.
+- `AnalyzerMemberResolution.FindReflectedIndexerProperty` is now the one owner of the measured
+  `GetDefaultMembers()` substitution. Both the reflected-receiver arm and the generic arm read it. The
+  index arm reaches member resolution through `AnalyzerMemberAccess.TryResolveConstructedGenericIndexer`
+  because member resolution is rebuilt with every metadata load context and the index arm is not.
+- The emitter and plan twins, `ColumnarIlEmitter.SelectRuntimeIndexerRead` and
+  `ColumnarRangeIndexPlanner.PlanRuntimeIndexerRead`, already exist in the base product. The
+  analyzer arm completes the three-way path: analysis supplies the type to overload resolution,
+  preflight supplies it when the emitter infers a lambda's return type, and emission writes the
+  selected `get_Item` call. At `0cf8d4d56`, the emitter/plan regression rows passed 15/15; this change
+  addresses the remaining analyzer failures, including the `NL402` lambda and the mistyped local
+  that previously passed analysis.
+
+Rows: `AnalyzerIndexAccess.tests.nl` (definition substitution, spelled nullability, the inherited
+indexer, no-indexer and range reads, and two whole-analyzer rows: the lambda analyses clean and the
+mistyped local is NL202), plus `tests/native/census-lambda-inference/CensusExternalGenericIndexers`
+(the `Vector<int>` lambda and an `ArraySegment` over a source record, end to end).
+
 ### Member lookup in CALLEE position
 
 `AnalyzerMemberResolution.ResolveMember` carries C#'s must-be-invocable-if-member rule as a fifth
