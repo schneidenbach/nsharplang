@@ -1704,3 +1704,24 @@ test "a free function called from outside every type is still an ordinary call" 
     source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nfunc Show(): string => Label()\n"
     AssertNotCallableReports(source, "")
 }
+
+// ---- a `default` arm passed to a callee chosen by its arguments, end to end ----------------------
+//
+// An overload group walks its arguments before a parameter is chosen, so a `default` there — the
+// argument itself, or an arm of a conditional passed as it — used to report NL203, and a conditional
+// with a `default` or `null` arm answered `unknown`, which left an overload group ambiguous (NL414).
+// The other arm decides which overload applies; the parameter decides what the `default` is.
+
+test "a default or null arm passed to an N# overload group, a static group, an instance group and a framework method reports nothing" {
+    source := "namespace Probe\n\nimport System\n\nfunc Measure(value: int?): int => value ?? -1\nfunc Measure(value: string?): int => 0\n\nclass Gauge {\n    static func Read(value: int?): int => value ?? -1\n    static func Read(value: bool): int => 1\n    func Shift(value: long?): long => value ?? -1\n    func Shift(value: string?): long => 2\n}\n\nfunc A(flag: bool, n: int): int => Measure(flag ? default : n)\nfunc B(flag: bool, s: string): int => Measure(flag ? s : default)\nfunc C(a: bool, b: bool, n: int): int => Measure(a ? (b ? default : 7) : n)\nfunc D(flag: bool, n: int): int => Gauge.Read(flag ? default : n)\nfunc E(flag: bool, g: Gauge, n: long): long => g.Shift(flag ? default : n)\nfunc F(flag: bool, s: string): bool => string.IsNullOrEmpty(flag ? default : s)\nfunc G(flag: bool, n: int): int => Math.Max(flag ? default : n, 1)\nfunc H(flag: bool, n: int): int => Measure(flag ? null : n)\nfunc I(flag: bool, s: string): int => Measure(flag ? s : null)\n"
+    AssertNotCallableReports(source, "")
+}
+
+test "a default with no parameter to wait for is still told it has no target" {
+    // A local with no written type has no target at all, and a `default` OPERAND inside an argument
+    // has its own (the operator's), so neither is excused by the argument it sits in.
+    source := "namespace Probe\n\nfunc Measure(value: int?): int => value ?? -1\nfunc Measure(value: string?): int => 0\n\nfunc A(flag: bool, n: int): int {\n    x := flag ? default : n\n    return x\n}\nfunc B(flag: bool, n: int): int => Measure(flag ? default + 1 : n)\n"
+    reports := NotCallableReports(source)
+    assert reports.Contains("NL203@7:17 "), reports
+    assert reports.Contains("NL203@10:51 "), reports
+}

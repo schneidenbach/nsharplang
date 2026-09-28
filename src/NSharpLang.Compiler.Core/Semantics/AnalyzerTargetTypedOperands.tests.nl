@@ -739,3 +739,129 @@ test "A CAST'S WRITTEN TARGET IS RESOLVED LENIENTLY — AN UNKNOWN TYPE IS NOT A
     assert harness.Errors.Count == 0
     assert TargetTypedTypeText(harness.Operands.Result(state)) != "int"
 }
+
+// ── a ternary passed where its parameter is not chosen yet ──────────────
+
+func TargetTypedParenthesized(inner: Expression): Expression {
+    expression: Expression = new ParenthesizedExpression(inner, 2, 4)
+    return expression
+}
+
+test "A TERNARY WHOSE ARGUMENT TARGET IS PENDING IS WORTH ITS OTHER ARM WHEN ONE ARM IS default" {
+    harness := TargetTypedDefault()
+    ternary := TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedDefaultNode(), TargetTypedIdentifier("n", 2, 20))
+    saved := harness.Ambient.EnterPendingTargetArgument(ternary)
+    state := harness.Operands.Begin(ternary, harness.Reachability)
+
+    // The `default` arm answers `unknown`, which is what the literal says while nothing is asking.
+    steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Unknown, BuiltInTypes.Int))
+    harness.Ambient.ExitPendingTargetArgument(saved)
+
+    assert steps.Count == 3
+    assert steps[1].ExpectedOperand == "<null>"
+    assert TargetTypedTypeText(harness.Operands.Result(state)) == "int"
+    assert harness.Errors.Count == 0
+}
+
+test "THE default MAY BE EITHER ARM AND MAY SIT INSIDE PARENTHESES" {
+    harness := TargetTypedDefault()
+    ternary := TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("s", 2, 16), TargetTypedParenthesized(TargetTypedDefaultNode()))
+    argument := TargetTypedParenthesized(ternary)
+    saved := harness.Ambient.EnterPendingTargetArgument(argument)
+    state := harness.Operands.Begin(ternary, harness.Reachability)
+
+    TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.String, BuiltInTypes.Unknown))
+    harness.Ambient.ExitPendingTargetArgument(saved)
+
+    assert TargetTypedTypeText(harness.Operands.Result(state)) == "string"
+}
+
+func TargetTypedNullNode(): Expression {
+    expression: Expression = new NullLiteralExpression(2, 11)
+    return expression
+}
+
+test "BESIDE A null ARM THE OTHER ARM IS MADE NULLABLE, AND ONE ALREADY NULLABLE STAYS AS IT IS" {
+    harness := TargetTypedDefault()
+    ternary := TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedNullNode(), TargetTypedIdentifier("n", 2, 20))
+    saved := harness.Ambient.EnterPendingTargetArgument(ternary)
+    state := harness.Operands.Begin(ternary, harness.Reachability)
+    TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Null, BuiltInTypes.Int))
+    harness.Ambient.ExitPendingTargetArgument(saved)
+    assert TargetTypedTypeText(harness.Operands.Result(state)) == "int?"
+
+    already := TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("maybe", 2, 16), TargetTypedNullNode())
+    savedAlready := harness.Ambient.EnterPendingTargetArgument(already)
+    alreadyState := harness.Operands.Begin(already, harness.Reachability)
+    maybe: TypeInfo = new NullableTypeInfo(BuiltInTypes.String)
+    TargetTypedRun(harness, alreadyState, TargetTypedThree(BuiltInTypes.Bool, maybe, BuiltInTypes.Null))
+    harness.Ambient.ExitPendingTargetArgument(savedAlready)
+    assert TargetTypedTypeText(harness.Operands.Result(alreadyState)) == "string?"
+}
+
+test "WITH NOTHING PENDING THE SAME ARMS ARE STILL THEIR COMMON TYPE" {
+    harness := TargetTypedDefault()
+    ternary := TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedDefaultNode(), TargetTypedIdentifier("n", 2, 20))
+    state := harness.Operands.Begin(ternary, harness.Reachability)
+
+    TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Unknown, BuiltInTypes.Int))
+
+    assert TargetTypedTypeText(harness.Operands.Result(state)) == "unknown"
+}
+
+test "A TARGET IN FORCE WINS OVER A PENDING ONE — the arms are walked under it and joined as ever" {
+    harness := TargetTypedDefault()
+    ternary := TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedDefaultNode(), TargetTypedIdentifier("n", 2, 20))
+    saved := harness.Ambient.EnterPendingTargetArgument(ternary)
+    savedTarget := harness.Ambient.EnterExpectedType(BuiltInTypes.Long)
+    state := harness.Operands.Begin(ternary, harness.Reachability)
+
+    steps := TargetTypedRun(harness, state, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Long, BuiltInTypes.Int))
+    harness.Ambient.ExitExpectedType(savedTarget)
+    harness.Ambient.ExitPendingTargetArgument(saved)
+
+    assert steps[1].ExpectedOperand == "long"
+    assert TargetTypedTypeText(harness.Operands.Result(state)) == "long"
+}
+
+test "TWO TYPELESS ARMS OFFER NOTHING, AND A TERNARY WITH NONE IS JOINED AS EVER" {
+    harness := TargetTypedDefault()
+    both := TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedDefaultNode(), TargetTypedDefaultNode())
+    saved := harness.Ambient.EnterPendingTargetArgument(both)
+    bothState := harness.Operands.Begin(both, harness.Reachability)
+    TargetTypedRun(harness, bothState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Unknown, BuiltInTypes.Unknown))
+    harness.Ambient.ExitPendingTargetArgument(saved)
+    assert TargetTypedTypeText(harness.Operands.Result(bothState)) == "unknown"
+
+    typed := TargetTypedTernary(TargetTypedIdentifier("flag", 2, 9), TargetTypedIdentifier("a", 2, 16), TargetTypedIdentifier("b", 2, 20))
+    savedTyped := harness.Ambient.EnterPendingTargetArgument(typed)
+    typedState := harness.Operands.Begin(typed, harness.Reachability)
+    TargetTypedRun(harness, typedState, TargetTypedThree(BuiltInTypes.Bool, BuiltInTypes.Int, BuiltInTypes.Long))
+    harness.Ambient.ExitPendingTargetArgument(savedTyped)
+    assert TargetTypedTypeText(harness.Operands.Result(typedState)) == "long"
+}
+
+test "AN ARM IS REACHED THROUGH PARENTHESES AND CONDITIONAL ARMS AND THROUGH NOTHING ELSE" {
+    inner := TargetTypedDefaultNode()
+    nested := TargetTypedTernary(TargetTypedIdentifier("b", 2, 9), inner, TargetTypedIdentifier("n", 2, 20))
+    argument := TargetTypedTernary(TargetTypedIdentifier("a", 2, 5), TargetTypedParenthesized(nested), TargetTypedIdentifier("m", 2, 30))
+    assert AnalyzerTargetTypedOperands.IsTypelessArmOf(argument, argument)
+    assert AnalyzerTargetTypedOperands.IsTypelessArmOf(argument, nested)
+    assert AnalyzerTargetTypedOperands.IsTypelessArmOf(argument, inner)
+    assert !AnalyzerTargetTypedOperands.IsTypelessArmOf(null, inner)
+
+    // A CONDITION is not an arm, and neither is an operand or a nested call's argument.
+    condition := TargetTypedDefaultNode()
+    guarded := TargetTypedTernary(condition, TargetTypedIdentifier("x", 2, 16), TargetTypedIdentifier("y", 2, 20))
+    assert !AnalyzerTargetTypedOperands.IsTypelessArmOf(guarded, condition)
+
+    operand := TargetTypedDefaultNode()
+    sum: Expression = new BinaryExpression(operand, BinaryOperator.Add, TargetTypedIdentifier("n", 2, 20), 2, 5)
+    assert !AnalyzerTargetTypedOperands.IsTypelessArmOf(sum, operand)
+
+    nestedArgument := TargetTypedDefaultNode()
+    arguments := new List<Argument>()
+    arguments.Add(new Argument(null, nestedArgument))
+    call: Expression = new CallExpression(TargetTypedIdentifier("Other", 2, 5), arguments, null, 2, 5)
+    assert !AnalyzerTargetTypedOperands.IsTypelessArmOf(call, nestedArgument)
+}

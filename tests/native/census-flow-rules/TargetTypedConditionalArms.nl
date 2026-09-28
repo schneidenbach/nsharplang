@@ -125,3 +125,59 @@ func InstanceArgument(flag: bool, describer: Describer, suffix: string): string 
 func FrameworkStatic(flag: bool, text: string): bool => string.IsNullOrEmpty(flag ? null : text)
 
 func FrameworkStaticNullSecond(flag: bool, text: string): bool => string.IsNullOrEmpty(flag ? text : null)
+
+// A TYPELESS ARM WHERE THE CALLEE IS AN OVERLOAD GROUP. A group — N#'s own or a framework's — walks
+// each argument BEFORE a parameter is chosen, so the analyzer had no target to give a `default` and said
+// "I can't figure out what type 'default' should be" (NL203) about a call whose parameter says exactly
+// that; and the conditional answered `unknown`, which every overload accepts, so `Measure(flag ? null :
+// n)` was ambiguous (NL414) and the `default` form was both. The OTHER arm now decides which overload
+// applies — made nullable beside a `null` — and the chosen parameter decides what the `default` is:
+// `null` for an `int?` or a `string?`, zero for an `int`.
+class Meter {
+    Offset: long
+
+    constructor(offset: long) {
+        Offset = offset
+    }
+
+    static func Measure(value: int?): int => value ?? -1
+
+    static func Measure(value: string?): int {
+        if value == null {
+            return -2
+        }
+        return value.Length
+    }
+
+    static func Plain(value: int): int => value + 100
+
+    static func Plain(value: string): int => value.Length
+
+    func Shift(value: long?): long => (value ?? -1) + Offset
+
+    func Shift(value: string?): long {
+        if value == null {
+            return -5
+        }
+        return value.Length + Offset
+    }
+}
+
+func MeasureDefaultFirst(flag: bool, n: int): int => Meter.Measure(flag ? default : n)
+
+func MeasureDefaultSecond(flag: bool, text: string): int => Meter.Measure(flag ? text : default)
+
+func MeasureNullFirst(flag: bool, n: int): int => Meter.Measure(flag ? null : n)
+
+func MeasureNullSecond(flag: bool, text: string): int => Meter.Measure(flag ? text : null)
+
+// A NON-NULLABLE PARAMETER: its `default` is zero, not an absent value.
+func PlainDefault(flag: bool, n: int): int => Meter.Plain(flag ? default : n)
+
+func ShiftDefault(flag: bool, meter: Meter, n: long): long => meter.Shift(flag ? default : n)
+
+func ShiftNull(flag: bool, meter: Meter, text: string): long => meter.Shift(flag ? null : text)
+
+func FrameworkStaticDefault(flag: bool, text: string): bool => string.IsNullOrEmpty(flag ? default : text)
+
+func FrameworkValueDefault(flag: bool, n: int): int => Math.Max(flag ? default : n, -3)

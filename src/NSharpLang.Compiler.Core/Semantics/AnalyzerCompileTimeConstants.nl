@@ -286,10 +286,18 @@ class AnalyzerCompileTimeConstants {
     // neither report touches the ambient context.
     //
     // With no target there is no answer to give. That is an ERROR rather than an inference, because
-    // `default` with nothing to be is not under-constrained — it is meaningless.
+    // `default` with nothing to be is not under-constrained — it is meaningless. The one empty slot
+    // that is NOT an absent target is an argument whose callee is still being chosen by its
+    // arguments: the target exists, it is the parameter, and nobody has picked it yet. There the
+    // `default` — the argument itself or an arm of a conditional passed as it — answers `unknown`
+    // without a word, which every candidate accepts, and the parameter decides what it is.
     func DefaultValueType(defaultValue: DefaultExpression): TypeInfo {
         expected := ambientValue.CurrentExpectedType
         if expected == null {
+            if AnalyzerTargetTypedOperands.IsTypelessArmOf(ambientValue.PendingTargetArgument, defaultValue) {
+                return BuiltInTypes.Unknown
+            }
+
             diagnosticsValue.Report(ErrorCode.CannotInferType, "I can't figure out what type 'default' should be here — add a type annotation so I know what you mean (e.g., 'let x: int = default')", defaultValue.Line, defaultValue.Column, null, "default".Length)
             return BuiltInTypes.Unknown
         }

@@ -586,3 +586,28 @@ test "nameof'S DIAGNOSTIC LANDS AFTER ITS STEP, NOT BEFORE" {
     assert steps[0].ErrorsBefore == 0
     assert harness.Errors.Count == 1
 }
+
+test "default PASSED WHERE ITS PARAMETER IS NOT CHOSEN YET ANSWERS unknown WITHOUT A REPORT" {
+    harness := ConstantDefault()
+    literal := ConstantDefaultAt(4, 17)
+    saved := harness.Ambient.EnterPendingTargetArgument(literal)
+    state := harness.Constants.Begin(literal, null)
+    ConstantRun(harness, state, null)
+    harness.Ambient.ExitPendingTargetArgument(saved)
+
+    assert harness.Errors.Count == 0
+    assert ConstantTypeText(harness.Constants.Result(state)) == "unknown"
+}
+
+test "BUT A default THAT IS NOT THE PENDING ARGUMENT OR ONE OF ITS ARMS IS STILL TOLD IT HAS NO TARGET" {
+    harness := ConstantDefault()
+    pending := ConstantDefaultAt(4, 30)
+    saved := harness.Ambient.EnterPendingTargetArgument(pending)
+    state := harness.Constants.Begin(ConstantDefaultAt(4, 17), null)
+    ConstantRun(harness, state, null)
+    harness.Ambient.ExitPendingTargetArgument(saved)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.CannotInferType
+    assert harness.Errors[0].Column == 17
+}

@@ -156,6 +156,12 @@ class CallAnalysisState {
     ReflectionErrorsBefore: int
     ReflectionArgumentErrorsBefore: int
     ReflectionArgumentIsUntargeted: bool
+
+    // THE PROVISIONAL-ARGUMENT BRACKET, open while an argument is walked before its parameter is
+    // chosen — see `AnalyzerAmbientContext.PendingTargetArgument`. The saved slot is what closing it
+    // restores, because a nested call chosen by its own arguments opens one of its own.
+    PendingTargetOpen: bool
+    SavedPendingTargetArgument: Expression?
     FinalizeState: ReflectionCallFinalizeState?
 
     // The call expression's type. `unknown` is the walk's own final answer for a callee it does not
@@ -205,6 +211,8 @@ class CallAnalysisState {
         ReflectionErrorsBefore = 0
         ReflectionArgumentErrorsBefore = 0
         ReflectionArgumentIsUntargeted = false
+        PendingTargetOpen = false
+        SavedPendingTargetArgument = null
         FinalizeState = null
         Result = BuiltInTypes.Unknown
         NotNullIfNotNullArgumentIndex = -1
@@ -398,6 +406,7 @@ class AnalyzerCallAnalysis {
                 arguments[state.ReflectionArgumentIndex] = AnalyzerReflectionArgumentBinder.ReferencedStorageType(state.Call.Arguments[state.ReflectionArgumentIndex].Modifier, answer)
             }
 
+            ClosePendingTarget(state)
             WithdrawUntargetedCollectionReports(state)
             state.ReflectionArgumentIndex = state.ReflectionArgumentIndex + 1
             return
@@ -677,6 +686,7 @@ class AnalyzerCallAnalysis {
             state.Pending = 32
             state.ReflectionArgumentIsUntargeted = argument.Value as ArrayLiteralExpression != null
             state.ReflectionArgumentErrorsBefore = diagnostics.ErrorCount
+            OpenPendingTarget(state, argument.Value)
             request := new CallAnalysisRequest(4)
             request.Node = argument.Value
             request.Flag = true
@@ -1749,15 +1759,19 @@ class AnalyzerCallAnalysis {
 
         expectedArgumentType := syntheticCallValidator.GetExpectedArgumentType(functionType, call, index, expectedIndex, state.SyntheticExpectedBindings)
         if expectedArgumentType == null {
-            return EmitArgument(state, call.Arguments[index], null, false)
+            return EmitArgument(state, call.Arguments[index], null, false, false)
         }
 
         // A POSITION THAT IS STILL OPEN OFFERS NO TARGET, because the surrogate it would offer is a
         // type the program never wrote. The one exception is a DELEGATE: its open position is
         // precisely what the lambda written there is being asked to decide, and its CLOSED positions
         // are what that lambda's parameters need.
+        //
+        // AN OPEN POSITION STILL HAS A TARGET, it is only not known yet: inference closes it from the
+        // arguments, so a `default` written there — or as an arm of a conditional written there —
+        // waits for the parameter instead of being told it has none.
         narrowedExpectedType := AnalyzerSyntheticCallFacts.NarrowOpenExpectedArgumentType(expectedArgumentType, functionType.TypeParameters)
-        return EmitArgument(state, call.Arguments[index], narrowedExpectedType, false)
+        return EmitArgument(state, call.Arguments[index], narrowedExpectedType, false, narrowedExpectedType == null)
     }
 
     func EmitGroupArgument(state: CallAnalysisState): CallAnalysisRequest? {
@@ -1788,7 +1802,7 @@ class AnalyzerCallAnalysis {
         // analyses the same literal again with its own element type and says whatever is true then.
         state.ReflectionArgumentIsUntargeted = state.IsMethodGroup && argument.Value as ArrayLiteralExpression != null
         state.ReflectionArgumentErrorsBefore = diagnostics.ErrorCount
-        return EmitArgument(state, argument, null, state.IsMethodGroup)
+        return EmitArgument(state, argument, null, state.IsMethodGroup, state.IsMethodGroup)
     }
 
     // ONE ARGUMENT, AND THE `ref`/`out` FORM IS THIS WALK'S OWN BUSINESS RATHER THAN THE DRIVER'S.
@@ -1800,10 +1814,18 @@ class AnalyzerCallAnalysis {
     // the walk already produced instead of re-walking it and reporting twice; and the answer comes
     // back wrapped in `ByRefTypeInfo`. The DRIVER performs the same operation either way — analyse
     // this expression with that expected type — which is why there is one kind and not two.
-    func EmitArgument(state: CallAnalysisState, argument: Argument, expectedType: TypeInfo?, allowUnbound: bool): CallAnalysisRequest? {
+    //
+    // `targetPending` says the argument HAS a target that is not chosen yet — a callee picked by its
+    // arguments, or a parameter inference has still to close. Only a by-value argument can be the
+    // `default` that waits for it; a `ref`/`out` target is a storage location, never a literal.
+    func EmitArgument(state: CallAnalysisState, argument: Argument, expectedType: TypeInfo?, allowUnbound: bool, targetPending: bool): CallAnalysisRequest? {
         errorsBefore := diagnostics.ErrorCount
         modifier := RefOutModifier(argument)
         if modifier == null {
+            if targetPending {
+                OpenPendingTarget(state, argument.Value)
+            }
+
             state.Pending = 4
             plain := new CallAnalysisRequest(4)
             plain.Node = argument.Value
@@ -1854,6 +1876,7 @@ class AnalyzerCallAnalysis {
     // only then asks whether the target could have been written through — the order the two C#
     // members ran in, and it matters: the report reads the table the bracket collected.
     func CompleteArgument(state: CallAnalysisState, answer: TypeInfo?) {
+        ClosePendingTarget(state)
         WithdrawUntargetedCollectionReports(state)
         argument := state.RefOutArgument
         if argument == null {
@@ -1908,6 +1931,24 @@ class AnalyzerCallAnalysis {
         state.RefOutSavedSuppressedFlowTypeNode = null
         state.ArgTypes.Add(resolved)
         state.ArgumentIndex = state.ArgumentIndex + 1
+    }
+
+    // THE PROVISIONAL-ARGUMENT BRACKET, opened just before the argument's walk is requested and
+    // closed as its answer arrives. Closing runs on EVERY completion and does nothing unless the
+    // bracket is open, so no pass can leave one open for the argument after it.
+    func OpenPendingTarget(state: CallAnalysisState, argument: Expression) {
+        state.SavedPendingTargetArgument = ambient.EnterPendingTargetArgument(argument)
+        state.PendingTargetOpen = true
+    }
+
+    func ClosePendingTarget(state: CallAnalysisState) {
+        if !state.PendingTargetOpen {
+            return
+        }
+
+        ambient.ExitPendingTargetArgument(state.SavedPendingTargetArgument)
+        state.PendingTargetOpen = false
+        state.SavedPendingTargetArgument = null
     }
 
     // THE WITHDRAWAL ITSELF, shared by the two passes that analyse an argument with nothing in the

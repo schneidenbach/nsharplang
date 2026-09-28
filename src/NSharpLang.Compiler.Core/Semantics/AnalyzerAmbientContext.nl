@@ -242,6 +242,7 @@ class AnalyzerAmbientContext {
     analyzingCallCalleeValue: bool
     callCalleeNodeValue: Expression?
     writeTargetExpressionTypesValue: Dictionary<object, TypeInfo>?
+    pendingTargetArgumentValue: Expression?
 
     // THE ENCLOSING FUNCTION'S RETURN TYPE, and `null` when there is no enclosing function at all —
     // which is the ONLY thing that distinguishes "a `return` is illegal here" from "a `return` must
@@ -409,6 +410,21 @@ class AnalyzerAmbientContext {
 
     WriteTargetExpressionTypes: Dictionary<object, TypeInfo>? => writeTargetExpressionTypesValue
 
+    // THE ARGUMENT WHOSE TARGET IS A PARAMETER NOT YET CHOSEN, or `null` everywhere else.
+    //
+    // A callee chosen by its arguments — an overload group, a reflected method — walks each argument
+    // BEFORE it knows which parameter the argument is for, so the target-typing slot is empty there
+    // although the argument has a target. That is harmless for almost every expression, and it is
+    // NOT harmless for the one literal whose whole meaning is its target: a `default` passed as the
+    // argument, or sitting as an arm of a conditional passed as the argument, reported NL203 "I can't
+    // figure out what type 'default' should be" about a call whose parameter says exactly what it is.
+    // This slot names the argument for the length of that provisional walk, and the two readers —
+    // the `default` literal and the conditional — ask `AnalyzerTargetTypedOperands.IsTypelessArmOf`
+    // whether the node in hand is the argument itself or one of its arms. That structural question is
+    // what keeps the slot from leaking: a `default` inside a nested call, a lambda or an operator is
+    // not an arm of the argument, whatever is open while it is walked.
+    PendingTargetArgument: Expression? => pendingTargetArgumentValue
+
     constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape, declarationContext: AnalyzerDeclarationContext? = null) {
         diagnosticsValue = diagnostics
         spansValue = spans
@@ -441,6 +457,7 @@ class AnalyzerAmbientContext {
         analyzingCallCalleeValue = false
         callCalleeNodeValue = null
         writeTargetExpressionTypesValue = null
+        pendingTargetArgumentValue = null
     }
 
     // One call per analysis, from the same reset block that clears the scope stack and the null-flow
@@ -562,6 +579,18 @@ class AnalyzerAmbientContext {
 
     func ClearWriteTargetExpressionTypes() {
         writeTargetExpressionTypesValue = null
+    }
+
+    // OPEN A PROVISIONAL ARGUMENT, answering the previous one. Save/restore, because an argument's
+    // own walk can reach another call chosen by ITS arguments.
+    func EnterPendingTargetArgument(argument: Expression?): Expression? {
+        saved := pendingTargetArgumentValue
+        pendingTargetArgumentValue = argument
+        return saved
+    }
+
+    func ExitPendingTargetArgument(saved: Expression?) {
+        pendingTargetArgumentValue = saved
     }
 
     // THE EXPRESSION WALK'S TAIL RECORDS HERE, and the `null` test lives inside so no caller repeats

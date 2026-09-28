@@ -924,6 +924,35 @@ its order. A typed arm now also takes the implicit REFERENCE conversions a decla
 `census-flow-rules/TargetTypedConditionalArms` (same assembly, framework) and
 `census-external-operands` G8 (referenced assembly, analysis AND emit-only paths).
 
+THE ANALYZER HALF: A TYPELESS ARM WAITING FOR ITS PARAMETER (2026-09-27). A callee chosen by its
+arguments — an N# overload group, a reflected method or group, a generic parameter inference has still
+to close — walks each argument BEFORE a parameter is chosen, with the target-typing slot empty. A
+`default` arm there reported NL203, and a conditional with a `default` OR `null` arm answered
+`unknown`, which every overload accepts, so an overload group was NL414-ambiguous (a single callee
+never noticed: `unknown` is accepted). `AnalyzerCallAnalysis` now opens
+`AnalyzerAmbientContext.PendingTargetArgument` around each such provisional argument walk
+(`OpenPendingTarget`/`ClosePendingTarget`, phases 6, 7 and 32), and two readers ask
+`AnalyzerTargetTypedOperands.IsTypelessArmOf` whether the node in hand IS the argument or one of its
+arms (through parentheses and conditional arms ONLY — an operand, a nested call's argument or a lambda
+body has its own target and is not excused): `DefaultValueType` answers `unknown` without a report,
+and a ternary with exactly one typeless arm answers its OTHER arm's type — made nullable beside a
+`null` (`PendingTargetResult`) — which is what applicability and scoring need. A reflected call's phase
+two walks the argument again under the chosen parameter, and the emitter reads the parameter itself.
+A `default` with no target at all (`x := flag ? default : n`) still reports NL203.
+
+THE EMITTER'S HAND-WRITTEN FRAMEWORK ARMS (`string.IsNullOrEmpty`, `Math.Max`, `Path.*`, ...) bind
+their arguments through `EmitArg`, which had no conditional-as-target door: a `null` arm survived only
+through the untargeted unification arm (which knows `null`, not `default`), so
+`string.IsNullOrEmpty(flag ? default : s)` declined at `emit.expression.unhandled-kind` (74) once the
+analyzer let it through. `EmitArg` now tries `TryEmitConditionalAsType` beside the zero-literal door,
+as `EmitDeclaredCallArgument` does. STILL DECLINING, in every target position (return included): a
+typeless arm NESTED in a conditional arm (`a ? (b ? default : 1) : n`), and — independent of
+conditionals — overloaded TOP-LEVEL free functions (`parse.declaration-scan`), which is why the native
+rows use class-member overload groups. Pinned by `AnalyzerTargetTypedOperands`,
+`AnalyzerCompileTimeConstants` and `AnalyzerCallAnalysis` estate rows, `TargetTypedConditionalArms`
+(static/instance overload groups with `default` and `null`, a framework static and a framework value
+method, `null` vs zero by parameter) and G8 (referenced static and instance methods, both paths).
+
 ### A reference `?` does not choose the equality (2026-09-27, the Compiler.CodeIntel carve)
 
 `CanCompareWithEqualityOperator`'s reference tail looks through a reference annotation

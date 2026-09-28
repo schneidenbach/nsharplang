@@ -2589,6 +2589,31 @@ The *typed* arm decides nothing here; the target does. That is what lets a value
 `int?`) rather than having to match a `null` it can never equal, and what gives a `null` a type when
 the only other arm raises.
 
+A `default` arm means the zero value *of the target*, so the same conditional can mean different
+things at different parameters: passed to an `int?` it is `null`, passed to an `int` it is `0`. When
+the callee is an overload group, the *typed* arm is what chooses the overload — `Meter.measure(flag ?
+default : n)` picks `measure(value: int?)` over `measure(value: string?)` because `n` is an `int`
+(beside a `null` arm, the typed arm counts as nullable) — and the chosen parameter then decides what
+the `default` is:
+
+```n#
+import System
+
+class Meter {
+    static func measure(value: int?): int => value ?? -1
+    static func measure(value: string?): int => value?.Length ?? -2
+}
+
+func main() {
+    print Meter.measure(true ? default : 3)    // -1: the `int?` overload, and `default` is `null`
+    print Meter.measure(true ? null : "abc")   // -2: the `string?` overload
+    print Math.Max(true ? default : 3, -5)     // 0:  `Math.Max(int, int)`, and `default` is `0`
+}
+```
+
+A `default` with no target at all — `x := flag ? default : n` — is still an error (NL203): write the
+type (`x: int? = flag ? default : n`) so the `default` has something to be.
+
 A parameter is a target wherever the method is declared — in your project, in a referenced N#
 library, or in the framework — and a typed arm converts to it the way it would if it were passed
 alone, so a `Circle` arm reaches a `Shape?` parameter:

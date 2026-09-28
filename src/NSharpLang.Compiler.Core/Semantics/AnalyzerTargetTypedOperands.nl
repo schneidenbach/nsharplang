@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
@@ -92,6 +93,11 @@ class TargetTypedOperandState {
     ThenScopeOpen: bool
     ElseScopeOpen: bool
 
+    // WHETHER THIS TERNARY IS AN ARGUMENT WHOSE PARAMETER HAS NOT BEEN CHOSEN YET — the whole
+    // argument, or an arm of one — and nothing else is asking it for a type. Read once, at entry,
+    // beside `ExpectedResultType`, for the same reason.
+    TargetPending: bool
+
     reachabilityValue: AnalyzerPatternReachability?
     narrowingValue: AnalyzerFlowNarrowing?
 
@@ -124,6 +130,7 @@ class TargetTypedOperandState {
         ElseNarrowings = null
         ThenScopeOpen = false
         ElseScopeOpen = false
+        TargetPending = false
     }
 }
 
@@ -337,6 +344,7 @@ class AnalyzerTargetTypedOperands {
         ternaryNode := node as TernaryExpression
         if ternaryNode != null {
             state.ExpectedResultType = ambientValue.CurrentExpectedType
+            state.TargetPending = state.ExpectedResultType == null && IsTypelessArmOf(ambientValue.PendingTargetArgument, ternaryNode)
             state.Pending = 1
             state.Phase = 2
             condition := ternaryNode.Condition
@@ -616,9 +624,110 @@ class AnalyzerTargetTypedOperands {
         // THE COMMON TYPE IS THE ANSWER. A ternary is worth exactly what both of its arms can be at
         // once. This was a STEP while numeric widening lived in the host; the operator arms own the
         // promotion tables now, so it is a call and the walk ends here.
-        state.ResultType = AnalyzerOperatorExpressions.CommonType(state.ThenType, state.ElseType)
+        if state.TargetPending {
+            state.ResultType = PendingTargetResult(ternaryNode, state.ThenType, state.ElseType)
+        } else {
+            state.ResultType = AnalyzerOperatorExpressions.CommonType(state.ThenType, state.ElseType)
+        }
+
         state.Phase = 99
         return null
+    }
+
+    // WHAT A TERNARY WITH A TYPELESS ARM IS WORTH WHILE ITS PARAMETER IS STILL BEING CHOSEN.
+    //
+    // A `default` converts to every parameter there is, and a `null` to every parameter that can hold
+    // one, so whether the conditional can be passed to a parameter is decided by its OTHER arm — and
+    // that arm's type is the answer the candidates are scored and bound against: as written beside a
+    // `default`, and made nullable beside a `null`, since that is the least a parameter must be to
+    // take both. It is not the conditional's final type: the chosen parameter is, and a reflected
+    // call walks the argument again under it. What it must not be is `unknown`, which every candidate
+    // accepts equally: `Measure(flag ? default : n)` and `Measure(flag ? null : n)` over
+    // `Measure(int?)` and `Measure(string?)` were ambiguous (NL414), the first on top of the NL203 the
+    // `default` itself reported. Two typeless arms have nothing to offer, and a conditional with none
+    // is the common type as everywhere else.
+    static func PendingTargetResult(ternaryNode: TernaryExpression, thenType: TypeInfo, elseType: TypeInfo): TypeInfo {
+        thenIsDefault := IsDefaultArm(ternaryNode.ThenExpression)
+        elseIsDefault := IsDefaultArm(ternaryNode.ElseExpression)
+        thenIsNull := IsNullArm(ternaryNode.ThenExpression)
+        elseIsNull := IsNullArm(ternaryNode.ElseExpression)
+        thenIsTypeless := thenIsDefault || thenIsNull
+        elseIsTypeless := elseIsDefault || elseIsNull
+        if thenIsTypeless && !elseIsTypeless {
+            if thenIsNull {
+                return MaybeNull(elseType)
+            }
+
+            return elseType
+        }
+
+        if elseIsTypeless && !thenIsTypeless {
+            if elseIsNull {
+                return MaybeNull(thenType)
+            }
+
+            return thenType
+        }
+
+        return AnalyzerOperatorExpressions.CommonType(thenType, elseType)
+    }
+
+    // A TYPE THAT CAN ALSO HOLD `null`. One that already can, and `unknown`, are unchanged.
+    static func MaybeNull(candidate: TypeInfo): TypeInfo {
+        if candidate as NullableTypeInfo != null || BuiltInTypes.IsUnknown(candidate) {
+            return candidate
+        }
+
+        lifted: TypeInfo = new NullableTypeInfo(candidate)
+        return lifted
+    }
+
+    // A `default` WRITTEN AS AN ARM, through any parentheses around it.
+    static func IsDefaultArm(arm: Expression): bool {
+        return UnwrapParentheses(arm) as DefaultExpression != null
+    }
+
+    // A bare `null` WRITTEN AS AN ARM, through any parentheses around it.
+    static func IsNullArm(arm: Expression): bool {
+        return UnwrapParentheses(arm) as NullLiteralExpression != null
+    }
+
+    static func UnwrapParentheses(expression: Expression): Expression {
+        current := expression
+        parenthesized := current as ParenthesizedExpression
+        while parenthesized != null {
+            current = parenthesized.Inner
+            parenthesized = current as ParenthesizedExpression
+        }
+
+        return current
+    }
+
+    // WHETHER `node` IS THE ARGUMENT ITSELF OR ONE OF ITS ARMS — reached from the argument through
+    // parentheses and a conditional's two arms, and through nothing else. Those are exactly the
+    // positions whose type IS the argument's: an operand of an operator, an argument of a nested
+    // call, a lambda body and an element of a collection all have targets of their own, so a
+    // `default` there is not waiting for this argument's parameter and is not excused by it.
+    static func IsTypelessArmOf(argument: Expression?, node: Expression): bool {
+        if argument == null {
+            return false
+        }
+
+        if Object.ReferenceEquals(argument, node) {
+            return true
+        }
+
+        parenthesized := argument as ParenthesizedExpression
+        if parenthesized != null {
+            return IsTypelessArmOf(parenthesized.Inner, node)
+        }
+
+        ternary := argument as TernaryExpression
+        if ternary != null {
+            return IsTypelessArmOf(ternary.ThenExpression, node) || IsTypelessArmOf(ternary.ElseExpression, node)
+        }
+
+        return false
     }
 
     // HOW MANY FACTS AN ARM HAS TO INSTALL. Zero when the condition proved none and zero when there

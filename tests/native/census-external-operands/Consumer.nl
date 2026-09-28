@@ -235,7 +235,7 @@ class OperandUses {
         return left == right
     }
 
-    // G8: a conditional with a `null` arm, passed to a referenced static or instance method that is
+    // G8: a conditional with a `null` or a `default` arm, passed to a referenced static or instance method that is
     // chosen by its arguments. Either arm may be the `null`, a derived class reaches a base parameter,
     // and a value arm lifts to an `int?` one.
     static func DescribeNullFirst(flag: bool, label: string): string {
@@ -256,6 +256,20 @@ class OperandUses {
 
     static func LabelOrPrefix(flag: bool, labeler: Labeler, suffix: string): string {
         return labeler.Label(flag ? null : suffix)
+    }
+
+    // The same three callees with a `default` arm, which the analyzer walked before the referenced
+    // method was chosen and so reported NL203 about: the parameter says what `default` is.
+    static func DescribeDefaultFirst(flag: bool, label: string): string {
+        return OperandFacts.Describe(flag ? default : label, 3)
+    }
+
+    static func CountOrDefault(flag: bool, count: int): int {
+        return OperandFacts.CountOf(flag ? count : default)
+    }
+
+    static func LabelOrDefault(flag: bool, labeler: Labeler, suffix: string): string {
+        return labeler.Label(flag ? default : suffix)
     }
 
     // G9: a `&T` parameter passed on by reference to a referenced `&T` parameter, one hop and two.
@@ -384,6 +398,7 @@ class OperandUses {
         lines.Add("scan " + ContextName(new Scan(null, null)) + " " + LabelLength(new Scan(null, "four")).ToString() + " " + LabelLength(new Scan(null, null)).ToString())
         lines.Add("maybe " + MaybeSameShape(shape, shape).ToString() + " " + MaybeSameShape(null, shape).ToString() + " " + MaybeNodesDiffer(node, node).ToString() + " " + MaybeNodesDiffer(null, node).ToString() + " " + MaybeNodesDiffer(null, null).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(2)).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(3)).ToString())
         lines.Add("conditional " + DescribeNullFirst(true, "a") + " " + DescribeNullFirst(false, "a") + " " + DescribeNullSecond(true, "b") + " " + DescribeNullSecond(false, "b") + " " + NameOfAlias(true, alias) + " " + NameOfAlias(false, alias) + " " + CountOrAbsent(true, 3).ToString() + " " + CountOrAbsent(false, 3).ToString() + " " + LabelOrPrefix(true, new Labeler("p"), "!") + " " + LabelOrPrefix(false, new Labeler("p"), "!"))
+        lines.Add("default " + DescribeDefaultFirst(true, "a") + " " + DescribeDefaultFirst(false, "a") + " " + CountOrDefault(true, 3).ToString() + " " + CountOrDefault(false, 3).ToString() + " " + LabelOrDefault(true, new Labeler("p"), "!") + " " + LabelOrDefault(false, new Labeler("p"), "!"))
         lines.Add("forwarded " + Forwarded())
         lines.Add("nested " + MustNested(shape).ToString() + " " + MustNestedLocal(alias).ToString() + " " + OperatorNested(-2).ToString() + " " + new Cursor("ab").Matches(1, 5).ToString() + " " + new Cursor("ab").Matches(2, 7).ToString())
         lines.Add("must-member " + MustMemberNested(alias).ToString() + " " + OverloadedOuter(shape))

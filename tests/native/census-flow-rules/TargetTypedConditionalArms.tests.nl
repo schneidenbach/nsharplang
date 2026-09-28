@@ -73,3 +73,31 @@ test "a derived arm reaches a base parameter, a value arm a lifted one, and an i
     assert InstanceArgument(true, describer, "!") == "p"
     assert InstanceArgument(false, describer, "!") == "p!"
 }
+
+test "a typeless arm takes the type of the overload its other arm chooses" {
+    assert MeasureDefaultFirst(true, 3) == -1
+    assert MeasureDefaultFirst(false, 3) == 3
+    assert MeasureDefaultSecond(true, "four") == 4
+    assert MeasureDefaultSecond(false, "four") == -2
+    assert MeasureNullFirst(true, 3) == -1
+    assert MeasureNullFirst(false, 3) == 3
+    assert MeasureNullSecond(true, "four") == 4
+    assert MeasureNullSecond(false, "four") == -2
+}
+
+test "a default arm is null or zero as the chosen parameter says, static and instance alike" {
+    assert PlainDefault(true, 5) == 100
+    assert PlainDefault(false, 5) == 105
+    meter := new Meter(10)
+    assert ShiftDefault(true, meter, 5) == 9
+    assert ShiftDefault(false, meter, 5) == 15
+    assert ShiftNull(true, meter, "ab") == -5
+    assert ShiftNull(false, meter, "ab") == 12
+}
+
+test "a default arm reaches a framework method, as a reference and as a value" {
+    assert FrameworkStaticDefault(true, "x")
+    assert !FrameworkStaticDefault(false, "x")
+    assert FrameworkValueDefault(true, 8) == 0
+    assert FrameworkValueDefault(false, 8) == 8
+}

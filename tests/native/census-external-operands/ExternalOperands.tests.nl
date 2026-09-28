@@ -134,6 +134,16 @@ test "G8: a conditional with a null arm is a referenced static's or instance met
     assert OperandUses.LabelOrPrefix(false, labeler, "!") == "p!"
 }
 
+test "G8: a conditional with a default arm takes the referenced parameter's type" {
+    assert OperandUses.DescribeDefaultFirst(true, "a") == "none:3"
+    assert OperandUses.DescribeDefaultFirst(false, "a") == "a:3"
+    assert OperandUses.CountOrDefault(true, 3) == 3
+    assert OperandUses.CountOrDefault(false, 3) == -1
+    labeler := new Labeler("p")
+    assert OperandUses.LabelOrDefault(true, labeler, "!") == "p"
+    assert OperandUses.LabelOrDefault(false, labeler, "!") == "p!"
+}
+
 test "G9: a &T parameter is passed on by reference to a referenced &T parameter" {
     assert OperandUses.Forwarded() == "6 15"
 }
