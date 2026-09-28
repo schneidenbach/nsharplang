@@ -488,6 +488,17 @@ What the carve is:
 - the committed seed does not name Plan in its emit-only switch, so until the next republish it
   compiles Plan WITH analysis (and warns NU1504 for the runtime pair its older `Sdk.props` still adds);
   Plan's zero front door is what lets that analysis pass.
+Measured edit -> test (`memory/testing.md` section 7a's command: `./scripts/dev.sh --estate <Rows>` after
+a warm run, a one-line body edit and its revert, private `NUGET_PACKAGES`, other sessions' gates queued
+on the box): a Plan file (`ColumnarTypeOfPlanner.nl` / `ColumnarTypeOfPlannerTests`) **37 / 36 s** on the
+pre-carve tree and the committed seed (`efee4818f`, load ~6) -> **16 / 17 s** on the carve and a scratch
+stage-2 seed packed from it (load ~4.3); a Core file (`Semantics/AnalyzerDeclarationContext.nl` /
+`AnalyzerDeclarationContextTests`) **36 / 36 s** -> **28 / 32 s** (load 5.5-8). Each cycle is one
+tests-included emit of the edited slice: `EmitIlAssembly` (`-clp:PerformanceSummary`, load ~7) takes
+**18.2 s** for Plan tests-included and **8.8-11.2 s** product-only (the split design predicted ~30 s),
+and **24.9 s** for Core tests-included (~55 s before the carve) and **9.3 s** product-only. Plan is
+still the largest remaining slice (120 product files, 137 estate files); the sub-split the design names
+(`Plan.Call` / `.Type` / `.Body`) is not done here.
 
 ## Data Flow
 

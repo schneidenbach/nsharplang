@@ -1083,7 +1083,10 @@ recorded: Emit `ColumnarIlEmitter.nl` / `ColumnarLambdaStatementBodyTests`, Mode
 `UnifiedDiff.nl` / `UnifiedDiffTests`, Tooling `FormatterConfig.nl` / `FormatterConfigTests`, Driver
 `RunCommandKernels.nl` / `RunCommandKernelsTests`. Both columns with private
 `NUGET_PACKAGES` (2026-09-27, `census/slice-cycle` on `d304a764f`, 10 cores, other sessions' builds on
-the box):
+the box). The Plan and Core rows are the Plan carve's (2026-09-27, `census/carve-plan`): `ColumnarTypeOfPlanner.nl` /
+`ColumnarTypeOfPlannerTests` and `Semantics/AnalyzerDeclarationContext.nl` / `AnalyzerDeclarationContextTests`,
+before on the pre-carve tree (`efee4818f`) and its committed seed, after on the carve and a scratch seed
+packed from it:
 
 | slice | before: `d304a764f` dev.sh + the committed seed | after: this dev.sh + a scratch seed packed from it |
 |---|---:|---:|
@@ -1093,6 +1096,8 @@ the box):
 | CodeIntel | 44 / 47 s (load 6.0) | **9 / 9 s** (load 7.8) |
 | Tooling | 36 / 30 s (load 6.3) | **5 / 5 s** (load 6.9) |
 | Driver | 52 / 78 s (load 9-15) | **10 / 9 s** (load 7.5) |
+| Plan | 37 / 36 s (load 6) | **16 / 17 s** (load 4.3) |
+| Core (Semantics) | 36 / 36 s (load 6) | **28 / 32 s** (load 5.5-8) |
 
 The committed seed at `d304a764f` compiles Emit emit-only, so its 73 / 75 s replaces the Emit carve's
 295 / 262 s (which compiled Emit WITH analysis). The same series on the pre-rebase base (`7578872a1`
@@ -1131,8 +1136,9 @@ record that blamed the 94 s on missing R1-R3 was wrong; `tests/native/sdk-refere
 now pins the reference assembly's bytes and timestamp across a body-only edit, not only the dependent's
 skip.
 
-What remains: a cold MSBuild process JITs the compiler on every emit (~2 s of Emit's ~5 s), and
-Core's tests-included emit is still ~55 s (its 400,000 lines are the S2/S3 sub-split's job).
+What remains: a cold MSBuild process JITs the compiler on every emit (~2 s of Emit's ~5 s), and the
+two biggest slices' tests-included emits: since the Plan carve Core's is 24.9 s (~55 s before) and
+Plan's 18.2 s (`EmitIlAssembly`, load ~7) -- the S2/S3 sub-splits' job.
 
 ### 8. The Compile-Time Gate And Benchmark (`tests/native/compile-time-bench`)
 The gate has one compile-speed step, and it is N#-owned rather than a shell step because the
