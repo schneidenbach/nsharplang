@@ -714,8 +714,7 @@ func ToolchainReleasePackageSpecs(): List<ToolchainPackageSpec> {
     }
 
     specs := new List<ToolchainPackageSpec>()
-    body := array.Groups["body"].Value
-    entries := Regex.Matches(body, "\"(?<id>[^|\"]+)\\|[^|\"]*\\|(?<project>[^|\"]+)\"")
+    entries := Regex.Matches(array.Groups["body"].Value, "\"(?<id>[^|\"]+)\\|[^|\"]*\\|(?<project>[^|\"]+)\"")
     index := 0
     while index < entries.Count {
         specs.Add(new ToolchainPackageSpec(entries[index].Groups["id"].Value, entries[index].Groups["project"].Value))

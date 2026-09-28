@@ -248,8 +248,7 @@ test "the release package set ships every compiler slice the compiler package de
     scanSource := File.ReadAllText(Path.Combine(Path.Combine(Path.Combine(ToolchainRepositoryRoot(), "src"), "NSharpLang.Compiler.Model"), "ExternalAssemblyScan.nl"))
     sliceNames := Regex.Match(scanSource, "func CompilerSliceAssemblyNames\\(\\): string\\[\\] \\{\\s*return \\[(?<names>[^\\]]*)\\]")
     assert sliceNames.Success, "Could not find ExternalAssemblyScan.CompilerSliceAssemblyNames in src/NSharpLang.Compiler.Model/ExternalAssemblyScan.nl."
-    sliceList := sliceNames.Groups["names"].Value
-    sliceMatches := Regex.Matches(sliceList, "\"(?<name>[^\"]+)\"")
+    sliceMatches := Regex.Matches(sliceNames.Groups["names"].Value, "\"(?<name>[^\"]+)\"")
     assert sliceMatches.Count > 0, sliceNames.Value
     sliceIndex := 0
     while sliceIndex < sliceMatches.Count {
@@ -268,8 +267,7 @@ test "the release package set ships every compiler slice the compiler package de
     expected := Regex.Match(verifier, "expected = \\{(?<ids>[^}]*)\\}")
     assert expected.Success, "Could not find the expected package set in scripts/verify-release.py."
     verified := new List<string>()
-    expectedIds := expected.Groups["ids"].Value
-    verifiedMatches := Regex.Matches(expectedIds, "'(?<id>[^']+)'")
+    verifiedMatches := Regex.Matches(expected.Groups["ids"].Value, "'(?<id>[^']+)'")
     verifiedIndex := 0
     while verifiedIndex < verifiedMatches.Count {
         verified.Add(verifiedMatches[verifiedIndex].Groups["id"].Value)
