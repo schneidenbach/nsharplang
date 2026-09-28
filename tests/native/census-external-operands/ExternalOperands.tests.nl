@@ -137,3 +137,22 @@ test "G8: a conditional with a null arm is a referenced static's or instance met
 test "G9: a &T parameter is passed on by reference to a referenced &T parameter" {
     assert OperandUses.Forwarded() == "6 15"
 }
+
+test "G10: a referenced static call takes a referenced static call over a must operand or over a call on an operator" {
+    assert OperandUses.MustNested(new Shape("s")) == 1
+    assert OperandUses.MustNestedLocal(new AliasShape("abc", new Shape("s"))) == 6
+    assert OperandUses.OperatorNested(-2) == 12
+    // `Child(index, count - 1)` on the current instance, inside `Facts.Join`, inside `Facts.Both`.
+    assert new Cursor("ab").Matches(1, 5)
+    assert !new Cursor("ab").Matches(2, 7)
+    // A member read over `must` inside the inner call, and the inner call chosen by an overloaded
+    // framework method (`StringBuilder.Insert` has a dozen two-argument overloads).
+    assert OperandUses.MustMemberNested(new Shape("abc")) == 6
+    assert OperandUses.OverloadedOuter(new Shape("s")) == "s|"
+}
+
+test "G10: a source static inside a referenced one, a referenced one inside a source one, and a referenced instance call" {
+    assert OperandUses.SourceInner(new Shape("s")) == 2
+    assert OperandUses.SourceOuter(new Shape("a")) == 101
+    assert OperandUses.InstanceOuter(new Shape("s"), new Shape("a")) == "as"
+}

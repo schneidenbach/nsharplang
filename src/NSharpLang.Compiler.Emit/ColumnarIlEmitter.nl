@@ -10829,8 +10829,10 @@ sealed class ColumnarIlEmitter {
             // try { v = <call> } catch (Exception e) { err = e }. The initializer is a single
             // expression, so no control transfer can cross the protected region.
             // COMPILER: a referenced-assembly static call whose argument is another referenced static call
-            // over an implicit-`this` call (`Text(_nodes, _source, Child(...))`) is declined by the columnar
-            // emitter (emit.call.static-member-unmodeled), so the last name is bound to a local first.
+            // over an implicit-`this` call (`Text(_nodes, _source, Child(...))`) was declined by the columnar
+            // emitter (emit.call.static-member-unmodeled), so the last name is bound to a local first. Fixed
+            // by `TryGetPreflightRuntimeStaticCallType`; the committed seed predates it, so this collapses at
+            // the next seed republish.
             lastDeclaredName := ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, nameCount - 1))
             if (AnalyzerVariableDeclaration.IsErrorCaptureForm(nameCount, lastDeclaredName)) {
                 if (_protectedDepth > 0 || _finallyDepth > 0) {
@@ -17572,11 +17574,7 @@ sealed class ColumnarIlEmitter {
         if (_nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression) {
             // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
             receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
-            // `this` IS THE ONE BARE IDENTIFIER THAT CAN NEVER BE A TYPE NAME. It is not in any
-            // binding map, so the value test below answered "no" for it and `this.GetType()` was
-            // read as a static call on a type named `this` — which is why that spelling declined
-            // while `(this as object).GetType()` emitted.
-            if (!ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, receiver) && !_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName) && !IsCurrentInstanceMemberName(receiverName) && !IsCurrentStaticMemberName(receiverName)) {
+            if (IsBareTypeNameReceiver(receiver)) {
                 // CALL-STYLE newtype construction through a file-import ALIAS (`Ids.UserId(42)`):
                 // the member names a synthesized newtype and the receiver is the alias qualifier.
                 aliasQualifiedTypeName := receiverName + "." + memberName
@@ -23164,7 +23162,7 @@ sealed class ColumnarIlEmitter {
                 if (TryGetPreflightExpressionType(receiver, out receiverType) && TryGetPreflightInstanceCallType(receiverType, ColumnarNodeTextFacts.Text(_nodes, _source, callee), node, legacyWholeSubtreePlanning, out columnarResolvedType)) {
                     return true
                 }
-                return false
+                return TryGetPreflightRuntimeStaticCallType(node, callee, out columnarResolvedType)
             }
             // AN EXPLICIT GENERIC CALL PRODUCES WHAT ITS SELECTED METHOD RETURNS, and until this arm
             // nothing could say so — which is why a CHAIN of them declined at the second link even
@@ -30220,6 +30218,62 @@ sealed class ColumnarIlEmitter {
         name = null
         rootName = null
         return false
+    }
+
+    // A BARE IDENTIFIER RECEIVER THAT IS NOT A VALUE IS A TYPE NAME: nothing in scope binds it — no
+    // local, captured local, parameter, top-level sibling, or member of the type being emitted.
+    //
+    // `this` IS THE ONE BARE IDENTIFIER THAT CAN NEVER BE A TYPE NAME. It is not in any binding map,
+    // so the value test answered "no" for it and `this.GetType()` was read as a static call on a type
+    // named `this` — which is why that spelling declined while `(this as object).GetType()` emitted.
+    private func IsBareTypeNameReceiver(receiver: int): bool {
+        if (_nodes.Kind(receiver) != ColumnarExpressionNodeKind.IdentifierExpression || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, receiver)) {
+            return false
+        }
+        receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+        return !_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName) && !IsCurrentInstanceMemberName(receiverName) && !IsCurrentStaticMemberName(receiverName)
+    }
+
+    // THE PREFLIGHT TWIN OF THE STATIC CALL'S TWO METADATA TIERS — `TryEmitContextualStaticCall`, then
+    // `TryEmitOrdinaryRuntimeStaticCall`, in the order `TryEmitStaticCall` asks them. A call on a type
+    // this compilation does not declare that the direct-call planner cannot type -- one whose argument
+    // is a `must` operand, or a call over an operator (`Facts.Twice(Math.Abs(i - 1))`) -- yields to those
+    // tiers and EMITS; preflight had no matching answer, so the same call could not be TYPED, and a call
+    // that types its arguments before choosing an overload refused it as an argument:
+    // `Facts.Length(Facts.Name(must held))` declined at `emit.call.static-member-unmodeled` although
+    // `Facts.Name(must held)` alone emitted. The receiver classification, the selection and the argument
+    // admission are the emission doors' own, so what this promises is what those doors then write. A
+    // type the compilation declares, and an enum or union, is not reached: its own door answers it.
+    private func TryGetPreflightRuntimeStaticCallType(callIdx: int, callee: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        receiver := Child(callee, 0)
+        let typeName: string? = null
+        if (IsBareTypeNameReceiver(receiver)) {
+            typeName = ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+        } else if (!TryClassifyDottedTypeNameReceiver(receiver, out typeName)) {
+            return false
+        }
+        if (typeName == null || _typeResolutionStructs.ContainsKey(typeName) || _typeResolutionEnums.ContainsKey(typeName) || _typeResolutionUnions.ContainsKey(typeName)) {
+            return false
+        }
+        let ownerType: System.Type? = null
+        let ownerClaimed: bool = false
+        if (!_typeResolutionStructs.Resolver.TryResolve(typeName, out ownerType, out ownerClaimed) || ownerType == null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(ownerType)) {
+            return false
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let contextual: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
+        if (TryResolveContextualDirectCandidate(callIdx, ownerType, member, argCount, true, out contextual) && contextual != null) {
+            columnarResolvedType = contextual.ReturnType
+            return true
+        }
+        selection := SelectOrdinaryRuntimeCall(callIdx, ownerType, member, argCount, true)
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+            return false
+        }
+        columnarResolvedType = selection.ReturnType
+        return true
     }
 
     // ONE CLASSIFICATION OF A DOTTED RECEIVER: namespace path -> type, or not a type at all.

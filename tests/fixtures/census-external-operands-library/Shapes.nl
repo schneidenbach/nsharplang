@@ -37,6 +37,34 @@ class Shape {
     constructor(name: string) {
         Name = name
     }
+
+    func Describe(prefix: string): string {
+        return prefix + Name
+    }
+}
+
+// Static helpers a consumer nests one inside another, as the compiler's own
+// `AnalyzerVariableDeclaration.IsErrorCaptureForm(count, ColumnarNodeTextFacts.Text(nodes, source, Child(index, count - 1)))`.
+class Facts {
+    static func Name(shape: Shape): string {
+        return shape.Name
+    }
+
+    static func Length(text: string): int {
+        return text.Length
+    }
+
+    static func Twice(value: int): int {
+        return value * 2
+    }
+
+    static func Join(left: string, right: string, index: int): string {
+        return left + right + index.ToString()
+    }
+
+    static func Both(count: int, text: string): bool {
+        return count == text.Length
+    }
 }
 
 class AliasShape: Shape {

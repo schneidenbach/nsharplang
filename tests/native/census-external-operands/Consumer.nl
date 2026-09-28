@@ -1,7 +1,9 @@
 namespace Census.Operands
 
+import System
 import System.Collections.Generic
 import System.Reflection
+import System.Text
 
 
 // EVERY USE SITE BELOW WAS A SOURCE-TYPE USE UNTIL ITS TYPES MOVED TO A REFERENCED ASSEMBLY.
@@ -167,6 +169,56 @@ class OperandUses {
         return label.Length
     }
 
+    // G10: a referenced static call whose argument is another referenced static call over a `must`
+    // operand, or over a call on an operator. The inner call emitted on its own; typed as an argument it
+    // had no answer, and the outer call declined at `emit.call.static-member-unmodeled`.
+    static func MustNested(maybe: Shape?): int {
+        return Facts.Length(Facts.Name(must maybe))
+    }
+
+    static func MustNestedLocal(alias: AliasShape?): int {
+        held := alias
+        return Facts.Twice(Facts.Length(Facts.Name(must held)))
+    }
+
+    static func OperatorNested(index: int): int {
+        return Facts.Twice(Facts.Twice(Math.Abs(index - 1)))
+    }
+
+    // A member read over `must` inside the inner call, and the inner call as an argument an OVERLOADED
+    // framework method chooses by — the compiler's `_il.Emit(OpCodes.Call, Bind((must p).Getter))`.
+    static func MustMemberNested(maybe: Shape?): int {
+        return Facts.Twice(Facts.Length((must maybe).Name))
+    }
+
+    static func OverloadedOuter(maybe: Shape?): string {
+        builder := new StringBuilder("|")
+        builder.Insert(0, Facts.Name(must maybe))
+        return builder.ToString()
+    }
+
+    // The neighbours: a SOURCE static inside a referenced one, a referenced static inside a source one,
+    // and a referenced static as a referenced INSTANCE call's argument.
+    static func SourceInner(maybe: Shape?): int {
+        return Facts.Length(LocalName(must maybe))
+    }
+
+    static func SourceOuter(maybe: Shape?): int {
+        return LocalLength(Facts.Name(must maybe))
+    }
+
+    static func InstanceOuter(shape: Shape, maybe: Shape?): string {
+        return shape.Describe(Facts.Name(must maybe))
+    }
+
+    static func LocalName(shape: Shape): string {
+        return shape.Name + "~"
+    }
+
+    static func LocalLength(text: string): int {
+        return text.Length + 100
+    }
+
     // EVERY ANSWER ABOVE, ONE LINE EACH. The emit-only contract runs the same file through the other path
     // and compares this string, so a shape that emits but emits something else fails there too.
     // G7: `==`/`!=` with a maybe-null REFERENCED class value on either side, or both, is identity; a
@@ -267,6 +319,27 @@ class OperandUses {
         lines.Add("maybe " + MaybeSameShape(shape, shape).ToString() + " " + MaybeSameShape(null, shape).ToString() + " " + MaybeNodesDiffer(node, node).ToString() + " " + MaybeNodesDiffer(null, node).ToString() + " " + MaybeNodesDiffer(null, null).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(2)).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(3)).ToString())
         lines.Add("conditional " + DescribeNullFirst(true, "a") + " " + DescribeNullFirst(false, "a") + " " + DescribeNullSecond(true, "b") + " " + DescribeNullSecond(false, "b") + " " + NameOfAlias(true, alias) + " " + NameOfAlias(false, alias) + " " + CountOrAbsent(true, 3).ToString() + " " + CountOrAbsent(false, 3).ToString() + " " + LabelOrPrefix(true, new Labeler("p"), "!") + " " + LabelOrPrefix(false, new Labeler("p"), "!"))
         lines.Add("forwarded " + Forwarded())
+        lines.Add("nested " + MustNested(shape).ToString() + " " + MustNestedLocal(alias).ToString() + " " + OperatorNested(-2).ToString() + " " + new Cursor("ab").Matches(1, 5).ToString() + " " + new Cursor("ab").Matches(2, 7).ToString())
+        lines.Add("must-member " + MustMemberNested(alias).ToString() + " " + OverloadedOuter(shape))
+        lines.Add("neighbours " + SourceInner(shape).ToString() + " " + SourceOuter(alias).ToString() + " " + InstanceOuter(shape, alias))
         return string.Join("\n", lines)
+    }
+}
+
+// G10 over an implicit `this`: the argument of the inner referenced call is a call on the current
+// instance whose own argument is an operator.
+class Cursor {
+    Label: string
+
+    constructor(label: string) {
+        Label = label
+    }
+
+    func Child(index: int, count: int): int {
+        return index + count
+    }
+
+    func Matches(index: int, count: int): bool {
+        return Facts.Both(count, Facts.Join(Label, Label, Child(index, count - 1)))
     }
 }
