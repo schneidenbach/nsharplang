@@ -391,7 +391,7 @@ What the carve is:
   Emit's own 252, 248 of them in `ColumnarIlEmitter.nl`, the 252nd staying with the Cecil rows that
   moved down, and the seven NL905s of the moved source-attribute rows), so it starts at 0. Carving
   added ~100 cross-assembly diagnostics on top, all analyzer or emitter gaps, routed around with
-  `// COMPILER:` notes and still open: an `out` argument to a REFERENCED N# method is checked as if it
+  `// COMPILER:` notes: an `out` argument to a REFERENCED N# method is checked as if it
   flowed in (a `T?` local passed to `out value: T` is NL202, and three overload sets became NL402), so
   such locals are declared with the parameter's own type; a `for` step is not narrowed by its
   condition, so base-chain walks step with `?.`; `nameof(JsonElement.ArrayEnumerator.Current)` is
@@ -399,7 +399,9 @@ What the carve is:
   referenced static call whose argument is another referenced static call over an implicit-`this`
   call (`AnalyzerVariableDeclaration.IsErrorCaptureForm`), or over a `must` operand
   (`MakeGenericType([must t])`, `Bind((must p).Getter)`), so those operands are narrowed or bound to
-  locals first. Two Plan signatures now say what they accept (`TryValidateGenericSiblingConstraints`'s
+  locals first. All four are FIXED in the compiler (branch `fix/emit-carve-compiler-gaps`, below); the
+  analysis route-arounds collapsed with their fixes, because the committed seed compiles Emit
+  emit-only, and gap 4's local waits on the next seed republish, because the seed's emitter predates it; Two Plan signatures now say what they accept (`TryValidateGenericSiblingConstraints`'s
   `baseConstraints: Type?[]`, `ColumnarLocalFunctionClosurePlanner.Plan`'s nullable local-function
   list);
 - the product (6 files) AND its estate (13) as pure renames, with `excludeTests: true` and its own
@@ -507,6 +509,44 @@ and **24.9 s** for Core tests-included (~55 s before the carve) and **9.3 s** pr
 still the largest remaining slice (120 product files, 137 estate files); the sub-split the design names
 (`Plan.Call` / `.Type` / `.Body`) is not done here.
 
+**The Emit carve's four compiler gaps are fixed** (2026-09-28, `fix/emit-carve-compiler-gaps`, on
+`origin/systems-language` f235eae4e), each where it is owned and each held to "one project and two projects
+answer alike" (`tests/native/census-external-nullability`, `census-external-operands`):
+- `out`/`ref`/`in` to a REFERENCED method (Semantics + Plan): the reflection binder reads the WRITTEN
+  modifier's direction for the maybe-null question -- `out` flows out only (never refused), `ref` must
+  match both ways (reported as the `&T` pair a source call reports), everything else flows in. A
+  reflected read-only reference binds as source does: `in` takes a bare or `in` argument,
+  `ref readonly` (`[In]` + `RequiresLocationAttribute`, e.g. .NET 10's `Volatile.Read`) takes `ref`
+  or `in`, never a bare value (`Volatile.Read(value)` stays NL402); `ReflectedParameterDirection`
+  (Model) is the one reader of that, used by the binder,
+  `ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds` (5 `in`, 6 `ref readonly`) and the
+  direct-call planner's by-ref gate. Before this a referenced `in` parameter was NL402 and, once bound,
+  every reflected `in` scored as `ref` in the planner.
+- a `for` update (Semantics + Emit + Plan): analysed AFTER the body (C#'s order) with the loop closed,
+  under the condition-true facts minus every path the body can write (a `continue` before the write
+  reaches the update with the write still ahead) -- `AnalyzerLoopSequence.SurvivingBodyNarrowings`; the
+  emitter pushes the same names for the increment (`ForStepNarrowedNames`), so a `Nullable<T>` the
+  condition proved reads as its `T` there too. The emit-side kill set (`CollectAssignedNames`) now
+  counts `ref`/`out` arguments and deconstruction targets, as the analyzer's always did. A loop BODY is
+  still not narrowed by its condition at emit (`while n != null { total + n }` over `int?` declines):
+  separate follow-up.
+- a nested type of a REFLECTED owner (Semantics): `ResolveMember`'s reflection arm answers a nested type
+  in static position, as its source arm always did, so `JsonElement.ArrayEnumerator` resolves through
+  the imported spelling, not only the namespace-qualified one.
+- a referenced static call typed as an argument (Emit): `TryGetPreflightRuntimeStaticCallType` is the
+  preflight twin of the contextual and ordinary static tiers (the instance twin already existed), so a
+  call the direct-call planner cannot type -- a `must` operand, a call over an operator at depth three --
+  types as an argument exactly as it emits.
+A referenced `in` parameter with an rvalue argument (`Peek(new Node(...))`) still declines at emit, in
+one project and in two (no temporary is spilled): separate follow-up.
+The route-arounds: gaps 1-3's collapsed in the commits that fixed them (ten base-chain walks step with
+`d.BaseDef`, the enumerator member names are `nameof`s, 34 of the carve's 88 retyped `out` locals are
+`T?` again -- the other 54 are its front-door fixes, chosen by the tip's front door, and wait on the
+`&&`/`||` out-write flow follow-up); the committed seed compiles Emit emit-only, so an analysis fix needs
+no republish there. Gap 4's `lastDeclaredName` local is an EMITTER route-around and needs one:
+`fix/emit-carve-compiler-gaps-collapse` inlines it, builds with a stage-1 SDK packed from this branch
+(`NSHARP_RESEED_STOP_AFTER=pack` into scratch dirs), and the committed seed refuses it at NL103.
+
 ## Data Flow
 
 ### Tokenization
@@ -597,6 +637,7 @@ policy must also be reviewed. Line counts are
 Eleven further C# files in this assembly are `state:"removed"` — deleted whole, 37,616 epoch lines:
 `Parser.cs`, `Formatter.cs`, `Linter.cs`, `DocQuery.cs`, the three `Ast/*.cs`, `NullabilityMetadata.cs`,
 `ErrorReporting.cs`, `AstNodeFinder.cs` and `Columnar/ColumnarCompiler.cs`.
+
 
 **Current ownership must be proved from source.** Historical mechanical labels do not exempt
 remaining state/control ownership from the active goal:

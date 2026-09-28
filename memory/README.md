@@ -189,7 +189,9 @@ and the seven NL905s of the source-attribute rows that moved into its estate -- 
 against the base tree through the same tip CLI is **zero additions and 258 removals**, and against
 the pre-carve tree zero and zero. The carve's own cross-assembly findings (out-argument nullability,
 `for`-step narrowing, nested-type `nameof`, two emitter declines) are routed around with `// COMPILER:`
-notes; see `memory/architecture.md`, "Compiler.Emit is carved".
+notes; see `memory/architecture.md`, "Compiler.Emit is carved". All four are fixed in the compiler
+("The Emit carve's four compiler gaps are fixed"); gaps 1-3's route-arounds collapsed with the fixes, and
+gap 4's local waits on the next seed republish.
 
 **Measured 2026-09-27 on `census/carve-plan`** (Compiler.Plan carved out of Core, rows included, above
 Core and below Emit): Step 2d checks **Plan, ceiling 0**, right after **Core at 377** (766 before).
