@@ -375,7 +375,7 @@ section "Step 2d: Self-Host Front Door"
 #
 # EACH PROJECT IS CHECKED AGAINST ITS DEPENDENCIES' BUILT ASSEMBLIES (`nlc check
 # --use-built-references`): Step 2 has just built every `project:` dependency of every project here
-# (the Cli build carries Compiler, Driver, Tooling, CodeIntel, Emit, Core, Syntax and Model; Playground is built on
+# (the Cli build carries Compiler, Driver, Tooling, CodeIntel, Emit, Plan, Core, Syntax and Model; Playground is built on
 # its own), so a project's front door measures ITS OWN source and never waits on a dependency's. Before this, a
 # project that referenced Core began its check by compiling Core from source, which cannot succeed
 # while Core's own front door reports anything -- so Compiler, Playground and (once carved) Driver
@@ -394,6 +394,7 @@ else
         "src/NSharpLang.Compiler.Model"
         "src/NSharpLang.Compiler.Syntax"
         "src/NSharpLang.Compiler.Core"
+        "src/NSharpLang.Compiler.Plan"
         "src/NSharpLang.Compiler.Emit"
         "src/NSharpLang.Compiler.CodeIntel"
         "src/NSharpLang.Compiler.Tooling"
@@ -538,10 +539,24 @@ else
     # tree through its own CLI, and they sit in a Core file, so Emit stays 0. Every other project
     # unmoved.
     #
+    # 2026-09-27, before Compiler.Plan (`Backend.Plan`) is carved out of Core (above Core, below
+    # Emit): Core 377. Plan's own files carried 389 of the 766 (NL002 186, NL202 66, NL905 63, NL010
+    # 46, NL012 12, NL011 7, NL907 7, NL001 1, NL304 1; 74 in its product, 315 in its estate) and are
+    # now clean, for the same reason Emit's were: once Plan is its own project above Core its count is
+    # its own, and it starts at zero. Measured with the same tip CLI against both trees, the identity
+    # diff is zero additions and those 389 removals, every one in a Plan file.
+    #
+    # 2026-09-27, Compiler.Plan carved out of Core into its own project, rows included, ABOVE Core
+    # and below Emit (`census/carve-plan`): Model 0, Syntax 0, Core 377 (the identity diff against the
+    # pre-carve tree through the same tip CLI is zero additions and zero removals), Plan 0 (its 257
+    # files, estate included, against built Core -- no cross-assembly finding), Emit 0 (now against
+    # built Plan), CodeIntel 0, Tooling 0, Driver 0, Compiler 34, Playground 0, Build.Tasks 0.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
-        766
+        377
+        0
         0
         0
         0

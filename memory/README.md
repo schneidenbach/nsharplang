@@ -70,7 +70,7 @@ C# consumer of the self-compiled assemblies (`Cli`, `Build.Tasks`, `LanguageServ
 against the stage-2 seed before believing it.**
 
 `Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
-`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler.Emit`, `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling`, `src/NSharpLang.Compiler.Driver`, `src/NSharpLang.Compiler`,
+`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler.Plan`, `src/NSharpLang.Compiler.Emit`, `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling`, `src/NSharpLang.Compiler.Driver`, `src/NSharpLang.Compiler`,
 `src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and
 fails on any INCREASE over the committed ceilings. **The ceilings are a backlog, not a target**: the
 front door reports diagnostics on Core's own source that the emit-only path never asked about
@@ -191,6 +191,16 @@ the pre-carve tree zero and zero. The carve's own cross-assembly findings (out-a
 `for`-step narrowing, nested-type `nameof`, two emitter declines) are routed around with `// COMPILER:`
 notes; see `memory/architecture.md`, "Compiler.Emit is carved".
 
+**Measured 2026-09-27 on `census/carve-plan`** (Compiler.Plan carved out of Core, rows included, above
+Core and below Emit): Step 2d checks **Plan, ceiling 0**, right after **Core at 377** (766 before).
+Plan reached zero at the source before the move -- all 389 of its own (NL002 186, NL202 66, NL905 63,
+NL010 46, NL012 12, NL011 7, NL907 7, NL001 1, NL304 1; 74 product, 315 estate) -- so the identity diff
+against the base tree through the same tip CLI is **zero additions and 389 removals**, and against the
+pre-carve tree zero and zero. Checked as its own project against built Core, Plan stays at 0: this
+carve found no cross-assembly analyzer gap. The three gaps its source fixes met (class vs `?`-class
+`==`, out-local nullability, a wrapped `ref` parameter) are routed around with `// COMPILER:` notes; see
+`memory/architecture.md`, "Compiler.Plan is carved".
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 
@@ -200,7 +210,7 @@ dependency of every project the step checks, so each front door measures its own
 `check` compiled a project's references from source first, which fails while Core's own front door
 is not clean -- so `src/NSharpLang.Compiler` and `src/NSharpLang.Playground` (and, once carved,
 `src/NSharpLang.Compiler.Driver`) sat at ceiling -1, BLOCKED and counted nowhere, behind a guard that
-skipped them while Core's count was above zero. Now every ceiling is measured: Emit 0, CodeIntel 0 and Tooling 0 (carved
+skipped them while Core's count was above zero. Now every ceiling is measured: Plan 0, Emit 0, CodeIntel 0 and Tooling 0 (carved
 above Core, 2026-09-25), Driver 0, Playground 0 and Compiler 34 (its own backlog, counted for the first time: NL010 11, NL002 11, NL011 6, NL907 4,
 NL001 1, NL012 1). BLOCKED is left for the one case a check truly cannot run -- a dependency Step 2
 did not build, or built from older sources -- and there it FAILS the step, naming the dependency.

@@ -42,20 +42,21 @@ separately. Historical allowlist labels below do not establish current completio
 ## Compiler.Core slice directories
 
 `src/NSharpLang.Compiler.Core` is being carved into eight slice projects, lowest first, and ordered so
-a file names only its own slice or a lower one. **S0, S1, S4, S5, S6 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
-`src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Emit` (S4, `Backend.Emit`), `src/NSharpLang.Compiler.CodeIntel`,
-`src/NSharpLang.Compiler.Tooling` and `src/NSharpLang.Compiler.Driver` are each their own N#-SDK project (one-line
-csproj, `project.yml`, the SDK's `global.json` pin); Syntax takes Model with `project:`, Core takes Syntax,
-Emit takes Core, CodeIntel takes Emit, Tooling takes CodeIntel, Driver takes Tooling, the `Compiler`
-facade takes Driver, and every consumer builds the Model -> Syntax -> Core -> Emit -> CodeIntel ->
-Tooling -> Driver DAG through those edges. The other two are still directories of Core:
+a file names only its own slice or a lower one. **S0, S1, S3, S4, S5, S6 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
+`src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Plan` (S3, `Backend.Plan`), `src/NSharpLang.Compiler.Emit`
+(S4, `Backend.Emit`), `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling` and
+`src/NSharpLang.Compiler.Driver` are each their own N#-SDK project (one-line csproj, `project.yml`, the SDK's
+`global.json` pin); Syntax takes Model with `project:`, Core takes Syntax, Plan takes Core, Emit takes Plan,
+CodeIntel takes Emit, Tooling takes CodeIntel, Driver takes Tooling, the `Compiler` facade takes Driver,
+and every consumer builds the Model -> Syntax -> Core -> Plan -> Emit -> CodeIntel -> Tooling -> Driver
+DAG through those edges. Core itself stays a project (user decision D-B) holding what is left:
 
 | directory | slice | holds |
 |---|---|---|
 | `src/NSharpLang.Compiler.Model/` (Core's `Model/` holds only its estate) | S0 | the AST, the type, diagnostic and project-config models, and the shared facts every slice reads |
 | `src/NSharpLang.Compiler.Syntax/` (product AND estate) | S1 | lexer, preprocessor, the columnar parser kernels and node table |
 | `Semantics/` | S2 | the analyzer, the systems analyzer, flow and nullability |
-| `Backend.Plan/` | S3 | the columnar planners and binding scope, and the metadata-blob writers |
+| `src/NSharpLang.Compiler.Plan/` (product AND estate) | S3 | the columnar planners and binding scope, and the metadata-blob writers |
 | `src/NSharpLang.Compiler.Emit/` (product AND estate) | S4 | `ColumnarIlEmitter` and the IL realizations |
 | `src/NSharpLang.Compiler.CodeIntel/` (product AND estate) | S5 | completion, hover, signature help, navigation, code fixes, DocQuery and the Linter |
 | `src/NSharpLang.Compiler.Tooling/` (product AND estate) | S6 | the formatter and the JSON output models |
@@ -425,6 +426,68 @@ The 94 s was dev.sh building the CLI (Emit re-emitted product-only) before the e
 tests-included, visiting all six estate projects, a columnar parse that was O(declarations x file
 tokens), and type-name misses asked of every reference; with those fixed the same cycle is **7 / 8 s**
 (`memory/testing.md` section 7a).
+
+**Compiler.Plan is carved** (2026-09-27, `census/carve-plan`), TOP-DOWN like Emit: `Backend.Plan/` --
+the columnar planners and resolvers, the binding scope, the code-plan executor and the metadata-blob
+writers -- becomes `src/NSharpLang.Compiler.Plan` (assembly `NSharpLang.Compiler.Plan`), a project ABOVE
+Core and below Emit. Plan takes Core with `project:` and declares the packages its own source spells
+(`System.Reflection.MetadataLoadContext`, `YamlDotNet`, `Mono.Cecil`, `Microsoft.Build.Framework` and
+`Microsoft.Build.Utilities.Core` for the SDK-task admission tables and their rows, and
+`NSharpLang.Runtime` -- `Sdk.props` leaves Plan, like Core and Emit, out of the implicit runtime
+reference); Emit takes Plan instead of Core, so the chain stays linear (Driver -> Tooling -> CodeIntel ->
+Emit -> Plan -> Core). Core keeps its name and its project (user decision D-B): it now holds Semantics
+(product and rows) and Model's estate, and the compile-time bench keeps measuring it.
+The top-down measurement found NO product reach into Plan from Semantics, Model or Syntax: the one
+violation the split design named (`ConstantConversionFacts` -> `ColumnarScalarLiteralPlanner`) was
+already gone -- `b60557d97` moved the integer-literal parser into Model's `NumericLiteralFacts` -- and
+no assembly-qualified string names a Plan type in Core. The estate was entangled both ways, and every
+edge was cut in Core first:
+- 61 reaches from Core's rows into Plan (the estate upward-reach ceiling fell 112 -> 51): rows whose
+  subject is a planner type moved beside it, whole -- the prepared external type catalog
+  (`ExternalAssemblyScan`) and the columnar void-gap agreement (`AnalyzerTypeReferenceFacts`) into a
+  new `ColumnarBindingScopeFacts.tests.nl`, the numeric-limit agreement into
+  `ColumnarExternalBindingPlans.tests.nl`, the inherited-member relation the planner asks too
+  (`MemberAccessibility`) into a new `ColumnarRuntimeInstanceMemberResolver.tests.nl`, the two
+  unreadable-host extension rows (`AnalyzerReflectionMemberProbe`) into
+  `ColumnarExtensionMethodResolver.tests.nl`, and the generic index's nullability rows
+  (`NullabilityGenericSubstitution`) into `ColumnarSemanticTypeRegistry.tests.nl`, each with lookups of
+  its own; Core's rows that borrowed the planner rows' Reflection.Emit helpers (`TypeOfCreateBuilder`,
+  `ExecutorRequiredMethod`, `TypeOfRequiredInvocation`, `ColumnarConstructionPlanner.SameObject`, a probe
+  enum) spell the calls directly or through Core's own `Model/CoreEstateFixtures.tests.nl`
+  (`CoreFixture*`), and the metadata-signature row reads `SoaColumnDeclaration`'s constructor instead of
+  a planner input's;
+- 62 reaches from Plan's rows into Model's estate helpers (`IdentityBake`, `NullabilityProbeSequenceCount`),
+  which a tests-included Plan build cannot see: Plan's rows share their own
+  `ColumnarPlanFixtures.tests.nl` (`PlanFixture*`), spelling `TypeBuilder.CreateType` directly.
+What the carve is:
+- Plan's front door fixed in Core FIRST (Core 766 -> 377: zero additions, 389 removals -- NL002 186,
+  NL202 66, NL905 63, NL010 46, NL012 12, NL011 7, NL907 7, NL001 1, NL304 1; 74 in its product, 315
+  in its estate), so it starts at 0. Checked as its own project against built Core it STAYS 0 -- unlike
+  Emit's, Plan's carve found no cross-assembly analyzer gap. Three gaps the fixes met are routed around
+  with `// COMPILER:` notes and still open: `==` between a class and its `?` annotation is refused
+  (NL202; the analyzer's reference-equality tail does not see through a reference `?`), so identity
+  tests say `Object.ReferenceEquals`; out locals are declared with the parameter's own type (the Emit
+  carve's rule); and a `ref` parameter that starts its own line of a wrapped parameter list does not
+  parse (NL107), so that signature is one line;
+- the product (120 files) AND its estate (137) as pure renames, with `excludeTests: true` and its own
+  estate project in dev.sh (and its estate-only project selection), Step 3a, reseed step 8 and both CI
+  workflows (Syntax 1,383 + Core 6,104 + Emit 57 + CodeIntel 1,133 + Tooling 353 + Driver 711 ->
+  Syntax 1,383 + Core 4,287 + Plan 1,817 + Emit 57 + CodeIntel 1,133 + Tooling 353 + Driver 711);
+- the SDK packs `tools/NSharpLang.Compiler.Plan.dll` and names it in the emit target's `Inputs` and the
+  emit-only switch; reseed.sh cleans and estate-runs it; `SdkEmitStampPaths` walks Driver -> ... -> Emit
+  -> Plan -> Core; `CompilerSliceAssemblyNames` names it; packages.sh packs it between Core and Emit
+  (release set, verify-release.py and its test);
+- 43 `dll:` consumers, the NL924 boundary probe's closure, the facade-interop consumer, the shipped
+  payload and the SDK feed inputs take `NSharpLang.Compiler.Plan.dll`; the assembly-qualified names of
+  Plan types (`ColumnarDeclineTrace`, `ColumnarProgramInputBuilder`, the bootstrap input types the
+  emitter-ownership and iterator-ordering rows reflect over) say `NSharpLang.Compiler.Plan`, and
+  `ColumnarIlEmitterOwnership` pins the emitter to the Emit assembly referencing the Plan assembly whose
+  `ColumnarProgramInput` it takes;
+- Step 2d checks Plan (0) between Core and Emit; the slice-direction guard counts Plan's product and
+  estate in its own project;
+- the committed seed does not name Plan in its emit-only switch, so until the next republish it
+  compiles Plan WITH analysis (and warns NU1504 for the runtime pair its older `Sdk.props` still adds);
+  Plan's zero front door is what lets that analysis pass.
 
 ## Data Flow
 
