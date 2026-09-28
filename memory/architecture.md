@@ -246,7 +246,8 @@ What the carve is:
   `ColumnarProgramInput?` local passed to `TryBuildMultiFile(out program: ColumnarProgramInput)` is
   declared the way every other caller declares it. (An interpolated string with two holes as the first
   of two constructor arguments is an NL103 decline in both emitters -- bound to a local in
-  `DotnetRunner`, an emitter gap still open);
+  `DotnetRunner` until the runtime-exception arm constructed from metadata, fixed and collapsed
+  2026-09-27 on `census/chip-fixes`);
 - 43 `dll:` consumers take `NSharpLang.Compiler.Driver.dll` beside Core's, 18 assembly-qualified names of
   Driver types (`MultiFileCompiler`, `DotnetRunner`, `PlaygroundFile`, ...) say
   `NSharpLang.Compiler.Driver`, and the SDK task rows load the tasks from Driver.dll.

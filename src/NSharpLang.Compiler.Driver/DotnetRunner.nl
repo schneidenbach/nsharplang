@@ -86,10 +86,7 @@ class DotnetRunner {
             }
 
             process.Dispose()
-            // The message is a local only because the committed seed's emitter declines an
-            // interpolated string beside the inner exception; write it inline after the next reseed.
-            message := $"Process '{fileName} {arguments}' did not complete within {effectiveTimeout}."
-            throw new TimeoutException(message, killFailure)
+            throw new TimeoutException($"Process '{fileName} {arguments}' did not complete within {effectiveTimeout}.", killFailure)
         }
 
         process.WaitForExit()
