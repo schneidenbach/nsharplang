@@ -1534,10 +1534,184 @@ func DirectCallSiblingBindings(name: string, facts: ColumnarSiblingCallFacts): C
     return bindings
 }
 
+func DirectCallReceiverSiblingFacts(hostName: string, name: string, parameterTypes: Type[], returnType: Type, typeParameterCount: int = 0): ColumnarSiblingCallFacts {
+    host := SourceCallDefinition(hostName, true)
+    method := host.Builder.DefineMethod(name, (MethodAttributes)22)
+    if typeParameterCount > 0 {
+        genericParameters := method.DefineGenericParameters(["T"])
+        if genericParameters.Length != typeParameterCount {
+            throw new InvalidOperationException("The receiver sibling fixture requires one generic parameter.")
+        }
+        parameterTypes[0] = genericParameters[0]
+        method.SetParameters(parameterTypes)
+        method.SetReturnType(genericParameters[0])
+        receiverModifiers := new int[](parameterTypes.Length)
+        receiverModifiers[0] = 4
+        parameterNames := new string[](parameterTypes.Length)
+        parameterDefaults := new int[](parameterTypes.Length)
+        parameterDefaultTexts := new string[](parameterTypes.Length)
+        parameterNames[0] = "value"
+        Array.Fill(parameterDefaults, -1)
+        parameterIndex := 1
+        while parameterIndex < parameterNames.Length {
+            parameterNames[parameterIndex] = "arg" + parameterIndex.ToString()
+            parameterIndex += 1
+        }
+        return new ColumnarSiblingCallFacts(method, parameterTypes, receiverModifiers, genericParameters[0], typeParameterCount, parameterNames, parameterDefaults, parameterDefaultTexts)
+    }
+
+    method.SetParameters(parameterTypes)
+    method.SetReturnType(returnType)
+    receiverModifiers := new int[](parameterTypes.Length)
+    receiverModifiers[0] = 4
+    parameterNames := new string[](parameterTypes.Length)
+    parameterDefaults := new int[](parameterTypes.Length)
+    parameterDefaultTexts := new string[](parameterTypes.Length)
+    parameterNames[0] = "value"
+    Array.Fill(parameterDefaults, -1)
+    parameterIndex := 1
+    while parameterIndex < parameterNames.Length {
+        parameterNames[parameterIndex] = "arg" + parameterIndex.ToString()
+        parameterIndex += 1
+    }
+    return new ColumnarSiblingCallFacts(method, parameterTypes, receiverModifiers, returnType, 0, parameterNames, parameterDefaults, parameterDefaultTexts)
+}
+
 func DirectCallLocalFunctionBindings(name: string): ColumnarFragmentBindings {
     visibleFunctions := new HashSet<string>(StringComparer.Ordinal)
     visibleFunctions.Add(name)
     return new ColumnarFragmentBindings(new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), new Dictionary<string, LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), visibleFunctions)
+}
+
+test "direct-call planner owns a receiver-style sibling call with the receiver as static argument zero" {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    facts := DirectCallReceiverSiblingFacts("DirectCallReceiverSiblingLenHost", "Len", parameterTypes, typeof(int))
+    bindings := DirectCallSiblingBindings("Len", facts)
+    ColumnarRangePlannerAddParameter(bindings, "name", 0, typeof(string))
+    tree := DirectCallParsedTree("name.Len()")
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    methodIndex := plan.OperandIndices[1]
+    assert plan.Methods[methodIndex].get_Name() == "Len"
+    assert plan.MethodIsStatic[methodIndex]
+    assert plan.MethodParameterTypes[methodIndex].Length == 1
+    assert plan.MethodParameterTypes[methodIndex][0] == typeof(string)
+}
+
+test "direct-call planner infers a generic receiver sibling result from receiver argument zero" {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(object)
+    facts := DirectCallReceiverSiblingFacts("DirectCallReceiverSiblingEchoHost", "Echo", parameterTypes, typeof(object), 1)
+    bindings := DirectCallSiblingBindings("Echo", facts)
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, typeof(string))
+    tree := DirectCallParsedTree("value.Echo()")
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(string)
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    methodIndex := plan.OperandIndices[1]
+    assert plan.Methods[methodIndex].get_Name() == "Echo"
+    assert plan.MethodIsStatic[methodIndex]
+    assert plan.Methods[methodIndex].GetGenericArguments()[0] == typeof(string)
+    assert plan.MethodParameterTypes[methodIndex][0] == typeof(string)
+    assert plan.MethodReturnTypes[methodIndex] == typeof(string)
+}
+
+test "direct-call planner closes a receiver sibling from explicit type arguments" {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(object)
+    facts := DirectCallReceiverSiblingFacts("DirectCallReceiverSiblingExplicitEchoHost", "Echo", parameterTypes, typeof(object), 1)
+    bindings := DirectCallSiblingBindings("Echo", facts)
+    tree := DirectCallParsedTree("5.Echo<int>()")
+    ExternalStampScope(tree, "import System")
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    methodIndex := plan.OperandIndices[plan.OperationCount - 1]
+    assert plan.MethodIsStatic[methodIndex]
+    assert plan.Methods[methodIndex].GetGenericArguments()[0] == typeof(int)
+    assert plan.MethodParameterTypes[methodIndex][0] == typeof(int)
+    assert plan.MethodReturnTypes[methodIndex] == typeof(int)
+}
+
+test "direct-call planner exposes an explicit generic receiver result to numeric binary typing" {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(object)
+    facts := DirectCallReceiverSiblingFacts("DirectCallReceiverSiblingBinaryEchoHost", "Echo", parameterTypes, typeof(object), 1)
+    bindings := DirectCallSiblingBindings("Echo", facts)
+    tree := DirectCallParsedTree("5.Echo<int>() + 2")
+    ExternalStampScope(tree, "import System")
+    plan := new ColumnarCodePlan()
+
+    status := ColumnarPrimitiveBinaryPlanner.Plan(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plan)
+
+    assert status == ColumnarFragmentPlanStatus.Planned
+    assert plan.ResultType == typeof(int)
+    methodIndex := -1
+    index := 0
+    while index < plan.OpCodeValues.Length {
+        if plan.OpCodeValues[index] == ColumnarCodePlanContract.Call() {
+            methodIndex = plan.OperandIndices[index]
+        }
+        index += 1
+    }
+    assert methodIndex >= 0
+    assert plan.MethodIsStatic[methodIndex]
+    assert plan.Methods[methodIndex].GetGenericArguments()[0] == typeof(int)
+}
+
+test "direct-call planner includes trailing arguments after a receiver sibling" {
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = typeof(int)
+    parameterTypes[1] = typeof(int)
+    facts := DirectCallReceiverSiblingFacts("DirectCallReceiverSiblingAddHost", "Add", parameterTypes, typeof(int))
+    bindings := DirectCallSiblingBindings("Add", facts)
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, typeof(int))
+    tree := DirectCallParsedTree("value.Add(4)")
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Call()
+    methodIndex := plan.OperandIndices[2]
+    assert plan.MethodIsStatic[methodIndex]
+    assert plan.MethodParameterTypes[methodIndex].Length == 2
+    assert plan.MethodParameterTypes[methodIndex][0] == typeof(int)
+    assert plan.MethodParameterTypes[methodIndex][1] == typeof(int)
+}
+
+test "direct-call planner gives a real source instance member precedence over a receiver sibling" {
+    owner := SourceCallDefinition("DirectCallReceiverSiblingPrecedenceOwner", true)
+    SourceCallPublicInstance(owner, "Label", new Type[](0), typeof(string))
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = owner.Builder
+    facts := DirectCallReceiverSiblingFacts("DirectCallReceiverSiblingPrecedenceHost", "Label", parameterTypes, typeof(int))
+    bindings := DirectCallSiblingBindings("Label", facts)
+    bindings.SourceTypeDefinitions = SourceCallDefinitions(owner)
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, owner.Builder)
+    tree := DirectCallParsedTree("value.Label()")
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(string)
+    assert plan.OperationCount == 2
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
+    methodIndex := plan.OperandIndices[1]
+    assert plan.Methods[methodIndex].get_Name() == "Label"
+    assert !plan.MethodIsStatic[methodIndex]
 }
 
 test "direct-call planner owns a zero-argument sibling call" {

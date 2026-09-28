@@ -620,6 +620,194 @@ func main() {
     }
 }
 
+test "CompileToIlAssembly_ReceiverStyleSiblingResultTypesANonGenericBinaryOperand" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverSiblingBinary",
+        "name: ReceiverSiblingBinary\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+func Len(this value: string): int { return value.Length }
+
+func main() {
+    name := "abc"
+    Console.WriteLine(name.Len() + 1)
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "4" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "CompileToIlAssembly_ReceiverStyleSiblingResultTypesAnInferredGenericBinaryOperand" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverSiblingGenericBinary",
+        "name: ReceiverSiblingGenericBinary\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+func Echo<T>(this value: T): T { return value }
+
+func main() {
+    Console.WriteLine(5.Echo() + 1)
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "6" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "CompileToIlAssembly_ReceiverStyleSiblingResultTypesAnExplicitGenericCall" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverSiblingExplicitGeneric",
+        "name: ReceiverSiblingExplicitGeneric\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+func Echo<T>(this value: T): T { return value }
+
+func main() {
+    Console.WriteLine(5.Echo<int>() + 2)
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "7" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "CompileToIlAssembly_ReceiverStyleSiblingResultTypesComparisonAndIfConditions" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverSiblingConditions",
+        "name: ReceiverSiblingConditions\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+func Len(this value: string): int { return value.Length }
+
+func main() {
+    name := "abc"
+    if name.Len() > 2 {
+        Console.WriteLine(name.Len() == 3)
+    }
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "True" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "CompileToIlAssembly_ReceiverStyleSiblingPreservesRealInstanceMemberPrecedence" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverSiblingInstancePrecedence",
+        "name: ReceiverSiblingInstancePrecedence\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+class Token {
+    func Label(): string { return "instance" }
+}
+
+func Label(this value: Token): string { return "sibling" }
+
+func main() {
+    Console.WriteLine(new Token().Label())
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "instance" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "CompileToIlAssembly_ReceiverStyleSiblingCallAcceptsAdditionalArguments" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverSiblingAdditionalArguments",
+        "name: ReceiverSiblingAdditionalArguments\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+func Add(this value: int, other: int): int { return value + other }
+
+func main() {
+    Console.WriteLine(3.Add(4) * 2)
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "14" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
 test "CompileToIlAssembly_DeclineLogWritesTraceToTheCompilersWriter" {
     captured := EmitterCanonicalCompileWithDeclineLog(
         "TraceDecline",

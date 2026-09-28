@@ -232,6 +232,9 @@ class ColumnarSiblingCallFacts {
     ParameterModifierKinds: int[]
     ReturnType: Type
     TypeParameterCount: int
+    TypeParameterSpecialConstraints: int[]
+    TypeParameterBaseConstraints: Type?[]
+    TypeParameterInterfaceConstraints: Type[][]
     // The parameter NAMES the declaration wrote, in declaration order -- see
     // ColumnarSiblingMethodDefinition.ParamNames. A named argument at a bare sibling call binds by
     // this list; an empty list simply means no call on this sibling can name a parameter.
@@ -239,7 +242,7 @@ class ColumnarSiblingCallFacts {
     ParameterDefaultKinds: int[]
     ParameterDefaultTexts: string[]
 
-    constructor(method: MethodInfo, parameterTypes: Type[], parameterModifierKinds: int[], returnType: Type, typeParameterCount: int, parameterNames: string[]? = null, parameterDefaultKinds: int[]? = null, parameterDefaultTexts: string[]? = null) {
+    constructor(method: MethodInfo, parameterTypes: Type[], parameterModifierKinds: int[], returnType: Type, typeParameterCount: int, parameterNames: string[]? = null, parameterDefaultKinds: int[]? = null, parameterDefaultTexts: string[]? = null, typeParameterSpecialConstraints: int[]? = null, typeParameterBaseConstraints: Type?[]? = null, typeParameterInterfaceConstraints: Type[][]? = null) {
         if method == null || parameterTypes == null || parameterModifierKinds == null || returnType == null {
             throw new InvalidOperationException("Sibling call definition facts cannot be null.")
         }
@@ -249,6 +252,9 @@ class ColumnarSiblingCallFacts {
         ParameterModifierKinds = parameterModifierKinds
         ReturnType = returnType
         TypeParameterCount = typeParameterCount
+        TypeParameterSpecialConstraints = typeParameterSpecialConstraints ?? new int[](0)
+        TypeParameterBaseConstraints = typeParameterBaseConstraints ?? new Type?[](0)
+        TypeParameterInterfaceConstraints = typeParameterInterfaceConstraints ?? new Type[][](0)
         ParameterNames = parameterNames ?? new string[](0)
         ParameterDefaultKinds = parameterDefaultKinds ?? new int[](0)
         ParameterDefaultTexts = parameterDefaultTexts ?? new string[](0)

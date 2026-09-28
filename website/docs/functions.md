@@ -2382,6 +2382,7 @@ func Map<T, R>(this value: T, f: Func<T, R>): R => f(value)
 func main() {
     Console.WriteLine(5.Tag("ok"))            // "ok5"      T is int
     Console.WriteLine("abc".Echo().Length)    // 3          the result is a string
+    Console.WriteLine(5.Echo<int>() + 1)       // 6          type arguments may be explicit
     Console.WriteLine(5.Map(x => x * 2))      // 10         T from the receiver, R from the lambda
 }
 ```
@@ -2419,6 +2420,23 @@ func main() {
 
 If the receiver implements the same generic interface at different type arguments, inference is
 ambiguous and the function is not offered for receiver syntax.
+
+The result keeps its closed type in the surrounding expression, so receiver calls can be used in
+arithmetic, comparisons, and conditions. When an instance member and a top-level `this` function
+have the same name, the receiver's instance member wins; the top-level function is considered only
+after instance members and imported extension methods:
+
+```n#
+func Len(this value: string): int => value.Length
+
+func main() {
+    name := "abc"
+    Console.WriteLine(name.Len() + 1)       // 4
+    if name.Len() > 2 {
+        Console.WriteLine(name.Len() == 3)  // true
+    }
+}
+```
 
 ## Best Practices
 

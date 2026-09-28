@@ -13385,7 +13385,10 @@ sealed class ColumnarIlEmitter {
                 sibling.TypeParams.Length,
                 sibling.ParamNames,
                 sibling.ParamDefaultKinds,
-                sibling.ParamDefaultTexts
+                sibling.ParamDefaultTexts,
+                sibling.SpecialConstraints,
+                sibling.BaseConstraints,
+                sibling.InterfaceConstraints
             )
         }
         _siblingCallFacts = facts
