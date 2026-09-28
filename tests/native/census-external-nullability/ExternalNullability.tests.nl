@@ -243,6 +243,17 @@ test "an out argument to a referenced N# method is written by the call, in two p
     assert string.Join("\n", NullConsumerFindings(twoProjects, "NL905")) == string.Join("\n", single), "two projects:\n" + NullText(twoProjects) + "---- one project:\n" + NullText(oneProject)
 }
 
+test "a narrowed short-circuit right operand keeps a referenced out postcondition in both project shapes" {
+    consumer := NullConsumer("    static func Probe(key: string, other: Node?): string {\n        let picked: Node? = null\n        if other != null && Holder.TryFind(key, out picked) {\n            return Holder.Take(picked).ToString()\n        }\n        return \"\"\n    }\n")
+    oneProject := new List<CompilerError>()
+    twoProjects := new List<CompilerError>()
+    NullBothShapes("short-circuit-out", consumer, out oneProject, out twoProjects)
+
+    assert NullConsumerFindings(oneProject, "NL202").Count == 0, NullText(oneProject)
+    assert NullConsumerFindings(twoProjects, "NL202").Count == 0, NullText(twoProjects)
+    assert NullConsumerFindings(twoProjects, "NL905").Count == 0, NullText(twoProjects)
+}
+
 // A `ref` ARGUMENT FLOWS BOTH WAYS, so its annotation must match in both directions, and an `in` argument
 // flows in: it binds a referenced `in` parameter bare or spelled, as the same declaration in source does,
 // and a maybe-null one is refused as a by-value argument would be.

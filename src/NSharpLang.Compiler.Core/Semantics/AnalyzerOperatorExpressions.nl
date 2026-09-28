@@ -20,8 +20,9 @@ import NSharpLang.Compiler.Columnar
 //   3  the walk inside a FRESH BLOCK SCOPE with a named list of narrowings installed. Only the
 //      right operand of `&&` and `||` takes it, and only when the left operand proved something:
 //      `x != null && x.Length > 0` is the reason the right side of a conjunction sees a narrower
-//      `x` than the surrounding code does. The owner asks for this kind ONLY when the list is
-//      non-empty, so the driver never decides whether a scope is wanted.
+//      `x` than the surrounding code does. The driver joins writes from this conditional walk with
+//      the state before the operator when the temporary scope closes. The owner asks for this kind
+//      ONLY when the list is non-empty, so the driver never decides whether a scope is wanted.
 //
 // SEVEN KINDS RETIRED WHEN THE WRITE-TARGET FAMILY BECAME N#. Five of them were WRITE-TARGET REPORTS
 // and one was the QUESTION in front of them: they were steps only because the reports lived in

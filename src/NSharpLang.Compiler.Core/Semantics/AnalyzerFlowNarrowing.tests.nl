@@ -1115,6 +1115,74 @@ func FlowNarrowingAssertClean(body: string) {
     }
 }
 
+// The N# source that pins call writes through short-circuit operators. `Type` deliberately comes
+// from framework metadata: its `out` postcondition is oblivious, so the analyzer must preserve that
+// state without upgrading it to a confident not-null fact.
+func FlowNarrowingShortCircuitProgram(body: string): string {
+    return "namespace P\n\nimport System\n\nclass Item {\n    Name: string\n\n    constructor(name: string) {\n        Name = name\n    }\n}\n\nfunc TryPick(name: string, out picked: Item): bool {\n    picked = new Item(name)\n    return name.Length > 0\n}\n\nfunc Use(item: Item): string {\n    return item.Name\n}\n\nfunc PickOne(name: string, out picked: Item): bool {\n    picked = new Item(name)\n    return name.Length > 0\n}\n\nfunc PickTwo(name: string, out first: Item, out second: Item): bool {\n    first = new Item(name)\n    second = new Item(name)\n    return name.Length > 0\n}\n\nfunc TryResolve(name: string, out resolved: Type): bool {\n    resolved = typeof(string)\n    return name.Length > 0\n}\n\n" + body
+}
+
+func FlowNarrowingShortCircuitDiagnosticIds(source: string): List<string> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-flow-short-circuit-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    diagnostics := new List<string>()
+    analyzer := new Analyzer()
+    try {
+        analyzer.LoadSystemAssemblies()
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            diagnostics.Add(error.DiagnosticId + "@" + error.Line.ToString())
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return diagnostics
+}
+
+func FlowNarrowingCountDiagnosticsStartingWith(diagnostics: List<string>, prefix: string): int {
+    count := 0
+    for diagnostic in diagnostics {
+        if diagnostic.StartsWith(prefix, StringComparison.Ordinal) {
+            count = count + 1
+        }
+    }
+
+    return count
+}
+
+test "call postconditions survive a narrowed && and the false branch of a narrowed ||" {
+    program := FlowNarrowingShortCircuitProgram(
+        "func ProbeAnd(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPick(name, out chosen) {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc ProbeOr(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other == null || !TryPick(name, out chosen) {\n        return \"\"\n    }\n    return Use(chosen)\n}\n\nfunc CallThenNarrow(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if TryPick(name, out chosen) && other != null {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc MustChosen(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPick(name, out chosen) {\n        return (must chosen).Name\n    }\n    return \"\"\n}\n"
+    )
+    diagnostics := FlowNarrowingShortCircuitDiagnosticIds(program)
+    assert diagnostics.Count == 1, String.Join(" | ", diagnostics)
+    assert diagnostics[0] == "NL907@65", String.Join(" | ", diagnostics)
+}
+
+test "short-circuit guards retain guaranteed writes across chained && and ||" {
+    program := FlowNarrowingShortCircuitProgram(
+        "func ChainedAnd(first: string, second: string, third: string): int {\n    let t: Type? = null\n    if !TryResolve(first, out t) && !TryResolve(second, out t) && !TryResolve(third, out t) {\n        return 0\n    }\n    return t.GetMethods().Length\n}\n\nfunc ChainedOr(first: string, second: string): int {\n    let n: Item? = null\n    let x: Item? = null\n    let y: Item? = null\n    if !PickTwo(first, out n, out x) || !PickOne(second, out y) {\n        return 0\n    }\n    return y.Name.Length\n}\n"
+    )
+    diagnostics := FlowNarrowingShortCircuitDiagnosticIds(program)
+    assert diagnostics.Count == 0, String.Join(" | ", diagnostics)
+}
+
+test "a right-operand write stays maybe-null when its short-circuit side was skipped" {
+    program := FlowNarrowingShortCircuitProgram(
+        "func Dereference(name: string, other: Item?): int {\n    let chosen: Item? = null\n    if other != null && TryPick(name, out chosen) { }\n    return chosen.Name.Length\n}\n\nfunc PassNonNull(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPick(name, out chosen) { }\n    return Use(chosen)\n}\n\nfunc SameStateWrite(name: string, other: Item?): int {\n    if other != null && TryPick(name, out other) { }\n    return other.Name.Length\n}\n"
+    )
+    diagnostics := FlowNarrowingShortCircuitDiagnosticIds(program)
+    assert FlowNarrowingCountDiagnosticsStartingWith(diagnostics, "NL905@") == 2, String.Join(" | ", diagnostics)
+    assert FlowNarrowingCountDiagnosticsStartingWith(diagnostics, "NL202@") == 1, String.Join(" | ", diagnostics)
+}
+
 test "a `!x.HasValue` THROW guard leaves x.Value and the bare x usable, exactly as `x == null` does" {
     FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if !x.HasValue {\n        throw new FormatException()\n    }\n    return x.Value + x\n}\n")
     FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if x == null {\n        throw new FormatException()\n    }\n    return x.Value + x\n}\n")

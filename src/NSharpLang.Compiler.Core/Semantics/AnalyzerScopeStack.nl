@@ -685,6 +685,26 @@ class AnalyzerScopeStack {
         return NullState.Unknown
     }
 
+    // THE EFFECTIVE FLOW AT THIS INSTANT, with the innermost fact winning. A short-circuit right
+    // operand runs on only one path, so its scope must remember this pre-operator state before an
+    // assignment invalidates facts from every open scope. The driver meets it with the right side's
+    // exit state when that temporary scope closes.
+    func CaptureNullStates(): Dictionary<string, NullState> {
+        snapshot := new Dictionary<string, NullState>(StringComparer.Ordinal)
+        index := scopes.Count - 1
+        while index >= 0 {
+            for entry in scopes[index].NullStates {
+                if !snapshot.ContainsKey(entry.Key) {
+                    snapshot[entry.Key] = entry.Value
+                }
+            }
+
+            index = index - 1
+        }
+
+        return snapshot
+    }
+
     // WHETHER A NAME IS BOUND BY A SCOPE OTHER THAN THE INNERMOST ONE. The conditional join asks it
     // of a branch scope's own symbol table: a name that scope binds and nothing outside it binds is a
     // BRANCH-LOCAL and dies at the closing brace, while a name it binds that an enclosing scope also
@@ -720,6 +740,7 @@ class AnalyzerScopeStack {
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
+            scope.NullStateWrites.Add(path)
             removals := new List<string>()
             for entry in scope.NullStates {
                 key := entry.Key
@@ -729,6 +750,7 @@ class AnalyzerScopeStack {
             }
 
             for removal in removals {
+                scope.NullStateWrites.Add(removal)
                 scope.NullStates.Remove(removal)
             }
 

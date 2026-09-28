@@ -58,6 +58,7 @@ class Scope {
     symbolsValue: Dictionary<string, TypeInfo>
     typesValue: Dictionary<string, TypeInfo>
     nullStatesValue: Dictionary<string, NullState>
+    nullStateWritesValue: HashSet<string>
     errorTupleResultsValue: Dictionary<string, ErrorTupleResultGuard>
     availableErrorTupleResultsValue: HashSet<string>
     declarationLocations: Dictionary<string, SymbolDeclaration>
@@ -87,6 +88,10 @@ class Scope {
     // arity-mismatch diagnostic both read it; a name with one non-generic declaration has the single
     // entry 0.
     TypeArities: Dictionary<string, List<int>> => typeAritiesValue
+    // PATHS assigned while this scope was open, including paths whose previous null facts were
+    // invalidated. Short-circuit joins use this alongside a null-state snapshot to detect a write
+    // whose final state happens to equal the narrowing that was installed before the write.
+    NullStateWrites: HashSet<string> => nullStateWritesValue
     // THE CONSTRAINT TYPES OF EVERY TYPE PARAMETER THIS SCOPE DECLARES. A type parameter is a
     // `SimpleTypeInfo` of its own name and carries nothing else, so the one place its `where` clause
     // can live is beside the declaration that introduced it — and it leaves scope with that
@@ -108,6 +113,7 @@ class Scope {
         symbolsValue = new Dictionary<string, TypeInfo>()
         typesValue = new Dictionary<string, TypeInfo>()
         nullStatesValue = new Dictionary<string, NullState>(StringComparer.Ordinal)
+        nullStateWritesValue = new HashSet<string>(StringComparer.Ordinal)
         errorTupleResultsValue = new Dictionary<string, ErrorTupleResultGuard>(StringComparer.Ordinal)
         availableErrorTupleResultsValue = new HashSet<string>(StringComparer.Ordinal)
         declarationLocations = new Dictionary<string, SymbolDeclaration>()

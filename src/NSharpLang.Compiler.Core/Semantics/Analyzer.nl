@@ -1806,10 +1806,50 @@ class Analyzer: IDisposable {
                 }
             }
             if kind == 3 {
+                stateBeforeOperator := Scopes.CaptureNullStates()
                 PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
                 FlowNarrowing.ApplyNarrowingsToScope(step.Narrowings)
+                rightScope := Scopes.Peek()
+                nullStatesAfterNarrowing := new Dictionary<string, NullState>(rightScope.NullStates, StringComparer.Ordinal)
+                nullWritesAfterNarrowing := new HashSet<string>(rightScope.NullStateWrites, StringComparer.Ordinal)
                 answer = AnalyzeExpression(step.Node)
+                changedPaths := new HashSet<string>(StringComparer.Ordinal)
+                for entry in rightScope.NullStates {
+                    previous := NullState.Unknown
+                    if !nullStatesAfterNarrowing.TryGetValue(entry.Key, out previous) || previous != entry.Value {
+                        changedPaths.Add(entry.Key)
+                    }
+                }
+                for entry in nullStatesAfterNarrowing {
+                    if !rightScope.NullStates.ContainsKey(entry.Key) {
+                        changedPaths.Add(entry.Key)
+                    }
+                }
+                for path in rightScope.NullStateWrites {
+                    if !nullWritesAfterNarrowing.Contains(path) {
+                        changedPaths.Add(path)
+                    }
+                }
+
+                stateAfterRightOperand := Scopes.CaptureNullStates()
+                joinedStates := new Dictionary<string, NullState>(StringComparer.Ordinal)
+                for path in changedPaths {
+                    before := NullState.Unknown
+                    if !stateBeforeOperator.TryGetValue(path, out before) {
+                        continue
+                    }
+
+                    after := NullState.Unknown
+                    stateAfterRightOperand.TryGetValue(path, out after)
+                    joined := AnalyzerConditionalJoin.Meet(before, after)
+                    if joined != NullState.Unknown {
+                        joinedStates[path] = joined
+                    }
+                }
                 PopScope()
+                for entry in joinedStates {
+                    Scopes.SetNullStateInCurrentScope(entry.Key, entry.Value)
+                }
             }
             OperatorExpressions.Supply(state, answer)
             step = OperatorExpressions.NextStep(state)

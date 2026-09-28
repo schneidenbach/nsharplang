@@ -21,12 +21,15 @@ import NSharpLang.Compiler.Ast
 // do with the value, not about the caller's variable, so it proves nothing here. `[NotNull]` has no
 // such split: on an input parameter it is exactly the `Assert.NotNull` guarantee.
 //
-// THE CONDITIONAL FACTS ARE FILED AGAINST THE CALL NODE, NOT APPLIED. A call in a condition is
-// analysed BEFORE the `if` walk asks what the condition proves, so the facts have to survive the gap
-// between the two; the flow-narrowing writer reads them back when it meets the same node. The
-// unconditional ones have no such gap and are written into the flow the moment the call is decided —
-// including the invalidation an ordinary assignment performs, because an `out` argument IS an
-// assignment and every fact derived from that path is stale afterwards.
+// CONDITIONAL FACTS, AND THE UNCONDITIONAL FACTS THAT ARE SAFE ON BOTH BRANCHES, ARE FILED AGAINST
+// THE CALL NODE. A call in a condition is analysed BEFORE the `if` walk asks what the condition
+// proves, so those facts have to survive the gap between the two; the flow-narrowing writer reads
+// them back when it meets the same node. Unconditional maybe-null facts are deliberately NOT filed:
+// branch narrowings are installed over the whole condition and would otherwise erase a fact that
+// must hold when a right operand was skipped. Unconditional facts are also written into the live
+// flow the moment the call is decided — including the invalidation an ordinary assignment performs,
+// because an `out` argument IS an assignment and every fact derived from that path is stale
+// afterwards.
 //
 // A CANDIDATE THAT LOSES LEAVES NOTHING BEHIND. Facts are produced while a candidate is being bound
 // and COMMITTED only when the call's walk accepts one, so a reflected overload that was tried,
@@ -34,17 +37,17 @@ import NSharpLang.Compiler.Ast
 class AnalyzerNullabilityPostconditions {
     scopesValue: AnalyzerScopeStack
     declarationContextValue: AnalyzerDeclarationContext
-    conditionalByCall: Dictionary<object, List<NullabilityPostcondition>>
+    branchFactsByCall: Dictionary<object, List<NullabilityPostcondition>>
 
     constructor(scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext) {
         scopesValue = scopes
         declarationContextValue = declarationContext
-        conditionalByCall = new Dictionary<object, List<NullabilityPostcondition>>()
+        branchFactsByCall = new Dictionary<object, List<NullabilityPostcondition>>()
     }
 
     // One call per analysis, from the same reset block that clears the error list.
     func BeginAnalysis() {
-        conditionalByCall.Clear()
+        branchFactsByCall.Clear()
     }
 
     // THE FACTS ONE ARGUMENT POSITION PRODUCES. `parameterType` is the parameter as the call site
@@ -125,21 +128,34 @@ class AnalyzerNullabilityPostconditions {
         return NullStateFacts.DefaultFor(declarationContextValue.ResolveDeclaredAlias(parameterType))
     }
 
-    // THE CALL'S VERDICT. The unconditional facts go into the flow now; the conditional ones are
-    // filed against the node so the condition that contains it can read them back.
+    // THE CALL'S VERDICT. The unconditional facts go into the flow now; branch facts are also filed
+    // against the node so a containing condition can recover them after the call's walk has ended.
     func Commit(call: CallExpression, facts: List<NullabilityPostcondition>) {
-        conditional: List<NullabilityPostcondition>? = null
+        branchFacts: List<NullabilityPostcondition>? = null
         index := 0
         while index < facts.Count {
             fact := facts[index]
             index = index + 1
             if fact.Condition != 0 {
-                if conditional == null {
-                    conditional = new List<NullabilityPostcondition>()
+                if branchFacts == null {
+                    branchFacts = new List<NullabilityPostcondition>()
                 }
 
-                conditional.Add(fact)
+                branchFacts.Add(fact)
                 continue
+            }
+
+            // These states are valid whenever the call ran, regardless of its boolean result. The
+            // condition writer chooses the appropriate side of a short-circuit operator; maybe-null
+            // is intentionally absent because that branch fact could cover a path where the call
+            // never ran.
+            if fact.State == NullState.NotNull || fact.State == NullState.Oblivious {
+                if branchFacts == null {
+                    branchFacts = new List<NullabilityPostcondition>()
+                }
+
+                branchFacts.Add(new NullabilityPostcondition(fact.Path, 1, fact.State))
+                branchFacts.Add(new NullabilityPostcondition(fact.Path, 2, fact.State))
             }
 
             if fact.Assigned {
@@ -149,10 +165,10 @@ class AnalyzerNullabilityPostconditions {
             scopesValue.SetNullStateInCurrentScope(fact.Path, fact.State)
         }
 
-        if conditional != null {
-            conditionalByCall[call] = conditional
+        if branchFacts != null {
+            branchFactsByCall[call] = branchFacts
         } else {
-            conditionalByCall.Remove(call)
+            branchFactsByCall.Remove(call)
         }
     }
 
@@ -161,7 +177,7 @@ class AnalyzerNullabilityPostconditions {
     // must not pay for.
     func BranchNarrowings(call: CallExpression, whenTrue: bool): List<FlowNarrowing>? {
         facts: List<NullabilityPostcondition>? = null
-        if !conditionalByCall.TryGetValue(call, out facts) || facts == null {
+        if !branchFactsByCall.TryGetValue(call, out facts) || facts == null {
             return null
         }
 

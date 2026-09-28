@@ -188,14 +188,50 @@ test "committing files the conditional facts against the call and applies the re
     assert whenFalse[0].NullState == NullState.MaybeNull
 }
 
-test "a call that established nothing conditional is not filed at all" {
+test "an unconditional not-null out postcondition is available on both call branches" {
     owner := PostconditionOwner()
     call := new CallExpression(new IdentifierExpression("TryGet", 1, 1), new List<Argument>(), null, 1, 1)
     facts := PostconditionFacts()
     owner.AddArgumentFacts(facts, PostconditionArgument("value"), BuiltInTypes.String, true, NullabilityFlowFacts.None())
     owner.Commit(call, facts)
+
+    whenTrue := owner.BranchNarrowings(call, true)
+    whenFalse := owner.BranchNarrowings(call, false)
+    assert whenTrue != null
+    assert whenFalse != null
+    assert whenTrue.Count == 1
+    assert whenFalse.Count == 1
+    assert whenTrue[0].NullState == NullState.NotNull
+    assert whenFalse[0].NullState == NullState.NotNull
+}
+
+test "unconditional maybe-null out facts are not installed over branches the call may have skipped" {
+    owner := PostconditionOwner()
+    call := new CallExpression(new IdentifierExpression("TryGet", 1, 1), new List<Argument>(), null, 1, 1)
+    facts := PostconditionFacts()
+    owner.AddArgumentFacts(facts, PostconditionArgument("value"), PostconditionNullableString(), true, NullabilityFlowFacts.None())
+    owner.Commit(call, facts)
+
     assert owner.BranchNarrowings(call, true) == null
     assert owner.BranchNarrowings(call, false) == null
+}
+
+test "an oblivious framework out postcondition is available on both call branches" {
+    owner := PostconditionOwner()
+    call := new CallExpression(new IdentifierExpression("TryResolve", 1, 1), new List<Argument>(), null, 1, 1)
+    reflected: TypeInfo = new ReflectionTypeInfo(typeof(System.Type))
+    facts := PostconditionFacts()
+    owner.AddArgumentFacts(facts, PostconditionArgument("resolved"), reflected, true, NullabilityFlowFacts.None())
+    owner.Commit(call, facts)
+
+    whenTrue := owner.BranchNarrowings(call, true)
+    whenFalse := owner.BranchNarrowings(call, false)
+    assert whenTrue != null
+    assert whenFalse != null
+    assert whenTrue.Count == 1
+    assert whenFalse.Count == 1
+    assert whenTrue[0].NullState == NullState.Oblivious
+    assert whenFalse[0].NullState == NullState.Oblivious
 }
 
 test "a source attribute list yields the bits its names and literals spell" {

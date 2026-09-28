@@ -1,19 +1,22 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
+import System.Diagnostics.CodeAnalysis
 import System.Reflection.Emit
 
 
 // Resolves source members while their declaring types are still unbaked. Every walk observes the
 // live definition records directly and searches the nearest declaration first. Interface-method
-// lookup preserves the declaration-order depth-first traversal used by the legacy emitter.
+// lookup preserves the declaration-order depth-first traversal used by the legacy emitter. A
+// nullable output is populated whenever one of these lookups returns true, and `[NotNullWhen(true)]`
+// makes that existing guarantee visible to callers that continue through a short-circuit condition.
 class ColumnarSourceMemberChainResolver {
-    static func TryFindFieldOnChain(definition: ColumnarStructDef, name: string, out field: FieldBuilder?): bool {
+    static func TryFindFieldOnChain(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out field: FieldBuilder?): bool {
         owner: ColumnarStructDef? = null
         return TryFindFieldOnChain(definition, name, out owner, out field)
     }
 
-    static func TryFindFieldOnChain(definition: ColumnarStructDef, name: string, out owner: ColumnarStructDef?, out field: FieldBuilder?): bool {
+    static func TryFindFieldOnChain(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out owner: ColumnarStructDef?, [NotNullWhen(true)] out field: FieldBuilder?): bool {
         current: ColumnarStructDef? = definition
         while current != null {
             candidate := current
@@ -28,7 +31,7 @@ class ColumnarSourceMemberChainResolver {
         return false
     }
 
-    static func TryFindMethodOnChain(definition: ColumnarStructDef, name: string, out method: ColumnarInstanceMethodDef?): bool {
+    static func TryFindMethodOnChain(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out method: ColumnarInstanceMethodDef?): bool {
         current: ColumnarStructDef? = definition
         while current != null {
             candidate := current
@@ -46,7 +49,7 @@ class ColumnarSourceMemberChainResolver {
         return false
     }
 
-    static func TryFindMethodOnChain(definition: ColumnarStructDef, name: string, argumentCount: int, out method: ColumnarInstanceMethodDef?): bool {
+    static func TryFindMethodOnChain(definition: ColumnarStructDef, name: string, argumentCount: int, [NotNullWhen(true)] out method: ColumnarInstanceMethodDef?): bool {
         current: ColumnarStructDef? = definition
         while current != null {
             candidate := current
@@ -67,7 +70,7 @@ class ColumnarSourceMemberChainResolver {
         return false
     }
 
-    static func TryFindMethodOnInterfaceBases(definition: ColumnarStructDef, name: string, out method: ColumnarInstanceMethodDef?): bool {
+    static func TryFindMethodOnInterfaceBases(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out method: ColumnarInstanceMethodDef?): bool {
         enumerator := definition.InterfaceBases.GetEnumerator()
         try {
             while enumerator.MoveNext() {
@@ -88,7 +91,7 @@ class ColumnarSourceMemberChainResolver {
         return false
     }
 
-    static func TryFindMethodOnInterfaceBases(definition: ColumnarStructDef, name: string, argumentCount: int, out method: ColumnarInstanceMethodDef?): bool {
+    static func TryFindMethodOnInterfaceBases(definition: ColumnarStructDef, name: string, argumentCount: int, [NotNullWhen(true)] out method: ColumnarInstanceMethodDef?): bool {
         enumerator := definition.InterfaceBases.GetEnumerator()
         try {
             while enumerator.MoveNext() {
@@ -112,7 +115,7 @@ class ColumnarSourceMemberChainResolver {
         return false
     }
 
-    static func TryFindMethodAtArity(overloads: List<ColumnarInstanceMethodDef>, argumentCount: int, out method: ColumnarInstanceMethodDef?): bool {
+    static func TryFindMethodAtArity(overloads: List<ColumnarInstanceMethodDef>, argumentCount: int, [NotNullWhen(true)] out method: ColumnarInstanceMethodDef?): bool {
         enumerator := overloads.GetEnumerator()
         try {
             while enumerator.MoveNext() {
@@ -133,7 +136,7 @@ class ColumnarSourceMemberChainResolver {
     // method selectors take. A bare name inside a lambda has to know whether it reaches an INSTANCE
     // member — that is exactly the question "does this lambda need the enclosing receiver?" — and a
     // property answers it as readily as a field does.
-    static func TryFindPropertyOnChain(definition: ColumnarStructDef, name: string, out property: ColumnarPropertyDef?): bool {
+    static func TryFindPropertyOnChain(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out property: ColumnarPropertyDef?): bool {
         current: ColumnarStructDef? = definition
         while current != null {
             candidate := current
@@ -148,12 +151,12 @@ class ColumnarSourceMemberChainResolver {
         return false
     }
 
-    static func TryFindStaticFieldOnChain(definition: ColumnarStructDef, name: string, out field: FieldBuilder?): bool {
+    static func TryFindStaticFieldOnChain(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out field: FieldBuilder?): bool {
         owner: ColumnarStructDef? = null
         return TryFindStaticFieldOnChain(definition, name, out owner, out field)
     }
 
-    static func TryFindStaticFieldOnChain(definition: ColumnarStructDef, name: string, out owner: ColumnarStructDef?, out field: FieldBuilder?): bool {
+    static func TryFindStaticFieldOnChain(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out owner: ColumnarStructDef?, [NotNullWhen(true)] out field: FieldBuilder?): bool {
         current: ColumnarStructDef? = definition
         while current != null {
             candidate := current
@@ -168,7 +171,7 @@ class ColumnarSourceMemberChainResolver {
         return false
     }
 
-    static func TryFindStaticPropertyOnChain(definition: ColumnarStructDef, name: string, out property: ColumnarPropertyDef?): bool {
+    static func TryFindStaticPropertyOnChain(definition: ColumnarStructDef, name: string, [NotNullWhen(true)] out property: ColumnarPropertyDef?): bool {
         current: ColumnarStructDef? = definition
         while current != null {
             candidate := current
