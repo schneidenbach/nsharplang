@@ -49,8 +49,22 @@ class DaemonClientKernels {
         return "Failed to start daemon: " + messageText
     }
 
-    static func ShouldDeleteStaleSocket(socketErrorCode: int, timedOutSocketErrorCode: int): bool {
-        return socketErrorCode != timedOutSocketErrorCode
+    static func ShouldDeleteStaleSocket(
+        socketErrorCode: int,
+        connectFailed: bool,
+        hasReadyPidFile: bool,
+        notSocketErrorCode: int,
+        connectionRefusedErrorCode: int
+    ): bool {
+        if !connectFailed {
+            return false
+        }
+
+        if socketErrorCode == notSocketErrorCode {
+            return true
+        }
+
+        return socketErrorCode == connectionRefusedErrorCode && hasReadyPidFile
     }
 
     static func ShouldProbeCliProject(executablePath: string): bool {

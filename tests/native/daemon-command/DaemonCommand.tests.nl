@@ -3,6 +3,7 @@ namespace NSharpLang.DaemonCommand.Tests
 import System
 import System.Diagnostics
 import System.IO
+import System.Net.Sockets
 import System.Text.Json
 import NSharpLang.Cli.Daemon
 
@@ -210,6 +211,29 @@ test "a socket file left behind by a dead daemon is reported not running and del
         assert !DaemonClient.IsRunning(directory)
         assert !File.Exists(socketPath)
     } finally {
+        DeleteTempDirectory(directory)
+    }
+}
+
+test "a bound socket path survives a refused connection until listen starts" {
+    directory := NewTempDirectory()
+    socketPath := DaemonConstants.GetSocketPath(directory)
+    listener := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
+    try {
+        listener.Bind(new UnixDomainSocketEndPoint(socketPath))
+        assert File.Exists(socketPath)
+        assert !File.Exists(DaemonProtocolKernels.GetPidFilePath(socketPath))
+
+        assert !DaemonClient.IsRunning(directory)
+        assert DaemonClient.Query(directory, DaemonConstants.MethodPing) == null
+        assert File.Exists(socketPath)
+
+        listener.Listen(5)
+        using probe := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
+        probe.Connect(new UnixDomainSocketEndPoint(socketPath))
+        assert probe.Connected
+    } finally {
+        listener.Dispose()
         DeleteTempDirectory(directory)
     }
 }

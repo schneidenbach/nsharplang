@@ -88,6 +88,8 @@ class DaemonServer {
     idleCheckInterval: TimeSpan
     diagnosticGate: object
     diagnosticLines: List<string>
+    startupSignal: ManualResetEventSlim
+    startupSucceeded: bool
 
     constructor(root: string): this(root, TimeSpan.FromMinutes(DaemonConstants.IdleTimeoutMinutes), TimeSpan.FromMinutes(1)) {
     }
@@ -106,6 +108,29 @@ class DaemonServer {
         idleCheckInterval = checkInterval
         diagnosticGate = new object()
         diagnosticLines = new List<string>()
+        startupSignal = new ManualResetEventSlim()
+        startupSucceeded = false
+    }
+
+    func WaitForStartup(timeoutMilliseconds: int): bool {
+        if !startupSignal.Wait(timeoutMilliseconds) {
+            return false
+        }
+
+        return Volatile.Read(ref startupSucceeded)
+    }
+
+    func SignalStartupReady() {
+        Volatile.Write(ref startupSucceeded, true)
+        startupSignal.Set()
+    }
+
+    func SignalStartupFinished() {
+        startupSignal.Set()
+    }
+
+    func DisposeStartupSignal() {
+        startupSignal.Dispose()
     }
 
     static func CreateDaemonJsonOptions(): JsonSerializerOptions {
@@ -155,6 +180,13 @@ class DaemonServer {
             File.Delete(socketPath)
         }
 
+        // A PID file is the cross-process readiness marker and is written after Listen succeeds.
+        // Remove any prior marker before Bind so a refused connect during the bind/listen window
+        // cannot be mistaken for a stale socket by another client.
+        if File.Exists(pidPath) {
+            File.Delete(pidPath)
+        }
+
         using listener := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
 
         try {
@@ -169,6 +201,7 @@ class DaemonServer {
 
             // Write PID file only after bind/listen succeeds.
             File.WriteAllText(pidPath, Environment.ProcessId.ToString())
+            SignalStartupReady()
 
             WriteDiagnostic(DaemonServerKernels.GetListeningMessage(socketPath, Environment.ProcessId))
             WriteDiagnostic(DaemonServerKernels.GetProjectMessage(projectRoot))

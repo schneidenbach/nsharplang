@@ -182,6 +182,8 @@ func StartDaemonThread(server: DaemonServer, onStartupFailure: Action<string>): 
             server.Run()
         } catch ex: Exception {
             onStartupFailure(ex.ToString())
+        } finally {
+            server.SignalStartupFinished()
         }
     }
     worker := new Thread(entryPoint)
@@ -216,6 +218,10 @@ class DaemonTestServer {
         return worker.IsAlive
     }
 
+    func WaitForStartup(timeoutMilliseconds: int): bool {
+        return server.WaitForStartup(timeoutMilliseconds)
+    }
+
     func RecordStartupFailure(message: string) {
         startupFailure = message
     }
@@ -236,6 +242,9 @@ class DaemonTestServer {
         stopped = true
         DaemonClient.StopDaemon(ProjectDirectory)
         worker.Join(5000)
+        if !worker.IsAlive {
+            server.DisposeStartupSignal()
+        }
     }
 }
 
@@ -248,21 +257,17 @@ func DefaultIdleTimeoutMilliseconds(): double {
 
 func StartDaemonServerWithIdleTimeout(projectDirectory: string, idleTimeoutMilliseconds: double, idleCheckIntervalMilliseconds: double): DaemonTestServer {
     server := new DaemonTestServer(projectDirectory, idleTimeoutMilliseconds, idleCheckIntervalMilliseconds)
-    wait := DaemonStartupWait.WaitUntilReady(
-        () => DaemonClient.IsRunning(projectDirectory),
-        () => !server.IsAlive(),
-        () => -1,
-        () => server.StartupOutputTail(),
-        120000,
-        25
-    )
-    if !wait.Ready {
+    stopwatch := Stopwatch.StartNew()
+    if !server.WaitForStartup((int)DaemonClientKernels.GetStartTimeoutMilliseconds()) {
+        elapsedMilliseconds := stopwatch.ElapsedMilliseconds
+        serverWasAlive := server.IsAlive()
+        outputTail := server.StartupOutputTail()
         server.Stop()
-        if wait.ProcessExited {
-            throw new InvalidOperationException("Daemon test server stopped before accepting daemon/ping after " + wait.ElapsedMilliseconds.ToString() + " ms (server thread alive: false). Last daemon output:\n" + wait.OutputTail)
+        if !serverWasAlive {
+            throw new InvalidOperationException("Daemon test server stopped before listening after " + elapsedMilliseconds.ToString() + " ms (server thread alive: false). Last daemon output:\n" + outputTail)
         }
 
-        throw new InvalidOperationException("Daemon test server did not accept daemon/ping at " + DaemonConstants.GetSocketPath(projectDirectory) + " after " + wait.ElapsedMilliseconds.ToString() + " ms (server thread alive: " + server.IsAlive().ToString().ToLower() + "). Last daemon output:\n" + wait.OutputTail)
+        throw new InvalidOperationException("Daemon test server did not signal readiness at " + DaemonConstants.GetSocketPath(projectDirectory) + " after " + elapsedMilliseconds.ToString() + " ms (server thread alive: true). Last daemon output:\n" + outputTail)
     }
 
     return server

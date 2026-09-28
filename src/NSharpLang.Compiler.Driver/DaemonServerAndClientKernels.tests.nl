@@ -1,6 +1,8 @@
 namespace NSharpLang.Cli.Commands
 
+import System.Net.Sockets
 import System.Text.Json
+import NSharpLang.Cli.Daemon
 
 // THE `nlc daemon` CLIENT AND SERVER MESSAGE KERNELS.
 //
@@ -40,6 +42,18 @@ test "the two client sentences that take a reason really use it" {
     // ignored its argument and hard-coded the sentence would have passed both rows.
     assert DaemonClientKernels.GetConnectionErrorMessage("broken pipe") == "[daemon] Connection error: broken pipe"
     assert DaemonClientKernels.GetStartFailedWithReasonMessage("no such file") == "Failed to start daemon: no such file"
+}
+
+test "stale socket cleanup waits for the listener-ready pid marker" {
+    connectionRefused := (int)SocketError.ConnectionRefused
+    notSocket := (int)SocketError.NotSocket
+    timedOut := (int)SocketError.TimedOut
+
+    assert !DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, true, false, notSocket, connectionRefused)
+    assert DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, true, true, notSocket, connectionRefused)
+    assert DaemonClientKernels.ShouldDeleteStaleSocket(notSocket, true, false, notSocket, connectionRefused)
+    assert !DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, false, true, notSocket, connectionRefused)
+    assert !DaemonClientKernels.ShouldDeleteStaleSocket(timedOut, true, true, notSocket, connectionRefused)
 }
 
 // ── the server's protocol sentences ───────────────────────────────────────────

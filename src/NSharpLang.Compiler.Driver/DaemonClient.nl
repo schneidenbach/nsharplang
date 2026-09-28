@@ -128,12 +128,14 @@ class DaemonClient {
             return null
         }
 
+        connectFailed := true
         try {
             using socket := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
             // 30s for a potentially slow first load; the send side keeps the short connect budget.
             socket.ReceiveTimeout = 30000
             socket.SendTimeout = DaemonConstants.ConnectionTimeoutMs
             socket.Connect(new UnixDomainSocketEndPoint(socketPath))
+            connectFailed = false
 
             paramsElement: JsonElement? = null
             if parameters != null {
@@ -178,8 +180,9 @@ class DaemonClient {
             // failures are still told apart in the order the clauses had.
             socketFailure := ex as SocketException
             if socketFailure != null {
-                // Daemon not running or socket stale — clean up only when connect proved it stale.
-                DeleteStaleSocket(socketPath, socketFailure)
+                // Only a failed connect can prove a path stale; connection-refused is ambiguous
+                // until the server's PID file marks Listen complete.
+                DeleteStaleSocket(socketPath, socketFailure, connectFailed)
                 return null
             }
 
@@ -195,11 +198,13 @@ class DaemonClient {
             return false
         }
 
+        connectFailed := true
         try {
             using socket := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
             socket.ReceiveTimeout = DaemonConstants.PingTimeoutMs
             socket.SendTimeout = DaemonConstants.PingTimeoutMs
             socket.Connect(new UnixDomainSocketEndPoint(socketPath))
+            connectFailed = false
 
             request := new DaemonRequest()
             request.Id = 0
@@ -216,8 +221,8 @@ class DaemonClient {
         } catch ex: Exception {
             socketFailure := ex as SocketException
             if socketFailure != null {
-                // Socket exists but daemon is dead — clean up only when connect proved it stale.
-                DeleteStaleSocket(socketPath, socketFailure)
+                // A refused connect before the PID marker can be the bind/listen startup window.
+                DeleteStaleSocket(socketPath, socketFailure, connectFailed)
             }
 
             return false
@@ -253,6 +258,7 @@ class DaemonClient {
 
         try {
             socketPath := DaemonConstants.GetSocketPath(projectRoot)
+            pidPath := DaemonProtocolKernels.GetPidFilePath(socketPath)
             outputLogPath := Path.Combine(
                 Path.GetDirectoryName(socketPath) ?? "",
                 DaemonClientKernels.GetStartupOutputLogFileName()
@@ -280,7 +286,7 @@ class DaemonClient {
             // A listening socket that answers ping is the readiness signal. The generous deadline
             // catches a genuinely stuck startup; process exit is reported on the first poll.
             wait := DaemonStartupWait.WaitUntilReady(
-                () => File.Exists(socketPath) && IsRunning(projectRoot),
+                () => File.Exists(pidPath) && File.Exists(socketPath) && IsRunning(projectRoot),
                 () => process.HasExited,
                 () => process.ExitCode,
                 () => DaemonStartupOutputTail(output, outputLogPath),
@@ -343,8 +349,15 @@ class DaemonClient {
         return null
     }
 
-    static func DeleteStaleSocket(socketPath: string, ex: SocketException) {
-        if !DaemonClientKernels.ShouldDeleteStaleSocket((int)ex.SocketErrorCode, (int)SocketError.TimedOut) {
+    static func DeleteStaleSocket(socketPath: string, ex: SocketException, connectFailed: bool) {
+        pidPath := DaemonProtocolKernels.GetPidFilePath(socketPath)
+        if !DaemonClientKernels.ShouldDeleteStaleSocket(
+            (int)ex.SocketErrorCode,
+            connectFailed,
+            File.Exists(pidPath),
+            (int)SocketError.NotSocket,
+            (int)SocketError.ConnectionRefused
+        ) {
             return
         }
 
