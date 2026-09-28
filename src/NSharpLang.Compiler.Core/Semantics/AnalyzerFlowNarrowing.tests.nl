@@ -1119,7 +1119,7 @@ func FlowNarrowingAssertClean(body: string) {
 // from framework metadata: its `out` postcondition is oblivious, so the analyzer must preserve that
 // state without upgrading it to a confident not-null fact.
 func FlowNarrowingShortCircuitProgram(body: string): string {
-    return "namespace P\n\nimport System\n\nclass Item {\n    Name: string\n\n    constructor(name: string) {\n        Name = name\n    }\n}\n\nfunc TryPick(name: string, out picked: Item): bool {\n    picked = new Item(name)\n    return name.Length > 0\n}\n\nfunc Use(item: Item): string {\n    return item.Name\n}\n\nfunc PickOne(name: string, out picked: Item): bool {\n    picked = new Item(name)\n    return name.Length > 0\n}\n\nfunc PickTwo(name: string, out first: Item, out second: Item): bool {\n    first = new Item(name)\n    second = new Item(name)\n    return name.Length > 0\n}\n\nfunc TryResolve(name: string, out resolved: Type): bool {\n    resolved = typeof(string)\n    return name.Length > 0\n}\n\n" + body
+    return "namespace P\n\nimport System\nimport System.Diagnostics.CodeAnalysis\n\nclass Item {\n    Name: string\n\n    constructor(name: string) {\n        Name = name\n    }\n}\n\nfunc TryPick(name: string, out picked: Item): bool {\n    picked = new Item(name)\n    return name.Length > 0\n}\n\nfunc TryPickNullable(name: string, [NotNullWhen(true)] out picked: Item?): bool {\n    picked = new Item(name)\n    return name.Length > 0\n}\n\nfunc Use(item: Item): string {\n    return item.Name\n}\n\nfunc PickOne(name: string, out picked: Item): bool {\n    picked = new Item(name)\n    return name.Length > 0\n}\n\nfunc PickTwo(name: string, out first: Item, out second: Item): bool {\n    first = new Item(name)\n    second = new Item(name)\n    return name.Length > 0\n}\n\nfunc TryResolve(name: string, out resolved: Type): bool {\n    resolved = typeof(string)\n    return name.Length > 0\n}\n\n" + body
 }
 
 func FlowNarrowingShortCircuitDiagnosticIds(source: string): List<string> {
@@ -1159,11 +1159,11 @@ func FlowNarrowingCountDiagnosticsStartingWith(diagnostics: List<string>, prefix
 
 test "call postconditions survive a narrowed && and the false branch of a narrowed ||" {
     program := FlowNarrowingShortCircuitProgram(
-        "func ProbeAnd(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPick(name, out chosen) {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc ProbeOr(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other == null || !TryPick(name, out chosen) {\n        return \"\"\n    }\n    return Use(chosen)\n}\n\nfunc CallThenNarrow(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if TryPick(name, out chosen) && other != null {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc MustChosen(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPick(name, out chosen) {\n        return (must chosen).Name\n    }\n    return \"\"\n}\n"
+        "func ProbeAnd(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPick(name, out chosen) {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc ProbeAnnotatedAnd(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPickNullable(name, out chosen) {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc ProbeOr(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other == null || !TryPick(name, out chosen) {\n        return \"\"\n    }\n    return Use(chosen)\n}\n\nfunc CallThenNarrow(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if TryPick(name, out chosen) && other != null {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc MustChosen(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPick(name, out chosen) {\n        return (must chosen).Name\n    }\n    return \"\"\n}\n"
     )
     diagnostics := FlowNarrowingShortCircuitDiagnosticIds(program)
     assert diagnostics.Count == 1, String.Join(" | ", diagnostics)
-    assert diagnostics[0] == "NL907@65", String.Join(" | ", diagnostics)
+    assert diagnostics[0] == "NL907@79", String.Join(" | ", diagnostics)
 }
 
 test "short-circuit guards retain guaranteed writes across chained && and ||" {
