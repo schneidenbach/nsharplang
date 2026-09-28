@@ -317,7 +317,8 @@ upward-reach ceiling fell 160 -> 141. What the carve is:
   so `FixApplicatorEditEngine` forwarded its by-ref parameters bare (fixed and collapsed 2026-09-27 on
   `census/chip-fixes`: `ref p` passes the `&T` on); and `==` between a maybe-null source
   class value and a non-null one of the same class is refused (`string` is accepted), so
-  `LinterNullCheckPolicy`'s rows narrow first. `TryExtractCompletionPrefix` lost its two unread
+  `LinterNullCheckPolicy`'s rows narrowed first (fixed and collapsed 2026-09-27 on `census/chip-fixes`:
+  a reference `?` no longer decides the equality). `TryExtractCompletionPrefix` lost its two unread
   parameters (its one caller is the facade's `CompletionEngine`), and the `CodeFixProvider` family names
   the arguments it does not read with a leading underscore;
 - the product (100 files) AND its estate (66) as pure renames, with `excludeTests: true` and its own
@@ -465,9 +466,10 @@ What the carve is:
   NL202 66, NL905 63, NL010 46, NL012 12, NL011 7, NL907 7, NL001 1, NL304 1; 74 in its product, 315
   in its estate), so it starts at 0. Checked as its own project against built Core it STAYS 0 -- unlike
   Emit's, Plan's carve found no cross-assembly analyzer gap. Three gaps the fixes met are routed around
-  with `// COMPILER:` notes and still open: `==` between a class and its `?` annotation is refused
-  (NL202; the analyzer's reference-equality tail does not see through a reference `?`), so identity
-  tests say `Object.ReferenceEquals`; out locals are declared with the parameter's own type (the Emit
+  with `// COMPILER:` notes: `==` between a class and its `?` annotation is refused (NL202; the
+  analyzer's reference-equality tail does not see through a reference `?`), so identity tests said
+  `Object.ReferenceEquals` (fixed and collapsed back to `==`/`!=` 2026-09-27 on `census/chip-fixes`);
+  still open: out locals are declared with the parameter's own type (the Emit
   carve's rule); and a `ref` parameter that starts its own line of a wrapped parameter list does not
   parse (NL107), so that signature is one line;
 - the product (120 files) AND its estate (137) as pure renames, with `excludeTests: true` and its own

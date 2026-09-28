@@ -201,8 +201,7 @@ test "fragment bindings merge live method and enclosing type parameter handles b
         ownerArguments[1]
     )
     assert !bindings.TryGetTypeParameter("Missing", out resolved)
-    // COMPILER: `==` between a definition and a `?`-annotated one is refused (NL202); identity is meant.
-    assert Object.ReferenceEquals(bindings.EnclosingTypeDefinition, owner)
+    assert bindings.EnclosingTypeDefinition == owner
 }
 
 test "fragment bindings reject malformed raw type parameter facts" {

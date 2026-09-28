@@ -937,9 +937,7 @@ class ColumnarInstanceMemberPlanner {
             }
 
             fast = next.BaseDef
-            // COMPILER: `==` between a class and its `?` annotation is refused (NL202), so the cycle
-            // test says what it means -- the same node -- with `Object.ReferenceEquals`.
-            if slow != null && Object.ReferenceEquals(slow, fast) {
+            if slow != null && slow == fast {
                 throw new InvalidOperationException("Source instance-member hierarchy contains a cycle.")
             }
         }
@@ -984,9 +982,7 @@ class ColumnarInstanceMemberPlanner {
             }
 
             fast = next.BaseFacts
-            // COMPILER: `==` between a class and its `?` annotation is refused (NL202), so the cycle
-            // test says what it means -- the same node -- with `Object.ReferenceEquals`.
-            if slow != null && Object.ReferenceEquals(slow, fast) {
+            if slow != null && slow == fast {
                 throw new InvalidOperationException("Exact instance-member hierarchy contains a cycle.")
             }
         }
