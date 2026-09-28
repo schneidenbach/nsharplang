@@ -246,7 +246,7 @@ test "A DEAD GUARD BRANCH DOES NOT ERASE FACTS FROM THE PATH THAT SURVIVES" {
     side.Add(new FlowNarrowing("result", null, NullState.NotNull))
     side.Add(new FlowNarrowing("choice", BuiltInTypes.String, NullState.NotNull))
 
-    inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entry, exit, side, written)
+    inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entry, exit, side, written, new List<string>())
 
     assert JoinNarrowingText(inherited) == "choice=not-null,doc=maybe-null,n=not-null,other=null,result=not-null"
     choiceNarrowed := false
@@ -256,6 +256,49 @@ test "A DEAD GUARD BRANCH DOES NOT ERASE FACTS FROM THE PATH THAT SURVIVES" {
         }
     }
     assert choiceNarrowed
+}
+
+test "A WRITTEN PATH WITHOUT AN EXIT FACT CANNOT INHERIT ITS ENTRY PROOF" {
+    entry := JoinFactsOf("n=not-null,other=not-null")
+    side := new List<FlowNarrowing>()
+    side.Add(new FlowNarrowing("n", BuiltInTypes.Int, NullState.NotNull))
+    side.Add(new FlowNarrowing("other", BuiltInTypes.Int, NullState.NotNull))
+    written := new List<string>()
+    written.Add("n")
+
+    inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entry, null, side, written, new List<string>())
+
+    assert JoinNarrowingText(inherited) == "other=not-null"
+    for narrowing in inherited {
+        assert narrowing.Path != "n"
+    }
+}
+
+test "A CONDITION WRITE INVALIDATES THE ENTRY PROOF BEFORE SIDE FACTS ARE INSTALLED" {
+    entry := JoinFactsOf("n=not-null,other=not-null")
+    side := new List<FlowNarrowing>()
+    side.Add(new FlowNarrowing("other", BuiltInTypes.Int, NullState.NotNull))
+    conditionWrites := new List<string>()
+    conditionWrites.Add("n")
+
+    inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entry, null, side, new List<string>(), conditionWrites)
+
+    assert JoinNarrowingText(inherited) == "other=not-null"
+    for narrowing in inherited {
+        assert narrowing.Path != "n"
+    }
+}
+
+test "A SIDE FACT ANALYSED AFTER A CONDITION WRITE REMAINS AVAILABLE" {
+    entry := JoinFactsOf("n=not-null")
+    side := new List<FlowNarrowing>()
+    side.Add(new FlowNarrowing("n", null, NullState.NotNull))
+    conditionWrites := new List<string>()
+    conditionWrites.Add("n")
+
+    inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entry, null, side, new List<string>(), conditionWrites)
+
+    assert JoinNarrowingText(inherited) == "n=not-null"
 }
 
 test "MORE THAN TWO PATHS MEET BY FOLDING, AND ONLY A PATH ALL OF THEM SPEAK FOR SURVIVES" {

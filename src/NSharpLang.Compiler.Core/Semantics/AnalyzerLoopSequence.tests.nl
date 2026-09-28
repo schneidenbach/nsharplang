@@ -1967,6 +1967,45 @@ func LoopChainProbe(body: string): string {
     return "namespace P\n\nclass Def {\n    Name: string\n    BaseDef: Def?\n\n    constructor(name: string, baseDef: Def?) {\n        Name = name\n        BaseDef = baseDef\n    }\n}\n\nfunc Walk(start: Def?, limit: int): int {\n    count := 0\n" + body + "    return count\n}\n"
 }
 
+func LoopIfSurvivorProbe(branch: string): string {
+    return "func Dec(n: int): int? {\n    return null\n}\n\nfunc Probe(start: int?, c: bool): int {\n    n := start\n    while n != null {\n" + branch + "        return n + 1\n    }\n    return 0\n}\n"
+}
+
+func AssertLoopIfSurvivorReportsNl202(branch: string) {
+    errors := LoopSourceErrors(LoopIfSurvivorProbe(branch))
+    assert errors.Count == 1, string.Join("\n", errors)
+    assert errors[0].StartsWith("NL202 ", StringComparison.Ordinal), errors[0]
+}
+
+test "AN ELSE SURVIVOR LOSES THE ENTRY PROOF AFTER CONTINUE, BREAK, RETURN, AND NESTED WRITES" {
+    // In each probe the then arm leaves and the else arm continues to `return n + 1`. The else-body
+    // write invalidates the loop condition's non-null fact, including when it sits in a nested block.
+    AssertLoopIfSurvivorReportsNl202("        if c {\n            continue\n        } else {\n            n = Dec(n)\n        }\n")
+    AssertLoopIfSurvivorReportsNl202("        if c {\n            break\n        } else {\n            n = Dec(n)\n        }\n")
+    AssertLoopIfSurvivorReportsNl202("        if c {\n            return 0\n        } else {\n            n = Dec(n)\n        }\n")
+    AssertLoopIfSurvivorReportsNl202("        if c {\n            continue\n        } else {\n            {\n                n = Dec(n)\n            }\n        }\n")
+}
+
+test "A THEN SURVIVOR LOSES THE ENTRY PROOF AFTER CONTINUE, BREAK, RETURN, AND NESTED WRITES" {
+    // Mirror the preceding cases: the else arm leaves, so only the then body's write reaches the read.
+    AssertLoopIfSurvivorReportsNl202("        if c {\n            n = Dec(n)\n        } else {\n            continue\n        }\n")
+    AssertLoopIfSurvivorReportsNl202("        if c {\n            n = Dec(n)\n        } else {\n            break\n        }\n")
+    AssertLoopIfSurvivorReportsNl202("        if c {\n            n = Dec(n)\n        } else {\n            return 0\n        }\n")
+    AssertLoopIfSurvivorReportsNl202("        if c {\n            {\n                n = Dec(n)\n            }\n        } else {\n            continue\n        }\n")
+}
+
+test "A CONDITION out WRITE CANNOT RESTORE THE LOOP'S ENTRY PROOF AFTER A GUARD" {
+    source := "func Clear(out value: int?): bool {\n    value = null\n    return false\n}\n\nfunc Probe(start: int?): int {\n    n := start\n    while n != null {\n        if Clear(out n) && n != null {\n            continue\n        } else {\n        }\n        return n + 1\n    }\n    return 0\n}\n"
+    errors := LoopSourceErrors(source)
+    hasNl202 := false
+    for error in errors {
+        if error.StartsWith("NL202 ", StringComparison.Ordinal) {
+            hasNl202 = true
+        }
+    }
+    assert hasNl202, string.Join("\n", errors)
+}
+
 test "A for's UPDATE READS THE PATH ITS CONDITION PROVED, AND ONLY WHILE THE BODY LEAVES IT ALONE" {
     // Line 15 is the `for` in every probe below that does not declare `d` first.
     stepped := LoopSourceErrors(LoopChainProbe("    for d := start; d != null; d = d.BaseDef {\n        count = count + d.Name.Length\n    }\n"))

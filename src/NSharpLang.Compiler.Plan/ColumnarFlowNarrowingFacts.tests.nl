@@ -347,3 +347,35 @@ test "A `ref` OR `out` ARGUMENT WRITES ITS NAME AND AN `in` ARGUMENT DOES NOT" {
     assert NarrowingModifiedArgument("ref").Contains("value")
     assert NarrowingModifiedArgument("in").Count == 0
 }
+
+test "A NESTED ELSE BODY SCAN FINDS ref AND CLOSURE WRITES" {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    condition := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "c")
+
+    refStart := builder.AddToken("ref")
+    refTarget := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "n")
+    refArgument := builder.AddNode(ColumnarExpressionNodeKind.RefOutArgument, refStart, 3, 0, builder.Source.Length, ColumnarRangePlannerChildren1(refTarget))
+    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "Clear")
+    call := builder.AddNode(ColumnarExpressionNodeKind.CallExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(callee, refArgument))
+    callStatement := builder.AddNode(ColumnarStatementNodeKind.ExpressionStatement, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(call))
+
+    closureTarget := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "n")
+    equalsStart := builder.AddToken("=")
+    nullValue := builder.AddLeaf(ColumnarExpressionNodeKind.NullLiteralExpression, "null")
+    closureWrite := builder.AddNode(ColumnarExpressionNodeKind.AssignmentExpression, equalsStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren2(closureTarget, nullValue))
+    closureStatement := builder.AddNode(ColumnarStatementNodeKind.ExpressionStatement, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(closureWrite))
+    closureBody := builder.AddNode(ColumnarStatementNodeKind.BlockStatement, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(closureStatement))
+    closure := builder.AddNode(ColumnarExpressionNodeKind.Lambda, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(closureBody))
+    closureDeclaration := builder.AddNode(ColumnarStatementNodeKind.ExpressionStatement, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(closure))
+
+    innerElse := builder.AddNode(ColumnarStatementNodeKind.BlockStatement, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(callStatement, closureDeclaration))
+    emptyThen := builder.AddNode(ColumnarStatementNodeKind.BlockStatement, -1, 0, 0, builder.Source.Length, new int[](0))
+    conditional := builder.AddNode(ColumnarStatementNodeKind.IfStatement, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, emptyThen, innerElse))
+    tree := builder.Build(conditional)
+
+    assigned := new HashSet<string>()
+    ColumnarFlowNarrowingFacts.CollectAssignedNames(tree.Nodes, tree.Source, tree.Root, assigned)
+
+    assert assigned.Contains("n")
+    assert !assigned.Contains("c")
+}

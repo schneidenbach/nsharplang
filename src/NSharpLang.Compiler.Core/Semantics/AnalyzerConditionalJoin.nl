@@ -154,12 +154,28 @@ class AnalyzerConditionalJoin {
     }
 
     // Rebuild the only path that reaches the statement after a guard clause. Start with facts visible
-    // before the branches, apply the surviving side's condition facts, kill everything that side
-    // writes, then lay its recorded exit facts over the result. Writes in the branch that left are
+    // before the branches, kill condition writes from that snapshot, apply the surviving side's
+    // condition facts, kill writes in that side, then lay its recorded exit facts over the result.
+    // The condition has already been walked, so its branch facts and call postconditions remain
+    // authoritative; only an older entry proof is discarded. Writes on the branch that left are
     // deliberately absent from `writtenPaths`. Keep surviving TYPE narrowings too: they are not in
     // the null-state tables, but an `is` check can narrow an anonymous union on this side.
-    static func InheritedFactsPreservingEntry(entryFacts: Dictionary<string, NullState>, exitFacts: Dictionary<string, NullState>?, narrowings: List<FlowNarrowing>?, writtenPaths: List<string>): List<FlowNarrowing> {
+    static func InheritedFactsPreservingEntry(entryFacts: Dictionary<string, NullState>, exitFacts: Dictionary<string, NullState>?, narrowings: List<FlowNarrowing>?, writtenPaths: List<string>, conditionWrittenPaths: List<string>): List<FlowNarrowing> {
         facts := new Dictionary<string, NullState>(entryFacts, StringComparer.Ordinal)
+        for writtenPath in conditionWrittenPaths {
+            memberPrefix := writtenPath + "."
+            removals := new List<string>()
+            for entry in facts {
+                if entry.Key == writtenPath || entry.Key.StartsWith(memberPrefix, StringComparison.Ordinal) {
+                    removals.Add(entry.Key)
+                }
+            }
+
+            for removal in removals {
+                facts.Remove(removal)
+            }
+        }
+
         if narrowings != null {
             for narrowing in narrowings {
                 facts[narrowing.Path] = narrowing.NullState

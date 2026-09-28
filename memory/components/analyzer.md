@@ -742,7 +742,12 @@ the condition's entry snapshot, that side's condition facts, its own writes, and
 `AnalyzerConditionalJoin.SnapshotFacts` and `InheritedFactsPreservingEntry` prevent writes made only
 on a `break`/`continue`/return path from erasing facts on the path that reaches the next statement;
 the helper also retains surviving type narrowings from `is` checks, which are not stored in the
-null-state table.
+null-state table. Both survivor directions scan the actual surviving body (`ElseBody` when the then
+arm leaves), and the condition is scanned for assignments and `ref`/`out` writes before its syntax
+narrowings are applied. The analyzer's condition-branch facts and call postconditions remain
+authoritative after that entry-proof kill. This remains conservative for nested blocks, nested loops
+and closure bodies; the emitter's per-statement write scan and reachable-branch merge follow the same
+rule.
 
 ### The join after a conditional (census 2026-09-13, §FLOW7)
 

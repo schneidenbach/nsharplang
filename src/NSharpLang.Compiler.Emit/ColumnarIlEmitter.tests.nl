@@ -50,6 +50,16 @@ test "loop bodies read condition-proved Nullable values and keep continue branch
     assert EmitLoopBodyCall(forBody, null) == 0
 }
 
+test "a surviving if branch does not emit a nullable read after its write" {
+    source := "func Dec(n: int): int? {\n    return null\n}\n\nfunc BadElse(start: int?, c: bool): int {\n    n := start\n    while n != null {\n        if c {\n            return 0\n        } else {\n            n = Dec(n)\n        }\n        return n + 1\n    }\n    return 0\n}\n\nfunc BadThen(start: int?, c: bool): int {\n    n := start\n    while n != null {\n        if c {\n            n = Dec(n)\n        } else {\n            return 0\n        }\n        return n + 1\n    }\n    return 0\n}\n"
+    program := EmitFixtureProgram([""], [source], "LoopBodyNarrowingWriteRefusal")
+    bytes: byte[] = null
+
+    // These fixtures bypass analysis on purpose: the emitter must carry its own assignment kills,
+    // so it declines the nullable arithmetic instead of reading Nullable<T> storage as T.
+    assert !ColumnarIlEmitter.TryEmitColumnarAssembly("LoopBodyNarrowingWriteRefusal" + Guid.NewGuid().ToString("N"), "Program", program, false, out bytes, null, null)
+}
+
 test "constructor chain selection rebinds every differing exact base before emitting IL" {
     invalidBase := EmitFixtureStructDefinition("ConstructorChainSelectionInvalidExactBase", 0)
     invalidBase.DefaultCtor = invalidBase.Builder.DefineDefaultConstructor(MethodAttributes.Public)

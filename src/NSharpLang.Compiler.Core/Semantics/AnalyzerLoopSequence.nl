@@ -1942,7 +1942,7 @@ class AnalyzerLoopSequence {
         elseAlwaysLeaves := elseBody != null && AnalyzerStatementTermination.AlwaysLeaves(elseBody, terminatingCallsValue)
 
         if thenAlwaysLeaves && !elseAlwaysLeaves {
-            InstallInheritedIfFacts(state, state.ElseExitFacts, state.ElseNarrowings, null)
+            InstallInheritedIfFacts(state, state.ElseExitFacts, state.ElseNarrowings, state.ElseBody)
             return null
         }
 
@@ -1966,9 +1966,15 @@ class AnalyzerLoopSequence {
             return
         }
 
+        conditionWrittenPaths := new List<string>()
+        // The snapshot is taken after the condition was analysed. Include its writes because the
+        // extracted branch lists are syntax facts and may mention a path changed by an assignment
+        // or ref/out argument while the condition ran. Removing that path from the entry snapshot
+        // before installing the branch facts prevents it from reviving an older proof.
+        AnalyzerLoopCarriedNullFacts.CollectFromExpression(state.Condition, conditionWrittenPaths)
         writtenPaths := new List<string>()
         AnalyzerLoopCarriedNullFacts.CollectWrittenPaths(survivingBranch, null, writtenPaths)
-        inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entryFacts, exitFacts, narrowings, writtenPaths)
+        inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entryFacts, exitFacts, narrowings, writtenPaths, conditionWrittenPaths)
         if inherited.Count > 0 {
             narrowing.ApplyNarrowingsToScope(inherited)
         }
