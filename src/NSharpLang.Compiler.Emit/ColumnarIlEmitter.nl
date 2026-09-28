@@ -2799,6 +2799,19 @@ sealed class ColumnarIlEmitter {
         )) {
             return Decline("emit.call.generic-constraint", "generic call arguments did not satisfy the selected constraints", callIdx)
         }
+        _il.Emit(OpCodes.Call, CloseGenericSiblingMethod(target, boundArgs))
+        if !ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out columnarResolvedType) {
+            return Decline("emit.call.generic-return-substitution", "generic call return type could not be substituted", callIdx)
+        }
+        return true
+    }
+
+    // The handle a call site names for a generic sibling under a COMPLETE binding. The open
+    // `MethodBuilder` of a generic local function declared inside a generic display is first rebound
+    // onto that display's instantiation (the leading positions of the binding are the display's), and
+    // only the rebound handle is closed over the method's own positions; a top-level `func` has no
+    // declaring instantiation and is closed directly.
+    private func CloseGenericSiblingMethod(target: ColumnarSiblingMethodDefinition, boundArgs: Type[]): MethodInfo {
         genericMethodValue := target.Method
         let genericMethodBuilder: MethodBuilder? = null
         if (genericMethodValue != null) {
@@ -2827,19 +2840,22 @@ sealed class ColumnarIlEmitter {
         for methodArgumentIndex := 0; methodArgumentIndex < methodArgumentCount; methodArgumentIndex++ {
             methodArguments[methodArgumentIndex] = boundArgs[methodArgumentStart + methodArgumentIndex]
         }
-        instantiated := genericMethod.MakeGenericMethod(methodArguments)
-        _il.Emit(OpCodes.Call, instantiated)
-        if !ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out columnarResolvedType) {
-            return Decline("emit.call.generic-return-substitution", "generic call return type could not be substituted", callIdx)
-        }
-        return true
+        return genericMethod.MakeGenericMethod(methodArguments)
     }
 
     // One contextual argument of a generic sibling call, or a decline that leaves the ordinary
     // argument path to answer. Nothing here is specific to a member: the delegate's positions come
     // from the declared parameter type's own `Invoke`, and the inference is the shared one.
     private func TryEmitGenericSiblingDelegateArgument(callIdx: int, argPosition: int, target: ColumnarSiblingMethodDefinition, binding: Type[], declared: Type): bool {
-        argNode := UnwrapParenthesizedNode(Child(callIdx, argPosition))
+        let closedDelegateType: System.Type? = null
+        return TryBindGenericSiblingDelegateArgument(Child(callIdx, argPosition), target, binding, declared, out closedDelegateType) && EmitDeclaredCallArgument(Child(callIdx, argPosition), closedDelegateType, true)
+    }
+
+    // The same argument's delegate type, closed by what it binds, with nothing emitted — the half a
+    // caller that must select the whole call before emitting any of it asks on its own.
+    private func TryBindGenericSiblingDelegateArgument(writtenArgument: int, target: ColumnarSiblingMethodDefinition, binding: Type[], declared: Type, out closedDelegateType: Type): bool {
+        closedDelegateType = null
+        argNode := UnwrapParenthesizedNode(writtenArgument)
         let groupParameterTypes: System.Type[]? = null
         let groupReturnType: System.Type? = null
         isLambda := ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))
@@ -2888,14 +2904,15 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        let closedDelegateType: System.Type? = null
-        if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, declared, out closedDelegateType)) {
+        let closedDelegate: System.Type? = null
+        if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, declared, out closedDelegate)) {
             return false
         }
-        if (!IsSupportedContextualDelegateType(ColumnarContextualExtensionInference.DelegateTargetType(closedDelegateType))) {
+        if (!IsSupportedContextualDelegateType(ColumnarContextualExtensionInference.DelegateTargetType(closedDelegate))) {
             return false
         }
-        return EmitDeclaredCallArgument(Child(callIdx, argPosition), closedDelegateType, true)
+        closedDelegateType = closedDelegate
+        return true
     }
 
     private func ShouldUseExpandedParamsArrayCall(callIdx: int, paramTypes: Type[], paramModifierKinds: int[]): bool {
@@ -18182,6 +18199,20 @@ sealed class ColumnarIlEmitter {
         if (!legacyWholeSubtreePlanning) {
             return false
         }
+        // Keep the string overload only when preflight cannot tell us another type. An argument whose
+        // type is known belongs to ordinary overload selection below; this fallback covers a
+        // receiver-style generic call whose selected generic result is a string but whose result shape
+        // preflight still cannot carry through (the call-site binder owns that separate shape).
+        let consoleArgumentType: System.Type? = null
+        if (typeName == "Console" && (member == nameof(Console.Write) || member == nameof(Console.WriteLine)) && argCount == 1 && !(TryGetPreflightExpressionType(Child(callIdx, 1), out consoleArgumentType) && consoleArgumentType != null && !TypesEquivalent(consoleArgumentType, typeof(string)))) {
+            method := typeof(Console).GetMethod(member, [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
         if ((typeName == "JsonConvert" || typeName == "Newtonsoft.Json.JsonConvert") && member == "SerializeObject" && argCount == 1) {
             jsonConvert: System.Type? = null
             if (!ColumnarCompilerReferenceResolver.TryResolveReferencedType(
@@ -23864,8 +23895,13 @@ sealed class ColumnarIlEmitter {
         columnarResolvedType = null
         argCount := _nodes.ChildCount(callIdx) - 1
         let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-        if (!_siblings.TryGetValue(member, out target) || target.TypeParams.Length > 0 || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4) {
+        if (!_siblings.TryGetValue(member, out target) || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4) {
             return false
+        }
+        if (target.TypeParams.Length > 0) {
+            let genericBinding: System.Type[]? = null
+            let genericParamTypes: System.Type[]? = null
+            return TrySelectGenericExtensionSibling(callIdx, target, receiverType, argCount, out genericBinding, out genericParamTypes, out columnarResolvedType)
         }
 
         if (!CanUseExtensionReceiverConversion(receiverType, target.ParamTypes[0])) {
@@ -26864,8 +26900,11 @@ sealed class ColumnarIlEmitter {
     private func TryEmitExtensionSiblingCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-        if (!_siblings.TryGetValue(member, out target) || target.TypeParams.Length > 0 || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4) {
+        if (!_siblings.TryGetValue(member, out target) || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4) {
             return false
+        }
+        if (target.TypeParams.Length > 0) {
+            return TryEmitGenericExtensionSiblingCall(callIdx, target, receiverType, argCount, out columnarResolvedType)
         }
 
         if (!TryConvertAlreadyEmittedValue(receiverType, target.ParamTypes[0])) {
@@ -26878,6 +26917,116 @@ sealed class ColumnarIlEmitter {
         }
         _il.Emit(OpCodes.Call, target.Method)
         columnarResolvedType = target.ReturnType
+        return true
+    }
+
+    // A GENERIC FREE FUNCTION WITH A `this` PARAMETER, CALLED WITH RECEIVER SYNTAX. `5.Tag("ok")` over
+    // `func Tag<T>(this value: T, note: string)` is `Tag(5, "ok")` with its first argument written in
+    // front, so its type parameters are inferred the way the bare call's are, with the RECEIVER as
+    // argument zero. The receiver is matched first; each argument is then matched against the
+    // binding so far, a lambda or method group closing its delegate from the positions already bound.
+    //
+    // NOTHING IS EMITTED UNTIL THE WHOLE CALL IS SELECTED. The receiver's value is already on the
+    // stack when this tier is asked and the tiers below it still get their turn if it refuses, so the
+    // selection reads preflight types only. The preflight twin asks the same question for the result.
+    private func TrySelectGenericExtensionSibling(callIdx: int, target: ColumnarSiblingMethodDefinition, receiverType: Type, argCount: int, out binding: Type[], out closedParamTypes: Type[], out returnType: Type): bool {
+        binding = null
+        closedParamTypes = null
+        returnType = null
+        if (receiverType == null || receiverType == ColumnarTypeOfPlanner.RequiredVoidType() || _nodes.ChildCount(callIdx) - 1 != argCount || target.ParamTypes.Length != argCount + 1) {
+            return false
+        }
+        // The receiver is a VALUE on the stack; a `this` parameter taken by reference would need its
+        // address, which the value path above no longer has.
+        receiverParam := target.ParamTypes[0]
+        if (receiverParam.IsByRef) {
+            return false
+        }
+
+        let seeded: System.Type[]? = null
+        if (!TryCreateGenericLocalBinding(target, out seeded) || seeded == null) {
+            return false
+        }
+        if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(target.TypeParams, seeded, receiverParam, receiverType)) {
+            return false
+        }
+
+        for a := 1; a <= argCount; a++ {
+            argNode := Child(callIdx, a)
+            declared := target.ParamTypes[a]
+            let ignoredDelegateType: System.Type? = null
+            if (TryBindGenericSiblingDelegateArgument(argNode, target, seeded, declared, out ignoredDelegateType)) {
+                continue
+            }
+            if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(UnwrapParenthesizedNode(argNode))) || !CanGenericCallArgumentMatch(target.TypeParams, seeded, declared, argNode, true)) {
+                return false
+            }
+        }
+
+        for b := 0; b < seeded.Length; b++ {
+            if (seeded[b] == null) {
+                return false
+            }
+        }
+        if (!ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(
+            target.TypeParams,
+            target.SpecialConstraints,
+            target.BaseConstraints,
+            target.InterfaceConstraints,
+            seeded,
+            seeded,
+            _structRegistry
+        )) {
+            return false
+        }
+
+        closed := new Type[target.ParamTypes.Length]
+        for p := 0; p < closed.Length; p++ {
+            let closedParam: System.Type? = null
+            if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, seeded, target.ParamTypes[p], out closedParam) || closedParam == null) {
+                return false
+            }
+            closed[p] = closedParam
+        }
+        if (!CanUseExtensionReceiverConversion(receiverType, closed[0])) {
+            return false
+        }
+        for a := 1; a <= argCount; a++ {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a), closed[a], true)) {
+                return false
+            }
+        }
+        let closedReturn: System.Type? = null
+        if (!ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(target.TypeParams, seeded, target.ReturnType, out closedReturn) || closedReturn == null) {
+            return false
+        }
+
+        binding = seeded
+        closedParamTypes = closed
+        returnType = closedReturn
+        return true
+    }
+
+    private func TryEmitGenericExtensionSiblingCall(callIdx: int, target: ColumnarSiblingMethodDefinition, receiverType: Type, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let binding: System.Type[]? = null
+        let closedParamTypes: System.Type[]? = null
+        let returnType: System.Type? = null
+        if (!TrySelectGenericExtensionSibling(callIdx, target, receiverType, argCount, out binding, out closedParamTypes, out returnType)) {
+            return false
+        }
+
+        // Selected: from here a refusal leaves a half-emitted call, so it is a decline, not a yield.
+        if (!TryConvertAlreadyEmittedValue(receiverType, closedParamTypes[0])) {
+            return Decline("emit.call.generic-receiver", "receiver of '" + target.Method.Name + "' could not be converted to its `this` parameter", callIdx)
+        }
+        for a := 1; a <= argCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a), closedParamTypes[a], true)) {
+                return Decline("emit.call.generic-argument", "generic call argument " + a.ToString() + " could not be emitted", Child(callIdx, a))
+            }
+        }
+        _il.Emit(OpCodes.Call, CloseGenericSiblingMethod(target, binding))
+        columnarResolvedType = returnType
         return true
     }
 

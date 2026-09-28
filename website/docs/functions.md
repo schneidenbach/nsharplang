@@ -2366,6 +2366,30 @@ func WidestOf<T>(items: T): int where T: IEnumerable<string> {
 choosing between the two would be a guess; write the call on a concrete receiver, or take
 `IEnumerable<string>` directly, when you need one.
 
+### Generic receiver functions
+
+A top-level `func` can take a `this` parameter too, and a generic one is called with receiver
+syntax exactly like a generic extension. The receiver is the call's first argument, so the type
+arguments are inferred from it first, then from the arguments that follow:
+
+```n#
+import System
+
+func Tag<T>(this value: T, note: string): string => note + value.ToString()
+func Echo<T>(this value: T): T => value
+func Map<T, R>(this value: T, f: Func<T, R>): R => f(value)
+
+func main() {
+    Console.WriteLine(5.Tag("ok"))            // "ok5"      T is int
+    Console.WriteLine("abc".Echo().Length)    // 3          the result is a string
+    Console.WriteLine(5.Map(x => x * 2))      // 10         T from the receiver, R from the lambda
+}
+```
+
+A value-type receiver closes `T` on the value type itself, so the value is passed as-is, not boxed.
+Inside the function, `value` has every member `object` gives every type, plus the members of its
+constraints ([Generic Constraints](#generic-constraints)).
+
 ## Best Practices
 
 ### 1. Use Expression-Bodied Members for Simple Functions

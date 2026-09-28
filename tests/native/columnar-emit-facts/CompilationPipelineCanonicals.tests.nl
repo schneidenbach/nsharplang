@@ -259,9 +259,10 @@ func Tag<T>(this value: T, note: string): string {
     }
 }
 
-// The BODY of the same function now emits. The outer Console.WriteLine still declines because the
-// generic receiver-style call has no call-site binding yet; the next receiver-call slice removes this row.
-test "CompileToIlAssembly_ExactReceiverGenericCheckFixtureWaitsForReceiverCallBinding" {
+// The BODY of the same function emits through `constrained. !T`, and the CALL binds too: a generic
+// receiver-style function called with receiver syntax (`5.Tag("ok")`) is `Tag(5, "ok")` with the
+// receiver as argument zero, so `T` is inferred from the receiver and the method is closed on it.
+test "CompileToIlAssembly_ExactReceiverGenericCheckFixtureCompilesAndRunsTheReceiverStyleCall" {
     compilation := EmitterCanonicalCompile(
         "ReceiverGenericCheck",
         "name: ReceiverGenericCheck\noutputType: exe\ntargetFramework: net10.0",
@@ -279,19 +280,178 @@ func main() { Console.WriteLine(5.Tag("ok")) }
         false
     )
     try {
-        assert !compilation.Succeeded
-        assert compilation.Errors.Count == 1, EmitterCanonicalDiagnostics(compilation)
-        error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL103")
-        assert EmitterCanonicalErrorText(error, "Message").Contains(
-            "static call 'Console.WriteLine'",
-            StringComparison.Ordinal
-        )
-        assert !EmitterCanonicalErrorText(error, "Message").Contains("'T.ToString'", StringComparison.Ordinal)
-        assert !EmitterCanonicalErrorText(error, "Message").Contains("'Int32.Tag'", StringComparison.Ordinal)
-        assert EmitterCanonicalErrorText(error, "Message").Contains(
-            "Declined at emit.call.static-member-unmodeled:",
-            StringComparison.Ordinal
-        )
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        assert compilation.Errors.Count == 0, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "ok5" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+// VALUE-TYPE receivers close `T` on the value type itself — a literal, a local, a source struct with
+// its own `ToString` and one that inherits `object`'s — so the call passes the value, not a box. A
+// generic RESULT keeps its closed type (`5.Echo() + 1` is an `int` addition, and `point.Echo().Y`
+// reads a member of `Point` through the preflight that picks `WriteLine(int)`), a second `T`
+// argument is checked against the receiver's binding, and a receiver typed by the CALLER's own type
+// parameter closes the callee on that parameter.
+test "CompileToIlAssembly_ReceiverStyleGenericCallBindsTFromValueTypeReceivers" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverGenericValues",
+        "name: ReceiverGenericValues\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+struct Point {
+    X: int
+    Y: int
+
+    constructor(x: int, y: int) {
+        X = x
+        Y = y
+    }
+
+    override func ToString(): string => "(" + X.ToString() + ", " + Y.ToString() + ")"
+}
+
+struct Plain {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+}
+
+func Tag<T>(this value: T, note: string): string { return note + value.ToString() }
+func Echo<T>(this value: T): T { return value }
+func Pair<T>(this first: T, second: T): string { return first.ToString() + "," + second.ToString() }
+func Outer<U>(value: U): string { return value.Tag("outer:") }
+
+func main() {
+    count := 42
+    ratio := 2.5
+    flag := true
+    point := new Point(1, 2)
+    plain := new Plain(7)
+    Console.WriteLine(5.Tag("literal:"))
+    Console.WriteLine(count.Tag("int:"))
+    Console.WriteLine(ratio.Tag("double:"))
+    Console.WriteLine(flag.Tag("bool:"))
+    Console.WriteLine(point.Tag("point:"))
+    Console.WriteLine(plain.Tag("plain:"))
+    sum := 5.Echo() + 1
+    Console.WriteLine(sum)
+    Console.WriteLine(point.Echo().Y)
+    Console.WriteLine(count.Pair(8))
+    Console.WriteLine(Outer(9))
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        nl := Environment.NewLine
+        expected := "literal:5" + nl + "int:42" + nl + "double:2.5" + nl + "bool:True" + nl + "point:(1, 2)" + nl + "plain:W.Plain" + nl + "6" + nl + "2" + nl + "42,8" + nl + "outer:9" + nl
+        assert run.Stdout == expected, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+// REFERENCE-TYPE receivers close `T` on the reference type — `string`, and a source class whose
+// override the constrained call in the body reaches — and a generic result keeps the receiver's type
+// for the next link of the chain (`name.Echo().Length`, `named.Echo().Label()`).
+test "CompileToIlAssembly_ReceiverStyleGenericCallBindsTFromReferenceTypeReceivers" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverGenericRefs",
+        "name: ReceiverGenericRefs\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+class Named {
+    name: string
+
+    constructor(name: string) {
+        this.name = name
+    }
+
+    func Label(): string => "label " + name
+
+    override func ToString(): string => "Named(" + name + ")"
+}
+
+func Tag<T>(this value: T, note: string): string { return note + value.ToString() }
+func Echo<T>(this value: T): T { return value }
+
+func main() {
+    name := "abc"
+    named := new Named("n")
+    Console.WriteLine(name.Tag("string:"))
+    Console.WriteLine(named.Tag("class:"))
+    Console.WriteLine(name.Echo().Length)
+    Console.WriteLine(named.Echo().Label())
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        nl := Environment.NewLine
+        assert run.Stdout == "string:abc" + nl + "class:Named(n)" + nl + "3" + nl + "label n" + nl, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+// A LAMBDA ARGUMENT takes its input from the binding the receiver fixed, and its body closes the
+// rest: `5.Map(x => x * 2)` fixes `T` to `int` from the receiver and `R` to `int` from the lambda, and
+// `"abcd".Map(s => s.Length)` fixes `R` to `int` from a `string` input. A result typed by a type
+// parameter is known ahead of emission, so `Console.WriteLine` is chosen by it (`WriteLine(int)`).
+test "CompileToIlAssembly_ReceiverStyleGenericCallTypesLambdaArgumentsFromTheReceiver" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverGenericLambdas",
+        "name: ReceiverGenericLambdas\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+func Map<T, R>(this value: T, f: Func<T, R>): R { return f(value) }
+func Apply<T>(this value: T, f: Func<T, T>): T { return f(value) }
+
+func main() {
+    Console.WriteLine(5.Map(x => x * 2))
+    Console.WriteLine("abcd".Map(s => s.Length))
+    Console.WriteLine("hi".Apply(s => s + "!"))
+    Console.WriteLine(7.Apply(n => n + 1))
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        nl := Environment.NewLine
+        assert run.Stdout == "10" + nl + "4" + nl + "hi!" + nl + "8" + nl, run.Stdout
     } finally {
         EmitterCanonicalCleanup(compilation)
     }

@@ -5782,3 +5782,37 @@ over a MANAGED POINTER, Roslyn's shape, correct for a value-type and a reference
 `tests/native/census-type-parameter-receivers` runs each shape for value and reference arguments,
 pins the in-place versus copy semantics with a struct counter, and reads the IL bytes of the field and
 parameter shapes.
+
+## A generic receiver-style `func` binds at its receiver-syntax call site (2026-09-27)
+
+With the body emitting, `5.Tag("ok")` over `func Tag<T>(this value: T, note: string)` still declined
+as `emit.call.instance-member-unmodeled` ("instance call 'Int32.Tag'"): the sibling extension tier
+(`TryEmitExtensionSiblingCall` and its preflight twin `TryGetPreflightExtensionSiblingCallType`)
+refused any sibling with type parameters. The direct-call door plans BARE sibling calls only, so a
+receiver-syntax call to a sibling always reaches this legacy-side tier.
+
+Both now route a generic target through ONE non-emitting selector, `TrySelectGenericExtensionSibling`:
+the receiver is argument zero (unified exactly with the `this` parameter); each argument is
+matched against the binding so far (a lambda or method group through
+`TryBindGenericSiblingDelegateArgument`, split out of the emitting `TryEmitGenericSiblingDelegateArgument`);
+constraints are validated; every parameter and the result are substituted. Selection happens with the
+receiver ALREADY on the stack and lower tiers still to run, so nothing is emitted until it succeeds;
+after that a failure is a `Decline`, not a yield. The method is closed by `CloseGenericSiblingMethod`,
+the step `TryEmitGenericSiblingCall` now shares. `columnar-emit-facts/CompilationPipelineCanonicals`
+runs value-type, reference-type, lambda and caller-type-parameter receivers.
+
+The same fix found the legacy `Console.Write/WriteLine` arm of `TryEmitStaticCall` claiming EVERY
+one-argument call as `WriteLine(string)`: an argument the direct-call planner could not type (a
+receiver-style call returning `int`) was emitted as a string and refused silently. The arm now claims
+only an argument not preflighted as some other type; the rest reach ordinary overload resolution.
+
+OPEN: the ANALYZER admits a generic receiver-style function only for a bare `this value: T`
+(`AnalyzerExtensionMethodResolution.IsExtensionReceiverApplicable` special-cases a function type
+parameter and otherwise asks `IsAssignable` with `T` unresolved), so `this items: List<T>`,
+`IEnumerable<T>` or `T[]` reports NL303 on every receiver. The emitter selector unifies the receiver
+exactly; interface/base widening (C#'s extension-receiver inference) belongs with the analyzer fix.
+
+OPEN: the direct-call DOOR types no receiver-style sibling call, generic or not, and a numeric binary
+is typed only by the door (`ColumnarPrimitiveBinaryPlanner`), so `Console.WriteLine(name.Len() + 1)`
+declines while `n := name.Len() + 1` and `Console.WriteLine(name.Len())` emit. The door owning the
+shape (receiver as argument zero) is the fix; then the emitter's legacy extension-sibling tier retires.
