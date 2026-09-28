@@ -137,7 +137,10 @@ class YieldStatementState {
 //      replayed operations it runs, and that it runs as the for-iterator form of that family rather
 //      than as a bare expression statement are all this walk's decisions. What the driver adds is
 //      only the two things N# cannot do for itself — construct that family's state and run its
-//      loop — and it performs them with the expression it is handed and nothing else.
+//      loop — and it performs them with the expression it is handed and nothing else. When the
+//      request carries `Narrowings` — the facts the condition proved that the body cannot have
+//      undone — the driver runs the clause inside a scope of its own opened at `Line` / `Column`
+//      with those facts installed, and closes it after.
 //   8  analyse a BRANCH BLOCK'S STATEMENT LIST directly, in the scope this walk already opened, so
 //      the block does NOT open one of its own. That is what makes the branch's exit state readable:
 //      the facts a branch ends with live in a scope, and a join after the `if` can only read them if
@@ -157,6 +160,7 @@ class LoopStatementRequest {
     CarriedType: TypeInfo
     Line: int
     Column: int
+    Narrowings: List<FlowNarrowing>?
 
     constructor(kind: int, carriedType: TypeInfo) {
         Kind = kind
@@ -164,6 +168,7 @@ class LoopStatementRequest {
         Body = null
         Statements = null
         Name = null
+        Narrowings = null
         CarriedType = carriedType
         Line = 0
         Column = 0
@@ -1414,19 +1419,19 @@ class AnalyzerLoopSequence {
         }
 
         if phase == 24 {
-            return AdvanceForIterator(state)
-        }
-
-        if phase == 25 {
             return AdvanceForBody(state)
         }
 
-        if phase == 26 {
+        if phase == 25 {
             return AdvanceForNarrowedBody(state)
         }
 
-        if phase == 27 {
+        if phase == 26 {
             return AdvanceForNarrowedClose(state)
+        }
+
+        if phase == 27 {
+            return AdvanceForIterator(state)
         }
 
         if phase == 28 {
@@ -1484,7 +1489,7 @@ class AnalyzerLoopSequence {
     }
 
     // PHASE 23 — the boolean gate. Unlike `while`, the narrowings are NOT extracted here: the `for`
-    // arm extracted them after the loop opened, which is phase 25, and the order is preserved.
+    // arm extracted them after the loop opened, which is phase 24, and the order is preserved.
     func AdvanceForGate(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 24
         condition := state.Condition
@@ -1496,24 +1501,7 @@ class AnalyzerLoopSequence {
         return null
     }
 
-    // PHASE 24 — the update clause, run through the statement-level expression family as a `for`
-    // ITERATOR rather than as a bare expression statement, which is what selects that family's
-    // for-iterator wordings. It runs BEFORE the body and OUTSIDE the loop, which is what
-    // `Analyzer.cs` did: the update expression is analysed once, in declaration order, and a `break`
-    // written in it is illegal.
-    func AdvanceForIterator(state: LoopStatementState): LoopStatementRequest? {
-        state.Phase = 25
-        iterator := state.Iterator
-        if iterator == null {
-            return null
-        }
-
-        request := new LoopStatementRequest(7, BuiltInTypes.Unknown)
-        request.Node = iterator
-        return request
-    }
-
-    // PHASE 25 — the loop opens, THEN the condition's facts are extracted, THEN the body runs. A
+    // PHASE 24 — the loop opens, THEN the condition's facts are extracted, THEN the body runs. A
     // `for` with no condition proves nothing and takes the plain body path.
     func AdvanceForBody(state: LoopStatementState): LoopStatementRequest? {
         state.LoopFrame = ambientValue.EnterLoop()
@@ -1526,33 +1514,97 @@ class AnalyzerLoopSequence {
         }
 
         if NarrowingCount(state) > 0 {
-            state.Phase = 26
+            state.Phase = 25
             request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
             request.Line = state.Body.Line
             request.Column = state.Body.Column
             return request
         }
 
-        state.Phase = 28
-        return NewBodyRequest(state)
-    }
-
-    // PHASE 26 — the proved facts, installed in the scope phase 25 opened.
-    func AdvanceForNarrowedBody(state: LoopStatementState): LoopStatementRequest? {
-        ApplyBodyNarrowings(state)
         state.Phase = 27
         return NewBodyRequest(state)
     }
 
-    // PHASE 27 — the narrowing scope closes.
+    // PHASE 25 — the proved facts, installed in the scope phase 24 opened.
+    func AdvanceForNarrowedBody(state: LoopStatementState): LoopStatementRequest? {
+        ApplyBodyNarrowings(state)
+        state.Phase = 26
+        return NewBodyRequest(state)
+    }
+
+    // PHASE 26 — the narrowing scope closes.
     func AdvanceForNarrowedClose(state: LoopStatementState): LoopStatementRequest? {
-        state.Phase = 28
+        state.Phase = 27
         return new LoopStatementRequest(6, BuiltInTypes.Unknown)
     }
 
-    // PHASE 28 — the loop closes, and the OUTER scope closes after it. That is the order
-    // `Analyzer.cs` used, and it matters: the ambient loop depth is restored before the scope stack
-    // is popped.
+    // PHASE 27 — THE UPDATE CLAUSE, WHERE IT RUNS: AFTER THE BODY, AND ONLY EVER WITH THE CONDITION
+    // TRUE. It is reached by falling out of the body or by a `continue`, and on both paths the
+    // condition held when the body was entered — so what the condition proved still holds at the
+    // update for every path the body cannot write. `for d := first; d != null; d = d.Next` reads
+    // `d.Next` under `d != null`, exactly as `while d != null { …; d = d.Next }` reads it at the end
+    // of its body. A path the body CAN write is left out whatever the body ends with, for the reason
+    // the back edge takes it away (`AnalyzerLoopCarriedNullFacts`): the analyzer walks the body
+    // once, and a `continue` taken before the write reaches the update with the body's END state
+    // never having been true.
+    //
+    // It runs through the statement-level expression family as a `for` ITERATOR rather than as a
+    // bare expression statement, which is what selects that family's for-iterator wordings, and it
+    // runs with the loop CLOSED, so a `break` written in it is illegal. The facts live in a scope of
+    // the update's own that the driver opens and closes around it — nothing it proves or writes
+    // outlives it, just as nothing the body proved outlives the body.
+    func AdvanceForIterator(state: LoopStatementState): LoopStatementRequest? {
+        ExitLoopFrame(state)
+        state.Phase = 28
+        iterator := state.Iterator
+        if iterator == null {
+            return null
+        }
+
+        request := new LoopStatementRequest(7, BuiltInTypes.Unknown)
+        request.Node = iterator
+        request.Narrowings = SurvivingBodyNarrowings(state)
+        request.Line = iterator.Line
+        request.Column = iterator.Column
+        return request
+    }
+
+    // WHAT THE CONDITION PROVED, MINUS EVERYTHING THE BODY CAN WRITE: a fact about `d` is dropped by a
+    // write to `d` and by nothing below it, while a fact about `d.Next` is dropped by a write to `d`
+    // or to `d.Next`. Null when nothing survives, so the update runs with no scope of its own.
+    func SurvivingBodyNarrowings(state: LoopStatementState): List<FlowNarrowing>? {
+        narrowings := state.BodyNarrowings
+        if narrowings == null || narrowings.Count == 0 {
+            return null
+        }
+
+        writtenPaths := new List<string>()
+        AnalyzerLoopCarriedNullFacts.CollectWrittenPaths(state.Body, null, writtenPaths)
+        surviving := new List<FlowNarrowing>()
+        for narrowing in narrowings {
+            path := narrowing.Path
+            written := false
+            for writtenPath in writtenPaths {
+                if path == writtenPath || path.StartsWith(writtenPath + ".", StringComparison.Ordinal) {
+                    written = true
+                    break
+                }
+            }
+
+            if !written {
+                surviving.Add(narrowing)
+            }
+        }
+
+        if surviving.Count == 0 {
+            return null
+        }
+
+        return surviving
+    }
+
+    // PHASE 28 — the OUTER scope closes. The loop frame closed at phase 27, before the update ran, so
+    // the ambient loop depth is restored before the scope stack is popped, as it always was.
     func AdvanceForClose(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 29
         ExitLoopFrame(state)

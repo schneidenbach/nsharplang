@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // Native contracts for WHAT ITERATING A VALUE PRODUCES.
@@ -1263,9 +1264,9 @@ test "A for WITH ALL THREE CLAUSES ASKS FOR EIGHT STEPS IN ONE FIXED ORDER" {
 
     steps := LoopRun(harness, state, BuiltInTypes.Bool)
 
-    // Outer scope, initializer, condition, iterator, narrowing scope, body, narrowing close,
-    // outer close.
-    assert LoopStepKinds(steps) == "2,5,1,7,2,5,6,6"
+    // Outer scope, initializer, condition, narrowing scope, body, narrowing close, iterator,
+    // outer close — the update clause runs where the loop runs it, after the body.
+    assert LoopStepKinds(steps) == "2,5,1,2,5,6,7,6"
     assert harness.Errors.Count == 0
 }
 
@@ -1281,8 +1282,8 @@ test "A for's OUTER SCOPE OPENS AT THE KEYWORD AND CLOSES LAST" {
     assert steps[0].Line == 6
     assert steps[0].Column == 5
     // The narrowing scope opens at the BODY.
-    assert steps[4].Line == 7
-    assert steps[4].Column == 9
+    assert steps[3].Line == 7
+    assert steps[3].Column == 9
     // Nothing runs after the outer close.
     assert steps[7].Kind == 6
     assert !steps[7].InLoop
@@ -1297,11 +1298,13 @@ test "A for's INITIALIZER AND ITERATOR RUN OUTSIDE THE LOOP, THE BODY INSIDE IT"
     assert !steps[0].InLoop
     assert !steps[1].InLoop
     assert !steps[2].InLoop
-    // The ITERATOR is analysed once, before the body, and outside the loop.
-    assert !steps[3].InLoop
+    assert steps[3].InLoop
     assert steps[4].InLoop
     assert steps[5].InLoop
-    assert steps[6].InLoop
+    // The ITERATOR is analysed once, after the body, and outside the loop: a `break` in it is as
+    // illegal as one in the initializer.
+    assert steps[6].Kind == 7
+    assert !steps[6].InLoop
     // The loop closes BEFORE the outer scope does.
     assert !steps[7].InLoop
 }
@@ -1313,22 +1316,22 @@ test "A for's ITERATOR IS A NESTED WALK, CARRIED AS A NODE AND NOT AS A BODY" {
 
     steps := LoopRun(harness, state, BuiltInTypes.Bool)
 
-    assert LoopStepKinds(steps) == "2,7,5,6"
-    assert Object.ReferenceEquals(steps[1].Node, iterator)
-    assert steps[1].Body == null
+    assert LoopStepKinds(steps) == "2,5,7,6"
+    assert Object.ReferenceEquals(steps[2].Node, iterator)
+    assert steps[2].Body == null
 }
 
 test "EVERY for CLAUSE IS OPTIONAL, AND EACH ABSENCE REMOVES EXACTLY ITS OWN STEPS" {
     // No initializer: the initializer step is gone and nothing else moves.
     noInit := LoopDefault()
     noInitState := noInit.Sequence.BeginFor(LoopForOver(null, LoopProvingCondition(), LoopIterator(), LoopForeachBody()), noInit.Narrowing)
-    assert LoopStepKinds(LoopRun(noInit, noInitState, BuiltInTypes.Bool)) == "2,1,7,2,5,6,6"
+    assert LoopStepKinds(LoopRun(noInit, noInitState, BuiltInTypes.Bool)) == "2,1,2,5,6,7,6"
 
     // No condition: the condition step, the boolean gate AND the narrowing scope all go, because a
     // `for` with no condition proves nothing.
     noCond := LoopDefault()
     noCondState := noCond.Sequence.BeginFor(LoopForOver(LoopInitializer(), null, LoopIterator(), LoopForeachBody()), noCond.Narrowing)
-    assert LoopStepKinds(LoopRun(noCond, noCondState, BuiltInTypes.Bool)) == "2,5,7,5,6"
+    assert LoopStepKinds(LoopRun(noCond, noCondState, BuiltInTypes.Bool)) == "2,5,5,7,6"
     assert noCond.Errors.Count == 0
 
     // No iterator: the nested walk goes.
@@ -1813,6 +1816,157 @@ test "A for EXIT CARRIES THE SAME FACT A while EXIT DOES, AND CARRIES IT OUTSIDE
     // The fact is installed AFTER the `for`'s outer scope closed — the scope that would have held a
     // variable the initializer declared is not the scope the surviving flow reads from.
     assert LoopLastFact(trace) == "not-null"
+}
+
+// ── WHAT A `for`'s UPDATE CLAUSE KNOWS ──────────────────────────────────────────────────────
+//
+// The update runs after the body and only ever with the condition true, so it reads under what the
+// condition proved — minus every path the body can write, because a `continue` taken before the
+// write reaches the update with the body's end state never having held.
+
+func LoopNotNullCondition(path: Expression): Expression {
+    guard: Expression = new BinaryExpression(path, BinaryOperator.NotEqual, new NullLiteralExpression(6, 18), 6, 13)
+    return guard
+}
+
+func LoopWritingBody(target: Expression): Statement {
+    statements := new List<Statement>()
+    write: Expression = new AssignmentExpression(target, AssignmentOperator.Assign, new NullLiteralExpression(8, 17), 8, 13)
+    statements.Add(new ExpressionStatement(write, 8, 13))
+    body: Statement = new BlockStatement(statements, 7, 9)
+    return body
+}
+
+// The update step's request, and the paths it carries, as `path:state` joined by commas — `none`
+// when the request carries no facts at all.
+func LoopIteratorFacts(harness: LoopHarness, statement: ForStatement): string {
+    state := harness.Sequence.BeginFor(statement, harness.Narrowing)
+    step := harness.Sequence.NextLoopStep(state)
+    while step != null {
+        if step.Kind == 7 {
+            narrowings := step.Narrowings
+            if narrowings == null {
+                return "none"
+            }
+
+            rendered := new List<string>()
+            for narrowing in narrowings {
+                rendered.Add(narrowing.Path + ":" + NullStateFacts.GetDiagnosticText(narrowing.NullState))
+            }
+            return string.Join(",", rendered)
+        }
+
+        harness.Sequence.SupplyLoop(state, BuiltInTypes.Bool)
+        step = harness.Sequence.NextLoopStep(state)
+    }
+
+    return "no update step"
+}
+
+test "A for's UPDATE CLAUSE READS UNDER WHAT THE CONDITION PROVED" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    x := new IdentifierExpression("x", 6, 13)
+    statement := new ForStatement(null, LoopNotNullCondition(x), LoopIterator(), LoopForeachBody(), 6, 5)
+
+    assert LoopIteratorFacts(harness, statement) == "x:not-null"
+}
+
+test "A PATH THE BODY WRITES IS NOT PROVED AT THE UPDATE, WHATEVER THE BODY ENDS WITH" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    x := new IdentifierExpression("x", 6, 13)
+    body := LoopWritingBody(new IdentifierExpression("x", 8, 13))
+    statement := new ForStatement(null, LoopNotNullCondition(x), LoopIterator(), body, 6, 5)
+
+    assert LoopIteratorFacts(harness, statement) == "none"
+}
+
+test "A WRITE BELOW A PROVED PATH LEAVES THE PATH PROVED, AND A WRITE ABOVE IT TAKES IT AWAY" {
+    below := LoopDefault()
+    LoopDeclareNullable(below)
+    belowBody := LoopWritingBody(new MemberAccessExpression(new IdentifierExpression("x", 8, 13), "Next", false, 8, 13))
+    belowStatement := new ForStatement(null, LoopNotNullCondition(new IdentifierExpression("x", 6, 13)), LoopIterator(), belowBody, 6, 5)
+    // `x.Next = null` in the body leaves `x` itself exactly as the condition proved it.
+    assert LoopIteratorFacts(below, belowStatement) == "x:not-null"
+
+    // The member path IS proved when nothing writes it, so the refusal below is the write's doing.
+    unwritten := LoopDefault()
+    LoopDeclareNullable(unwritten)
+    unwrittenCondition := LoopNotNullCondition(new MemberAccessExpression(new IdentifierExpression("x", 6, 13), "Next", false, 6, 13))
+    unwrittenStatement := new ForStatement(null, unwrittenCondition, LoopIterator(), LoopForeachBody(), 6, 5)
+    assert LoopIteratorFacts(unwritten, unwrittenStatement) == "x.Next:not-null"
+
+    above := LoopDefault()
+    LoopDeclareNullable(above)
+    aboveBody := LoopWritingBody(new IdentifierExpression("x", 8, 13))
+    aboveCondition := LoopNotNullCondition(new MemberAccessExpression(new IdentifierExpression("x", 6, 13), "Next", false, 6, 13))
+    aboveStatement := new ForStatement(null, aboveCondition, LoopIterator(), aboveBody, 6, 5)
+    // `x = …` in the body takes away a fact about `x.Next`: the path it named is gone.
+    assert LoopIteratorFacts(above, aboveStatement) == "none"
+}
+
+test "A for WITH NO CONDITION RUNS ITS UPDATE WITH NO FACTS OF ITS OWN" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    statement := new ForStatement(null, null, LoopIterator(), LoopForeachBody(), 6, 5)
+
+    assert LoopIteratorFacts(harness, statement) == "none"
+}
+
+// THE SAME RULE THROUGH THE REAL FRONT DOOR, over the loops that motivated it: a base-chain walk that
+// steps with `d = d.BaseDef` under `d != null`, and its neighbours.
+func LoopSourceErrors(source: string): List<string> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-for-update-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    messages := new List<string>()
+    analyzer := new Analyzer()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                messages.Add(error.DiagnosticId + " " + error.Line.ToString() + " " + error.Message)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return messages
+}
+
+func LoopChainProbe(body: string): string {
+    return "namespace P\n\nclass Def {\n    Name: string\n    BaseDef: Def?\n\n    constructor(name: string, baseDef: Def?) {\n        Name = name\n        BaseDef = baseDef\n    }\n}\n\nfunc Walk(start: Def?, limit: int): int {\n    count := 0\n" + body + "    return count\n}\n"
+}
+
+test "A for's UPDATE READS THE PATH ITS CONDITION PROVED, AND ONLY WHILE THE BODY LEAVES IT ALONE" {
+    // Line 15 is the `for` in every probe below that does not declare `d` first.
+    stepped := LoopSourceErrors(LoopChainProbe("    for d := start; d != null; d = d.BaseDef {\n        count = count + d.Name.Length\n    }\n"))
+    assert stepped.Count == 0, string.Join("\n", stepped)
+
+    // A conjunction proves its null test too, and a counter beside it reads the narrowed name.
+    conjoined := LoopSourceErrors(LoopChainProbe("    d := start\n    for i := 0; d != null && i < limit; i = i + d.Name.Length {\n        count = count + 1\n    }\n"))
+    assert conjoined.Count == 0, string.Join("\n", conjoined)
+
+    // The body WRITES `d`, so the update may meet the null the body left behind: NL905 at the update.
+    rewritten := LoopSourceErrors(LoopChainProbe("    for d := start; d != null; d = d.BaseDef {\n        count = count + 1\n        d = null\n    }\n"))
+    assert rewritten.Count == 1, string.Join("\n", rewritten)
+    assert rewritten[0] == "NL905 15 Possible null dereference: `d` is maybe-null", rewritten[0]
+
+    // A `continue` taken before a write is the path the rule exists for: the write is still the body's.
+    continued := LoopSourceErrors(LoopChainProbe("    for d := start; d != null; d = d.BaseDef {\n        if count > limit {\n            continue\n        }\n        d = new Def(\"x\", null)\n        count = count + 1\n    }\n"))
+    assert continued.Count == 1, string.Join("\n", continued)
+
+    // A condition that proves nothing narrows nothing.
+    unproved := LoopSourceErrors(LoopChainProbe("    for d := start; count < limit; d = d.BaseDef {\n        count = count + 1\n    }\n"))
+    assert unproved.Count == 1, string.Join("\n", unproved)
+    assert unproved[0] == "NL905 15 Possible null dereference: `d` is maybe-null", unproved[0]
 }
 
 test "A NON-BOOLEAN if CONDITION EARNS THE RICH REPORT, NOT THE while's PLAIN WORDING" {

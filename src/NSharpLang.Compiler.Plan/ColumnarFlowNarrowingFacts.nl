@@ -189,15 +189,35 @@ class ColumnarFlowNarrowingFacts {
     // narrowing survive a loop that does not touch the name, which is the common case.
     //
     // THE WRITE SHAPES ARE THE ONES THE EMITTER ITSELF LOWERS: an assignment expression (14) and a
-    // postfix/prefix step (44/11) whose target is a bare name, plus the two declaration statements
-    // (24, 40) and a `for x in xs` loop variable (29/76/73), each of which BINDS the name anew.
+    // postfix/prefix step (44/11) whose target is a bare name, a `ref`/`out` argument (54) naming one,
+    // plus the two declaration statements (24, 40), a deconstruction's names (30) and a `for x in xs`
+    // loop variable (29/76/73), each of which BINDS the name anew. The `ref`/`out` argument and the
+    // deconstruction are the analyzer's writes too (`AnalyzerLoopCarriedNullFacts`), and a write this
+    // reader missed would leave a name narrowed that the analyzer had already stopped narrowing.
     static func CollectAssignedNames(nodes: ColumnarNodeTable, source: string, node: int, into: HashSet<string>) {
         if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length || into == null {
             return
         }
 
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.AssignmentExpression || kind == ColumnarExpressionNodeKind.PostfixUnary {
+        if kind == ColumnarExpressionNodeKind.RefOutArgument && nodes.ChildCount(node) == 1 {
+            modifier := ColumnarNodeTextFacts.Text(nodes, source, node)
+            if modifier == "ref" || modifier == "out" {
+                target := SimpleName(nodes, source, nodes.Child(node, 0))
+                if target != null {
+                    into.Add(target)
+                }
+            }
+        } else if kind == ColumnarStatementNodeKind.TupleDeconstructionStatement {
+            nameIndex := 0
+            while nameIndex < nodes.ChildCount(node) - 1 {
+                name := ColumnarNodeTextFacts.Text(nodes, source, nodes.Child(node, nameIndex))
+                if name.Length > 0 && name != "_" {
+                    into.Add(name)
+                }
+                nameIndex = nameIndex + 1
+            }
+        } else if kind == ColumnarExpressionNodeKind.AssignmentExpression || kind == ColumnarExpressionNodeKind.PostfixUnary {
             if nodes.ChildCount(node) >= 1 {
                 target := SimpleName(nodes, source, nodes.Child(node, 0))
                 if target != null {

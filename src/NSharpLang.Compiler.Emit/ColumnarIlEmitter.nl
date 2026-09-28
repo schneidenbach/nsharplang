@@ -22,15 +22,13 @@ type ColumnarTypeParameterDictionary = Dictionary<string, Type>
 /// the columnar statement/expression tables with no object AST. Grown from the original stage-4 spike into the
 /// production columnar backend; unsupported shapes return false (a precise decline — never a silent fallback).
 /// </summary>
-// COMPILER: two analyzer gaps shape how this file spells what it reads from Compiler.Core, an assembly
+// COMPILER: an analyzer gap shapes how this file spells what it reads from Compiler.Core, an assembly
 // it references since the Emit carve:
 // - an `out` argument to a REFERENCED assembly's N# method is checked as if it flowed IN, so a maybe-null
 //   local passed to `out value: T` is refused (NL202) although the callee writes a `T` into it. A local
 //   that receives such an argument is declared with the parameter's own type (`let owner: T = null`);
 //   one that receives a `T?` out parameter stays `T?` and is unwrapped with `must` where the call's
 //   `true` answer already guarantees it.
-// - a `for` step is not narrowed by the loop's condition (`d = d.BaseDef` under `d != null` is NL905),
-//   so the base-chain walks step with `d?.BaseDef`.
 sealed class ColumnarIlEmitter {
 
     // THE EMIT SESSION'S AMBIENT ENVIRONMENT. Everything below that is not about THIS body is read
@@ -1427,7 +1425,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private static func TryFindPropertyOnChain(def: ColumnarStructDef, name: string, out owner: ColumnarStructDef, out property: ColumnarPropertyDef): bool {
-        for d := def as ColumnarStructDef?; d != null; d = d?.BaseDef {
+        for d := def as ColumnarStructDef?; d != null; d = d.BaseDef {
             let found: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
             if (d.Properties.TryGetValue(name, out found)) {
                 owner = d
@@ -4172,7 +4170,7 @@ sealed class ColumnarIlEmitter {
     // refused rather than guessed.
     private func TrySelectStaticMethodOnChain(def: ColumnarStructDef, name: string, callIdx: int, argCount: int, out method: ColumnarStaticMethodDef): bool {
         method = null
-        for d := def as ColumnarStructDef?; d != null; d = d?.BaseDef {
+        for d := def as ColumnarStructDef?; d != null; d = d.BaseDef {
             let hadArityMatch: bool = false
             if (TrySelectStaticMethodOnDef(d, name, callIdx, argCount, out method, out hadArityMatch)) {
                 return true
@@ -4235,7 +4233,7 @@ sealed class ColumnarIlEmitter {
     // reachability readers; a CALL asks `TrySelectStaticMethodOnChain` above, which chooses among same-arity
     // overloads by their arguments.
     private static func TryFindStaticMethodOnChain(def: ColumnarStructDef, name: string, argCount: int, out method: ColumnarStaticMethodDef): bool {
-        for d := def as ColumnarStructDef?; d != null; d = d?.BaseDef {
+        for d := def as ColumnarStructDef?; d != null; d = d.BaseDef {
             let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
             if (!d.StaticMethods.TryGetValue(name, out overloads)) {
                 continue
@@ -4257,7 +4255,7 @@ sealed class ColumnarIlEmitter {
     // `Pair<int>(1, "a")` fails to bind rather than binding and then failing to close.
     private static func TrySelectGenericInstanceMethodOnChain(def: ColumnarStructDef, name: string, argCount: int, typeArgCount: int, out method: ColumnarInstanceMethodDef): bool {
         method = null
-        for d := def as ColumnarStructDef?; d != null; d = d?.BaseDef {
+        for d := def as ColumnarStructDef?; d != null; d = d.BaseDef {
             let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef>? = null
             if (!d.MethodOverloads.TryGetValue(name, out overloads)) {
                 continue
@@ -4286,7 +4284,7 @@ sealed class ColumnarIlEmitter {
 
     private static func TryFindGenericStaticMethodOnChain(def: ColumnarStructDef, name: string, argCount: int, typeArgCount: int, out method: ColumnarStaticMethodDef): bool {
         method = null
-        for d := def as ColumnarStructDef?; d != null; d = d?.BaseDef {
+        for d := def as ColumnarStructDef?; d != null; d = d.BaseDef {
             let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
             if (!d.StaticMethods.TryGetValue(name, out overloads)) {
                 continue
@@ -4314,7 +4312,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func TryFindStaticExpandedParamsMethodOnChain(def: ColumnarStructDef, name: string, callIdx: int, out method: ColumnarStaticMethodDef): bool {
-        for d := def as ColumnarStructDef?; d != null; d = d?.BaseDef {
+        for d := def as ColumnarStructDef?; d != null; d = d.BaseDef {
             let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
             if (!d.StaticMethods.TryGetValue(name, out overloads)) {
                 continue
@@ -4480,7 +4478,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private static func TryFindUserDefinedConversionOnType(def: ColumnarStructDef, source: Type, target: Type, methodName: string, out method: ColumnarStaticMethodDef): bool {
-        for d := def as ColumnarStructDef?; d != null; d = d?.BaseDef {
+        for d := def as ColumnarStructDef?; d != null; d = d.BaseDef {
             let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
             if (!d.StaticMethods.TryGetValue(methodName, out overloads)) {
                 continue
@@ -5296,7 +5294,7 @@ sealed class ColumnarIlEmitter {
         structDepths := new int[structs.Count]
         for s := 0; s < structs.Count; s++ {
             depth := 0
-            for d := structDefsInOrder[s].BaseDef; d != null; d = d?.BaseDef {
+            for d := structDefsInOrder[s].BaseDef; d != null; d = d.BaseDef {
                 depth++
                 if (depth > structs.Count) {
                     return false
@@ -6006,7 +6004,7 @@ sealed class ColumnarIlEmitter {
             if (def.BaseDef == null) {
                 continue
             }
-            for chain := def.BaseDef as ColumnarStructDef?; chain != null; chain = chain?.BaseDef {
+            for chain := def.BaseDef as ColumnarStructDef?; chain != null; chain = chain.BaseDef {
                 fieldNamesForShadowing := def.Fields.Keys
                 fieldNamesEnumerator := fieldNamesForShadowing.GetEnumerator()
                 try {
@@ -10602,8 +10600,14 @@ sealed class ColumnarIlEmitter {
             }
 
             _il.MarkLabel(contLabel)
-            // `continue` lands here -> run the increment, then re-test.
-            if (!EmitStatement(incr)) {
+            // `continue` lands here -> run the increment, then re-test. The increment runs only with
+            // the condition TRUE, so it reads what the condition proved about every name the body
+            // cannot write — the analyzer's rule for the update clause (`AnalyzerLoopSequence`), and
+            // what lets `n = Next(n)` under `n != null` read a `Nullable<T>` as its `T`.
+            stepNarrowed := PushNarrowedNames(ForStepNarrowedNames(cond, body))
+            stepEmitted := EmitStatement(incr)
+            PopNarrowedNames(stepNarrowed)
+            if (!stepEmitted) {
                 return false
             }
             _il.Emit(OpCodes.Br, checkLabel)
@@ -12728,6 +12732,25 @@ sealed class ColumnarIlEmitter {
             externalFacts[externalPosition] = ReachabilityFlowAttributeReflection.FromParameter(externalParameters[externalPosition])
         }
         return externalFacts
+    }
+
+    // WHAT A `for`'s UPDATE CLAUSE MAY READ AS PROVED: the names its condition proves when TRUE, minus
+    // every name the body writes — a `continue` taken before the write reaches the update with the
+    // write still ahead of it, so the body's end state is not the update's.
+    private func ForStepNarrowedNames(cond: int, body: int): List<string> {
+        proved := ColumnarFlowNarrowingFacts.Extract(_nodes, _source, cond).Then
+        if (proved.Count == 0) {
+            return proved
+        }
+        written := new HashSet<string>(StringComparer.Ordinal)
+        ColumnarFlowNarrowingFacts.CollectAssignedNames(_nodes, _source, body, written)
+        surviving := new List<string>()
+        for name in proved {
+            if (!written.Contains(name)) {
+                surviving.Add(name)
+            }
+        }
+        return surviving
     }
 
     private func DropNarrowingsAssignedIn(node: int): void {
@@ -26877,7 +26900,7 @@ sealed class ColumnarIlEmitter {
 
     private func TrySelectInstanceMethodOnChain(def: ColumnarStructDef, name: string, callIdx: int, out method: ColumnarInstanceMethodDef): bool {
         argCount := _nodes.ChildCount(callIdx) - 1
-        for d := def as ColumnarStructDef?; d != null; d = d?.BaseDef {
+        for d := def as ColumnarStructDef?; d != null; d = d.BaseDef {
             let hadArityMatch: bool = false
             if (TrySelectInstanceMethodOnDef(d, name, callIdx, argCount, out method, out hadArityMatch)) {
                 return true

@@ -195,3 +195,23 @@ test "A `:=` DECLARATION BINDS ITS NAME AND SO ENDS ANY NARROWING OF IT" {
 
     assert assigned.Contains("value")
 }
+
+// A `ref` or `out` ARGUMENT WRITES THE NAME IT PASSES, as the analyzer's loop kill set says; an `in`
+// argument only reads it.
+func NarrowingModifiedArgument(modifier: string): HashSet<string> {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    keywordStart := builder.AddToken(modifier)
+    target := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "value")
+    argument := builder.AddNode(ColumnarExpressionNodeKind.RefOutArgument, keywordStart, modifier.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(target))
+    tree := builder.Build(argument)
+
+    assigned := new HashSet<string>()
+    ColumnarFlowNarrowingFacts.CollectAssignedNames(tree.Nodes, tree.Source, tree.Root, assigned)
+    return assigned
+}
+
+test "A `ref` OR `out` ARGUMENT WRITES ITS NAME AND AN `in` ARGUMENT DOES NOT" {
+    assert NarrowingModifiedArgument("out").Contains("value")
+    assert NarrowingModifiedArgument("ref").Contains("value")
+    assert NarrowingModifiedArgument("in").Count == 0
+}

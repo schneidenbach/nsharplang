@@ -1582,7 +1582,15 @@ class Analyzer: IDisposable {
                 PopScope()
             }
             if kind == 7 {
+                iteratorNarrowings := step.Narrowings
+                if iteratorNarrowings != null {
+                    PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
+                    FlowNarrowing.ApplyNarrowingsToScope(iteratorNarrowings)
+                }
                 DriveExpressionStatement(ExpressionStatements.BeginForIterator(step.Node))
+                if iteratorNarrowings != null {
+                    PopScope()
+                }
             }
             if kind == 8 {
                 Scopes.NoteLine(step.Line)
