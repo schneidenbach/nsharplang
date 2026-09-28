@@ -431,13 +431,6 @@ class AnalyzerIdentifierResolution {
             return true
         }
 
-        // A call position resolves an available free function before a project-wide type of the same
-        // name. This preserves the call binding in namespaces where a function and an imported
-        // project type share a spelling; once only the type answers, CallAnalysis can report NL415.
-        if preferProjectFunctions && TryResolveProjectFunctionBinding(name, line, column, out resolvedType) {
-            return true
-        }
-
         // 3a. THE AMBIGUITY GATE, between the channels that cannot tie and the two that can. Every
         // channel above answers from ONE place — a scope, the enclosing type, the built-in table — so
         // a name that reached here is about to be resolved from an import, and an import is exactly
@@ -445,6 +438,14 @@ class AnalyzerIdentifierResolution {
         // what keeps the error at the reference rather than at whichever candidate happened to win.
         if line > 0 {
             ReportAmbiguousImportedTypeIfNeeded(name, line, column)
+        }
+
+        // A call position resolves an available free function before a project-wide type of the same
+        // name. Keep this probe after the ambiguity gate so two imported functions still report NL209
+        // instead of silently choosing one; a unique function still wins over an unrelated
+        // project-discovered type, and a type-only callee reaches NL415.
+        if preferProjectFunctions && TryResolveProjectFunctionBinding(name, line, column, out resolvedType) {
+            return true
         }
 
         // 4. Project-wide type discovery. `line > 0` is the synthesised-node test: a node the parser
