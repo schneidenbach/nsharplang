@@ -887,6 +887,53 @@ class AnalyzerSyntheticCallBinder {
         return true
     }
 
+    // Re-express a constructed receiver as the declared generic receiver slot before collecting
+    // bounds. The matcher prefers an exact definition match and declines an ambiguous implementation
+    // rather than letting interface enumeration order choose a type argument.
+    func TryGetReceiverInferenceType(
+        parameterTypeReference: TypeReference,
+        receiverType: TypeInfo,
+        typeResolver: AnalyzerTypeResolver,
+        out inferenceType: TypeInfo
+    ): bool {
+        matcher := new AnalyzerGenericReceiverInference(typeResolver, declarationContext, clrTypeConversion)
+        return matcher.TryFindClosedImplementation(parameterTypeReference, receiverType, out inferenceType)
+    }
+
+    // The member lookup asks the same receiver inference question before it offers a generic
+    // extension. It has no call arguments yet, so only bounds from the receiver participate.
+    func TryInferReceiverParameterBindings(
+        parameterTypeReference: TypeReference,
+        receiverType: TypeInfo,
+        typeParameters: List<TypeParameter>,
+        typeResolver: AnalyzerTypeResolver,
+        out inferenceType: TypeInfo,
+        out bindings: Dictionary<string, TypeInfo>
+    ): bool {
+        inferenceType = BuiltInTypes.Unknown
+        bindings = new Dictionary<string, TypeInfo>()
+        if !TryGetReceiverInferenceType(parameterTypeReference, receiverType, typeResolver, out inferenceType) {
+            return false
+        }
+
+        allBounds := new Dictionary<string, List<TypeInfo>>()
+        for typeParameter in typeParameters {
+            allBounds[typeParameter.Name] = new List<TypeInfo>()
+        }
+        CollectTypeParameterBounds(parameterTypeReference, inferenceType, typeParameters, allBounds)
+
+        for typeParameter in typeParameters {
+            bounds := allBounds[typeParameter.Name]
+            if bounds.Count == 1 {
+                bindings[typeParameter.Name] = bounds[0]
+            } else if bounds.Count > 1 {
+                bindings[typeParameter.Name] = ComputeLeastUpperBound(bounds)
+            }
+        }
+
+        return true
+    }
+
     // THE INFERENCE WALK, in its collecting form: every position a type parameter appears at
     // contributes a BOUND rather than binding the parameter outright, so a parameter mentioned twice
     // is resolved by the least upper bound of both sightings instead of by whichever position came

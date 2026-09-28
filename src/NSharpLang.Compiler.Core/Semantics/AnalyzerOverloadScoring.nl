@@ -363,25 +363,8 @@ class AnalyzerOverloadFacts {
             return true
         }
 
-        interfaces := actualType.GetInterfaces()
-        for candidateInterface in interfaces {
-            if candidateInterface.IsGenericType && candidateInterface.GetGenericTypeDefinition() == genericDefinition {
-                compatibleType = candidateInterface
-                return true
-            }
-        }
-
-        currentBase := actualType.BaseType
-        while currentBase != null {
-            if currentBase.IsGenericType && currentBase.GetGenericTypeDefinition() == genericDefinition {
-                compatibleType = currentBase
-                return true
-            }
-
-            currentBase = currentBase.BaseType
-        }
-
-        return false
+        compatibleType = AnalyzerReflectionArgumentBinder.FindOpenImplementation(actualType, genericDefinition)
+        return compatibleType != null
     }
 
     // Whether an extension method's RECEIVER parameter accepts a receiver of this CLR type. A closed

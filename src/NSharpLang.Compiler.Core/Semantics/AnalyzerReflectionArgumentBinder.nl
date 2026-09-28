@@ -1162,7 +1162,7 @@ class AnalyzerReflectionArgumentBinder {
 
         arrayTypeInfo := structuralTypeInfo as ArrayTypeInfo
         if arrayTypeInfo != null {
-            enumerableElementParameter := TryGetReflectionEnumerableElementParameter(openParameterType)
+            enumerableElementParameter := AnalyzerReflectionArgumentBinder.TryGetReflectionEnumerableElementParameter(openParameterType)
             if enumerableElementParameter != null {
                 PopulateTypeInfoBindingsFromType(enumerableElementParameter, arrayTypeInfo.ElementType, typeInfoBindings, allowsLift)
                 return
@@ -1360,7 +1360,7 @@ class AnalyzerReflectionArgumentBinder {
     // The read-only SEQUENCE parameters an array argument may contribute its element type to. The
     // set is deliberately closed: it is the shapes an N# array literal binds to without conversion.
     // A null answer means this parameter is not one of them.
-    func TryGetReflectionEnumerableElementParameter(openParameterType: Type): Type? {
+    static func TryGetReflectionEnumerableElementParameter(openParameterType: Type): Type? {
         effectiveType := AnalyzerOverloadFacts.GetByRefElementType(openParameterType)
         if effectiveType.IsArray {
             return effectiveType.GetElementType()
@@ -1378,23 +1378,58 @@ class AnalyzerReflectionArgumentBinder {
         return null
     }
 
-    // The interface or base position on `definition` that instantiates `openDefinition`. Interfaces
-    // are searched before the base chain, matching the CLR's own resolution order.
+    // The unique interface or base position on `definition` that instantiates `openDefinition`.
+    // Arrays reach their generic sequence interfaces through GetInterfaces. A second distinct
+    // instantiation is ambiguous and answers null instead of depending on reflection enumeration
+    // order.
     static func FindOpenImplementation(definition: Type, openDefinition: Type): Type? {
-        interfaces := definition.GetInterfaces()
+        implementation: Type? = null
+        interfaces: Type[] = new Type[0]
+        try {
+            interfaces = definition.GetInterfaces()
+        } catch {
+            interfaces = new Type[0]
+        }
         for candidate in interfaces {
             if candidate.IsGenericType && candidate.GetGenericTypeDefinition() == openDefinition {
-                return candidate
+                implementation = MergeUniqueOpenImplementation(candidate, implementation)
+                if implementation == null {
+                    return null
+                }
             }
         }
 
-        baseType := definition.BaseType
+        baseType: Type? = null
+        try {
+            baseType = definition.BaseType
+        } catch {
+            baseType = null
+        }
         while baseType != null {
             if baseType.IsGenericType && baseType.GetGenericTypeDefinition() == openDefinition {
-                return baseType
+                implementation = MergeUniqueOpenImplementation(baseType, implementation)
+                if implementation == null {
+                    return null
+                }
             }
 
-            baseType = baseType.BaseType
+            try {
+                baseType = baseType.BaseType
+            } catch {
+                baseType = null
+            }
+        }
+
+        return implementation
+    }
+
+    static func MergeUniqueOpenImplementation(candidate: Type, existing: Type?): Type? {
+        if existing == null {
+            return candidate
+        }
+
+        if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(existing, candidate) {
+            return existing
         }
 
         return null

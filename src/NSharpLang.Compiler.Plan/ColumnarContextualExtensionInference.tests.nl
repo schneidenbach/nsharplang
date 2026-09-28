@@ -5,6 +5,7 @@ import System.Collections
 import System.Collections.Generic
 import System.Linq
 import System.Reflection
+import System.Reflection.Emit
 
 
 // NATIVE CONTRACTS FOR THE CONTEXTUAL INFERENCE ENGINE.
@@ -278,11 +279,109 @@ test "a slot with nothing open in it carries no inference and refuses nothing" {
 }
 
 // ── what closed shapes a receiver HAS, which is one question with one owner ────────────────────
+func ContextualAmbiguousSequenceReceiver(): Type {
+    assemblyName := "NSharpTests.ContextualAmbiguousSequenceReceiver"
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    owner := dynamicModule.DefineType(
+        "NSharpTests.ContextualAmbiguousSequenceReceiver.Owner",
+        TypeAttributes.Public | TypeAttributes.Abstract
+    )
+    owner.AddInterfaceImplementation(typeof(IEnumerable<int>))
+    owner.AddInterfaceImplementation(typeof(IEnumerable<string>))
+    return PlanFixtureBake(owner)
+}
+
+func ContextualBuilderGenericInterfaceReceiver(): Type {
+    assemblyName := "NSharpTests.ContextualBuilderGenericInterfaceReceiver"
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    owner := dynamicModule.DefineType(
+        "NSharpTests.ContextualBuilderGenericInterfaceReceiver.Owner",
+        TypeAttributes.Public | TypeAttributes.Abstract
+    )
+    typeParameters := owner.DefineGenericParameters(["T"])
+    openEnumerable := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    owner.AddInterfaceImplementation(openEnumerable.MakeGenericType([typeParameters[0]]))
+    return owner.MakeGenericType([typeof(int)])
+}
+
+func ContextualSourceSequenceDefinition(name: string): ColumnarStructDef {
+    assemblyName := "NSharpTests." + name
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    owner := dynamicModule.DefineType("NSharpTests." + name + ".Owner", TypeAttributes.Public | TypeAttributes.Abstract)
+    return new ColumnarStructDef(
+        owner,
+        new string[](0),
+        new Dictionary<string, FieldBuilder>(StringComparer.Ordinal),
+        true,
+        false,
+        false,
+        name
+    )
+}
+
+func ContextualGenericSourceSequenceDefinition(name: string): ColumnarStructDef {
+    assemblyName := "NSharpTests." + name
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    owner := dynamicModule.DefineType("NSharpTests." + name + ".Owner", TypeAttributes.Public | TypeAttributes.Abstract)
+    typeParameters := owner.DefineGenericParameters(["T"])
+    definition := new ColumnarStructDef(
+        owner,
+        new string[](0),
+        new Dictionary<string, FieldBuilder>(StringComparer.Ordinal),
+        true,
+        false,
+        false,
+        name
+    )
+    definition.ExternalInterfaces.Add(typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([typeParameters[0]]))
+    return definition
+}
+
 test "an array is the sequence interfaces the CLR says a vector implements, closed over its element" {
     assert ColumnarContextualExtensionInference.FindClosedImplementation(typeof(string[]), typeof(IEnumerable<int>).GetGenericTypeDefinition()) == typeof(IEnumerable<string>)
     assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IEnumerable<int>).GetGenericTypeDefinition()) == typeof(IEnumerable<string>)
     assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IReadOnlyList<int>).GetGenericTypeDefinition()) == typeof(IReadOnlyList<string>)
     assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IList<int>).GetGenericTypeDefinition()) == typeof(IList<string>)
+}
+
+test "receiver widening prefers exact shapes and refuses two closed instantiations" {
+    enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    assert ColumnarContextualExtensionInference.FindClosedImplementation(typeof(IEnumerable<int>), enumerableDefinition) == typeof(IEnumerable<int>)
+    assert ColumnarContextualExtensionInference.FindClosedImplementation(ContextualAmbiguousSequenceReceiver(), enumerableDefinition) == null
+}
+
+test "receiver widening reads a source generic definition before it is baked" {
+    receiver := ContextualBuilderGenericInterfaceReceiver()
+    enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    implementation := ColumnarContextualExtensionInference.FindClosedImplementation(receiver, enumerableDefinition)
+    assert implementation != null
+    assert ColumnarTypeEquivalenceFacts.TypesEquivalent(implementation, typeof(IEnumerable<int>))
+}
+
+test "source declaration facts close receiver interfaces and refuse ambiguity" {
+    enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    genericSource := ContextualGenericSourceSequenceDefinition("ContextualGenericSourceSequence")
+    genericReceiver := genericSource.Builder.MakeGenericType([typeof(int)])
+    genericImplementation := ColumnarContextualExtensionInference.FindClosedSourceImplementation(
+        genericReceiver,
+        enumerableDefinition,
+        genericSource
+    )
+    assert genericImplementation != null
+    assert ColumnarTypeEquivalenceFacts.TypesEquivalent(genericImplementation, typeof(IEnumerable<int>))
+
+    ambiguousSource := ContextualSourceSequenceDefinition("ContextualAmbiguousSourceSequence")
+    ambiguousSource.ExternalInterfaces.Add(typeof(IEnumerable<int>))
+    ambiguousSource.ExternalInterfaces.Add(typeof(IEnumerable<string>))
+    assert ColumnarContextualExtensionInference.FindClosedSourceImplementation(
+        ambiguousSource.Builder,
+        enumerableDefinition,
+        ambiguousSource
+    ) == null
 }
 
 test "the NON-GENERIC half of the vector contract reads off the same object[] list" {

@@ -5837,11 +5837,20 @@ one-argument call as `WriteLine(string)`: an argument the direct-call planner co
 receiver-style call returning `int`) was emitted as a string and refused silently. The arm now claims
 only an argument not preflighted as some other type; the rest reach ordinary overload resolution.
 
-OPEN: the ANALYZER admits a generic receiver-style function only for a bare `this value: T`
-(`AnalyzerExtensionMethodResolution.IsExtensionReceiverApplicable` special-cases a function type
-parameter and otherwise asks `IsAssignable` with `T` unresolved), so `this items: List<T>`,
-`IEnumerable<T>` or `T[]` reports NL303 on every receiver. The emitter selector unifies the receiver
-exactly; interface/base widening (C#'s extension-receiver inference) belongs with the analyzer fix.
+## Generic receiver-style functions infer through constructed receiver types (2026-09-28)
+
+The analyzer now infers a generic function's type parameters from a constructed `this` parameter
+before checking receiver applicability. It first accepts an exact generic definition, then searches
+the receiver's source-declared or metadata base/interface shapes; SZ arrays supply their CLR generic
+sequence interfaces. A unique closed implementation is required, so a receiver with two different
+instantiations of the requested interface does not bind. The closed receiver type feeds both
+applicability and call-result inference (`Head<T>(this items: List<T>): T` returns `int` for a
+`List<int>` receiver).
+
+The columnar emitter uses the same precedence: exact unification first, then a fresh binding against
+the unique closed interface/base implementation. The receiver conversion is emitted after selection.
+Focused analyzer and emitter contracts cover exact `List<T>`, `IEnumerable<T>` from `List<int>` and
+`int[]`, source classes, nonmatches, and ambiguous implementations.
 
 OPEN: the direct-call DOOR types no receiver-style sibling call, generic or not, and a numeric binary
 is typed only by the door (`ColumnarPrimitiveBinaryPlanner`), so `Console.WriteLine(name.Len() + 1)`

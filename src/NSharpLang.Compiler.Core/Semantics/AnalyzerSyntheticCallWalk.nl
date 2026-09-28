@@ -483,7 +483,12 @@ class AnalyzerSyntheticCallWalk {
         functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
         parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
         if parameterStartIndex > 0 && receiverType != null {
-            binder.CollectTypeParameterBounds(sourceParameterTypes[0], receiverType, typeParameters, allBounds)
+            receiverInferenceType := receiverType
+            let matchedReceiverType: TypeInfo? = null
+            if binder.TryGetReceiverInferenceType(sourceParameterTypes[0], receiverType, typeResolver, out matchedReceiverType) && matchedReceiverType != null {
+                receiverInferenceType = matchedReceiverType
+            }
+            binder.CollectTypeParameterBounds(sourceParameterTypes[0], receiverInferenceType, typeParameters, allBounds)
         }
 
         parameterIndexByArgument: int[] = new int[0]

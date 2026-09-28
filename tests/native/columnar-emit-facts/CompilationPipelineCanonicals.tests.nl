@@ -290,6 +290,169 @@ func main() { Console.WriteLine(5.Tag("ok")) }
     }
 }
 
+test "CompileToIlAssembly_ReceiverStyleGenericCallInfersAConstructedExactReceiver" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverGenericListHead",
+        "name: ReceiverGenericListHead\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+import System.Collections.Generic
+
+func Head<T>(this items: List<T>): T => items[0]
+
+func main() {
+    values := new List<int>()
+    values.Add(1)
+    Console.WriteLine(values.Head())
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "1" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "CompileToIlAssembly_ReceiverStyleGenericCallWidensListToIEnumerable" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverGenericListEnumerable",
+        "name: ReceiverGenericListEnumerable\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+import System.Collections.Generic
+
+func Joined<T>(this items: IEnumerable<T>, seed: string): string {
+    result := seed
+    for item in items { result = result + item.ToString() }
+    return result
+}
+
+func main() {
+    values := new List<int>()
+    values.Add(1)
+    Console.WriteLine(values.Joined("list:"))
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "list:1" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "CompileToIlAssembly_ReceiverStyleGenericCallWideningReadsArrayInterfaces" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverGenericArrayEnumerable",
+        "name: ReceiverGenericArrayEnumerable\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+import System.Collections.Generic
+
+func Joined<T>(this items: IEnumerable<T>, seed: string): string {
+    result := seed
+    for item in items { result = result + item.ToString() }
+    return result
+}
+
+func main() {
+    numbers := [3, 4]
+    Console.WriteLine(numbers.Joined("array:"))
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "array:34" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "CompileToIlAssembly_ReceiverStyleGenericCallWideningReadsSourceInterfaces" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverGenericSourceEnumerable",
+        "name: ReceiverGenericSourceEnumerable\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+import System.Collections
+import System.Collections.Generic
+
+class SourceSequence<T>: IEnumerable<T>, IEnumerable {
+    items: List<T>
+
+    constructor(values: List<T>) {
+        items = values
+    }
+
+    func GetEnumerator(): IEnumerator<T> {
+        generic: IEnumerable<T> = items
+        return generic.GetEnumerator()
+    }
+
+    func IEnumerable.GetEnumerator(): IEnumerator {
+        untyped: IEnumerable = items
+        return untyped.GetEnumerator()
+    }
+}
+
+func Joined<T>(this items: IEnumerable<T>, seed: string): string {
+    result := seed
+    for item in items { result = result + item.ToString() }
+    return result
+}
+
+func main() {
+    values := new List<int>()
+    values.Add(7)
+    values.Add(8)
+    Console.WriteLine(new SourceSequence<int>(values).Joined("source:"))
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "source:78" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
 // VALUE-TYPE receivers close `T` on the value type itself — a literal, a local, a source struct with
 // its own `ToString` and one that inherits `object`'s — so the call passes the value, not a box. A
 // generic RESULT keeps its closed type (`5.Echo() + 1` is an `int` addition, and `point.Echo().Y`

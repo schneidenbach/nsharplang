@@ -36,6 +36,7 @@ class AnalyzerExtensionMethodResolution {
     usingNamespaces: List<string>
     assemblies: List<Assembly>
     importUsageCredit: AnalyzerImportUsageCredit?
+    genericCallBinder: AnalyzerSyntheticCallBinder?
 
     // THE FRIEND GRANTS OF THE COMPILATION BEING ANALYSED, or null for an owner built without a
     // project behind it — which grants nothing, exactly as before friends existed.
@@ -52,10 +53,15 @@ class AnalyzerExtensionMethodResolution {
         usingNamespaces = importedNamespaces
         assemblies = referenceAssemblies
         friendGrants = null
+        genericCallBinder = null
     }
 
     func SetFriendGrants(grants: InternalsVisibleToGrants?) {
         friendGrants = grants
+    }
+
+    func SetGenericCallBinder(binder: AnalyzerSyntheticCallBinder?) {
+        genericCallBinder = binder
     }
 
     // SOURCE EXTENSIONS FIRST, AND THE EXTERNAL SCAN IS THE FALLBACK — but only when no source
@@ -119,6 +125,42 @@ class AnalyzerExtensionMethodResolution {
         simple := receiverTypeReference as SimpleTypeReference
         if simple != null && IsFunctionTypeParameter(candidate, simple.Name) {
             return true
+        }
+
+        typeParameters := candidate.TypeParameters
+        constructedReceiver := receiverTypeReference as GenericTypeReference
+        if constructedReceiver != null && typeParameters != null && typeParameters.Count > 0 {
+            binder := genericCallBinder
+            if binder == null {
+                return false
+            }
+
+            let matchedReceiverType: TypeInfo? = null
+            bindings := new Dictionary<string, TypeInfo>()
+            if !binder.TryInferReceiverParameterBindings(
+                receiverTypeReference,
+                targetType,
+                typeParameters,
+                typeResolver,
+                out matchedReceiverType,
+                out bindings
+            ) || matchedReceiverType == null {
+                return false
+            }
+
+            functionType := functionTypeFactory.CreateFromDeclaration(candidate, null)
+            parameterTypes := functionType.ParameterTypes
+            if parameterTypes == null || parameterTypes.Count == 0 {
+                return false
+            }
+
+            closedReceiverType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(
+                parameterTypes[0],
+                bindings,
+                NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)
+            )
+            resolvedClosedReceiverType := declarationContext.ResolveDeclaredAlias(closedReceiverType)
+            return TypeInfoIdentityFacts.AreEqual(resolvedClosedReceiverType, targetType) || assignability.IsAssignable(resolvedClosedReceiverType, targetType)
         }
 
         receiverType := typeResolver.ResolveType(receiverTypeReference)

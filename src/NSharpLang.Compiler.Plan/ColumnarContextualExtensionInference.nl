@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 
 
 // METHOD TYPE INFERENCE FOR AN EXTENSION CALL WHOSE ARGUMENTS INCLUDE LAMBDAS.
@@ -526,6 +527,7 @@ class ColumnarContextualExtensionInference {
             return candidate
         }
 
+        implementation: Type? = null
         interfaces := new Type[](0)
         try {
             interfaces = candidate.GetInterfaces()
@@ -536,7 +538,10 @@ class ColumnarContextualExtensionInference {
         if interfaces != null {
             for implemented in interfaces {
                 if InterfaceMatchesDefinition(implemented, openDefinition) {
-                    return implemented
+                    implementation = MergeUniqueImplementation(implemented, implementation)
+                    if implementation == null {
+                        return null
+                    }
                 }
             }
         }
@@ -545,11 +550,17 @@ class ColumnarContextualExtensionInference {
         depth := 0
         while current != null && depth < 64 {
             if current.IsGenericType && current.GetGenericTypeDefinition() == openDefinition {
-                return current
+                implementation = MergeUniqueImplementation(current, implementation)
+                if implementation == null {
+                    return null
+                }
             }
 
             if !openDefinition.IsGenericType && current == openDefinition {
-                return current
+                implementation = MergeUniqueImplementation(current, implementation)
+                if implementation == null {
+                    return null
+                }
             }
 
             current = BaseTypeOrNull(current)
@@ -558,10 +569,104 @@ class ColumnarContextualExtensionInference {
 
         arrayImplementation := FindClosedArrayImplementation(candidate, openDefinition)
         if arrayImplementation != null {
-            return arrayImplementation
+            implementation = MergeUniqueImplementation(arrayImplementation, implementation)
+            if implementation == null {
+                return null
+            }
         }
 
-        return FindClosedImplementationThroughDefinition(candidate, openDefinition)
+        definitionImplementation := FindClosedImplementationThroughDefinition(candidate, openDefinition)
+        if definitionImplementation != null {
+            implementation = MergeUniqueImplementation(definitionImplementation, implementation)
+            if implementation == null {
+                return null
+            }
+        }
+
+        return implementation
+    }
+
+    static func MergeUniqueImplementation(candidate: Type, existing: Type?): Type? {
+        if existing == null {
+            return candidate
+        }
+
+        if ColumnarTypeEquivalenceFacts.TypesEquivalent(existing, candidate) {
+            return existing
+        }
+
+        return null
+    }
+
+    // A source receiver's TypeBuilder does not reliably expose its declared interfaces before the
+    // compilation is baked. The emitter already owns those exact declaration facts in the source
+    // registry, so use them to recover the same closed shape when reflection has no answer.
+    static func FindClosedSourceImplementation(candidate: Type, openDefinition: Type, sourceDefinition: ColumnarStructDef): Type? {
+        if candidate == null || openDefinition == null || sourceDefinition == null {
+            return null
+        }
+
+        valueBuilder := candidate as TypeBuilder
+        valueArguments := System.Array.Empty<Type>()
+        if valueBuilder == null {
+            if !candidate.IsGenericType || candidate.IsGenericTypeDefinition {
+                return null
+            }
+
+            valueBuilder = candidate.GetGenericTypeDefinition() as TypeBuilder
+            if valueBuilder == null {
+                return null
+            }
+
+            valueArguments = candidate.GetGenericArguments()
+        }
+
+        if !Object.ReferenceEquals(valueBuilder, sourceDefinition.Builder) {
+            return null
+        }
+
+        implementation: Type? = null
+        for declaredInterface in sourceDefinition.ImplementedInterfaceTypes {
+            closedInterface := CloseSourceImplementationShape(declaredInterface, valueArguments)
+            if InterfaceMatchesDefinition(closedInterface, openDefinition) {
+                implementation = MergeUniqueImplementation(closedInterface, implementation)
+                if implementation == null {
+                    return null
+                }
+            }
+        }
+
+        for declaredInterface in sourceDefinition.ExternalInterfaces {
+            closedInterface := CloseSourceImplementationShape(declaredInterface, valueArguments)
+            if InterfaceMatchesDefinition(closedInterface, openDefinition) {
+                implementation = MergeUniqueImplementation(closedInterface, implementation)
+                if implementation == null {
+                    return null
+                }
+            }
+        }
+
+        baseType := sourceDefinition.ExactBaseType
+        if baseType != null {
+            closedBase := CloseSourceImplementationShape(baseType, valueArguments)
+            baseImplementation := FindClosedImplementation(closedBase, openDefinition)
+            if baseImplementation != null {
+                implementation = MergeUniqueImplementation(baseImplementation, implementation)
+                if implementation == null {
+                    return null
+                }
+            }
+        }
+
+        return implementation
+    }
+
+    static func CloseSourceImplementationShape(shape: Type, valueArguments: Type[]): Type {
+        if shape == null || valueArguments == null || valueArguments.Length == 0 {
+            return shape
+        }
+
+        return ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(shape, valueArguments)
     }
 
     // AN ARRAY IS A SEQUENCE OF ITS ELEMENT, AND THE CLR SAYS SO. A vector `E[]` implements the

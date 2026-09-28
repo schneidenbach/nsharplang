@@ -21,19 +21,28 @@ class ExtensionReceiverHarness {
     Declared: List<FunctionDeclaration>
     Namespaces: List<string>
     Assemblies: List<Assembly>
+    Scopes: AnalyzerScopeStack
+    Context: AnalyzerDeclarationContext
+    GenericBinder: AnalyzerSyntheticCallBinder
 
     constructor(
         resolution: AnalyzerExtensionMethodResolution,
         resolver: AnalyzerTypeResolver,
         declared: List<FunctionDeclaration>,
         namespaces: List<string>,
-        assemblies: List<Assembly>
+        assemblies: List<Assembly>,
+        scopes: AnalyzerScopeStack,
+        context: AnalyzerDeclarationContext,
+        genericBinder: AnalyzerSyntheticCallBinder
     ) {
         Resolution = resolution
         Resolver = resolver
         Declared = declared
         Namespaces = namespaces
         Assemblies = assemblies
+        Scopes = scopes
+        Context = context
+        GenericBinder = genericBinder
     }
 }
 
@@ -69,6 +78,8 @@ func ExtensionReceiverDefault(): ExtensionReceiverHarness {
     guard := new AnalyzerImplicitConversionGuard()
     assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
     functionTypes := new AnalyzerFunctionTypeFactory(context, substitution)
+    scoring := new AnalyzerOverloadScoring(context, clrConversion, assignability, resolver, null)
+    genericBinder := new AnalyzerSyntheticCallBinder(context, scoring, assignability, clrConversion)
 
     // The three LIVE collections. They are handed over by REFERENCE, exactly as the analyzer's own
     // `readonly` fields are, and the contracts below mutate them AFTER construction to prove it.
@@ -76,21 +87,27 @@ func ExtensionReceiverDefault(): ExtensionReceiverHarness {
     namespaces := new List<string>()
     assemblies := new List<Assembly>()
 
-    return new ExtensionReceiverHarness(
-        new AnalyzerExtensionMethodResolution(
-            resolver,
-            assignability,
-            context,
-            functionTypes,
-            clrConversion,
-            declared,
-            namespaces,
-            assemblies
-        ),
+    resolution := new AnalyzerExtensionMethodResolution(
         resolver,
+        assignability,
+        context,
+        functionTypes,
+        clrConversion,
         declared,
         namespaces,
         assemblies
+    )
+    resolution.SetGenericCallBinder(genericBinder)
+
+    return new ExtensionReceiverHarness(
+        resolution,
+        resolver,
+        declared,
+        namespaces,
+        assemblies,
+        scopes,
+        context,
+        genericBinder
     )
 }
 
@@ -139,6 +156,115 @@ func ExtensionReceiverOn(receiverTypeName: string, typeParameterNames: string[])
     }
 
     return ExtensionReceiverDeclaration("Probe", parameters, typeParameters)
+}
+
+func ExtensionReceiverGenericOn(
+    name: string,
+    receiverTypeName: string,
+    receiverTypeArguments: List<TypeReference>,
+    typeParameterNames: string[],
+    returnType: TypeReference?
+): FunctionDeclaration {
+    parameters := new List<Parameter>()
+    receiverType := new GenericTypeReference(receiverTypeName, receiverTypeArguments, 1, 1)
+    parameters.Add(new Parameter("self", receiverType, null, false, Ast.ParameterModifier.None, null, 1, 1, false, null))
+
+    typeParameters: List<TypeParameter>? = null
+    if typeParameterNames.Length > 0 {
+        collected := new List<TypeParameter>()
+        index := 0
+        while index < typeParameterNames.Length {
+            collected.Add(new TypeParameter(typeParameterNames[index]))
+            index = index + 1
+        }
+        typeParameters = collected
+    }
+
+    return new FunctionDeclaration(
+        name,
+        parameters,
+        returnType,
+        null,
+        null,
+        typeParameters,
+        null,
+        Modifiers.Public,
+        new List<AttributeNode>(),
+        false,
+        null,
+        false,
+        false,
+        1,
+        1
+    )
+}
+
+func ExtensionReceiverTypeReference(name: string): TypeReference {
+    return new SimpleTypeReference(name, 1, 1)
+}
+
+func ExtensionReceiverConstructedTypeArguments(argumentName: string): List<TypeReference> {
+    arguments := new List<TypeReference>()
+    arguments.Add(ExtensionReceiverTypeReference(argumentName))
+    return arguments
+}
+
+func ExtensionReceiverSourceClass(interfaces: TypeReference[]): ClassTypeInfo {
+    return new ClassTypeInfo(
+        "SourceSequence",
+        1,
+        1,
+        true,
+        null,
+        interfaces,
+        new TypeParameter[0],
+        new ParameterDeclarationInfo[0],
+        new DeclaredMemberInfo[0],
+        new NestedTypeInfo[0],
+        true
+    )
+}
+
+func ExtensionReceiverSequenceDeclaration(): FunctionDeclaration {
+    return ExtensionReceiverGenericOn(
+        "Probe",
+        "IEnumerable",
+        ExtensionReceiverConstructedTypeArguments("T"),
+        ExtensionReceiverNames("T"),
+        ExtensionReceiverTypeReference("T")
+    )
+}
+
+func ExtensionReceiverAssertInfersInt(
+    harness: ExtensionReceiverHarness,
+    declaration: FunctionDeclaration,
+    target: TypeInfo
+) {
+    inferredReceiver: TypeInfo = BuiltInTypes.Unknown
+    bindings := new Dictionary<string, TypeInfo>()
+    typeParameters := declaration.TypeParameters
+    if typeParameters == null {
+        throw new InvalidOperationException("The receiver inference test requires a generic function declaration.")
+    }
+
+    if !harness.GenericBinder.TryInferReceiverParameterBindings(
+        declaration.Parameters[0].Type,
+        target,
+        typeParameters,
+        harness.Resolver,
+        out inferredReceiver,
+        out bindings
+    ) {
+        throw new InvalidOperationException("Receiver type has no unique closed implementation of the declared generic receiver.")
+    }
+    if BuiltInTypes.IsUnknown(inferredReceiver) {
+        throw new InvalidOperationException("Receiver inference did not return a matched closed type.")
+    }
+
+    inferredResult := AnalyzerSyntheticCallFacts.ApplyGenericBindings(new ExternalTypeInfo("T"), bindings)
+    if !TypeInfoIdentityFacts.AreEqual(inferredResult, BuiltInTypes.Int) {
+        throw new InvalidOperationException("Receiver inference bound T to '" + inferredResult.ToString() + "' instead of int.")
+    }
 }
 
 func ExtensionReceiverNoNames(): string[] {
@@ -211,6 +337,95 @@ test "the type-parameter test is by NAME against this declaration only" {
     concrete := ExtensionReceiverOn("int", ExtensionReceiverNames("T"))
     assert harness.Resolution.IsExtensionReceiverApplicable(concrete, BuiltInTypes.Int)
     assert !harness.Resolution.IsExtensionReceiverApplicable(concrete, BuiltInTypes.String)
+}
+
+test "a constructed generic receiver infers from its exact generic type" {
+    harness := ExtensionReceiverDefault()
+    harness.Scopes.Peek().Types["List"] = new ReflectionTypeInfo(typeof(List<int>).GetGenericTypeDefinition())
+    target := AnalyzerReflectionTypeConversion.ConvertReflectionType(typeof(List<int>))
+    declaration := ExtensionReceiverGenericOn(
+        "Head",
+        "List",
+        ExtensionReceiverConstructedTypeArguments("T"),
+        ExtensionReceiverNames("T"),
+        ExtensionReceiverTypeReference("T")
+    )
+
+    assert harness.Resolution.IsExtensionReceiverApplicable(declaration, target)
+    ExtensionReceiverAssertInfersInt(harness, declaration, target)
+}
+
+test "a constructed generic receiver infers through a metadata interface" {
+    harness := ExtensionReceiverDefault()
+    harness.Scopes.Peek().Types["IEnumerable"] = new ReflectionTypeInfo(typeof(IEnumerable<int>).GetGenericTypeDefinition())
+    declaration := ExtensionReceiverSequenceDeclaration()
+    listTarget := AnalyzerReflectionTypeConversion.ConvertReflectionType(typeof(List<int>))
+
+    ExtensionReceiverAssertInfersInt(harness, declaration, listTarget)
+    assert harness.Resolution.IsExtensionReceiverApplicable(declaration, listTarget), "List<int> must convert to IEnumerable<int>"
+}
+
+test "a constructed generic receiver infers through an array interface" {
+    harness := ExtensionReceiverDefault()
+    harness.Scopes.Peek().Types["IEnumerable"] = new ReflectionTypeInfo(typeof(IEnumerable<int>).GetGenericTypeDefinition())
+    declaration := ExtensionReceiverSequenceDeclaration()
+    arrayTarget: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
+
+    ExtensionReceiverAssertInfersInt(harness, declaration, arrayTarget)
+    assert harness.Resolution.IsExtensionReceiverApplicable(declaration, arrayTarget), "int[] must convert to IEnumerable<int>"
+}
+
+test "a source receiver infers from its declared constructed interface" {
+    harness := ExtensionReceiverDefault()
+    harness.Scopes.Peek().Types["IEnumerable"] = new ReflectionTypeInfo(typeof(IEnumerable<int>).GetGenericTypeDefinition())
+    declaration := ExtensionReceiverSequenceDeclaration()
+    implemented := new GenericTypeReference(
+        "IEnumerable",
+        ExtensionReceiverConstructedTypeArguments("int"),
+        1,
+        1
+    )
+    source := ExtensionReceiverSourceClass([implemented])
+
+    assert harness.Resolution.IsExtensionReceiverApplicable(declaration, source)
+    ExtensionReceiverAssertInfersInt(harness, declaration, source)
+}
+
+test "an ambiguous constructed interface receiver is not offered" {
+    harness := ExtensionReceiverDefault()
+    harness.Scopes.Peek().Types["IEnumerable"] = new ReflectionTypeInfo(typeof(IEnumerable<int>).GetGenericTypeDefinition())
+    declaration := ExtensionReceiverSequenceDeclaration()
+    intInterface := new GenericTypeReference(
+        "IEnumerable",
+        ExtensionReceiverConstructedTypeArguments("int"),
+        1,
+        1
+    )
+    stringInterface := new GenericTypeReference(
+        "IEnumerable",
+        ExtensionReceiverConstructedTypeArguments("string"),
+        1,
+        1
+    )
+    source := ExtensionReceiverSourceClass([intInterface, stringInterface])
+
+    assert !harness.Resolution.IsExtensionReceiverApplicable(declaration, source)
+    assert BuiltInTypes.IsUnknown(harness.Resolution.TryResolveExtensionMethod(source, "Probe", null))
+}
+
+test "a nonmatching constructed generic receiver remains unavailable" {
+    harness := ExtensionReceiverDefault()
+    harness.Scopes.Peek().Types["List"] = new ReflectionTypeInfo(typeof(List<int>).GetGenericTypeDefinition())
+    declaration := ExtensionReceiverGenericOn(
+        "Head",
+        "List",
+        ExtensionReceiverConstructedTypeArguments("T"),
+        ExtensionReceiverNames("T"),
+        ExtensionReceiverTypeReference("T")
+    )
+    harness.Declared.Add(declaration)
+
+    assert BuiltInTypes.IsUnknown(harness.Resolution.TryResolveExtensionMethod(BuiltInTypes.String, "Head", null))
 }
 
 test "a resolved receiver matches by identity" {

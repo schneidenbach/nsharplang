@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
@@ -609,6 +610,11 @@ class AnalyzerAssignability {
             }
         }
 
+        arraySource := effectiveSource as ArrayTypeInfo
+        if arraySource != null && IsArrayAssignableToGenericSequence(arraySource, target) {
+            return true
+        }
+
         classSource := effectiveSource as ClassTypeInfo
         if classSource != null {
             baseClass := classSource.BaseClass
@@ -711,6 +717,46 @@ class AnalyzerAssignability {
         }
 
         return false
+    }
+
+    // An N# array is represented as ArrayTypeInfo rather than as a closed CLR Type. It still
+    // implements the CLR's generic sequence interfaces, including when its element is a source type
+    // the CLR cannot materialize yet. Invariant slots require an identical element; covariant slots
+    // also accept an implicit reference conversion.
+    func IsArrayAssignableToGenericSequence(source: ArrayTypeInfo, target: TypeInfo): bool {
+        genericTarget := declarationContext.ResolveDeclaredAlias(target) as GenericTypeInfo
+        if genericTarget == null || genericTarget.TypeArguments.Count != 1 {
+            return false
+        }
+
+        definition := typeSubstitution.ResolveGenericDefinition(genericTarget) as ReflectionTypeInfo
+        if definition == null || AnalyzerReflectionArgumentBinder.TryGetReflectionEnumerableElementParameter(definition.Type) == null {
+            return false
+        }
+
+        targetElement := genericTarget.TypeArguments[0]
+        if TypeInfoIdentityFacts.AreEqual(targetElement, source.ElementType) {
+            return true
+        }
+
+        if !IsCovariantGenericDefinition(definition.Type) || !AnalyzerConversionFacts.IsReferenceType(source.ElementType) {
+            return false
+        }
+
+        return IsAssignable(targetElement, source.ElementType)
+    }
+
+    static func IsCovariantGenericDefinition(definition: Type): bool {
+        if !definition.IsGenericType {
+            return false
+        }
+
+        parameters := definition.GetGenericArguments()
+        if parameters.Length != 1 {
+            return false
+        }
+
+        return parameters[0].GenericParameterAttributes == GenericParameterAttributes.Covariant
     }
 
     // The substituted base and interface lists of one constructed external generic. Re-entrancy is

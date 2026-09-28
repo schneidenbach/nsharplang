@@ -2390,6 +2390,36 @@ A value-type receiver closes `T` on the value type itself, so the value is passe
 Inside the function, `value` has every member `object` gives every type, plus the members of its
 constraints ([Generic Constraints](#generic-constraints)).
 
+When the `this` parameter is a constructed generic type, inference reads the receiver through that
+type's matching interface or base type. Exact matches take precedence; arrays also provide their
+CLR sequence interfaces. For example, `List<int>` and `int[]` both infer `T` as `int` for
+`IEnumerable<T>`:
+
+```n#
+import System
+import System.Collections.Generic
+
+func Joined<T>(this items: IEnumerable<T>, seed: string): string {
+    result := seed
+    for item in items { result = result + item.ToString() }
+    return result
+}
+
+func Head<T>(this items: List<T>): T => items[0]
+
+func main() {
+    values := new List<int>()
+    values.Add(1)
+    numbers := [3, 4]
+    Console.WriteLine(values.Head())
+    Console.WriteLine(values.Joined("list:"))
+    Console.WriteLine(numbers.Joined("array:"))
+}
+```
+
+If the receiver implements the same generic interface at different type arguments, inference is
+ambiguous and the function is not offered for receiver syntax.
+
 ## Best Practices
 
 ### 1. Use Expression-Bodied Members for Simple Functions

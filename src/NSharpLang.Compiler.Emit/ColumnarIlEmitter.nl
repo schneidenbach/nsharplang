@@ -27039,12 +27039,44 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        let seeded: System.Type[]? = null
-        if (!TryCreateGenericLocalBinding(target, out seeded) || seeded == null) {
+        seeded := System.Array.Empty<Type>()
+        if (!TryCreateGenericLocalBinding(target, out seeded)) {
             return false
         }
         if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(target.TypeParams, seeded, receiverParam, receiverType)) {
-            return false
+            if (!receiverParam.IsGenericType) {
+                return false
+            }
+
+            receiverDefinitionBuilder := receiverType as TypeBuilder
+            if receiverDefinitionBuilder == null && receiverType.IsGenericType && !receiverType.IsGenericTypeDefinition {
+                receiverDefinitionBuilder = receiverType.GetGenericTypeDefinition() as TypeBuilder
+            }
+
+            let sourceReceiverDefinition: ColumnarStructDef? = null
+            if receiverDefinitionBuilder != null {
+                sourceReceiverDefinition = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, receiverDefinitionBuilder)
+            }
+
+            let widenedReceiver: System.Type? = null
+            if sourceReceiverDefinition != null {
+                widenedReceiver = ColumnarContextualExtensionInference.FindClosedSourceImplementation(
+                    receiverType,
+                    receiverParam.GetGenericTypeDefinition(),
+                    sourceReceiverDefinition
+                )
+            } else {
+                widenedReceiver = ColumnarContextualExtensionInference.FindClosedImplementation(receiverType, receiverParam.GetGenericTypeDefinition())
+            }
+            if (widenedReceiver == null) {
+                return false
+            }
+
+            widenedSeeded := System.Array.Empty<Type>()
+            if (!TryCreateGenericLocalBinding(target, out widenedSeeded) || !ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(target.TypeParams, widenedSeeded, receiverParam, widenedReceiver)) {
+                return false
+            }
+            seeded = widenedSeeded
         }
 
         for a := 1; a <= argCount; a++ {
