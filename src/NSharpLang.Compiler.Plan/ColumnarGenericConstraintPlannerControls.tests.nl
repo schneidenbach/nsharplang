@@ -454,7 +454,9 @@ class ConstraintControlsHostileMapRuntime {
     // `ref`, not `out`: the row reads what the planner's own out local held on the way IN
     // (`InitialOut`), which an `out` parameter may not. Both are the same `Type[]&` in metadata.
     // COMPILER: a `ref` parameter that starts its own line of a wrapped parameter list does not
-    // parse (NL107 "Missing closing ')'"), so this signature is written on one line.
+    // parse under the pinned `bootstrap/` seed (NL107 "Missing closing ')'"), so this signature is
+    // written on one line. The tip parser reads it (`IsContinuationRecoveryBoundary` treats `ref` as
+    // a declaration only before `struct`); wrap it once the seed is republished past that fix.
     static func TryGet(state: ConstraintControlsHostileMapState, requested: Type, ref value: Type[]?): bool {
         state.LookupCount = state.LookupCount + 1
         state.InitialOut = value

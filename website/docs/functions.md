@@ -214,6 +214,21 @@ func calculate(x: int, y: int, operation: string): int {
 }
 ```
 
+A long parameter list may be wrapped one parameter per line, and any modifier (`ref`, `out`, `in`,
+`params`, `this`) may start its line. Each wrapped line must be indented past the line that opened the
+list, and the list takes no trailing comma. `nlc format` writes a wrapped list back in this shape, and
+wraps a call's argument list the same way:
+
+```n#
+func tryTake(
+    queue: Queue<int>,
+    ref taken: int,
+    out value: int
+): bool {
+    ...
+}
+```
+
 ### Optional Parameters
 
 ```n#

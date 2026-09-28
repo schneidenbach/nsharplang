@@ -743,13 +743,20 @@ test "the named and out spellings survive a wrap" {
     assert FstIdempotent(source)
 }
 
-test "a REF argument keeps its list on one line, because `ref` cannot begin a continuation line" {
-    // `ref` is a DECLARATION keyword, and the parser ends an argument list at a continuation token
-    // that starts a declaration. Wrapping this list would put `ref b` at the head of a line and the
-    // output would not re-parse — at which point `FormatSafe` returns the original source and the
-    // file silently stops being formatted at all. The wrap is refused instead; nothing is lost.
+test "a REF argument wraps like every other argument, and the wrap re-parses" {
+    // This list used to be REFUSED the wrap: the parser ended an argument list at a later line that
+    // began with `ref`, because `ref` heads `ref struct` and the boundary asked the keyword table
+    // alone. The boundary now reads `ref` as a declaration only before `struct`, so `ref b` may begin
+    // a line and the list takes the same canonical shape as any other.
     source := "func Test(a: int, b: int) {\n    Foo(a, ref b\n    )\n}"
-    assert FstFormat(source) == "func Test(a: int, b: int) {|    Foo(a, ref b)|}", FstFormat(source)
+    assert FstFormat(source) == "func Test(a: int, b: int) {|    Foo(|        a,|        ref b|    )|}", FstFormat(source)
+    assert FstIdempotent(source)
+    assert FstReparseErrorsAfterFormat(source) == 0
+}
+
+test "every argument modifier survives a wrap at the head of its line" {
+    source := "func Test(a: int, b: int, c: int) {\n    Foo(\n        ref a,\n        out b,\n        in c\n    )\n}"
+    assert FstFormat(source) == "func Test(a: int, b: int, c: int) {|    Foo(|        ref a,|        out b,|        in c|    )|}", FstFormat(source)
     assert FstIdempotent(source)
     assert FstReparseErrorsAfterFormat(source) == 0
 }
@@ -839,6 +846,38 @@ test "a parameter list the author wrapped becomes one parameter per line" {
     source := "func Test(\n    a: int,\n    b: string\n) {\n}"
     assert FstFormat(source) == "func Test(|    a: int,|    b: string|) {|}", FstFormat(source)
     assert FstIdempotent(source)
+}
+
+test "a wrapped parameter list round-trips with a by-reference parameter at the head of every line" {
+    // First, middle and last position, each modifier, the extension receiver and the `&T` spelling.
+    // Before the parser read `ref` at the head of a line, this source did not parse, so `FormatSafe`
+    // handed it back unformatted however it was indented. The `in` line is under-indented on purpose:
+    // it is still right of the declaration's column, so it parses, and the format re-indents it.
+    source := "func Test(\n    this s: string,\n    ref a: int,\n    out b: int,\n  in c: int,\n    d: &int,\n    params e: int[]\n) {\n}"
+    assert FstReparseErrors(source) == 0
+    assert FstFormat(source) == "func Test(|    this s: string,|    ref a: int,|    out b: int,|    in c: int,|    d: &int,|    params e: int[]|) {|}", FstFormat(source)
+    assert FstIdempotent(source)
+    assert FstReparseErrorsAfterFormat(source) == 0
+}
+
+test "a parameter list with its `ref` parameter on a line of its own wraps the rest to match" {
+    source := "func Test(a: int,\n    ref b: int) {\n}"
+    assert FstFormat(source) == "func Test(|    a: int,|    ref b: int|) {|}", FstFormat(source)
+    assert FstIdempotent(source)
+    assert FstReparseErrorsAfterFormat(source) == 0
+}
+
+test "comments between the lines of a wrapped parameter list stay above the `ref` parameter they preceded" {
+    source := "func Test(\n    a: int,\n    // the slot it lands in\n    ref b: int\n) {\n}"
+    assert FstFormatComments(source) == "func Test(|    a: int,|    // the slot it lands in|    ref b: int|) {|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
+}
+
+test "a constructor's wrapped parameter list keeps a `ref` parameter at the head of its line" {
+    source := "class Box {\n    constructor(\n        a: int,\n        ref b: int\n    ) {\n    }\n}"
+    assert FstFormat(source) == "class Box {|    constructor(|        a: int,|        ref b: int|    ) {|    }|}", FstFormat(source)
+    assert FstIdempotent(source)
+    assert FstReparseErrorsAfterFormat(source) == 0
 }
 
 test "a parameter list on one line stays on one line, however long" {

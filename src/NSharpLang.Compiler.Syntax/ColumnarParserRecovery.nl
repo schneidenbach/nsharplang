@@ -7880,6 +7880,13 @@ class ColumnarParserRecovery {
     // Parser.cs IsContinuationRecoveryBoundary (:6927): a token on a LATER line than the opening delimiter
     // that begins a statement / declaration / modifier, or sits at or left of the statement's recovery
     // boundary column, ends the continuation so the outer recovery can resynchronise.
+    //
+    // `ref` BEGINS A DECLARATION ONLY AS `ref struct`. The kind table lists it because that is the one
+    // declaration it heads, but every list this boundary guards — parameters, arguments — also admits
+    // `ref` as the by-reference modifier of an ELEMENT, and a wrapped list puts that element at the
+    // head of a line. Asking the kind alone ended a parameter list wrapped one parameter per line
+    // just before its `ref b: int` line, with an NL107 and a cascade behind it. The column rule below
+    // still applies to a `ref` element exactly as it does to any other.
     func IsContinuationRecoveryBoundary(openingToken: Token): bool {
         if Current().Line <= openingToken.Line {
             return false
@@ -7887,13 +7894,21 @@ class ColumnarParserRecovery {
         if ParserTokenFacts.IsStatementStartKeyword(Current().Type) {
             return true
         }
-        if ParserTokenFacts.IsDeclarationKeyword(Current().Type) {
+        if ParserTokenFacts.IsDeclarationKeyword(Current().Type) && !IsRefParameterOrArgumentHead() {
             return true
         }
         if ParserTokenFacts.IsModifierKeyword(Current().Type) {
             return true
         }
         return HasRecoveryBoundaryColumn && Current().Column <= RecoveryBoundaryColumn
+    }
+
+    // A `ref` that does not open `ref struct` — the by-reference modifier of a parameter or an argument.
+    func IsRefParameterOrArgumentHead(): bool {
+        if !Check(TokenType.Ref) {
+            return false
+        }
+        return LookAhead(1).Type != TokenType.Struct
     }
 
     // THE ONE BOUNDED TYPE-ARGUMENT-LIST SCAN BOTH `<` DISAMBIGUATIONS SHARE.

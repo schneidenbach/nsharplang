@@ -219,7 +219,7 @@ class FormatterWalk {
     // that follows it, and any comment between the last element and the closer above the closer —
     // which is where the leading-comment model puts every other comment in the file.
     func FormatArgumentList(arguments: List<Argument>, openLine: int, closeLine: int, builder: StringBuilder) {
-        wrapped := ShouldWrapList(openLine, closeLine, arguments.Count, EffectiveMaxArgumentLine(arguments, openLine), LastArgumentSpansLines(arguments)) && ArgumentsCanBeginLines(arguments)
+        wrapped := ShouldWrapList(openLine, closeLine, arguments.Count, EffectiveMaxArgumentLine(arguments, openLine), LastArgumentSpansLines(arguments))
 
         // The gap tracker is written through a LOCAL, because the columnar backend declines a property
         // assignment whose receiver is a field (NL103, node kind 23). Every other write of it in the
@@ -370,27 +370,6 @@ class FormatterWalk {
         }
 
         return highest
-    }
-
-    // CAN EVERY ARGUMENT BEGIN A LINE OF ITS OWN? A wrapped list that answers no would not re-parse.
-    //
-    // The parser ends an argument list at a continuation token that starts a statement, a declaration
-    // or a modifier (`IsContinuationRecoveryBoundary`), and `ref` is a DECLARATION keyword. So
-    // `f(a, ref b\n)` — a list the delimiter test calls wrapped — would be rewritten with `ref b` at
-    // the head of a line, and the parser would stop the list before it. `FormatSafe`'s reparse gate
-    // would then catch that and return the ORIGINAL source, so the file would silently stop being
-    // formatted at all; refusing the wrap and leaving the list on one line is the better answer, and
-    // it is still author-preserving in the direction that matters — nothing the author wrote is lost.
-    //
-    // `out` is not in any of the three sets and needs no guard; `ref` is the one modifier that is.
-    static func ArgumentsCanBeginLines(arguments: List<Argument>): bool {
-        for argument in arguments {
-            if argument.Modifier == ArgumentModifier.Ref {
-                return false
-            }
-        }
-
-        return true
     }
 
     static func LastArgumentSpansLines(arguments: List<Argument>): bool {
