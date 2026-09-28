@@ -3014,7 +3014,25 @@ class ColumnarDirectCallPlanner {
                 // written somewhere else in the list, and `ref`/`out` is matched against the parameter
                 // it binds to, not the position it was typed at.
                 argumentNode := argumentFacts.ArgumentNodes[index]
-                if parameters[index].ParameterType.IsByRef {
+                if ReflectedParameterDirection.IsReadOnlyReference(parameters[index]) {
+                    // A READ-ONLY REFERENCE: an `in` takes its argument bare or spelled `in`, as a source
+                    // `in` does; a `ref readonly` asks for a location spelled `ref` or `in`.
+                    // `AppendArgumentSlot` passes the storage's address every way. `out` names a
+                    // direction neither callee has.
+                    candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
+                    if candidate < 0 {
+                        return false
+                    }
+                    readOnlyLocation := ReflectedParameterDirection.IsReadOnlyLocation(parameters[index])
+                    if nodes.Kind(candidate) == ColumnarExpressionNodeKind.RefOutArgument {
+                        modifier := nodes.ChildCount(candidate) == 1 ? nodes.Text(source, candidate) : ""
+                        if modifier != "in" && !(modifier == "ref" && readOnlyLocation) {
+                            return false
+                        }
+                    } else if readOnlyLocation {
+                        return false
+                    }
+                } else if parameters[index].ParameterType.IsByRef {
                     candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
                     if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.RefOutArgument || nodes.ChildCount(candidate) != 1 {
                         return false

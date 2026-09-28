@@ -566,3 +566,89 @@ test "candidates at arity are the admitted set the unique tier reduces" {
     assert ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity(typeof(System.Text.Encoding), "GetString", 1, true).Count == 0
     assert ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity(typeof(string), "Join", 2, true).Count > 0
 }
+
+// ── THE THREE BY-REFERENCE DIRECTIONS OF A REFLECTED PARAMETER ───────────────────────────────────
+//
+// `in`, `ref` and `out` are all `&T` in a signature, so the scorer is handed each reflected
+// parameter's DIRECTION beside its type, exactly as a source declaration's own column is handed to it.
+// Without it every reflected `in` parameter was scored as a `ref` one: a bare argument and a written
+// `in` were both refused, and a referenced `static func Peek(in value: Node)` could not be called.
+func OrdinaryRuntimeDirectionOwner(): Type {
+    assemblyName := "NSharpTests.OrdinaryRuntimeDirections"
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    owner := dynamicModule.DefineType("Directions.Owner", TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed)
+    byRefInt := OrdinaryRuntimeArgumentTypes1(typeof(int).MakeByRefType())
+    peek := owner.DefineMethod("Peek", MethodAttributes.Public | MethodAttributes.Static, typeof(int), byRefInt)
+    peek.DefineParameter(1, ParameterAttributes.In, "value")
+    peekIl := peek.GetILGenerator()
+    peekIl.Emit(OpCodes.Ldarg_0)
+    peekIl.Emit(OpCodes.Ldind_I4)
+    peekIl.Emit(OpCodes.Ret)
+    bump := owner.DefineMethod("Bump", MethodAttributes.Public | MethodAttributes.Static, typeof(int), byRefInt)
+    bump.DefineParameter(1, ParameterAttributes.None, "value")
+    bumpIl := bump.GetILGenerator()
+    bumpIl.Emit(OpCodes.Ldarg_0)
+    bumpIl.Emit(OpCodes.Ldind_I4)
+    bumpIl.Emit(OpCodes.Ret)
+    // `ref readonly`: `[In]` like an `in`, plus the attribute that asks for a location.
+    readLocation := owner.DefineMethod("ReadLocation", MethodAttributes.Public | MethodAttributes.Static, typeof(int), byRefInt)
+    readLocationParameter := readLocation.DefineParameter(1, ParameterAttributes.In, "location")
+    requiresLocation := typeof(System.Runtime.CompilerServices.RequiresLocationAttribute).GetConstructor(Type.EmptyTypes)
+    if requiresLocation == null {
+        throw new InvalidOperationException("RequiresLocationAttribute() was not found.")
+    }
+    readLocationParameter.SetCustomAttribute(new CustomAttributeBuilder(requiresLocation, new object[](0)))
+    readLocationIl := readLocation.GetILGenerator()
+    readLocationIl.Emit(OpCodes.Ldarg_0)
+    readLocationIl.Emit(OpCodes.Ldind_I4)
+    readLocationIl.Emit(OpCodes.Ret)
+    created := owner.CreateType()
+    if created == null {
+        throw new InvalidOperationException("The by-reference direction fixture could not be created.")
+    }
+    return created
+}
+
+func OrdinaryRuntimeDirectionSelected(owner: Type, memberName: string, writtenByRef: bool, writtenIn: bool): bool {
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.IsByRefArgument[0] = writtenByRef
+    facts.IsInArgument[0] = writtenIn
+    return ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(owner, memberName, OrdinaryRuntimeArgumentTypes1(typeof(int)), facts, true).IsSelected
+}
+
+test "a reflected in parameter takes its argument bare or written in, and never written ref" {
+    owner := OrdinaryRuntimeDirectionOwner()
+
+    assert OrdinaryRuntimeDirectionSelected(owner, "Peek", false, false)
+    assert OrdinaryRuntimeDirectionSelected(owner, "Peek", true, true)
+    assert !OrdinaryRuntimeDirectionSelected(owner, "Peek", true, false)
+
+    // A `ref` parameter is the opposite: it must be written `ref`, and neither a bare argument nor
+    // an `in` stands in for the word.
+    assert OrdinaryRuntimeDirectionSelected(owner, "Bump", true, false)
+    assert !OrdinaryRuntimeDirectionSelected(owner, "Bump", false, false)
+    assert !OrdinaryRuntimeDirectionSelected(owner, "Bump", true, true)
+
+    kinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds((must owner.GetMethod("Peek")).GetParameters())
+    assert kinds.Length == 1 && kinds[0] == 5
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds((must owner.GetMethod("Bump")).GetParameters())[0] == 0
+}
+
+// `Volatile.Read(ref running)` is the shape: .NET 10 declares the location `ref readonly`, which metadata
+// marks `[In]` exactly as it marks an `in` -- and a written `ref` is what such a parameter asks for, where
+// a bare `Volatile.Read(value)` stays refused (`tests/native/systems-gauntlet-facts` pins that NL402).
+test "a reflected ref readonly parameter takes its location written ref or in, and never a bare value" {
+    owner := OrdinaryRuntimeDirectionOwner()
+
+    assert OrdinaryRuntimeDirectionSelected(owner, "ReadLocation", true, false)
+    assert OrdinaryRuntimeDirectionSelected(owner, "ReadLocation", true, true)
+    // A bare value would need a temporary where the callee asked for the caller's storage.
+    assert !OrdinaryRuntimeDirectionSelected(owner, "ReadLocation", false, false)
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds((must owner.GetMethod("ReadLocation")).GetParameters())[0] == 6
+
+    // The framework's own declaration reads the same way.
+    volatileRead := typeof(System.Threading.Volatile).GetMethod("Read", OrdinaryRuntimeArgumentTypes1(typeof(bool).MakeByRefType()))
+    assert volatileRead != null
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(volatileRead.GetParameters())[0] == 6
+}

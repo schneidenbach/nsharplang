@@ -460,7 +460,9 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     } else if parameters.Length == argumentTypes.Length {
                         hadFixedArity = true
                         if CanDispatch(candidate, lookupType, expectedStatic) {
-                            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts)
+                            // THE DIRECTIONS GO WITH THE TYPES: an `in` parameter is `&T` too, and only
+                            // its modifier kind tells the scorer the call-site word is optional.
+                            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts, ReflectedModifierKinds(parameters))
                             if score > bestScore {
                                 bestScore = score
                                 bestCount = 1
@@ -672,7 +674,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     parameterTypes := ResolveParameterTypes(candidate, candidateLookupType, parameters, closedArguments)
                     returnType := ResolveReturnType(candidate, candidateLookupType, closedArguments)
                     if ColumnarParamsExpansion.ElementTypeOrNull(parameters, parameterTypes) != null && !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) && CanDispatch(candidate, lookupType, expectedStatic) {
-                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts)
+                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts, ReflectedModifierKinds(parameters))
                         if score > bestScore {
                             bestScore = score
                             bestCount = 1
@@ -1062,6 +1064,26 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return declaringType == candidateLookupType || declaringType.ContainsGenericParameters
     }
 
+    // A REFLECTED member's directions in the same encoding a source one carries: 5 for `in`, 0 for
+    // everything else — plus 6, which only metadata can say, for `ref readonly`. `ref` and `out` are
+    // deliberately NOT reported here — the scorer only needs to know which by-reference parameters are
+    // READ-ONLY, because those are the directions whose call-site word is optional, and reporting the
+    // other two would say nothing the types do not. See `ReflectedParameterDirection`.
+    static func ReflectedModifierKinds(parameters: ParameterInfo[]): int[] {
+        kinds := new int[](parameters.Length)
+        index := 0
+        while index < parameters.Length {
+            if ReflectedParameterDirection.IsReadOnlyLocation(parameters[index]) {
+                kinds[index] = 6
+            } else if ReflectedParameterDirection.IsReadOnlyReference(parameters[index]) {
+                kinds[index] = 5
+            }
+            index = index + 1
+        }
+
+        return kinds
+    }
+
     static func IsIntrinsicExcludedShape(method: MethodInfo, parameters: ParameterInfo[]): bool {
         if method.IsGenericMethod || method.IsGenericMethodDefinition || IsVarArgs(method) {
             return true
@@ -1289,7 +1311,9 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     returnType := ResolveReturnType(candidate, lookupType, closedArguments)
                     if !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) && OptionalTailFillable(parameters, parameterTypes, argumentCount) && CanDispatch(candidate, lookupType, expectedStatic) {
                         leading := LeadingParameterTypes(parameterTypes, argumentCount)
-                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
+                        leadingKinds := new int[](argumentCount)
+                        Array.Copy(ReflectedModifierKinds(parameters), leadingKinds, argumentCount)
+                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts, leadingKinds)
                         if score >= 0 {
                             parameterCount := parameters.Length
                             if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {

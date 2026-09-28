@@ -338,10 +338,20 @@ class AnalyzerReflectionArgumentBinder {
     func TryScoreReflectionSuppliedArgument(supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, analyzedNonLambdaArguments: TypeInfo?[], expectsParamsElement: bool, out score: int): bool {
         score = 0
 
-        expectsByRef := !expectsParamsElement && parameter.ParameterType.IsByRef
+        expectsByRef := !expectsParamsElement && IsWrittenThroughParameter(parameter)
         argumentModifier := supplied.Argument.Modifier
         suppliedByRef := argumentModifier == ArgumentModifier.Ref || argumentModifier == ArgumentModifier.Out
-        if expectsByRef != suppliedByRef {
+        if !expectsParamsElement && ReflectedParameterDirection.IsReadOnlyReference(parameter) {
+            // A READ-ONLY REFERENCE: `in` takes its argument bare or spelled `in`, as a source `in`
+            // does; `ref readonly` asks for a location, spelled `ref` or `in`. Neither takes `out`.
+            if ReflectedParameterDirection.IsReadOnlyLocation(parameter) {
+                if argumentModifier != ArgumentModifier.Ref && argumentModifier != ArgumentModifier.In {
+                    return false
+                }
+            } else if argumentModifier == ArgumentModifier.Out || argumentModifier == ArgumentModifier.Ref {
+                return false
+            }
+        } else if expectsByRef != suppliedByRef {
             return false
         }
 
@@ -1605,7 +1615,7 @@ class AnalyzerReflectionArgumentBinder {
 
             parameter := state.OpenParameters[parameterIndex]
             flowFacts := NullabilityFlowAttributeReflection.FromParameter(parameter)
-            isByRefParameter := parameter.ParameterType.IsByRef
+            isByRefParameter := IsWrittenThroughParameter(parameter)
             if !isByRefParameter && flowFacts == NullabilityFlowFacts.None() {
                 continue
             }
@@ -1684,7 +1694,13 @@ class AnalyzerReflectionArgumentBinder {
             if expectedType == null || !IsAcceptedReflectionArgument(expectedType, argumentType, state.PendingConstant) {
                 state.Failed = true
             } else if state.PendingArgumentIndex >= 0 && RefusesMaybeNullArgument(state, expectedType, argumentType) {
-                state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, expectedType, argumentType))
+                // A `ref` position is reported as the by-ref pair it is, which is how the same call
+                // against the same declaration in source reads.
+                if state.PendingArgumentModifier == ArgumentModifier.Ref {
+                    state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, new ByRefTypeInfo(expectedType), new ByRefTypeInfo(argumentType)))
+                } else {
+                    state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, expectedType, argumentType))
+                }
             }
         }
 
@@ -1734,13 +1750,39 @@ class AnalyzerReflectionArgumentBinder {
     // declaration in source is: the plain relation, which keeps the annotation, must accept it too.
     // The shared framework keeps its old answer -- a separate decision, measured in
     // `AnalyzerAssignability.IsMaybeNullIntoNotNull`.
+    //
+    // THE WRITTEN MODIFIER DECIDES WHICH WAY THE VALUE FLOWS, as it does for the same declaration in
+    // source (`AnalyzerAssignability.IsAssignableCore`'s by-ref arm). An `out` argument flows OUT only:
+    // the callee assigns it before returning and never reads what was there, so a maybe-null variable
+    // for a not-null `out T` is exactly right — the call is what fills it. A `ref` argument flows both
+    // ways, so its annotation must match in both directions: a not-null variable handed to a `ref T?`
+    // could come back null. Everything else — `in` included — flows in.
     func RefusesMaybeNullArgument(state: ReflectionCallFinalizeState, expectedType: TypeInfo, analyzedType: TypeInfo): bool {
         declaringType := state.OpenMethod.DeclaringType
         if declaringType == null || ExternalAssemblyScan.IsSharedFrameworkAssembly(declaringType.Assembly) {
             return false
         }
 
+        modifier := state.PendingArgumentModifier
+        if modifier == ArgumentModifier.Out {
+            return false
+        }
+
+        // A `ref` written for a READ-ONLY reference (`ref readonly`) flows in only: the callee reads it.
+        parameterIndex := state.PendingParameterIndex
+        readOnlyTarget := parameterIndex >= 0 && parameterIndex < state.OpenParameters.Length && !IsWrittenThroughParameter(state.OpenParameters[parameterIndex])
+        if modifier == ArgumentModifier.Ref && !readOnlyTarget {
+            return assignability.RefusesMaybeNull(expectedType, analyzedType) || assignability.RefusesMaybeNull(analyzedType, expectedType)
+        }
+
         return assignability.RefusesMaybeNull(expectedType, analyzedType)
+    }
+
+    // WHETHER A REFLECTED PARAMETER IS WRITTEN THROUGH — `ref` or `out`, and not a read-only
+    // reference. An `in` or `ref readonly` parameter is a by-ref shell too, but the callee cannot write
+    // the variable it was handed (`ReflectedParameterDirection`).
+    static func IsWrittenThroughParameter(parameter: ParameterInfo): bool {
+        return parameter.ParameterType.IsByRef && !ReflectedParameterDirection.IsReadOnlyReference(parameter)
     }
 
     // THE CONVERSION THE FINALISING WALK VALIDATES, WITH THE CONSTANT STILL IN HAND.

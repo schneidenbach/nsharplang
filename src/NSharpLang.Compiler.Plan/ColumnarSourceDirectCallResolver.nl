@@ -1085,9 +1085,19 @@ class ColumnarSourceDirectCallResolver {
                 // `ref` and `out` must be written, and `in` may NOT stand in for either — nor either
                 // for `in`. A caller that writes `ref` is asking for a writable alias, and an `in`
                 // parameter is not one; C# refuses the pair for exactly that reason.
+                //
+                // `ref readonly` (6, reflected only) asks for a LOCATION and takes it written `ref` or
+                // `in` -- never bare, which would need a temporary where the callee asked for storage.
+                // `out` is not separated from `ref` by the argument facts; the ordinary runtime gate
+                // refuses it by its written word.
+                expectsReadOnlyLocation := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 6
                 expectsReadOnlyByRef := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 5
                 if expectsReadOnlyByRef {
                     if argumentFacts.IsByRefArgument[index] && !argumentFacts.IsInArgument[index] {
+                        return -1
+                    }
+                } else if expectsReadOnlyLocation {
+                    if !argumentFacts.IsByRefArgument[index] {
                         return -1
                     }
                 } else {

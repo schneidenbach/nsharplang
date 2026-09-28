@@ -220,3 +220,74 @@ test "a narrowed out value of a referenced class type is not-null in two project
     assert NullConsumerFindings(twoProjects, "NL202").Count == 0, NullText(twoProjects)
     assert string.Join("\n", NullConsumerFindings(twoProjects, "NL907")) == string.Join("\n", NullConsumerFindings(oneProject, "NL907")), NullText(twoProjects)
 }
+
+// AN `out` ARGUMENT FLOWS OUT. The callee writes the variable before it returns and never reads what was
+// there, so a maybe-null local handed to a not-null `out Node` is exactly right -- the call is what fills
+// it, and the true branch reads a `Node`. The same declaration in source has always said so; a
+// referenced one was checked as if the argument flowed IN and reported NL202 (the Emit carve routed
+// around it by declaring such locals with the parameter's own type).
+test "an out argument to a referenced N# method is written by the call, in two projects as in one" {
+    consumer := NullConsumer("    static func Static(key: string): string {\n        let found: Node? = null\n        if Holder.TryFind(key, out found) {\n            return found.Name\n        }\n        return \"\"\n    }\n\n    static func Instance(holder: Holder, key: string): string {\n        let found: Node? = null\n        if holder.TryFindHere(key, out found) {\n            return found.Name\n        }\n        return \"\"\n    }\n\n    static func Declared(key: string): int {\n        let found: Node\n        Holder.TryFind(key, out found)\n        return found.Name.Length\n    }\n\n    static func Maybe(key: string): int {\n        let found: Node = new Node(key)\n        Holder.TryFindMaybe(key, out found)\n        return found.Name.Length\n    }\n\n    static func Overloaded(key: int): string {\n        let found: Node? = null\n        if Holder.TryFind(key, out found) {\n            return found.Name\n        }\n        return \"\"\n    }\n")
+    oneProject := new List<CompilerError>()
+    twoProjects := new List<CompilerError>()
+    NullBothShapes("out", consumer, out oneProject, out twoProjects)
+
+    assert NullConsumerFindings(oneProject, "NL202").Count == 0, NullText(oneProject)
+    assert NullConsumerFindings(twoProjects, "NL202").Count == 0, NullText(twoProjects)
+    assert NullConsumerFindings(twoProjects, "NL402").Count == 0, NullText(twoProjects)
+    // What the call WROTE is what the flow reads: a `Node?` out parameter leaves the variable maybe-null
+    // whatever it held before, in both shapes, and a `Node` one leaves it not-null.
+    single := NullConsumerFindings(oneProject, "NL905")
+    assert single.Count == 1, NullText(oneProject)
+    assert single[0].StartsWith("33:", StringComparison.Ordinal), single[0]
+    assert string.Join("\n", NullConsumerFindings(twoProjects, "NL905")) == string.Join("\n", single), "two projects:\n" + NullText(twoProjects) + "---- one project:\n" + NullText(oneProject)
+}
+
+// A `ref` ARGUMENT FLOWS BOTH WAYS, so its annotation must match in both directions, and an `in` argument
+// flows in: it binds a referenced `in` parameter bare or spelled, as the same declaration in source does,
+// and a maybe-null one is refused as a by-value argument would be.
+test "a ref argument matches both ways and an in argument binds, in two projects as in one" {
+    consumer := NullConsumer("    static func RefMaybe(): int {\n        let held: Node? = null\n        Holder.Replace(ref held)\n        return 0\n    }\n\n    static func RefNotNull(): int {\n        let held: Node = new Node(\"h\")\n        Holder.ReplaceMaybe(ref held)\n        return held.Name.Length\n    }\n\n    static func RefExact(node: Node, maybe: Node?): int {\n        held := node\n        Holder.Replace(ref held)\n        other := maybe\n        Holder.ReplaceMaybe(ref other)\n        return held.Name.Length\n    }\n\n    static func In(node: Node, maybe: Node?): int {\n        return Holder.Peek(node) + Holder.Peek(in node) + Holder.Peek(in maybe)\n    }\n")
+    oneProject := new List<CompilerError>()
+    twoProjects := new List<CompilerError>()
+    NullBothShapes("ref-in", consumer, out oneProject, out twoProjects)
+
+    single := NullConsumerFindings(oneProject, "NL202")
+    split := NullConsumerFindings(twoProjects, "NL202")
+    assert single.Count == 3, NullText(oneProject)
+    joined := string.Join("\n", single)
+    assert joined.Contains("Cannot pass `&Node?` as argument for parameter `node` of type `&Node`"), joined
+    assert joined.Contains("Cannot pass `&Node` as argument for parameter `node` of type `&Node?`"), joined
+    assert joined.Contains("Cannot pass `Node?` as argument for parameter `node` of type `Node`"), joined
+    assert string.Join("\n", split) == joined, "two projects:\n" + NullText(twoProjects) + "---- one project:\n" + NullText(oneProject)
+    assert NullConsumerFindings(twoProjects, "NL402").Count == 0, NullText(twoProjects)
+    assert NullConsumerFindings(oneProject, "NL402").Count == 0, NullText(oneProject)
+}
+
+// THE SAME THREE DIRECTIONS, COMPILED AND RUN: this project references the library's built assembly, so
+// every call below is a referenced call, analysed and emitted by the compiler under test.
+func NullFoundName(key: string): string {
+    let found: Node? = null
+    if Holder.TryFind(key, out found) {
+        return found.Name
+    }
+    return "none"
+}
+
+func NullReplaced(name: string): string {
+    held := new Node(name)
+    Holder.Replace(ref held)
+    return held.Name
+}
+
+func NullPeeked(name: string): int {
+    node := new Node(name)
+    return Holder.Peek(node) + Holder.Peek(in node)
+}
+
+test "a referenced out, ref and in call compiles and runs" {
+    assert NullFoundName("key") == "key"
+    assert NullFoundName("") == "none"
+    assert NullReplaced("n") == "n!"
+    assert NullPeeked("abc") == 6
+}

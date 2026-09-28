@@ -127,7 +127,9 @@ class ReflectionCallFinalizeState {
     // THE SPELLING THE OUTSTANDING ARGUMENT WAS PASSED WITH, taken with the constant and for the same
     // reason: the answer is the written expression's own type, and a `ref` naming a `&T` parameter
     // answers the reference -- `AnalyzerReflectionArgumentBinder.ReferencedStorageType` needs the
-    // spelling to know the storage behind it is what the parameter's shell is matched against.
+    // spelling to know the storage behind it is what the parameter's shell is matched against. The
+    // maybe-null question reads it too: it is a question about the DIRECTION a value flows, and only
+    // the written spelling says which way that is once the parameter's shell has been peeled.
     PendingArgumentModifier: ArgumentModifier
 
     // The written argument and the parameter the outstanding expression was bound to, or -1 when it

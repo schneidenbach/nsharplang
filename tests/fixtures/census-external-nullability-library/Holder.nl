@@ -38,4 +38,41 @@ class Holder {
     static func TakeText(text: string): int {
         return text.Length
     }
+
+    // THE THREE BY-REF DIRECTIONS. An `out` is written by the call, a `ref` is read and written, and an
+    // `in` is read through a reference the callee cannot write.
+    static func TryFind(key: string, out found: Node): bool {
+        found = new Node(key)
+        return key.Length > 0
+    }
+
+    // An OVERLOAD of the same name and arity: the out argument must not cost the call its candidates.
+    static func TryFind(key: int, out found: Node): bool {
+        found = new Node(key.ToString())
+        return key > 0
+    }
+
+    func TryFindHere(key: string, out found: Node): bool {
+        found = new Node(key)
+        return Child != null
+    }
+
+    static func TryFindMaybe(key: string, out found: Node?): bool {
+        found = null
+        return key.Length == 0
+    }
+
+    static func Replace(ref node: Node) {
+        node = new Node(node.Name + "!")
+    }
+
+    static func ReplaceMaybe(ref node: Node?) {
+        if node != null {
+            node = null
+        }
+    }
+
+    static func Peek(in node: Node): int {
+        return node.Name.Length
+    }
 }

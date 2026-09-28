@@ -2696,3 +2696,27 @@ test "a by-reference argument is scored as the storage it reaches, and a by-valu
     assert Object.ReferenceEquals(AnalyzerReflectionArgumentBinder.ReferencedStorageType(ArgumentModifier.Ref, local), local)
     assert AnalyzerReflectionArgumentBinder.ReferencedStorageType(ArgumentModifier.Ref, null) == null
 }
+
+// ── A READ-ONLY REFERENCE PARAMETER OF A REFERENCED METHOD ───────────────────────────────────────
+//
+// `in` and `ref readonly` are both `[In] &T` in metadata; `RequiresLocationAttribute` is the only
+// difference, and the two take different arguments. `Volatile.Read(ref readonly bool)` takes its
+// location written `ref` -- the compiler's own daemon writes it that way -- or `in`; a bare value and
+// `out` are refused. (The `in` half, over an N# library's `in` parameter, runs in
+// `tests/native/census-external-nullability`.)
+func ReflectionBinderFrameworkErrors(body: string): List<string> {
+    return MemberResolutionFrameworkErrors("namespace P\n\nimport System.Threading\n\nfunc Probe(): bool {\n    flag := true\n" + body + "}\n")
+}
+
+test "a ref readonly framework parameter takes its location written ref or in, and refuses a bare value or out" {
+    written := ReflectionBinderFrameworkErrors("    return Volatile.Read(ref flag) && Volatile.Read(in flag)\n")
+    assert written.Count == 0, string.Join("\n", written)
+
+    bare := ReflectionBinderFrameworkErrors("    return Volatile.Read(flag)\n")
+    assert bare.Count == 1, string.Join("\n", bare)
+    assert bare[0].StartsWith("NL402 ", StringComparison.Ordinal), bare[0]
+
+    refused := ReflectionBinderFrameworkErrors("    return Volatile.Read(out flag)\n")
+    assert refused.Count == 1, string.Join("\n", refused)
+    assert refused[0].StartsWith("NL402 ", StringComparison.Ordinal), refused[0]
+}

@@ -1630,7 +1630,7 @@ class ColumnarConstructionPlanner {
                 projected[written] = types[placement[written]]
                 written += 1
             }
-            if fillable && ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(projected, argumentTypes, argumentFacts, ProjectedModifierKinds(ReflectedModifierKinds(parameters), placement, argumentTypes.Length)) >= 0 {
+            if fillable && ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(projected, argumentTypes, argumentFacts, ProjectedModifierKinds(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), placement, argumentTypes.Length)) >= 0 {
                 candidates.Add(candidate)
                 candidateTypes.Add(types)
                 candidateParameters.Add(parameters)
@@ -2086,22 +2086,6 @@ class ColumnarConstructionPlanner {
     // it: candidates that score EQUAL are re-compared on how specific their parameter types are, so an
     // overload set whose parameters sit on one conversion chain selects the most specific member
     // instead of declining as ambiguous. A tie no rule can break is still no selection.
-    // A REFLECTED member's directions in the same encoding a source one carries: 5 for `in`, 0 for
-    // everything else. `ref` and `out` are deliberately NOT reported here — the scorer only needs to
-    // know which by-reference parameters are READ-ONLY, because that is the only direction whose
-    // call-site word is optional, and reporting the other two would say nothing the types do not.
-    static func ReflectedModifierKinds(parameters: ParameterInfo[]): int[] {
-        kinds := new int[](parameters.Length)
-        index := 0
-        while index < parameters.Length {
-            if parameters[index].ParameterType.IsByRef && parameters[index].IsIn {
-                kinds[index] = 5
-            }
-            index = index + 1
-        }
-
-        return kinds
-    }
 
     // The first `count` directions of a candidate's column, matching what `PrefixTypes` does to its
     // types. A column shorter than the prefix cannot describe it, so it answers empty rather than
