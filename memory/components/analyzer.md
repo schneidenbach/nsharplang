@@ -5273,6 +5273,20 @@ two `class Shared` reachable through aliased file imports collide, because
 `ColumnarBindingScopeFacts.ExactTypeNameForFile` gives a namespace-less type its bare name and the
 assembly would carry both.
 
+**Its echoes name both declarations (2026-09-27).** The collision does not stop analysis, so a third
+file whose bare `Widget` binds to the FIRST declaration, calling a function the second file wrote
+against its OWN `Widget`, is also NL202 — and printed "Cannot pass `List<Widget>` ... of type
+`List<Widget>`", once per call site, burying the NL339 (census-flow-rules repro: 14 such NL202s after
+one NL339). `TypeMismatchDisplay` now decides qualification PER LEAF: a leaf whose printed name also
+stands for a different type in the pair is spelled with its namespace, and when the namespace is the
+same too, with its declaration site — `Widget [A.nl:3]` via `AnalyzerDeclarationContext.DescribeDeclarationSite`
+(metadata leaves get `[AssemblyName]`, the C# convention). The per-leaf question also catches
+`Entry` vs `Entry?` where the two `Entry`s differ, which whole-string equality missed. Non-colliding
+leaves keep their simple names. Rows: `src/NSharpLang.Compiler.Driver/DuplicateTypeMismatch.tests.nl`
+and the echo row in `tests/native/census-duplicate-declarations`. Merging the two declarations into one
+identity was NOT done: NL339 already blocks the build, and one merged identity would only trade the
+echoes for "no member `Label` on `Widget`" reports against whichever body lost.
+
 ## A `throw` written as a value is NL340 unless something else can type it (census 2026-09-13, THROWEXPR)
 
 `x ?? throw e`, `cond ? v : throw e` and `func F(): T => throw e` all TYPED correctly before this

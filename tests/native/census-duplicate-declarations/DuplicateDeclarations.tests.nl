@@ -232,6 +232,29 @@ test "every declaration form collides, not just `class`" {
     }
 }
 
+// ─── WHAT THE REST OF THE PROGRAM SAYS ABOUT IT ───────────────────────────────────────────────
+
+// The collision is reported once, but the program around it is still analysed: a call that hands one
+// file's `Widget` to a function written against the other's is also a type mismatch. That echo used to
+// read "Cannot pass `List<Widget>` ... of type `List<Widget>`" — a contradiction, one per call site,
+// burying the NL339 that explains all of them. The two types share a name AND a namespace, so the
+// echo spells each with the declaration it came from, and every one of them points at the two
+// declarations to reconcile.
+test "a call between the two declarations names both of them instead of contradicting itself" {
+    directory := DupNewProject("nsharp-duplicate-mismatch-echo")
+    try {
+        DupWrite(directory, "A.nl", "namespace Catalog\n\nclass Widget {\n    Name: string => \"first\"\n}\n")
+        DupWrite(directory, "B.nl", "namespace Catalog\n\nimport System.Collections.Generic\n\nclass Widget {\n    Label: string => \"second\"\n}\n\nfunc CountWidgets(widgets: List<Widget>): int {\n    return widgets.Count\n}\n")
+        DupWrite(directory, "C.nl", "namespace Catalog\n\nimport System.Collections.Generic\n\nfunc Total(): int {\n    return CountWidgets(new List<Widget>())\n}\n")
+
+        census := DupCheckCensus(directory)
+        assert DupJoin(census) == "NL339@B.nl:5:7+6;NL202@C.nl:6:25+3", DupJoin(census)
+        assert DupSingleMessage(directory, "NL202") == "Cannot pass `List<Widget [A.nl:3]>` as argument for parameter `widgets` of type `List<Widget [B.nl:5]>`"
+    } finally {
+        DupDelete(directory)
+    }
+}
+
 // ─── THE SHAPES THAT MUST STAY LEGAL ──────────────────────────────────────────────────────────
 
 test "the same name in two DIFFERENT namespaces is two types and reports nothing" {

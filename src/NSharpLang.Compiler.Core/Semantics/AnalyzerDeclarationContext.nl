@@ -592,6 +592,26 @@ class AnalyzerDeclarationContext {
         return filePath
     }
 
+    // WHERE A SOURCE TYPE WAS DECLARED, as a reader locates it: `File.nl:25`, or `File.nl` alone when
+    // the declaration's line cannot be recovered, or the empty string for a type no source file owns.
+    // This is what tells two SOURCE types apart once their namespace-qualified names are the same —
+    // which only happens when one namespace declares a name twice (NL339), so the file is exactly the
+    // fact the reader is missing.
+    func DescribeDeclarationSite(typeInfo: TypeInfo): string {
+        filePath := GetDeclarationFile(typeInfo)
+        if filePath == null {
+            return ""
+        }
+
+        site := DisplayPathFor(filePath)
+        declaration := FindDeclarationForType(typeInfo)
+        if declaration == null {
+            return site
+        }
+
+        return site + ":" + TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line").ToString()
+    }
+
     func TryResolveNestedType(owner: TypeInfo, name: string, requireExported: bool, out nestedType: TypeInfo): bool {
         activeAliases := new HashSet<string>(StringComparer.Ordinal)
         resolvedOwner := ResolveAlias(owner, activeAliases)
