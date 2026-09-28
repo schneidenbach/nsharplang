@@ -156,3 +156,21 @@ test "G10: a source static inside a referenced one, a referenced one inside a so
     assert OperandUses.SourceOuter(new Shape("a")) == 101
     assert OperandUses.InstanceOuter(new Shape("s"), new Shape("a")) == "as"
 }
+
+test "G11: a referenced struct takes an object initializer, and a member write through a local's address" {
+    assert OperandUses.InitializedCounter() == 10
+    assert OperandUses.ConstructedThenInitialized() == 12
+    assert OperandUses.StoredCounter() == 15
+    assert OperandUses.CallerKeepsItsCopy() == "5 4"
+    assert OperandUses.NestedStore() == 9
+    assert OperandUses.HeldCounter() == 3
+    assert OperandUses.GaugeReading() == "kPa 15"
+}
+
+test "G11: a referenced class takes an object initializer through its parameterless or all-optional constructor" {
+    assert OperandUses.Configured() == "n5o t7 none"
+}
+
+test "G11: an initializer whose values only the emitter writes builds the same referenced struct and class" {
+    assert OperandUses.Interpolated(4) == "u44 s44none 2"
+}

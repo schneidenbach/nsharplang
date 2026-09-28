@@ -1116,6 +1116,31 @@ Ref RETURNS (`func F(): &int`) were never emittable (`emit.declaration.function-
 `AnalyzerBindingFacts.tests.nl` (both spellings side by side), `Linter.tests.nl` (NL012) and
 `tests/native/census-by-ref-forwarding/ValuePosition`.
 
+### A referenced type's object initializer and member writes (2026-09-27, carving prep)
+
+A struct that moves to a REFERENCED assembly kept declining in two shapes its source twin emitted:
+`new Counter { Value: 10 }` (`emit.local.initializer`) and `c.Value = 10` (`emit.statement.block-child`).
+Nothing in the analyzer changed; the owners are the planner and the emitter:
+- THE INITIALIZER'S OWNER IS THE PLANNER (`ColumnarConstructionPlanner.TryAppendObjectInitializer`):
+  it claims every object initializer whose value syntax it admits, so a fix in the emitter arm alone
+  is dead code for the common case. `TryAppendRuntimeObjectInitializerConstruction` read only
+  `GetConstructor(Type[0])`, which a struct does not have. Now: a struct is its public parameterless
+  ctor if metadata declares one, else `ldloca; initobj`, parked in a plan local and written through
+  `ldloca` (`TryAppendObjectMembers(..., valueLocal)`, setter `call`); a class is `TrySelectRuntimeConstructor`
+  at zero arguments, so an all-optional ctor has its defaults filled (a `params`-only one is refused).
+  `new T(args) { … }` over ANY value type (source or referenced) parks the value the same way — it was
+  `dup; stfld` over a struct VALUE (invalid IL) for a referenced one and a refusal for a source one.
+- THE EMITTER ARM IS THE FALLBACK for value syntax the planner does not admit (an interpolated string
+  is one): `TryEmitReferencedObjectInitializer` / `TryEmitReferencedInitializerMembers[On]` apply the
+  same rules, and replaced the emitter's hand-picked `JsonSerializerOptions`/`ProcessStartInfo`/`Process`
+  list (the planner's twin of that list was already gone).
+- MEMBER WRITES are the emitter's: the reflected write arm takes value owners (the locator already
+  hands them over by address) and `call`s a value owner's setter; the compound member arm
+  (`c.Value += 5`) reads a reflected owner's field too. Compound through a PROPERTY is still open for
+  source and referenced owners alike.
+Pinned by `census-external-operands` G10 (analysis AND emit-only paths, planner and fallback rows);
+G9's `Forwarded` no longer routes around either shape.
+
 ### A `?.` chain and its continuation
 
 `AnalyzerNullConditionalChainFacts.nl` answers where a chain begins and how far right it reaches, and

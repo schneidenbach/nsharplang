@@ -892,6 +892,24 @@ the reason to bind such a value to a name before calling a method that mutates i
 Value semantics still apply everywhere else: passing a struct copies it, so a method that bumps a
 struct PARAMETER moves that frame's copy and not the caller's variable.
 
+### Writing a struct's members
+
+An object initializer fills a struct's fields, settable properties and `init` members, and a member
+assignment — `=` or a compound operator — writes the variable's own storage, whether the struct is
+declared in this project or arrives from a referenced assembly or package:
+
+```n#
+counter := new Counter { Value: 10 }   // Counter may live in another project
+counter.Value = 12
+counter.Value += 3                     // 15
+holder.Inner.Value = 7                 // a struct field of a struct variable: the same storage
+```
+
+`new T { ... }` over a struct starts from its public parameterless constructor when it declares one
+and from the zeroed value otherwise; over a class, from the constructor callable with no arguments,
+including one whose parameters are all optional. That is C#'s rule, so a type means the same thing
+on either side of an assembly boundary.
+
 ### Readonly Structs
 
 ```n#

@@ -271,18 +271,84 @@ class OperandUses {
         OperandFacts.Grow(ref counter, amount)
     }
 
-    // The struct starts from `new Counter()` and changes only through the `&T` chain: an object
-    // initializer over a REFERENCED struct (`new Counter { Value: 10 }`) declines at
-    // `emit.local.initializer`, and a field write on a referenced-struct local at
-    // `emit.statement.block-child` -- both measured on this tip, neither one a by-reference question.
     static func Forwarded(): string {
         slot := 1
         BumpThrough(ref slot, 2)
         BumpTwoHops(ref slot, 3)
-        counter := new Counter()
+        counter := new Counter { Value: 10 }
         GrowThrough(ref counter, 5)
-        GrowThrough(ref counter, 10)
         return slot.ToString() + " " + counter.Value.ToString()
+    }
+
+    // G10: a referenced STRUCT built by an object initializer, and written through a local's address,
+    // with `=` and with a compound operator.
+    static func InitializedCounter(): int {
+        counter := new Counter { Value: 10 }
+        return counter.Value
+    }
+
+    static func ConstructedThenInitialized(): int {
+        counter := new Counter() { Value: 12 }
+        return counter.Value
+    }
+
+    static func StoredCounter(): int {
+        counter := new Counter()
+        counter.Value = 10
+        counter.Value += 5
+        return counter.Value
+    }
+
+    // A by-value parameter is its own copy: the write changes it and not the caller's.
+    static func BumpedCopy(counter: Counter): int {
+        counter.Value = counter.Value + 1
+        return counter.Value
+    }
+
+    static func CallerKeepsItsCopy(): string {
+        counter := new Counter { Value: 4 }
+        bumped := BumpedCopy(counter)
+        return bumped.ToString() + " " + counter.Value.ToString()
+    }
+
+    // A referenced struct held in a SOURCE struct's field: the write goes through that field's address.
+    static func NestedStore(): int {
+        holder := new CounterHolder()
+        holder.Inner.Value = 7
+        holder.Inner.Value += 2
+        return holder.Inner.Value
+    }
+
+    // A SOURCE struct built with `new T() { ... }` holding a referenced struct built by an initializer.
+    static func HeldCounter(): int {
+        holder := new CounterHolder() { Inner: new Counter { Value: 3 } }
+        return holder.Inner.Value
+    }
+
+    // A referenced struct's `init` member and settable property, set by an initializer and then written.
+    static func GaugeReading(): string {
+        gauge := new Gauge { Unit: "kPa", Level: 3 }
+        gauge.Level = gauge.Level * 5
+        return gauge.Unit + " " + gauge.Level.ToString()
+    }
+
+    // The same initializers with a value only the emitter itself writes -- an interpolated string -- so
+    // the construction is its to make, not the planner's.
+    static func Interpolated(n: int): string {
+        gauge := new Gauge { Unit: $"u{n}", Level: n }
+        settings := new Settings { Name: $"s{n}", Count: n }
+        counter := new Counter() { Value: $"{n}{n}".Length }
+        return gauge.Unit + gauge.Level.ToString() + " " + settings.Name + settings.Count.ToString() + settings.Owner + " " + counter.Value.ToString()
+    }
+
+    // A referenced CLASS with no constructor argument written: its parameterless constructor, and one
+    // whose every parameter is optional.
+    static func Configured(): string {
+        settings := new Settings { Name: "n", Count: 2, Owner: "o" }
+        settings.Count += 3
+        tuned := new Tuned { Label: "t" }
+        untouched := new Settings { Name: "m" }
+        return settings.Name + settings.Count.ToString() + settings.Owner + " " + tuned.Label + tuned.Level.ToString() + " " + untouched.Owner
     }
 
     static func Digest(): string {
@@ -322,6 +388,7 @@ class OperandUses {
         lines.Add("nested " + MustNested(shape).ToString() + " " + MustNestedLocal(alias).ToString() + " " + OperatorNested(-2).ToString() + " " + new Cursor("ab").Matches(1, 5).ToString() + " " + new Cursor("ab").Matches(2, 7).ToString())
         lines.Add("must-member " + MustMemberNested(alias).ToString() + " " + OverloadedOuter(shape))
         lines.Add("neighbours " + SourceInner(shape).ToString() + " " + SourceOuter(alias).ToString() + " " + InstanceOuter(shape, alias))
+        lines.Add("struct " + InitializedCounter().ToString() + " " + ConstructedThenInitialized().ToString() + " " + StoredCounter().ToString() + " " + CallerKeepsItsCopy() + " " + NestedStore().ToString() + " " + HeldCounter().ToString() + " " + GaugeReading() + " " + Configured() + " " + Interpolated(4))
         return string.Join("\n", lines)
     }
 }
@@ -342,4 +409,10 @@ class Cursor {
     func Matches(index: int, count: int): bool {
         return Facts.Both(count, Facts.Join(Label, Label, Child(index, count - 1)))
     }
+}
+
+// A SOURCE struct holding a referenced one, so a member write reaches the referenced struct's field
+// through this one's.
+struct CounterHolder {
+    Inner: Counter
 }

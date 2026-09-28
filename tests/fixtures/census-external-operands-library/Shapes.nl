@@ -278,6 +278,41 @@ struct Counter {
     Value: int
 }
 
+// A referenced struct with a settable PROPERTY beside an `init` one, as a value an object initializer
+// fills and a member write reaches through its address.
+struct Gauge {
+    init Unit: string
+    reading: int
+
+    Level: int {
+        get {
+            return reading
+        }
+        set {
+            reading = value
+        }
+    }
+}
+
+// A referenced class constructed with no argument written: the parameterless constructor it is given,
+// with a field, a defaulted field and an `init` member for an object initializer to fill.
+class Settings {
+    Name: string = ""
+    Count: int
+    init Owner: string = "none"
+}
+
+// A referenced class whose only constructor has every parameter optional, which `new Tuned { ... }`
+// calls with its default filled in.
+class Tuned {
+    Level: int
+    Label: string = ""
+
+    constructor(level: int = 7) {
+        Level = level
+    }
+}
+
 class Labeler {
     Prefix: string
 

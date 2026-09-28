@@ -9741,22 +9741,34 @@ sealed class ColumnarIlEmitter {
                 // bare-local arm; decimal member compounds decline (unprobed — fallback).
                 if (_nodes.Kind(compoundTarget) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                     let compoundChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null)
-                    let compoundMemberField: System.Reflection.Emit.FieldBuilder = null
                     if (!TryResolveMemberWriteChain(Child(compoundTarget, 0), out compoundChain)) {
                         return false
                     }
+                    compoundMemberName := ColumnarNodeTextFacts.Text(_nodes, _source, compoundTarget)
+                    let compoundField: System.Reflection.FieldInfo? = null
                     compoundOwnerTb := compoundChain.ReceiverType as TypeBuilder
-                    if (compoundOwnerTb == null) {
-                        return false
+                    if (compoundOwnerTb != null) {
+                        let compoundMemberField: System.Reflection.Emit.FieldBuilder = null
+                        compoundOwnerDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, compoundOwnerTb)
+                        if (compoundOwnerDef == null || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(compoundOwnerDef, compoundMemberName, out compoundMemberField)) {
+                            return false
+                        }
+                        compoundField = compoundMemberField
+                    } else {
+                        // A REFLECTED OWNER's field is read, combined and stored through the same
+                        // locator the plain write above uses, class or value type alike.
+                        if (compoundChain.ReceiverType == null || compoundChain.ReceiverType.IsGenericParameter || RuntimeTypeShapeFacts.ContainsBuilderBoundType(compoundChain.ReceiverType)) {
+                            return false
+                        }
+                        compoundField = compoundChain.ReceiverType.GetField(compoundMemberName)
+                        if (compoundField == null || compoundField.IsStatic || compoundField.IsInitOnly || compoundField.IsLiteral) {
+                            return false
+                        }
                     }
-                    compoundOwnerDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, compoundOwnerTb)
-                    if (compoundOwnerDef == null || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(compoundOwnerDef, ColumnarNodeTextFacts.Text(_nodes, _source, compoundTarget), out compoundMemberField)) {
-                        return false
-                    }
-                    compoundMemberType := compoundMemberField.FieldType
+                    compoundMemberType := compoundField.FieldType
                     EmitMemberWriteLocator(compoundChain)
                     _il.Emit(OpCodes.Dup)
-                    _il.Emit(OpCodes.Ldfld, compoundMemberField)
+                    _il.Emit(OpCodes.Ldfld, compoundField)
                     let compoundMemberValueType: System.Type? = null
                     if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundMemberType, out compoundMemberValueType) && !EmitExpression(Child(expr, 1), out compoundMemberValueType)) {
                         return false
@@ -9764,7 +9776,7 @@ sealed class ColumnarIlEmitter {
                     if (!TryEmitCompoundOperation(assignOp, compoundMemberType, compoundMemberValueType)) {
                         return false
                     }
-                    _il.Emit(OpCodes.Stfld, compoundMemberField)
+                    _il.Emit(OpCodes.Stfld, compoundField)
                     return true
                 }
                 if (_nodes.Kind(compoundTarget) != ColumnarExpressionNodeKind.IdentifierExpression) {
@@ -10049,8 +10061,12 @@ sealed class ColumnarIlEmitter {
                     // record in one. The write is the same write: the member resolves by ORDINARY
                     // reflection instead of through a source definition, and a writable instance field
                     // takes `stfld` and a settable instance property takes its setter. Nothing about the
-                    // owner's provenance changes which instruction a member assignment is.
-                    if (writeOwnerDef == null && writeChain.ReceiverType != null && writeOwnerTb == null && !writeChain.ReceiverType.IsValueType && !writeChain.ReceiverType.IsGenericParameter) {
+                    // owner's provenance changes which instruction a member assignment is — and neither
+                    // does its being a VALUE type: the locator hands a value owner over by ADDRESS
+                    // (`ldloca`/`ldarga`/`ldflda`, or the `&T` itself), which is what `stfld` and a
+                    // setter `call` store through, so `c.Value = 10` on a referenced struct's local
+                    // writes that local exactly as it does on a source struct's.
+                    if (writeOwnerDef == null && writeChain.ReceiverType != null && writeOwnerTb == null && !writeChain.ReceiverType.IsGenericParameter && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(writeChain.ReceiverType)) {
                         reflectedWriteField := writeChain.ReceiverType.GetField(memberName)
                         if (reflectedWriteField != null && !reflectedWriteField.IsStatic && !reflectedWriteField.IsInitOnly && !reflectedWriteField.IsLiteral) {
                             EmitMemberWriteLocator(writeChain)
@@ -10097,7 +10113,13 @@ sealed class ColumnarIlEmitter {
                             if (!TryEmitAssignableValue(Child(expr, 1), reflectedWriteProperty.PropertyType, out reflectedPropertyValueType)) {
                                 return false
                             }
-                            _il.Emit(reflectedSetter.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, reflectedSetter)
+                            // A value owner's setter is `call`ed on its address: `callvirt` needs an
+                            // object reference, and a value type has no override to dispatch to.
+                            reflectedSetterOpcode := OpCodes.Call
+                            if (reflectedSetter.IsVirtual && !writeChain.ReceiverType.IsValueType) {
+                                reflectedSetterOpcode = OpCodes.Callvirt
+                            }
+                            _il.Emit(reflectedSetterOpcode, reflectedSetter)
                             return true
                         }
                     }
@@ -15238,8 +15260,9 @@ sealed class ColumnarIlEmitter {
             // ObjectInitializer [typeRoot, name0, value0, ...] — `new Struct { Field: value, ... }`. Build a
             // user-struct value: a temp local, `ldloca; initobj` (zero all fields), then per named field
             // `ldloca; <value>; stfld <FieldBuilder>`, then `ldloc` the temp. Mirrors the struct
-            // object-initializer (default + per-field assignment). Only a registered struct type is modelled.
-            // A `new Union.Case { f: v }` object-init (a reference type like a record) is handled first.
+            // object-initializer (default + per-field assignment). A `new Union.Case { f: v }` object-init
+            // (a reference type like a record) is handled first, and a type the compilation does not declare
+            // is initialized from its own metadata (`TryEmitReferencedObjectInitializer`).
             typeRootNode := Child(idx, 0)
             initChildCount := _nodes.ChildCount(idx)
             if ((initChildCount % 2) != 1) {
@@ -15248,77 +15271,28 @@ sealed class ColumnarIlEmitter {
             }
             pairCount := (initChildCount - 1) / 2
 
-            if (_nodes.Kind(typeRootNode) == ColumnarExpressionNodeKind.IntLiteralExpression) {
-                bclInitTypeName := ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode)
-                let bclInitType: Type? = null
-                if (bclInitTypeName == "JsonSerializerOptions") {
-                    bclInitType = typeof(JsonSerializerOptions)
-                } else {
-                    if (bclInitTypeName == "ProcessStartInfo") {
-                        bclInitType = typeof(ProcessStartInfo)
-                    } else {
-                        if (bclInitTypeName == "Process") {
-                            bclInitType = typeof(Process)
-                        } else {
-                            bclInitType = null
-                        }
-                    }
-                }
-                if (bclInitType != null) {
-                    defaultCtor := bclInitType.GetConstructor(Type.EmptyTypes)
-                    if (defaultCtor == null) {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Newobj, defaultCtor)
-                    assignedBclMembers := new HashSet<string>(StringComparer.Ordinal)
-                    for p := 0; p < pairCount; p++ {
-                        nameNode := Child(idx, 1 + (2 * p))
-                        valueNode := Child(idx, 2 + (2 * p))
-                        if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
-                            return false
-                        }
-                        memberName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
-                        if (!assignedBclMembers.Add(memberName)) {
-                            return false
-                        }
-                        property := bclInitType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
-                        if ((property == null || property.SetMethod == null)) {
-                            return false
-                        }
-                        if (!SetterSignatureSurvivesAMemberRef(property.SetMethod)) {
-                            _modifiedMemberReferences.Record(bclInitType, property.SetMethod)
-                        }
-                        _il.Emit(OpCodes.Dup)
-                        propertyType := property.PropertyType
-                        let propertyValueType: System.Type = null
-                        if (IsContextualDelegateValueNode(valueNode)) {
-                            if (!EmitDeclaredCallArgument(valueNode, propertyType, true)) {
-                                return false
-                            }
-                            propertyValueType = propertyType
-                        } else if (TryEmitZeroLiteralAsType(valueNode, propertyType, out propertyValueType)) {
-                        } else {
-                            // Null adopted to the declared reference property type.
-                            if (!EmitExpression(valueNode, out propertyValueType)) {
-                                return false
-                            }
-                        }
-                        if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
-                            return false
-                        }
-                        bclInitializerSetterEmitter := _il
-                        bclInitializerSetterForOpcode := property.SetMethod
-                        bclInitializerSetterOpcode := bclInitializerSetterForOpcode.IsVirtual ? OpCodes.Callvirt : OpCodes.Call
-                        bclInitializerSetterEmitter.Emit(bclInitializerSetterOpcode, property.SetMethod)
-                    }
-                    columnarResolvedType = bclInitType
-                    return true
-                }
-            }
-
             if (_nodes.Kind(typeRootNode) == ColumnarExpressionNodeKind.NewExpression) {
                 let constructedType: System.Type? = null
                 if (!EmitExpression(typeRootNode, out constructedType)) {
+                    return false
+                }
+                constructedUserDef: ColumnarStructDef? = null
+                constructedClosedArgs := Array.Empty<Type>()
+                constructedBuilder := constructedType as TypeBuilder
+                if (constructedBuilder != null) {
+                    constructedUserDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, constructedBuilder)
+                } else {
+                    let closedConstructedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    let closedConstructedArgs: System.Type[]? = null
+                    if (TryGetClosedReceiverDef(constructedType, out closedConstructedDef, out closedConstructedArgs)) {
+                        constructedUserDef = closedConstructedDef
+                        constructedClosedArgs = closedConstructedArgs
+                    }
+                }
+                if (constructedUserDef == null) {
+                    return TryEmitReferencedInitializerMembers(idx, pairCount, constructedType, out columnarResolvedType)
+                }
+                if (!constructedUserDef.IsReference) {
                     return false
                 }
                 assignedMembers := new HashSet<string>(StringComparer.Ordinal)
@@ -15333,114 +15307,13 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
 
-                    constructedUserDef: ColumnarStructDef? = null
-                    constructedClosedArgs := Array.Empty<Type>()
-                    constructedBuilder := constructedType as TypeBuilder
-                    if (constructedBuilder != null) {
-                        constructedUserDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, constructedBuilder)
-                    } else {
-                        let closedConstructedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-                        let closedConstructedArgs: System.Type[]? = null
-                        if (TryGetClosedReceiverDef(constructedType, out closedConstructedDef, out closedConstructedArgs)) {
-                            constructedUserDef = closedConstructedDef
-                            constructedClosedArgs = closedConstructedArgs
-                        }
-                    }
-
-                    if (constructedUserDef != null) {
-                        if (!constructedUserDef.IsReference) {
+                    let userInitProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                    if (TryFindPropertyOnChain(constructedUserDef, memberName, out userInitProperty)) {
+                        if (userInitProperty.Setter == null) {
                             return false
                         }
-                        let userInitProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                        if (TryFindPropertyOnChain(constructedUserDef, memberName, out userInitProperty)) {
-                            if (userInitProperty.Setter == null) {
-                                return false
-                            }
-                            propertyType := constructedClosedArgs.Length == 0 ? userInitProperty.PropertyType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitProperty.PropertyType, constructedClosedArgs)
-                            _il.Emit(OpCodes.Dup)
-                            let propertyValueType: System.Type = null
-                            if (IsContextualDelegateValueNode(valueNode)) {
-                                if (!EmitDeclaredCallArgument(valueNode, propertyType, true)) {
-                                    return false
-                                }
-                                propertyValueType = propertyType
-                            } else if (TryEmitZeroLiteralAsType(valueNode, propertyType, out propertyValueType)) {
-                            } else {
-                                // Null adopted to the declared reference/nullable property type.
-                                if (!EmitExpression(valueNode, out propertyValueType)) {
-                                    return false
-                                }
-                            }
-                            if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
-                                return false
-                            }
-                            let userSetter: MethodInfo = null
-                            if (constructedClosedArgs.Length == 0) {
-                                userSetter = userInitProperty.Setter
-                            } else {
-                                userSetter = TypeBuilder.GetMethod(constructedType, userInitProperty.Setter)
-                                if (userInitProperty.IsInitOnly) {
-                                    // The MemberRef belongs to the CONSTRUCTED owner. Its `!0` can
-                                    // therefore denote a method-owned `U` from `Box<U>`, while the
-                                    // open setter's parameter is the declaration-owned `T`. Keep the
-                                    // open setter only as the modifier source and match the emitted
-                                    // signature against the already-substituted property type.
-                                    setterParameterTypes := new Type[](1)
-                                    setterParameterTypes[0] = propertyType
-                                    _modifiedMemberReferences.Record(
-                                        constructedType,
-                                        userSetter,
-                                        userInitProperty.Setter,
-                                        setterParameterTypes,
-                                        ColumnarTypeOfPlanner.RequiredVoidType()
-                                    )
-                                }
-                            }
-                            _il.Emit(OpCodes.Callvirt, userSetter)
-                            continue
-                        }
-
-                        let userInitField: System.Reflection.Emit.FieldBuilder? = null
-                        if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(constructedUserDef, memberName, out userInitField)) {
-                            userFieldType := constructedClosedArgs.Length == 0 ? (must userInitField).FieldType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitField.FieldType, constructedClosedArgs)
-                            _il.Emit(OpCodes.Dup)
-                            let userFieldValueType: System.Type = null
-                            if (IsContextualDelegateValueNode(valueNode)) {
-                                if (!EmitDeclaredCallArgument(valueNode, userFieldType, true)) {
-                                    return false
-                                }
-                                userFieldValueType = userFieldType
-                            } else if (TryEmitZeroLiteralAsType(valueNode, userFieldType, out userFieldValueType)) {
-                            } else {
-                                // Null adopted to the declared reference/nullable field type.
-                                if (!EmitExpression(valueNode, out userFieldValueType)) {
-                                    return false
-                                }
-                            }
-                            if (!TypesEquivalent(userFieldValueType, userFieldType) && !TryEmitImplicitWidening(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(userFieldValueType, userFieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(userFieldValueType, userFieldType)) {
-                                return false
-                            }
-                            closedInitializerFieldEmitter := _il
-                            closedInitializerFieldOpcode := OpCodes.Stfld
-                            let closedInitializerField: FieldInfo = null
-                            if (constructedClosedArgs.Length == 0) {
-                                closedInitializerField = userInitField
-                            } else {
-                                closedInitializerField = TypeBuilder.GetField(constructedType, userInitField)
-                            }
-                            closedInitializerFieldEmitter.Emit(closedInitializerFieldOpcode, closedInitializerField)
-                            continue
-                        }
-                        return false
-                    }
-
-                    _il.Emit(OpCodes.Dup)
-                    property := constructedType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
-                    if ((property != null && property.SetMethod != null && !SetterSignatureSurvivesAMemberRef(property.SetMethod))) {
-                        _modifiedMemberReferences.Record(constructedType, property.SetMethod)
-                    }
-                    if ((property != null && property.SetMethod != null)) {
-                        propertyType := property.PropertyType
+                        propertyType := constructedClosedArgs.Length == 0 ? userInitProperty.PropertyType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitProperty.PropertyType, constructedClosedArgs)
+                        _il.Emit(OpCodes.Dup)
                         let propertyValueType: System.Type = null
                         if (IsContextualDelegateValueNode(valueNode)) {
                             if (!EmitDeclaredCallArgument(valueNode, propertyType, true)) {
@@ -15457,35 +15330,64 @@ sealed class ColumnarIlEmitter {
                         if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
                             return false
                         }
-                        bclMemberInitializerSetterEmitter := _il
-                        bclMemberInitializerSetterForOpcode := property.SetMethod
-                        bclMemberInitializerSetterOpcode := bclMemberInitializerSetterForOpcode.IsVirtual ? OpCodes.Callvirt : OpCodes.Call
-                        bclMemberInitializerSetterEmitter.Emit(bclMemberInitializerSetterOpcode, property.SetMethod)
+                        let userSetter: MethodInfo = null
+                        if (constructedClosedArgs.Length == 0) {
+                            userSetter = userInitProperty.Setter
+                        } else {
+                            userSetter = TypeBuilder.GetMethod(constructedType, userInitProperty.Setter)
+                            if (userInitProperty.IsInitOnly) {
+                                // The MemberRef belongs to the CONSTRUCTED owner. Its `!0` can
+                                // therefore denote a method-owned `U` from `Box<U>`, while the
+                                // open setter's parameter is the declaration-owned `T`. Keep the
+                                // open setter only as the modifier source and match the emitted
+                                // signature against the already-substituted property type.
+                                setterParameterTypes := new Type[](1)
+                                setterParameterTypes[0] = propertyType
+                                _modifiedMemberReferences.Record(
+                                    constructedType,
+                                    userSetter,
+                                    userInitProperty.Setter,
+                                    setterParameterTypes,
+                                    ColumnarTypeOfPlanner.RequiredVoidType()
+                                )
+                            }
+                        }
+                        _il.Emit(OpCodes.Callvirt, userSetter)
                         continue
                     }
 
-                    field := constructedType.GetField(memberName, BindingFlags.Public | BindingFlags.Instance)
-                    if (field == null) {
-                        return false
-                    }
-                    fieldType := field.FieldType
-                    let fieldValueType: System.Type = null
-                    if (IsContextualDelegateValueNode(valueNode)) {
-                        if (!EmitDeclaredCallArgument(valueNode, fieldType, true)) {
+                    let userInitField: System.Reflection.Emit.FieldBuilder? = null
+                    if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(constructedUserDef, memberName, out userInitField)) {
+                        userFieldType := constructedClosedArgs.Length == 0 ? (must userInitField).FieldType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitField.FieldType, constructedClosedArgs)
+                        _il.Emit(OpCodes.Dup)
+                        let userFieldValueType: System.Type = null
+                        if (IsContextualDelegateValueNode(valueNode)) {
+                            if (!EmitDeclaredCallArgument(valueNode, userFieldType, true)) {
+                                return false
+                            }
+                            userFieldValueType = userFieldType
+                        } else if (TryEmitZeroLiteralAsType(valueNode, userFieldType, out userFieldValueType)) {
+                        } else {
+                            // Null adopted to the declared reference/nullable field type.
+                            if (!EmitExpression(valueNode, out userFieldValueType)) {
+                                return false
+                            }
+                        }
+                        if (!TypesEquivalent(userFieldValueType, userFieldType) && !TryEmitImplicitWidening(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(userFieldValueType, userFieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(userFieldValueType, userFieldType)) {
                             return false
                         }
-                        fieldValueType = fieldType
-                    } else if (TryEmitZeroLiteralAsType(valueNode, fieldType, out fieldValueType)) {
-                    } else {
-                        // Null adopted to the declared reference/nullable field type.
-                        if (!EmitExpression(valueNode, out fieldValueType)) {
-                            return false
+                        closedInitializerFieldEmitter := _il
+                        closedInitializerFieldOpcode := OpCodes.Stfld
+                        let closedInitializerField: FieldInfo = null
+                        if (constructedClosedArgs.Length == 0) {
+                            closedInitializerField = userInitField
+                        } else {
+                            closedInitializerField = TypeBuilder.GetField(constructedType, userInitField)
                         }
+                        closedInitializerFieldEmitter.Emit(closedInitializerFieldOpcode, closedInitializerField)
+                        continue
                     }
-                    if (!TypesEquivalent(fieldValueType, fieldType) && !TryEmitImplicitWidening(fieldValueType, fieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(fieldValueType, fieldType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(fieldValueType, fieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(fieldValueType, fieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(fieldValueType, fieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(fieldValueType, fieldType)) {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Stfld, field)
+                    return false
                 }
                 columnarResolvedType = constructedType
                 return true
@@ -15627,9 +15529,9 @@ sealed class ColumnarIlEmitter {
 
             let initStructDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
             if (!_structRegistry.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode), out initStructDef)) {
-                return false
+                // A type this compilation does not declare: a referenced assembly's, or the runtime's.
+                return TryEmitReferencedObjectInitializer(idx, typeRootNode, pairCount, out columnarResolvedType)
             }
-            // not a registered struct/record/union-case type.
             if (initStructDef.Builder.IsGenericTypeDefinition) {
                 return false
             }
@@ -25168,9 +25070,12 @@ sealed class ColumnarIlEmitter {
 
     // The constructor of an already-resolved referenced type, chosen from its own metadata: the
     // exact-arity tier first, the trailing-optional tier only when that tier found nothing.
-    private func TryEmitReferencedConstructionOf(callIdx: int, constructedType: Type, out columnarResolvedType: Type): bool {
+    private func TryEmitReferencedConstructionOf(callIdx: int, constructedType: Type, out columnarResolvedType: Type): bool => TryEmitReferencedConstructionOf(callIdx, _nodes.ChildCount(callIdx) - 1, constructedType, out columnarResolvedType)
+
+    // `argCount` is how many of `callIdx`'s children after the first are written arguments: all of them
+    // at `new T(...)`, none at an object initializer's `new T { ... }`, whose children are its members.
+    private func TryEmitReferencedConstructionOf(callIdx: int, argCount: int, constructedType: Type, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        argCount := _nodes.ChildCount(callIdx) - 1
         if (argCount < 0 || constructedType.IsGenericTypeDefinition || constructedType.IsGenericParameter || constructedType.IsAbstract || constructedType.IsInterface || constructedType.IsArray || constructedType.IsByRef || constructedType.IsPointer) {
             return false
         }
@@ -25236,6 +25141,144 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Newobj, rebindOntoClosedType ? TypeBuilder.GetConstructor(constructedType, selected) : selected)
         columnarResolvedType = constructedType
         return true
+    }
+
+    // AN OBJECT INITIALIZER OVER A TYPE THIS COMPILATION DOES NOT DECLARE: `new Counter { Value: 10 }`
+    // where `Counter` arrives from a referenced assembly, or `new ProcessStartInfo { FileName: f }`.
+    //
+    // The same initializer over a SOURCE type has always emitted, from the registry's definition; the
+    // referenced one declined at `emit.local.initializer` because nothing looked past the registry. That
+    // is the shape carving a slice of the compiler into its own project creates: every `new T { ... }`
+    // over a type that moved stops emitting although not one character of it changed. The instance is
+    // made the way C# makes it (ECMA-334 §12.8.17.2): a value type is its public parameterless
+    // constructor when metadata declares one and the zeroed value (`initobj`) otherwise; a class is its
+    // constructor callable with no arguments, chosen by the referenced-construction door, which also
+    // fills a constructor whose every parameter is optional. The members are the shared door's below.
+    private func TryEmitReferencedObjectInitializer(idx: int, typeRootNode: int, pairCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        canonical := ""
+        let initializedType: System.Type? = null
+        if (!TryBuildTypeNodeCanonical(typeRootNode, out canonical) || !TryResolveBodyType(canonical, out initializedType) || initializedType == null) {
+            return false
+        }
+        if (initializedType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundType(initializedType) || initializedType.IsGenericTypeDefinition || initializedType.IsGenericParameter || initializedType.IsAbstract || initializedType.IsInterface || initializedType.IsArray || initializedType.IsByRef || initializedType.IsPointer) {
+            return false
+        }
+
+        if (!initializedType.IsValueType) {
+            let constructedType: System.Type? = null
+            if (!TryEmitReferencedConstructionOf(idx, 0, initializedType, out constructedType)) {
+                return false
+            }
+            return TryEmitReferencedInitializerMembers(idx, pairCount, initializedType, out columnarResolvedType)
+        }
+
+        instance := _il.DeclareLocal(initializedType)
+        let parameterless: System.Reflection.ConstructorInfo? = null
+        for candidate in ColumnarConstructionPlanner.RuntimeConstructorsOrEmpty(initializedType) {
+            if (candidate != null && candidate.IsPublic && !candidate.IsStatic && candidate.GetParameters().Length == 0) {
+                parameterless = candidate
+            }
+        }
+        if (parameterless != null) {
+            _il.Emit(OpCodes.Newobj, parameterless)
+            _il.Emit(OpCodes.Stloc, instance)
+        } else {
+            _il.Emit(OpCodes.Ldloca, instance)
+            _il.Emit(OpCodes.Initobj, initializedType)
+        }
+        if (!TryEmitReferencedInitializerMembersOn(idx, pairCount, initializedType, instance)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldloc, instance)
+        columnarResolvedType = initializedType
+        return true
+    }
+
+    // THE MEMBERS OF AN OBJECT INITIALIZER OVER A REFERENCED TYPE, whose new instance is on the stack.
+    // A class instance stays there, `dup`ed under each store; a value is moved into a temp first,
+    // because `stfld` and a setter `call` need its ADDRESS -- a store through a copy on the stack is
+    // invalid IL (ECMA-335 III.4.28), which is what the `dup` shape would have written for a struct.
+    private func TryEmitReferencedInitializerMembers(idx: int, pairCount: int, initializedType: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (initializedType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundType(initializedType)) {
+            return false
+        }
+        let instance: System.Reflection.Emit.LocalBuilder? = null
+        if (initializedType.IsValueType) {
+            instance = _il.DeclareLocal(initializedType)
+            _il.Emit(OpCodes.Stloc, instance)
+        }
+        if (!TryEmitReferencedInitializerMembersOn(idx, pairCount, initializedType, instance)) {
+            return false
+        }
+        if (instance != null) {
+            _il.Emit(OpCodes.Ldloc, instance)
+        }
+        columnarResolvedType = initializedType
+        return true
+    }
+
+    // Each named member, in written order, resolved from the type's own metadata: a public instance
+    // property with a public setter (an `init` one included -- an initializer is where it may be called,
+    // and its modifier is recorded so the emitted reference keeps it), else a public instance field that
+    // is neither `readonly` nor a constant. Each value is emitted through the same seam every other
+    // assignment uses. `instance` is the value-type temp, or null for a class instance on the stack.
+    private func TryEmitReferencedInitializerMembersOn(idx: int, pairCount: int, initializedType: Type, instance: LocalBuilder?): bool {
+        assigned := new HashSet<string>(StringComparer.Ordinal)
+        for p := 0; p < pairCount; p++ {
+            nameNode := Child(idx, 1 + (2 * p))
+            valueNode := Child(idx, 2 + (2 * p))
+            if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
+                return false
+            }
+            memberName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+            if (!assigned.Add(memberName)) {
+                return false
+            }
+
+            property := initializedType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
+            if (property != null) {
+                setter := property.GetSetMethod()
+                if (setter == null || setter.IsStatic || setter.GetParameters().Length != 1) {
+                    return false
+                }
+                if (!SetterSignatureSurvivesAMemberRef(setter)) {
+                    _modifiedMemberReferences.Record(initializedType, setter)
+                }
+                EmitReferencedInitializerReceiver(instance)
+                let propertyValueType: System.Type = null
+                if (!TryEmitAssignableValue(valueNode, property.PropertyType, out propertyValueType)) {
+                    return false
+                }
+                setterOpcode := OpCodes.Call
+                if (instance == null && setter.IsVirtual) {
+                    setterOpcode = OpCodes.Callvirt
+                }
+                _il.Emit(setterOpcode, setter)
+                continue
+            }
+
+            field := initializedType.GetField(memberName, BindingFlags.Public | BindingFlags.Instance)
+            if (field == null || field.IsInitOnly || field.IsLiteral) {
+                return false
+            }
+            EmitReferencedInitializerReceiver(instance)
+            let fieldValueType: System.Type = null
+            if (!TryEmitAssignableValue(valueNode, field.FieldType, out fieldValueType)) {
+                return false
+            }
+            _il.Emit(OpCodes.Stfld, field)
+        }
+        return true
+    }
+
+    private func EmitReferencedInitializerReceiver(instance: LocalBuilder?): void {
+        if (instance != null) {
+            _il.Emit(OpCodes.Ldloca, instance)
+        } else {
+            _il.Emit(OpCodes.Dup)
+        }
     }
 
     // One tier of the constructor choice: the candidates whose written arguments can all be emitted as

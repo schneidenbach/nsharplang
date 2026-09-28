@@ -629,10 +629,25 @@ class ColumnarConstructionPlanner {
                 legacyWholeSubtreePlanning = true
                 return false
             }
-            if constructedDefinition != null && !constructedDefinition.IsReference {
-                return false
+            // A VALUE TYPE'S NEW VALUE IS PARKED BEFORE ITS MEMBERS ARE WRITTEN. `stfld` and a setter
+            // `call` store through an address, and a `dup`ed struct VALUE has none -- the `dup` shape
+            // is a reference type's. So `new Counter() { Value: 12 }` stores the constructed value into
+            // a local and writes each member through `ldloca`, exactly as `new Counter { Value: 12 }`
+            // does over its zeroed value.
+            if constructedType.IsValueType {
+                valueLocal := StoreIntoPlanLocal(plan, constructedType)
+                if constructedDefinition != null {
+                    if !TryAppendValueTypeObjectFields(nodes, source, node, bindings, handles, plan, fragment, depth, constructedType, constructedDefinition, valueLocal, out ownership, out legacyWholeSubtreePlanning) {
+                        return false
+                    }
+                } else if !TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, constructedType, null, valueLocal, out ownership, out legacyWholeSubtreePlanning) {
+                    return false
+                }
+                CompleteDefaultValueConstruction(plan, valueLocal)
+                resultType = constructedType
+                return true
             }
-            if !TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, constructedType, constructedDefinition, out ownership, out legacyWholeSubtreePlanning) {
+            if !TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, constructedType, constructedDefinition, -1, out ownership, out legacyWholeSubtreePlanning) {
                 return false
             }
             resultType = constructedType
@@ -714,7 +729,7 @@ class ColumnarConstructionPlanner {
             }
             constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, new Type[](0))
             plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
-            return TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, definition, out ownership, out legacyWholeSubtreePlanning)
+            return TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, definition, -1, out ownership, out legacyWholeSubtreePlanning)
         }
 
         localIndex := BeginDefaultValueConstruction(plan, targetType)
@@ -742,19 +757,80 @@ class ColumnarConstructionPlanner {
         CompleteDefaultValueConstruction(plan, localIndex)
     }
 
+    // The value on top of the stack, stored into a fresh plan local whose index is returned.
+    static func StoreIntoPlanLocal(plan: ColumnarCodePlan, valueType: Type): int {
+        typeIndex := plan.AddType(valueType)
+        localIndex := plan.DeclarePlanLocal(typeIndex)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
+        return localIndex
+    }
+
+    // AN OBJECT INITIALIZER OVER A TYPE THIS COMPILATION DOES NOT DECLARE: a referenced assembly's or
+    // the runtime's. It is made the way C# makes it (ECMA-334 §12.8.17.2). A VALUE TYPE starts from its
+    // public parameterless constructor when metadata declares one and from its zeroed value otherwise,
+    // is parked in a local, and has each member written through that local's address -- the shape the
+    // source-struct arm above has always planned, so a struct carved out into another project
+    // initializes exactly as it did while it was a source type. A CLASS starts from the constructor
+    // callable with no argument written, chosen by the same selection `new T()` uses: one that takes
+    // none, else one whose every parameter is optional, filled with its defaults.
     static func TryAppendRuntimeObjectInitializerConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
-        constructor := targetType.GetConstructor(new Type[](0))
-        if constructor == null {
+        if !IsConstructibleRuntimeTarget(targetType) {
             return false
         }
-        constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, new Type[](0))
+
+        if targetType.IsValueType {
+            valueLocal := -1
+            parameterless := ParameterlessRuntimeConstructorOrNull(targetType)
+            if parameterless != null {
+                parameterlessIndex := plan.AddConstructorWithSignature(parameterless, targetType, new Type[](0))
+                plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), parameterlessIndex)
+                valueLocal = StoreIntoPlanLocal(plan, targetType)
+            } else {
+                valueLocal = BeginDefaultValueConstruction(plan, targetType)
+            }
+            if !TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, null, valueLocal, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+            CompleteDefaultValueConstruction(plan, valueLocal)
+            return true
+        }
+
+        noArguments := new Type[](0)
+        noArgumentFacts := ColumnarDirectCallArgumentFacts.Empty(0)
+        parameterTypes := new Type[](0)
+        constructor: ConstructorInfo? = null
+        paramsElementType: Type? = null
+        // Nothing is written, so there is nothing to evaluate: the selected constructor's arguments are
+        // its metadata defaults, every one of them. A `params` constructor is the one shape left out --
+        // it would need an empty array built for its tail -- and it is refused rather than guessed.
+        if !TrySelectRuntimeConstructor(targetType, noArguments, noArgumentFacts, out constructor, out parameterTypes, out paramsElementType) || constructor == null || paramsElementType != null {
+            return false
+        }
+        if !TryAppendConstructorOptionalDefaults(plan, constructor, parameterTypes, 0) {
+            return false
+        }
+        constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, parameterTypes)
         plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
-        return TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, null, out ownership, out legacyWholeSubtreePlanning)
+        return TryAppendObjectMembers(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, null, -1, out ownership, out legacyWholeSubtreePlanning)
     }
 
-    static func TryAppendObjectMembers(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, definition: ColumnarStructDef?, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+    static func ParameterlessRuntimeConstructorOrNull(targetType: Type): ConstructorInfo? {
+        for candidate in RuntimeConstructorsOrEmpty(targetType) {
+            if candidate != null && candidate.IsPublic && !candidate.IsStatic {
+                parameters := candidate.GetParameters()
+                if parameters != null && parameters.Length == 0 {
+                    return candidate
+                }
+            }
+        }
+        return null
+    }
+
+    // `valueLocal` is the plan local a VALUE-TYPE instance is parked in, whose address each member is
+    // written through; it is -1 for a class instance on the stack, which each member `dup`s.
+    static func TryAppendObjectMembers(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, definition: ColumnarStructDef?, valueLocal: int, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
         assigned := new HashSet<string>(StringComparer.Ordinal)
@@ -858,7 +934,7 @@ class ColumnarConstructionPlanner {
                     return false
                 }
                 runtimeFieldType := runtimeField.FieldType
-                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                AppendObjectMemberReceiver(plan, valueLocal)
                 if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, runtimeFieldType, out ownership, out legacyWholeSubtreePlanning) {
                     return false
                 }
@@ -880,7 +956,7 @@ class ColumnarConstructionPlanner {
             }
             requiresModifierRepair := !SetterSignatureSurvivesAMemberRef(setterCandidate)
             propertyType := selectedProperty.PropertyType
-            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            AppendObjectMemberReceiver(plan, valueLocal)
             if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, propertyType, out ownership, out legacyWholeSubtreePlanning) {
                 return false
             }
@@ -889,10 +965,23 @@ class ColumnarConstructionPlanner {
             if requiresModifierRepair {
                 plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, setter)
             }
-            plan.AppendMethodInstruction((short)(setter.IsVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
+            // A value owner's setter is `call`ed on its address: `callvirt` needs an object reference.
+            setterOpCode := ColumnarCodePlanContract.Call()
+            if valueLocal < 0 && setter.IsVirtual {
+                setterOpCode = ColumnarCodePlanContract.Callvirt()
+            }
+            plan.AppendMethodInstruction(setterOpCode, methodIndex)
             index += 2
         }
         return true
+    }
+
+    static func AppendObjectMemberReceiver(plan: ColumnarCodePlan, valueLocal: int) {
+        if valueLocal >= 0 {
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), valueLocal)
+        } else {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+        }
     }
 
     // Whether this setter's signature survives the round trip into a `MemberRef`. Required custom
