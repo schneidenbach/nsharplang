@@ -318,6 +318,11 @@ class ColumnarCodePlanContract {
     static func Castclass(): short {
         return 116
     }
+    // ldobj (0x71) copies the value a managed address points at. A struct member body's argument 0 is
+    // `ref T`, so a bare `this` used as a value is `ldarg.0; ldobj T` — the copy C# also takes.
+    static func Ldobj(): short {
+        return 113
+    }
     static func Ldfld(): short {
         return 123
     }
@@ -1368,7 +1373,7 @@ class ColumnarCodePlan {
 
     func AppendTypeInstruction(opCodeValue: short, typeIndex: int) {
         EnsureV2Building()
-        if (opCodeValue != ColumnarCodePlanContract.Ldelem() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldtoken() && opCodeValue != ColumnarCodePlanContract.Box() && opCodeValue != ColumnarCodePlanContract.Castclass() && opCodeValue != ColumnarCodePlanContract.Initobj() && opCodeValue != ColumnarCodePlanContract.Newarr() && opCodeValue != ColumnarCodePlanContract.Stelem())) && !(IsMethodBodySchema() && (opCodeValue == ColumnarCodePlanContract.Isinst() || opCodeValue == ColumnarCodePlanContract.UnboxAny() || opCodeValue == ColumnarCodePlanContract.Constrained()))) || typeIndex < 0 || typeIndex >= TypeCount {
+        if (opCodeValue != ColumnarCodePlanContract.Ldelem() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldtoken() && opCodeValue != ColumnarCodePlanContract.Box() && opCodeValue != ColumnarCodePlanContract.Castclass() && opCodeValue != ColumnarCodePlanContract.Initobj() && opCodeValue != ColumnarCodePlanContract.Ldobj() && opCodeValue != ColumnarCodePlanContract.Newarr() && opCodeValue != ColumnarCodePlanContract.Stelem())) && !(IsMethodBodySchema() && (opCodeValue == ColumnarCodePlanContract.Isinst() || opCodeValue == ColumnarCodePlanContract.UnboxAny() || opCodeValue == ColumnarCodePlanContract.Constrained()))) || typeIndex < 0 || typeIndex >= TypeCount {
             throw new InvalidOperationException("The opcode does not use this type pool entry.")
         }
         AppendV2Row(ColumnarCodePlanContract.EmitInstructionOperation(), opCodeValue, ColumnarCodePlanContract.TypeOperand(), typeIndex)
@@ -2082,7 +2087,7 @@ class ColumnarCodePlan {
         if opCodeValue == ColumnarCodePlanContract.Br() || opCodeValue == ColumnarCodePlanContract.Brfalse() || opCodeValue == ColumnarCodePlanContract.Brtrue() {
             return operandKind == ColumnarCodePlanContract.LabelOperand() && operandIndex >= 0 && operandIndex < LabelCount
         }
-        if opCodeValue == ColumnarCodePlanContract.Ldelem() || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() && (opCodeValue == ColumnarCodePlanContract.Ldtoken() || opCodeValue == ColumnarCodePlanContract.Box() || opCodeValue == ColumnarCodePlanContract.Castclass() || opCodeValue == ColumnarCodePlanContract.Initobj() || opCodeValue == ColumnarCodePlanContract.Newarr() || opCodeValue == ColumnarCodePlanContract.Stelem())) {
+        if opCodeValue == ColumnarCodePlanContract.Ldelem() || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() && (opCodeValue == ColumnarCodePlanContract.Ldtoken() || opCodeValue == ColumnarCodePlanContract.Box() || opCodeValue == ColumnarCodePlanContract.Castclass() || opCodeValue == ColumnarCodePlanContract.Initobj() || opCodeValue == ColumnarCodePlanContract.Ldobj() || opCodeValue == ColumnarCodePlanContract.Newarr() || opCodeValue == ColumnarCodePlanContract.Stelem())) {
             return operandKind == ColumnarCodePlanContract.TypeOperand() && operandIndex >= 0 && operandIndex < TypeCount
         }
         return false

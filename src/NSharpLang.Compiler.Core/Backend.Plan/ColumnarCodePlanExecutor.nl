@@ -413,6 +413,8 @@ class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Constrained, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
                 il.Emit(OpCodes.Initobj, operandType)
+            } else if opCodeValue == ColumnarCodePlanContract.Ldobj() {
+                il.Emit(OpCodes.Ldobj, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Newarr() {
                 il.Emit(OpCodes.Newarr, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Stelem() {
@@ -965,6 +967,11 @@ class ColumnarCodePlanExecutor {
             // below would give zero anyway, but a delta that is right only because it fell off the end
             // of a chain is not pinned, so it is stated.
             if opCodeValue == ColumnarCodePlanContract.UnboxAny() {
+                return 0
+            }
+            // ldobj pops the address and pushes the value it points at: net zero, stated for the same
+            // reason.
+            if opCodeValue == ColumnarCodePlanContract.Ldobj() {
                 return 0
             }
             if opCodeValue == ColumnarCodePlanContract.Initobj() {
@@ -1969,6 +1976,13 @@ class ColumnarCodePlanExecutor {
             if address.ValueKind == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress() {
                 state.MarkPlanLocalAssigned(localIndex)
             }
+        } else if opCodeValue == ColumnarCodePlanContract.Ldobj() {
+            targetType := plan.Types[operandIndex]
+            address := state.Pop()
+            if !targetType.IsValueType || targetType.IsGenericTypeDefinition || !address.IsAddress || address.ValueKind != ColumnarCodePlanStackValueKind.Exact() || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(targetType, address.ValueType) {
+                throw new InvalidOperationException(schemaName + " ldobj requires an exact managed address to its value type.")
+            }
+            state.Push(targetType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.Br() {
             return
         } else if opCodeValue == ColumnarCodePlanContract.Brfalse() {

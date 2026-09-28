@@ -4392,6 +4392,9 @@ machine's effect on a body's meaning, and it is TWO binding rules rather than a 
   (`ldarg.0; ldfld <>__this; ldfld <member>`) — the same two-hop read a closure display does through
   its captured box, with a member field in place of `StrongBox<T>.Value`.
 
+A bare `this` is the first of those two hops alone (`ldarg.0; ldfld <>__this`); see "A bare `this`
+has one owner" below.
+
 With those published, every value in the body goes through
 `ColumnarRangeIndexPlanner.TryAppendConstructionValue` — the append-mode value cascade a CALL ARGUMENT
 uses — so calls, `new`, object initializers, array and collection literals, indexers, member access,
@@ -4661,6 +4664,46 @@ boundary still excludes non-literal unary negation, such as `() => -value`, with
 Generator lambdas also retain the existing refusal for mutation of their own parameters or locals,
 including postfix steps and plain assignment. Ordinary lambda support for those forms does not
 extend the generator statement planner; captured generator bindings have their own supported storage.
+
+### A bare `this` has one owner
+
+`ColumnarThisExpressionPlanner` (`Backend.Plan/ColumnarThisExpressionPlanner.nl`) lowers node kind 82
+— `this` standing alone as a value: `Describe(this)`, `me := this`, `return this`, `yield this`. It is
+the cascade's root arm (`ColumnarRangeIndexPlanner.TryEmitFromFacts`), the nested-value arm of
+`TryAppendPlannableValueCore`, and the method-body door's kind-82 arm, so an ordinary member body, a
+generator body and a lambda body all reach the same owner. The legacy emitter's
+`TryEmitThisExpression` is deleted. Where the instance lives is read from the bindings:
+
+| Body | Rows | Fact it reads |
+|------|------|---------------|
+| Instance generator, a lambda lowered onto its machine, a per-iteration display | `ldarg.0; ldfld <>__this` | `ColumnarFragmentBindings.CapturedReceiverField` |
+| Closure display (lambda in an ordinary member) | `ldarg.0; ldfld <>4__this` once per nested display | `CurrentInstance.IsClosureDisplay`, `ClosureEnclosingDef` |
+| Class member | `ldarg.0` | `CurrentInstance.IsReference` |
+| Struct member | `ldarg.0; ldobj T` | `CurrentInstance.IsReference == false` |
+
+`this` in a struct is a COPY, as in C#: `copy := this; copy.X = 1` never writes the receiver. The
+plan contract gained `ldobj` (`ColumnarCodePlanContract.Ldobj`, 0x71) for it. A struct's generator
+captures its receiver the same way: the factory stores `ldarg.0; ldobj T` into `<>__this`, so the
+machine reads a snapshot taken when the generator was called. (It used to store the address itself,
+and every member read in a struct generator returned garbage.)
+
+`CapturedReceiverField` is published by `ColumnarIteratorBodyScope.PublishCapturedReceiver` at the
+three places a generator body scope is built (the `MoveNext` body, a lambda method on the machine, a
+per-iteration display). It also anchors written `this.Member`: in a body whose argument 0 is the
+machine, `this.Member` resolves on the enclosing type through that field
+(`ColumnarBoundIdentifierPlanner.TryResolveCapturedReceiverMember`), never on the machine, which may
+hoist a parameter or local of the same name. Only PUBLIC members are taken there, because the machine
+is a separate type.
+
+A static body has no current instance, and the owner declines: the analyzer has already reported
+NL327, and `ldarg.0` would hand out the first parameter.
+
+Executable coverage: `tests/native/census-iterators/CensusIteratorReceivers.*` (a generator passing
+`this` to a free function, another receiver's method and a BCL call; `yield this`; `this.Tag.Length`;
+`this` in a machine lambda and a per-iteration display; struct generators and struct member copies;
+ordinary member bodies returning, storing and capturing `this` two lambdas deep). Contracts:
+`ColumnarThisExpressionPlanner.tests.nl` and the door partition block in
+`ColumnarMethodBodyFacts.tests.nl`.
 
 ### Protected regions and awaits in handler positions (census ITER4)
 

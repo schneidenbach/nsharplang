@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -797,6 +798,9 @@ class ColumnarBoundIdentifierPlanner {
         if ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node) {
             // Written `this.Member` names the LEXICAL owner's member, which inside a display is the
             // captured receiver's — the same answer the bare name gets, by the same two hops.
+            if bindings.CapturedReceiverField != null {
+                return TryResolveCapturedReceiverMember(name, bindings, out selection)
+            }
             return TryResolveCurrentInstance(name, bindings, out selection) || TryResolveCapturedEnclosingInstance(name, bindings, out selection)
         }
 
@@ -1144,6 +1148,36 @@ class ColumnarBoundIdentifierPlanner {
     // `constrained` prefix.
     static func TryResolveCapturedEnclosingInstance(name: string, bindings: ColumnarFragmentBindings, out selection: ColumnarBoundIdentifierSelection): bool {
         return TryResolveCapturedScopeChain(name, bindings, false, out selection)
+    }
+
+    // WRITTEN `this.Member` IN A BODY WHOSE ARGUMENT 0 IS NOT THE OBJECT. An instance generator's state
+    // machine (and every method or display lowered beside it) holds the object in
+    // `bindings.CapturedReceiverField`, so `this.Member` is that one hop and then the member — never a
+    // field of argument 0, which is the machine and may hoist a local or parameter of the very same
+    // name. The member is found on the enclosing type exactly as a closure display finds it, and only a
+    // PUBLIC one is taken: the machine is a separate type, so it cannot reach anything else.
+    static func TryResolveCapturedReceiverMember(name: string, bindings: ColumnarFragmentBindings, out selection: ColumnarBoundIdentifierSelection): bool {
+        selection = EmptySelection()
+        receiverField := bindings.CapturedReceiverField
+        enclosing := bindings.EnclosingTypeDefinition
+        if receiverField == null || enclosing == null || receiverField.DeclaringType == null {
+            return false
+        }
+        enclosingType: Type = enclosing.Builder
+        if receiverField.FieldType != enclosingType {
+            return false
+        }
+
+        chain := new List<FieldInfo>()
+        chain.Add(receiverField)
+        if !TryResolveCapturedMember(name, enclosing, enclosingType, receiverField.DeclaringType, chain, out selection) {
+            return false
+        }
+        reachable := selection.Kind == ColumnarBoundIdentifierKind.CapturedInstanceField ? selection.ValueField != null && selection.ValueField.IsPublic : selection.Getter != null && selection.Getter.IsPublic
+        if !reachable {
+            selection = EmptySelection()
+        }
+        return reachable
     }
 
     static func TryResolveCapturedScopeChain(name: string, bindings: ColumnarFragmentBindings, displayLevelsOnly: bool, out selection: ColumnarBoundIdentifierSelection): bool {

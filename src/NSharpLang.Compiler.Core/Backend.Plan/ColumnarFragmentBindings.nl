@@ -30,6 +30,13 @@ class ColumnarFragmentBindings {
     // and a different pair of handles. The receiver field is the FIRST hop and the member field is the
     // second; both are exact live handles, so no name is resolved by reflection at emission.
     CapturedInstanceFields: Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>
+    // THE FIELD OF ARGUMENT 0 THAT HOLDS THE OBJECT A BARE `this` MEANS, WHEN ARGUMENT 0 IS NOT THAT
+    // OBJECT. An instance generator's state machine, the machine method a lambda in its body lowers
+    // onto, and a per-iteration display beside the machine each keep the enclosing receiver in one
+    // field of their own, so `this` there is `ldarg.0; ldfld <this field>`. Null in every body whose
+    // argument 0 is the instance itself, and in an ordinary closure display, whose `<>4__this` chain
+    // `CurrentInstance` already describes.
+    CapturedReceiverField: FieldInfo?
     CurrentInstance: ColumnarCurrentInstanceFacts?
     // Exact live handles for every method/type generic parameter visible to this body. Method
     // parameters are installed first; an enclosing type parameter with the same name must never
@@ -86,6 +93,7 @@ class ColumnarFragmentBindings {
         LiftedLocals = new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
         BoxedCaptures = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
         CapturedInstanceFields = new Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>(StringComparer.Ordinal)
+        CapturedReceiverField = null
         CurrentInstance = null
         typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
         SourceTypeDefinitions = new List<ColumnarStructDef>()

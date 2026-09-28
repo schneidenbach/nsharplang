@@ -57,6 +57,11 @@ class ColumnarRangeIndexPlanner {
             return ColumnarTypeOfPlanner.TryEmit(nodes, source, node, bindings, plan, il, out resultType)
         }
 
+        if ColumnarThisExpressionPlanner.MayPlanRoot(nodes, node) {
+            nsharpOwned = true
+            return ColumnarThisExpressionPlanner.TryEmit(nodes, source, node, bindings, plan, il, out resultType)
+        }
+
         if ColumnarBoundIdentifierPlanner.MayPlanRoot(nodes, node) {
             nsharpOwned = ColumnarBoundIdentifierPlanner.ClaimsRoot(nodes, source, node, bindings)
 
@@ -127,6 +132,11 @@ class ColumnarRangeIndexPlanner {
         if ColumnarTypeOfPlanner.MayPlanRoot(nodes, node) {
             nsharpOwned = true
             return ColumnarTypeOfPlanner.TryGetType(nodes, source, node, bindings, plan, out resultType)
+        }
+
+        if ColumnarThisExpressionPlanner.MayPlanRoot(nodes, node) {
+            nsharpOwned = true
+            return ColumnarThisExpressionPlanner.TryGetType(nodes, source, node, bindings, plan, out resultType)
         }
 
         if ColumnarBoundIdentifierPlanner.MayPlanRoot(nodes, node) {
@@ -250,7 +260,7 @@ class ColumnarRangeIndexPlanner {
             return true
         }
 
-        if kind == ColumnarExpressionNodeKind.TypeOfExpression {
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression || kind == ColumnarExpressionNodeKind.ThisExpression {
             return true
         }
 
@@ -448,6 +458,8 @@ class ColumnarRangeIndexPlanner {
             planned = TryPlanBooleanLiteral(nodes, source, node, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.IdentifierExpression || kind == ColumnarExpressionNodeKind.BaseMemberExpression {
             planned = ColumnarBoundIdentifierPlanner.TryAppend(nodes, source, node, bindings, plan, out resultType)
+        } else if kind == ColumnarExpressionNodeKind.ThisExpression {
+            planned = ColumnarThisExpressionPlanner.TryAppend(nodes, node, bindings, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             planned = TryPlanEnumMember(nodes, source, node, bindings, plan, out resultType)
             if !planned {

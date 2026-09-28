@@ -499,10 +499,15 @@ else
     # Tooling 0 (its 16 files, estate included, against built Core), Driver 0 (now against built
     # Tooling), Compiler 34, Playground 0, Build.Tasks 0.
     #
+    # 2026-09-28, a bare `this` gets its planner owner (`ColumnarThisExpressionPlanner`): Core 1,200.
+    # The two removals are the NL002s on `List` in `ColumnarBoundIdentifierPlanner.nl`, which had no
+    # `import System.Collections.Generic`; the owner's new captured-receiver lookup added a third use
+    # of `List` there, and the import that fixes it fixes all three. Zero additions.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
-        1202
+        1200
         0
         0
         34

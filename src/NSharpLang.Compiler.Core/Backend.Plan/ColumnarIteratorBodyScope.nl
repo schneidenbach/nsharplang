@@ -128,7 +128,8 @@ class ColumnarIteratorBodyFacts {
 //
 //   an ENCLOSING-TYPE MEMBER read by an instance machine becomes the CapturedInstanceField selection —
 //   `ldarg.0; ldfld <>__this; ldfld <member>` — which is the same two-hop read a closure display does
-//   through the box it captured.
+//   through the box it captured; and a bare `this` is the first hop alone, `ldarg.0; ldfld <>__this`,
+//   which `ColumnarThisExpressionPlanner` reads from the published captured receiver.
 //
 // With those two published, `ColumnarMethodBodyPlanner.TryAppendValue` plans a call, a `new`, an array
 // literal, an indexer, a member access or a binary inside a `func*` body by the SAME rows it appends in
@@ -235,6 +236,17 @@ class ColumnarIteratorBodyScope {
             throw new InvalidOperationException("A published enclosing member requires a captured receiver field and the member's exact field handle.")
         }
         Bindings.CapturedInstanceFields[name] = (ReceiverField: capturedReceiverField, MemberField: memberField)
+    }
+
+    // The field an INSTANCE machine (or a method or display lowered beside it) holds its receiver in.
+    // A bare `this` in the body reads it, because argument 0 here is the machine, never the object the
+    // source wrote `this` about.
+    func PublishCapturedReceiver(capturedReceiverField: FieldInfo) {
+        if capturedReceiverField == null || capturedReceiverField.IsStatic {
+            throw new InvalidOperationException("A published captured receiver requires an exact instance field handle.")
+        }
+        bindings := Bindings
+        bindings.CapturedReceiverField = capturedReceiverField
     }
 
     // THE EXPRESSION DOOR. One call, one owner: `ColumnarRangeIndexPlanner`'s append-mode value

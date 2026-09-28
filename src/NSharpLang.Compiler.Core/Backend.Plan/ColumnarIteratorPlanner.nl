@@ -1844,6 +1844,7 @@ class ColumnarIteratorEmitContext {
         }
         if bodyScope.HasField("<>__this") {
             receiver := bodyScope.FieldHandle("<>__this")
+            bodyScope.PublishCapturedReceiver(receiver)
             member := 0
             while member < EnclosingFieldNames.Length && member < EnclosingFields.Length {
                 bodyScope.PublishEnclosingMember(EnclosingFieldNames[member], receiver, EnclosingFields[member])
@@ -2879,10 +2880,18 @@ class ColumnarIteratorBodyPlanner {
             if context.Shape.FieldRoles[i] == ColumnarIteratorPlanner.CapturedParameterFieldRole() {
                 fieldType := context.Fields[i].FieldType
                 argTypePool := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(fieldType), context.StructuralTypeReferences)
-                argPool := plan.AddArgument(ordinal, argTypePool)
+                // A STRUCT'S RECEIVER IS CAPTURED BY VALUE. Argument 0 of a struct member is `ref T`,
+                // so the machine keeps a copy of the instance — `ldarg.0; ldobj T` — exactly as a bare
+                // `this` in that struct's ordinary body is a copy. Storing the address itself would
+                // hand the machine a pointer it then reads as a `T`.
+                copiesStructReceiver := context.Shape.FieldNames[i] == "<>__this" && fieldType.IsValueType
+                argPool := plan.AddArgument(ordinal, argTypePool, copiesStructReceiver)
                 fieldPool := plan.AddField(context.Fields[i])
                 plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
                 plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argPool)
+                if copiesStructReceiver {
+                    plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldobj(), argTypePool)
+                }
                 plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
                 ordinal = ordinal + 1
             }
@@ -3899,6 +3908,7 @@ class ColumnarIteratorBodyPlanner {
             }
             if scope.HasField("<>__this") {
                 receiver := scope.FieldHandle("<>__this")
+                scope.PublishCapturedReceiver(receiver)
                 member := 0
                 while member < context.EnclosingFieldNames.Length && member < context.EnclosingFields.Length {
                     scope.PublishEnclosingMember(context.EnclosingFieldNames[member], receiver, context.EnclosingFields[member])
@@ -3934,6 +3944,7 @@ class ColumnarIteratorBodyPlanner {
             capture = capture + 1
         }
         if display.EnclosingReceiverField != null {
+            scope.PublishCapturedReceiver(display.EnclosingReceiverField)
             member := 0
             while member < context.EnclosingFieldNames.Length && member < context.EnclosingFields.Length {
                 scope.PublishEnclosingMember(context.EnclosingFieldNames[member], display.EnclosingReceiverField, context.EnclosingFields[member])
