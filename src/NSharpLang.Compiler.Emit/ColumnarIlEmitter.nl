@@ -14301,16 +14301,12 @@ sealed class ColumnarIlEmitter {
                     return TryEmitInheritedExternalStaticMember(staticOwner, staticFieldName, out columnarResolvedType)
                 }
             }
-            // Instance member access: `.Length` (array/string/StringBuilder -> int) or `.ItemN` (a tuple
-            // element). Anything else declines BEFORE the receiver is emitted (no wasted side effects).
+            // Instance member access on a receiver the instance-member planner could not claim.
             member := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
             // A NAMED tuple element (`t.x` on a receiver whose declared names contain x) rewrites to the
             // positional ItemN spelling BEFORE the accessor gate — names come from the per-variable map
             // (annotated params, named-literal/call-derived locals), never the erased CLR type.
             member = MaybeRewriteTupleMemberName(Child(idx, 0), member)
-            // `.ItemN` is a tuple element accessor only if a DIGIT follows "Item" (so `.Items`/`.ItemFoo`
-            // decline early without emitting the receiver); the actual element is still gated by GetField below.
-            isTupleItem := member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4])
             directReadReceiver := UnwrapParenthesizedNode(Child(idx, 0))
             let directReadChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
             if (_nodes.Kind(directReadReceiver) == ColumnarExpressionNodeKind.MemberAccessExpression && TryResolveMemberWriteChain(directReadReceiver, out directReadChain)) {
@@ -14337,274 +14333,25 @@ sealed class ColumnarIlEmitter {
                     }
                 }
             }
-            if (member != "Length" && !isTupleItem) {
-                // Other supported receivers fall back to the emitted-receiver path for BCL members,
-                // closed generics, and reference-type properties.
-                let structReceiverType: System.Type? = null
-                if (member == "HasValue" || member == "Value") {
-                    // The two members `Nullable<T>` declares are the receiver shapes that WANT the
-                    // shell, so the receiver keeps it even on a name flow has proved present.
-                    if (!EmitExpressionPreservingNullable(Child(idx, 0), out structReceiverType)) {
-                        return false
-                    }
-                } else if (!EmitExpression(Child(idx, 0), out structReceiverType)) {
+            // THE MEMBER IS CHOSEN BY THE RECEIVER'S TYPE, NEVER BY ITS SPELLING. `.Length` and `.ItemN`
+            // have instructions of their own on the receivers that own them — `ldlen` on an array, a
+            // `ValueTuple`'s public element FIELD — and those arms come first, so those receivers keep
+            // their bytes. Any OTHER receiver that spells one of those names is an ordinary member read:
+            // `Pair(1, e).Item2` on a `System.Tuple`, whose element is a PROPERTY, or `Open().Length` on
+            // a `FileInfo`. Routing the name to the tuple arm alone refused both, and a call result is
+            // exactly the receiver that reaches here (the instance-member planner claims a named one).
+            let structReceiverType: System.Type? = null
+            if (member == "HasValue" || member == "Value") {
+                // The two members `Nullable<T>` declares are the receiver shapes that WANT the
+                // shell, so the receiver keeps it even on a name flow has proved present.
+                if (!EmitExpressionPreservingNullable(Child(idx, 0), out structReceiverType)) {
                     return false
                 }
-                if (structReceiverType == typeof(System.Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision")) {
-                    _il.Emit(OpCodes.Callvirt, (must typeof(System.Version).GetProperty(member)).GetGetMethod())
-                    columnarResolvedType = typeof(int)
-                    return true
-                }
-                if (structReceiverType == typeof(TimeSpan) && member == nameof(TimeSpan.TotalMilliseconds)) {
-                    timeSpanTemp := _il.DeclareLocal(typeof(TimeSpan))
-                    _il.Emit(OpCodes.Stloc, timeSpanTemp)
-                    _il.Emit(OpCodes.Ldloca, timeSpanTemp)
-                    _il.Emit(OpCodes.Call, (must typeof(TimeSpan).GetProperty(nameof(TimeSpan.TotalMilliseconds))).GetGetMethod())
-                    columnarResolvedType = typeof(double)
-                    return true
-                }
-                if (structReceiverType == typeof(DateTime)) {
-                    dateTimeProperty := typeof(DateTime).GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
-                    if (dateTimeProperty != null && dateTimeProperty.GetMethod != null && ColumnarTypeOfPlanner.IsSupportedType(dateTimeProperty.PropertyType)) {
-                        dateTimeTemp := _il.DeclareLocal(typeof(DateTime))
-                        _il.Emit(OpCodes.Stloc, dateTimeTemp)
-                        _il.Emit(OpCodes.Ldloca, dateTimeTemp)
-                        _il.Emit(OpCodes.Call, dateTimeProperty.GetMethod)
-                        columnarResolvedType = dateTimeProperty.PropertyType
-                        return true
-                    }
-                }
-                if (structReceiverType == typeof(JsonElement) && member == nameof(JsonElement.ValueKind)) {
-                    jsonElementTemp := _il.DeclareLocal(typeof(JsonElement))
-                    _il.Emit(OpCodes.Stloc, jsonElementTemp)
-                    _il.Emit(OpCodes.Ldloca, jsonElementTemp)
-                    _il.Emit(OpCodes.Call, (must typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind))).GetGetMethod())
-                    columnarResolvedType = typeof(JsonValueKind)
-                    return true
-                }
-                if (structReceiverType == typeof(JsonElement.ArrayEnumerator) && member == nameof(JsonElement.ArrayEnumerator.Current)) {
-                    enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ArrayEnumerator))
-                    _il.Emit(OpCodes.Stloc, enumeratorTemp)
-                    _il.Emit(OpCodes.Ldloca, enumeratorTemp)
-                    _il.Emit(OpCodes.Call, (must typeof(JsonElement.ArrayEnumerator).GetProperty(nameof(JsonElement.ArrayEnumerator.Current))).GetGetMethod())
-                    columnarResolvedType = typeof(JsonElement)
-                    return true
-                }
-                if (structReceiverType == typeof(JsonElement.ObjectEnumerator) && member == nameof(JsonElement.ObjectEnumerator.Current)) {
-                    enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ObjectEnumerator))
-                    _il.Emit(OpCodes.Stloc, enumeratorTemp)
-                    _il.Emit(OpCodes.Ldloca, enumeratorTemp)
-                    _il.Emit(OpCodes.Call, (must typeof(JsonElement.ObjectEnumerator).GetProperty(nameof(JsonElement.ObjectEnumerator.Current))).GetGetMethod())
-                    columnarResolvedType = typeof(JsonProperty)
-                    return true
-                }
-                if (structReceiverType == typeof(JsonProperty) && (member == nameof(JsonProperty.Name) || member == nameof(JsonProperty.Value))) {
-                    propertyTemp := _il.DeclareLocal(typeof(JsonProperty))
-                    _il.Emit(OpCodes.Stloc, propertyTemp)
-                    _il.Emit(OpCodes.Ldloca, propertyTemp)
-                    property := typeof(JsonProperty).GetProperty(member)
-                    if ((property == null || property.GetMethod == null)) {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Call, property.GetMethod)
-                    columnarResolvedType = property.PropertyType
-                    return true
-                }
-                if (structReceiverType == typeof(Type) && (member == nameof(Type.Name) || member == nameof(Type.FullName) || member == nameof(Type.Namespace) || member == nameof(Type.IsNested))) {
-                    property := typeof(Type).GetProperty(member)
-                    if ((property == null || property.GetMethod == null)) {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Callvirt, property.GetMethod)
-                    columnarResolvedType = property.PropertyType
-                    return true
-                }
-                if (structReceiverType == typeof(YamlDotNet.Core.IParser) && member == nameof(YamlDotNet.Core.IParser.Current)) {
-                    _il.Emit(OpCodes.Callvirt, (must typeof(YamlDotNet.Core.IParser).GetProperty(nameof(YamlDotNet.Core.IParser.Current))).GetGetMethod())
-                    columnarResolvedType = typeof(ParsingEvent)
-                    return true
-                }
-                if (structReceiverType == typeof(Scalar) && member == nameof(Scalar.Value)) {
-                    _il.Emit(OpCodes.Callvirt, (must typeof(Scalar).GetProperty(nameof(Scalar.Value))).GetGetMethod())
-                    columnarResolvedType = typeof(string)
-                    return true
-                }
-                let bclPropertyRead: System.Reflection.PropertyInfo? = null
-                if (TryGetSupportedBclReadableProperty(structReceiverType, member, out bclPropertyRead)) {
-                    _il.Emit(OpCodes.Callvirt, bclPropertyRead.GetMethod)
-                    columnarResolvedType = bclPropertyRead.PropertyType
-                    return true
-                }
-                if (ColumnarTypeOfPlanner.IsSupportedNullable(structReceiverType) && (member == "HasValue" || member == "Value")) {
-                    nullableTemp := _il.DeclareLocal(structReceiverType)
-                    _il.Emit(OpCodes.Stloc, nullableTemp)
-                    _il.Emit(OpCodes.Ldloca, nullableTemp)
-                    if (member == "HasValue") {
-                        _il.Emit(OpCodes.Call, ResolveNullableGetter(structReceiverType, "HasValue"))
-                        columnarResolvedType = typeof(bool)
-                        return true
-                    }
-                    _il.Emit(OpCodes.Call, ResolveNullableGetter(structReceiverType, "Value"))
-                    columnarResolvedType = structReceiverType.GetGenericArguments()[0]
-                    return true
-                }
-                let resultGetter: System.Reflection.MethodInfo? = null
-                let resultPropertyType: System.Type? = null
-                if (TryResolveResultReadableProperty(structReceiverType, member, out resultGetter, out resultPropertyType)) {
-                    resultTemp := _il.DeclareLocal(structReceiverType)
-                    _il.Emit(OpCodes.Stloc, resultTemp)
-                    _il.Emit(OpCodes.Ldloca, resultTemp)
-                    _il.Emit(OpCodes.Call, resultGetter)
-                    columnarResolvedType = resultPropertyType
-                    return true
-                }
-                let memoryGetter: System.Reflection.MethodInfo? = null
-                let memoryPropertyType: System.Type? = null
-                if (TryResolveMemoryReadableProperty(structReceiverType, member, out memoryGetter, out memoryPropertyType)) {
-                    if (structReceiverType.IsValueType) {
-                        memoryTemp := _il.DeclareLocal(structReceiverType)
-                        _il.Emit(OpCodes.Stloc, memoryTemp)
-                        _il.Emit(OpCodes.Ldloca, memoryTemp)
-                        _il.Emit(OpCodes.Call, memoryGetter)
-                    } else {
-                        _il.Emit(OpCodes.Callvirt, memoryGetter)
-                    }
-                    columnarResolvedType = memoryPropertyType
-                    return true
-                }
-                // `.Count` on a closed List<T>/Dictionary<K,V>/SortedDictionary<K,V>/HashSet<T> — callvirt get_Count -> int
-                // (resolved from the open definition so builder-bound receivers rebind).
-                let countGetter: System.Reflection.MethodInfo? = null
-                if (member == "Count" && TryResolveCollectionCountGetter(structReceiverType, out countGetter)) {
-                    _il.Emit(OpCodes.Callvirt, countGetter)
-                    columnarResolvedType = typeof(int)
-                    return true
-                }
-                // `kvp.Key` / `kvp.Value` on a KeyValuePair<K,V> (the Dictionary foreach loop
-                // variable) — a VALUE-type receiver: spill, ldloca, call the non-virtual getter.
-                // The result type comes from the CLOSED arguments, never the getter's ReturnType:
-                // a REBOUND getter reports the OPEN TKey/TValue (spike-proven) — propagating that
-                // would leak an open generic parameter into downstream typing (wrong-IL hazard).
-                if ((member == "Key" || member == "Value") && ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(structReceiverType)) {
-                    kvpTemp := _il.DeclareLocal(structReceiverType)
-                    _il.Emit(OpCodes.Stloc, kvpTemp)
-                    _il.Emit(OpCodes.Ldloca, kvpTemp)
-                    openKvpGetter := (must typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().GetProperty(member)).GetGetMethod()
-                    _il.Emit(OpCodes.Call, ResolveClosedGenericMethod(structReceiverType, openKvpGetter))
-                    columnarResolvedType = structReceiverType.GetGenericArguments()[member == "Key" ? 0 : 1]
-                    return true
-                }
-                // ORDINARY CLR MEMBER RESOLUTION for a receiver that is a VALUE rather than a storage
-                // location — a call result, an element, anything the instance-member planner could not
-                // claim. Reaching a member through one of those was a per-receiver residual table, so
-                // `Make().IsOk` on the runtime `Result` read while `Make().Index` on the runtime
-                // `Union` declined; the resolver the planner itself uses answers both the same way,
-                // and a VALUE receiver is spilled so the getter has the address it takes.
-                runtimeMember := ColumnarRuntimeInstanceMemberSelection.Empty()
-                if (ColumnarRuntimeInstanceMemberResolver.TrySelect(structReceiverType, member, out runtimeMember)) {
-                    if (!runtimeMember.ReceiverIsReference) {
-                        runtimeMemberTemp := _il.DeclareLocal(structReceiverType)
-                        _il.Emit(OpCodes.Stloc, runtimeMemberTemp)
-                        _il.Emit(OpCodes.Ldloca, runtimeMemberTemp)
-                    }
-                    if (runtimeMember.IsField) {
-                        if (runtimeMember.Field == null) {
-                            return false
-                        }
-                        _il.Emit(OpCodes.Ldfld, runtimeMember.Field)
-                    } else {
-                        if (runtimeMember.Getter == null) {
-                            return false
-                        }
-                        runtimeMemberOpcode := match runtimeMember.ReceiverIsReference {
-                            true => OpCodes.Callvirt,
-                            _ => OpCodes.Call
-                        }
-                        _il.Emit(runtimeMemberOpcode, runtimeMember.Getter)
-                    }
-                    columnarResolvedType = runtimeMember.ResultType
-                    return true
-                }
-                fieldStruct := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, structReceiverType)
-                if (fieldStruct == null) {
-                    // A CLOSED user-generic receiver (`Box<int>`): resolve on the OPEN definition (own
-                    // type only — generic bases decline at declaration), rebind the token via
-                    // TypeBuilder.GetField/GetMethod (reflection member queries throw on
-                    // TypeBuilderInstantiation), and substitute the closed type arguments into the
-                    // member type (b.item on Box<int> is int).
-                    let closedFieldDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-                    let closedFieldArgs: System.Type[]? = null
-                    if (TryGetClosedReceiverDef(structReceiverType, out closedFieldDef, out closedFieldArgs)) {
-                        let openField: System.Reflection.Emit.FieldBuilder? = null
-                        if (closedFieldDef.Fields.TryGetValue(member, out openField)) {
-                            if (closedFieldDef.IsReference) {
-                                _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(structReceiverType, openField))
-                            } else {
-                                closedFieldTemp := _il.DeclareLocal(structReceiverType)
-                                _il.Emit(OpCodes.Stloc, closedFieldTemp)
-                                _il.Emit(OpCodes.Ldloca, closedFieldTemp)
-                                _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(structReceiverType, openField))
-                            }
-                            columnarResolvedType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.FieldType, closedFieldArgs)
-                            return true
-                        }
-                        let openProp: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                        if (closedFieldDef.Properties.TryGetValue(member, out openProp)) {
-                            closedGetter := TypeBuilder.GetMethod(structReceiverType, openProp.Getter)
-                            if (closedFieldDef.IsReference) {
-                                _il.Emit(OpCodes.Callvirt, closedGetter)
-                            } else {
-                                closedPropertyTemp := _il.DeclareLocal(structReceiverType)
-                                _il.Emit(OpCodes.Stloc, closedPropertyTemp)
-                                _il.Emit(OpCodes.Ldloca, closedPropertyTemp)
-                                _il.Emit(OpCodes.Call, closedGetter)
-                            }
-                            columnarResolvedType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProp.PropertyType, closedFieldArgs)
-                            return true
-                        }
-                    }
-                    return false
-                }
-                // Resolution walks the BASE chain (nearest first) so a derived receiver exposes INHERITED
-                // fields/properties (`d.X` where X is declared on Base).
-                let structField: System.Reflection.Emit.FieldBuilder? = null
-                if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(fieldStruct, member, out structField)) {
-                    if (fieldStruct.IsReference) {
-                        // RECORD/CLASS (reference type): the receiver is the object ref already on the stack.
-                        _il.Emit(OpCodes.Ldfld, structField)
-                    } else {
-                        // VALUE-TYPE struct: ldfld needs the value's ADDRESS — spill to a temp and ldloca.
-                        fieldTemp := _il.DeclareLocal(structReceiverType)
-                        _il.Emit(OpCodes.Stloc, fieldTemp)
-                        _il.Emit(OpCodes.Ldloca, fieldTemp)
-                        _il.Emit(OpCodes.Ldfld, structField)
-                    }
-                    columnarResolvedType = (must structField).FieldType
-                    return true
-                }
-                let propAccessor: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                if (TryFindPropertyOnChain(fieldStruct, member, out propAccessor)) {
-                    if (fieldStruct.IsReference) {
-                        // Reference receiver: the object ref is already on the stack.
-                        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(propAccessor.Getter))
-                    } else {
-                        // Value receiver: instance accessors need the receiver address.
-                        propertyTemp := _il.DeclareLocal(structReceiverType)
-                        _il.Emit(OpCodes.Stloc, propertyTemp)
-                        _il.Emit(OpCodes.Ldloca, propertyTemp)
-                        _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(propAccessor.Getter))
-                    }
-                    columnarResolvedType = propAccessor.PropertyType
-                    return true
-                }
-                return false
-            }
-            let receiverType: System.Type? = null
-            if (!EmitExpression(Child(idx, 0), out receiverType)) {
+            } else if (!EmitExpression(Child(idx, 0), out structReceiverType)) {
                 return false
             }
             if (member == "Length") {
-                if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)) {
+                if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(structReceiverType)) {
                     _il.Emit(OpCodes.Ldlen)
                     // pushes the array length as a native int...
                     _il.Emit(OpCodes.Conv_I4)
@@ -14612,35 +14359,284 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = typeof(int)
                     return true
                 }
-                if (receiverType == typeof(string)) {
+                if (structReceiverType == typeof(string)) {
                     _il.Emit(OpCodes.Callvirt, (must typeof(string).GetProperty(nameof(string.Length))).GetGetMethod())
                     columnarResolvedType = typeof(int)
                     return true
                 }
-                if (receiverType == typeof(System.Text.StringBuilder)) {
+                if (structReceiverType == typeof(System.Text.StringBuilder)) {
                     _il.Emit(OpCodes.Callvirt, (must typeof(System.Text.StringBuilder).GetProperty(nameof(System.Text.StringBuilder.Length))).GetGetMethod())
                     columnarResolvedType = typeof(int)
                     return true
                 }
-                if (ColumnarTypeOfPlanner.IsSupportedSpanLikeType(receiverType)) {
-                    spanTemp := _il.DeclareLocal(receiverType)
+                if (ColumnarTypeOfPlanner.IsSupportedSpanLikeType(structReceiverType)) {
+                    spanTemp := _il.DeclareLocal(structReceiverType)
                     _il.Emit(OpCodes.Stloc, spanTemp)
                     _il.Emit(OpCodes.Ldloca, spanTemp)
-                    _il.Emit(OpCodes.Call, (must receiverType.GetProperty("Length")).GetGetMethod())
+                    _il.Emit(OpCodes.Call, (must structReceiverType.GetProperty("Length")).GetGetMethod())
                     columnarResolvedType = typeof(int)
                     return true
                 }
-                return false
             }
             // `t.ItemN` on a ValueTuple -> ldfld the element (ItemN is a public instance FIELD of ValueTuple).
             // The receiver value (a value type) is already on the stack; ldfld reads the field from it.
-            if (ColumnarTypeOfPlanner.IsSupportedValueTuple(receiverType)) {
-                itemField := receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance)
+            if (ColumnarTypeOfPlanner.IsSupportedValueTuple(structReceiverType)) {
+                itemField := structReceiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance)
                 if (itemField == null) {
                     return false
                 }
                 _il.Emit(OpCodes.Ldfld, itemField)
                 columnarResolvedType = itemField.FieldType
+                return true
+            }
+            if (structReceiverType == typeof(System.Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision")) {
+                _il.Emit(OpCodes.Callvirt, (must typeof(System.Version).GetProperty(member)).GetGetMethod())
+                columnarResolvedType = typeof(int)
+                return true
+            }
+            if (structReceiverType == typeof(TimeSpan) && member == nameof(TimeSpan.TotalMilliseconds)) {
+                timeSpanTemp := _il.DeclareLocal(typeof(TimeSpan))
+                _il.Emit(OpCodes.Stloc, timeSpanTemp)
+                _il.Emit(OpCodes.Ldloca, timeSpanTemp)
+                _il.Emit(OpCodes.Call, (must typeof(TimeSpan).GetProperty(nameof(TimeSpan.TotalMilliseconds))).GetGetMethod())
+                columnarResolvedType = typeof(double)
+                return true
+            }
+            if (structReceiverType == typeof(DateTime)) {
+                dateTimeProperty := typeof(DateTime).GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+                if (dateTimeProperty != null && dateTimeProperty.GetMethod != null && ColumnarTypeOfPlanner.IsSupportedType(dateTimeProperty.PropertyType)) {
+                    dateTimeTemp := _il.DeclareLocal(typeof(DateTime))
+                    _il.Emit(OpCodes.Stloc, dateTimeTemp)
+                    _il.Emit(OpCodes.Ldloca, dateTimeTemp)
+                    _il.Emit(OpCodes.Call, dateTimeProperty.GetMethod)
+                    columnarResolvedType = dateTimeProperty.PropertyType
+                    return true
+                }
+            }
+            if (structReceiverType == typeof(JsonElement) && member == nameof(JsonElement.ValueKind)) {
+                jsonElementTemp := _il.DeclareLocal(typeof(JsonElement))
+                _il.Emit(OpCodes.Stloc, jsonElementTemp)
+                _il.Emit(OpCodes.Ldloca, jsonElementTemp)
+                _il.Emit(OpCodes.Call, (must typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind))).GetGetMethod())
+                columnarResolvedType = typeof(JsonValueKind)
+                return true
+            }
+            // COMPILER: `nameof(JsonElement.ArrayEnumerator.Current)` is refused (NL303: the analyzer does not
+            // resolve a member through a nested BCL type inside `nameof`), so the enumerators' member names
+            // here and in the `MoveNext` arm are written as their literal names.
+            if (structReceiverType == typeof(JsonElement.ArrayEnumerator) && member == "Current") {
+                enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ArrayEnumerator))
+                _il.Emit(OpCodes.Stloc, enumeratorTemp)
+                _il.Emit(OpCodes.Ldloca, enumeratorTemp)
+                _il.Emit(OpCodes.Call, (must typeof(JsonElement.ArrayEnumerator).GetProperty("Current")).GetGetMethod())
+                columnarResolvedType = typeof(JsonElement)
+                return true
+            }
+            if (structReceiverType == typeof(JsonElement.ObjectEnumerator) && member == "Current") {
+                enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ObjectEnumerator))
+                _il.Emit(OpCodes.Stloc, enumeratorTemp)
+                _il.Emit(OpCodes.Ldloca, enumeratorTemp)
+                _il.Emit(OpCodes.Call, (must typeof(JsonElement.ObjectEnumerator).GetProperty("Current")).GetGetMethod())
+                columnarResolvedType = typeof(JsonProperty)
+                return true
+            }
+            if (structReceiverType == typeof(JsonProperty) && (member == nameof(JsonProperty.Name) || member == nameof(JsonProperty.Value))) {
+                propertyTemp := _il.DeclareLocal(typeof(JsonProperty))
+                _il.Emit(OpCodes.Stloc, propertyTemp)
+                _il.Emit(OpCodes.Ldloca, propertyTemp)
+                property := typeof(JsonProperty).GetProperty(member)
+                if ((property == null || property.GetMethod == null)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Call, property.GetMethod)
+                columnarResolvedType = property.PropertyType
+                return true
+            }
+            if (structReceiverType == typeof(Type) && (member == nameof(Type.Name) || member == nameof(Type.FullName) || member == nameof(Type.Namespace) || member == nameof(Type.IsNested))) {
+                property := typeof(Type).GetProperty(member)
+                if ((property == null || property.GetMethod == null)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, property.GetMethod)
+                columnarResolvedType = property.PropertyType
+                return true
+            }
+            if (structReceiverType == typeof(YamlDotNet.Core.IParser) && member == nameof(YamlDotNet.Core.IParser.Current)) {
+                _il.Emit(OpCodes.Callvirt, (must typeof(YamlDotNet.Core.IParser).GetProperty(nameof(YamlDotNet.Core.IParser.Current))).GetGetMethod())
+                columnarResolvedType = typeof(ParsingEvent)
+                return true
+            }
+            if (structReceiverType == typeof(Scalar) && member == nameof(Scalar.Value)) {
+                _il.Emit(OpCodes.Callvirt, (must typeof(Scalar).GetProperty(nameof(Scalar.Value))).GetGetMethod())
+                columnarResolvedType = typeof(string)
+                return true
+            }
+            let bclPropertyRead: System.Reflection.PropertyInfo? = null
+            if (TryGetSupportedBclReadableProperty(structReceiverType, member, out bclPropertyRead)) {
+                _il.Emit(OpCodes.Callvirt, bclPropertyRead.GetMethod)
+                columnarResolvedType = bclPropertyRead.PropertyType
+                return true
+            }
+            if (ColumnarTypeOfPlanner.IsSupportedNullable(structReceiverType) && (member == "HasValue" || member == "Value")) {
+                nullableTemp := _il.DeclareLocal(structReceiverType)
+                _il.Emit(OpCodes.Stloc, nullableTemp)
+                _il.Emit(OpCodes.Ldloca, nullableTemp)
+                if (member == "HasValue") {
+                    _il.Emit(OpCodes.Call, ResolveNullableGetter(structReceiverType, "HasValue"))
+                    columnarResolvedType = typeof(bool)
+                    return true
+                }
+                _il.Emit(OpCodes.Call, ResolveNullableGetter(structReceiverType, "Value"))
+                columnarResolvedType = structReceiverType.GetGenericArguments()[0]
+                return true
+            }
+            let resultGetter: System.Reflection.MethodInfo? = null
+            let resultPropertyType: System.Type? = null
+            if (TryResolveResultReadableProperty(structReceiverType, member, out resultGetter, out resultPropertyType)) {
+                resultTemp := _il.DeclareLocal(structReceiverType)
+                _il.Emit(OpCodes.Stloc, resultTemp)
+                _il.Emit(OpCodes.Ldloca, resultTemp)
+                _il.Emit(OpCodes.Call, resultGetter)
+                columnarResolvedType = resultPropertyType
+                return true
+            }
+            let memoryGetter: System.Reflection.MethodInfo? = null
+            let memoryPropertyType: System.Type? = null
+            if (TryResolveMemoryReadableProperty(structReceiverType, member, out memoryGetter, out memoryPropertyType)) {
+                if (structReceiverType.IsValueType) {
+                    memoryTemp := _il.DeclareLocal(structReceiverType)
+                    _il.Emit(OpCodes.Stloc, memoryTemp)
+                    _il.Emit(OpCodes.Ldloca, memoryTemp)
+                    _il.Emit(OpCodes.Call, memoryGetter)
+                } else {
+                    _il.Emit(OpCodes.Callvirt, memoryGetter)
+                }
+                columnarResolvedType = memoryPropertyType
+                return true
+            }
+            // `.Count` on a closed List<T>/Dictionary<K,V>/SortedDictionary<K,V>/HashSet<T> — callvirt get_Count -> int
+            // (resolved from the open definition so builder-bound receivers rebind).
+            let countGetter: System.Reflection.MethodInfo? = null
+            if (member == "Count" && TryResolveCollectionCountGetter(structReceiverType, out countGetter)) {
+                _il.Emit(OpCodes.Callvirt, countGetter)
+                columnarResolvedType = typeof(int)
+                return true
+            }
+            // `kvp.Key` / `kvp.Value` on a KeyValuePair<K,V> (the Dictionary foreach loop
+            // variable) — a VALUE-type receiver: spill, ldloca, call the non-virtual getter.
+            // The result type comes from the CLOSED arguments, never the getter's ReturnType:
+            // a REBOUND getter reports the OPEN TKey/TValue (spike-proven) — propagating that
+            // would leak an open generic parameter into downstream typing (wrong-IL hazard).
+            if ((member == "Key" || member == "Value") && ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(structReceiverType)) {
+                kvpTemp := _il.DeclareLocal(structReceiverType)
+                _il.Emit(OpCodes.Stloc, kvpTemp)
+                _il.Emit(OpCodes.Ldloca, kvpTemp)
+                openKvpGetter := (must typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().GetProperty(member)).GetGetMethod()
+                _il.Emit(OpCodes.Call, ResolveClosedGenericMethod(structReceiverType, openKvpGetter))
+                columnarResolvedType = structReceiverType.GetGenericArguments()[member == "Key" ? 0 : 1]
+                return true
+            }
+            // ORDINARY CLR MEMBER RESOLUTION for a receiver that is a VALUE rather than a storage
+            // location — a call result, an element, anything the instance-member planner could not
+            // claim. Reaching a member through one of those was a per-receiver residual table, so
+            // `Make().IsOk` on the runtime `Result` read while `Make().Index` on the runtime
+            // `Union` declined; the resolver the planner itself uses answers both the same way,
+            // and a VALUE receiver is spilled so the getter has the address it takes.
+            runtimeMember := ColumnarRuntimeInstanceMemberSelection.Empty()
+            if (ColumnarRuntimeInstanceMemberResolver.TrySelect(structReceiverType, member, out runtimeMember)) {
+                if (!runtimeMember.ReceiverIsReference) {
+                    runtimeMemberTemp := _il.DeclareLocal(structReceiverType)
+                    _il.Emit(OpCodes.Stloc, runtimeMemberTemp)
+                    _il.Emit(OpCodes.Ldloca, runtimeMemberTemp)
+                }
+                if (runtimeMember.IsField) {
+                    if (runtimeMember.Field == null) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Ldfld, runtimeMember.Field)
+                } else {
+                    if (runtimeMember.Getter == null) {
+                        return false
+                    }
+                    runtimeMemberOpcode := match runtimeMember.ReceiverIsReference {
+                        true => OpCodes.Callvirt,
+                        _ => OpCodes.Call
+                    }
+                    _il.Emit(runtimeMemberOpcode, runtimeMember.Getter)
+                }
+                columnarResolvedType = runtimeMember.ResultType
+                return true
+            }
+            fieldStruct := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, structReceiverType)
+            if (fieldStruct == null) {
+                // A CLOSED user-generic receiver (`Box<int>`): resolve on the OPEN definition (own
+                // type only — generic bases decline at declaration), rebind the token via
+                // TypeBuilder.GetField/GetMethod (reflection member queries throw on
+                // TypeBuilderInstantiation), and substitute the closed type arguments into the
+                // member type (b.item on Box<int> is int).
+                let closedFieldDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                let closedFieldArgs: System.Type[]? = null
+                if (TryGetClosedReceiverDef(structReceiverType, out closedFieldDef, out closedFieldArgs)) {
+                    let openField: System.Reflection.Emit.FieldBuilder? = null
+                    if (closedFieldDef.Fields.TryGetValue(member, out openField)) {
+                        if (closedFieldDef.IsReference) {
+                            _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(structReceiverType, openField))
+                        } else {
+                            closedFieldTemp := _il.DeclareLocal(structReceiverType)
+                            _il.Emit(OpCodes.Stloc, closedFieldTemp)
+                            _il.Emit(OpCodes.Ldloca, closedFieldTemp)
+                            _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(structReceiverType, openField))
+                        }
+                        columnarResolvedType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.FieldType, closedFieldArgs)
+                        return true
+                    }
+                    let openProp: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                    if (closedFieldDef.Properties.TryGetValue(member, out openProp)) {
+                        closedGetter := TypeBuilder.GetMethod(structReceiverType, openProp.Getter)
+                        if (closedFieldDef.IsReference) {
+                            _il.Emit(OpCodes.Callvirt, closedGetter)
+                        } else {
+                            closedPropertyTemp := _il.DeclareLocal(structReceiverType)
+                            _il.Emit(OpCodes.Stloc, closedPropertyTemp)
+                            _il.Emit(OpCodes.Ldloca, closedPropertyTemp)
+                            _il.Emit(OpCodes.Call, closedGetter)
+                        }
+                        columnarResolvedType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProp.PropertyType, closedFieldArgs)
+                        return true
+                    }
+                }
+                return false
+            }
+            // Resolution walks the BASE chain (nearest first) so a derived receiver exposes INHERITED
+            // fields/properties (`d.X` where X is declared on Base).
+            let structField: System.Reflection.Emit.FieldBuilder? = null
+            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(fieldStruct, member, out structField)) {
+                if (fieldStruct.IsReference) {
+                    // RECORD/CLASS (reference type): the receiver is the object ref already on the stack.
+                    _il.Emit(OpCodes.Ldfld, structField)
+                } else {
+                    // VALUE-TYPE struct: ldfld needs the value's ADDRESS — spill to a temp and ldloca.
+                    fieldTemp := _il.DeclareLocal(structReceiverType)
+                    _il.Emit(OpCodes.Stloc, fieldTemp)
+                    _il.Emit(OpCodes.Ldloca, fieldTemp)
+                    _il.Emit(OpCodes.Ldfld, structField)
+                }
+                columnarResolvedType = (must structField).FieldType
+                return true
+            }
+            let propAccessor: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+            if (TryFindPropertyOnChain(fieldStruct, member, out propAccessor)) {
+                if (fieldStruct.IsReference) {
+                    // Reference receiver: the object ref is already on the stack.
+                    _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(propAccessor.Getter))
+                } else {
+                    // Value receiver: instance accessors need the receiver address.
+                    propertyTemp := _il.DeclareLocal(structReceiverType)
+                    _il.Emit(OpCodes.Stloc, propertyTemp)
+                    _il.Emit(OpCodes.Ldloca, propertyTemp)
+                    _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(propAccessor.Getter))
+                }
+                columnarResolvedType = propAccessor.PropertyType
                 return true
             }
             return false
