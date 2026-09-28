@@ -23862,7 +23862,7 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = method.ReturnType
                 return true
             }
-            if (TryGetPreflightExtensionSiblingCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+            if (TryGetPreflightContextualGenericReceiverSiblingCallType(receiverType, member, callIdx, out columnarResolvedType)) {
                 return true
             }
             if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out columnarResolvedType)) {
@@ -23882,7 +23882,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        if (TryGetPreflightExtensionSiblingCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+        if (TryGetPreflightContextualGenericReceiverSiblingCallType(receiverType, member, callIdx, out columnarResolvedType)) {
             return true
         }
         if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out columnarResolvedType)) {
@@ -24052,30 +24052,19 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
-    private func TryGetPreflightExtensionSiblingCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
+    // Residual preflight for inferred generic receiver siblings whose arguments need a delegate
+    // target (a lambda or method group). Ordinary and non-generic receiver siblings are typed by
+    // ColumnarDirectCallPlanner; retaining those cases here would keep a second owner alive.
+    private func TryGetPreflightContextualGenericReceiverSiblingCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         argCount := _nodes.ChildCount(callIdx) - 1
         let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-        if (!_siblings.TryGetValue(member, out target) || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4) {
+        if (!_siblings.TryGetValue(member, out target) || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4 || target.TypeParams.Length == 0 || !HasContextualDelegateArgument(callIdx, argCount)) {
             return false
         }
-        if (target.TypeParams.Length > 0) {
-            let genericBinding: System.Type[]? = null
-            let genericParamTypes: System.Type[]? = null
-            return TrySelectGenericExtensionSibling(callIdx, target, receiverType, argCount, out genericBinding, out genericParamTypes, out columnarResolvedType)
-        }
-
-        if (!CanUseExtensionReceiverConversion(receiverType, target.ParamTypes[0])) {
-            return false
-        }
-        for a := 0; a < argCount; a++ {
-            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true, target.ParamModifierKinds[1 + a])) {
-                return false
-            }
-        }
-
-        columnarResolvedType = target.ReturnType
-        return true
+        let genericBinding: System.Type[]? = null
+        let genericParamTypes: System.Type[]? = null
+        return TrySelectContextualGenericReceiverSibling(callIdx, target, receiverType, argCount, out genericBinding, out genericParamTypes, out columnarResolvedType)
     }
 
     private func TryGetPreflightExtensionStaticMethodCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
@@ -25989,7 +25978,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        if (TryEmitExtensionSiblingCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+        if (TryEmitContextualGenericReceiverSiblingCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 
@@ -27059,29 +27048,6 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    private func TryEmitExtensionSiblingCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
-        columnarResolvedType = null
-        let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-        if (!_siblings.TryGetValue(member, out target) || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4) {
-            return false
-        }
-        if (target.TypeParams.Length > 0) {
-            return TryEmitGenericExtensionSiblingCall(callIdx, target, receiverType, argCount, out columnarResolvedType)
-        }
-
-        if (!TryConvertAlreadyEmittedValue(receiverType, target.ParamTypes[0])) {
-            return false
-        }
-        for a := 0; a < argCount; a++ {
-            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true, target.ParamModifierKinds[1 + a])) {
-                return false
-            }
-        }
-        _il.Emit(OpCodes.Call, target.Method)
-        columnarResolvedType = target.ReturnType
-        return true
-    }
-
     // A GENERIC FREE FUNCTION WITH A `this` PARAMETER, CALLED WITH RECEIVER SYNTAX. `5.Tag("ok")` over
     // `func Tag<T>(this value: T, note: string)` is `Tag(5, "ok")` with its first argument written in
     // front, so its type parameters are inferred the way the bare call's are, with the RECEIVER as
@@ -27091,7 +27057,7 @@ sealed class ColumnarIlEmitter {
     // NOTHING IS EMITTED UNTIL THE WHOLE CALL IS SELECTED. The receiver's value is already on the
     // stack when this tier is asked and the tiers below it still get their turn if it refuses, so the
     // selection reads preflight types only. The preflight twin asks the same question for the result.
-    private func TrySelectGenericExtensionSibling(callIdx: int, target: ColumnarSiblingMethodDefinition, receiverType: Type, argCount: int, out binding: Type[], out closedParamTypes: Type[], out returnType: Type): bool {
+    private func TrySelectContextualGenericReceiverSibling(callIdx: int, target: ColumnarSiblingMethodDefinition, receiverType: Type, argCount: int, out binding: Type[], out closedParamTypes: Type[], out returnType: Type): bool {
         binding = null
         closedParamTypes = null
         returnType = null
@@ -27201,12 +27167,16 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    private func TryEmitGenericExtensionSiblingCall(callIdx: int, target: ColumnarSiblingMethodDefinition, receiverType: Type, argCount: int, out columnarResolvedType: Type): bool {
+    private func TryEmitContextualGenericReceiverSiblingCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
+        let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        if (!_siblings.TryGetValue(member, out target) || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4 || target.TypeParams.Length == 0 || !HasContextualDelegateArgument(callIdx, argCount)) {
+            return false
+        }
         let binding: System.Type[]? = null
         let closedParamTypes: System.Type[]? = null
         let returnType: System.Type? = null
-        if (!TrySelectGenericExtensionSibling(callIdx, target, receiverType, argCount, out binding, out closedParamTypes, out returnType)) {
+        if (!TrySelectContextualGenericReceiverSibling(callIdx, target, receiverType, argCount, out binding, out closedParamTypes, out returnType)) {
             return false
         }
 
