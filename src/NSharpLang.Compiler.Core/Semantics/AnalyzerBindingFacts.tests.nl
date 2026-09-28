@@ -1,7 +1,10 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
+import System.IO
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // THE CANONICAL CONTRACTS FOR `AnalyzerBindingFacts`, IN N#.
@@ -302,4 +305,159 @@ test "analyzer binding facts match type declaration kinds exactly" {
     assert !AnalyzerBindingFacts.IsTypeDeclarationKind("delegate")
     assert !AnalyzerBindingFacts.IsTypeDeclarationKind("parameter")
     assert !AnalyzerBindingFacts.IsTypeDeclarationKind(" class")
+}
+
+// A BY-REFERENCE PARAMETER'S NAME IS THE STORAGE IT REACHES. `v: &int` and `ref v: int` are one CLR
+// `int&`; the `ref` spelling carries its shell in the modifier and binds its name at `int`, and the
+// `&` spelling carries it in the type, which is dropped for the NAME only. Anything that is not a
+// by-reference shell binds at exactly what it resolved to.
+test "a by-reference parameter's name binds at the storage type it reaches" {
+    storage: TypeInfo = BuiltInTypes.Int
+    byRef: TypeInfo = new ByRefTypeInfo(storage)
+    assert Object.ReferenceEquals(AnalyzerBindingFacts.ParameterBindingType(byRef), storage)
+    assert Object.ReferenceEquals(AnalyzerBindingFacts.ParameterBindingType(storage), storage)
+
+    node: TypeInfo = BindingFactsClass("Node")
+    assert Object.ReferenceEquals(AnalyzerBindingFacts.ParameterBindingType(new ByRefTypeInfo(node)), node)
+}
+
+// BY-REFERENCE IS WHAT A PARAMETER IS, NOT HOW IT IS SPELLED: `ref`, `out`, `in` and a `&T` type all
+// are, and `params` — a modifier, but an array passed by value — is not.
+test "a parameter is by reference in either spelling and params is not" {
+    intType := new SimpleTypeReference("int")
+    assert AnalyzerBindingFacts.IsByReferenceParameter(new Parameter("v", intType, null, false, ParameterModifier.Ref))
+    assert AnalyzerBindingFacts.IsByReferenceParameter(new Parameter("v", intType, null, false, ParameterModifier.Out))
+    assert AnalyzerBindingFacts.IsByReferenceParameter(new Parameter("v", intType, null, false, ParameterModifier.In))
+    assert AnalyzerBindingFacts.IsByReferenceParameter(new Parameter("v", new ByRefTypeReference(intType), null, false))
+    assert !AnalyzerBindingFacts.IsByReferenceParameter(new Parameter("v", intType, null, false))
+    assert !AnalyzerBindingFacts.IsByReferenceParameter(new Parameter("v", new ArrayTypeReference(intType), null, false, ParameterModifier.Params))
+}
+
+func ByRefBindingErrors(source: string): List<CompilerError> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-byref-binding-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    errors := new List<CompilerError>()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                errors.Add(error)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return errors
+}
+
+func ByRefBindingMessages(errors: List<CompilerError>): string {
+    text := ""
+    for error in errors {
+        text += Convert.ToInt32(error.Code).ToString() + " " + error.Message + "\n"
+    }
+
+    return text
+}
+
+func ByRefBindingCount(errors: List<CompilerError>, code: ErrorCode): int {
+    total := 0
+    for error in errors {
+        if error.Code == code {
+            total = total + 1
+        }
+    }
+
+    return total
+}
+
+// THE SAME BODIES IN BOTH SPELLINGS, AND BOTH ARE CLEAN. Each body reads the parameter as its value
+// and writes through it: arithmetic, compound assignment and increment, a class reference rebound, a
+// struct replaced whole, a string, a copy taken by a read, a value passed on by value, a comparison,
+// and a generic swap. The `&` spelling was refused NL202 on every one of these (`'+' doesn't work
+// with '&int' and 'int'`, `expected '&Node' but got 'Node'`), and the `ref` spelling never was.
+test "a &T parameter reads and writes in value position exactly as a ref parameter does" {
+    bodies := new List<string>()
+    bodies.Add("func Inc(P: int) {\n    v = v + 1\n}\n")
+    bodies.Add("func Add(P: int, amount: int) {\n    v += amount\n    v++\n}\n")
+    bodies.Add("class Node {\n    Name: string\n\n    constructor(name: string) {\n        Name = name\n    }\n}\n\nfunc Rename(P: Node) {\n    v = new Node(v.Name + \"!\")\n}\n")
+    bodies.Add("struct Point {\n    X: int\n    Y: int\n}\n\nfunc Flip(P: Point) {\n    v = new Point { X: v.Y, Y: v.X }\n}\n")
+    bodies.Add("func Exclaim(P: string) {\n    v = v + \"!\"\n}\n")
+    bodies.Add("func Twice(value: int): int {\n    return value * 2\n}\n\nfunc ReadCopy(P: int): int {\n    copy := v\n    v = Twice(v)\n    if v > copy {\n        return copy\n    }\n\n    return v\n}\n")
+    bodies.Add("func Swap<T>(P: T, b: &T) {\n    t := v\n    v = b\n    b = t\n}\n")
+    for body in bodies {
+        ampersand := body.Replace("P: ", "v: &")
+        byRef := body.Replace("P: ", "ref v: ")
+        ampersandErrors := ByRefBindingErrors(ampersand)
+        byRefErrors := ByRefBindingErrors(byRef)
+        assert ampersandErrors.Count == 0, ampersand + "\n" + ByRefBindingMessages(ampersandErrors)
+        assert byRefErrors.Count == 0, byRef + "\n" + ByRefBindingMessages(byRefErrors)
+    }
+}
+
+// THE REFERENCE IS STILL PASSED ON WITH `ref`, and a member is still reached through it.
+test "a &T parameter is forwarded with ref and its members are reached through it" {
+    source := "struct Counter {\n    Value: int\n}\n\nfunc Bump(counter: &Counter) {\n    counter.Value = counter.Value + 1\n}\n\nfunc Forward(counter: &Counter) {\n    Bump(ref counter)\n}\n\nfunc ForwardRef(ref counter: Counter) {\n    Bump(ref counter)\n}\n"
+    errors := ByRefBindingErrors(source)
+    assert errors.Count == 0, ByRefBindingMessages(errors)
+}
+
+// A BY-REFERENCE PARAMETER PASSED ON BARE IS REFUSED, like every other bare by-reference argument.
+// Inside its body the name is the storage it reaches, so `Bump(counter)` passes a VALUE where a
+// reference is expected; the call must say `ref` so a reader sees the callee may write the caller's
+// storage. The report names the fix — the keyword and the argument it goes in front of — for a
+// forwarded parameter and a local alike, and the `out` parameter's keyword is `out`.
+test "a by-reference parameter passed on bare is refused with the keyword to write" {
+    source := "func Bump(counter: &int) {\n    counter = counter + 1\n}\n\nfunc Produce(out value: int) {\n    value = 1\n}\n\nfunc Forward(counter: &int) {\n    Bump(counter)\n}\n\nfunc Local() {\n    slot := 0\n    Bump(slot)\n    Produce(slot)\n}\n"
+    errors := ByRefBindingErrors(source)
+    assert errors.Count == 3, ByRefBindingMessages(errors)
+    assert ByRefBindingCount(errors, ErrorCode.TypeMismatch) == 3, ByRefBindingMessages(errors)
+    hints := ""
+    for error in errors {
+        hints += (error.ContextualHint ?? error.Suggestion ?? "") + "\n"
+    }
+
+    assert hints.Contains("write `ref` before `counter`"), hints
+    assert hints.Contains("write `ref` before `slot`"), hints
+    assert hints.Contains("write `out` before `slot`"), hints
+}
+
+// NL331 IS ABOUT WHAT A PARAMETER IS. A local function may not read an enclosing `v: &int` any more
+// than an enclosing `ref v: int` — both are a pointer into the caller's frame that a closure would
+// outlive — and it MAY read an enclosing `params` array, which is an ordinary by-value parameter.
+test "a local function may not capture a &T parameter and may capture a params one" {
+    ampersand := "func Accumulate(values: int[], total: &int) {\n    func add(value: int) {\n        total = total + value\n    }\n\n    for value in values {\n        add(value)\n    }\n}\n"
+    byRef := ampersand.Replace("total: &int", "ref total: int")
+    ampersandErrors := ByRefBindingErrors(ampersand)
+    byRefErrors := ByRefBindingErrors(byRef)
+    assert ByRefBindingCount(ampersandErrors, ErrorCode.ByRefParameterCapturedByLocalFunction) == 2, ByRefBindingMessages(ampersandErrors)
+    assert ByRefBindingCount(byRefErrors, ErrorCode.ByRefParameterCapturedByLocalFunction) == 2, ByRefBindingMessages(byRefErrors)
+    assert ampersandErrors.Count == byRefErrors.Count, ByRefBindingMessages(ampersandErrors) + ByRefBindingMessages(byRefErrors)
+
+    paramsSource := "func Sum(params values: int[]): int {\n    func at(index: int): int {\n        return values[index]\n    }\n\n    return at(0)\n}\n"
+    paramsErrors := ByRefBindingErrors(paramsSource)
+    assert paramsErrors.Count == 0, ByRefBindingMessages(paramsErrors)
+}
+
+// A CALLEE THAT TAKES THE STORAGE BY REFERENCE MAY WRITE NULL INTO IT, in either spelling. The
+// argument is the `string?` STORAGE, not the `string` the `if` narrowed a read of it to, so the call
+// is accepted (it was refused NL202, "Cannot pass `&string` ... `&string?`", in BOTH spellings); and
+// after it the caller's `text` is whatever `string?` allows, so the narrowing does not survive the
+// call and the dereference is NL905 — for `s: &string?` as for `ref s: string?`.
+test "a call through a &T? parameter resets the argument's null state as a ref one does" {
+    ampersand := "func Clear(s: &string?) {\n    s = null\n}\n\nfunc Use(): int {\n    text: string? = \"a\"\n    if text != null {\n        Clear(ref text)\n        return text.Length\n    }\n\n    return 0\n}\n"
+    byRef := ampersand.Replace("s: &string?", "ref s: string?")
+    ampersandErrors := ByRefBindingErrors(ampersand)
+    byRefErrors := ByRefBindingErrors(byRef)
+    assert ByRefBindingCount(byRefErrors, ErrorCode.PossibleNullAccess) == 1, ByRefBindingMessages(byRefErrors)
+    assert ByRefBindingCount(ampersandErrors, ErrorCode.PossibleNullAccess) == 1, ByRefBindingMessages(ampersandErrors)
+    assert byRefErrors.Count == 1, ByRefBindingMessages(byRefErrors)
+    assert ampersandErrors.Count == 1, ByRefBindingMessages(ampersandErrors)
 }

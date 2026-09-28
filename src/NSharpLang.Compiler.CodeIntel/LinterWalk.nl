@@ -147,8 +147,6 @@ class LinterWalk {
         state.RecordParameterScope()
     }
 
-    // A `ref` or `out` parameter. `params` is by VALUE — it is an array the caller built — so it is
-    // not one of these, and a write to it is as dead as a write to any other by-value parameter.
     // A parameter's attributes, recorded on the same rule the declaration walk uses. Only the NAMES are
     // taken here: a parameter attribute's arguments are walked by the declaration walk that owns the
     // member, so walking them again would double-count a read.
@@ -162,12 +160,16 @@ class LinterWalk {
         }
     }
 
+    // A `ref` or `out` parameter, or one written in the systems spelling `v: &T` — the same CLR `T&`
+    // as `ref v: T`, so a write to it reaches the caller just the same. `params` is by VALUE — it is
+    // an array the caller built — so it is not one of these, and a write to it is as dead as a write
+    // to any other by-value parameter.
     static func IsByReferenceParameter(parameter: Parameter): bool {
-        if parameter.Modifier == ParameterModifier.Ref {
+        if parameter.Modifier == ParameterModifier.Ref || parameter.Modifier == ParameterModifier.Out {
             return true
         }
 
-        return parameter.Modifier == ParameterModifier.Out
+        return parameter.Type as ByRefTypeReference != null
     }
 
     // The `async` modifier, read as a flag bit. `Modifiers` is a flags enum and the test is the same

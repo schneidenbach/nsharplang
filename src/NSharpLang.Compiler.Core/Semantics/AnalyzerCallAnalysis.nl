@@ -122,6 +122,7 @@ class CallAnalysisState {
     RefOutErrorsBefore: int
     RefOutSavedExpressionTypes: Dictionary<object, TypeInfo>?
     RefOutExpressionTypes: Dictionary<object, TypeInfo>?
+    RefOutSavedSuppressedFlowTypeNode: Expression?
 
     // THE REFLECTED BIND, WHICH IS A WALK INSIDE THIS WALK.
     //
@@ -190,6 +191,7 @@ class CallAnalysisState {
         RefOutModifier = null
         RefOutErrorsBefore = 0
         RefOutSavedExpressionTypes = null
+        RefOutSavedSuppressedFlowTypeNode = null
         RefOutExpressionTypes = null
         ReflectionSingleMethod = null
         ReflectionMethodGroup = null
@@ -1833,6 +1835,13 @@ class AnalyzerCallAnalysis {
         state.RefOutErrorsBefore = errorsBefore
         state.RefOutSavedExpressionTypes = ambient.EnterWriteTargetExpressionTypes()
         state.RefOutExpressionTypes = ambient.WriteTargetExpressionTypes
+        // A BY-REFERENCE TARGET IS A STORAGE LOCATION, exactly as an assignment's target is, so its
+        // flow-narrowed type is not what is passed: `Clear(ref text)` over a `text: string?` that an
+        // `if text != null` narrowed hands over the `string?` storage, and the callee may write null
+        // into it. The suppression is for the target NODE only; an index or receiver inside it is an
+        // ordinary read.
+        state.RefOutSavedSuppressedFlowTypeNode = nullFlow.SuppressedFlowTypeNode
+        nullFlow.SetSuppressedFlowTypeNode(argument.Value)
         state.Pending = 4
         request := new CallAnalysisRequest(4)
         request.Node = argument.Value
@@ -1859,6 +1868,7 @@ class AnalyzerCallAnalysis {
         }
 
         ambient.ExitWriteTargetExpressionTypes(state.RefOutSavedExpressionTypes)
+        nullFlow.SetSuppressedFlowTypeNode(state.RefOutSavedSuppressedFlowTypeNode)
         modifier := "ref"
         recordedModifier := state.RefOutModifier
         if recordedModifier != null {
@@ -1874,10 +1884,12 @@ class AnalyzerCallAnalysis {
                 // `ref` and `out` was written. An `out` variable's incoming nullability is the
                 // callee's to replace; a `ref` one's is part of the contract.
                 //
-                // A TARGET THAT IS ALREADY A REFERENCE IS PASSED ON, NOT RE-REFERENCED. A `&T`
-                // parameter names the caller's storage and reads as `&T`, so `ref p` hands over the
-                // same `&T` the callee was given — the CLR has no `&&T`, and the argument is the
-                // `ldarg` of that one reference. The spelling written here is what the wrapper carries.
+                // A TARGET THAT IS ALREADY A REFERENCE IS PASSED ON, NOT RE-REFERENCED — the CLR has
+                // no `&&T`. A `&T` parameter's NAME never answers the shell: it is bound at the storage
+                // it reaches (`AnalyzerBindingFacts.ParameterBindingType`), so `ref p` wraps `T` once
+                // and emits the `ldarg` of the reference the callee was given. A member DECLARED `&T`
+                // (a `ref struct`'s ref field) still answers `&T`, and is passed on as that one
+                // reference. The spelling written here is what the wrapper carries.
                 referenced := resolved
                 alreadyByRef := resolved as ByRefTypeInfo
                 if alreadyByRef != null {
@@ -1893,6 +1905,7 @@ class AnalyzerCallAnalysis {
         state.RefOutModifier = null
         state.RefOutSavedExpressionTypes = null
         state.RefOutExpressionTypes = null
+        state.RefOutSavedSuppressedFlowTypeNode = null
         state.ArgTypes.Add(resolved)
         state.ArgumentIndex = state.ArgumentIndex + 1
     }

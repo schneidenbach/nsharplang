@@ -1650,9 +1650,10 @@ class AnalyzerReflectionArgumentBinder {
 
     // WHAT A `ref`/`out`/`in` ARGUMENT IS SCORED AND CHECKED AS: the type of the storage the reference
     // reaches, which the parameter's own by-ref shell is matched against. A local answers that type
-    // directly; a `&T` parameter answers `&T`, and matching the shell against the shell would ask
-    // whether `&T` is `T` -- so `Interlocked.Increment(ref count)` bound for `count := 0` and not for
-    // `count: &int`. A by-value argument keeps its answer, since a `&T` value is not a `T` there.
+    // directly, and so does a `&T` parameter's name, which is bound at its storage type; a member
+    // DECLARED `&T` (a `ref struct`'s ref field) answers the shell, and matching the shell against the
+    // shell would ask whether `&T` is `T`. A by-value argument keeps its answer, since a `&T` value is
+    // not a `T` there.
     static func ReferencedStorageType(modifier: ArgumentModifier, answer: TypeInfo?): TypeInfo? {
         byRef := answer as ByRefTypeInfo
         if byRef == null || modifier == ArgumentModifier.None {

@@ -928,7 +928,7 @@ class AnalyzerDeclarationWalkers {
         }
 
         parameter := ctor.Parameters[state.ParameterIndex]
-        parameterType := typeResolver.ResolveDeclaredType(parameter.Type)
+        parameterType := AnalyzerBindingFacts.ParameterBindingType(typeResolver.ResolveDeclaredType(parameter.Type))
         state.ParameterType = parameterType
         position := AnalyzerBindingFacts.GetParameterDeclarationPosition(parameter.Line, parameter.Column, ctor.Line, ctor.Column)
         state.Phase = 43

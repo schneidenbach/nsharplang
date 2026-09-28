@@ -647,11 +647,11 @@ test "a ref argument is analysed against the BYREF's inner type and folded back 
     assert errors.Count == 0
 }
 
-// A `&T` PARAMETER NAMES THE CALLER'S STORAGE AND READS AS `&T`, so `ref p` over it hands the SAME
-// reference on. Wrapping the answer again typed the argument `&&T` -- a type the CLR does not have --
-// and refused the call NL202 for a `&T` parameter, although the argument is only `ldarg` of the
-// reference the callee was given. A by-ref target of a class type, a struct and a primitive all pass on
-// as `&T`, and so does a chain of them: each hop answers what the one before it was handed.
+// A TARGET WHOSE ANSWER IS ALREADY `&T` -- a member declared `&T`, as a `ref struct`'s ref field is --
+// is passed on by `ref` as that SAME reference. Wrapping the answer again typed the argument `&&T`, a
+// type the CLR does not have, and refused the call NL202. (A `&T` PARAMETER's name no longer answers
+// the shell at all: it is bound at the storage it reaches, and `AnalyzerBindingFacts.tests.nl` pins
+// that.) A by-ref target of a class type, a struct and a primitive all pass on as `&T`.
 test "a ref argument over a target that is already a reference passes that reference on" {
     inners := new List<TypeInfo>()
     inners.Add(BuiltInTypes.Int)
@@ -676,8 +676,8 @@ test "a ref argument over a target that is already a reference passes that refer
 }
 
 // THE SPELLING WRITTEN AT THE CALL IS THE ONE THE ARGUMENT CARRIES, not the one the target was
-// declared with: `out p` over a `&int` parameter is an `out` argument, whose incoming nullability is
-// the callee's to replace.
+// declared with: `out p` over a `&int` target is an `out` argument, whose incoming nullability is the
+// callee's to replace.
 test "an out argument over a by-ref target keeps the out spelling" {
     errors := CallWalkErrors()
     harness := CallWalkHarnessOf(errors)

@@ -629,6 +629,8 @@ class AnalyzerAmbientContext {
     // THE ENCLOSING FUNCTION'S BYREF PARAMETERS, ENTERED WITH A LOCAL FUNCTION'S BODY. Nested local
     // functions accumulate rather than replace: the innermost one may not read the outermost one's
     // `ref` parameter either. The previous set is handed back so the walk restores it on the way out.
+    // A parameter is by-reference by what it IS, not by which of its spellings was written: `ref`,
+    // `out` and `in` are, and so is `v: &T`; a `params` parameter carries a modifier and is not.
     func EnterLocalFunctionByRefParameters(enclosing: FunctionDeclaration?): HashSet<string>? {
         saved := capturedByRefParameterNamesValue
         names := new HashSet<string>(StringComparer.Ordinal)
@@ -638,7 +640,7 @@ class AnalyzerAmbientContext {
 
         if enclosing != null {
             for parameter in enclosing.Parameters {
-                if parameter.Modifier != ParameterModifier.None && !parameter.IsThis {
+                if AnalyzerBindingFacts.IsByReferenceParameter(parameter) && !parameter.IsThis {
                     names.Add(parameter.Name)
                 }
             }

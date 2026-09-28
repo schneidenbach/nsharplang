@@ -389,6 +389,17 @@ class AnalyzerSyntheticCallValidator {
                 isByRefParameter = modifier == Ast.ParameterModifier.Ref || modifier == Ast.ParameterModifier.Out
             }
 
+            // BOTH SPELLINGS OF A BY-REFERENCE PARAMETER. `ref p: T` carries its shell in the
+            // modifier and `p: &T` in the type, and either callee may write the caller's storage, so
+            // the argument's null state after the call is the declared storage type's — `T`, never
+            // the `&T` shell, which has no null state of its own.
+            declaredParameterType := parameterTypes[parameterIndex]
+            byRefParameter := declaredParameterType as ByRefTypeInfo
+            if byRefParameter != null {
+                isByRefParameter = true
+                declaredParameterType = byRefParameter.InnerType
+            }
+
             parameterFlowFacts := NullabilityFlowFacts.None()
             if flowFactsByParameter != null && parameterIndex < flowFactsByParameter.Count {
                 parameterFlowFacts = flowFactsByParameter[parameterIndex]
@@ -398,7 +409,7 @@ class AnalyzerSyntheticCallValidator {
                 continue
             }
 
-            parameterType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)))
+            parameterType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(declaredParameterType, genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)))
             postconditions.AddArgumentFacts(facts, call.Arguments[currentArgument], parameterType, isByRefParameter, parameterFlowFacts)
         }
 
@@ -496,6 +507,7 @@ class AnalyzerSyntheticCallValidator {
             return
         }
 
+        byReferenceHint := BareByReferenceArgumentHint(functionType, call.Arguments[argumentIndex], parameterIndex, expectedType, argType)
         filePath := ""
         snippet := ""
         if TryGetRichContext(span.Line, out filePath, out snippet) && parameterName != null {
@@ -507,7 +519,12 @@ class AnalyzerSyntheticCallValidator {
                 argumentDisplayName = argumentTypeText
             }
 
-            diagnostics.ReportBuilt(ErrorMessageBuilder.WrongArgumentType(filePath, span.Line, span.Column, snippet, span.Length, functionName, argumentIndex + 1, parameterNameText, argumentDisplayName, expectedTypeText))
+            built := ErrorMessageBuilder.WrongArgumentType(filePath, span.Line, span.Column, snippet, span.Length, functionName, argumentIndex + 1, parameterNameText, argumentDisplayName, expectedTypeText)
+            if byReferenceHint != null {
+                built.ContextualHint = byReferenceHint
+            }
+
+            diagnostics.ReportBuilt(built)
             return
         }
 
@@ -518,7 +535,43 @@ class AnalyzerSyntheticCallValidator {
         }
 
         actualType := FormatArgumentTypeDiagnosticPhrase(call.Arguments[argumentIndex], argType)
-        diagnostics.Report(ErrorCode.TypeMismatch, ErrorMessageBuilder.WrongArgumentTypeMessage(argumentDescription, functionName, actualType, parameterName, expectedTypeText), span.Line, span.Column, "Pass a value with the expected type, or update the function signature.", span.Length)
+        suggestion := "Pass a value with the expected type, or update the function signature."
+        if byReferenceHint != null {
+            suggestion = byReferenceHint
+        }
+
+        diagnostics.Report(ErrorCode.TypeMismatch, ErrorMessageBuilder.WrongArgumentTypeMessage(argumentDescription, functionName, actualType, parameterName, expectedTypeText), span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // A BARE ARGUMENT WHERE THE PARAMETER TAKES A REFERENCE, and the storage it names is the right
+    // type — the one mismatch whose fix is a keyword, not a conversion. Every by-reference argument
+    // says so at the call (`ref x`, `out x`), so the reader sees that the callee may write the
+    // caller's storage; that includes a by-reference parameter passed on, which inside its own body
+    // is the storage it reaches. `ref`/`out` parameters and `&T` ones read alike here, since both
+    // arrive as a `&T` expected type; the keyword is the one the parameter was declared with.
+    func BareByReferenceArgumentHint(functionType: FunctionTypeInfo, argument: Argument, parameterIndex: int, expectedType: TypeInfo, argType: TypeInfo): string? {
+        expectedByRef := expectedType as ByRefTypeInfo
+        if expectedByRef == null || argument.Modifier != ArgumentModifier.None || argType as ByRefTypeInfo != null {
+            return null
+        }
+
+        if !assignability.IsAssignable(expectedByRef.InnerType, argType) {
+            return null
+        }
+
+        keyword := "ref"
+        modifiers := functionType.ParameterModifiers
+        if modifiers != null && parameterIndex >= 0 && parameterIndex < modifiers.Count && modifiers[parameterIndex] == Ast.ParameterModifier.Out {
+            keyword = "out"
+        }
+
+        written := "the argument"
+        identifier := argument.Value as IdentifierExpression
+        if identifier != null {
+            written = "`" + identifier.Name + "`"
+        }
+
+        return "This parameter takes the caller's storage by reference, so the call must say so: write `" + keyword + "` before " + written + "."
     }
 
     // NL208. A type parameter nothing bound is SKIPPED rather than reported: an open binding means

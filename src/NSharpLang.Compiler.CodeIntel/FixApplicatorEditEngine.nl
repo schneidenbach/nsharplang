@@ -68,7 +68,7 @@ class FixApplicatorEditEngine {
     }
 
     static func ValidateOrderedTextEditsCore(source: string, hasSource: int, edits: &FixApplicatorEditTable, errorInfo: int[]): int {
-        if errorInfo.Length < 2 || !EditTableShapeIsValid(edits) {
+        if errorInfo.Length < 2 || !EditTableShapeIsValid(ref edits) {
             return -1
         }
 

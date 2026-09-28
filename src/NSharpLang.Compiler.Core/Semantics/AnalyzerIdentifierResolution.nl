@@ -169,7 +169,7 @@ class AnalyzerIdentifierResolution {
         return BuiltInTypes.Unknown
     }
 
-    // NL331: A LOCAL FUNCTION MAY NOT READ AN ENCLOSING FUNCTION'S `ref`, `out` OR `in` PARAMETER.
+    // NL331: A LOCAL FUNCTION MAY NOT READ AN ENCLOSING FUNCTION'S `ref`, `out`, `in` OR `&T` PARAMETER.
     //
     // A capturing local function's storage outlives the call that created it — the captured bindings
     // live in a closure object on the heap — and a byref parameter is a managed pointer into the
@@ -185,7 +185,7 @@ class AnalyzerIdentifierResolution {
 
         diagnosticsValue.Report(
             ErrorCode.ByRefParameterCapturedByLocalFunction,
-            "'" + name + "' is a 'ref', 'out' or 'in' parameter of the enclosing function, so a local function cannot use it",
+            "'" + name + "' is a by-reference parameter ('ref', 'out', 'in' or '&T') of the enclosing function, so a local function cannot use it",
             line,
             column,
             "Copy '" + name + "' into an ordinary local before the local function, use that local inside it, and assign the result back to '" + name + "' afterwards.",

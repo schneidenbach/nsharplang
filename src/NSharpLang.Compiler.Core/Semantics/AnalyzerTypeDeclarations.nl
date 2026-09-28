@@ -485,7 +485,7 @@ class AnalyzerTypeDeclarations {
         }
 
         parameter := parameters[state.ParameterIndex]
-        parameterType := typeResolverValue.ResolveDeclaredType(parameter.Type)
+        parameterType := AnalyzerBindingFacts.ParameterBindingType(typeResolverValue.ResolveDeclaredType(parameter.Type))
         state.ParameterType = parameterType
         position := AnalyzerBindingFacts.GetParameterDeclarationPosition(parameter.Line, parameter.Column, state.Declaration.Line, state.Declaration.Column)
         state.Phase = 4

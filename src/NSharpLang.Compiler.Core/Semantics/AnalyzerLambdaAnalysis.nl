@@ -404,7 +404,7 @@ class AnalyzerLambdaAnalysis {
         }
 
         state.Phase = 2
-        request := new LambdaAnalysisRequest(3, parameterType)
+        request := new LambdaAnalysisRequest(3, AnalyzerBindingFacts.ParameterBindingType(parameterType))
         request.Name = parameter.Name
         request.Line = position.Item1
         request.Column = position.Item2
@@ -425,11 +425,12 @@ class AnalyzerLambdaAnalysis {
     }
 
     // PHASE 2 — THE SAME PARAMETER, RECORDED FOR THE IDE. It carries the type phase 1 resolved
-    // rather than resolving it again, which also keeps the recording side effect to one.
+    // rather than resolving it again, which also keeps the recording side effect to one. Both steps
+    // bind the NAME at the storage a `&T` parameter reaches; the signature (phase 3) keeps the `&T`.
     func RecordLambdaParameter(state: LambdaAnalysisState): LambdaAnalysisRequest? {
         parameter := state.Lambda.Parameters[state.ParameterIndex]
         state.Phase = 3
-        request := new LambdaAnalysisRequest(4, state.ParameterType)
+        request := new LambdaAnalysisRequest(4, AnalyzerBindingFacts.ParameterBindingType(state.ParameterType))
         request.Name = parameter.Name
         return request
     }

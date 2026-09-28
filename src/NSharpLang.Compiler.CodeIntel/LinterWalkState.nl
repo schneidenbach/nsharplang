@@ -697,9 +697,9 @@ class LinterWalkState {
         currentFunctionParamUsages = frame.OuterParamUsages
     }
 
-    // `declaredByRef` is a `ref` or `out` modifier on the parameter, and it is recorded because a
-    // WRITE to such a parameter is a USE of it: the store escapes to the caller. See
-    // `MarkVariableWritten`.
+    // `declaredByRef` is a `ref` or `out` modifier, or a `&T` type, on the parameter, and it is
+    // recorded because a WRITE to such a parameter is a USE of it: the store escapes to the caller.
+    // See `MarkVariableWritten`.
     func AddParameter(name: string, line: int, column: int, declaredByRef: bool) {
         currentFunctionParams.Add((name, line, column, declaredByRef))
     }

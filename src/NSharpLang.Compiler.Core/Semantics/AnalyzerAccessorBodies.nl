@@ -553,7 +553,7 @@ class AnalyzerAccessorBodies {
         }
 
         parameter := parameters[state.ParameterIndex]
-        parameterType := typeResolverValue.ResolveDeclaredType(parameter.Type)
+        parameterType := AnalyzerBindingFacts.ParameterBindingType(typeResolverValue.ResolveDeclaredType(parameter.Type))
         state.ParameterType = parameterType
         position := AnalyzerBindingFacts.GetParameterDeclarationPosition(parameter.Line, parameter.Column, state.Line, state.Column)
         state.Phase = 22

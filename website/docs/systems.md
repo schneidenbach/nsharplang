@@ -255,15 +255,46 @@ reader := new FrameReader(input)
 frame := NextFrame(ref reader)
 ```
 
-A `&T` parameter is passed on the same way. `ref reader` inside a function that was itself handed
-`reader: &FrameReader` gives the next callee that same reference — it is still a `&T`, never a
-reference to a reference — so a write at the end of a chain is the write the first caller sees:
+Inside the function, a `&T` parameter's name **is** the caller's storage. Reading it gives the
+value stored there, and assigning to it writes through to the caller. Member access reaches through
+it the same way. `v: &int` and `ref v: int` are the same CLR `int&`, and the two spellings behave
+identically in the body:
+
+```n#
+func IncInt(v: &int) {
+    v = v + 1                // reads the caller's int, writes the sum back
+}
+
+func Rename(n: &Node) {
+    n = new Node("x")        // rebinds the caller's variable, not a copy of it
+}
+
+func Swap<T>(a: &T, b: &T) {
+    t := a                   // `t` is a T, a copy of what `a` refers to
+    a = b
+    b = t
+}
+```
+
+A `&T` parameter is passed on the same way it was received. `ref reader` inside a function that
+was itself handed `reader: &FrameReader` gives the next callee that same reference. It is still a
+`&T`, never a reference to a reference, so a write at the end of a chain is the write the first
+caller sees:
 
 ```n#
 func SkipHeader(reader: &FrameReader) {
     NextFrame(ref reader)
 }
 ```
+
+Forwarding **requires** `ref`, as every other by-reference argument does. Inside the function
+`reader` names the storage itself, so a bare `NextFrame(reader)` passes a value where a reference is
+expected. That is refused with `NL202`, and the error tells you to write `ref` before the argument.
+The rule means every call that lets a callee write the caller's storage says so at the call site,
+however many hops away that storage is.
+
+A local function cannot capture a `&T` parameter (`NL331`), for the same reason it cannot capture
+a `ref` one: the closure would outlive the caller's frame that the reference points into.
 
 The compiler returns a **return-lifetime fact** for each function (`local`, `param`,
 `heap(owner)`, `static`, or `unknown`). Returning an `unknown` lifetime into a `[hot]`

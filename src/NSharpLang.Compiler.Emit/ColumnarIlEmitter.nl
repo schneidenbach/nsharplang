@@ -2756,8 +2756,8 @@ sealed class ColumnarIlEmitter {
             // substituted and addressed rather than emitted and unified.
             if (declared.IsByRef) {
                 let byRefElement: System.Type = null
-                if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, declared.GetElementType(), out byRefElement)) {
-                    return false
+                if (!TrySubstituteByRefGenericElement(target.TypeParams, binding, declared, Child(callIdx, a), out byRefElement)) {
+                    return Decline("emit.call.generic-byref-argument", "generic call by-reference argument " + a.ToString() + " did not bind the selected signature", Child(callIdx, a))
                 }
                 if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType())) {
                     return false
@@ -3147,7 +3147,44 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // THE ELEMENT OF A BY-REFERENCE PARAMETER OVER A GENERIC CALL'S TYPE PARAMETERS, closed. A binding
+    // the call already has (written type arguments, or an earlier argument) closes it directly. An
+    // unbound one is LEARNED from the storage the argument names -- `Swap(ref a, ref b)` over
+    // `func Swap<T>(a: &T, b: &T)` binds `T` from `a`'s own type, as C# infers it -- because a by-ref
+    // argument is an address, never a value that could be emitted and unified. The storage type is
+    // the DECLARED one (a local's, a by-ref parameter's element, a field's), not a flow-narrowed read:
+    // `ref text` over a narrowed `string?` still passes the `string?` storage.
+    private func TrySubstituteByRefGenericElement(typeParams: Type[], binding: Type[], declared: Type, argNode: int, out byRefElement: Type): bool {
+        if (ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(typeParams, binding, declared.GetElementType(), out byRefElement)) {
+            return true
+        }
+        targetNode := argNode
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.RefOutArgument) {
+            if (_nodes.ChildCount(argNode) != 1) {
+                return false
+            }
+            targetNode = Child(argNode, 0)
+        }
+        targetNode = UnwrapParenthesizedNode(targetNode)
+        let storageType: System.Type? = null
+        if (_nodes.Kind(targetNode) == ColumnarExpressionNodeKind.IdentifierExpression) {
+            if (!TryGetAddressableTargetType(targetNode, out storageType)) {
+                return false
+            }
+        } else if (!TryGetPreflightExpressionTypeRaw(targetNode, out storageType)) {
+            return false
+        }
+        if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(typeParams, binding, declared.GetElementType(), storageType)) {
+            return false
+        }
+        return ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(typeParams, binding, declared.GetElementType(), out byRefElement)
+    }
+
     private func CanGenericCallArgumentMatch(typeParams: Type[], binding: Type[], declared: Type, argNode: int, allowLambdaLiteral: bool): bool {
+        if (declared.IsByRef) {
+            let byRefElement: System.Type = null
+            return TrySubstituteByRefGenericElement(typeParams, binding, declared, argNode, out byRefElement) && CanDeclaredCallArgumentMatch(argNode, byRefElement.MakeByRefType(), allowLambdaLiteral)
+        }
         let expected: System.Type? = null
         if (ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(typeParams, binding, declared, out expected) && CanDeclaredCallArgumentMatch(argNode, expected, allowLambdaLiteral)) {
             return true
@@ -3210,7 +3247,7 @@ sealed class ColumnarIlEmitter {
             // `TryGet<T>(out value)` included.
             if (declared.IsByRef) {
                 let byRefElement: System.Type = null
-                if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(generics.TypeParams, binding, declared.GetElementType(), out byRefElement)) {
+                if (!TrySubstituteByRefGenericElement(generics.TypeParams, binding, declared, Child(callIdx, a), out byRefElement)) {
                     return false
                 }
                 if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType())) {
@@ -9742,6 +9779,7 @@ sealed class ColumnarIlEmitter {
                 }
                 compoundLocal: LocalBuilder? = null
                 compoundParamOrdinal := -1
+                compoundThroughReference := false
                 let compoundType: System.Type = null
                 let compoundFound: System.Reflection.Emit.LocalBuilder? = null
                 if (_locals.TryGetValue(compoundName, out compoundFound)) {
@@ -9752,6 +9790,13 @@ sealed class ColumnarIlEmitter {
                     if (_paramOrdinals.TryGetValue(compoundName, out compoundOrdinal)) {
                         compoundParamOrdinal = compoundOrdinal
                         compoundType = _paramTypes[compoundName]
+                        // A BY-REFERENCE PARAMETER (`ref v: int` or `v: &int`, both `int&`) is read
+                        // and written THROUGH the reference: its address stays under the operation
+                        // for the store, and the operation is on the element type.
+                        if (compoundType.IsByRef) {
+                            compoundThroughReference = true
+                            compoundType = compoundType.GetElementType()
+                        }
                     } else {
                         return false
                     }
@@ -9759,6 +9804,10 @@ sealed class ColumnarIlEmitter {
 
                 if (compoundLocal != null) {
                     _il.Emit(OpCodes.Ldloc, compoundLocal)
+                } else if (compoundThroughReference) {
+                    ColumnarArgumentInstructionEmitter.EmitLoad(_il, compoundParamOrdinal)
+                    _il.Emit(OpCodes.Dup)
+                    EmitLoadByRefElement(compoundType)
                 } else {
                     ColumnarArgumentInstructionEmitter.EmitLoad(_il, compoundParamOrdinal)
                 }
@@ -9774,6 +9823,8 @@ sealed class ColumnarIlEmitter {
 
                 if (compoundLocal != null) {
                     _il.Emit(OpCodes.Stloc, compoundLocal)
+                } else if (compoundThroughReference) {
+                    EmitStoreByRefElement(compoundType)
                 } else {
                     ColumnarArgumentInstructionEmitter.EmitStore(_il, compoundParamOrdinal)
                 }
@@ -21923,6 +21974,33 @@ sealed class ColumnarIlEmitter {
                 }
             }
         }
+        // A BY-REFERENCE PARAMETER (`ref v: int` or `v: &int`, both `int&`) is stepped THROUGH the
+        // reference: the address is loaded once and kept under the value for the store, exactly as
+        // the `this` field arm above keeps its receiver.
+        if (paramOrdinal >= 0 && targetType.IsByRef) {
+            elementType := targetType.GetElementType()
+            if (!IsSteppableTargetType(elementType)) {
+                return false
+            }
+
+            ColumnarArgumentInstructionEmitter.EmitLoad(_il, paramOrdinal)
+            _il.Emit(OpCodes.Dup)
+            EmitLoadByRefElement(elementType)
+            byRefOldValue: LocalBuilder? = null
+            if (keepValue) {
+                byRefOldValue = _il.DeclareLocal(elementType)
+                _il.Emit(OpCodes.Dup)
+                _il.Emit(OpCodes.Stloc, byRefOldValue)
+            }
+            EmitPostfixStep(elementType, ColumnarNodeTextFacts.Text(_nodes, _source, idx))
+            EmitStoreByRefElement(elementType)
+            if (byRefOldValue != null) {
+                _il.Emit(OpCodes.Ldloc, byRefOldValue)
+            }
+
+            resolvedClrType = elementType
+            return true
+        }
         if (!IsSteppableTargetType(targetType)) {
             return false
         }
@@ -28404,8 +28482,12 @@ sealed class ColumnarIlEmitter {
         return getter
     }
 
+    // THROUGH A MANAGED REFERENCE: `ldind.ref`/`stind.ref` for an element known to be a reference, and
+    // `ldobj`/`stobj` for everything else. A GENERIC PARAMETER is "everything else" whatever it may be
+    // closed over: it is not `IsValueType`, but `Swap<T>(a: &T, b: &T)` closed over `int` must not move
+    // a pointer-sized reference through an `int&`, and `ldobj !!T` is correct for every `T`.
     private func EmitLoadByRefElement(elementType: Type): void {
-        if (IsReferenceWriteLink(elementType)) {
+        if (!elementType.IsGenericParameter && IsReferenceWriteLink(elementType)) {
             _il.Emit(OpCodes.Ldind_Ref)
         } else {
             _il.Emit(OpCodes.Ldobj, elementType)
@@ -28413,7 +28495,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func EmitStoreByRefElement(elementType: Type): void {
-        if (IsReferenceWriteLink(elementType)) {
+        if (!elementType.IsGenericParameter && IsReferenceWriteLink(elementType)) {
             _il.Emit(OpCodes.Stind_Ref)
         } else {
             _il.Emit(OpCodes.Stobj, elementType)

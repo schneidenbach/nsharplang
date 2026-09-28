@@ -298,6 +298,12 @@ increment(ref count)
 Console.WriteLine(count)  // 11
 ```
 
+`value: &int` is another way to write `ref value: int`. It is the spelling [systems code](systems.md#spans-ref-struct-and-lifetimes)
+uses. Both spellings are the same CLR `int&`, and they behave the same way in the body: a read gives
+the caller's value and an assignment writes through to it. Either kind of parameter is passed on to
+another by-reference parameter with `ref`. A bare argument is refused (NL202) and the error tells
+you to write `ref` in front of it.
+
 ### `in` Parameters
 
 `in` passes the caller's storage **by reference and read-only**. Reach for it when a parameter is a

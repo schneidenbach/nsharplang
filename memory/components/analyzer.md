@@ -1080,8 +1080,41 @@ finalize walk's kind-3 request), so both read the storage type through
 `AnalyzerReflectionArgumentBinder.ReferencedStorageType` — without it `Interlocked.Increment(ref v)`
 bound for a local and not for `v: &int`. The emitter needed nothing: `EmitByRefCallArgument` already
 loads a by-ref parameter's reference. Pinned by `tests/native/census-by-ref-forwarding` and
-`census-external-operands` G9. Still open: a `&T` parameter in VALUE position (`v + 1`, `v = x` for
-`v: &int`) is typed `&T` and refused, where a `ref v: int` parameter reads as `int`.
+`census-external-operands` G9.
+
+A `&T` PARAMETER'S NAME IS ITS STORAGE (2026-09-27, closing what the paragraph above left open).
+`v: &int` and `ref v: int` are one CLR `int&`, and the `ref` spelling always bound its name at `int`;
+the `&` spelling bound it at `&int`, so `v + 1` and `v = x` were refused NL202. Every parameter
+declaration site (function bodies, constructors, primary constructors, indexer accessors, lambdas)
+now binds the NAME at `AnalyzerBindingFacts.ParameterBindingType` — the storage type — while the
+SIGNATURE keeps `&T`. Plain reads and `v = x` needed nothing in the emitter: it chooses
+`ldind`/`stind` from the CLR parameter type, which is `int&` for both spellings. Compound assignment
+(`v += x`) and `v++`/`v--` on a by-ref parameter DECLINED (NL103) for BOTH spellings — the arms asked
+for the operator on `int&` — and now keep the address under the value and store through it
+(`ColumnarIlEmitter`'s identifier compound arm and `TryEmitPostfixUnary`). Two more emitter gaps
+the rows exposed, again for both spellings: a generic call inferred nothing from a `ref` argument
+(`Swap(ref a, ref b)` declined; only `Swap<int>(...)` emitted) — `TrySubstituteByRefGenericElement`
+now binds `T` from the storage the argument names — and `EmitLoadByRefElement`/`EmitStoreByRefElement`
+chose `ldind.ref`/`stind.ref` for an unconstrained `T` (not `IsValueType`), which moves a pointer
+through an `int&`; a generic parameter now takes `ldobj`/`stobj !!T`. And a `ref`/`out` argument
+target is a STORAGE location like an assignment target: `CompleteArgument`'s bracket now suppresses
+the flow type on the target node, so `Clear(ref text)` over a narrowed `text: string?` passes the
+`string?` storage instead of being refused NL202 as `&string`. Consequences, each keyed on what a parameter IS
+(`AnalyzerBindingFacts.IsByReferenceParameter`: `ref`/`out`/`in` or a `&T` type), no longer on its
+modifier: NL331 refuses a local function capturing `v: &T` (and stops refusing a captured `params`
+array, which it used to); the lint walk counts a write to `v: &T` as a use (NL012); and a call into a
+`p: &T?` callee resets the argument's null state as a `ref p: T?` one does. FORWARDING REQUIRES
+`ref`: bare `Next(v)` for `v: &T` used to pass the `&T` shell to a `&T` parameter and was accepted;
+it is now a value where a reference is expected, NL202 like any bare by-reference argument, and
+`BareByReferenceArgumentHint` tells the author which keyword to write in front of which argument.
+The rule caught one bare forward left in `FixApplicatorEditEngine` (`EditTableShapeIsValid(edits)`),
+which CodeIntel's front door (ceiling 0) would otherwise have reported.
+With no parameter name typed `&T` any more, `CompleteArgument`'s re-reference guard and the reflected
+binder's `ReferencedStorageType` matter only for a member DECLARED `&T` (a `ref struct`'s ref field).
+Ref RETURNS (`func F(): &int`) were never emittable (`emit.declaration.function-return` declines), so
+`return v` for `v: &int` being refused NL202 there regresses nothing. Pinned by
+`AnalyzerBindingFacts.tests.nl` (both spellings side by side), `Linter.tests.nl` (NL012) and
+`tests/native/census-by-ref-forwarding/ValuePosition`.
 
 ### A `?.` chain and its continuation
 

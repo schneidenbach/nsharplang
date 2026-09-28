@@ -948,6 +948,17 @@ test "NL012 still flags a parameter SHADOWED by a local in the nested function" 
     assert LntHas(LntLint("\nfunc outer(value: int): int {\n    func inner(): int {\n        value := 1\n        return value\n    }\n    return inner()\n}"), "NL012", "'value'")
 }
 
+test "NL012 counts a WRITE to a by-reference parameter as a use, in either spelling" {
+    // The store reaches the caller, so a write-only `ref`, `out` or `&T` parameter is doing its job.
+    // `v: &int` is the same CLR `int&` as `ref v: int` and is written the same way.
+    assert !LntHasCode(LntLint("\nfunc reset(ref slot: int) {\n    slot = 0\n}"), "NL012")
+    assert !LntHasCode(LntLint("\nfunc reset(slot: &int) {\n    slot = 0\n}"), "NL012")
+    assert !LntHasCode(LntLint("\nfunc produce(out slot: int) {\n    slot = 0\n}"), "NL012")
+
+    // REMOVAL CONTROL: the same write to a BY-VALUE parameter is dead, and the parameter is unused.
+    assert LntHas(LntLint("\nfunc reset(slot: int) {\n    slot = 0\n}"), "NL012", "'slot'")
+}
+
 // ── NL020: shadowed variable ──────────────────────────────────────────────────────────────────
 
 test "NL020 errors when an inner binding shadows an outer one" {

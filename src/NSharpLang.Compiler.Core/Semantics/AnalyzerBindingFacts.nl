@@ -1,5 +1,7 @@
 namespace NSharpLang.Compiler
 
+import NSharpLang.Compiler.Ast
+
 class AnalyzerBindingFacts {
     static func GetParameterDeclarationPosition(parameterLine: int, parameterColumn: int, fallbackLine: int, fallbackColumn: int): ValueTuple<int, int> {
         line := fallbackLine
@@ -13,6 +15,33 @@ class AnalyzerBindingFacts {
         }
 
         return new ValueTuple<int, int>(line, column)
+    }
+
+    // WHETHER A DECLARED PARAMETER IS A REFERENCE TO ITS CALLER'S STORAGE, in either spelling.
+    static func IsByReferenceParameter(parameter: Parameter): bool {
+        modifier := parameter.Modifier
+        if modifier == ParameterModifier.Ref || modifier == ParameterModifier.Out || modifier == ParameterModifier.In {
+            return true
+        }
+
+        return parameter.Type as ByRefTypeReference != null
+    }
+
+    // THE TYPE A PARAMETER'S NAME IS BOUND AT INSIDE ITS BODY. A by-reference parameter has two
+    // spellings — `ref v: int` and the systems `v: &int` — and on the CLR both are `int&`, so both
+    // names are the CALLER'S storage: a read is that storage's value and a write goes through to it
+    // (the emitter chooses `ldind`/`stind` from the CLR parameter type, not from the spelling). The
+    // `ref` spelling already binds its name at `int`; the `&` spelling resolves to `&int` and binds
+    // at the storage's type here, so `v + 1` and `v = x` mean one thing in both. The SIGNATURE keeps
+    // the `&T` — only the name inside the body is the storage — and passing the name on by reference
+    // is written `ref v`, as it is for every other by-reference argument.
+    static func ParameterBindingType(declared: TypeInfo): TypeInfo {
+        byRef := declared as ByRefTypeInfo
+        if byRef != null {
+            return byRef.InnerType
+        }
+
+        return declared
     }
 
     static func IsValueBinding(name: string, typeInfo: TypeInfo, hasTypeBinding: bool): bool {
