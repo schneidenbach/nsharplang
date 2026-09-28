@@ -156,7 +156,8 @@ class AnalyzerConditionalJoin {
     // Rebuild the only path that reaches the statement after a guard clause. Start with facts visible
     // before the branches, apply the surviving side's condition facts, kill everything that side
     // writes, then lay its recorded exit facts over the result. Writes in the branch that left are
-    // deliberately absent from `writtenPaths`.
+    // deliberately absent from `writtenPaths`. Keep surviving TYPE narrowings too: they are not in
+    // the null-state tables, but an `is` check can narrow an anonymous union on this side.
     static func InheritedFactsPreservingEntry(entryFacts: Dictionary<string, NullState>, exitFacts: Dictionary<string, NullState>?, narrowings: List<FlowNarrowing>?, writtenPaths: List<string>): List<FlowNarrowing> {
         facts := new Dictionary<string, NullState>(entryFacts, StringComparer.Ordinal)
         if narrowings != null {
@@ -185,7 +186,29 @@ class AnalyzerConditionalJoin {
             }
         }
 
-        return InheritedFacts(facts)
+        inherited := InheritedFacts(facts)
+        if narrowings != null {
+            for narrowing in narrowings {
+                if narrowing.NarrowedType == null {
+                    continue
+                }
+
+                pathWritten := false
+                memberPrefix := narrowing.Path + "."
+                for writtenPath in writtenPaths {
+                    if writtenPath == narrowing.Path || writtenPath.StartsWith(memberPrefix, StringComparison.Ordinal) {
+                        pathWritten = true
+                        break
+                    }
+                }
+
+                if !pathWritten {
+                    inherited.Add(narrowing)
+                }
+            }
+        }
+
+        return inherited
     }
 
     // THE JOIN ITSELF, rendered as the narrowing list the flow writer installs. Only a path BOTH

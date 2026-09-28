@@ -740,7 +740,9 @@ outer narrowed set passed into them, so a capture the emitter cannot safely prov
 For a branch that always leaves, `AnalyzerLoopSequence.AdvanceIfJoin` rebuilds the surviving path from
 the condition's entry snapshot, that side's condition facts, its own writes, and its exit facts.
 `AnalyzerConditionalJoin.SnapshotFacts` and `InheritedFactsPreservingEntry` prevent writes made only
-on a `break`/`continue`/return path from erasing facts on the path that reaches the next statement.
+on a `break`/`continue`/return path from erasing facts on the path that reaches the next statement;
+the helper also retains surviving type narrowings from `is` checks, which are not stored in the
+null-state table.
 
 ### The join after a conditional (census 2026-09-13, §FLOW7)
 

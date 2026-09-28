@@ -244,10 +244,18 @@ test "A DEAD GUARD BRANCH DOES NOT ERASE FACTS FROM THE PATH THAT SURVIVES" {
     exit := JoinFactsOf("doc=maybe-null")
     side := new List<FlowNarrowing>()
     side.Add(new FlowNarrowing("result", null, NullState.NotNull))
+    side.Add(new FlowNarrowing("choice", BuiltInTypes.String, NullState.NotNull))
 
     inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entry, exit, side, written)
 
-    assert JoinNarrowingText(inherited) == "doc=maybe-null,n=not-null,other=null,result=not-null"
+    assert JoinNarrowingText(inherited) == "choice=not-null,doc=maybe-null,n=not-null,other=null,result=not-null"
+    choiceNarrowed := false
+    for narrowing in inherited {
+        if narrowing.Path == "choice" {
+            choiceNarrowed = BuiltInTypes.Is(narrowing.NarrowedType, BuiltInTypes.String)
+        }
+    }
+    assert choiceNarrowed
 }
 
 test "MORE THAN TWO PATHS MEET BY FOLDING, AND ONLY A PATH ALL OF THEM SPEAK FOR SURVIVES" {
