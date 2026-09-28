@@ -1943,6 +1943,11 @@ class ColumnarIteratorEmitContext {
         return 0 - 1
     }
 
+    func IsFieldDefined(name: string): bool {
+        index := FieldIndex(name)
+        return index >= 0 && Fields[index] != null
+    }
+
     func IsLoopCaptured(name: string): bool {
         for captureName in Shape.LoopCaptureNames {
             if captureName == name {
@@ -3892,11 +3897,14 @@ class ColumnarIteratorBodyPlanner {
                 }
                 index = index + 1
             }
+            // A machine lambda reads no loop-captured name (one that did would have selected a display), so
+            // only the captures whose declaration the body has ALREADY lowered are published; a loop local
+            // declared after this lambda has no field yet and gets its box when that declaration defines it.
             capture := 0
             while capture < context.Shape.LoopCaptureNames.Length {
                 name := context.Shape.LoopCaptureNames[capture]
                 boxField: FieldInfo? = null
-                if context.TryEnsureLoopCaptureBox(name, context.FieldForName(name).FieldType, out boxField) && boxField != null {
+                if context.IsFieldDefined(name) && context.TryEnsureLoopCaptureBox(name, context.FieldForName(name).FieldType, out boxField) && boxField != null {
                     scope.PublishBoxedCapture(name, boxField, context.FieldForName(name).FieldType)
                 }
                 capture = capture + 1

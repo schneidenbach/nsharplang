@@ -157,6 +157,42 @@ func* MemberSuffixCallbacks(values: int[], items: int[]): IEnumerable<Func<int>>
     }
 }
 
+// A lambda that stays on the machine, lowered BEFORE a loop local that a later lambda captures has a
+// field: the machine lambda's scope must not ask for that local's box before its declaration defines it.
+func* MachineThenPerIterationCallbacks(): IEnumerable<Func<int>> {
+    f: Func<int> = () => 7
+    yield f
+    for v in [1, 2] {
+        g: Func<int> = () => v
+        yield g
+    }
+}
+
+// The same order inside one iteration: the machine lambda precedes the body local's declaration.
+func* MachineBeforeBodyLocalCallbacks(values: int[]): IEnumerable<Func<int>> {
+    for value in values {
+        h: Func<int> = () => 10
+        current := value + h()
+        yield () => current
+    }
+}
+
+class LoopShift {
+    Base: int
+
+    constructor(baseValue: int) {
+        Base = baseValue
+    }
+
+    func* ThenPerIteration(values: int[]): IEnumerable<Func<int>> {
+        shift: Func<int> = () => Base
+        yield shift
+        for v in values {
+            yield () => v + Base
+        }
+    }
+}
+
 interface ILoopMarker {
 }
 

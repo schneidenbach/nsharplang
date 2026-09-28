@@ -275,3 +275,32 @@ test "async iteration captures retain generic init metadata and awaited values" 
     assert first.Value == 113
     assert second.Value == 114
 }
+
+test "a machine lambda before a loop local's declaration leaves that local's per-iteration display intact" {
+    free := new List<Func<int>>()
+    for callback in MachineThenPerIterationCallbacks() {
+        free.Add(callback)
+    }
+    assert free.Count == 3
+    assert free[0]() == 7
+    assert free[1]() == 1
+    assert free[2]() == 2
+    assert !Object.ReferenceEquals(free[1].Target, free[2].Target)
+
+    body := new List<Func<int>>()
+    for callback in MachineBeforeBodyLocalCallbacks([1, 2]) {
+        body.Add(callback)
+    }
+    assert body.Count == 2
+    assert body[0]() == 11
+    assert body[1]() == 12
+
+    instance := new List<Func<int>>()
+    for callback in new LoopShift(100).ThenPerIteration([1, 2]) {
+        instance.Add(callback)
+    }
+    assert instance.Count == 3
+    assert instance[0]() == 100
+    assert instance[1]() == 101
+    assert instance[2]() == 102
+}
