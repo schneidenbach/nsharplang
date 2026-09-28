@@ -17502,40 +17502,37 @@ sealed class ColumnarIlEmitter {
         receiver := Child(callee, 0)
         argCount := _nodes.ChildCount(callIdx) - 1
 
-        if (_nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression) {
-            // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
+        if (IsBareTypeNameReceiver(receiver)) {
             receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
-            if (IsBareTypeNameReceiver(receiver)) {
-                // CALL-STYLE newtype construction through a file-import ALIAS (`Ids.UserId(42)`):
-                // the member names a synthesized newtype and the receiver is the alias qualifier.
-                aliasQualifiedTypeName := receiverName + "." + memberName
-                aliasNewtypeDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-                if (_typeResolutionStructs.TryGetValue(aliasQualifiedTypeName, out aliasNewtypeDef) && aliasNewtypeDef.IsNewtype && !_typeResolutionStructs.ContainsKey(receiverName) && !_typeResolutionEnums.ContainsKey(receiverName) && !_typeResolutionUnions.ContainsKey(receiverName)) {
-                    aliasConstructors := aliasNewtypeDef.Constructors
-                    aliasCtorEnumerator := aliasConstructors.GetEnumerator()
-                    try {
-                        while aliasCtorEnumerator.MoveNext() {
-                            aliasCtor := aliasCtorEnumerator.get_Current()
-                            aliasCtorBuilder := aliasCtor.Builder
-                            aliasCtorParamTypes := aliasCtor.ParamTypes
-                            if (aliasCtorParamTypes.Length == argCount) {
-                                for a := 1; a <= argCount; a++ {
-                                    if (!EmitDeclaredCallArgument(Child(callIdx, a), aliasCtorParamTypes[a - 1], false)) {
-                                        return false
-                                    }
+            // CALL-STYLE newtype construction through a file-import ALIAS (`Ids.UserId(42)`):
+            // the member names a synthesized newtype and the receiver is the alias qualifier.
+            aliasQualifiedTypeName := receiverName + "." + memberName
+            aliasNewtypeDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (_typeResolutionStructs.TryGetValue(aliasQualifiedTypeName, out aliasNewtypeDef) && aliasNewtypeDef.IsNewtype && !_typeResolutionStructs.ContainsKey(receiverName) && !_typeResolutionEnums.ContainsKey(receiverName) && !_typeResolutionUnions.ContainsKey(receiverName)) {
+                aliasConstructors := aliasNewtypeDef.Constructors
+                aliasCtorEnumerator := aliasConstructors.GetEnumerator()
+                try {
+                    while aliasCtorEnumerator.MoveNext() {
+                        aliasCtor := aliasCtorEnumerator.get_Current()
+                        aliasCtorBuilder := aliasCtor.Builder
+                        aliasCtorParamTypes := aliasCtor.ParamTypes
+                        if (aliasCtorParamTypes.Length == argCount) {
+                            for a := 1; a <= argCount; a++ {
+                                if (!EmitDeclaredCallArgument(Child(callIdx, a), aliasCtorParamTypes[a - 1], false)) {
+                                    return false
                                 }
-                                _il.Emit(OpCodes.Newobj, aliasCtorBuilder)
-                                resolvedClrType = aliasNewtypeDef.Builder
-                                return true
                             }
+                            _il.Emit(OpCodes.Newobj, aliasCtorBuilder)
+                            resolvedClrType = aliasNewtypeDef.Builder
+                            return true
                         }
-                    } finally {
-                        aliasCtorEnumerator.Dispose()
                     }
-                    return false
+                } finally {
+                    aliasCtorEnumerator.Dispose()
                 }
-                return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, legacyWholeSubtreePlanning, out resolvedClrType)
+                return false
             }
+            return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, legacyWholeSubtreePlanning, out resolvedClrType)
         }
 
         // A RECEIVER THAT NAMES A TYPE IS A STATIC RECEIVER WHATEVER ITS SPELLING. Only the BARE
@@ -17655,6 +17652,22 @@ sealed class ColumnarIlEmitter {
     private func HasVisibleSibling(name: string): bool {
         let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
         return TryGetVisibleSibling(name, out sibling)
+    }
+
+    // A BARE IDENTIFIER RECEIVER THAT IS NOT A VALUE IS A TYPE NAME: no local, captured local,
+    // parameter, top-level sibling or member of the type being emitted binds it. Emission and
+    // preflight both ask it, so a receiver one reads as a type the other cannot read as a value.
+    //
+    // `this` IS THE ONE BARE IDENTIFIER THAT CAN NEVER BE A TYPE NAME. It is not in any binding map,
+    // so the value test answered "no" for it and `this.GetType()` was read as a static call on a
+    // type named `this` — which is why that spelling declined while `(this as object).GetType()`
+    // emitted.
+    private func IsBareTypeNameReceiver(receiver: int): bool {
+        if (_nodes.Kind(receiver) != ColumnarExpressionNodeKind.IdentifierExpression || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, receiver)) {
+            return false
+        }
+        receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+        return !_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName) && !IsCurrentInstanceMemberName(receiverName) && !IsCurrentStaticMemberName(receiverName)
     }
 
     // A BARE IDENTIFIER IN RECEIVER POSITION IS A VALUE WHENEVER THE ENCLOSING TYPE DECLARES IT.
@@ -18166,15 +18179,6 @@ sealed class ColumnarIlEmitter {
         }
         if (!legacyWholeSubtreePlanning) {
             return false
-        }
-        if (typeName == "Console" && (member == nameof(Console.Write) || member == nameof(Console.WriteLine)) && argCount == 1) {
-            method := typeof(Console).GetMethod(member, [typeof(string)])
-            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {
-                return false
-            }
-            _il.Emit(OpCodes.Call, method)
-            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
-            return true
         }
         if ((typeName == "JsonConvert" || typeName == "Newtonsoft.Json.JsonConvert") && member == "SerializeObject" && argCount == 1) {
             jsonConvert: System.Type? = null
@@ -23089,6 +23093,19 @@ sealed class ColumnarIlEmitter {
             callee := Child(node, 0)
             if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                 receiver := Child(callee, 0)
+                // A RECEIVER THAT NAMES A SOURCE TYPE IS NOT AN EXPRESSION, so asking for its type
+                // below answers nothing. It is classified the way `TryEmitBclMethodCall` classifies it
+                // — a bare type name, or one spelled with its namespace — and the call is typed by
+                // the static arm that emission then takes.
+                let staticReceiverTypeName: string? = null
+                if (IsBareTypeNameReceiver(receiver)) {
+                    staticReceiverTypeName = ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+                } else if (!TryClassifyDottedTypeNameReceiver(receiver, out staticReceiverTypeName)) {
+                    staticReceiverTypeName = null
+                }
+                if (staticReceiverTypeName != null && TryGetPreflightSourceStaticCallType(node, staticReceiverTypeName, ColumnarNodeTextFacts.Text(_nodes, _source, callee), legacyWholeSubtreePlanning, out columnarResolvedType)) {
+                    return true
+                }
                 let receiverType: System.Type? = null
                 if (TryGetPreflightExpressionType(receiver, out receiverType) && TryGetPreflightInstanceCallType(receiverType, ColumnarNodeTextFacts.Text(_nodes, _source, callee), node, legacyWholeSubtreePlanning, out columnarResolvedType)) {
                     return true
@@ -23601,6 +23618,41 @@ sealed class ColumnarIlEmitter {
         _il.Emit(callOpcode, method)
         columnarResolvedType = returnType
         return true
+    }
+
+    // THE PREFLIGHT TWIN OF `TryEmitStaticCall`'S SOURCE-TYPE ARM. A static the direct-call planner
+    // excludes — `Geometry.Determinant(m)` over an `in m: Matrix` parameter — is emitted by that arm,
+    // and nothing could TYPE it before emission, so every call that types its arguments before it
+    // chooses an overload refused it as an argument: `Console.WriteLine("d = " +
+    // Geometry.Determinant(m).ToString())` declined while the same read bound to a local emitted.
+    // The selectors and the planner-exclusion fence are the emission arm's own, in its order, so what
+    // this promises is what that arm then writes. A generic static inferred from its arguments is
+    // left unanswered, as the arm hands it to its own door.
+    private func TryGetPreflightSourceStaticCallType(callIdx: int, typeName: string, member: string, legacyWholeSubtreePlanning: bool, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let userType: NSharpLang.Compiler.Columnar.ColumnarStructDef = null
+        if (!_typeResolutionStructs.TryGetValue(typeName, out userType)) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let inferredStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        if (TryFindGenericStaticMethodOnChain(userType, member, argCount, -1, out inferredStatic) && inferredStatic != null && inferredStatic.Generics != null) {
+            return false
+        }
+        let userStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        if (TrySelectStaticMethodOnChain(userType, member, callIdx, argCount, out userStatic) && userStatic != null) {
+            if (!ShouldUseExpandedParamsCall(callIdx, userStatic.ParamTypes, userStatic.ParamModifierKinds) && (argCount != userStatic.ParamTypes.Length || (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedStaticDefinition(userStatic)))) {
+                return false
+            }
+            columnarResolvedType = userStatic.ReturnType
+            return true
+        }
+        let expandedStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        if (TryFindStaticExpandedParamsMethodOnChain(userType, member, callIdx, out expandedStatic) && expandedStatic != null) {
+            columnarResolvedType = expandedStatic.ReturnType
+            return true
+        }
+        return false
     }
 
     private func TryGetPreflightInstanceCallType(receiverType: Type, member: string, callIdx: int, legacyWholeSubtreePlanning: bool, out columnarResolvedType: Type): bool {
@@ -30290,20 +30342,6 @@ sealed class ColumnarIlEmitter {
         name = null
         rootName = null
         return false
-    }
-
-    // A BARE IDENTIFIER RECEIVER THAT IS NOT A VALUE IS A TYPE NAME: nothing in scope binds it — no
-    // local, captured local, parameter, top-level sibling, or member of the type being emitted.
-    //
-    // `this` IS THE ONE BARE IDENTIFIER THAT CAN NEVER BE A TYPE NAME. It is not in any binding map,
-    // so the value test answered "no" for it and `this.GetType()` was read as a static call on a type
-    // named `this` — which is why that spelling declined while `(this as object).GetType()` emitted.
-    private func IsBareTypeNameReceiver(receiver: int): bool {
-        if (_nodes.Kind(receiver) != ColumnarExpressionNodeKind.IdentifierExpression || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, receiver)) {
-            return false
-        }
-        receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
-        return !_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName) && !IsCurrentInstanceMemberName(receiverName) && !IsCurrentStaticMemberName(receiverName)
     }
 
     // THE PREFLIGHT TWIN OF THE STATIC CALL'S TWO METADATA TIERS — `TryEmitContextualStaticCall`, then
