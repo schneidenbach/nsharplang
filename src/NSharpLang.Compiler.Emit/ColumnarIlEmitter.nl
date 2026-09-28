@@ -10868,13 +10868,7 @@ sealed class ColumnarIlEmitter {
             // .IsErrorCaptureForm` owns: v = default(T); err = null;
             // try { v = <call> } catch (Exception e) { err = e }. The initializer is a single
             // expression, so no control transfer can cross the protected region.
-            // COMPILER: a referenced-assembly static call whose argument is another referenced static call
-            // over an implicit-`this` call (`Text(_nodes, _source, Child(...))`) was declined by the columnar
-            // emitter (emit.call.static-member-unmodeled), so the last name is bound to a local first. Fixed
-            // by `TryGetPreflightRuntimeStaticCallType`; the committed seed predates it, so this collapses at
-            // the next seed republish.
-            lastDeclaredName := ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, nameCount - 1))
-            if (AnalyzerVariableDeclaration.IsErrorCaptureForm(nameCount, lastDeclaredName)) {
+            if (AnalyzerVariableDeclaration.IsErrorCaptureForm(nameCount, ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, nameCount - 1)))) {
                 if (_protectedDepth > 0 || _finallyDepth > 0) {
                     return false
                 }
