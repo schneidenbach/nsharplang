@@ -4404,10 +4404,9 @@ test "nlc test refuses coverage collection on both output routes and exits 1" {
     }
 }
 
-// ONE FREE-FUNCTION NAME PER NAMESPACE, ACROSS FILES, at the product surface. Measured on 353fb69f7:
-// this project passed `nlc check`, built, and printed whichever `Helper` the emitter kept. Now each
-// file reports NL306 naming the other, so the JSON carries two results — one per declaration.
-test "nlc check reports NL306 in each file when two files of one namespace declare the same free function" {
+// A DUPLICATE SIGNATURE, at the product surface. Each declaration reports NL306 naming the other;
+// the call in Main also reports NL414 because both identical signatures match it.
+test "nlc check reports duplicate free-function signatures and their ambiguous call" {
     directory := NewTempDirectory("nlc-check-function-twin")
     try {
         WriteProjectYml(directory, "name: FunctionTwin\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
@@ -4422,30 +4421,41 @@ test "nlc check reports NL306 in each file when two files of one namespace decla
         document := JsonDocument.Parse(run.Stdout)
         root := document.RootElement
         assert !root.GetProperty("ok").GetBoolean()
-        assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 2
+        assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 3
         results := root.GetProperty("results")
-        assert results.GetArrayLength() == 2
+        assert results.GetArrayLength() == 3
         sawA := false
         sawB := false
+        sawMain := false
         resultEnumerator := results.EnumerateArray()
         while resultEnumerator.MoveNext() {
             result := resultEnumerator.Current
-            assert TextOf(result.GetProperty("code")) == "NL306"
-            assert result.GetProperty("line").GetInt32() == 3
-            assert result.GetProperty("column").GetInt32() == 6
             resultFile := TextOf(result.GetProperty("file"))
             message := TextOf(result.GetProperty("message"))
             if resultFile == "A.nl" {
                 sawA = true
-                assert message.Contains("'Helper' is already declared in namespace 'X' by B.nl:3")
-            }
-            if resultFile == "B.nl" {
+                assert TextOf(result.GetProperty("code")) == "NL306"
+                assert result.GetProperty("line").GetInt32() == 3
+                assert result.GetProperty("column").GetInt32() == 6
+                assert message.Contains("'Helper' has the same parameter signature in namespace 'X' as B.nl:3")
+            } else if resultFile == "B.nl" {
                 sawB = true
-                assert message.Contains("'Helper' is already declared in namespace 'X' by A.nl:3")
+                assert TextOf(result.GetProperty("code")) == "NL306"
+                assert result.GetProperty("line").GetInt32() == 3
+                assert result.GetProperty("column").GetInt32() == 6
+                assert message.Contains("'Helper' has the same parameter signature in namespace 'X' as A.nl:3")
+            } else {
+                sawMain = true
+                assert resultFile == "Main.nl"
+                assert TextOf(result.GetProperty("code")) == "NL414"
+                assert result.GetProperty("line").GetInt32() == 4
+                assert result.GetProperty("column").GetInt32() == 11
+                assert message.Contains("The call to 'Helper' is ambiguous")
             }
         }
         assert sawA
         assert sawB
+        assert sawMain
         document.Dispose()
     } finally {
         Directory.Delete(directory, true)

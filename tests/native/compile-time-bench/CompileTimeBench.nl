@@ -886,7 +886,7 @@ func BenchCollectProjectSourceFiles(projectRoot: string): List<string> {
 
 // `includeTests` selects between the two file sets described in this file's header: `false` is
 // what `nlc build` compiles, `true` is what `nlc check` and `nlc test` compile. It is a SEPARATE
-// NAME rather than a second arity because N# free functions do not overload (NL401).
+// NAME rather than a second arity because those two source-file sets have different contents.
 func BenchCollectSelectedProjectSourceFiles(projectRoot: string, includeTests: bool): List<string> {
     files := new List<string>()
     if Directory.Exists(projectRoot) {

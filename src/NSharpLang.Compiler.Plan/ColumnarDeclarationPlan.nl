@@ -1469,15 +1469,15 @@ class ColumnarDeclarationPlanner {
         return bits | AbstractMethodAttribute()
     }
 
-    // A conventionally public FREE FUNCTION is Public|Static = 22 and carries NO HideBySig -- free
-    // functions do not overload, so there is no signature to hide by. The difference from a static
-    // METHOD (150) is deliberate and is pinned. The overload below varies only these access bits.
+    // A conventionally public FREE FUNCTION is Public|Static|HideBySig = 150, the same CLR method
+    // shape as an overloadable static member. The namespace holder carries ordinary method groups,
+    // so same-named declarations with distinct parameter signatures must remain distinct methods.
     static func FreeFunctionAttributes(): int {
-        return PublicFieldAttribute() | StaticMethodAttribute()
+        return PublicFieldAttribute() | StaticMethodAttribute() | HideBySigMethodAttribute()
     }
 
     static func FreeFunctionAttributes(name: string, modifierFlags: int): int {
-        return FreeFunctionVisibilityAttributes(name, modifierFlags) | StaticMethodAttribute()
+        return FreeFunctionVisibilityAttributes(name, modifierFlags) | StaticMethodAttribute() | HideBySigMethodAttribute()
     }
 
     // A FREE FUNCTION HAS TWO CLR SHAPES, NOT SIX, and the reason is that it has no containing user

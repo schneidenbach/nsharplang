@@ -117,6 +117,9 @@ class ColumnarFunctionInput {
     // written", which is the casing convention's cue.
     VisibilityModifierFlags: int
     SourceFileId: int
+    // Source offset of the top-level declaration keyword, used to join analyzer overload selections
+    // back to this emitted method.
+    SourceDeclarationStart: int
     IsBodylessNativeImport: bool
     NativeImportLibraryName: string
     NativeImportEntryPoint: string
@@ -172,6 +175,7 @@ class ColumnarFunctionInput {
         ModifierFlags = modifierFlags
         VisibilityModifierFlags = 0
         SourceFileId = sourceFileId
+        SourceDeclarationStart = -1
         IsBodylessNativeImport = isBodylessNativeImport
         NativeImportLibraryName = nativeImportLibraryName
         NativeImportEntryPoint = nativeImportEntryPoint
@@ -570,6 +574,7 @@ class ColumnarProgramInput {
     Unions: IReadOnlyList<ColumnarUnionInput>
     Interfaces: IReadOnlyList<ColumnarInterfaceInput>
     Tests: IReadOnlyList<ColumnarTestInput>?
+    SemanticModelsByFileId: Dictionary<int, SemanticModel>
 
     static func CreateSingleSource(source: string, functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
         return new ColumnarProgramInput(source, functions, enums, structs, unions, interfaces, BuildSingleSourceFiles(source), tests, null)
@@ -630,6 +635,7 @@ class ColumnarProgramInput {
         Unions = unions
         Interfaces = interfaces
         Tests = tests
+        SemanticModelsByFileId = new Dictionary<int, SemanticModel>()
         bindingScope = ColumnarBindingScopeFacts.Create(Sources, Enums, Structs, Unions, Interfaces, ProjectRoot)
 
         StampBindingContexts(bindingScope)
@@ -651,6 +657,31 @@ class ColumnarProgramInput {
         }
 
         return Source
+    }
+
+    // The same source-file table the analyzer and parser use, addressed by the stable id carried on
+    // each declaration. An invalid id has no semantic model and falls back to the first source file.
+    func SourceFileForFileId(fileId: int): ColumnarSourceFile? {
+        if fileId >= 0 && fileId < Sources.Length {
+            return Sources[fileId]
+        }
+
+        return null
+    }
+
+    func SetSemanticModelForFileId(fileId: int, semanticModel: SemanticModel): void {
+        if fileId >= 0 && fileId < Sources.Length {
+            SemanticModelsByFileId[fileId] = semanticModel
+        }
+    }
+
+    func SemanticModelForFileId(fileId: int): SemanticModel? {
+        semanticModel: SemanticModel = null
+        if SemanticModelsByFileId.TryGetValue(fileId, out semanticModel) {
+            return semanticModel
+        }
+
+        return null
     }
 
     // The file's own name, for an owner that must NAME a declaration after the file that wrote it —

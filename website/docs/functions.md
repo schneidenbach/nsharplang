@@ -128,11 +128,13 @@ N# — `public func helper()` is reachable from other namespaces and `internal f
 Unlike types, a free function is *not* auto-discovered across namespaces — `import` the namespace
 that declares it.
 
-A namespace declares a free-function name **once**, across all the files of a project. Two files of
-`namespace Reporting` that both declare `func Helper()` — with the same parameter list or a
-different one — is [NL306](./errors/NL306.md), reported in each file and naming the other. The same
-two declarations in two different namespaces are two functions, and a folder of standalone scripts
-with no `project.yml` is not one program, so its files never collide.
+A namespace may declare a free-function overload group across all the files of a project. Each
+overload must have distinct parameter types or arity; two files of `namespace Reporting` that both
+declare `func Helper()` with the same signature produce [NL306](./errors/NL306.md), reported in each
+file and naming the other. A caller in one file sees distinct overloads from the other files in that
+namespace, and overload selection uses the same analyzer binding as calls to methods. The same
+signatures in two different namespaces are separate groups, and a folder of standalone scripts with
+no `project.yml` is not one program, so its files never collide.
 
 **A referenced assembly's free functions take the same walk.** A namespace's free functions are its
 members wherever they were compiled, so a library's `func Helper()` in `namespace Reporting` is

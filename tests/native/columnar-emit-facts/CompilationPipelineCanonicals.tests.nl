@@ -227,7 +227,7 @@ test "x" {
         error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL103")
         assert !compilation.Succeeded
         assert EmitterCanonicalErrorText(error, "Message").Contains("Declined at parse.declaration-scan:", StringComparison.Ordinal)
-        assert EmitterCanonicalErrorText(error, "Message").Contains("setup or teardown", StringComparison.Ordinal)
+        assert EmitterCanonicalErrorText(error, "Message").Contains("top-level setup blocks are not supported by the columnar parser", StringComparison.Ordinal)
         assert Path.GetFullPath(EmitterCanonicalErrorText(error, "FileName")) == Path.GetFullPath(
             Path.Combine(compilation.FixtureRoot, "Program.tests.nl")
         )

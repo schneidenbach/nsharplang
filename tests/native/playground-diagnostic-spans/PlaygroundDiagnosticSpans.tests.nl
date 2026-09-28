@@ -1422,8 +1422,8 @@ test "020 s37 playground diagnostic spans: CheckProject FreeFunctionInTwoFiles �
     assert PgOk(response) == "False"
     assert PgCount(response) == 2
     assert PgCensus(response) == "NL306@1:6+6;NL306@1:6+6;", PgCensus(response)
-    assert PgRow(response, 0) == "NL306|error|'Helper' is already declared in the global namespace by B.nl:1 — a free function name must be unique across every file of its namespace|A.nl|1|6|6"
-    assert PgRow(response, 1) == "NL306|error|'Helper' is already declared in the global namespace by A.nl:1 — a free function name must be unique across every file of its namespace|B.nl|1|6|6"
+    assert PgRow(response, 0) == "NL306|error|'Helper' has the same parameter signature in the global namespace as B.nl:1 — overloads must have distinct parameter types or arity|A.nl|1|6|6"
+    assert PgRow(response, 1) == "NL306|error|'Helper' has the same parameter signature in the global namespace as A.nl:1 — overloads must have distinct parameter types or arity|B.nl|1|6|6"
     assert PgRow(response, 2) == "<no-such-diagnostic>"
 }
 

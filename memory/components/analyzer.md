@@ -1830,22 +1830,19 @@ Two consequences the analyzer owns:
   emitted TWO type rows named `Program` into one assembly and the program still ran, so the fallback
   makes that metadata single-valued as well. (An earlier revision of this slice reported NL306 here
   instead; it broke three shipped examples and was withdrawn.)
-- **A free-function name is declared ONCE per namespace, across files (NL306).** Measured on
-  353fb69f7: two files of `X` each declaring `func Helper()` passed `check`, built, and the program
-  printed whichever `Helper` the emitter's declaration order kept — the analyzer's file scan and the
-  emitter had each picked a winner. `AnalyzerProjectTypeDiscovery.SameNamespaceFunctionTwins` builds,
-  once per analysis, the top-level function names the OTHER files of the current namespace declare
-  (first other file wins, own file excluded), and `AnalyzerDeclarationPolicy.DeclareTopLevelFunction`
-  reports at each file's declaration naming the other — neither file is "second". The parameter
-  lists play no part: the identity is (namespace, name); cross-file overloads of one name never
-  worked (the view is name-keyed), and in-file free-function overloads decline at
-  `parse.declaration-scan` (re-measured on 353fb69f7). The emitter's own word is
-  `ColumnarFreeFunctionScope.Declare` answering `false` for a second (namespace, name) row, declined
-  at `emit.declaration.duplicate`. The report is asked only when
-  `AnalyzerProjectSourceProvider.CompilesAsOneProgram()` — the driver said so (`MultiFileCompiler`
-  handed a project configuration calls `Analyzer.DeclareOneProgram`, which is how the playground's
-  virtual project counts) or the analysis root has a `project.yml`. NL339 asks the SAME predicate
-  (2026-09-27), so the two codes fire together or not at all:
+- **Free functions overload by parameter signature within a namespace (NL306).** Same-named
+  top-level functions with distinct parameter types or arities form one overload group, both within
+  a file and across files of the same project namespace. `AnalyzerProjectTypeDiscovery`
+  `SameNamespaceFunctionCandidates` carries each other-file declaration into the current analyzer
+  scope; `AnalyzerIdentifierResolution` appends those signatures to the local group and delegates
+  selection to `BindNSharpCall`. `AnalyzerDeclarationPolicy.DeclareTopLevelFunction` reports NL306
+  only when two declarations have the same parameter signature. The emitter keeps one method per
+  signature on the namespace's free-function holder and uses the analyzer's selected declaration at
+  overloaded call sites. The check is asked only when `AnalyzerProjectSourceProvider.CompilesAsOneProgram()`
+  — the driver said so (`MultiFileCompiler` handed a project configuration calls
+  `Analyzer.DeclareOneProgram`, which is how the playground's virtual project counts) or the analysis
+  root has a `project.yml`. NL339 asks the SAME predicate (2026-09-27), so the two codes fire together
+  or not at all:
   `examples/03-functions` and its siblings are standalone single-file programs (five `Main`s, two
   `Sum`s in the global namespace) that the gate's Step 10 checks as ONE directory and the LSP opens
   with the directory as its fallback root; nothing compiles them together, so they cannot collide.

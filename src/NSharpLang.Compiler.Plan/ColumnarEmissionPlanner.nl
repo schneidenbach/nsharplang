@@ -80,4 +80,24 @@ class ColumnarEmissionPlanner {
 
         return starts.ToArray()
     }
+
+    // Convert a source offset to the 1-based position the analyzer records. The declaration and
+    // call-binding bridge both use the exact line/column keys from SemanticModel, so they share
+    // this binary-search owner instead of rescanning a file for every emitted call.
+    static func PositionAt(source: ColumnarSourceFile, offset: int): (Line: int, Column: int) {
+        starts := source.LineStarts
+        target := Math.Clamp(offset, 0, source.Source.Length)
+        low := 0
+        high := starts.Length - 1
+        while low < high {
+            middle := low + (high - low + 1) / 2
+            if starts[middle] <= target {
+                low = middle
+            } else {
+                high = middle - 1
+            }
+        }
+
+        return (Line: low + 1, Column: target - starts[low] + 1)
+    }
 }

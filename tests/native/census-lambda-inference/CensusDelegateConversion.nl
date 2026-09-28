@@ -18,8 +18,8 @@ import System.Collections.Generic
 // type would still satisfy a check that only looked at the source text.
 //
 // `RuntimeTypeOf` and `Words` are declared once for this namespace, in `CensusLambdaInference.nl`: a
-// free-function name has one declaration per namespace (NL306), and this file reaches both with no
-// import.
+// each free-function overload signature is declared once per namespace, and this file reaches both
+// helpers with no import.
 func DescendingComparison(): Comparison<int> {
     ordering: Comparison<int> = (left, right) => right - left
     return ordering

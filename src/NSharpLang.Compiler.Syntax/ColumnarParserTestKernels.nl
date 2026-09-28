@@ -113,7 +113,7 @@ func ParsePropertyAccessorInfoCore(source: string, tokens: ParserDeclarationToke
 // malformed header). Well-formed plain AND table-driven tests are MODELED (scanned by
 // TopLevelColumnarTestDeclarationIndicesInto and parsed by ParseColumnarTestInfoInto), so they no
 // longer gate the declaration scan.
-func TopLevelUnmodeledTestShapeExistsCore(source: string, tokens: ParserDeclarationTokenTable, count: int): int {
+func TopLevelUnmodeledTestShapeTokenIndexCore(source: string, tokens: ParserDeclarationTokenTable, count: int): int {
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -132,13 +132,13 @@ func TopLevelUnmodeledTestShapeExistsCore(source: string, tokens: ParserDeclarat
 
             if isTestHead {
                 if TopLevelTestHeaderEndsAt(tokens, count, i) < 0 {
-                    return 1
+                    return i
                 }
             } else if kind == 0 && (ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "setup") || ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "teardown")) {
                 nextKind := ParserDeclarationNextNonNewlineTokenKind(tokens, count, i + 1)
                 atDeclarationBoundary := ParserDeclarationIsTopLevelDeclarationBoundaryBefore(tokens, i)
                 if nextKind == 129 || atDeclarationBoundary {
-                    return 1
+                    return i
                 }
             }
         }
@@ -169,7 +169,7 @@ func TopLevelUnmodeledTestShapeExistsCore(source: string, tokens: ParserDeclarat
         i = i + 1
     }
 
-    return 0
+    return -1
 }
 
 // The test header `test "<description>"` — optionally followed by the TABLE-DRIVEN clause

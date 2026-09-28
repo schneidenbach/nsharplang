@@ -1897,6 +1897,23 @@ test "declaration scanner parses func* and records the generator fact parallel t
     assert probe.AsyncFlags[1] == 0
 }
 
+test "declaration scanner retains same-named free functions for signature-based analysis" {
+    probe := new ColumnarFunctionGeneratorScanProbe(
+        "func CountOf(value: int?): int => value ?? -1\nfunc CountOf(value: string?): int => value?.Length ?? -2\nfunc CountOf(value: int, fallback: int): int => value + fallback"
+    )
+
+    assert probe.ScanStatus >= 0
+    assert probe.FuncCount == 3
+}
+
+test "an unsupported setup block reports its own source token from the declaration scan" {
+    source := "namespace Probe\nsetup { print 1 }"
+    probe := new ColumnarFunctionGeneratorScanProbe(source)
+
+    assert probe.ScanStatus < -1000000000
+    assert 0 - 1000000000 - probe.ScanStatus == source.IndexOf("setup")
+}
+
 test "declaration scanner records async and generator facts independently for async func*" {
     probe := new ColumnarFunctionGeneratorScanProbe(
         "async func* Stream(): IAsyncEnumerable<int> { yield 1 }"
@@ -2450,7 +2467,7 @@ class ColumnarTestCaseProbe {
     }
 
     func UnmodeledShapeExists(): int {
-        return TopLevelUnmodeledTestShapeExistsCore(Source, Tokens(), RawCount)
+        return TopLevelUnmodeledTestShapeTokenIndexCore(Source, Tokens(), RawCount) >= 0 ? 1 : 0
     }
 
     func HeaderEndsAt(testIndex: int): int {

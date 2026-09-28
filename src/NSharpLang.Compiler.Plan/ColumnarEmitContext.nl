@@ -24,6 +24,7 @@ import System.Reflection.Emit
 // replaced carried — emission is unchanged, byte for byte.
 sealed class ColumnarEmitContext {
     private static readonly s_noSiblings: Dictionary<string, ColumnarSiblingMethodDefinition> = new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
+    private static readonly s_noSiblingOverloads: Dictionary<string, List<ColumnarSiblingMethodDefinition>> = new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
     Enums: Dictionary<string, ColumnarEnumDef>
     Structs: IReadOnlyDictionary<string, ColumnarStructDef>
     Unions: IReadOnlyDictionary<string, ColumnarUnionDef>
@@ -39,7 +40,9 @@ sealed class ColumnarEmitContext {
     // The sibling free functions this body can call by bare name, and their labelled return
     // spellings. Both are a FILE's view, so both come from `ForSourceFile`.
     Siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
+    SiblingOverloads: IReadOnlyDictionary<string, List<ColumnarSiblingMethodDefinition>>
     SiblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>?
+    SourceFileId: int
     // The namespace `Program` holder this file's free functions are placed on, NOT YET CREATED.
     ProgramHolder: ColumnarFreeFunctionHolderSlot?
     private freeFunctions: ColumnarFreeFunctionScope?
@@ -61,8 +64,10 @@ sealed class ColumnarEmitContext {
         TypeResolutionStructs = null
         TypeResolutionUnions = null
         Siblings = s_noSiblings
+        SiblingOverloads = s_noSiblingOverloads
         SiblingReturnLabeledCanonicals = null
         ProgramHolder = null
+        SourceFileId = -1
     }
 
     private func Copy(): ColumnarEmitContext {
@@ -71,8 +76,10 @@ sealed class ColumnarEmitContext {
         clone.TypeResolutionStructs = TypeResolutionStructs
         clone.TypeResolutionUnions = TypeResolutionUnions
         clone.Siblings = Siblings
+        clone.SiblingOverloads = SiblingOverloads
         clone.SiblingReturnLabeledCanonicals = SiblingReturnLabeledCanonicals
         clone.ProgramHolder = ProgramHolder
+        clone.SourceFileId = SourceFileId
         return clone
     }
 
@@ -97,7 +104,9 @@ sealed class ColumnarEmitContext {
         clone.SiblingReturnLabeledCanonicals = null
         if freeFunctions != null {
             clone.Siblings = freeFunctions.ViewFor(sourceFileId)
+            clone.SiblingOverloads = freeFunctions.OverloadsFor(sourceFileId)
         }
+        clone.SourceFileId = sourceFileId
         if holders != null {
             clone.ProgramHolder = new ColumnarFreeFunctionHolderSlot(holders, sourceFileId)
         }
@@ -119,8 +128,33 @@ sealed class ColumnarEmitContext {
     func WithSiblings(siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, returnLabeledCanonicals: IReadOnlyDictionary<string, string>?): ColumnarEmitContext {
         clone := Copy()
         clone.Siblings = siblings
+        overloads := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
+        for entry in siblings {
+            group := new List<ColumnarSiblingMethodDefinition>()
+            group.Add(entry.Value)
+            overloads[entry.Key] = group
+        }
+        clone.SiblingOverloads = overloads
         clone.SiblingReturnLabeledCanonicals = returnLabeledCanonicals
         return clone
+    }
+
+    func TryGetBoundSibling(sourceOffset: int, out sibling: ColumnarSiblingMethodDefinition?): bool {
+        sibling = null
+        if freeFunctions == null || SourceFileId < 0 {
+            return false
+        }
+
+        return freeFunctions.TryGetBoundDefinition(SourceFileId, sourceOffset, out sibling)
+    }
+
+    func TryGetBoundSiblingReturnLabeledCanonical(sourceOffset: int, out labeledCanonical: string?): bool {
+        labeledCanonical = null
+        if freeFunctions == null || SourceFileId < 0 {
+            return false
+        }
+
+        return freeFunctions.TryGetBoundReturnLabeledCanonical(SourceFileId, sourceOffset, out labeledCanonical)
     }
 
     func WithProgramHolder(programHolder: ColumnarFreeFunctionHolderSlot?): ColumnarEmitContext {

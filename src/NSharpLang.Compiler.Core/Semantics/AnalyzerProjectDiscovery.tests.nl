@@ -1317,12 +1317,18 @@ test "a non-exported free function is not one of the candidates a tie is decided
     assert !discovery.TryFindAmbiguousImportedFunction("render", "Mine", out first, out second)
 }
 
-// THE ONE-DECLARATION-PER-NAMESPACE RULE, at discovery. A namespace spans files, so the names the
-// OTHER files of the current namespace declare as top-level functions are what a duplicate report is
-// built from — the first other file wins, the caller's own file is never its own twin, and another
-// namespace's same-named function is a different function altogether. The parameter lists play no
-// part: a free function's identity is (namespace, name), and there is no cross-file overload group.
-test "the same-namespace function twins are the names the OTHER files of one namespace declare" {
+// A namespace-level overload group spans files. Keep every declaration and its source file so the
+// analyzer can compare signatures for duplicates and bind calls against the entire group.
+func RequireProjectFunctionDeclaration(candidate: ProjectFunctionCandidate): FunctionDeclaration {
+    declaration := candidate.Declaration
+    if declaration == null {
+        throw new InvalidOperationException("The project function candidate has no source declaration.")
+    }
+
+    return declaration
+}
+
+test "same-namespace function candidates include every declaration from the other files" {
     provider := ProjectProviderOf(
         ["/p/a.nl", "/p/b.nl", "/p/c.nl", "/p/other.nl"],
         [
@@ -1334,21 +1340,23 @@ test "the same-namespace function twins are the names the OTHER files of one nam
     )
     discovery := ProjectDiscoveryOf(provider, [])
 
-    // From a.nl: b.nl's `Helper` is the twin (the first OTHER file), whatever its parameter list,
-    // and so is `Alone` — the index is by name, not by what a.nl happens to declare.
-    fromA := discovery.SameNamespaceFunctionTwins("/p/a.nl", "X")
-    assert fromA.Count == 2
-    assert Path.GetFileName(fromA["Helper"].FilePath) == "b.nl"
-    assert fromA["Helper"].Line == 3
-    assert Path.GetFileName(fromA["Alone"].FilePath) == "b.nl"
+    fromA := discovery.SameNamespaceFunctionCandidates("/p/a.nl", "X")
+    assert fromA.Count == 3
+    assert Path.GetFileName(fromA[0].FilePath) == "b.nl"
+    firstDeclaration := RequireProjectFunctionDeclaration(fromA[0])
+    assert firstDeclaration.Name == "Helper"
+    assert firstDeclaration.Parameters.Count == 1
+    assert Path.GetFileName(fromA[1].FilePath) == "b.nl"
+    secondDeclaration := RequireProjectFunctionDeclaration(fromA[1])
+    assert secondDeclaration.Name == "Alone"
+    assert Path.GetFileName(fromA[2].FilePath) == "c.nl"
+    thirdDeclaration := RequireProjectFunctionDeclaration(fromA[2])
+    assert thirdDeclaration.Name == "Helper"
 
-    // From b.nl: a.nl's `Helper`, and never its own `Alone`.
-    fromB := discovery.SameNamespaceFunctionTwins("/p/b.nl", "X")
-    assert fromB.Count == 1
-    assert Path.GetFileName(fromB["Helper"].FilePath) == "a.nl"
-
-    // Y's `Helper` is a different function: from other.nl there is no twin at all.
-    fromOther := discovery.SameNamespaceFunctionTwins("/p/other.nl", "Y")
+    // The caller's own declarations are not repeated; the other namespace remains separate.
+    fromB := discovery.SameNamespaceFunctionCandidates("/p/b.nl", "X")
+    assert fromB.Count == 2
+    fromOther := discovery.SameNamespaceFunctionCandidates("/p/other.nl", "Y")
     assert fromOther.Count == 0
 }
 
@@ -1362,12 +1370,12 @@ test "the global namespace is one namespace for the twin index, whether spelled 
     )
     discovery := ProjectDiscoveryOf(provider, [])
 
-    fromNull := discovery.SameNamespaceFunctionTwins("/p/one.nl", null)
+    fromNull := discovery.SameNamespaceFunctionCandidates("/p/one.nl", null)
     assert fromNull.Count == 1
-    assert Path.GetFileName(fromNull["Helper"].FilePath) == "two.nl"
-    assert fromNull["Helper"].Line == 1
+    assert Path.GetFileName(fromNull[0].FilePath) == "two.nl"
+    assert fromNull[0].Line == 1
 
-    fromEmpty := discovery.SameNamespaceFunctionTwins("/p/one.nl", "")
+    fromEmpty := discovery.SameNamespaceFunctionCandidates("/p/one.nl", "")
     assert fromEmpty.Count == 1
 }
 
@@ -1400,14 +1408,14 @@ func NamespaceTwinReports(filePath: string, source: string, projectRoot: string,
     return messages
 }
 
-test "two files of one namespace that declare the same free function each report NL306 naming the other" {
+test "two files with the same free-function signature each report NL306 naming the other" {
     projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-function-twin-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory(projectRoot)
     try {
         aPath := Path.Combine(projectRoot, "A.nl")
         aSource := "namespace X\n\nfunc Helper(): string {\n    return \"A\"\n}\n"
         bPath := Path.Combine(projectRoot, "B.nl")
-        bSource := "namespace X\n\nfunc Helper(_count: int): string {\n    return \"B\"\n}\n"
+        bSource := "namespace X\n\nfunc Helper(): string {\n    return \"B\"\n}\n"
         cPath := Path.Combine(projectRoot, "C.nl")
         cSource := "namespace Y\n\nfunc Helper(): string {\n    return \"C\"\n}\n"
         File.WriteAllText(aPath, aSource)
@@ -1417,15 +1425,97 @@ test "two files of one namespace that declare the same free function each report
 
         fromA := NamespaceTwinReports(aPath, aSource, projectRoot, true)
         assert fromA.Count == 1
-        assert fromA[0] == "'Helper' is already declared in namespace 'X' by B.nl:3 — a free function name must be unique across every file of its namespace @3:6"
+        assert fromA[0] == "'Helper' has the same parameter signature in namespace 'X' as B.nl:3 — overloads must have distinct parameter types or arity @3:6"
 
         // The other file reports too, naming THIS one: neither file is "second".
         fromB := NamespaceTwinReports(bPath, bSource, projectRoot, true)
         assert fromB.Count == 1
-        assert fromB[0].Contains("by A.nl:3")
+        assert fromB[0] == "'Helper' has the same parameter signature in namespace 'X' as A.nl:3 — overloads must have distinct parameter types or arity @3:6", fromB[0]
 
         // A different namespace is a different function.
         assert NamespaceTwinReports(cPath, cSource, projectRoot, true).Count == 0
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "cross-file free-function overloads use BindNSharpCall's selected declaration" {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-free-function-overload-binding-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        aPath := Path.Combine(projectRoot, "A.nl")
+        aSource := "namespace X\n\nfunc Pick(value: int): string {\n    return \"int\"\n}\n\nfunc CallInt(): string {\n    return Pick(7)\n}\n"
+        bPath := Path.Combine(projectRoot, "B.nl")
+        bSource := "namespace X\n\nfunc Pick(value: string): string {\n    return \"string\"\n}\n"
+        File.WriteAllText(aPath, aSource)
+        File.WriteAllText(bPath, bSource)
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: FreeFunctionOverloadBinding\noutputType: exe\ntargetFramework: net10.0\n")
+
+        parsed := ColumnarParserRecovery.ParseFileAst(aSource, aPath)
+        assert parsed.Errors.Count == 0
+        unit := parsed.CompilationUnit
+        assert unit != null
+        snapshot := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        snapshot[aPath] = aSource
+        snapshot[bPath] = bSource
+
+        analyzer := new Analyzer()
+        try {
+            analyzer.SetProjectSourceTexts(snapshot)
+            analyzer.DeclareOneProgram()
+            result := analyzer.Analyze(unit, aPath, projectRoot, aSource)
+            assert result.Errors.Count == 0
+            selected: FunctionTypeInfo? = result.SemanticModel.ExpressionTypes[(Line: 8, Column: 12)] as FunctionTypeInfo
+            if selected == null {
+                throw new InvalidOperationException("The overload binder did not record Pick's selected source declaration.")
+            }
+            assert selected.SourceFilePath == aPath
+            assert selected.SourceName == "Pick"
+            selectedParameters := selected.SourceParameterTypes
+            if selectedParameters == null {
+                throw new InvalidOperationException("The selected source function did not carry parameter signatures.")
+            }
+            assert AnalyzerOverloadSignatureFacts.GetParameterTypeSignature(selectedParameters[0]) == "int"
+        } finally {
+            analyzer.Dispose()
+        }
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "same-namespace names in standalone scripts do not enter a free-function overload group" {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-standalone-function-overload-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        aPath := Path.Combine(projectRoot, "A.nl")
+        aSource := "namespace X\n\nfunc Pick(value: int): string {\n    return \"int\"\n}\n\nfunc CallInt(): string {\n    return Pick(7)\n}\n"
+        bPath := Path.Combine(projectRoot, "B.nl")
+        bSource := "namespace X\n\nfunc Pick(value: int): string {\n    return \"other\"\n}\n"
+        File.WriteAllText(aPath, aSource)
+        File.WriteAllText(bPath, bSource)
+
+        parsed := ColumnarParserRecovery.ParseFileAst(aSource, aPath)
+        assert parsed.Errors.Count == 0
+        unit := parsed.CompilationUnit
+        assert unit != null
+        snapshot := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        snapshot[aPath] = aSource
+        snapshot[bPath] = bSource
+
+        analyzer := new Analyzer()
+        try {
+            analyzer.SetProjectSourceTexts(snapshot)
+            result := analyzer.Analyze(unit, aPath, projectRoot, aSource)
+            assert result.Errors.Count == 0
+            selected: FunctionTypeInfo? = result.SemanticModel.ExpressionTypes[(Line: 8, Column: 12)] as FunctionTypeInfo
+            if selected == null {
+                throw new InvalidOperationException("The standalone call did not bind its local Pick declaration.")
+            }
+            assert selected.SourceFilePath == aPath
+        } finally {
+            analyzer.Dispose()
+        }
     } finally {
         Directory.Delete(projectRoot, true)
     }
@@ -1467,7 +1557,7 @@ test "a type declared in two files of one namespace is one NL339, and a use in a
     }
 }
 
-test "a folder of standalone scripts with no project.yml is not one program, so same-named functions in it are not twins" {
+test "a folder of standalone scripts with no project.yml does not form shared overload groups" {
     // `examples/03-functions` is this shape: seven single-file programs, each with its own `Main`
     // and its own helpers, checked by the product gate as one directory. The Language Server opens
     // such a folder with the directory as its fallback root, and the CLI builds its files one at a
@@ -1478,7 +1568,7 @@ test "a folder of standalone scripts with no project.yml is not one program, so 
         firstPath := Path.Combine(projectRoot, "First.nl")
         firstSource := "func Sum(a: int, b: int): int {\n    return a + b\n}\n\nfunc Main() {\n    print Sum(1, 2)\n}\n"
         secondPath := Path.Combine(projectRoot, "Second.nl")
-        secondSource := "func Sum(values: int[]): int {\n    return values.Length\n}\n\nfunc Main() {\n    print Sum([1, 2])\n}\n"
+        secondSource := "func Sum(a: int, b: int): int {\n    return a - b\n}\n\nfunc Main() {\n    print Sum(2, 1)\n}\n"
         File.WriteAllText(firstPath, firstSource)
         File.WriteAllText(secondPath, secondSource)
 
@@ -1489,8 +1579,8 @@ test "a folder of standalone scripts with no project.yml is not one program, so 
         File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: ScriptFolder\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
         reports := NamespaceTwinReports(firstPath, firstSource, projectRoot, true)
         assert reports.Count == 2
-        assert reports[0].Contains("'Sum' is already declared in the global namespace by Second.nl:1")
-        assert reports[1].Contains("'Main' is already declared in the global namespace by Second.nl:5")
+        assert reports[0].Contains("'Sum' has the same parameter signature in the global namespace as Second.nl:1")
+        assert reports[1].Contains("'Main' has the same parameter signature in the global namespace as Second.nl:5")
     } finally {
         Directory.Delete(projectRoot, true)
     }
@@ -1520,7 +1610,7 @@ test "a folder of standalone scripts with no project.yml is not one program, so 
         joined := string.Join(" | ", reports)
         assert reports.Count == 2, joined
         assert joined.Contains("A type named 'Person' is already declared in this namespace, at First.nl:1"), joined
-        assert joined.Contains("'Main' is already declared in the global namespace by First.nl:5"), joined
+        assert joined.Contains("'Main' has the same parameter signature in the global namespace as First.nl:5"), joined
     } finally {
         Directory.Delete(projectRoot, true)
     }
@@ -1575,7 +1665,7 @@ test "a driver that compiles its files as one program makes NL306 and NL339 fire
         joined := string.Join(" | ", declared)
         assert declared.Count == 2, joined
         assert joined.Contains("TypeDeclaredInAnotherFile: A type named 'Widget' is already declared in this namespace, at First.nl:3"), joined
-        assert joined.Contains("DuplicateDeclaration: 'Helper' is already declared in namespace 'Shared' by First.nl:6"), joined
+        assert joined.Contains("DuplicateDeclaration: 'Helper' has the same parameter signature in namespace 'Shared' as First.nl:6"), joined
 
         // A `project.yml` says the same without the driver, and the two codes still agree.
         File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: DeclaredProgram\nversion: 0.1.0\noutputType: library\ntargetFramework: net10.0\n")

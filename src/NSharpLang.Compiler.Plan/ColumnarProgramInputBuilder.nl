@@ -204,6 +204,30 @@ sealed class ColumnarProgramInputBuilder {
             declarationResult
         )
         if declarationRowCount < 0 {
+            if declarationRowCount <= -1000000000 {
+                failureOffset := -1000000000 - declarationRowCount
+                failureTokenIndex := -1
+                failureToken := 0
+                while failureToken < tokens.Count {
+                    if tokens.Starts[failureToken] == failureOffset {
+                        failureTokenIndex = failureToken
+                        break
+                    }
+                    failureToken = failureToken + 1
+                }
+                tokenLength := 0
+                if failureTokenIndex >= 0 {
+                    tokenLength = tokens.ValueLengths[failureTokenIndex]
+                }
+                return DeclineAtToken(
+                    ColumnarParseDeclines.UnmodeledDeclaration(source, failureOffset, tokenLength),
+                    tokens.Starts,
+                    tokens.ValueLengths,
+                    failureTokenIndex,
+                    ""
+                )
+            }
+
             return DeclineAtToken(
                 ColumnarParseDeclines.DeclarationScan(declarationRowCount),
                 tokens.Starts,
@@ -567,7 +591,6 @@ sealed class ColumnarProgramInputBuilder {
         cs := tokens.Starts
         cv := tokens.ValueLengths
         n := tokens.Count
-
         fi := 0
         while fi < funcIndexCount {
             modifierFlags := ColumnarFunctionModifierFlagsForGenerator(funcGeneratorFlags[fi])
@@ -589,6 +612,7 @@ sealed class ColumnarProgramInputBuilder {
             ) {
                 return DeclineAtToken(ColumnarParseDeclines.FunctionDeclaration, cs, cv, funcIndices[fi], "")
             }
+            input.SourceDeclarationStart = cs[funcIndices[fi]]
             // THE VISIBILITY WORD, IN ITS OWN COLUMN. `public func helper()` is exported despite its
             // casing, and both free-function identity and the emitted method's accessibility read
             // this column: the modifier column beside it carries `async`/`generator`/`native import`

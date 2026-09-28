@@ -238,20 +238,23 @@ test "the declaration-scan decline decodes all six of the kernel's own negative 
     // -2 … -6 are the codes `ColumnarProgramDeclarationIndicesInto` itself returns; anything else
     // is the generic stage, which is what makes the row total rather than a lookup that can miss.
     assert ColumnarParseDeclines.DeclarationScan(-2).SiteId == "parse.declaration-scan"
-    assert ColumnarParseDeclines.DeclarationScan(-2).Message == "top-level declaration scan failed at function scan; the source may contain an unmodeled declaration shape such as setup or teardown"
+    assert ColumnarParseDeclines.DeclarationScan(-2).Message == "top-level declaration scan failed at function scan"
 
-    assert ColumnarParseDeclines.DeclarationScan(-3).Message == "top-level declaration scan failed at declaration name spans mismatched the declaration count; the source may contain an unmodeled declaration shape such as setup or teardown"
-    assert ColumnarParseDeclines.DeclarationScan(-4).Message == "top-level declaration scan failed at duplicate top-level type names; the source may contain an unmodeled declaration shape such as setup or teardown"
-    assert ColumnarParseDeclines.DeclarationScan(-5).Message == "top-level declaration scan failed at nominal (enum/union/interface) scan; the source may contain an unmodeled declaration shape such as setup or teardown"
-    assert ColumnarParseDeclines.DeclarationScan(-6).Message == "top-level declaration scan failed at struct-like scan; the source may contain an unmodeled declaration shape such as setup or teardown"
+    assert ColumnarParseDeclines.DeclarationScan(-3).Message == "top-level declaration scan failed at declaration name spans mismatched the declaration count"
+    assert ColumnarParseDeclines.DeclarationScan(-4).Message == "top-level declaration scan failed at duplicate top-level type names"
+    assert ColumnarParseDeclines.DeclarationScan(-5).Message == "top-level declaration scan failed at nominal (enum/union/interface) scan"
+    assert ColumnarParseDeclines.DeclarationScan(-6).Message == "top-level declaration scan failed at struct-like scan"
 
     // The generic stage covers -1, every code past -6, and (defensively) any non-negative value.
-    assert ColumnarParseDeclines.DeclarationScan(-1).Message == "top-level declaration scan failed at declaration scan; the source may contain an unmodeled declaration shape such as setup or teardown"
-    assert ColumnarParseDeclines.DeclarationScan(-7).Message == "top-level declaration scan failed at declaration scan; the source may contain an unmodeled declaration shape such as setup or teardown"
-    assert ColumnarParseDeclines.DeclarationScan(0).Message == "top-level declaration scan failed at declaration scan; the source may contain an unmodeled declaration shape such as setup or teardown"
+    assert ColumnarParseDeclines.DeclarationScan(-1).Message == "top-level declaration scan failed at declaration scan"
+    assert ColumnarParseDeclines.DeclarationScan(-7).Message == "top-level declaration scan failed at declaration scan"
+    assert ColumnarParseDeclines.DeclarationScan(0).Message == "top-level declaration scan failed at declaration scan"
 
     assert ParseDeclineIsWellFormed(ColumnarParseDeclines.DeclarationScan(-2))
     assert ParseDeclineIsWellFormed(ColumnarParseDeclines.DeclarationScan(-1))
+    assert ColumnarParseDeclines.UnmodeledDeclaration("setup { }", 0, 5).Message == "top-level setup blocks are not supported by the columnar parser"
+    assert ColumnarParseDeclines.UnmodeledDeclaration("teardown { }", 0, 8).Message == "top-level teardown blocks are not supported by the columnar parser"
+    assert ColumnarParseDeclines.UnmodeledDeclaration("test \"x\" skip { }", 0, 4).Message == "this top-level test declaration form is not supported by the columnar parser"
 }
 
 test "a vocabulary row renders into the sentence NL103 shows, through the owner that already renders declines" {
@@ -282,7 +285,7 @@ test "a vocabulary row renders into the sentence NL103 shows, through the owner 
         1,
         ""
     )
-    assert ColumnarDeclineReasonFacts.FormatDetail(scan, "Program.nl", 1, 1) == "Declined at parse.declaration-scan: top-level declaration scan failed at struct-like scan; the source may contain an unmodeled declaration shape such as setup or teardown (Program.nl:1:1)."
+    assert ColumnarDeclineReasonFacts.FormatDetail(scan, "Program.nl", 1, 1) == "Declined at parse.declaration-scan: top-level declaration scan failed at struct-like scan (Program.nl:1:1)."
 }
 
 test "the shared site ids are shared on purpose, and the rows that share them stay distinguishable" {

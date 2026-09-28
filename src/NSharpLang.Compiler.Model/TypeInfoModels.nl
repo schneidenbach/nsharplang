@@ -778,6 +778,9 @@ class FunctionTypeInfo: TypeInfo {
     SyntheticName: string?
     SourceName: string?
     SourceContainingType: string?
+    // The source file that owns a top-level declaration. Line and column alone are not a stable
+    // overload identity across project files.
+    SourceFilePath: string?
     SourceLine: int
     SourceColumn: int
     SourceParameterCount: int
@@ -828,6 +831,7 @@ class FunctionTypeInfo: TypeInfo {
         substituted.SyntheticName = SyntheticName
         substituted.SourceName = SourceName
         substituted.SourceContainingType = SourceContainingType
+        substituted.SourceFilePath = SourceFilePath
         substituted.SourceLine = SourceLine
         substituted.SourceColumn = SourceColumn
         substituted.SourceParameterCount = SourceParameterCount

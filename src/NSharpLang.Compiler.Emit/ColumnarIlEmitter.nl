@@ -14098,8 +14098,17 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = localTarget.ReturnType
                     return true
                 }
-                let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-                if (TryGetVisibleSibling(name, out target) && target != null) {
+                let primarySibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+                if (TryGetVisibleSibling(name, out primarySibling) && primarySibling != null) {
+                    let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+                    let visibleOverloads: List<NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition>? = null
+                    if (_context.SiblingOverloads.TryGetValue(name, out visibleOverloads) && visibleOverloads != null && visibleOverloads.Count > 1) {
+                        if (!_context.TryGetBoundSibling(_nodes.SpanStart(callee), out target) || target == null || target.Method.Name != name) {
+                            return Decline("emit.call.free-function-overload-binding", "overloaded free-function call '" + name + "' has no analyzer-selected declaration", callee)
+                        }
+                    } else {
+                        target = primarySibling
+                    }
                     argCount := _nodes.ChildCount(idx) - 1
                     useExpandedParams := ShouldUseExpandedParamsCall(idx, target.ParamTypes, target.ParamModifierKinds)
                     if (argCount != target.ParamTypes.Length && !useExpandedParams) {
@@ -14271,7 +14280,16 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 let gTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-                if (!TryGetVisibleSibling(gName, out gTarget) || gTarget == null || gTarget.TypeParams.Length == 0) {
+                let genericSiblingOverloads: List<NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition>? = null
+                if (_context.SiblingOverloads.TryGetValue(gName, out genericSiblingOverloads) && genericSiblingOverloads != null && genericSiblingOverloads.Count > 1) {
+                    selectedGenericOffset := _nodes.SpanStart(ColumnarGenericCalleeFacts.CalleeExpressionNode(_nodes, callee))
+                    if (!_context.TryGetBoundSibling(selectedGenericOffset, out gTarget) || gTarget == null || gTarget.Method.Name != gName) {
+                        return Decline("emit.call.free-function-overload-binding", "overloaded free-function call '" + gName + "' has no analyzer-selected declaration", callee)
+                    }
+                } else if (!TryGetVisibleSibling(gName, out gTarget)) {
+                    return Decline("emit.call.generic-unresolved", "generic call '" + ColumnarDeclineReasonFacts.CalledMemberName(gName) + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
+                }
+                if (gTarget == null || gTarget.TypeParams.Length == 0) {
                     return Decline("emit.call.generic-unresolved", "generic call '" + ColumnarDeclineReasonFacts.CalledMemberName(gName) + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
                 }
                 if (ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee) != gTarget.TypeParams.Length) {
@@ -19362,6 +19380,14 @@ sealed class ColumnarIlEmitter {
         }
         calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
         if (_locals.ContainsKey(calleeName) || _paramOrdinals.ContainsKey(calleeName)) {
+            return null
+        }
+        let siblingOverloads: List<NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition>? = null
+        if (_context.SiblingOverloads.TryGetValue(calleeName, out siblingOverloads) && siblingOverloads != null && siblingOverloads.Count > 1) {
+            selectedLabeled: string? = null
+            if (_context.TryGetBoundSiblingReturnLabeledCanonical(_nodes.SpanStart(callee), out selectedLabeled)) {
+                return selectedLabeled
+            }
             return null
         }
         returnLabeled: string? = null
@@ -27663,7 +27689,14 @@ sealed class ColumnarIlEmitter {
         }
         name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
         let candidate: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-        if (!TryGetVisibleSibling(name, out candidate) || candidate == null || candidate.TypeParams.Length > 0) {
+        let siblingOverloads: List<NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition>? = null
+        if (_context.SiblingOverloads.TryGetValue(name, out siblingOverloads) && siblingOverloads != null && siblingOverloads.Count > 1) {
+            return false
+        }
+        if (!TryGetVisibleSibling(name, out candidate) || candidate == null) {
+            return false
+        }
+        if (candidate.TypeParams.Length > 0) {
             return false
         }
         for modifierKind in candidate.ParamModifierKinds {
@@ -27673,6 +27706,31 @@ sealed class ColumnarIlEmitter {
         }
         siblingTarget = candidate
         return true
+    }
+
+    // Free-function overloads become method groups in a delegate context, like overloaded class
+    // statics. The analyzer validates that the group converts; the delegate's runtime signature is
+    // the selection key here, matching the existing static-method group path.
+    private func TryGetSiblingMethodGroupCandidates(argNode: int, out candidates: List<ColumnarEnclosingMethodGroupCandidate>): bool {
+        candidates = new List<ColumnarEnclosingMethodGroupCandidate>()
+        argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
+            return false
+        }
+
+        name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
+        let overloads: List<NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition>? = null
+        if (!_context.SiblingOverloads.TryGetValue(name, out overloads) || overloads == null) {
+            return false
+        }
+
+        for candidate in overloads {
+            if candidate.TypeParams.Length == 0 && !HasModifiedParameter(candidate.ParamModifierKinds) {
+                candidates.Add(new ColumnarEnclosingMethodGroupCandidate(candidate.Method, candidate.ParamTypes, candidate.ReturnType))
+            }
+        }
+
+        return candidates.Count > 0
     }
 
     // A SOURCE TYPE'S STATIC METHODS OF ONE NAME, WALKING ITS BASE CHAIN. Two tiers ask this: the
@@ -28112,23 +28170,25 @@ sealed class ColumnarIlEmitter {
     }
 
     private func CanEmitSiblingMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
-        let siblingTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
         let delegateReturnType: System.Type? = null
         let delegateParamTypes: System.Type[]? = null
         let ignoredDelegateConstructor: System.Reflection.ConstructorInfo? = null
-        return TryGetSiblingMethodGroup(argNode, out siblingTarget) && TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out ignoredDelegateConstructor) && SignatureMatchesDelegate(siblingTarget.ParamTypes, siblingTarget.ReturnType, delegateReturnType, delegateParamTypes)
+        let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
+        return TryGetSiblingMethodGroupCandidates(argNode, out candidates) && TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out ignoredDelegateConstructor) && TrySelectMethodGroupOverload(candidates, delegateReturnType, delegateParamTypes, out selected)
     }
 
     private func TryEmitSiblingMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
-        let siblingTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
         let delegateReturnType: System.Type? = null
         let delegateParamTypes: System.Type[]? = null
         let delegateCtor: System.Reflection.ConstructorInfo? = null
-        if (!TryGetSiblingMethodGroup(argNode, out siblingTarget) || !TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out delegateCtor) || !SignatureMatchesDelegate(siblingTarget.ParamTypes, siblingTarget.ReturnType, delegateReturnType, delegateParamTypes)) {
+        let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
+        if (!TryGetSiblingMethodGroupCandidates(argNode, out candidates) || !TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out delegateCtor) || !TrySelectMethodGroupOverload(candidates, delegateReturnType, delegateParamTypes, out selected)) {
             return false
         }
         _il.Emit(OpCodes.Ldnull)
-        _il.Emit(OpCodes.Ldftn, siblingTarget.Method)
+        _il.Emit(OpCodes.Ldftn, selected.Method)
         _il.Emit(OpCodes.Newobj, delegateCtor)
         return true
     }

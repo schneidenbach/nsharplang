@@ -14,9 +14,8 @@ func WidenElements(values: string[]): int {
     return widened.Length
 }
 
-// `CountNonNull` is declared once for this namespace, in `ArrayNullabilityCovariance.nl`: a
-// free-function name has one declaration per namespace (NL306), and this file reaches it with no
-// import.
+// `CountNonNull` is declared in `ArrayNullabilityCovariance.nl` and this file reaches it with no
+// import. Free functions in one namespace share overload groups across project files.
 
 func ElementsOrEmpty(values: string?[]): string {
     joined := ""

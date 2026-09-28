@@ -225,8 +225,8 @@ class ColumnarParseDeclines {
     static TokenizeInvalidResult: ColumnarParseDecline => new ColumnarParseDecline("parse.tokenize.invalid-result", "columnar tokenizer returned invalid token counts")
 
     // ---- top-level declaration scan ----
-    // The stage names decode the declaration kernel's OWN negative return codes, so the code and
-    // the word for it stay in one place. Anything outside -2 … -6 is the generic stage.
+    // The stage names decode the declaration kernel's OWN negative return codes. Do not speculate
+    // about setup/teardown here: the scanner's token-indexed decline below names the actual shape.
     static func DeclarationScan(declarationScanResult: int): ColumnarParseDecline {
         stage := "declaration scan"
         if declarationScanResult == -2 {
@@ -241,7 +241,23 @@ class ColumnarParseDeclines {
             stage = "struct-like scan"
         }
 
-        return new ColumnarParseDecline("parse.declaration-scan", "top-level declaration scan failed at " + stage + "; the source may contain an unmodeled declaration shape such as setup or teardown")
+        return new ColumnarParseDecline("parse.declaration-scan", "top-level declaration scan failed at " + stage)
+    }
+
+    static func UnmodeledDeclaration(source: string, offset: int, length: int): ColumnarParseDecline {
+        token := ""
+        if offset >= 0 && length > 0 && offset + length <= source.Length {
+            token = source.Substring(offset, length)
+        }
+
+        if token == "setup" || token == "teardown" {
+            return new ColumnarParseDecline("parse.declaration-scan", "top-level " + token + " blocks are not supported by the columnar parser")
+        }
+        if token == "test" {
+            return new ColumnarParseDecline("parse.declaration-scan", "this top-level test declaration form is not supported by the columnar parser")
+        }
+
+        return new ColumnarParseDecline("parse.declaration-scan", "top-level function declaration near '" + token + "' could not be represented by the columnar parser")
     }
 
     // ---- per-kind materialization (the whole pass for one declaration kind gave up) ----

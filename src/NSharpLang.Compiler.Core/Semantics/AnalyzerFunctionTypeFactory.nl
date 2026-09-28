@@ -364,6 +364,7 @@ class AnalyzerFunctionTypeFactory {
         signature.SyntheticName = declaration.Name
         signature.SourceName = declaration.Name
         signature.SourceContainingType = containingType
+        signature.SourceFilePath = declarationFile
         signature.SourceLine = declaration.Line
         signature.SourceColumn = declaration.Column
         signature.SourceParameterCount = parameters.Count

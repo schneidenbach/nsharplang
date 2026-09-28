@@ -692,66 +692,89 @@ class AnalyzerProjectTypeDiscovery {
         return false
     }
 
-    // THE ONE-DECLARATION-PER-NAMESPACE RULE FOR A FREE FUNCTION, asked across files.
-    //
-    // A free function is identified by (namespace, name): that is the emitter's identity for it
-    // (`ColumnarFreeFunctionScope`), the key every bare-call view is built on, and what the function
-    // channel above resolves a call to. A namespace spans files, so a second file of the same
-    // namespace declaring a name the first already declares is a duplicate of it — whatever the two
-    // parameter lists say, because there is no cross-file overload group for the second to join: a
-    // top-level `func` name has ONE declaration per namespace. Before this walk existed, two files of
-    // `X` could each declare `func Helper()`, `check` was clean, and the program printed whichever
-    // one the emitter's declaration order happened to keep.
-    //
-    // The answer is every name some OTHER file of the namespace declares, each mapped to the FIRST
-    // such file in enumeration order (rule 1) with the declaration's line, so a report can point at
-    // it. The caller's own file is excluded on purpose: its own duplicates are its scope's business
-    // (`AnalyzerDeclarationPolicy.DeclareSymbol`), and a file is never its own twin. Built once per
-    // analysis by the policy, not once per declaration, since a project's files do not change
-    // between two declarations of one unit. This is the INDEX only: whether the files are one program
-    // at all is `CompilesAsOneProgram`, and the policy asks that first.
+    // The declarations OTHER files of this file's namespace contribute to top-level overload groups.
+    // The caller's own file is excluded: its local overload group is already in the declaration
+    // scope. Each candidate carries its declaration and path so overload binding and duplicate
+    // signature diagnostics preserve declaration identity across the project. Built once per
+    // analysis by the policy, not once per declaration. Whether these files compile together is
+    // `CompilesAsOneProgram`, and the policy asks that first.
     func CompilesAsOneProgram(): bool {
         return sources.CompilesAsOneProgram()
     }
 
-    func SameNamespaceFunctionTwins(currentFilePath: string?, currentNamespace: string?): Dictionary<string, ProjectFunctionTwin> {
-        twins := new Dictionary<string, ProjectFunctionTwin>(StringComparer.Ordinal)
+    func SymbolForFunction(name: string, filePath: string, declaration: FunctionDeclaration): SymbolDeclaration {
+        return CreateTopLevelSymbolDeclaration(name, filePath, sources.ProjectSourceText(filePath), declaration)
+    }
+
+    // Every same-named top-level function in the caller's namespace, across the project. The
+    // declaring file travels with each syntax node so analyzer overload groups and diagnostics do
+    // not collapse declarations merely because their names match.
+    func SameNamespaceFunctionCandidates(currentFilePath: string?, currentNamespace: string?): List<ProjectFunctionCandidate> {
+        candidates := new List<ProjectFunctionCandidate>()
         ownPath := currentFilePath == null ? "" : Path.GetFullPath(currentFilePath)
         wantedNamespace := currentNamespace ?? ""
-        paths := sources.SourceFilePaths()
-        fileIndex := 0
-        while fileIndex < paths.Count {
-            candidatePath := paths[fileIndex]
-            fileIndex = fileIndex + 1
+        for candidatePath in sources.SourceFilePaths() {
             if string.Equals(Path.GetFullPath(candidatePath), ownPath, StringComparison.OrdinalIgnoreCase) {
                 continue
             }
 
             unit := sources.GetProjectCompilationUnit(candidatePath)
-            if unit == null {
+            if unit == null || !string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit) ?? "", wantedNamespace, StringComparison.Ordinal) {
                 continue
             }
 
-            candidateNamespace := AnalyzerProjectSourceProvider.UnitNamespace(unit) ?? ""
-            if !string.Equals(candidateNamespace, wantedNamespace, StringComparison.Ordinal) {
-                continue
-            }
-
-            declarations := unit.Declarations
-            declarationIndex := 0
-            while declarationIndex < declarations.Count {
-                candidate := declarations[declarationIndex]
-                declarationIndex = declarationIndex + 1
-                functionDeclaration := candidate as FunctionDeclaration
-                if functionDeclaration == null || twins.ContainsKey(functionDeclaration.Name) {
-                    continue
+            for declaration in unit.Declarations {
+                functionDeclaration := declaration as FunctionDeclaration
+                if functionDeclaration != null {
+                    candidates.Add(new ProjectFunctionCandidate(candidatePath, functionDeclaration))
                 }
-
-                twins[functionDeclaration.Name] = new ProjectFunctionTwin(candidatePath, functionDeclaration.Line)
             }
         }
 
-        return twins
+        return candidates
+    }
+
+    // The first visible namespace that supplies this function name wins, and every source function
+    // with that name in that namespace forms one overload group. Referenced-assembly precedence is
+    // preserved when a nearer namespace has no source function.
+    func TryResolveVisibleSourceFunctionGroup(name: string, currentNamespace: string?, out candidates: List<ProjectFunctionCandidate>, out externalFunctions: List<MethodInfo>): bool {
+        candidates = new List<ProjectFunctionCandidate>()
+        externalFunctions = new List<MethodInfo>()
+        visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
+        paths := sources.SourceFilePaths()
+        for visibleNamespace in visible {
+            requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, visibleNamespace)
+            for candidatePath in paths {
+                unit := sources.GetProjectCompilationUnit(candidatePath)
+                if unit == null || !string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit), visibleNamespace, StringComparison.Ordinal) {
+                    continue
+                }
+
+                for declaration in unit.Declarations {
+                    functionDeclaration := declaration as FunctionDeclaration
+                    if functionDeclaration != null && IsFunctionNamed(functionDeclaration, name, requireExported) {
+                        candidates.Add(new ProjectFunctionCandidate(candidatePath, functionDeclaration))
+                    }
+                }
+            }
+
+            if candidates.Count > 0 {
+                CreditFunctionNamespace(visibleNamespace)
+                return true
+            }
+
+            probe := externalTypeProbe
+            if probe != null {
+                referenced := probe.NamespaceFreeFunctions(visibleNamespace, name)
+                if referenced.Count > 0 {
+                    externalFunctions = referenced
+                    CreditFunctionNamespace(visibleNamespace)
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     func CreditFunctionNamespace(namespaceName: string?) {
@@ -955,16 +978,16 @@ class AnalyzerProjectTypeDiscovery {
     }
 }
 
-// WHERE ANOTHER FILE OF THE SAME NAMESPACE DECLARES A TOP-LEVEL FUNCTION OF SOME NAME — the file and
-// the declaration's line, which is all a duplicate report needs to point at it. Deliberately not a
-// `SymbolDeclaration`: that carries the NAME column, which costs a read of the declaring file's text,
-// and this index is built for every file of every analysis.
-class ProjectFunctionTwin {
+// A top-level function declaration from another project source file. The syntax declaration keeps
+// overload identity and is used for analyzer binding and duplicate-signature diagnostics.
+class ProjectFunctionCandidate {
     FilePath: string
     Line: int
+    Declaration: FunctionDeclaration?
 
-    constructor(filePath: string, line: int) {
+    constructor(filePath: string, declaration: FunctionDeclaration) {
         FilePath = filePath
-        Line = line
+        Line = declaration.Line
+        Declaration = declaration
     }
 }

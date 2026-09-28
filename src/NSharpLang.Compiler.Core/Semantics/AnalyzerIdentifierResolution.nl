@@ -325,18 +325,33 @@ class AnalyzerIdentifierResolution {
     // it the way it binds any reflected method -- applicability, conversions and the nullability a
     // referenced signature states. It has no source declaration to record.
     func TryResolveVisibleProjectFunction(name: string, out resolvedType: TypeInfo, out declaration: SymbolDeclaration?): bool {
-        declarationFile: string? = null
-        functionDeclaration: FunctionDeclaration? = null
-        functionSymbol: SymbolDeclaration? = null
+        candidates := new List<ProjectFunctionCandidate>()
         externalFunctions := new List<MethodInfo>()
-        if projectDiscoveryValue.TryResolveVisibleFunction(name, UnitNamespace(), out declarationFile, out functionDeclaration, out functionSymbol, out externalFunctions) {
-            // Both nested guards are TOTAL on the source path — discovery only answers `true` with a
-            // declaration after it has matched an exported `FunctionDeclaration` in a named file —
-            // but the factory wants non-nullables, and a nested `if` is the only narrowing that holds.
-            if functionDeclaration != null && declarationFile != null {
-                resolvedType = functionTypeFactoryValue.CreateFromDeclarationInFile(functionDeclaration, declarationFile)
-                declaration = functionSymbol
-                return true
+        if projectDiscoveryValue.TryResolveVisibleSourceFunctionGroup(name, UnitNamespace(), out candidates, out externalFunctions) {
+            if candidates.Count > 0 {
+                functions := new List<FunctionTypeInfo>()
+                firstSymbol: SymbolDeclaration? = null
+                for candidate in candidates {
+                    candidateDeclaration := candidate.Declaration
+                    if candidateDeclaration == null {
+                        continue
+                    }
+
+                    functions.Add(functionTypeFactoryValue.CreateFromDeclarationInFile(candidateDeclaration, candidate.FilePath))
+                    if firstSymbol == null {
+                        firstSymbol = projectDiscoveryValue.SymbolForFunction(name, candidate.FilePath, candidateDeclaration)
+                    }
+                }
+
+                if functions.Count == 1 {
+                    resolvedType = functions[0]
+                } else if functions.Count > 1 {
+                    resolvedType = NSharpMethodGroupInfoFactory.FromFunctions(functions)
+                } else {
+                    resolvedType = BuiltInTypes.Unknown
+                }
+                declaration = firstSymbol
+                return functions.Count > 0
             }
 
             if externalFunctions.Count == 1 {
@@ -388,7 +403,7 @@ class AnalyzerIdentifierResolution {
         symbolScopeIndex := -1
         scopeBinding := scopesValue.ResolveBindingTarget(bindingsValue, diagnosticsValue.CurrentFilePath, name, line, column, symbolFloor, out symbolScopeIndex, out namesType)
         if scopeBinding != null {
-            resolvedType = scopeBinding
+            resolvedType = AugmentSameNamespaceFreeFunctionOverloads(name, scopeBinding)
             if symbolScopeIndex >= 0 && symbolScopeIndex == typeScopeIndex {
                 source = BareNameSource.Member
             } else if symbolScopeIndex >= 0 {
@@ -537,6 +552,58 @@ class AnalyzerIdentifierResolution {
         }
 
         return resolved
+    }
+
+    // A top-level declaration in this file already won the local scope lookup. Complete its group
+    // with same-namespace declarations from the other project files before BindNSharpCall sees the
+    // candidates. This is the analyzer's existing group representation and binder, not an emitter
+    // overload ranking rule.
+    private func AugmentSameNamespaceFreeFunctionOverloads(name: string, resolved: TypeInfo): TypeInfo {
+        if !projectDiscoveryValue.CompilesAsOneProgram() {
+            return resolved
+        }
+
+        currentPath := diagnosticsValue.CurrentFilePath
+        if currentPath == null {
+            return resolved
+        }
+
+        currentFullPath := System.IO.Path.GetFullPath(currentPath)
+        functions := new List<FunctionTypeInfo>()
+        hasCurrentFileFunction := false
+        single := resolved as FunctionTypeInfo
+        if single != null && single.SourceContainingType == null && single.SourceName == name && single.SourceFilePath != null && string.Equals(System.IO.Path.GetFullPath(single.SourceFilePath), currentFullPath, StringComparison.OrdinalIgnoreCase) {
+            functions.Add(single)
+            hasCurrentFileFunction = true
+        }
+
+        group := resolved as NSharpMethodGroupInfo
+        if group != null {
+            for function in NSharpMethodGroupInfoFactory.GetFunctions(group) {
+                if function.SourceContainingType == null && function.SourceName == name && function.SourceFilePath != null && string.Equals(System.IO.Path.GetFullPath(function.SourceFilePath), currentFullPath, StringComparison.OrdinalIgnoreCase) {
+                    functions.Add(function)
+                    hasCurrentFileFunction = true
+                }
+            }
+        }
+
+        if !hasCurrentFileFunction {
+            return resolved
+        }
+
+        candidates := projectDiscoveryValue.SameNamespaceFunctionCandidates(currentPath, UnitNamespace())
+        for candidate in candidates {
+            declaration := candidate.Declaration
+            if declaration != null && declaration.Name == name {
+                functions.Add(functionTypeFactoryValue.CreateFromDeclarationInFile(declaration, candidate.FilePath))
+            }
+        }
+
+        if functions.Count == 1 {
+            return functions[0]
+        }
+
+        return NSharpMethodGroupInfoFactory.FromFunctions(functions)
     }
 
     // NL314. An error-tuple result name is only available once its error half has been checked; a

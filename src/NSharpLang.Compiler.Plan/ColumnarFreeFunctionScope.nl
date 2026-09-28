@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import System.Text
 import NSharpLang.Compiler
 
 
@@ -30,8 +31,8 @@ import NSharpLang.Compiler
 // assembly whenever both were in the GLOBAL namespace (measured on 33b777917: `Assembly.GetTypes()`
 // returned `Program` twice, and the program still ran) — so the fallback fixes that too.
 //
-// THE RESOLUTION. A bare call is resolved against the SAME order the analyzer resolved it with
-// (`AnalyzerProjectDiscovery.TryResolveVisibleProjectFunction`), which is `SimpleNamePrecedence`:
+// THE RESOLUTION. A bare call is visible in the same order used by the analyzer's
+// `AnalyzerIdentifierResolution.TryResolveVisibleProjectFunction`, which is `SimpleNamePrecedence`:
 //
 //   0. a function declared in the CALLER'S OWN FILE wins outright, whatever its casing — that is the
 //      lexical scope the analyzer consults before project discovery ever runs;
@@ -62,13 +63,16 @@ class ColumnarFreeFunctionScope {
     names: List<string>
     namespaceNames: List<string>
     sourceFileIds: List<int>
+    sourceDeclarationLines: List<int>
+    sourceDeclarationColumns: List<int>
     exportedFlags: List<bool>
     returnLabeledCanonicals: List<string>
     viewsByFile: Dictionary<int, Dictionary<string, ColumnarSiblingMethodDefinition>>
+    overloadsByFile: Dictionary<int, Dictionary<string, List<ColumnarSiblingMethodDefinition>>>
     labeledViewsByFile: Dictionary<int, Dictionary<string, string>>
-    // Every (namespace, name) declared so far, so a second declaration of one is refused rather than
-    // silently shadowing the first.
-    declaredIdentities: HashSet<string>
+    // Every (namespace, name, source parameter signature) declared so far. A second name joins its
+    // overload group; only a repeated signature is refused.
+    declaredSignatures: HashSet<string>
     externalDefinitionsByHolder: Dictionary<Type, List<ColumnarSiblingMethodDefinition>>
 
     constructor(programInput: ColumnarProgramInput, rootHolderTypeName: string) {
@@ -78,11 +82,14 @@ class ColumnarFreeFunctionScope {
         names = new List<string>()
         namespaceNames = new List<string>()
         sourceFileIds = new List<int>()
+        sourceDeclarationLines = new List<int>()
+        sourceDeclarationColumns = new List<int>()
         exportedFlags = new List<bool>()
         returnLabeledCanonicals = new List<string>()
         viewsByFile = new Dictionary<int, Dictionary<string, ColumnarSiblingMethodDefinition>>()
+        overloadsByFile = new Dictionary<int, Dictionary<string, List<ColumnarSiblingMethodDefinition>>>()
         labeledViewsByFile = new Dictionary<int, Dictionary<string, string>>()
-        declaredIdentities = new HashSet<string>(StringComparer.Ordinal)
+        declaredSignatures = new HashSet<string>(StringComparer.Ordinal)
         externalDefinitionsByHolder = new Dictionary<Type, List<ColumnarSiblingMethodDefinition>>()
     }
 
@@ -108,18 +115,11 @@ class ColumnarFreeFunctionScope {
         return HolderTypeName(program.NamespaceNameForFile(sourceFileId), rootTypeName)
     }
 
-    // One declared top-level function. Declaration order is preserved, because it is what settles a
-    // tie the precedence order cannot: two candidates at the same rank keep the first one declared.
-    //
-    // A SECOND DECLARATION OF ONE (NAMESPACE, NAME) IS REFUSED, and the caller declines the program.
-    // The identity has one row — there is no cross-file overload group for a second declaration to
-    // join — and every view is keyed by the bare name within a namespace, so keeping both would put
-    // one of them silently out of reach of every caller while the CLR type still carried two rows of
-    // one signature. The analyzer reports the pair as NL306 first; this is the emitter's own word on
-    // it, for the paths that reach the emitter without the analyzer.
+    // One declared top-level function. Declaration order is retained inside a visible overload group,
+    // while the analyzer's selected source declaration decides every overloaded call site.
     func Declare(function: ColumnarFunctionInput, definition: ColumnarSiblingMethodDefinition): bool {
         namespaceName := program.NamespaceNameForFile(function.SourceFileId)
-        if !declaredIdentities.Add(namespaceName + "\n" + function.Name) {
+        if !declaredSignatures.Add(DeclarationSignatureIdentity(namespaceName, function)) {
             return false
         }
 
@@ -127,9 +127,48 @@ class ColumnarFreeFunctionScope {
         names.Add(function.Name)
         namespaceNames.Add(namespaceName)
         sourceFileIds.Add(function.SourceFileId)
+        sourceFile := program.SourceFileForFileId(function.SourceFileId)
+        if sourceFile != null {
+            position := ColumnarEmissionPlanner.PositionAt(sourceFile, function.SourceDeclarationStart)
+            sourceDeclarationLines.Add(position.Line)
+            sourceDeclarationColumns.Add(position.Column)
+        } else {
+            sourceDeclarationLines.Add(0)
+            sourceDeclarationColumns.Add(0)
+        }
         exportedFlags.Add(VisibilityConventions.IsExportedIdentifierWithFlags(function.Name, function.VisibilityModifierFlags))
         returnLabeledCanonicals.Add(function.ReturnLabeledCanonical ?? "")
         return true
+    }
+
+    static func DeclarationSignatureIdentity(namespaceName: string, function: ColumnarFunctionInput): string {
+        builder := new StringBuilder()
+        builder.Append(namespaceName.Length.ToString())
+        builder.Append(":")
+        builder.Append(namespaceName)
+        builder.Append("\n")
+        builder.Append(function.Name.Length.ToString())
+        builder.Append(":")
+        builder.Append(function.Name)
+        builder.Append("\n")
+        builder.Append(function.TypeParamNames.Length.ToString())
+        builder.Append("\n")
+        index := 0
+        while index < function.ParamCanonicals.Length {
+            modifier := 0
+            if index < function.ParamModifierKinds.Length {
+                modifier = function.ParamModifierKinds[index]
+            }
+            canonical := function.ParamCanonicals[index] ?? ""
+            builder.Append(modifier.ToString())
+            builder.Append(":")
+            builder.Append(canonical.Length.ToString())
+            builder.Append(":")
+            builder.Append(canonical)
+            builder.Append("\n")
+            index = index + 1
+        }
+        return builder.ToString()
     }
 
     // Whether a candidate declared in `candidateNamespace` has to be exported to be reachable from a
@@ -143,6 +182,83 @@ class ColumnarFreeFunctionScope {
     func ViewFor(sourceFileId: int): Dictionary<string, ColumnarSiblingMethodDefinition> {
         BuildViews(sourceFileId)
         return viewsByFile[sourceFileId]
+    }
+
+    // Every visible free-function candidate for this file, grouped by the bare name it supplies.
+    // `ViewFor` remains the primary-definition view used by name-presence and hiding checks; call
+    // emission reads this group and the analyzer's bound declaration when a name has overloads.
+    func OverloadsFor(sourceFileId: int): Dictionary<string, List<ColumnarSiblingMethodDefinition>> {
+        BuildViews(sourceFileId)
+        return overloadsByFile[sourceFileId]
+    }
+
+    // Resolve the exact free-function declaration the analyzer selected for a call or a method-group
+    // value. The semantic model stores its FunctionTypeInfo at the callee's line and column; the
+    // declaration identity then maps directly to the MethodBuilder registered above.
+    func TryGetBoundDefinition(sourceFileId: int, sourceOffset: int, out definition: ColumnarSiblingMethodDefinition?): bool {
+        definition = null
+        selectedIndex := -1
+        if !TryGetBoundDefinitionIndex(sourceFileId, sourceOffset, out selectedIndex) {
+            return false
+        }
+
+        definition = definitions[selectedIndex]
+        return true
+    }
+
+    func TryGetBoundReturnLabeledCanonical(sourceFileId: int, sourceOffset: int, out labeledCanonical: string?): bool {
+        labeledCanonical = null
+        selectedIndex := -1
+        if !TryGetBoundDefinitionIndex(sourceFileId, sourceOffset, out selectedIndex) {
+            return false
+        }
+
+        value := returnLabeledCanonicals[selectedIndex]
+        if value.Length == 0 {
+            return false
+        }
+
+        labeledCanonical = value
+        return true
+    }
+
+    private func TryGetBoundDefinitionIndex(sourceFileId: int, sourceOffset: int, out selectedIndex: int): bool {
+        selectedIndex = -1
+        file := program.SourceFileForFileId(sourceFileId)
+        if file == null {
+            return false
+        }
+
+        semanticModel := program.SemanticModelForFileId(sourceFileId)
+        if semanticModel == null {
+            return false
+        }
+
+        position := ColumnarEmissionPlanner.PositionAt(file, sourceOffset)
+        selected: TypeInfo = null
+        if !semanticModel.ExpressionTypes.TryGetValue((Line: position.Line, Column: position.Column), out selected) {
+            return false
+        }
+
+        function := selected as FunctionTypeInfo
+        if function == null || function.SourceName == null || function.SourceContainingType != null || function.SourceLine <= 0 || function.SourceColumn <= 0 {
+            return false
+        }
+
+        selectedPath := function.SourceFilePath
+        if selectedPath == null {
+            return false
+        }
+        index := 0
+        while index < definitions.Count {
+            declarationFile := program.SourceFileForFileId(sourceFileIds[index])
+            if declarationFile != null && string.Equals(declarationFile.FileName, selectedPath, StringComparison.OrdinalIgnoreCase) && sourceDeclarationLines[index] == function.SourceLine && sourceDeclarationColumns[index] == function.SourceColumn {
+                selectedIndex = index
+                return true
+            }
+            index = index + 1
+        }
+        return false
     }
 
     // The return tuple element labels of the same functions, keyed the same way, because `t := mk()`
@@ -159,6 +275,7 @@ class ColumnarFreeFunctionScope {
         }
 
         view := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
+        overloads := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
         labeled := new Dictionary<string, string>(StringComparer.Ordinal)
         callerNamespace := program.NamespaceNameForFile(sourceFileId)
         ranks := NamespaceRanks(sourceFileId)
@@ -171,7 +288,11 @@ class ColumnarFreeFunctionScope {
             if sourceFileIds[index] != sourceFileId {
                 candidateRank := 0
                 fileImportRank := 0
-                if fileRanks.TryGetValue(sourceFileIds[index], out fileImportRank) {
+                if string.Equals(namespaceNames[index], callerNamespace, StringComparison.Ordinal) {
+                    // Same-namespace declarations complete a local free-function overload group.
+                    // The analyzer augments its own-file symbol with these candidates before binding.
+                    rank = OwnFileRank()
+                } else if fileRanks.TryGetValue(sourceFileIds[index], out fileImportRank) {
                     // A FILE IMPORT carries only what the imported file EXPORTS, whatever namespace
                     // that file is in, so this tier always asks.
                     if exportedFlags[index] {
@@ -193,36 +314,46 @@ class ColumnarFreeFunctionScope {
                 if !bestRanks.TryGetValue(name, out existingRank) || rank < existingRank {
                     bestRanks[name] = rank
                     view[name] = definitions[index]
+                    candidates := new List<ColumnarSiblingMethodDefinition>()
+                    candidates.Add(definitions[index])
+                    overloads[name] = candidates
                     labeledCanonical := returnLabeledCanonicals[index]
                     if labeledCanonical.Length > 0 {
                         labeled[name] = labeledCanonical
                     } else {
                         labeled.Remove(name)
                     }
+                } else if rank == existingRank {
+                    overloads[name].Add(definitions[index])
                 }
             }
             index = index + 1
         }
 
-        // A REFERENCED ASSEMBLY'S FREE FUNCTIONS TAKE THE SAME WALK. Each candidate namespace is asked
-        // of metadata too, at its own rank, and a source function of the same name wins at the SAME
-        // rank (the rank comparison is strict) -- so the caller's file, a file import and a nearer
-        // namespace still beat a referenced function, and a referenced function in a nearer namespace
-        // beats a source one further out, exactly as `SimpleNamePrecedence` orders a type name. Two
-        // referenced assemblies holding one name in one namespace are not one function: the name is
-        // taken at that rank and left out of the view, so a call to it declines rather than binding
-        // whichever reference was listed first. See `ColumnarExternalFreeFunctions`.
+        // REFERENCED FREE-FUNCTION HOLDERS TAKE THE SAME WALK. One holder can contribute an overload
+        // group. Two referenced assemblies contributing the same name at one namespace are ambiguous
+        // and leave that name out, rather than binding whichever reference was listed first.
         for rankedNamespace in ranks {
             rank := rankedNamespace.Value
-            offered := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
+            offered := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
             ambiguous := new HashSet<string>(StringComparer.Ordinal)
             for holder in program.ExternalFreeFunctionHolders(rankedNamespace.Key, rootTypeName) {
+                holderGroups := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
                 for external in ExternalDefinitionsFor(holder) {
                     externalName := external.Method.Name
-                    if offered.ContainsKey(externalName) {
-                        ambiguous.Add(externalName)
+                    candidates: List<ColumnarSiblingMethodDefinition> = null
+                    if !holderGroups.TryGetValue(externalName, out candidates) {
+                        candidates = new List<ColumnarSiblingMethodDefinition>()
+                        holderGroups[externalName] = candidates
+                    }
+                    candidates.Add(external)
+                }
+
+                for holderGroup in holderGroups {
+                    if offered.ContainsKey(holderGroup.Key) {
+                        ambiguous.Add(holderGroup.Key)
                     } else {
-                        offered[externalName] = external
+                        offered[holderGroup.Key] = holderGroup.Value
                     }
                 }
             }
@@ -236,13 +367,19 @@ class ColumnarFreeFunctionScope {
                 labeled.Remove(entry.Key)
                 if ambiguous.Contains(entry.Key) {
                     view.Remove(entry.Key)
+                    overloads.Remove(entry.Key)
                 } else {
-                    view[entry.Key] = entry.Value
+                    candidates := entry.Value
+                    if candidates.Count > 0 {
+                        view[entry.Key] = candidates[0]
+                        overloads[entry.Key] = candidates
+                    }
                 }
             }
         }
 
         viewsByFile[sourceFileId] = view
+        overloadsByFile[sourceFileId] = overloads
         labeledViewsByFile[sourceFileId] = labeled
     }
 

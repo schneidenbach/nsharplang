@@ -645,6 +645,18 @@ class MultiFileCompiler {
         if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out program)) {
             return false
         }
+        // Call-site overload selection belongs to the analyzer's BindNSharpCall walk. Carry each
+        // analyzed file's semantic model into emission so a free-function call can target the exact
+        // declaration BindNSharpCall selected instead of re-ranking the group's CLR signatures.
+        semanticFileId := 0
+        while semanticFileId < _sourceFiles.Count {
+            semanticModel: SemanticModel = null
+            semanticPath := Path.GetFullPath(_sourceFiles[semanticFileId])
+            if _semanticModels.TryGetValue(semanticPath, out semanticModel) {
+                program.SetSemanticModelForFileId(semanticFileId, semanticModel)
+            }
+            semanticFileId = semanticFileId + 1
+        }
         // Stamp the numeric CLR version derived from the project's (possibly SemVer)
         // version string, matching the AssemblyVersion the MSBuild SDK advertises.
         versionConfig := _config

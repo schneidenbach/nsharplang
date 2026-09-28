@@ -1260,9 +1260,12 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: Pa
     }
 
     functionOutputs := new TopLevelColumnarFunctionDeclarationTable(outputs.FuncIndices, outputs.FuncAsyncFlags, outputs.FuncGeneratorFlags)
-    functionResult := new ParserDeclarationResultTable(new int[](2))
+    functionResult := new ParserDeclarationResultTable(new int[](3))
     functionCount := TopLevelColumnarFunctionDeclarationIndicesCore(source, rawTokens, rawCount, compactTokens, compactCount, functionOutputs, functionResult)
     if functionCount < 0 {
+        if functionResult.Values[2] >= 0 {
+            return -1000000000 - functionResult.Values[2]
+        }
         return -2
     }
 
@@ -1473,7 +1476,15 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
         return -1
     }
 
-    if TopLevelUnmodeledTestShapeExistsCore(source, rawTokens, rawCount) != 0 {
+    if result.Values.Length > 2 {
+        result.Values[2] = -1
+    }
+
+    unsupportedTestToken := TopLevelUnmodeledTestShapeTokenIndexCore(source, rawTokens, rawCount)
+    if unsupportedTestToken >= 0 {
+        if result.Values.Length > 2 {
+            result.Values[2] = rawTokens.Starts[unsupportedTestToken]
+        }
         return -1
     }
 
@@ -1509,11 +1520,14 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
 
     names := new TopLevelDeclarationNameTable(new int[](rawCount + 1), new int[](rawCount + 1), new int[](rawCount + 1), new int[](rawCount + 1))
     nameCount := TopLevelDeclarationNameSpansCore(source, rawTokens, rawCount, names)
+    if nameCount > 0 && result.Values.Length > 2 {
+        result.Values[2] = names.NameStarts[0]
+    }
     if nameCount != declCount {
         return -1
     }
 
-    if TopLevelFunctionDeclarationNamesDistinct(source, names, nameCount) == 0 {
+    if TopLevelFunctionDeclarationsAreNamed(names, nameCount) == 0 {
         return -1
     }
 
@@ -1582,7 +1596,7 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
     return funcCount
 }
 
-func TopLevelFunctionDeclarationNamesDistinct(source: string, decls: TopLevelDeclarationNameTable, declCount: int): int {
+func TopLevelFunctionDeclarationsAreNamed(decls: TopLevelDeclarationNameTable, declCount: int): int {
     if declCount < 0 {
         return 0
     }
@@ -1592,21 +1606,6 @@ func TopLevelFunctionDeclarationNamesDistinct(source: string, decls: TopLevelDec
         if decls.Kinds[i] == 7 {
             if decls.NameStarts[i] < 0 || decls.NameLengths[i] <= 0 {
                 return 0
-            }
-
-            j := i + 1
-            while j < declCount {
-                if decls.Kinds[j] == 7 {
-                    if decls.NameStarts[j] < 0 || decls.NameLengths[j] <= 0 {
-                        return 0
-                    }
-
-                    if ParserDeclarationSourceSpansEqual(source, decls.NameStarts[i], decls.NameLengths[i], decls.NameStarts[j], decls.NameLengths[j]) {
-                        return 0
-                    }
-                }
-
-                j = j + 1
             }
         }
 

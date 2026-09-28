@@ -42,6 +42,27 @@ class AnalyzerOverloadSignatureFacts {
         return true
     }
 
+    // Cross-file duplicates are compared before the other declaration has been materialized as a
+    // TypeInfo. Keep this spelling contract identical to the overload-group comparison above.
+    static func ParameterSignaturesMatch(a: FunctionTypeInfo, b: FunctionDeclaration): bool {
+        aParameters := a.SourceParameterTypes
+        if aParameters == null || b == null || aParameters.Count != b.Parameters.Count {
+            return false
+        }
+
+        index := 0
+        while index < aParameters.Count {
+            otherType := b.Parameters[index].Type
+            if otherType == null || GetParameterTypeSignature(aParameters[index]) != GetParameterTypeSignature(otherType) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
     static func GetParameterTypeSignature(typeRef: TypeReference): string {
         simple := typeRef as SimpleTypeReference
         if simple != null {

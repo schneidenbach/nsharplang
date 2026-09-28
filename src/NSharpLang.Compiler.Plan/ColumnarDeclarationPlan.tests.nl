@@ -517,7 +517,7 @@ func DeclarationPlanMethodStruct(name: string, methods: List<ColumnarFunctionInp
     )
 }
 
-test "the method rows publish every base MethodAttributes word, and a free function is NOT a static method" {
+test "the method rows publish every base MethodAttributes word, and free functions are overloadable static methods" {
     assert ColumnarDeclarationPlanner.PrivateMethodAttribute() == 1
     assert ColumnarDeclarationPlanner.AssemblyMethodAttribute() == 3
     assert ColumnarDeclarationPlanner.FamilyMethodAttribute() == 4
@@ -538,11 +538,9 @@ test "the method rows publish every base MethodAttributes word, and a free funct
     assert ColumnarDeclarationPlanner.InterfaceMethodAttributes(true) == 454
     assert ColumnarDeclarationPlanner.InterfaceMethodAttributes(false) == 1478
 
-    // A FREE FUNCTION carries NO HideBySig: free functions do not overload, so there is no signature
-    // to hide by. This is the one word that is NOT the static-method word, and confusing them would
-    // change metadata on every free function in the estate.
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes() == 22
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes() != ColumnarDeclarationPlanner.StaticMethodAttributes(false)
+    // Free functions live on namespace holder types and share the CLR's static method-group shape.
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes() == 150
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes() == ColumnarDeclarationPlanner.StaticMethodAttributes(false)
 }
 
 test "method visibility preserves explicit CLR access and the package casing convention" {
@@ -566,23 +564,21 @@ test "method visibility preserves explicit CLR access and the package casing con
     assert ColumnarDeclarationPlanner.StructStaticMethodAttributes("Visible", 2) == 145
     // CLR operators remain public special-name methods even under a malformed private input.
     assert ColumnarDeclarationPlanner.StructStaticMethodAttributes("op_Addition", 2) == 2198
-    // A free function retains its distinct no-HideBySig word while its access bits vary — but it has
-    // only TWO access shapes, because it has no containing user type for `private` to mean anything
-    // about. `public` (written or implied by casing) is Public|Static = 22; every other spelling is
-    // Assembly|Static = 19, which keeps a class, a lambda's display class and a local function's
-    // closure of the same package able to call it.
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 2) == 19
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("visible", 0) == 19
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 0) == 22
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("visible", 1) == 22
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 4) == 19
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 8) == 19
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 12) == 19
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 32768) == 22
+    // Free functions share the CLR static method-group shape, with two access shapes because there
+    // is no containing user type for `private` to mean anything about. Public is 150; package access
+    // is 147, keeping same-package callers able to reach the method.
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 2) == 147
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("visible", 0) == 147
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 0) == 150
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("visible", 1) == 150
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 4) == 147
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 8) == 147
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 12) == 147
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 32768) == 150
     // `public` wins a malformed combination exactly as it does for a type member.
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("visible", 15) == 22
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("", 0) == 19
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes(null, 0) == 19
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("visible", 15) == 150
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("", 0) == 147
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes(null, 0) == 147
 }
 
 test "method rows read visibility flags for both type members and free functions" {
@@ -625,12 +621,12 @@ test "method rows read visibility flags for both type members and free functions
     assert rows.StructMethodAttributeWords[0][1] == 147
     assert rows.StructMethodAttributeWords[0][2] == 131
     // A written `private` on a free function is namespace privacy, not type privacy, so it emits
-    // Assembly|Static (19) — the same word the camelCase default produces.
-    assert rows.FunctionAttributeWords[0] == 19
-    assert rows.FunctionAttributeWords[1] == 19
-    // The written word in the VISIBILITY column reaches metadata: `public func` is Public|Static.
-    assert rows.FunctionAttributeWords[2] == 22
-    assert rows.FunctionAttributeWords[3] == 19
+    // Assembly|Static|HideBySig (147) — the same word the camelCase default produces.
+    assert rows.FunctionAttributeWords[0] == 147
+    assert rows.FunctionAttributeWords[1] == 147
+    // The written word in the VISIBILITY column reaches metadata: `public func` is public static.
+    assert rows.FunctionAttributeWords[2] == 150
+    assert rows.FunctionAttributeWords[3] == 147
 }
 
 test "the operator rule is a name prefix that decides metadata, and it is ordinal and case-sensitive" {

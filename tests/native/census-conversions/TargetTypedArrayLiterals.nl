@@ -28,7 +28,8 @@ func FromReturn(): object[] {
 }
 
 // `CountValues` is declared once for this namespace, in `ArrayCovariance.nl`: a free-function name has
-// one declaration per namespace (NL306), and this file reaches it with no import.
+// each free-function overload signature is declared once per namespace, and this file reaches it
+// with no import.
 func FirstOfValues(values: object[]): object {
     return values[0]
 }
