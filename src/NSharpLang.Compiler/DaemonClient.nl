@@ -10,6 +10,73 @@ import System.Text.Json
 import System.Threading
 import NSharpLang.Compiler
 
+// The last lines from a daemon child are retained while its redirected streams are drained. Keeping
+// the pipes moving prevents a verbose `dotnet run` startup from blocking before the listening socket
+// exists, and the bounded tail makes startup failures useful without retaining an unbounded log.
+class DaemonStartupOutputCapture {
+    gate: object
+    lines: List<string>
+
+    constructor() {
+        gate = new object()
+        lines = new List<string>()
+    }
+
+    func Append(line: string?) {
+        if line == null {
+            return
+        }
+
+        lock gate {
+            lines.Add(line ?? "")
+            while lines.Count > 20 {
+                lines.RemoveAt(0)
+            }
+        }
+    }
+
+    func GetTail(): string {
+        lock gate {
+            if lines.Count == 0 {
+                return "(no output captured)"
+            }
+
+            result := ""
+            for line in lines {
+                result = result + line + "\n"
+            }
+
+            return result
+        }
+    }
+}
+
+func DaemonStartupOutputTail(output: DaemonStartupOutputCapture, logPath: string): string {
+    captured := output.GetTail()
+    if !File.Exists(logPath) {
+        return captured
+    }
+
+    try {
+        lines := File.ReadAllLines(logPath)
+        if lines.Length == 0 {
+            return captured
+        }
+
+        first := Math.Max(0, lines.Length - 20)
+        tail := ""
+        index := first
+        while index < lines.Length {
+            tail = tail + lines[index] + "\n"
+            index = index + 1
+        }
+
+        return captured + "\n--- daemon log tail ---\n" + tail
+    } catch readFailure: Exception {
+        return captured
+    }
+}
+
 // The monotonic request-id source the client stamps on every envelope. It is an object with an
 // instance field rather than a static counter because `Interlocked.Increment(ref <static field>)`
 // declines at emit on this compiler (logged in census-briefs/CLI2-COMPILER-BLOCKERS.md); the
@@ -180,29 +247,68 @@ class DaemonClient {
         startInfo.Arguments = startPlan.Arguments
         startInfo.UseShellExecute = false
         startInfo.RedirectStandardOutput = false
-        startInfo.RedirectStandardError = false
+        startInfo.RedirectStandardError = true
         startInfo.CreateNoWindow = true
         startInfo.WorkingDirectory = projectRoot
 
         try {
-            process := Process.Start(startInfo)
-            if process == null {
+            socketPath := DaemonConstants.GetSocketPath(projectRoot)
+            outputLogPath := Path.Combine(
+                Path.GetDirectoryName(socketPath) ?? "",
+                DaemonClientKernels.GetStartupOutputLogFileName()
+            )
+            File.WriteAllText(outputLogPath, "")
+            startInfo.Environment[DaemonClientKernels.GetStartupOutputLogEnvironmentVariableName()] = outputLogPath
+
+            process := new Process { StartInfo: startInfo }
+            output := new DaemonStartupOutputCapture()
+            on process.ErrorDataReceived (sender, received) => {
+                output.Append(received.Data)
+                if received.Data != null {
+                    capturedLine := received.Data ?? ""
+                    Console.Error.WriteLine(capturedLine)
+                }
+            }
+
+            if !process.Start() {
+                process.Dispose()
                 return false
             }
 
-            // Wait for socket to appear
-            socketPath := DaemonConstants.GetSocketPath(projectRoot)
-            attempt := 0
-            while attempt < DaemonClientKernels.GetStartWaitAttemptCount() {
-                Thread.Sleep(DaemonClientKernels.GetStartWaitDelayMilliseconds())
-                if File.Exists(socketPath) && IsRunning(projectRoot) {
-                    return true
-                }
+            process.BeginErrorReadLine()
 
-                attempt = attempt + 1
+            // A listening socket that answers ping is the readiness signal. The generous deadline
+            // catches a genuinely stuck startup; process exit is reported on the first poll.
+            wait := DaemonStartupWait.WaitUntilReady(
+                () => File.Exists(socketPath) && IsRunning(projectRoot),
+                () => process.HasExited,
+                () => process.ExitCode,
+                () => DaemonStartupOutputTail(output, outputLogPath),
+                DaemonClientKernels.GetStartTimeoutMilliseconds(),
+                DaemonClientKernels.GetStartWaitPollIntervalMilliseconds()
+            )
+            if wait.Ready {
+                return true
             }
 
-            Console.Error.WriteLine(DaemonClientKernels.GetStartTimeoutMessage())
+            if wait.ProcessExited {
+                process.WaitForExit()
+                outputTail := DaemonStartupOutputTail(output, outputLogPath)
+                Console.Error.WriteLine(DaemonClientKernels.GetStartExitedMessage(process.ExitCode, wait.ElapsedMilliseconds, outputTail))
+                process.Dispose()
+                return false
+            }
+
+            timeoutMessage := DaemonClientKernels.GetStartTimeoutMessage(socketPath, wait.ElapsedMilliseconds, !process.HasExited, wait.OutputTail)
+            Console.Error.WriteLine(timeoutMessage)
+            if !process.HasExited {
+                try {
+                    process.Kill(true)
+                    process.WaitForExit(5000)
+                } catch killFailure: Exception {
+                    Console.Error.WriteLine(DaemonClientKernels.GetStartFailedWithReasonMessage(killFailure.Message))
+                }
+            }
             return false
         } catch ex: Exception {
             Console.Error.WriteLine(DaemonClientKernels.GetStartFailedWithReasonMessage(ex.Message))

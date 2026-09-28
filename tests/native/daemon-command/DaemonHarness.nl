@@ -176,15 +176,14 @@ func WaitUntil(probe: Func<bool>, timeoutMilliseconds: long): bool {
     return probe()
 }
 
-// ─── AN IN-PROCESS DAEMON, ALWAYS STOPPED ─────────────────────────────────────────────────────
-//
-// The deleted C# ran `DaemonServer.Run()` on a background thread wrapped in an `IDisposable` whose
-// `Dispose` sent the shutdown request. N# has no `using`-scoped disposal in this shape, so the same
-// guarantee is spelled as an explicit `Stop()` inside every row's `finally`.
-
-func StartDaemonThread(projectDirectory: string, idleTimeoutMilliseconds: double, idleCheckIntervalMilliseconds: double): Thread {
-    server := new DaemonServer(projectDirectory, TimeSpan.FromMilliseconds(idleTimeoutMilliseconds), TimeSpan.FromMilliseconds(idleCheckIntervalMilliseconds))
-    entryPoint: ThreadStart = () => server.Run()
+func StartDaemonThread(server: DaemonServer, onStartupFailure: Action<string>): Thread {
+    entryPoint: ThreadStart = () => {
+        try {
+            server.Run()
+        } catch ex: Exception {
+            onStartupFailure(ex.ToString())
+        }
+    }
     worker := new Thread(entryPoint)
     worker.IsBackground = true
     worker.Name = "nlc-daemon-test-server"
@@ -192,15 +191,41 @@ func StartDaemonThread(projectDirectory: string, idleTimeoutMilliseconds: double
     return worker
 }
 
+// ─── AN IN-PROCESS DAEMON, ALWAYS STOPPED ─────────────────────────────────────────────────────
+//
+// The deleted C# ran `DaemonServer.Run()` on a background thread wrapped in an `IDisposable` whose
+// `Dispose` sent the shutdown request. N# has no `using`-scoped disposal in this shape, so the same
+// guarantee is spelled as an explicit `Stop()` inside every row's `finally`.
+
 class DaemonTestServer {
     ProjectDirectory: string
+    server: DaemonServer
     worker: Thread
     stopped: bool
+    startupFailure: string?
 
     constructor(projectDirectory: string, idleTimeoutMilliseconds: double, idleCheckIntervalMilliseconds: double) {
         ProjectDirectory = projectDirectory
         stopped = false
-        worker = StartDaemonThread(projectDirectory, idleTimeoutMilliseconds, idleCheckIntervalMilliseconds)
+        startupFailure = null
+        server = new DaemonServer(projectDirectory, TimeSpan.FromMilliseconds(idleTimeoutMilliseconds), TimeSpan.FromMilliseconds(idleCheckIntervalMilliseconds))
+        worker = StartDaemonThread(server, message => RecordStartupFailure(message))
+    }
+
+    func IsAlive(): bool {
+        return worker.IsAlive
+    }
+
+    func RecordStartupFailure(message: string) {
+        startupFailure = message
+    }
+
+    func StartupOutputTail(): string {
+        if startupFailure != null {
+            return (startupFailure ?? "") + "\n" + server.GetDiagnosticTail()
+        }
+
+        return server.GetDiagnosticTail()
     }
 
     func Stop() {
@@ -223,9 +248,21 @@ func DefaultIdleTimeoutMilliseconds(): double {
 
 func StartDaemonServerWithIdleTimeout(projectDirectory: string, idleTimeoutMilliseconds: double, idleCheckIntervalMilliseconds: double): DaemonTestServer {
     server := new DaemonTestServer(projectDirectory, idleTimeoutMilliseconds, idleCheckIntervalMilliseconds)
-    if !WaitUntil(() => DaemonClient.IsRunning(projectDirectory), 10000) {
+    wait := DaemonStartupWait.WaitUntilReady(
+        () => DaemonClient.IsRunning(projectDirectory),
+        () => !server.IsAlive(),
+        () => -1,
+        () => server.StartupOutputTail(),
+        120000,
+        25
+    )
+    if !wait.Ready {
         server.Stop()
-        throw new InvalidOperationException("Daemon test server did not become responsive.")
+        if wait.ProcessExited {
+            throw new InvalidOperationException("Daemon test server stopped before accepting daemon/ping after " + wait.ElapsedMilliseconds.ToString() + " ms (server thread alive: false). Last daemon output:\n" + wait.OutputTail)
+        }
+
+        throw new InvalidOperationException("Daemon test server did not accept daemon/ping at " + DaemonConstants.GetSocketPath(projectDirectory) + " after " + wait.ElapsedMilliseconds.ToString() + " ms (server thread alive: " + server.IsAlive().ToString().ToLower() + "). Last daemon output:\n" + wait.OutputTail)
     }
 
     return server

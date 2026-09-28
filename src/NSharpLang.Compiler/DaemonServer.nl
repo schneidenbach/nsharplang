@@ -86,6 +86,8 @@ class DaemonServer {
     running: bool
     idleTimeout: TimeSpan
     idleCheckInterval: TimeSpan
+    diagnosticGate: object
+    diagnosticLines: List<string>
 
     constructor(root: string): this(root, TimeSpan.FromMinutes(DaemonConstants.IdleTimeoutMinutes), TimeSpan.FromMinutes(1)) {
     }
@@ -102,6 +104,8 @@ class DaemonServer {
         running = false
         idleTimeout = timeout
         idleCheckInterval = checkInterval
+        diagnosticGate = new object()
+        diagnosticLines = new List<string>()
     }
 
     static func CreateDaemonJsonOptions(): JsonSerializerOptions {
@@ -111,10 +115,37 @@ class DaemonServer {
         return options
     }
 
+    func WriteDiagnostic(message: string) {
+        lock diagnosticGate {
+            diagnosticLines.Add(message)
+            while diagnosticLines.Count > 20 {
+                diagnosticLines.RemoveAt(0)
+            }
+        }
+
+        Console.Error.WriteLine(message)
+    }
+
+    func GetDiagnosticTail(): string {
+        lock diagnosticGate {
+            if diagnosticLines.Count == 0 {
+                return "(no daemon output captured)"
+            }
+
+            result := ""
+            for line in diagnosticLines {
+                result = result + line + "\n"
+            }
+
+            return result
+        }
+    }
+
     // Start the daemon server. Blocks until shutdown.
     func Run() {
         pidPath := DaemonProtocolKernels.GetPidFilePath(socketPath)
         ownsSocket := false
+        diagnosticWriter: StreamWriter? = null
 
         if File.Exists(socketPath) {
             if DaemonClient.IsRunning(projectRoot) {
@@ -139,11 +170,30 @@ class DaemonServer {
             // Write PID file only after bind/listen succeeds.
             File.WriteAllText(pidPath, Environment.ProcessId.ToString())
 
-            Console.Error.WriteLine(DaemonServerKernels.GetListeningMessage(socketPath, Environment.ProcessId))
-            Console.Error.WriteLine(DaemonServerKernels.GetProjectMessage(projectRoot))
-            Console.Error.WriteLine(DaemonServerKernels.GetIdleTimeoutMessage(
+            WriteDiagnostic(DaemonServerKernels.GetListeningMessage(socketPath, Environment.ProcessId))
+            WriteDiagnostic(DaemonServerKernels.GetProjectMessage(projectRoot))
+            WriteDiagnostic(DaemonServerKernels.GetIdleTimeoutMessage(
                 DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(idleTimeout.TotalMilliseconds))
             ))
+
+            // `nlc daemon start` drains stderr while waiting for this server's ping response. Move
+            // later server output to a project-local log before accepting requests; otherwise the
+            // detached daemon could outlive its reader and fill the startup pipe. The launching
+            // client supplies this path, while an explicitly-run `daemon run` keeps stderr attached.
+            startupLogPath := Environment.GetEnvironmentVariable(DaemonClientKernels.GetStartupOutputLogEnvironmentVariableName())
+            if startupLogPath != null && startupLogPath != "" {
+                writer := new StreamWriter(startupLogPath ?? "", true)
+                writer.AutoFlush = true
+                previousError := Console.Error
+                Console.SetError(TextWriter.Synchronized(writer))
+                previousError.Dispose()
+                diagnosticWriter = writer
+            }
+
+            // Startup time is not idle time. Set the initial activity after the listener and its
+            // watchers are ready so a small configured/test timeout cannot expire during a loaded
+            // machine's startup window.
+            lastActivity = DateTime.UtcNow
 
             // Idle timeout thread. The body is bound to a `ThreadStart` local first: a lambda handed
             // straight to `new Thread(...)` declines at emit (logged in
@@ -153,7 +203,7 @@ class DaemonServer {
                     Thread.Sleep(idleCheckInterval)
                     idle := DateTime.UtcNow - lastActivity
                     if idle >= idleTimeout {
-                        Console.Error.WriteLine(DaemonServerKernels.GetIdleTimeoutShutdownMessage(
+                        WriteDiagnostic(DaemonServerKernels.GetIdleTimeoutShutdownMessage(
                             DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(idleTimeout.TotalMilliseconds))
                         ))
                         Volatile.Write(ref running, false)
@@ -192,7 +242,7 @@ class DaemonServer {
                         break
                     }
 
-                    Console.Error.WriteLine(DaemonServerKernels.GetServerErrorMessage(ex.Message))
+                    WriteDiagnostic(DaemonServerKernels.GetServerErrorMessage(ex.Message))
                 }
             }
         } finally {
@@ -202,6 +252,8 @@ class DaemonServer {
             } else {
                 fileWatcher?.Dispose()
             }
+
+            diagnosticWriter?.Dispose()
         }
     }
 
@@ -272,7 +324,7 @@ class DaemonServer {
             // Send response
             SendResponse(client, response)
         } catch ex: Exception {
-            Console.Error.WriteLine(DaemonServerKernels.GetClientErrorMessage(ex.Message))
+            WriteDiagnostic(DaemonServerKernels.GetClientErrorMessage(ex.Message))
         }
     }
 
@@ -585,7 +637,7 @@ class DaemonServer {
             return
         }
 
-        Console.Error.WriteLine(DaemonServerKernels.GetLoadingProjectMessage())
+        WriteDiagnostic(DaemonServerKernels.GetLoadingProjectMessage())
         sw := Stopwatch.StartNew()
 
         try {
@@ -595,9 +647,9 @@ class DaemonServer {
             sw.Stop()
             elapsedMilliseconds := sw.ElapsedMilliseconds
             fileCount := loaded.CompilationUnits.Count
-            Console.Error.WriteLine(DaemonServerKernels.GetProjectLoadedMessage(elapsedMilliseconds, fileCount))
+            WriteDiagnostic(DaemonServerKernels.GetProjectLoadedMessage(elapsedMilliseconds, fileCount))
         } catch ex: Exception {
-            Console.Error.WriteLine(DaemonServerKernels.GetProjectLoadFailedTraceMessage(ex.Message))
+            WriteDiagnostic(DaemonServerKernels.GetProjectLoadFailedTraceMessage(ex.Message))
             snapshot = null
         }
     }
@@ -625,9 +677,9 @@ class DaemonServer {
 
             watcher.EnableRaisingEvents = true
             fileWatcher = watcher
-            Console.Error.WriteLine(DaemonServerKernels.GetFileWatcherStartedMessage())
+            WriteDiagnostic(DaemonServerKernels.GetFileWatcherStartedMessage())
         } catch ex: Exception {
-            Console.Error.WriteLine(DaemonServerKernels.GetFileWatcherFailedMessage(ex.Message))
+            WriteDiagnostic(DaemonServerKernels.GetFileWatcherFailedMessage(ex.Message))
         }
     }
 
@@ -637,7 +689,7 @@ class DaemonServer {
         }
 
         fileName := DaemonServerKernels.GetChangedFileName(fullPath)
-        Console.Error.WriteLine(DaemonServerKernels.GetFileChangedMessage(fileName))
+        WriteDiagnostic(DaemonServerKernels.GetFileChangedMessage(fileName))
         Volatile.Write(ref cacheInvalid, true)
     }
 
@@ -657,7 +709,7 @@ class DaemonServer {
             // best-effort: the pid file may already be gone
         }
 
-        Console.Error.WriteLine(DaemonServerKernels.GetShutdownCompleteMessage())
+        WriteDiagnostic(DaemonServerKernels.GetShutdownCompleteMessage())
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

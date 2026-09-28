@@ -20,7 +20,18 @@ import System.Text.Json
 test "the daemon client's failure sentences are exactly these" {
     assert DaemonClientKernels.GetConnectionErrorMessage("socket refused") == "[daemon] Connection error: socket refused"
     assert DaemonClientKernels.GetExecutablePathMissingMessage() == "Cannot determine executable path for daemon"
-    assert DaemonClientKernels.GetStartTimeoutMessage() == "Daemon started but not responding within 5 seconds"
+    startTimeoutMilliseconds := DaemonClientKernels.GetStartTimeoutMilliseconds()
+    pollIntervalMilliseconds := DaemonClientKernels.GetStartWaitPollIntervalMilliseconds()
+    outputLogEnvironmentVariable := DaemonClientKernels.GetStartupOutputLogEnvironmentVariableName()
+    outputLogFileName := DaemonClientKernels.GetStartupOutputLogFileName()
+    timeoutMessage := DaemonClientKernels.GetStartTimeoutMessage("/tmp/daemon.sock", 120000, true, "last line")
+    exitedMessage := DaemonClientKernels.GetStartExitedMessage(23, 120, "bind failed")
+    assert startTimeoutMilliseconds == 120000
+    assert pollIntervalMilliseconds == 100
+    assert timeoutMessage == "[daemon] Startup timed out after 120000 ms waiting for daemon/ping to be accepted at /tmp/daemon.sock. Child process alive: true.\nLast daemon output:\nlast line"
+    assert exitedMessage == "[daemon] Startup failed after 120 ms: child process exited with code 23 before daemon/ping was accepted. Child process alive: false.\nLast daemon output:\nbind failed"
+    assert outputLogEnvironmentVariable == "NLC_DAEMON_OUTPUT_LOG"
+    assert outputLogFileName == "daemon.log"
     assert DaemonClientKernels.GetStartFailedWithReasonMessage("denied") == "Failed to start daemon: denied"
 }
 

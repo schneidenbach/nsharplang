@@ -122,6 +122,45 @@ test "every daemon timeout constant is a positive duration" {
     assert DaemonConstants.PingTimeoutMs > 0
 }
 
+test "daemon startup reports an early process exit immediately with its exit code and output tail" {
+    fakeExitCode := 37
+    wait := DaemonStartupWait.WaitUntilReady(
+        () => false,
+        () => true,
+        () => fakeExitCode,
+        () => "daemon failed while binding its socket",
+        DaemonClientKernels.GetStartTimeoutMilliseconds(),
+        DaemonClientKernels.GetStartWaitPollIntervalMilliseconds()
+    )
+
+    assert !wait.Ready
+    assert wait.ProcessExited
+    assert wait.ExitCode == 37
+    assert wait.ElapsedMilliseconds < 1000
+
+    message := DaemonClientKernels.GetStartExitedMessage(wait.ExitCode, wait.ElapsedMilliseconds, wait.OutputTail)
+    assert message.Contains("exited with code 37")
+    assert message.Contains("daemon/ping")
+    assert message.Contains("alive: false")
+    assert message.Contains("daemon failed while binding its socket")
+}
+
+test "daemon startup accepts a slow healthy readiness signal before its generous deadline" {
+    readyStopwatch := Stopwatch.StartNew()
+    wait := DaemonStartupWait.WaitUntilReady(
+        () => readyStopwatch.ElapsedMilliseconds >= 300,
+        () => false,
+        () => -1,
+        () => "[daemon] Listening on /tmp/daemon.sock",
+        DaemonClientKernels.GetStartTimeoutMilliseconds(),
+        DaemonClientKernels.GetStartWaitPollIntervalMilliseconds()
+    )
+
+    assert wait.Ready
+    assert !wait.ProcessExited
+    assert wait.ElapsedMilliseconds >= 250
+}
+
 // ═══ THE CLIENT WITH NO SOCKET ════════════════════════════════════════════════════════════════
 
 test "the client reports no daemon running when the project has no socket file" {
