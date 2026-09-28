@@ -340,7 +340,8 @@ upward-reach ceiling fell 160 -> 141. What the carve is:
   pass. Carving turned one call into a referenced-assembly call that the columnar emitter -- the
   seed's and the tip's -- declines: a static call taking a `cond ? null : value` argument
   (`emit.call.static-member-unmodeled`, `ImportEditPlanner.IsNamespaceInScope`; a source callee takes
-  it). The argument is bound to a local with a `// COMPILER:` note until the emitter models it.
+  it). The argument was bound to a local with a `// COMPILER:` note until the emitter modelled it
+  (fixed 2026-09-27 on `census/chip-fixes`, and collapsed once the seed carried the fix).
 Measured edit -> test (`./scripts/dev.sh --estate UnifiedDiffTests`, a one-line body edit of
 `UnifiedDiff.nl` and its revert, after a warm run, with another session's gate on the box):
 **185 / 191 s** on the pre-carve tree and the committed seed (`b75070d46`) -- Core's own and
