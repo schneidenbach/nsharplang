@@ -2626,8 +2626,11 @@ sees whatever the last one left. The four shapes that lower the nullable *themse
 legal on a narrowed name.
 
 **A narrowed property PATH is narrowed the same way.** `h.Slot` is a nullable the flow can prove,
-so `h.Slot.Value` past a guard is the unwrap and `h.Slot.GetValueOrDefault()` is the nullable's own
-member, exactly as they are for a narrowed local. Writing any prefix of the path ends it.
+so past a guard the bare `h.Slot` is READ as its `int` — `h.Slot + 1`, `return h.Slot` and
+`Twice(h.Slot)` all run on the unwrapped value — while `h.Slot.Value` is the unwrap and
+`h.Slot.GetValueOrDefault()` is the nullable's own member, exactly as they are for a narrowed local.
+`this.Slot`, `h.Next.Slot` and a struct-typed `h.Where` narrow the same way. Writing the path or any
+prefix of it (`h = other`, or passing `h` by `ref`/`out`) ends it.
 
 ```n#
 class Holder {
@@ -2640,6 +2643,14 @@ func slotOrMinusOne(h: Holder): int {
     }
 
     return h.Slot.Value + 1             // the unwrap, then the narrowed read
+}
+
+func slotPlusOne(h: Holder): int {
+    if h.Slot == null {
+        return 0
+    }
+
+    return h.Slot + 1                   // the bare path IS the narrowed `int`
 }
 ```
 

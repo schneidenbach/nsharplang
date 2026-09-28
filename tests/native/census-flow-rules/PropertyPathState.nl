@@ -247,7 +247,9 @@ func MessagesWithoutResetting(response: DaemonResponse, turns: int): string {
 //
 // `slot.Value` on a narrowed `h.Slot` therefore reported NL303 "Member 'Value' not found on type
 // 'int'", and `h.Slot.GetValueOrDefault()` reported it for a member `int` never declares at all,
-// for the same guard that made `h.Slot + 1` legal one line earlier.
+// for the same guard that made `h.Slot + 1` legal one line earlier. (The bare narrowed read itself —
+// `h.Slot + 1`, `return h.Slot`, the path as an argument — has its running contracts in
+// `NarrowedPathEmit.nl`.)
 class Sample {
     Slot: int?
     Moment: DateTime?

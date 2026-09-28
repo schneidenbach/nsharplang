@@ -2532,9 +2532,14 @@ func main() {
 
 A narrowed `int?` is not merely *type-checked* as an `int` — it is **read** as one. The compiler
 emits `Nullable<T>.Value` at the narrowed read, so `value + 1`, `return value` on an `int` function,
-and `found.Line` on a narrowed `(Uri: string, Line: int)?` all run on the unwrapped value. Assigning
-to the name ends the narrowing, and so does a loop body that writes it, because the next iteration
-sees whatever the last one left.
+and `found.Line` on a narrowed `(Uri: string, Line: int)?` all run on the unwrapped value. A
+property or field PATH narrows the same way — past `if h.Slot == null { return 0 }`, `h.Slot + 1`,
+`return h.Slot` and `Twice(h.Slot)` all read an `int`, and `this.Slot`, `h.Next.Slot` and a
+`h.Slot.HasValue` guard follow the same rule. Assigning to the name or path ends the narrowing, and
+so does writing any prefix of the path (`h = other`), passing a prefix by `ref`/`out`, or a loop body
+that writes it, because the next iteration sees whatever the last one left. A method call on the
+receiver does not: `h.Refresh()` is assumed to leave `h.Slot` alone, as it is in C#, and if it did
+clear it the narrowed read throws `InvalidOperationException` rather than reading a default.
 
 The four shapes that lower the nullable *themselves* — `value == null`, `value ?? 0`,
 `value.HasValue` and `value.Value` — keep the `Nullable<T>` and stay legal on a narrowed name, which

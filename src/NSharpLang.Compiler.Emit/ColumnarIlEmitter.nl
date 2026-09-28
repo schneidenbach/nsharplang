@@ -54,13 +54,15 @@ sealed class ColumnarIlEmitter {
     // value in a local is not a place names can be lost. `_labeledTypeByVariable` answers what a
     // binding IS; this answers where it CAME FROM, and only one of the two is ever set for a name.
     private readonly _labeledContextByVariable: Dictionary<string, string>
-    // THE NAMES FLOW HAS PROVED PRESENT AT THIS POINT IN THE BODY — the emit-side half of the
-    // analyzer's narrowing, and the only thing that lets a `Nullable<T>` binding be READ as its `T`.
-    // The analyzer rewrites the SYMBOL's type when a guard clause proves a name non-null, so from
-    // there on `value + 1`, `return value` and `found.Line` are type-checked against `T`; without
-    // the same fact here the emitter saw the DECLARED `Nullable<T>` and refused all three. The set is
-    // maintained by `ColumnarFlowNarrowingFacts`, which reads the same condition shapes the analyzer
-    // reads, and it is saved and restored around every block and branch exactly as a scope would be.
+    // THE PATHS FLOW HAS PROVED PRESENT AT THIS POINT IN THE BODY — the emit-side half of the
+    // analyzer's narrowing, and the only thing that lets a `Nullable<T>` read be READ as its `T`.
+    // The analyzer rewrites the SYMBOL's type when a guard clause proves a name non-null, and
+    // collapses a member path's flow type on the null fact it files for `h.Slot`, so from there on
+    // `value + 1`, `return h.Slot` and `found.Line` are type-checked against `T`; without the same
+    // fact here the emitter saw the DECLARED `Nullable<T>` and refused all three. Each entry is a
+    // dotted stable path (`value`, `h.Slot`, `this.Slot`). The set is maintained by
+    // `ColumnarFlowNarrowingFacts`, which reads the same condition shapes the analyzer reads, and it
+    // is saved and restored around every block and branch exactly as a scope would be.
     private _narrowedNonNull: HashSet<string>
     // THE ONE NODE AN UNWRAP MUST NOT HAPPEN AT. Four expression shapes WANT the `Nullable<T>` and
     // lower it themselves — `x == null`, `x ?? y`, `must x`, and `x.HasValue` / `x.Value` — and each
@@ -12503,32 +12505,61 @@ sealed class ColumnarIlEmitter {
     // name holds now, so a write anywhere in a region whose flow is not straight-line — a loop body,
     // which runs an unknown number of times and jumps backwards, or a branch the reader is past —
     // ends it. Reading nothing when the set is empty keeps the walk off the common path entirely.
-    // A MEMBER READ WHOSE RECEIVER IS A BARE NAME FLOW HAS PROVED PRESENT, AND WHOSE DECLARATION GAVE
-    // THAT NAME A `Nullable<T>`. The receiver must be unwrapped before the member is looked up at all,
+    // THE PATH A READ DENOTES, WHEN FLOW HAS PROVED THAT PATH PRESENT. Only the node that IS the read
+    // qualifies — a bare name or a member access, spelled the way `ColumnarFlowNarrowingFacts` spells
+    // the facts it proves — so a parenthesised read reaches its path through the door one level down,
+    // and a `?.` hop, a call or an index is never a path at all.
+    private func NarrowedPathAt(idx: int): string? {
+        if (_narrowedNonNull.Count == 0 || idx < 0 || idx >= _nodes.Kinds.Length) {
+            return null
+        }
+        kind := _nodes.Kind(idx)
+        isName := kind == ColumnarExpressionNodeKind.IdentifierExpression && _nodes.ChildCount(idx) == 0
+        isMember := kind == ColumnarExpressionNodeKind.MemberAccessExpression && _nodes.ChildCount(idx) == 1
+        if (!isName && !isMember) {
+            return null
+        }
+        path := ColumnarFlowNarrowingFacts.StablePath(_nodes, _source, idx)
+        if (path == null || !_narrowedNonNull.Contains(path)) {
+            return null
+        }
+        return path
+    }
+
+    // A PROVED-PRESENT READ WHOSE DECLARATION GAVE IT A `Nullable<T>` — asked BEFORE anything is
+    // emitted, by the doors that must hand the read to this emitter's unwrap. A bare name answers
+    // from its binding; a member path answers from the preflight type walk, which reads the member's
+    // declared type exactly as the ordinary read would emit it.
+    private func IsNarrowedNullableRead(node: int): bool {
+        node = UnwrapParenthesizedNode(node)
+        path := NarrowedPathAt(node)
+        if (path == null) {
+            return false
+        }
+        let declaredType: System.Type? = null
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression) {
+            return TryGetNamedValueBindingType(path, out declaredType) && ColumnarTypeOfPlanner.IsSupportedNullable(declaredType)
+        }
+        return TryGetPreflightExpressionTypeRaw(node, out declaredType) && ColumnarTypeOfPlanner.IsSupportedNullable(declaredType)
+    }
+
+    // A MEMBER READ WHOSE RECEIVER IS A PATH FLOW HAS PROVED PRESENT, AND WHOSE DECLARATION GAVE THAT
+    // PATH A `Nullable<T>`. The receiver must be unwrapped before the member is looked up at all,
     // which only this emitter's own arm does; the recursive door would resolve the member against the
     // declared `Nullable<T>` and find nothing.
     private func IsNarrowedNullableMemberRead(idx: int): bool {
         if (_narrowedNonNull.Count == 0 || idx < 0 || idx >= _nodes.Kinds.Length || _nodes.Kind(idx) != ColumnarExpressionNodeKind.MemberAccessExpression || _nodes.ChildCount(idx) != 1) {
             return false
         }
-        receiver := UnwrapParenthesizedNode(Child(idx, 0))
-        if (receiver < 0 || _nodes.Kind(receiver) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ChildCount(receiver) != 0) {
-            return false
-        }
         member := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
         if (member == "HasValue" || member == "Value") {
             return false
         }
-        name := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
-        if (!_narrowedNonNull.Contains(name)) {
-            return false
-        }
-        let bindingType: System.Type? = null
-        return TryGetNamedValueBindingType(name, out bindingType) && ColumnarTypeOfPlanner.IsSupportedNullable(bindingType)
+        return IsNarrowedNullableRead(Child(idx, 0))
     }
 
-    // A CALL ONE OF WHOSE ARGUMENTS IS A BARE NAME FLOW HAS PROVED PRESENT, AND WHOSE DECLARATION GAVE
-    // THAT NAME A `Nullable<T>`. The sibling predicate above keeps the recursive door away from a
+    // A CALL ONE OF WHOSE ARGUMENTS IS A PATH FLOW HAS PROVED PRESENT, AND WHOSE DECLARATION GAVE
+    // THAT PATH A `Nullable<T>`. The sibling predicate above keeps the recursive door away from a
     // narrowed member READ for one reason — the door resolves bindings from the raw maps, where the
     // name still carries its declared `Nullable<T>` — and an ARGUMENT is the same fact in the other
     // direction: the door would type the argument as `Nullable<T>` and find no candidate, while THIS
@@ -12547,16 +12578,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         for a := 1; a < _nodes.ChildCount(idx); a++ {
-            argument := UnwrapParenthesizedNode(Child(idx, a))
-            if (argument < 0 || _nodes.Kind(argument) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ChildCount(argument) != 0) {
-                continue
-            }
-            name := ColumnarNodeTextFacts.Text(_nodes, _source, argument)
-            if (!_narrowedNonNull.Contains(name)) {
-                continue
-            }
-            let argumentBindingType: System.Type? = null
-            if (TryGetNamedValueBindingType(name, out argumentBindingType) && ColumnarTypeOfPlanner.IsSupportedNullable(argumentBindingType)) {
+            if (IsNarrowedNullableRead(Child(idx, a))) {
                 return true
             }
         }
@@ -12782,8 +12804,21 @@ sealed class ColumnarIlEmitter {
         }
         assigned := new HashSet<string>(StringComparer.Ordinal)
         ColumnarFlowNarrowingFacts.CollectAssignedNames(_nodes, _source, node, assigned)
-        for name in assigned {
-            _narrowedNonNull.Remove(name)
+        if (assigned.Count == 0) {
+            return
+        }
+        // A WRITE ENDS THE PATH IT NAMES AND EVERY PATH UNDER IT: rewriting `h` makes `h.Slot` stale.
+        stale := new List<string>()
+        for narrowed in _narrowedNonNull {
+            for written in assigned {
+                if (ColumnarFlowNarrowingFacts.IsInvalidatedBy(narrowed, written)) {
+                    stale.Add(narrowed)
+                    break
+                }
+            }
+        }
+        for path in stale {
+            _narrowedNonNull.Remove(path)
         }
     }
 
@@ -12956,7 +12991,7 @@ sealed class ColumnarIlEmitter {
     // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
     // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
     // would diverge from N#'s type rules.
-    // THE ONE EXPRESSION DOOR, AND THE ONE PLACE A NARROWED NAME LOSES ITS `Nullable<T>` SHELL.
+    // THE ONE EXPRESSION DOOR, AND THE ONE PLACE A NARROWED PATH LOSES ITS `Nullable<T>` SHELL.
     // Everything below emits the read exactly as it always did — whatever storage tier the name lives
     // in, and whatever else the expression is — and the unwrap is appended AFTER it, over the value
     // the ordinary path produced. That is why it needs no second copy of the binding resolution and
@@ -13010,17 +13045,12 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // WHEN A READ IS OF A NAME FLOW HAS PROVED PRESENT, AND THE ELEMENT TYPE IT BECOMES. Only a BARE
-    // name qualifies: a member path's storage is not this body's to re-type, and a parenthesised read
-    // reaches its identifier through this same door one level down.
+    // WHEN A READ IS OF A PATH FLOW HAS PROVED PRESENT, AND THE ELEMENT TYPE IT BECOMES. A bare name
+    // and a member path (`h.Slot`, `this.Slot`, `a.b.Slot`) qualify alike: the unwrap parks the value
+    // the ordinary read produced and calls `Value` on the copy, so it never needs to address the
+    // path's storage. A parenthesised read reaches its path through this same door one level down.
     private func NarrowedNullableElement(idx: int, resolvedType: Type): Type? {
-        if (_narrowedNonNull.Count == 0 || idx < 0 || idx == _preserveNullableNode || idx >= _nodes.Kinds.Length) {
-            return null
-        }
-        if (_nodes.Kind(idx) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ChildCount(idx) != 0 || !ColumnarTypeOfPlanner.IsSupportedNullable(resolvedType)) {
-            return null
-        }
-        if (!_narrowedNonNull.Contains(ColumnarNodeTextFacts.Text(_nodes, _source, idx))) {
+        if (idx == _preserveNullableNode || !ColumnarTypeOfPlanner.IsSupportedNullable(resolvedType) || NarrowedPathAt(idx) == null) {
             return null
         }
         return resolvedType.GetGenericArguments()[0]
@@ -20714,7 +20744,7 @@ sealed class ColumnarIlEmitter {
     }
 
     // THE TYPE AN OPERAND ACTUALLY ARRIVES WITH, WHICH IS NOT ALWAYS THE ONE IT WAS DECLARED WITH. A
-    // bare name FLOW has proved present is read as its ELEMENT type -- that is the narrowed read
+    // path FLOW has proved present is read as its ELEMENT type -- that is the narrowed read
     // `EmitExpression` performs -- so an operand inside `if x != null { ... }` is an `int` and must
     // not be lifted a second time. Asking the question the emitter's own read asks is what keeps the
     // two answers identical.

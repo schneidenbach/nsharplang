@@ -32,11 +32,19 @@ class ColumnarFlowNarrowingSplit {
 // refuses the operator, the return or the member read, which is what it did for every shape before
 // this owner existed.
 //
-// IT IS NARROWER THAN THE ANALYZER'S, DELIBERATELY, AND IN ONE DIRECTION. The analyzer records a
-// null STATE for member paths (`doc.Text`) and a narrowed TYPE for `is` patterns; neither can be
-// acted on at emit, because the only thing an emitted unwrap can address is a storage location the
-// body owns — a local, a parameter, a lifted local. So only the facts about a SIMPLE NAME are
-// collected, and every other fact the analyzer holds is silently not repeated here.
+// THE FACTS ARE ABOUT STABLE PATHS, EXACTLY AS THE ANALYZER'S ARE. A path is what
+// `AnalyzerDiagnosticSpanFacts.TryGetStableNullPath` answers — a bare name, `this`, and dotted member
+// reads over those — spelled the same dotted way, so `h.Slot != null` proves `"h.Slot"` here for the
+// same reason it files a null fact for `"h.Slot"` there. The unwrap the emitter writes does not need
+// to ADDRESS the path's storage: it parks the value the ordinary read produced and calls `Value` on
+// that, so a member path is as unwrappable as a local.
+//
+// IT IS NARROWER THAN THE ANALYZER'S, DELIBERATELY, AND IN ONE DIRECTION. The analyzer also records
+// a narrowed TYPE for `is` patterns and the postconditions a call's signature states; those are not
+// repeated here, and the price is a decline where the analyzer would have accepted. The OTHER
+// direction is never allowed: a path this reader proves and the analyzer does not would have the
+// emitter unwrap a value the program may legitimately read as null, and `Value` would throw. That is
+// why every write shape below matches the analyzer's kill set, `ref`/`out` arguments included.
 //
 // THE NEGATION RULES ARE THE ANALYZER'S, STATED ONCE. A parenthesis is transparent; `!c` is `c` with
 // the two lists swapped; `a && b` proves both sides in the TRUE branch and nothing in the false one
@@ -77,13 +85,14 @@ class ColumnarFlowNarrowingFacts {
         }
 
         // 8 MemberAccess — `x.HasValue` proves `x` present in the true branch, exactly as `x != null`
-        // does (the analyzer's `TryExtractHasValueNarrowing`). What its false branch proves is that `x`
-        // is ABSENT, which is not a name this reader collects, so nothing is filed there.
+        // does (the analyzer's `TryExtractHasValueNarrowing`), and `h.Slot.HasValue` proves the path
+        // `h.Slot` by the same rule. What its false branch proves is that the path is ABSENT, which is
+        // not a fact this reader collects, so nothing is filed there.
         if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             if ColumnarNodeTextFacts.Text(nodes, source, condition) == "HasValue" && nodes.ChildCount(condition) == 1 {
-                receiverName := SimpleName(nodes, source, nodes.Child(condition, 0))
-                if receiverName != null {
-                    thenNames.Add(receiverName)
+                receiverPath := StablePath(nodes, source, nodes.Child(condition, 0))
+                if receiverPath != null {
+                    thenNames.Add(receiverPath)
                 }
             }
 
@@ -134,26 +143,113 @@ class ColumnarFlowNarrowingFacts {
     // One side of an equality against `null`. The OTHER side must be the literal (5), which is what
     // makes this callable twice with the operands swapped rather than needing to know which side the
     // reader wrote the literal on.
+    //
+    // A `?.` CHAIN TESTED ITS OWN RECEIVERS, and the comparison reports what those tests found — the
+    // analyzer's `TryExtractNullNarrowing`, arm for arm. `h?.Slot == null` is true when `h` is null OR
+    // `h.Slot` is, a disjunction, so only the side that rules both out proves anything, and it proves
+    // every tested prefix as well as the path itself.
     static func CollectNullComparison(nodes: ColumnarNodeTable, source: string, value: int, other: int, notEqual: bool, thenNames: List<string>, elseNames: List<string>) {
         if other < 0 || other >= nodes.Kinds.Length || nodes.Kind(other) != ColumnarExpressionNodeKind.NullLiteralExpression {
             return
         }
 
-        name := SimpleName(nodes, source, value)
-        if name == null {
+        testedPrefixes := new List<string>()
+        path := ChainPath(nodes, source, value, testedPrefixes)
+        if path == null {
             return
         }
 
+        proved := elseNames
         if notEqual {
-            thenNames.Add(name)
-            return
+            proved = thenNames
         }
 
-        elseNames.Add(name)
+        proved.AddRange(testedPrefixes)
+        proved.Add(path)
+    }
+
+    // THE STABLE PATH A NODE DENOTES, or null — the node-table twin of the analyzer's
+    // `TryGetStableNullPath`. A bare name, `this`, and a plain member read over a stable receiver, with
+    // parentheses and `must` transparent because each denotes the storage its operand denotes. A `?.`
+    // hop, a call and an index are not stable: re-reading them could run something or denote
+    // something else, so no fact about them survives to the next read.
+    static func StablePath(nodes: ColumnarNodeTable, source: string, node: int): string? {
+        if node < 0 || node >= nodes.Kinds.Length {
+            return null
+        }
+
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression && nodes.ChildCount(node) == 1 {
+            receiverPath := StablePath(nodes, source, nodes.Child(node, 0))
+            member := ColumnarNodeTextFacts.Text(nodes, source, node)
+            if receiverPath == null || member.Length == 0 {
+                return null
+            }
+
+            return receiverPath + "." + member
+        }
+
+        if kind == ColumnarExpressionNodeKind.ThisExpression && nodes.ChildCount(node) == 0 {
+            return "this"
+        }
+
+        if (kind == ColumnarExpressionNodeKind.ParenthesizedExpression || kind == ColumnarExpressionNodeKind.MustExpression) && nodes.ChildCount(node) == 1 {
+            return StablePath(nodes, source, nodes.Child(node, 0))
+        }
+
+        return SimpleName(nodes, source, node)
+    }
+
+    // THE PATH A `?.` CHAIN DENOTES, AND THE RECEIVERS IT TESTED ON THE WAY — the twin of the
+    // analyzer's `TryGetNullConditionalChainPath`. `a?.B` denotes the storage `a.B` does; the null
+    // guard (75) over its receiver is the TEST of `a`, recorded as a tested prefix. A chain with no
+    // conditional hop yields exactly `StablePath` and no prefixes.
+    static func ChainPath(nodes: ColumnarNodeTable, source: string, node: int, testedPrefixes: List<string>): string? {
+        if node < 0 || node >= nodes.Kinds.Length {
+            return null
+        }
+
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(node) == 1 {
+            return ChainPath(nodes, source, nodes.Child(node, 0), testedPrefixes)
+        }
+
+        if kind == ColumnarExpressionNodeKind.MustExpression && nodes.ChildCount(node) == 1 {
+            return ChainPath(nodes, source, nodes.Child(node, 0), testedPrefixes)
+        }
+
+        if kind != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(node) != 1 {
+            return StablePath(nodes, source, node)
+        }
+
+        receiver := nodes.Child(node, 0)
+        conditional := receiver >= 0 && receiver < nodes.Kinds.Length && nodes.Kind(receiver) == ColumnarExpressionNodeKind.NullGuardExpression && nodes.ChildCount(receiver) == 1
+        if conditional {
+            receiver = nodes.Child(receiver, 0)
+        }
+
+        receiverPath := ChainPath(nodes, source, receiver, testedPrefixes)
+        member := ColumnarNodeTextFacts.Text(nodes, source, node)
+        if receiverPath == null || member.Length == 0 {
+            return null
+        }
+
+        if conditional {
+            testedPrefixes.Add(receiverPath)
+        }
+
+        return receiverPath + "." + member
+    }
+
+    // WHETHER A NARROWED PATH IS `written` OR LIES UNDER IT. Writing `h` rewrites everything reached
+    // through `h`, so `h.Slot` stops being known — the analyzer's `InvalidateNullFactsForAssignment`
+    // prefix rule, stated over the same dotted spelling.
+    static func IsInvalidatedBy(path: string, written: string): bool {
+        return path == written || (path.Length > written.Length && path.StartsWith(written, System.StringComparison.Ordinal) && path[written.Length] == '.')
     }
 
     // A BARE NAME, THROUGH THE PARENTHESES THAT ARE TRANSPARENTLY IT. Only an identifier (6) with no
-    // children can name a storage location an unwrap may address.
+    // children names one binding; a declaration binds exactly such a name.
     static func SimpleName(nodes: ColumnarNodeTable, source: string, node: int): string? {
         if node < 0 || node >= nodes.Kinds.Length {
             return null
@@ -183,17 +279,17 @@ class ColumnarFlowNarrowingFacts {
         return ColumnarMethodBodyPlanner.IsConstantFalseConditionNode(nodes, source, node)
     }
 
-    // EVERY NAME A STATEMENT SUBTREE WRITES. A narrowing is a statement about the value a name holds
+    // EVERY PATH A STATEMENT SUBTREE WRITES. A narrowing is a statement about the value a path holds
     // NOW, so any write inside a region whose flow this reader cannot follow — a loop body, which runs
     // an unknown number of times and jumps backwards — ends it. Collecting the writes is what lets a
-    // narrowing survive a loop that does not touch the name, which is the common case.
+    // narrowing survive a loop that does not touch the path, which is the common case. A caller ends
+    // every narrowing `IsInvalidatedBy` a collected write, so a write to `h` ends `h.Slot` too.
     //
-    // THE WRITE SHAPES ARE THE ONES THE EMITTER ITSELF LOWERS: an assignment expression (14) and a
-    // postfix/prefix step (44/11) whose target is a bare name, a `ref`/`out` argument (54) naming one,
-    // plus the two declaration statements (24, 40), a deconstruction's names (30) and a `for x in xs`
-    // loop variable (29/76/73), each of which BINDS the name anew. The `ref`/`out` argument and the
-    // deconstruction are the analyzer's writes too (`AnalyzerLoopCarriedNullFacts`), and a write this
-    // reader missed would leave a name narrowed that the analyzer had already stopped narrowing.
+    // THE WRITE SHAPES TRACK THE ANALYZER'S KILL SET (`AnalyzerLoopCarriedNullFacts`): an assignment
+    // expression (14), a postfix/prefix step (44/11), and a `ref`/`out` argument (54), each named by
+    // the STABLE PATH it targets. An `in` argument only reads its target. The emitter also tracks the
+    // two declaration statements (24, 40), a deconstruction's names (30), and a `for x in xs` loop
+    // variable (29/76/73), each of which binds a name anew. A method call on a receiver is NOT a write.
     static func CollectAssignedNames(nodes: ColumnarNodeTable, source: string, node: int, into: HashSet<string>) {
         if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length || into == null {
             return
@@ -203,7 +299,7 @@ class ColumnarFlowNarrowingFacts {
         if kind == ColumnarExpressionNodeKind.RefOutArgument && nodes.ChildCount(node) == 1 {
             modifier := ColumnarNodeTextFacts.Text(nodes, source, node)
             if modifier == "ref" || modifier == "out" {
-                target := SimpleName(nodes, source, nodes.Child(node, 0))
+                target := StablePath(nodes, source, nodes.Child(node, 0))
                 if target != null {
                     into.Add(target)
                 }
@@ -219,7 +315,7 @@ class ColumnarFlowNarrowingFacts {
             }
         } else if kind == ColumnarExpressionNodeKind.AssignmentExpression || kind == ColumnarExpressionNodeKind.PostfixUnary {
             if nodes.ChildCount(node) >= 1 {
-                target := SimpleName(nodes, source, nodes.Child(node, 0))
+                target := StablePath(nodes, source, nodes.Child(node, 0))
                 if target != null {
                     into.Add(target)
                 }
@@ -227,7 +323,7 @@ class ColumnarFlowNarrowingFacts {
         } else if kind == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 {
             op := ColumnarNodeTextFacts.Text(nodes, source, node)
             if op == "++" || op == "--" {
-                target := SimpleName(nodes, source, nodes.Child(node, 0))
+                target := StablePath(nodes, source, nodes.Child(node, 0))
                 if target != null {
                     into.Add(target)
                 }
