@@ -1347,7 +1347,10 @@ test "nlc check uses a native project yml without generating a csproj" {
     }
 }
 
-test "nlc check reports a receiver generic verification decline instead of crashing" {
+// This fixture once declined at IL verification (NL103) and the row pinned that `check` reported it
+// rather than crashing. The generic receiver-style call now binds at its call site, so `check` passes
+// it clean; the NL103 envelope itself stays pinned by the rows above.
+test "nlc check passes a generic receiver-style call clean" {
     directory := NewTempDirectory("nlc-check-receiver-generic")
     try {
         WriteProjectYml(directory, "name: ReceiverGenericCheck\noutputType: exe\ntargetFramework: net10.0\n")
@@ -1357,14 +1360,13 @@ test "nlc check reports a receiver generic verification decline instead of crash
         )
 
         run := NlcIn(directory, "check")
-        assert run.ExitCode == 1
+        assert run.ExitCode == 0, run.Stdout
         assert run.Stderr.Length == 0
         document := JsonDocument.Parse(run.Stdout)
         root := document.RootElement
         errorProperty := new JsonElement()
         assert !root.TryGetProperty("error", out errorProperty)
-        assert !root.GetProperty("ok").GetBoolean()
-        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("code")) == "NL103"
+        assert root.GetProperty("ok").GetBoolean(), run.Stdout
         document.Dispose()
     } finally {
         Directory.Delete(directory, true)
