@@ -12,3 +12,9 @@ test "nameof answers a value member, an event and a local the same way" {
     assert NameofTargets.EventName() == "Changed"
     assert NameofTargets.LocalName() == "total"
 }
+
+test "nameof answers a member of a framework type nested in an imported one" {
+    assert NameofTargets.NestedMemberName() == "Current"
+    assert NameofTargets.NestedMethodName() == "MoveNext"
+    assert NameofTargets.NestedTypeName() == "ChunkEnumerator"
+}

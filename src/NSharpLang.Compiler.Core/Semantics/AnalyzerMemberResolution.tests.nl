@@ -702,3 +702,62 @@ test "a parameterless `Finalize` on an UNRELATED slot is an ordinary method" {
     ownSlot := MemberResolutionSourceErrors("namespace P\n\nclass Sweeper {\n    Swept: int\n\n    public func Finalize(): void {\n        Swept = Swept + 1\n    }\n\n    public func Run(): int {\n        this.Finalize()\n        return Swept\n    }\n}\n")
     assert ownSlot.Count == 0
 }
+
+// ── a nested type is a static member of a reflected owner ───────────────
+//
+// `JsonElement.ArrayEnumerator` is a type spelled through the type that declares it, and a DECLARED
+// owner has always answered such a name (the source arm of `ResolveMember`). A REFLECTED owner did not:
+// the spelling resolved only from its namespace, through the qualified-name channel, so
+// `nameof(JsonElement.ArrayEnumerator.Current)` under `import System.Text.Json` reported NL303 on
+// `ArrayEnumerator` while `nameof(System.Text.Json.JsonElement.ArrayEnumerator.Current)` passed. These
+// rows need the framework's metadata, so the harness loads the common reference set first.
+func MemberResolutionFrameworkErrors(source: string): List<string> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-member-nested-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    messages := new List<string>()
+    analyzer := new Analyzer()
+    try {
+        analyzer.LoadSystemAssemblies()
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                messages.Add(error.DiagnosticId + " " + error.Message)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return messages
+}
+
+func MemberResolutionNameofProbe(body: string): string {
+    return "namespace P\n\nimport System.Text\nimport System.Text.Json\n\nfunc Names(builder: StringBuilder): string {\n" + body + "}\n"
+}
+
+test "A NESTED TYPE OF A REFLECTED OWNER NAMES ITS MEMBERS INSIDE nameof, AS THE QUALIFIED SPELLING DOES" {
+    nested := MemberResolutionFrameworkErrors(MemberResolutionNameofProbe("    return nameof(JsonElement.ArrayEnumerator.Current) + nameof(JsonElement.ObjectEnumerator.MoveNext) + nameof(StringBuilder.ChunkEnumerator.Current) + builder.ToString()\n"))
+    assert nested.Count == 0, string.Join("\n", nested)
+
+    // The nested type itself, and the spelling that always worked, beside it.
+    typeItself := MemberResolutionFrameworkErrors(MemberResolutionNameofProbe("    return nameof(JsonElement.ArrayEnumerator) + nameof(System.Text.Json.JsonElement.ArrayEnumerator.Current) + builder.ToString()\n"))
+    assert typeItself.Count == 0, string.Join("\n", typeItself)
+}
+
+test "A NAME THAT IS NO NESTED TYPE, OR A NESTED TYPE READ OFF A VALUE, IS STILL NL303" {
+    // The harness is not vacuous: a misspelt nested name is the missing member it always was.
+    misspelt := MemberResolutionFrameworkErrors(MemberResolutionNameofProbe("    return nameof(JsonElement.ArrayEnumeratr.Current) + builder.ToString()\n"))
+    assert misspelt.Count == 1, string.Join("\n", misspelt)
+    assert misspelt[0] == "NL303 Member 'ArrayEnumeratr' not found on type 'JsonElement'", misspelt[0]
+
+    // A nested type is a STATIC member: reached through a value it is not a member at all.
+    throughValue := MemberResolutionFrameworkErrors(MemberResolutionNameofProbe("    return nameof(builder.ChunkEnumerator)\n"))
+    assert throughValue.Count == 1, string.Join("\n", throughValue)
+    assert throughValue[0] == "NL303 Member 'ChunkEnumerator' not found on type 'StringBuilder'", throughValue[0]
+}

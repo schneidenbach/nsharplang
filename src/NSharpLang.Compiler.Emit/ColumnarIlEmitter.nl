@@ -14306,22 +14306,19 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = typeof(JsonValueKind)
                     return true
                 }
-                // COMPILER: `nameof(JsonElement.ArrayEnumerator.Current)` is refused (NL303: the analyzer does not
-                // resolve a member through a nested BCL type inside `nameof`), so the enumerators' member names
-                // here and in the `MoveNext` arm are written as their literal names.
-                if (structReceiverType == typeof(JsonElement.ArrayEnumerator) && member == "Current") {
+                if (structReceiverType == typeof(JsonElement.ArrayEnumerator) && member == nameof(JsonElement.ArrayEnumerator.Current)) {
                     enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ArrayEnumerator))
                     _il.Emit(OpCodes.Stloc, enumeratorTemp)
                     _il.Emit(OpCodes.Ldloca, enumeratorTemp)
-                    _il.Emit(OpCodes.Call, (must typeof(JsonElement.ArrayEnumerator).GetProperty("Current")).GetGetMethod())
+                    _il.Emit(OpCodes.Call, (must typeof(JsonElement.ArrayEnumerator).GetProperty(nameof(JsonElement.ArrayEnumerator.Current))).GetGetMethod())
                     columnarResolvedType = typeof(JsonElement)
                     return true
                 }
-                if (structReceiverType == typeof(JsonElement.ObjectEnumerator) && member == "Current") {
+                if (structReceiverType == typeof(JsonElement.ObjectEnumerator) && member == nameof(JsonElement.ObjectEnumerator.Current)) {
                     enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ObjectEnumerator))
                     _il.Emit(OpCodes.Stloc, enumeratorTemp)
                     _il.Emit(OpCodes.Ldloca, enumeratorTemp)
-                    _il.Emit(OpCodes.Call, (must typeof(JsonElement.ObjectEnumerator).GetProperty("Current")).GetGetMethod())
+                    _il.Emit(OpCodes.Call, (must typeof(JsonElement.ObjectEnumerator).GetProperty(nameof(JsonElement.ObjectEnumerator.Current))).GetGetMethod())
                     columnarResolvedType = typeof(JsonProperty)
                     return true
                 }
@@ -17629,11 +17626,11 @@ sealed class ColumnarIlEmitter {
         }
 
         addressableReceiverType: System.Type? = null
-        if (memberName == "MoveNext" && argCount == 0 && TryGetAddressableTargetType(receiver, out addressableReceiverType) && (addressableReceiverType == typeof(JsonElement.ArrayEnumerator) || addressableReceiverType == typeof(JsonElement.ObjectEnumerator))) {
+        if (memberName == nameof(JsonElement.ArrayEnumerator.MoveNext) && argCount == 0 && TryGetAddressableTargetType(receiver, out addressableReceiverType) && (addressableReceiverType == typeof(JsonElement.ArrayEnumerator) || addressableReceiverType == typeof(JsonElement.ObjectEnumerator))) {
             if (!EmitAddressOfByRefTarget(receiver, addressableReceiverType)) {
                 return false
             }
-            _il.Emit(OpCodes.Call, addressableReceiverType.GetMethod("MoveNext", Type.EmptyTypes))
+            _il.Emit(OpCodes.Call, addressableReceiverType.GetMethod(nameof(JsonElement.ArrayEnumerator.MoveNext), Type.EmptyTypes))
             resolvedClrType = typeof(bool)
             return true
         }

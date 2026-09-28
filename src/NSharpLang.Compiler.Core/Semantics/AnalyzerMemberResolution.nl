@@ -335,6 +335,18 @@ class AnalyzerMemberResolution {
                 return new ReflectionMethodGroupInfo(matchingMethods.ToArray(), firstMatchingMethod.Name + "(...)")
             }
 
+            // A NESTED TYPE IS A STATIC MEMBER OF A REFLECTED OWNER, as it is of a declared one below.
+            // Without this arm `JsonElement.ArrayEnumerator` resolved only when spelled from its
+            // namespace (`System.Text.Json.JsonElement.ArrayEnumerator`, the qualified-name channel), and
+            // the imported spelling reported NL303 "Member 'ArrayEnumerator' not found" — inside
+            // `nameof(JsonElement.ArrayEnumerator.Current)` as anywhere else.
+            if includeStaticMembers {
+                reflectedNestedType: TypeInfo = BuiltInTypes.Unknown
+                if declarationContext.TryResolveNestedType(reflectionType, memberName, false, out reflectedNestedType) {
+                    return reflectedNestedType
+                }
+            }
+
             // Nothing on the metadata surface; the extension surface still sees the SOURCE receiver.
             return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
         }

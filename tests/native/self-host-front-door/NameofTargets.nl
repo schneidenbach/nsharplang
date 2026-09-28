@@ -1,6 +1,8 @@
 namespace NSharpLang.SelfHostFrontDoor
 
 import System
+import System.Text
+import System.Text.Json
 
 // `nameof` NAMES SOMETHING; IT DOES NOT READ IT.
 //
@@ -31,4 +33,10 @@ class NameofTargets {
         total := 0
         return nameof(total)
     }
+
+    // A member of a framework type NESTED in an imported one, spelled through its owner — the emitter's
+    // own `JsonElement.ArrayEnumerator` arms. It used to be NL303 unless written from its namespace.
+    static func NestedMemberName(): string => nameof(JsonElement.ArrayEnumerator.Current)
+    static func NestedMethodName(): string => nameof(JsonElement.ObjectEnumerator.MoveNext)
+    static func NestedTypeName(): string => nameof(StringBuilder.ChunkEnumerator)
 }
