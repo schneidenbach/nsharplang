@@ -2618,6 +2618,16 @@ func main() {
 A `default` with no target at all — `x := flag ? default : n` — is still an error (NL203): write the
 type (`x: int? = flag ? default : n`) so the `default` has something to be.
 
+The same target is carried into an arm that is itself a conditional, recursively and through
+parentheses. Each nested `null`, `default`, or `throw` is resolved against the original return, local,
+assignment, or parameter type:
+
+```n#
+func pickNested(a: bool, b: bool, n: int): int? => a ? (b ? default : 1) : n
+func pickDeep(a: bool, b: bool, c: bool, n: int): int? => a ? b ? c ? 2 : null : 3 : n
+func pickNestedText(a: bool, b: bool, name: string, fallback: string): string? => a ? (b ? null : name) : fallback
+```
+
 A parameter is a target wherever the method is declared — in your project, in a referenced N#
 library, or in the framework — and a typed arm converts to it the way it would if it were passed
 alone, so a `Circle` arm reaches a `Shape?` parameter:

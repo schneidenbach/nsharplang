@@ -1,5 +1,6 @@
 namespace Census.Operands
 
+import System
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
@@ -142,6 +143,32 @@ test "G8: a conditional with a default arm takes the referenced parameter's type
     labeler := new Labeler("p")
     assert OperandUses.LabelOrDefault(true, labeler, "!") == "p"
     assert OperandUses.LabelOrDefault(false, labeler, "!") == "p!"
+}
+
+test "G8: nested null, default and throw arms target referenced static and instance arguments" {
+    assert OperandUses.DescribeNestedNull(true, true, "a", "fallback") == "none:3"
+    assert OperandUses.DescribeNestedNull(true, false, "a", "fallback") == "a:3"
+    assert OperandUses.DescribeNestedNull(false, true, "a", "fallback") == "fallback:3"
+    assert OperandUses.DescribeNestedDefault(true, true, "b", "fallback") == "none:4"
+    assert OperandUses.DescribeNestedDefault(true, false, "b", "fallback") == "b:4"
+    assert OperandUses.CountNestedDefault(true, true, 7) == -1
+    assert OperandUses.CountNestedDefault(true, false, 7) == 7
+    assert OperandUses.CountNestedNullElse(false, true, 8) == 6
+    assert OperandUses.CountNestedNullElse(false, false, 8) == -1
+
+    labeler := new Labeler("p")
+    assert OperandUses.LabelNestedDefault(true, true, labeler, "!") == "p"
+    assert OperandUses.LabelNestedDefault(true, false, labeler, "!") == "p!"
+    assert OperandUses.DescribeNestedThrow(true, false, "value", "fallback", new InvalidOperationException("not selected")) == "fallback:5"
+
+    failure := new InvalidOperationException("referenced")
+    raised := false
+    try {
+        _ignored := OperandUses.DescribeNestedThrow(false, false, "value", "fallback", failure)
+    } catch caught: InvalidOperationException {
+        raised = caught.Message == "referenced"
+    }
+    assert raised
 }
 
 test "G9: a &T parameter is passed on by reference to a referenced &T parameter" {

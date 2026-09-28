@@ -24,6 +24,30 @@ func PickValueNullFirst(flag: bool, n: int): int? => flag ? null : n
 
 func PickDefaultArm(flag: bool, n: int): int? => flag ? n : default
 
+// A conditional arm can itself need the target when one of its arms is typeless. This is the
+// original nested regression pair: parentheses must not hide the inner target-typed conditional.
+func PickNestedDefault(a: bool, b: bool, n: int): int? => a ? (b ? default : 1) : n
+
+func PickNestedNull(a: bool, b: bool, n: int): int? => a ? (b ? null : 1) : n
+
+func PickNestedDefaultElse(a: bool, b: bool, n: int): int? => a ? n : b ? 1 : default
+
+func PickNestedNullElse(a: bool, b: bool, n: int): int? => a ? n : b ? 1 : null
+
+func PickNestedThrowThen(a: bool, b: bool, n: int, failure: Exception): int? => a ? (b ? throw failure : 2) : n
+
+func PickNestedThrowElse(a: bool, b: bool, n: int, failure: Exception): int? => a ? n : b ? 2 : throw failure
+
+func PickDepthThree(a: bool, b: bool, c: bool, n: int): int? => a ? (b ? (c ? default : 3) : 4) : n
+
+func PickDepthThreeUnparenthesized(a: bool, b: bool, c: bool, n: int): int? => a ? b ? c ? 3 : null : 4 : n
+
+func PickNestedString(a: bool, b: bool, text: string, fallback: string): string? => a ? (b ? default : text) : fallback
+
+func PickNestedStringNull(a: bool, b: bool, text: string, fallback: string): string? => a ? b ? text : null : fallback
+
+func PickNestedStringThrow(a: bool, b: bool, text: string, fallback: string, failure: Exception): string? => a ? (b ? throw failure : text) : fallback
+
 // A THROWING ARM AGAINST A BARE `null`: the raising arm produces no value, so the literal has only
 // the target to take its type from.
 func NullOrThrowReference(ok: bool, failure: Exception): string? => ok ? null : throw failure
@@ -38,13 +62,32 @@ func DeclaredLocal(flag: bool, n: int): int {
     return picked ?? -1
 }
 
+func DeclaredNestedLocal(a: bool, b: bool, n: int): int {
+    picked: int? = a ? (b ? default : 6) : n
+    return picked ?? -1
+}
+
 func AssignedLocal(flag: bool, n: int): int {
     picked: int? = null
     picked = flag ? n : null
     return picked ?? -1
 }
 
+func AssignedNestedLocal(a: bool, b: bool, n: int): int {
+    picked: int? = null
+    picked = a ? b ? 7 : null : n
+    return picked ?? -1
+}
+
+func BlockNestedReturn(a: bool, b: bool, n: int): int? {
+    return a ? (b ? default : 8) : n
+}
+
 func ArgumentPosition(flag: bool, n: int): int => Unwrap(flag ? n : null)
+
+func NestedArgument(a: bool, b: bool, n: int): int => Unwrap(a ? (b ? default : 9) : n)
+
+func NestedArgumentNullElse(a: bool, b: bool, n: int): int => Unwrap(a ? n : b ? 10 : null)
 
 func Unwrap(value: int?): int => value ?? -1
 
@@ -181,3 +224,6 @@ func ShiftNull(flag: bool, meter: Meter, text: string): long => meter.Shift(flag
 func FrameworkStaticDefault(flag: bool, text: string): bool => string.IsNullOrEmpty(flag ? default : text)
 
 func FrameworkValueDefault(flag: bool, n: int): int => Math.Max(flag ? default : n, -3)
+func NestedFrameworkNull(a: bool, b: bool, text: string, fallback: string): bool => string.IsNullOrEmpty(a ? (b ? null : text) : fallback)
+
+func NestedFrameworkThrow(a: bool, b: bool, text: string, fallback: string, failure: Exception): bool => string.IsNullOrEmpty(a ? (b ? throw failure : text) : fallback)

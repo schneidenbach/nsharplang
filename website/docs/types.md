@@ -2222,9 +2222,10 @@ Two rules the compiler enforces about the type-argument list itself:
   the workaround.
 - A **conditional whose arms BOTH throw** (`ok ? throw new A() : throw new B()`) declines at emission
   with [NL103](./errors/NL103.md): there is nothing for the conditional to be worth, and C# refuses
-  it for the same reason. Write the throw as a statement instead. A conditional with only ONE
-  typeless arm — a `null`, a `default` or a single `throw` — is decided by what the conditional is
-  written *at*; see [target-typed conditional arms](./language-tour.md#conditional-expressions).
+  it for the same reason. Write the throw as a statement instead. A conditional with a `null`, a
+  `default` or a single `throw` in any nested arm takes the type of the original target, recursively
+  through nested conditionals and parentheses; see
+  [target-typed conditional arms](./language-tour.md#conditional-expressions).
 - A **bare `GetType()`** with no receiver at all reports [NL412](./errors/NL412.md): the members
   `object` declares and your type inherits are reached through a receiver, not through the bare name.
   `this.GetType()`, `other.GetType()` on a parameter or a local, and `(this as object).GetType()` all

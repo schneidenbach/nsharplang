@@ -21445,8 +21445,8 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // `flag ? value : null` AND ITS FAMILY, TARGET-TYPED — a conditional one of whose arms has no type
-    // of its own.
+    // `flag ? value : null` AND ITS FAMILY, TARGET-TYPED — a conditional one of whose arms, at any
+    // nesting depth and through parentheses, has no type of its own.
     //
     // The ordinary conditional arm unifies the two arms against EACH OTHER, so an arm that is worth
     // nothing by itself has to borrow the other one's type. That works for a reference pair and fails
@@ -21465,11 +21465,15 @@ sealed class ColumnarIlEmitter {
     // produces a value, which is the same shape the unification arm writes for a throwing arm.
     private func TryEmitConditionalAsType(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        if (target == null || _nodes.Kind(node) != ColumnarExpressionNodeKind.TernaryExpression || _nodes.ChildCount(node) != 3) {
+        if (target == null) {
             return false
         }
-        thenNode := Child(node, 1)
-        elseNode := Child(node, 2)
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.TernaryExpression || _nodes.ChildCount(node) != 3) {
+            return false
+        }
+        thenNode := UnwrapParenthesizedNode(Child(node, 1))
+        elseNode := UnwrapParenthesizedNode(Child(node, 2))
         if (!IsTypelessConditionalArm(thenNode) && !IsTypelessConditionalArm(elseNode)) {
             return false
         }
@@ -21509,10 +21513,17 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // An arm with no type of its own: the two keyword literals and a `throw`.
+    // An arm that needs a target: either typeless leaf, or a conditional containing one recursively.
     private func IsTypelessConditionalArm(node: int): bool {
+        node = UnwrapParenthesizedNode(node)
         kind := _nodes.Kind(node)
-        return kind == ColumnarExpressionNodeKind.NullLiteralExpression || kind == ColumnarExpressionNodeKind.DefaultExpression || IsThrowExpressionNode(node)
+        if (kind == ColumnarExpressionNodeKind.NullLiteralExpression || kind == ColumnarExpressionNodeKind.DefaultExpression || IsThrowExpressionNode(node)) {
+            return true
+        }
+        if (kind != ColumnarExpressionNodeKind.TernaryExpression || _nodes.ChildCount(node) != 3) {
+            return false
+        }
+        return IsTypelessConditionalArm(Child(node, 1)) || IsTypelessConditionalArm(Child(node, 2))
     }
 
     // ONE ARM AS THE TARGET TYPE, through the same three doors the return and typed-local ladders use
@@ -21523,6 +21534,11 @@ sealed class ColumnarIlEmitter {
     // `Derived` arm of `flag ? null : derived` reaches a `Base` target, an implementer an interface one,
     // and any value `object`. Each arm is its own branch into the merge, so each converts on its own.
     private func EmitConditionalArmAsType(node: int, target: Type): bool {
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.TernaryExpression && IsTypelessConditionalArm(node)) {
+            let nestedConditionalType: System.Type? = null
+            return TryEmitConditionalAsType(node, target, out nestedConditionalType) && TypesEquivalent(nestedConditionalType, target)
+        }
         let armType: System.Type? = null
         if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
             return TryEmitValueAsNullable(node, target, out armType) && TypesEquivalent(armType, target)
@@ -21544,13 +21560,17 @@ sealed class ColumnarIlEmitter {
     // ordinary static and instance calls into a referenced assembly -- has to be told that a
     // conditional with a typeless arm matches, or it refuses the call and the whole program declines at
     // `emit.call.static-member-unmodeled` although the argument door below would have emitted it. Every
-    // question here is one the emitting twin asks, in its order, so the two cannot disagree.
+    // branch here mirrors the emitting twin, including nested conditionals, so the two cannot disagree.
     private func CanEmitConditionalAsType(node: int, target: Type): bool {
-        if (target == null || _nodes.Kind(node) != ColumnarExpressionNodeKind.TernaryExpression || _nodes.ChildCount(node) != 3) {
+        if (target == null) {
             return false
         }
-        thenNode := Child(node, 1)
-        elseNode := Child(node, 2)
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.TernaryExpression || _nodes.ChildCount(node) != 3) {
+            return false
+        }
+        thenNode := UnwrapParenthesizedNode(Child(node, 1))
+        elseNode := UnwrapParenthesizedNode(Child(node, 2))
         if (!IsTypelessConditionalArm(thenNode) && !IsTypelessConditionalArm(elseNode)) {
             return false
         }
@@ -21564,20 +21584,19 @@ sealed class ColumnarIlEmitter {
 
     // The predicate half of `EmitConditionalArmAsType`, door for door.
     private func CanEmitConditionalArmAsType(node: int, target: Type): bool {
+        node = UnwrapParenthesizedNode(node)
         kind := _nodes.Kind(node)
+        if (kind == ColumnarExpressionNodeKind.TernaryExpression && IsTypelessConditionalArm(node)) {
+            return CanEmitConditionalAsType(node, target)
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
+            return CanEmitValueAsNullable(node, target)
+        }
         if (kind == ColumnarExpressionNodeKind.DefaultExpression) {
             return CanEmitDefaultValueOfType(target)
         }
         if (kind == ColumnarExpressionNodeKind.NullLiteralExpression) {
-            return !target.IsValueType || ColumnarTypeOfPlanner.IsSupportedNullable(target)
-        }
-        if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
-            nullableElement := target.GetGenericArguments()[0]
-            if (CanAdoptIntLiteralAsType(node, nullableElement)) {
-                return true
-            }
-            let liftedArmType: System.Type? = null
-            return TryGetPreflightExpressionType(node, out liftedArmType) && (TypesEquivalent(liftedArmType, target) || TypesEquivalent(liftedArmType, nullableElement))
+            return !target.IsValueType
         }
         if (CanAdoptIntLiteralAsType(node, target)) {
             return true
@@ -21587,6 +21606,21 @@ sealed class ColumnarIlEmitter {
             return false
         }
         return TypesEquivalent(armType, target) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(armType, target) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(armType, target)
+    }
+
+    // The preflight half of `TryEmitValueAsNullable`, with the same null/default, adopted-literal and
+    // ordinary-expression checks in the same order.
+    private func CanEmitValueAsNullable(node: int, target: Type): bool {
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.NullLiteralExpression || _nodes.Kind(node) == ColumnarExpressionNodeKind.DefaultExpression) {
+            return true
+        }
+        element := target.GetGenericArguments()[0]
+        if (CanAdoptIntLiteralAsType(node, element)) {
+            return true
+        }
+        let liftedArmType: System.Type? = null
+        return TryGetPreflightExpressionType(node, out liftedArmType) && (TypesEquivalent(liftedArmType, target) || TypesEquivalent(liftedArmType, element))
     }
 
     // THE TWO KEYWORD LITERALS THAT SPELL A TARGET TYPE'S ZERO VALUE, in the one place that knows the

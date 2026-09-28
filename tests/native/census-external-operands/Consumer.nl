@@ -273,6 +273,33 @@ class OperandUses {
         return labeler.Label(flag ? default : suffix)
     }
 
+    static func DescribeNestedNull(a: bool, b: bool, label: string, fallback: string): string {
+        return OperandFacts.Describe(a ? (b ? null : label) : fallback, 3)
+    }
+
+    static func DescribeNestedDefault(a: bool, b: bool, label: string, fallback: string): string {
+        value: string? = a ? (b ? default : label) : fallback
+        return OperandFacts.Describe(value, 4)
+    }
+
+    static func DescribeNestedThrow(a: bool, b: bool, label: string, fallback: string, failure: Exception): string {
+        return OperandFacts.Describe(a ? fallback : b ? label : throw failure, 5)
+    }
+
+    static func CountNestedDefault(a: bool, b: bool, count: int): int {
+        value: int? = a ? (b ? default : count) : count
+        return OperandFacts.CountOf(value)
+    }
+
+    static func CountNestedNullElse(a: bool, b: bool, count: int): int {
+        return OperandFacts.CountOf(a ? count : b ? 6 : null)
+    }
+
+    static func LabelNestedDefault(a: bool, b: bool, labeler: Labeler, suffix: string): string {
+        value: string? = a ? (b ? default : suffix) : suffix
+        return labeler.Label(value)
+    }
+
     // G9: a `&T` parameter passed on by reference to a referenced `&T` parameter, one hop and two.
     static func BumpThrough(slot: &int, amount: int) {
         OperandFacts.Bump(ref slot, amount)
@@ -459,6 +486,7 @@ class OperandUses {
         lines.Add("conditional " + DescribeNullFirst(true, "a") + " " + DescribeNullFirst(false, "a") + " " + DescribeNullSecond(true, "b") + " " + DescribeNullSecond(false, "b") + " " + NameOfAlias(true, alias) + " " + NameOfAlias(false, alias) + " " + CountOrAbsent(true, 3).ToString() + " " + CountOrAbsent(false, 3).ToString() + " " + LabelOrPrefix(true, new Labeler("p"), "!") + " " + LabelOrPrefix(false, new Labeler("p"), "!"))
         lines.Add("default " + DescribeDefaultFirst(true, "a") + " " + DescribeDefaultFirst(false, "a") + " " + CountOrDefault(true, 3).ToString() + " " + CountOrDefault(false, 3).ToString() + " " + LabelOrDefault(true, new Labeler("p"), "!") + " " + LabelOrDefault(false, new Labeler("p"), "!"))
         lines.Add("conditional overloads " + AppendAnd(true, true) + " " + AppendAnd(true, false) + " " + AppendOr(false, false) + " " + AppendOr(false, true) + " " + AppendNot(false) + " " + AppendNot(true) + " " + AppendComparison(true, true) + " " + AppendComparison(true, false) + " " + AppendNested(true, false, true) + " " + AppendNested(false, false, true) + " emit " + EmitConditionalOpcodeOverload().ToString())
+        lines.Add("nested conditional " + DescribeNestedNull(true, true, "a", "fallback") + " " + DescribeNestedNull(true, false, "a", "fallback") + " " + DescribeNestedDefault(true, true, "b", "fallback") + " " + DescribeNestedDefault(true, false, "b", "fallback") + " " + CountNestedDefault(true, true, 7).ToString() + " " + CountNestedNullElse(false, true, 8).ToString() + " " + LabelNestedDefault(true, true, new Labeler("p"), "!") + " " + LabelNestedDefault(true, false, new Labeler("p"), "!"))
         lines.Add("forwarded " + Forwarded())
         lines.Add("nested " + MustNested(shape).ToString() + " " + MustNestedLocal(alias).ToString() + " " + OperatorNested(-2).ToString() + " " + new Cursor("ab").Matches(1, 5).ToString() + " " + new Cursor("ab").Matches(2, 7).ToString())
         lines.Add("must-member " + MustMemberNested(alias).ToString() + " " + OverloadedOuter(shape))

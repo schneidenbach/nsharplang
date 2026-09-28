@@ -18,6 +18,84 @@ test "a VALUE arm lifts to the target's nullable, which is what the join could n
     assert PickDefaultArm(false, 3) == null
 }
 
+test "nested typeless arms use the outer target through parentheses" {
+    assert PickNestedDefault(true, true, 7) == null
+    assert PickNestedDefault(true, false, 7) == 1
+    assert PickNestedDefault(false, true, 7) == 7
+    assert PickNestedNull(true, true, 8) == null
+    assert PickNestedNull(true, false, 8) == 1
+    assert PickNestedNull(false, true, 8) == 8
+}
+
+test "nested default, null and throw arms work on both sides and through depth three" {
+    assert PickNestedDefaultElse(true, true, 11) == 11
+    assert PickNestedDefaultElse(false, true, 11) == 1
+    assert PickNestedDefaultElse(false, false, 11) == null
+    assert PickNestedNullElse(true, true, 12) == 12
+    assert PickNestedNullElse(false, true, 12) == 1
+    assert PickNestedNullElse(false, false, 12) == null
+
+    assert PickDepthThree(true, true, true, 13) == null
+    assert PickDepthThree(true, true, false, 13) == 3
+    assert PickDepthThreeUnparenthesized(true, true, true, 13) == 3
+    assert PickDepthThreeUnparenthesized(true, true, false, 13) == null
+
+    failure := new InvalidOperationException("nested")
+    assert PickNestedThrowThen(true, false, 14, failure) == 2
+    assert PickNestedThrowElse(false, true, 15, failure) == 2
+
+    thenRaised := false
+    try {
+        _ignored := PickNestedThrowThen(true, true, 14, failure)
+    } catch caught: InvalidOperationException {
+        thenRaised = caught.Message == "nested"
+    }
+    elseRaised := false
+    try {
+        _ignored := PickNestedThrowElse(false, false, 15, failure)
+    } catch caught: InvalidOperationException {
+        elseRaised = caught.Message == "nested"
+    }
+    assert thenRaised && elseRaised
+}
+
+test "nested target typing covers block returns, locals and same-assembly arguments" {
+    assert BlockNestedReturn(true, true, 3) == null
+    assert BlockNestedReturn(true, false, 3) == 8
+    assert BlockNestedReturn(false, true, 3) == 3
+    assert DeclaredNestedLocal(true, true, 3) == -1
+    assert DeclaredNestedLocal(true, false, 3) == 6
+    assert AssignedNestedLocal(true, true, 3) == 7
+    assert AssignedNestedLocal(true, false, 3) == -1
+    assert AssignedNestedLocal(false, true, 3) == 3
+    assert NestedArgument(true, true, 3) == -1
+    assert NestedArgument(true, false, 3) == 9
+    assert NestedArgument(false, true, 3) == 3
+    assert NestedArgumentNullElse(false, true, 3) == 10
+    assert NestedArgumentNullElse(false, false, 3) == -1
+}
+
+test "nested null, default and throw arms target reference-type returns and framework arguments" {
+    assert PickNestedString(true, true, "value", "fallback") == null
+    assert PickNestedString(true, false, "value", "fallback") == "value"
+    assert PickNestedString(false, true, "value", "fallback") == "fallback"
+    assert PickNestedStringNull(true, true, "value", "fallback") == "value"
+    assert PickNestedStringNull(true, false, "value", "fallback") == null
+    assert PickNestedStringThrow(true, false, "value", "fallback", new InvalidOperationException("string")) == "value"
+
+    assert NestedFrameworkNull(true, true, "text", "fallback")
+    assert !NestedFrameworkNull(true, false, "text", "fallback")
+    assert !NestedFrameworkNull(false, true, "text", "fallback")
+    failure := new InvalidOperationException("framework")
+    raised := false
+    try {
+        _ignored := NestedFrameworkThrow(true, true, "text", "fallback", failure)
+    } catch caught: InvalidOperationException {
+        raised = caught.Message == "framework"
+    }
+    assert raised
+}
+
 test "a throwing arm against a bare null takes the target's type and still raises" {
     failure := new InvalidOperationException("not ready")
     assert NullOrThrowReference(true, failure) == null

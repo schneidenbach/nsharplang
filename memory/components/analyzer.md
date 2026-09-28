@@ -921,7 +921,8 @@ need an operand type that HAS them.
 ### A conditional arm with no type of its own is TARGET-typed (census 2026-09-14, §NULLABLE4)
 
 `ColumnarIlEmitter.TryEmitConditionalAsType` takes a kind-13 node whose THEN or ELSE arm is a bare
-`null`, a `default` or a `throw`, and emits BOTH arms as the target type — the declared return type,
+`null`, a `default` or a `throw`, or is itself a conditional containing one recursively (through
+parentheses), and emits BOTH arms as the target type — the declared return type,
 the declared local's type, the assigned local's type, or the parameter's type. The typed arm goes
 through `EmitConditionalArmAsType`, which is the lifted conversion when the target is a `Nullable<T>`
 (that is what makes the `int` arm of `flag ? n : null` a `Nullable<int>`) and the keyword-zero,
@@ -938,8 +939,10 @@ asking whether every argument can match a declared parameter — `TryEmitOrdinar
 its instance form, i.e. every framework method and every method of a class in a REFERENCED assembly —
 asks `CanDeclaredCallArgumentMatch`, which had no arm for this shape, so `string.IsNullOrEmpty(flag ?
 null : s)` declined the whole program at `emit.call.static-member-unmodeled` while a sibling `func`
-took it. `CanEmitConditionalAsType`/`CanEmitConditionalArmAsType` ask the emitting twin's questions in
-its order. A typed arm now also takes the implicit REFERENCE conversions a declared argument takes
+took it. `IsTypelessConditionalArm` finds such leaves recursively; `EmitConditionalArmAsType` and its
+preflight twin recurse into the nested conditional with the same original target. Both twins unwrap
+parentheses and follow the same nullable lift, zero literal, adopted integer, and ordinary conversion
+checks in the same order. A typed arm also takes the implicit REFERENCE conversions a declared argument takes
 (derived → base, interface, `object`), since each arm is its own branch into the merge. Pinned by
 `census-flow-rules/TargetTypedConditionalArms` (same assembly, framework) and
 `census-external-operands` G8 (referenced assembly, analysis AND emit-only paths).
