@@ -1689,15 +1689,6 @@ class ColumnarDirectCallPlanner {
             legacyWholeSubtreePlanning = true
             return false
         }
-        sourceRegistry := new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal)
-        for sourceDefinition in bindings.SourceTypeDefinitions {
-            sourceRegistry[sourceDefinition.DeclaredTypeName] = sourceDefinition
-        }
-        if !ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(facts.Method.GetGenericArguments(), facts.TypeParameterSpecialConstraints, facts.TypeParameterBaseConstraints, facts.TypeParameterInterfaceConstraints, typeArguments, typeArguments, sourceRegistry) {
-            legacyWholeSubtreePlanning = true
-            return false
-        }
-
         closedMethod := method.MakeGenericMethod(typeArguments)
         if !AppendSiblingSelection(nodes, source, callNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, facts, out resultType, -1, null, closedMethod, parameterTypes, returnType) {
             legacyWholeSubtreePlanning = true
@@ -4330,7 +4321,14 @@ class ColumnarDirectCallPlanner {
         }
 
         callee := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(node, 0))
-        if callee < 0 || (nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression && nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression && nodes.Kind(callee) != ColumnarExpressionNodeKind.BaseMemberExpression && nodes.Kind(callee) != ColumnarExpressionNodeKind.GenericCallee) {
+        if callee < 0 {
+            return false
+        }
+        calleeKind := nodes.Kind(callee)
+        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression && calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression && calleeKind != ColumnarExpressionNodeKind.BaseMemberExpression && calleeKind != ColumnarExpressionNodeKind.GenericCallee {
+            return false
+        }
+        if calleeKind == ColumnarExpressionNodeKind.GenericCallee && ColumnarGenericCalleeFacts.ReceiverNode(nodes, callee) < 0 {
             return false
         }
 
