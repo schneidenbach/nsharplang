@@ -23868,6 +23868,9 @@ sealed class ColumnarIlEmitter {
             if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out columnarResolvedType)) {
                 return true
             }
+            if (TryGetPreflightContextualReceiverSiblingCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+                return true
+            }
             return false
         }
 
@@ -23886,6 +23889,9 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+            return true
+        }
+        if (TryGetPreflightContextualReceiverSiblingCallType(receiverType, member, callIdx, out columnarResolvedType)) {
             return true
         }
         if (TryGetPreflightContextualInstanceCallType(receiverType, member, callIdx, out columnarResolvedType)) {
@@ -24053,8 +24059,9 @@ sealed class ColumnarIlEmitter {
     }
 
     // Residual preflight for inferred generic receiver siblings whose arguments need a delegate
-    // target (a lambda or method group). Ordinary and non-generic receiver siblings are typed by
-    // ColumnarDirectCallPlanner; retaining those cases here would keep a second owner alive.
+    // target (a lambda or method group). Non-generic receiver siblings with contextual delegate
+    // arguments have the same narrow residual path because the direct-call plan does not lower
+    // lambda bodies; ordinary receiver siblings are typed by ColumnarDirectCallPlanner.
     private func TryGetPreflightContextualGenericReceiverSiblingCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         argCount := _nodes.ChildCount(callIdx) - 1
@@ -24065,6 +24072,39 @@ sealed class ColumnarIlEmitter {
         let genericBinding: System.Type[]? = null
         let genericParamTypes: System.Type[]? = null
         return TrySelectContextualGenericReceiverSibling(callIdx, target, receiverType, argCount, out genericBinding, out genericParamTypes, out columnarResolvedType)
+    }
+
+    private func TryGetPreflightContextualReceiverSiblingCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        if (!_siblings.TryGetValue(member, out target) || target.TypeParams.Length != 0 || !HasContextualDelegateArgument(callIdx, argCount)) {
+            return false
+        }
+        let parameterTypes: System.Type[]? = null
+        return TrySelectContextualReceiverSibling(callIdx, target, receiverType, argCount, out parameterTypes, out columnarResolvedType)
+    }
+
+    // `x.F(lambda)` is the one receiver-sibling shape the direct plan cannot yet lower: lambda
+    // bodies need the emitter's contextual delegate placement. Keep that exact sub-shape here;
+    // ordinary receiver siblings and their result typing stay owned by ColumnarDirectCallPlanner.
+    private func TrySelectContextualReceiverSibling(callIdx: int, target: ColumnarSiblingMethodDefinition, receiverType: Type, argCount: int, out parameterTypes: Type[], out returnType: Type): bool {
+        parameterTypes = null
+        returnType = null
+        if (receiverType == null || receiverType == ColumnarTypeOfPlanner.RequiredVoidType() || target.TypeParams.Length != 0 || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length != target.ParamTypes.Length || target.ParamModifierKinds[0] != 4 || target.ParamTypes[0].IsByRef || _nodes.ChildCount(callIdx) - 1 != argCount || !HasContextualDelegateArgument(callIdx, argCount)) {
+            return false
+        }
+        if (!CanUseExtensionReceiverConversion(receiverType, target.ParamTypes[0])) {
+            return false
+        }
+        for a := 0; a < argCount; a++ {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a + 1), target.ParamTypes[a + 1], true)) {
+                return false
+            }
+        }
+        parameterTypes = target.ParamTypes
+        returnType = target.ReturnType
+        return true
     }
 
     private func TryGetPreflightExtensionStaticMethodCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
@@ -25986,6 +26026,10 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        if (TryEmitContextualReceiverSiblingCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
         if (receiverType == typeof(DeserializerBuilder)) {
             if (member == "WithNamingConvention" && argCount == 1) {
                 method := typeof(DeserializerBuilder).GetMethod("WithNamingConvention", [typeof(INamingConvention)])
@@ -27190,6 +27234,33 @@ sealed class ColumnarIlEmitter {
             }
         }
         _il.Emit(OpCodes.Call, CloseGenericSiblingMethod(target, binding))
+        columnarResolvedType = returnType
+        return true
+    }
+
+    private func TryEmitContextualReceiverSiblingCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        if (!_siblings.TryGetValue(member, out target) || target.TypeParams.Length != 0) {
+            return false
+        }
+        let parameterTypes: System.Type[]? = null
+        let returnType: System.Type? = null
+        if (!TrySelectContextualReceiverSibling(callIdx, target, receiverType, argCount, out parameterTypes, out returnType)) {
+            return false
+        }
+
+        // Selection is complete before emission. Any refusal from here is an actual emit decline,
+        // because the caller already placed the receiver on the evaluation stack.
+        if (!TryConvertAlreadyEmittedValue(receiverType, parameterTypes[0])) {
+            return Decline("emit.call.receiver-sibling", "receiver of '" + target.Method.Name + "' could not be converted to its `this` parameter", callIdx)
+        }
+        for a := 0; a < argCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a + 1], true)) {
+                return Decline("emit.call.receiver-sibling-argument", "receiver-style call argument " + (a + 1).ToString() + " could not be emitted", Child(callIdx, a + 1))
+            }
+        }
+        _il.Emit(OpCodes.Call, target.Method)
         columnarResolvedType = returnType
         return true
     }

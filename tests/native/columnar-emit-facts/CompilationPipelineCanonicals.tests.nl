@@ -808,6 +808,40 @@ func main() {
     }
 }
 
+test "CompileToIlAssembly_ReceiverStyleSiblingCallTypesNonGenericLambdaArguments" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverSiblingContextualLambda",
+        "name: ReceiverSiblingContextualLambda\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+func Times(this count: int, action: Func<int, void>) {
+    for i := 0; i < count; i++ {
+        action(i)
+    }
+}
+
+func main() {
+    3.Times(i => Console.WriteLine(i))
+}
+"""
+        ),
+        false
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout == "0" + Environment.NewLine + "1" + Environment.NewLine + "2" + Environment.NewLine, run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
 test "CompileToIlAssembly_DeclineLogWritesTraceToTheCompilersWriter" {
     captured := EmitterCanonicalCompileWithDeclineLog(
         "TraceDecline",
