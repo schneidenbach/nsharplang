@@ -925,6 +925,64 @@ test "a comment inside a hugged lambda body stays put, and the callback keeps hu
     assert FstIdempotentComments(source)
 }
 
+// A WRAPPED PARAMETER LIST TAKES THE ARGUMENT LIST'S COMMENT RULE, TO THE LINE. A comment the author
+// left between two parameters is written on its own line directly above the parameter it preceded,
+// and one after the last parameter directly above the closer. The gap the comment stream measures
+// starts at the OPENER, so a comment under `func G(` is not read as standing across a blank line —
+// which is the defect these rows pin: every such comment used to come back with an empty line above.
+
+test "a comment above the first parameter sits directly under the opener, with no blank line" {
+    // The package line matters: it is what the gap tracker last saw, two lines above the comment, and
+    // measured from there the comment reads as standing across a blank line that is not inside the list.
+    source := "package Probe\n\nfunc G(\n    // the slot\n    x: int,\n    y: int\n): int {\n    return x\n}"
+    assert FstFormatComments(source) == "package Probe||func G(|    // the slot|    x: int,|    y: int|): int {|    return x|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
+}
+
+test "a comment between two parameters is kept, on its own line, above the parameter it preceded" {
+    // The second comment is written AFTER `y`'s comma on `y`'s own line; it belongs to the gap
+    // between `y` and `z`, so it moves to its own line above `z` exactly as it would in a call.
+    source := "func G(\n    x: int,\n    // the middle\n    y: int, /* note */\n    z: int\n): int {\n    return x\n}"
+    assert FstFormatComments(source) == "func G(|    x: int,|    // the middle|    y: int,|    /* note */|    z: int|): int {|    return x|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
+}
+
+test "a comment after the last parameter is kept above the closing delimiter, not moved into the body" {
+    source := "func G(\n    x: int,\n    y: int\n    // trailing\n): int {\n    return x\n}"
+    assert FstFormatComments(source) == "func G(|    x: int,|    y: int|    // trailing|): int {|    return x|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
+
+    // The same gap, with the comment written on the last parameter's own line.
+    sameLine := "func G(\n    x: int,\n    y: int // last\n): int {\n    return x\n}"
+    assert FstFormatComments(sameLine) == "func G(|    x: int,|    y: int|    // last|): int {|    return x|}", FstFormatComments(sameLine)
+    assert FstIdempotentComments(sameLine)
+}
+
+test "a blank line the author left above a comment inside a parameter list is kept, and only that one" {
+    source := "func G(\n    x: int,\n\n    // after a gap\n    y: int\n) {\n}"
+    assert FstFormatComments(source) == "func G(|    x: int,||    // after a gap|    y: int|) {|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
+}
+
+test "a constructor's parameter list keeps its comments in the first, middle and last positions" {
+    source := "class Box {\n    constructor(\n        // first\n        a: int,\n        // middle\n        b: int /* why */\n        // last\n    ) {\n    }\n}"
+    assert FstFormatComments(source) == "class Box {|    constructor(|        // first|        a: int,|        // middle|        b: int|        /* why */|        // last|    ) {|    }|}", FstFormatComments(source)
+    assert FstIdempotentComments(source)
+}
+
+test "a primary constructor and a local function keep their parameter-list comments too" {
+    // The indexer takes the same rule and is contracted against the walk in `FormatterWalk.tests.nl`:
+    // its source form does not round-trip (`func this[` is written back as `this[`), so an idempotence
+    // row here would be testing that defect rather than this rule.
+    structSource := "struct Point(\n    // across\n    x: double,\n    y: double\n    // done\n) {\n    X: double = x\n}"
+    assert FstFormatComments(structSource) == "struct Point(|    // across|    x: double,|    y: double|    // done|) {|    X: double = x|}", FstFormatComments(structSource)
+    assert FstIdempotentComments(structSource)
+
+    localSource := "func Outer() {\n    func inner(\n        // a\n        a: int,\n        b: int\n        // b\n    ): int {\n        return a\n    }\n}"
+    assert FstFormatComments(localSource) == "func Outer() {|    func inner(|        // a|        a: int,|        b: int|        // b|    ): int {|        return a|    }|}", FstFormatComments(localSource)
+    assert FstIdempotentComments(localSource)
+}
+
 // ---- ATTRIBUTES ARE ANNOTATIONS, AND THE FORMATTER WRITES THEM BACK VERBATIM ---------------------
 //
 // THE DEFECT THESE STATE BROKE A PRODUCT CONTRACT, NOT JUST A SPELLING. Re-rendering an attribute

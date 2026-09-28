@@ -228,6 +228,10 @@ class ColumnarParserRecovery {
     // tranche) or its name is `<error>`, so the enclosing declaration declines rather than emitting an
     // argument-free attribute node where Parser.cs would carry arguments.
     ParamListMaterializable: bool
+    // The line of the `)` that closed the last parameter list `ParseParameterListRecovery` read, or 0 when
+    // the closer was missing. Captured and stamped as `Declaration.ParameterListEndLine` by the caller, under
+    // the same capture-immediately discipline as `ParamListMaterializable`.
+    ParamListEndLine: int
     AttributesMaterializable: bool
     // Stage N+1c tranche 6 (type-parameter lists + base/interface lists): transient no-stub gates, set by
     // ParseTypeParameters / ParseBaseTypeList and captured by the caller into a local IMMEDIATELY (before any
@@ -332,6 +336,7 @@ class ColumnarParserRecovery {
         UnitColumn = 0
         TypeMemberStack = new List<List<Declaration>>()
         ParamListMaterializable = true
+        ParamListEndLine = 0
         AttributesMaterializable = true
         BaseListMaterializable = true
         TypeBodyMaterializable = true
@@ -1612,7 +1617,12 @@ class ColumnarParserRecovery {
         }
 
         // Parser.cs Consume(RightParen) (:830): a present ')' advances; a missing one routes through the
-        // Stage-9 closing-delimiter recovery (NL107) or the standard ExpectedToken path.
+        // Stage-9 closing-delimiter recovery (NL107) or the standard ExpectedToken path. Only a PRESENT
+        // closer has a line to record — a recovered one would stamp whatever token stood in its place.
+        ParamListEndLine = 0
+        if Check(TokenType.RightParen) {
+            ParamListEndLine = Current().Line
+        }
         ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
         return paramNodes
     }
@@ -2187,6 +2197,7 @@ class ColumnarParserRecovery {
         Advance()
         // consume the 'constructor' identifier (Parser.cs :1488)
         parameters := ParseParameterListRecovery()
+        parameterListEndLine := ParamListEndLine
         declined := !attrsOk || !ParamListMaterializable
 
         // Optional initializer `: this(args)` / `: base(args)` (Parser.cs :1493).
@@ -2238,7 +2249,9 @@ class ColumnarParserRecovery {
         if declined || body == null {
             return
         }
-        AddDeclaration(new ConstructorDeclaration(parameters, body, initializer, modifiers, attributes, line, column))
+        constructorNode := new ConstructorDeclaration(parameters, body, initializer, modifiers, attributes, line, column)
+        constructorNode.ParameterListEndLine = parameterListEndLine
+        AddDeclaration(constructorNode)
     }
 
     // Parser.cs ParseConstructorDeclaration's initializer-target error (:1534).
@@ -2285,6 +2298,10 @@ class ColumnarParserRecovery {
             }
         }
 
+        parameterListEndLine := 0
+        if Check(TokenType.RightBracket) {
+            parameterListEndLine = Current().Line
+        }
         ConsumeToken(TokenType.RightBracket, "Expected ']'", "]")
         ConsumeToken(TokenType.Colon, "Expected ':'", ":")
         returnType := ParseMaterializedTypeReference()
@@ -2328,7 +2345,9 @@ class ColumnarParserRecovery {
         if declined || returnType == null {
             return
         }
-        AddDeclaration(new IndexerDeclaration(parameters, returnType, getBody, setBody, modifiers, attributes, line, column))
+        indexerNode := new IndexerDeclaration(parameters, returnType, getBody, setBody, modifiers, attributes, line, column)
+        indexerNode.ParameterListEndLine = parameterListEndLine
+        AddDeclaration(indexerNode)
     }
 
     // Parser.cs ParseIndexerDeclaration's accessor error (:1613).
@@ -2444,6 +2463,7 @@ class ColumnarParserRecovery {
         }
 
         parameters := ParseParameterListRecovery()
+        parameterListEndLine := ParamListEndLine
         if !ParamListMaterializable {
             declined = true
         }
@@ -2508,6 +2528,7 @@ class ColumnarParserRecovery {
         functionNode.OperatorKeywordSpan = operatorKeywordSpan
         functionNode.OperatorSymbolSpan = operatorSymbolSpan
         functionNode.ReturnLifetime = returnLifetime
+        functionNode.ParameterListEndLine = parameterListEndLine
         return functionNode
     }
 
@@ -2758,8 +2779,10 @@ class ColumnarParserRecovery {
         hasParams := Check(TokenType.LeftParen)
         primaryParams := new List<Parameter>()
         paramsOk := true
+        parameterListEndLine := 0
         if hasParams {
             primaryParams = ParseParameterListRecovery()
+            parameterListEndLine = ParamListEndLine
             paramsOk = ParamListMaterializable
         }
         // N+1c tranche 6: materialize the base/interface list, then apply the CLASS dispatch (Parser.cs :977-978):
@@ -2793,7 +2816,9 @@ class ColumnarParserRecovery {
         canMaterialize := attrsOk && paramsOk && baseListOk && constraintsOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryParams, modifiers, attributes, classToken.Line, classToken.Column, constraints))
+                classNode := new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryParams, modifiers, attributes, classToken.Line, classToken.Column, constraints)
+                classNode.ParameterListEndLine = parameterListEndLine
+                AddDeclaration(classNode)
             } else {
                 AddDeclaration(new NSharpLang.Compiler.Ast.ClassDeclaration(name, typeParams, baseClass, interfaces, members, null, modifiers, attributes, classToken.Line, classToken.Column, constraints))
             }
@@ -2815,8 +2840,10 @@ class ColumnarParserRecovery {
         hasParams := Check(TokenType.LeftParen)
         primaryParams := new List<Parameter>()
         paramsOk := true
+        parameterListEndLine := 0
         if hasParams {
             primaryParams = ParseParameterListRecovery()
+            parameterListEndLine = ParamListEndLine
             // primary ctor params (Parser.cs :992)
             paramsOk = ParamListMaterializable
         }
@@ -2841,7 +2868,9 @@ class ColumnarParserRecovery {
         canMaterialize := attrsOk && paramsOk && baseListOk && constraintsOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, primaryParams, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct, constraints))
+                structNode := new StructDeclaration(name, typeParams, interfaces, members, primaryParams, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct, constraints)
+                structNode.ParameterListEndLine = parameterListEndLine
+                AddDeclaration(structNode)
             } else {
                 AddDeclaration(new StructDeclaration(name, typeParams, interfaces, members, null, modifiers, attributes, structToken.Line, structToken.Column, isRefStruct, constraints))
             }
@@ -2870,8 +2899,10 @@ class ColumnarParserRecovery {
         hasParams := Check(TokenType.LeftParen)
         primaryParams := new List<Parameter>()
         paramsOk := true
+        parameterListEndLine := 0
         if hasParams {
             primaryParams = ParseParameterListRecovery()
+            parameterListEndLine = ParamListEndLine
             // record positional (primary ctor) params (Parser.cs :1039)
             paramsOk = ParamListMaterializable
         }
@@ -2896,7 +2927,9 @@ class ColumnarParserRecovery {
         canMaterialize := attrsOk && paramsOk && baseListOk && constraintsOk
         if canMaterialize {
             if hasParams {
-                AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, primaryParams, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column, constraints))
+                recordNode := new RecordDeclaration(name, typeParams, interfaces, members, primaryParams, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column, constraints)
+                recordNode.ParameterListEndLine = parameterListEndLine
+                AddDeclaration(recordNode)
             } else {
                 AddDeclaration(new RecordDeclaration(name, typeParams, interfaces, members, null, isStruct, modifiers, attributes, recordToken.Line, recordToken.Column, constraints))
             }
@@ -6122,6 +6155,7 @@ class ColumnarParserRecovery {
         declined := false
         typeParameters := ParseTypeParameters()
         parameters := ParseParameterListRecovery()
+        parameterListEndLine := ParamListEndLine
         if !ParamListMaterializable {
             declined = true
         }
@@ -6199,6 +6233,7 @@ class ColumnarParserRecovery {
         }
         localFunction := new NSharpLang.Compiler.Ast.FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParameters, constraints, (Modifiers)modifierValue, new List<AttributeNode>(), false, null, false, false, line, column)
         localFunction.ReturnLifetime = returnLifetime
+        localFunction.ParameterListEndLine = parameterListEndLine
         return new LocalFunctionStatement(localFunction, line, column)
     }
 

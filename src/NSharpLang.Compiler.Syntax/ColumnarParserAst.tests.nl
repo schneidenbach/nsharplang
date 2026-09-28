@@ -5953,6 +5953,53 @@ test "a `return` whose value is a raw string literal KEEPS the value, and the co
     assert binaryVerified
 }
 
+func ParameterListEndLineOf(declaration: Declaration): int {
+    return declaration.ParameterListEndLine
+}
+
+func FirstDeclarationOf(source: string): Declaration {
+    return RunAst(source).Declarations[0]
+}
+
+func FirstMemberOf(source: string): Declaration {
+    classDeclaration := FirstDeclarationOf(source) as ClassDeclaration
+    if classDeclaration != null {
+        return classDeclaration.Members[0]
+    }
+
+    return FirstDeclarationOf(source)
+}
+
+test "every parameter list's closer line is stamped on the declaration that owns it" {
+    // A parameter list has no node of its own, so its closer's line is the DECLARATION's fact. The
+    // formatter reads it to keep a comment written after the last parameter inside the list; without it
+    // that comment was carried down into the body. Every owner of a parameter list is stamped, a list
+    // on one line is stamped with that one line, and a declaration with no list reads zero.
+    assert ParameterListEndLineOf(FirstDeclarationOf("func F(\n    a: int\n): int {\n    return a\n}\n")) == 3, "function"
+    assert ParameterListEndLineOf(FirstDeclarationOf("func F(a: int) {\n}\n")) == 1, "one-line list"
+    assert ParameterListEndLineOf(FirstMemberOf("class C {\n    constructor(\n        b: int\n    ) {\n    }\n}\n")) == 4, "constructor"
+    assert ParameterListEndLineOf(FirstMemberOf("class C {\n    func this[\n        i: int\n    ]: int {\n        get {\n            return 0\n        }\n    }\n}\n")) == 4, "indexer"
+    assert ParameterListEndLineOf(FirstDeclarationOf("class C(\n    a: int\n) {\n}\n")) == 3, "class"
+    assert ParameterListEndLineOf(FirstDeclarationOf("struct S(\n    x: int\n) {\n}\n")) == 3, "struct"
+    assert ParameterListEndLineOf(FirstDeclarationOf("record R(\n    y: int\n)\n")) == 3, "record"
+    assert ParameterListEndLineOf(FirstDeclarationOf("class Plain {\n}\n")) == 0, "no parameter list"
+
+    outer := FirstDeclarationOf("func Outer() {\n    func inner(\n        d: int\n    ): int {\n        return d\n    }\n}\n") as FunctionDeclaration
+    verified := false
+    if outer != null {
+        body := outer.Body
+        if body != null {
+            localStatement := body.Statements[0] as LocalFunctionStatement
+            if localStatement != null {
+                assert ParameterListEndLineOf(localStatement.Function) == 4, "local function"
+                verified = true
+            }
+        }
+    }
+
+    assert verified
+}
+
 test "a statement that ends in a multi-line raw literal reports the literal's LAST line as its EndLine" {
     // A raw string literal is ONE token that spans lines, and both `EndLine` stamps read
     // `Previous().Line` — the line the literal OPENED on. The formatter measures blank-line gaps from

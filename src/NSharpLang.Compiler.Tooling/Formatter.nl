@@ -434,7 +434,7 @@ class Formatter {
     // A primary constructor's parameter list, or nothing. AN EMPTY LIST WRITES NO PARENTHESES:
     // `class Foo {` and `class Foo() {` are different source, and a record with no positional
     // parameters is spelled without them.
-    func AppendPrimaryConstructorParameters(parameters: List<Parameter>?, openLine: int, builder: StringBuilder) {
+    func AppendPrimaryConstructorParameters(parameters: List<Parameter>?, openLine: int, closeLine: int, builder: StringBuilder) {
         if parameters == null {
             return
         }
@@ -443,7 +443,7 @@ class Formatter {
             return
         }
 
-        walk.AppendParameterList(parameters, openLine, "(", ")", builder)
+        walk.AppendParameterList(parameters, openLine, closeLine, "(", ")", builder)
     }
 
     // A `: A, B` base list, or nothing.
@@ -480,7 +480,7 @@ class Formatter {
         builder.Append("class ")
         builder.Append(classDeclaration.Name)
         walk.AppendTypeParameters(classDeclaration.TypeParameters, builder)
-        AppendPrimaryConstructorParameters(classDeclaration.PrimaryConstructorParameters, classDeclaration.Line, builder)
+        AppendPrimaryConstructorParameters(classDeclaration.PrimaryConstructorParameters, classDeclaration.Line, classDeclaration.ParameterListEndLine, builder)
 
         bases := new List<TypeReference>()
         baseClass := classDeclaration.BaseClass
@@ -506,7 +506,7 @@ class Formatter {
         builder.Append(structDeclaration.IsRefStruct ? "ref struct " : "struct ")
         builder.Append(structDeclaration.Name)
         walk.AppendTypeParameters(structDeclaration.TypeParameters, builder)
-        AppendPrimaryConstructorParameters(structDeclaration.PrimaryConstructorParameters, structDeclaration.Line, builder)
+        AppendPrimaryConstructorParameters(structDeclaration.PrimaryConstructorParameters, structDeclaration.Line, structDeclaration.ParameterListEndLine, builder)
         AppendBaseList(structDeclaration.Interfaces, builder)
         walk.AppendGenericConstraints(structDeclaration.Constraints, builder)
         AppendMemberBody(structDeclaration.Members, builder)
@@ -528,7 +528,7 @@ class Formatter {
 
         builder.Append(recordDeclaration.Name)
         walk.AppendTypeParameters(recordDeclaration.TypeParameters, builder)
-        AppendPrimaryConstructorParameters(recordDeclaration.PrimaryConstructorParameters, recordDeclaration.Line, builder)
+        AppendPrimaryConstructorParameters(recordDeclaration.PrimaryConstructorParameters, recordDeclaration.Line, recordDeclaration.ParameterListEndLine, builder)
         AppendBaseList(recordDeclaration.Interfaces, builder)
         walk.AppendGenericConstraints(recordDeclaration.Constraints, builder)
         AppendMemberBody(recordDeclaration.Members, builder)
@@ -770,7 +770,7 @@ class Formatter {
         AppendModifiers(constructorDeclaration.Modifiers, null, builder)
 
         builder.Append("constructor")
-        walk.AppendParameterList(constructorDeclaration.Parameters, constructorDeclaration.Line, "(", ")", builder)
+        walk.AppendParameterList(constructorDeclaration.Parameters, constructorDeclaration.Line, constructorDeclaration.ParameterListEndLine, "(", ")", builder)
 
         initializer := constructorDeclaration.Initializer
         if initializer != null {
@@ -796,7 +796,7 @@ class Formatter {
         AppendModifiers(indexerDeclaration.Modifiers, null, builder)
 
         builder.Append("this")
-        walk.AppendParameterList(indexerDeclaration.Parameters, indexerDeclaration.Line, "[", "]", builder)
+        walk.AppendParameterList(indexerDeclaration.Parameters, indexerDeclaration.Line, indexerDeclaration.ParameterListEndLine, "[", "]", builder)
         builder.Append(": ")
         builder.Append(FormatterSyntaxText.FormatTypeReference(indexerDeclaration.Type))
         builder.AppendLine(" {")

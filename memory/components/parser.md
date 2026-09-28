@@ -141,6 +141,13 @@ yielded; this exists because late-added children (`NewExpression.ArrayLengthExpr
 - **UnionDeclaration**: Discriminated unions
 - **EnumDeclaration**: Int or string enums
 
+Every declaration that owns a parameter list (function, local function, constructor, indexer, and a
+class/struct/record primary constructor) carries `ParameterListEndLine` — the line of the list's `)` or
+`]`, stamped by the recovery parser (`ParamListEndLine`), zero when there is no list, the closer was
+missing, or the tree was hand-built. The list is a bare `List<Parameter>` with no node of its own, so
+the closer's line lives on the declaration. The formatter reads it to keep a comment written after the
+last parameter of a wrapped list inside the list, above the closer, rather than carrying it into the body.
+
 ## Important Parsing Details
 
 ### Attribute Parsing

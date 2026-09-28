@@ -498,17 +498,17 @@ test "a parameter list writes the delimiters it is given, round or square" {
     walk := FwkWalk(state)
 
     round := new StringBuilder()
-    walk.AppendParameterList(parameters, 0, "(", ")", round)
+    walk.AppendParameterList(parameters, 0, 0, "(", ")", round)
     assert FwkShow(round) == "(i: int, j: int)", FwkShow(round)
 
     square := new StringBuilder()
-    walk.AppendParameterList(parameters, 0, "[", "]", square)
+    walk.AppendParameterList(parameters, 0, 0, "[", "]", square)
     assert FwkShow(square) == "[i: int, j: int]", FwkShow(square)
 }
 
 test "a parameter list wraps on its ELEMENT lines, and keeps its square brackets when it does" {
-    // A parameter below the declaration's own line is a wrapped list. The closer plays no part: a
-    // declaration's `(` and `)` belong to the declaration, and the parser stamps neither.
+    // A parameter below the declaration's own line is a wrapped list. The closer plays no part in that
+    // decision — it is read only to place a trailing comment — so a closer line of zero changes nothing.
     parameters := FwkEmptyParameters()
     parameters.Add(FwkParameterAt("i", "int", 2))
     parameters.Add(FwkParameterAt("j", "int", 3))
@@ -516,7 +516,7 @@ test "a parameter list wraps on its ELEMENT lines, and keeps its square brackets
     walk := FwkWalk(state)
 
     builder := new StringBuilder()
-    walk.AppendParameterList(parameters, 1, "[", "]", builder)
+    walk.AppendParameterList(parameters, 1, 0, "[", "]", builder)
     assert FwkShow(builder) == "[|    i: int,|    j: int|]", FwkShow(builder)
 
     // The same parameters all on the declaration's own line stay on one line.
@@ -524,12 +524,43 @@ test "a parameter list wraps on its ELEMENT lines, and keeps its square brackets
     flatParameters.Add(FwkParameterAt("i", "int", 1))
     flatParameters.Add(FwkParameterAt("j", "int", 1))
     flat := new StringBuilder()
-    FwkWalk(FwkState()).AppendParameterList(flatParameters, 1, "(", ")", flat)
+    FwkWalk(FwkState()).AppendParameterList(flatParameters, 1, 0, "(", ")", flat)
     assert FwkShow(flat) == "(i: int, j: int)", FwkShow(flat)
 }
 
 func FwkParameterAt(name: string, typeName: string, line: int): Parameter {
     return new Parameter(name, FwkType(typeName), null, false, ParameterModifier.None, null, line, 0, false, null)
+}
+
+test "a wrapped parameter list places its comments as an argument list does, square brackets included" {
+    // The indexer is the shape the source-text rows cannot reach (see the note above), so the comment
+    // rule is contracted here for `[`/`]` as well. The declaration stands on line 1 and the tracker last
+    // saw line 0 — the file's own start — so a comment on line 2 would read as standing across a blank
+    // line if the list did not re-base the gap on its opener. Line 4's comment is written on `j`'s own
+    // line and belongs to the gap before the closer on line 6, as does line 5's.
+    comments := new List<CommentTrivia>()
+    comments.Add(new CommentTrivia(2, 5, "// row", false))
+    comments.Add(new CommentTrivia(4, 12, "/* why */", false))
+    comments.Add(new CommentTrivia(5, 5, "// last", false))
+    parameters := FwkEmptyParameters()
+    parameters.Add(FwkParameterAt("i", "int", 3))
+    parameters.Add(FwkParameterAt("j", "int", 4))
+    state := FwkState()
+    state.BeginFile(comments)
+
+    builder := new StringBuilder()
+    FwkWalk(state).AppendParameterList(parameters, 1, 6, "[", "]", builder)
+    assert FwkShow(builder) == "[|    // row|    i: int,|    j: int|    /* why */|    // last|]", FwkShow(builder)
+
+    // With no closer line — a hand-built tree — the trailing comments are left in the stream for
+    // whatever the walk emits next, rather than guessed into place.
+    unstamped := new List<CommentTrivia>()
+    unstamped.Add(new CommentTrivia(5, 5, "// last", false))
+    unstampedState := FwkState()
+    unstampedState.BeginFile(unstamped)
+    unstampedBuilder := new StringBuilder()
+    FwkWalk(unstampedState).AppendParameterList(parameters, 1, 0, "[", "]", unstampedBuilder)
+    assert FwkShow(unstampedBuilder) == "[|    i: int,|    j: int|]", FwkShow(unstampedBuilder)
 }
 
 test "an initializer with no source positions is written inline, however many properties it has" {

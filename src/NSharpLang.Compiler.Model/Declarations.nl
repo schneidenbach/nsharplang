@@ -5,7 +5,20 @@ import System.Collections.Generic
 
 // Base class for declarations
 class Declaration: AstNode {
+
+    // THE LINE OF THE DELIMITER THAT CLOSES THIS DECLARATION'S PARAMETER LIST — the `)` of a function,
+    // a constructor or a primary constructor, the `]` of an indexer. Zero when the declaration has no
+    // parameter list, when the closer was missing, or when the node came from a path that never stamps
+    // it (every hand-built tree).
+    //
+    // It is a DECLARATION's fact and not a list node's because the list has no node: the parser returns
+    // a bare `List<Parameter>` and the two delimiters belong to the declaration. The formatter is the
+    // consumer: a comment the author wrote between the last parameter and the closer belongs INSIDE
+    // the list, and without this line it cannot tell that comment from one inside the body.
+    ParameterListEndLine: int
+
     constructor(Line: int, Column: int): base(Line, Column) {
+        this.ParameterListEndLine = 0
     }
 }
 

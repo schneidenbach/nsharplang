@@ -117,8 +117,10 @@ class FormatterWalk {
         return true
     }
 
-    // The same question for a list whose CLOSER the parser does not stamp: a declaration's parameter
-    // list, whose `(` and `)` belong to the declaration node rather than to a list node of their own.
+    // The same question for a declaration's parameter list, whose `(` and `)` belong to the declaration
+    // node rather than to a list node of their own. The parser does stamp the closer's line
+    // (`Declaration.ParameterListEndLine`), but only to place a trailing comment; the wrap is decided
+    // without it, so a hand-built tree with no stamp wraps exactly as a parsed one.
     //
     // Here the test is the ELEMENTS: a parameter that starts below the declaration's own line is a
     // wrapped list. The two tests differ only for a closer left dangling under a complete first line
@@ -404,13 +406,30 @@ class FormatterWalk {
     // A PARAMETER LIST, wherever one is written: a function, a constructor, a record's primary
     // constructor, or an indexer — whose brackets are SQUARE, which is why the two delimiters are
     // arguments rather than literals. `openLine` is the declaration's own line; see
-    // `ShouldWrapByElementLines` for why the closer plays no part here.
-    func AppendParameterList(parameters: List<Parameter>, openLine: int, openText: string, closeText: string, builder: StringBuilder) {
+    // `ShouldWrapByElementLines` for why the closer plays no part in the wrap.
+    //
+    // WHEN WRAPPED, ITS COMMENTS FOLLOW THE ARGUMENT LIST'S RULE EXACTLY: a comment between two
+    // parameters on its own line above the parameter it preceded, a comment after the last parameter
+    // above the closer. `closeLine` is `Declaration.ParameterListEndLine`, and zero — a hand-built tree,
+    // or a closer the parser never saw — leaves any trailing comment to whatever the walk emits next,
+    // which is what every list did before the parser stamped it.
+    //
+    // THE GAP TRACKER IS WHAT THE ARGUMENT LIST ALREADY GOT RIGHT AND THIS LIST DID NOT. Without the
+    // opening-line baseline the tracker still held the line of whatever came before the declaration —
+    // the package line, the previous member's closing brace — so the first interior comment read as
+    // standing across a blank line and was written with an empty line above it. Advancing the baseline
+    // to each parameter is what keeps a blank line the author DID write, and only that one.
+    func AppendParameterList(parameters: List<Parameter>, openLine: int, closeLine: int, openText: string, closeText: string, builder: StringBuilder) {
         wrapped := ShouldWrapByElementLines(openLine, parameters.Count, MaxParameterLine(parameters))
+
+        // Written through a local for the reason `FormatArgumentList` gives: the columnar backend
+        // declines a property assignment whose receiver is a field.
+        tracker := state
 
         builder.Append(openText)
         if wrapped {
             state.Push()
+            tracker.LastEmittedSourceLine = openLine
         }
 
         index := 0
@@ -419,6 +438,7 @@ class FormatterWalk {
                 builder.AppendLine()
                 state.EmitCommentsBefore(parameters[index].Line, builder)
                 state.Indent(builder)
+                tracker.LastEmittedSourceLine = parameters[index].Line
             }
 
             FormatParameter(parameters[index], builder)
@@ -435,6 +455,10 @@ class FormatterWalk {
 
         if wrapped {
             builder.AppendLine()
+            if closeLine > 0 {
+                state.EmitCommentsBefore(closeLine, builder)
+            }
+
             state.Pop()
             state.Indent(builder)
         }
@@ -627,7 +651,7 @@ class FormatterWalk {
             AppendTypeParameters(declaration.TypeParameters, builder)
         }
 
-        AppendParameterList(declaration.Parameters, declaration.Line, "(", ")", builder)
+        AppendParameterList(declaration.Parameters, declaration.Line, declaration.ParameterListEndLine, "(", ")", builder)
 
         if !declaration.IsConversionOperator && declaration.ReturnType != null {
             builder.Append(": ")
