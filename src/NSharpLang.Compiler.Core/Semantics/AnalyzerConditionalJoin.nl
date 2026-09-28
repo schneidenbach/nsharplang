@@ -139,6 +139,55 @@ class AnalyzerConditionalJoin {
         return facts
     }
 
+    // THE FLOW VISIBLE AT THE BRANCH POINT. A write in an arm that always leaves still invalidates
+    // enclosing scopes while that arm is walked; the arm that survives needs this pre-branch state
+    // so those dead-path writes cannot erase facts it never changed.
+    static func SnapshotFacts(scopes: AnalyzerScopeStack): Dictionary<string, NullState> {
+        facts := new Dictionary<string, NullState>(StringComparer.Ordinal)
+        for scope in scopes.scopes {
+            for entry in scope.NullStates {
+                facts[entry.Key] = entry.Value
+            }
+        }
+
+        return facts
+    }
+
+    // Rebuild the only path that reaches the statement after a guard clause. Start with facts visible
+    // before the branches, apply the surviving side's condition facts, kill everything that side
+    // writes, then lay its recorded exit facts over the result. Writes in the branch that left are
+    // deliberately absent from `writtenPaths`.
+    static func InheritedFactsPreservingEntry(entryFacts: Dictionary<string, NullState>, exitFacts: Dictionary<string, NullState>?, narrowings: List<FlowNarrowing>?, writtenPaths: List<string>): List<FlowNarrowing> {
+        facts := new Dictionary<string, NullState>(entryFacts, StringComparer.Ordinal)
+        if narrowings != null {
+            for narrowing in narrowings {
+                facts[narrowing.Path] = narrowing.NullState
+            }
+        }
+
+        for writtenPath in writtenPaths {
+            memberPrefix := writtenPath + "."
+            removals := new List<string>()
+            for entry in facts {
+                if entry.Key == writtenPath || entry.Key.StartsWith(memberPrefix, StringComparison.Ordinal) {
+                    removals.Add(entry.Key)
+                }
+            }
+
+            for removal in removals {
+                facts.Remove(removal)
+            }
+        }
+
+        if exitFacts != null {
+            for entry in exitFacts {
+                facts[entry.Key] = entry.Value
+            }
+        }
+
+        return InheritedFacts(facts)
+    }
+
     // THE JOIN ITSELF, rendered as the narrowing list the flow writer installs. Only a path BOTH
     // paths speak for is joined: one that only one path mentions is one the other path left to the
     // enclosing flow, and the enclosing flow's answer — or, when a branch assignment invalidated it,

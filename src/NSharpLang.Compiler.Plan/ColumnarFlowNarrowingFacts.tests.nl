@@ -60,6 +60,15 @@ test "x != null PROVES x IN THE TRUE BRANCH AND x == null PROVES IT IN THE FALSE
     assert NarrowingNames(equal, true).Count == 0
 }
 
+test "census flow rules: a loop body receives the true facts from its null condition" {
+    condition := NarrowingNullTree("value", "!=")
+    split := ColumnarFlowNarrowingFacts.Extract(condition.Nodes, condition.Source, condition.Root)
+
+    assert split.Then.Count == 1
+    assert split.Then[0] == "value"
+    assert split.Else.Count == 0
+}
+
 test "THE LITERAL MAY BE WRITTEN ON EITHER SIDE" {
     builder := new ColumnarRangePlannerNodeBuilder()
     left := builder.AddLeaf(ColumnarExpressionNodeKind.NullLiteralExpression, "null")

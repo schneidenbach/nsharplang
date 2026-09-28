@@ -1,6 +1,5 @@
 namespace NSharpLang.CensusFlowRules.Tests
 
-
 test "a for update walks a base chain under the condition that proved it" {
     chain := new ChainDef("ab", new ChainDef("c", null))
     assert ChainNameLength(chain) == 3

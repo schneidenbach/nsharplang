@@ -310,8 +310,13 @@ sealed class ColumnarIlEmitter {
         // conditional, so only a DIRECT break/continue child counts here.)
         // A WRITE ENDS THE NARROWING IT INVALIDATES. The statement just emitted may have
         // assigned a name an earlier guard clause proved present, and from here on that name
-        // holds whatever the write put there.
-        DropNarrowingsAssignedIn(child)
+        // holds whatever the write put there. Blocks sequence their children and carry those kills
+        // to their exit; `if` computes the facts on its reachable paths. Their own flow handling
+        // must not be replaced by a whole-subtree kill here.
+        childKind := _nodes.Kind(child)
+        if childKind != ColumnarStatementNodeKind.BlockStatement && childKind != ColumnarStatementNodeKind.IfStatement {
+            DropNarrowingsAssignedIn(child)
+        }
         transfers := AlwaysReturns(child) || _nodes.Kind(child) == ColumnarStatementNodeKind.BreakStatement || _nodes.Kind(child) == ColumnarStatementNodeKind.ContinueStatement
         if (transfers) {
             // A LOCAL FUNCTION DECLARATION (kind 41) EMITS NO IL AT ALL — the method was declared
@@ -8858,7 +8863,10 @@ sealed class ColumnarIlEmitter {
             for name in blockLifted {
                 _liftedLocals.Remove(name)
             }
-            _narrowedNonNull = outerNarrowed
+            // A block does not export facts it introduced, but a write to an incoming fact stays
+            // killed when the block ends. Intersecting with the entry set gives both rules: inner
+            // guard facts disappear, while assignments do not resurrect an outer proof.
+            _narrowedNonNull = IntersectNarrowedNames(outerNarrowed, _narrowedNonNull)
             return true
         } else if columnarSwitchValue0 == ColumnarStatementNodeKind.TryStatement {
             // TryStatement [tryBlock, catch1..catchN] — each catch a kind-50 CatchClause (value
@@ -9499,6 +9507,11 @@ sealed class ColumnarIlEmitter {
                 return Decline("emit.if.condition", "if condition could not be emitted as a bool", Child(idx, 0))
             }
 
+            // Condition expressions execute on both edges before either branch. An assignment or
+            // by-ref write there invalidates an incoming proof before the branch facts are applied.
+            DropNarrowingsAssignedIn(Child(idx, 0))
+            beforeIfNarrowed := new HashSet<string>(_narrowedNonNull, StringComparer.Ordinal)
+
             thenStmt := Child(idx, 1)
             elseLabel := _il.DefineLabel()
             _il.Emit(OpCodes.Brfalse, elseLabel)
@@ -9520,6 +9533,15 @@ sealed class ColumnarIlEmitter {
                 }
             }
 
+            thenLeaves := AlwaysLeaves(thenStmt)
+            thenKind := _nodes.Kind(thenStmt)
+            if (!thenLeaves && thenKind != ColumnarStatementNodeKind.BlockStatement && thenKind != ColumnarStatementNodeKind.IfStatement) {
+                // A braceless write has no block-child boundary of its own. Kill after its reads;
+                // blocks and nested ifs have already carried their statement-level flow here.
+                DropNarrowingsAssignedIn(thenStmt)
+            }
+            thenExitNarrowed := new HashSet<string>(_narrowedNonNull, StringComparer.Ordinal)
+
             if (childCount == 2) {
                 // if-WITHOUT-else (a guard clause): the brfalse already targets the merge. Both edges
                 // reach it with an empty stack (a fall-through then-branch is net-zero; a returning
@@ -9529,8 +9551,17 @@ sealed class ColumnarIlEmitter {
                 // only flow that reaches the merge is the one the condition was FALSE on, so the
                 // surviving code takes what the untaken branch proved — the analyzer's rule, asked of
                 // the same statement with the same walk.
-                if (AlwaysLeaves(thenStmt)) {
-                    PushNarrowedNames(narrowingSplit.Else)
+                if (thenLeaves) {
+                    _narrowedNonNull = new HashSet<string>(beforeIfNarrowed, StringComparer.Ordinal)
+                    for name in narrowingSplit.Else {
+                        _narrowedNonNull.Add(name)
+                    }
+                } else {
+                    elseExitNarrowed := new HashSet<string>(beforeIfNarrowed, StringComparer.Ordinal)
+                    for name in narrowingSplit.Else {
+                        elseExitNarrowed.Add(name)
+                    }
+                    _narrowedNonNull = IntersectNarrowedNames(thenExitNarrowed, elseExitNarrowed)
                 }
                 return true
             }
@@ -9548,6 +9579,10 @@ sealed class ColumnarIlEmitter {
             }
             _il.MarkLabel(elseLabel)
 
+            // Emitting one arm must not let its writes poison the other arm's input state. The
+            // analyzer starts each branch from the condition's incoming state too.
+            _narrowedNonNull = new HashSet<string>(beforeIfNarrowed, StringComparer.Ordinal)
+
             elseStmt := Child(idx, 2)
             beforeElse := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
             elseNarrowed := PushNarrowedNames(narrowingSplit.Else)
@@ -9563,6 +9598,13 @@ sealed class ColumnarIlEmitter {
                 }
             }
 
+            elseLeaves := AlwaysLeaves(elseStmt)
+            elseKind := _nodes.Kind(elseStmt)
+            if (!elseLeaves && elseKind != ColumnarStatementNodeKind.BlockStatement && elseKind != ColumnarStatementNodeKind.IfStatement) {
+                DropNarrowingsAssignedIn(elseStmt)
+            }
+            elseExitNarrowed := new HashSet<string>(_narrowedNonNull, StringComparer.Ordinal)
+
             if (thenFallsThrough) {
                 _il.MarkLabel(endLabel)
             }
@@ -9570,12 +9612,17 @@ sealed class ColumnarIlEmitter {
             // of the two branches can reach the merge, the surviving flow is that branch's, so it
             // keeps what that branch's side of the condition proved — minus anything the branch itself
             // wrote, which is no longer the value the condition spoke about.
-            if (AlwaysLeaves(thenStmt)) {
-                PushNarrowedNames(narrowingSplit.Else)
+            if (thenLeaves && !elseLeaves) {
+                _narrowedNonNull = AddNarrowedNames(elseExitNarrowed, narrowingSplit.Else)
                 DropNarrowingsAssignedIn(elseStmt)
-            } else if (AlwaysLeaves(elseStmt)) {
-                PushNarrowedNames(narrowingSplit.Then)
+            } else if (elseLeaves && !thenLeaves) {
+                _narrowedNonNull = AddNarrowedNames(thenExitNarrowed, narrowingSplit.Then)
                 DropNarrowingsAssignedIn(thenStmt)
+            } else if (!thenLeaves && !elseLeaves) {
+                _narrowedNonNull = IntersectNarrowedNames(thenExitNarrowed, elseExitNarrowed)
+            } else {
+                // Neither edge reaches the statement after this `if`.
+                _narrowedNonNull = new HashSet<string>(StringComparer.Ordinal)
             }
             return true
         } else if columnarSwitchValue0 == ColumnarStatementNodeKind.OffStatement {
@@ -10488,7 +10535,9 @@ sealed class ColumnarIlEmitter {
             // `break` exits to endLabel, `continue` re-tests at checkLabel; both reach their target with an
             // empty stack (the body up to the transfer is net-zero), so they are stack-consistent.
             _loopLabels.Push((endLabel, checkLabel, _protectedDepth, _finallyDepth))
+            bodyNarrowed := PushNarrowedNames(ColumnarFlowNarrowingFacts.Extract(_nodes, _source, Child(idx, 0)).Then)
             bodyEmitted := EmitStatement(body)
+            PopNarrowedNames(bodyNarrowed)
             _loopLabels.Pop()
             if (!bodyEmitted) {
                 return false
@@ -10633,7 +10682,9 @@ sealed class ColumnarIlEmitter {
             }
 
             _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
+            bodyNarrowed := PushNarrowedNames(ColumnarFlowNarrowingFacts.Extract(_nodes, _source, cond).Then)
             forBodyEmitted := EmitStatement(body)
+            PopNarrowedNames(bodyNarrowed)
             _loopLabels.Pop()
             if (!forBodyEmitted) {
                 return false
@@ -12510,6 +12561,31 @@ sealed class ColumnarIlEmitter {
         for name in added {
             _narrowedNonNull.Remove(name)
         }
+    }
+
+    private func AddNarrowedNames(existing: HashSet<string>, names: List<string>): HashSet<string> {
+        result := new HashSet<string>(existing, StringComparer.Ordinal)
+        for name in names {
+            result.Add(name)
+        }
+        return result
+    }
+
+    // Only a fact present on every reachable branch may survive a merge. The emitter deliberately
+    // does not recreate facts from assignments here; it keeps only condition facts that both emitted
+    // paths retained, which is safe even when the analyzer can prove a stronger assignment result.
+    private func IntersectNarrowedNames(left: HashSet<string>, right: HashSet<string>): HashSet<string> {
+        result := new HashSet<string>(left, StringComparer.Ordinal)
+        removals := new List<string>()
+        for name in result {
+            if (!right.Contains(name)) {
+                removals.Add(name)
+            }
+        }
+        for name in removals {
+            result.Remove(name)
+        }
+        return result
     }
 
     // EVERY NAME A SUBTREE WRITES STOPS BEING NARROWED. A narrowing is a statement about the value a

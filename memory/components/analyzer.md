@@ -729,6 +729,19 @@ tuple deconstruction declares rather than writes. The walk is typed rather than 
 expression node needs an arm there, and its absence is a SILENT missing NL905 rather than a red test,
 which is why `AnalyzerLoopCarriedNullFacts.tests.nl` pins every container shape.
 
+The columnar emitter mirrors the same body flow: it pushes the condition's true facts for `while` and
+`for`, emits a write's right-hand side under the incoming fact, then drops that fact for later
+statements. Blocks carry those kills out; `if` starts each arm from the same entry facts and keeps
+only facts shared by reachable exits. This matters for `continue`: writes on the branch that continues
+do not kill a proof on the other branch, while a body write removes that proof from the `for` update
+through `ForStepNarrowedNames`. Lambda and local-function bodies are emitted independently, with no
+outer narrowed set passed into them, so a capture the emitter cannot safely prove still declines.
+
+For a branch that always leaves, `AnalyzerLoopSequence.AdvanceIfJoin` rebuilds the surviving path from
+the condition's entry snapshot, that side's condition facts, its own writes, and its exit facts.
+`AnalyzerConditionalJoin.SnapshotFacts` and `InheritedFactsPreservingEntry` prevent writes made only
+on a `break`/`continue`/return path from erasing facts on the path that reaches the next statement.
+
 ### The join after a conditional (census 2026-09-13, §FLOW7)
 
 `AnalyzerConditionalJoin` owns what is true AFTER an `if`, and `AnalyzerLoopSequence`'s `if` walk

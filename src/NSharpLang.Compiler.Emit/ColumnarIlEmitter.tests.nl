@@ -8,12 +8,46 @@ import System.Reflection
 // of its constructor lowering it must refuse, and the writable-property admission it asks of a
 // referenced type. They reach the emitter's own members (`TryEmitColumnarAssembly`, and by reflection
 // `_il`, `EmitChainedConstructorCall` and `TryGetSupportedBclWritableProperty`), so they build here.
+func EmitLoopBodyCall(method: MethodInfo, start: object?): int {
+    arguments := new object?[](1)
+    arguments[0] = start
+    return Convert.ToInt32(method.Invoke(null, arguments))
+}
+
 test "a class pairing a bare nullable field with an initialized one emits instead of throwing" {
     program := EmitFixtureProgram([""], ["class Probe {\n    Tokens: string?\n    Count: int = 4\n}\n"], "FieldInitPlannerProbe")
     bytes: byte[] = null
     assert ColumnarIlEmitter.TryEmitColumnarAssembly("FieldInitPlanner" + Guid.NewGuid().ToString("N"), "Program", program, false, out bytes, null, null)
     assert bytes != null
     assert bytes.Length > 0
+}
+
+test "loop bodies read condition-proved Nullable values and keep continue branches isolated" {
+    source := "func Dec(n: int): int? {\n    if n <= 0 {\n        return null\n    }\n    return n - 1\n}\n\nfunc WhileBody(start: int?): int {\n    total := 0\n    n := start\n    while n != null {\n        total = total + n\n        n = Dec(n)\n    }\n    return total\n}\n\nfunc ForBody(start: int?): int {\n    total := 0\n    n := start\n    for i := 0; n != null; i = i + 1 {\n        total = total + n\n        n = Dec(n)\n    }\n    return total\n}\n\nfunc WhileContinue(start: int?): int {\n    total := 0\n    n := start\n    while n != null {\n        if n % 2 == 0 {\n            n = Dec(n)\n            continue\n        }\n        total = total + n\n        n = Dec(n)\n    }\n    return total\n}\n\nfunc ForContinue(start: int?): int {\n    total := 0\n    n := start\n    for i := 0; n != null; i = i + 1 {\n        if n % 2 == 0 {\n            n = Dec(n)\n            continue\n        }\n        total = total + n\n        n = Dec(n)\n    }\n    return total\n}\n"
+    program := EmitFixtureProgram([""], [source], "LoopBodyNarrowingEmitter")
+    bytes: byte[] = null
+    assert ColumnarIlEmitter.TryEmitColumnarAssembly("LoopBodyNarrowingEmitter" + Guid.NewGuid().ToString("N"), "Program", program, false, out bytes, null, null)
+    assembly := Assembly.Load(bytes)
+    owner := assembly.GetType("Program")
+    assert owner != null
+
+    whileBody := owner.GetMethod("WhileBody", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+    forBody := owner.GetMethod("ForBody", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+    whileContinue := owner.GetMethod("WhileContinue", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+    forContinue := owner.GetMethod("ForContinue", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+    assert whileBody != null
+    assert forBody != null
+    assert whileContinue != null
+    assert forContinue != null
+
+    assert EmitLoopBodyCall(whileBody, 3) == 6
+    assert EmitLoopBodyCall(forBody, 3) == 6
+    assert EmitLoopBodyCall(whileBody, 2) == 3
+    assert EmitLoopBodyCall(forBody, 2) == 3
+    assert EmitLoopBodyCall(whileContinue, 5) == 9
+    assert EmitLoopBodyCall(forContinue, 5) == 9
+    assert EmitLoopBodyCall(whileBody, null) == 0
+    assert EmitLoopBodyCall(forBody, null) == 0
 }
 
 test "constructor chain selection rebinds every differing exact base before emitting IL" {

@@ -526,10 +526,12 @@ answer alike" (`tests/native/census-external-nullability`, `census-external-oper
   under the condition-true facts minus every path the body can write (a `continue` before the write
   reaches the update with the write still ahead) -- `AnalyzerLoopSequence.SurvivingBodyNarrowings`; the
   emitter pushes the same names for the increment (`ForStepNarrowedNames`), so a `Nullable<T>` the
-  condition proved reads as its `T` there too. The emit-side kill set (`CollectAssignedNames`) now
-  counts `ref`/`out` arguments and deconstruction targets, as the analyzer's always did. A loop BODY is
-  still not narrowed by its condition at emit (`while n != null { total + n }` over `int?` declines):
-  separate follow-up.
+  condition proved reads as its `T` there too. Loop bodies now receive the same true facts; writes
+  kill them after their statement's reads, nested blocks carry kills out, and `if` branches merge only
+  facts shared by reachable exits (including guard branches that `continue`). The emit-side kill set
+  (`CollectAssignedNames`) counts `ref`/`out` arguments and deconstruction targets, as the analyzer's
+  always did. Runtime coverage is in `tests/native/census-flow-rules/LoopBodyNarrowing`; focused Plan
+  and Emit rows pin the facts and emitted behavior.
 - a nested type of a REFLECTED owner (Semantics): `ResolveMember`'s reflection arm answers a nested type
   in static position, as its source arm always did, so `JsonElement.ArrayEnumerator` resolves through
   the imported spelling, not only the namespace-qualified one.

@@ -258,6 +258,10 @@ class LoopStatementState {
     // path's facts are read off the condition instead.
     ThenExitFacts: Dictionary<string, NullState>?
     ElseExitFacts: Dictionary<string, NullState>?
+    // Facts visible immediately before either branch starts. An assignment in a branch that always
+    // leaves invalidates these in every open scope, but that dead branch must not erase them from the
+    // other path that reaches the join.
+    IfEntryFacts: Dictionary<string, NullState>?
 
     // Whether this walk opened a NARROWING scope for each branch, which it does only when that
     // branch's own list is non-empty — exactly as it always has, so a variable declared directly in a
@@ -302,6 +306,7 @@ class LoopStatementState {
         LoopFrame = null
         ThenExitFacts = null
         ElseExitFacts = null
+        IfEntryFacts = null
         ThenNarrowingScopeOpened = false
         ElseNarrowingScopeOpened = false
     }
@@ -1770,6 +1775,7 @@ class AnalyzerLoopSequence {
         }
 
         conditionsValue.ReportIfConditionTypeMismatchIfNeeded(condition, state.ConditionType)
+        state.IfEntryFacts = AnalyzerConditionalJoin.SnapshotFacts(scopesValue)
 
         state.Phase = 32
         if NarrowingCount(state) == 0 {
@@ -1936,12 +1942,12 @@ class AnalyzerLoopSequence {
         elseAlwaysLeaves := elseBody != null && AnalyzerStatementTermination.AlwaysLeaves(elseBody, terminatingCallsValue)
 
         if thenAlwaysLeaves && !elseAlwaysLeaves {
-            InstallInheritedFacts(state, state.ElseExitFacts, state.ElseNarrowings, ElseNarrowingCount(state))
+            InstallInheritedIfFacts(state, state.ElseExitFacts, state.ElseNarrowings, null)
             return null
         }
 
         if elseAlwaysLeaves {
-            InstallInheritedFacts(state, state.ThenExitFacts, state.BodyNarrowings, NarrowingCount(state))
+            InstallInheritedIfFacts(state, state.ThenExitFacts, state.BodyNarrowings, state.Body)
             return null
         }
 
@@ -1949,26 +1955,22 @@ class AnalyzerLoopSequence {
         return null
     }
 
-    // THE SURVIVING FLOW INHERITS A BRANCH THAT IS THE ONLY PATH LEFT. Its exit state when this walk
-    // observed one, and otherwise the facts the condition proved for it — which is the case when
-    // there is no else branch at all.
-    func InstallInheritedFacts(state: LoopStatementState, exitFacts: Dictionary<string, NullState>?, narrowings: List<FlowNarrowing>?, narrowingCount: int) {
+    // A dead branch can invalidate facts in every enclosing scope while it is analysed. Rebuild the
+    // one surviving path from the state at the branch point, its condition facts, and the surviving
+    // branch's own writes. The branch exit facts win, while writes on the branch that left do not
+    // leak into the flow that reaches the next statement.
+    func InstallInheritedIfFacts(state: LoopStatementState, exitFacts: Dictionary<string, NullState>?, narrowings: List<FlowNarrowing>?, survivingBranch: Statement?) {
         narrowing := state.Narrowing
-        if narrowing == null {
+        entryFacts := state.IfEntryFacts
+        if narrowing == null || entryFacts == null {
             return
         }
 
-        if exitFacts != null {
-            inherited := AnalyzerConditionalJoin.InheritedFacts(exitFacts)
-            if inherited.Count > 0 {
-                narrowing.ApplyNarrowingsToScope(inherited)
-            }
-
-            return
-        }
-
-        if narrowings != null && narrowingCount > 0 {
-            narrowing.ApplyNarrowingsToScope(narrowings)
+        writtenPaths := new List<string>()
+        AnalyzerLoopCarriedNullFacts.CollectWrittenPaths(survivingBranch, null, writtenPaths)
+        inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entryFacts, exitFacts, narrowings, writtenPaths)
+        if inherited.Count > 0 {
+            narrowing.ApplyNarrowingsToScope(inherited)
         }
     }
 

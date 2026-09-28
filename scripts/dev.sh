@@ -66,7 +66,8 @@
 # sentence, PascalCased>`. A `test` block is lowered onto a type named after the file that wrote it,
 # in that file's own namespace, so a pattern naming a file (`Columnar`, `Analyzer`, `Formatter`), a
 # file prefix, or a namespace segment selects the rows those files own — not merely the rows whose
-# prose happens to use the word. Case matters: the filter is a substring of the qualified name.
+# prose happens to use the word. For estate rows, hyphens are removed from the requested filter so a
+# native directory pattern such as `census-flow-rules` also matches a PascalCased test row.
 #
 # Change-aware selection is an inner-loop accelerator ONLY. It is allowed to miss
 # tests precisely because the full --commit gate remains the backstop. Never treat
@@ -567,7 +568,7 @@ if [ "$DO_TESTS" = "1" ] && [ "$WANT_ESTATE" = "1" ]; then
             # given testcase filter" -- the one line that tells a project with no matching row from one
             # that ran nothing at all -- so the console logger keeps its own minimal verbosity.
             dotnet test $DOTNET_STABLE_FLAGS "$ESTATE_PROJECT" -p:NSharpExcludeTests=false --no-restore \
-                --filter "FullyQualifiedName~$ESTATE_FILTER" -v q --nologo --logger "console;verbosity=minimal" \
+                --filter "FullyQualifiedName~${ESTATE_FILTER//-/}" -v q --nologo --logger "console;verbosity=minimal" \
                 > "$ESTATE_OUTPUT" 2>&1 || ESTATE_RC=$?
         else
             dotnet test $DOTNET_STABLE_FLAGS "$ESTATE_PROJECT" -p:NSharpExcludeTests=false --no-restore \

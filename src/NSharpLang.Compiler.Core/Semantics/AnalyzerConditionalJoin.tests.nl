@@ -237,6 +237,19 @@ test "A BRANCH THAT IS THE ONLY PATH LEFT IS INHERITED WHOLE, NOT JOINED" {
     assert JoinNarrowingText(inherited) == "list=not-null,other=null"
 }
 
+test "A DEAD GUARD BRANCH DOES NOT ERASE FACTS FROM THE PATH THAT SURVIVES" {
+    entry := JoinFactsOf("n=not-null,doc=not-null,doc.Text=not-null,other=null")
+    written := new List<string>()
+    written.Add("doc")
+    exit := JoinFactsOf("doc=maybe-null")
+    side := new List<FlowNarrowing>()
+    side.Add(new FlowNarrowing("result", null, NullState.NotNull))
+
+    inherited := AnalyzerConditionalJoin.InheritedFactsPreservingEntry(entry, exit, side, written)
+
+    assert JoinNarrowingText(inherited) == "doc=maybe-null,n=not-null,other=null,result=not-null"
+}
+
 test "MORE THAN TWO PATHS MEET BY FOLDING, AND ONLY A PATH ALL OF THEM SPEAK FOR SURVIVES" {
     first := JoinFactsOf("a=not-null,b=not-null,c=not-null")
     second := JoinFactsOf("a=not-null,b=null")

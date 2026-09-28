@@ -1453,6 +1453,14 @@ func LoopReturningBranch(): Statement {
     return body
 }
 
+func LoopContinuingBranch(): Statement {
+    statements := new List<Statement>()
+    continueStatement: Statement = new ContinueStatement(7, 9)
+    statements.Add(continueStatement)
+    body: Statement = new BlockStatement(statements, 7, 9)
+    return body
+}
+
 // A branch that always leaves, positioned where the ELSE body is, so the two guard-clause arms can be
 // told apart by more than their narrowings.
 func LoopReturningElseBranch(): Statement {
@@ -1743,6 +1751,20 @@ test "A CONDITION THAT PROVED NOTHING ON THE FALSE SIDE LEAVES A ONE-BRANCH ASSI
     LoopRunIfAssigning(harness, state, 0, NullState.NotNull, trace)
 
     assert LoopLastFact(trace) == "unknown"
+}
+
+test "A WRITE IN A CONTINUING GUARD BRANCH DOES NOT ERASE THE SURVIVING PATH'S FACT" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    harness.Scopes.SetNullStateInCurrentScope("x", NullState.NotNull)
+    trace := new List<string>()
+    // The then path writes x and continues, so it cannot reach the statement after this if. The
+    // implicit else path still has the incoming loop-body proof that x is not null.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopContinuingBranch(), null), harness.Narrowing)
+
+    LoopRunIfAssigning(harness, state, 0, NullState.MaybeNull, trace)
+
+    assert LoopLastFact(trace) == "not-null"
 }
 
 test "BOTH BRANCHES ASSIGNING THE SAME ANSWER JOIN TO IT" {
