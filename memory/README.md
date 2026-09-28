@@ -201,6 +201,16 @@ carve found no cross-assembly analyzer gap. The three gaps its source fixes met 
 `==`, out-local nullability, a wrapped `ref` parameter) are routed around with `// COMPILER:` notes; see
 `memory/architecture.md`, "Compiler.Plan is carved".
 
+**Measured 2026-09-27 on `census/chip-fixes`** (the compiler gaps behind the CodeIntel, Plan,
+installed-toolchain, formatter and driver route-arounds: `ref` over a `&T` parameter, `C? == C`, a
+typeless conditional arm into a callee chosen by its arguments, an external indexer read typed before
+emission, a runtime exception constructed from its metadata, and `x.HasValue` as a null fact):
+**Core 365** (377 before), and the gate ceiling is now 365. f95de3b3a's CLI and the new CLI against
+f95de3b3a's SAME source give **zero additions and 12 removals** -- every one a false NL202 on `==`
+between a maybe-null class value and a plain one, in Core's estate -- and the new source moves nothing
+through the same CLI. Every other ceiling is unmoved. The route-arounds themselves collapse in the
+commits that follow the next reseed.
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 

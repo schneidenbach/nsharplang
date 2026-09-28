@@ -552,10 +552,19 @@ else
     # files, estate included, against built Core -- no cross-assembly finding), Emit 0 (now against
     # built Plan), CodeIntel 0, Tooling 0, Driver 0, Compiler 34, Playground 0, Build.Tasks 0.
     #
+    # 2026-09-27, the compiler gaps behind the CodeIntel, Plan, installed-toolchain, formatter and
+    # driver route-arounds, landed on census/merge (`census/chip-fixes`): Core 365. Measured with
+    # f95de3b3a's CLI and this branch's CLI against f95de3b3a's SAME source, the identity diff is zero
+    # additions and 12 removals, every one a false NL202 on `==` between a maybe-null class value and
+    # a plain one in Core's estate (`FunctionTypeInfo?` x5, `SymbolDeclaration?` x3, `TypeInfo?` x2,
+    # `Expression?`, `Pattern?`) that a reference `?` no longer decides; this branch's source adds
+    # and removes nothing through its own CLI. Plan and Emit stay 0 with the new planner and emitter
+    # arms, and every other project is unmoved.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
-        377
+        365
         0
         0
         0
