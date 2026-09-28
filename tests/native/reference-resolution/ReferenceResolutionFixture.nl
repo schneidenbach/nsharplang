@@ -165,7 +165,12 @@ func ResolverCandidatePackagesRoots(): string[] {
     return roots.ToArray()
 }
 
-func ResolverPrepareNewtonsoftCache(destinationRoot: string): string {
+// SEEDED WHEN THE MACHINE HAS IT, RESTORED WHEN IT DOES NOT. This row runs the program it builds, so
+// it needs the real Newtonsoft.Json 13.0.3, not a stand-in. A copy from a local cache saves the
+// download; without one the throwaway cache starts empty and the `nlc build` under test restores the
+// package into it from nuget.org, as a first build on a clean machine does. The row used to throw
+// here instead, so it passed only where an earlier build had happened to restore that version.
+func ResolverSeedNewtonsoftCache(destinationRoot: string) {
     roots := ResolverCandidatePackagesRoots()
     source: string? = null
     index := 0
@@ -177,13 +182,10 @@ func ResolverPrepareNewtonsoftCache(destinationRoot: string): string {
         index = index + 1
     }
 
-    if source == null {
-        throw new InvalidOperationException("The installed Newtonsoft.Json 13.0.3 fixture was not found in a local package cache.")
+    Directory.CreateDirectory(destinationRoot)
+    if source != null {
+        ResolverCopyDirectory(source ?? "", Path.Combine(Path.Combine(destinationRoot, "newtonsoft.json"), "13.0.3"))
     }
-
-    destination := Path.Combine(Path.Combine(destinationRoot, "newtonsoft.json"), "13.0.3")
-    ResolverCopyDirectory(source ?? "", destination)
-    return destinationRoot
 }
 
 func ResolverWriteProjectReferenceFixture(projectRoot: string) {

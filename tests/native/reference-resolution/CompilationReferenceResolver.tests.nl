@@ -22,7 +22,7 @@ test "real build and publish keep project and local NuGet runtime assets executa
     packagesRoot := Path.Combine(scratch, "packages")
     previousPackages := Environment.GetEnvironmentVariable("NUGET_PACKAGES")
     try {
-        ResolverPrepareNewtonsoftCache(packagesRoot)
+        ResolverSeedNewtonsoftCache(packagesRoot)
 
         buildRoot := Path.Combine(scratch, "build-project")
         Directory.CreateDirectory(buildRoot)
