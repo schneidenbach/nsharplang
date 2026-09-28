@@ -273,8 +273,10 @@ and Driver reaches Tooling (42 names). What the carve is:
 - Tooling's 3 front-door diagnostics fixed in Core FIRST (Core 1,205 -> 1,202): two unused estate
   imports and an NL303 in `FormatterConfig.ParseRequiredInt` -- after an early-exit
   `if !parsed.HasValue { throw }` guard the analyzer narrows `parsed` to `int` and refuses
-  `parsed.Value`, while the same read inside `if parsed.HasValue { ... }` is accepted; the read sits in
-  the positive branch with a `// COMPILER:` note until the narrowing is made consistent;
+  `parsed.Value`, while the same read inside `if parsed.HasValue { ... }` is accepted; the read sat in
+  the positive branch with a `// COMPILER:` note until the narrowing was made consistent (since fixed:
+  `x.HasValue` is now a null FACT exactly like `x != null`, recorded by the binder in `AnalyzerNullFlow`
+  and read back by `AnalyzerFlowNarrowing`, and `ParseRequiredInt` is the guard-clause form again);
 - the product (8 files) AND its estate (8) as pure renames, with `excludeTests: true` and its own
   estate project in dev.sh, Step 3a, reseed step 8 and both CI workflows (Syntax 1,376 + Core 7,591 +
   Driver 707 -> Syntax 1,376 + Core 7,238 + Tooling 353 + Driver 707: 9,674/9,674);
