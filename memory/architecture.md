@@ -314,7 +314,8 @@ upward-reach ceiling fell 160 -> 141. What the carve is:
 - CodeIntel's 173 front-door diagnostics fixed in Core FIRST (Core 1,202 -> 1,029; NL905 118, NL010 24,
   NL202 15, NL012 11, NL002 4, NL907 1, 146 of them in its estate), so it starts at 0. Two analyzer gaps
   are routed around with `// COMPILER:` notes: `ref p` over a `&T` parameter is typed `&&T` and refused,
-  so `FixApplicatorEditEngine` forwards its by-ref parameters bare; and `==` between a maybe-null source
+  so `FixApplicatorEditEngine` forwarded its by-ref parameters bare (fixed and collapsed 2026-09-27 on
+  `census/chip-fixes`: `ref p` passes the `&T` on); and `==` between a maybe-null source
   class value and a non-null one of the same class is refused (`string` is accepted), so
   `LinterNullCheckPolicy`'s rows narrow first. `TryExtractCompletionPrefix` lost its two unread
   parameters (its one caller is the facade's `CompletionEngine`), and the `CodeFixProvider` family names
