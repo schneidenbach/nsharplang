@@ -15,23 +15,27 @@
 
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <IncludeContentInPack>true</IncludeContentInPack>
+    <NoDefaultExcludes>true</NoDefaultExcludes>
     <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <Content Include="nsharp-console/.template.config/template.json" Pack="true" PackagePath="content/nsharp-console/.template.config/template.json" />
+    <Content Include="nsharp-console/.gitignore" Pack="true" PackagePath="content/nsharp-console/.gitignore" />
     <Content Include="nsharp-console/global.json" Pack="true" PackagePath="content/nsharp-console/global.json" />
     <Content Include="nsharp-console/NuGet.config" Pack="true" PackagePath="content/nsharp-console/NuGet.config" />
     <Content Include="nsharp-console/Program.nl" Pack="true" PackagePath="content/nsharp-console/Program.nl" />
     <Content Include="nsharp-console/project.yml" Pack="true" PackagePath="content/nsharp-console/project.yml" />
 
     <Content Include="nsharp-library/.template.config/template.json" Pack="true" PackagePath="content/nsharp-library/.template.config/template.json" />
+    <Content Include="nsharp-library/.gitignore" Pack="true" PackagePath="content/nsharp-library/.gitignore" />
     <Content Include="nsharp-library/Calculator.nl" Pack="true" PackagePath="content/nsharp-library/Calculator.nl" />
     <Content Include="nsharp-library/global.json" Pack="true" PackagePath="content/nsharp-library/global.json" />
     <Content Include="nsharp-library/NuGet.config" Pack="true" PackagePath="content/nsharp-library/NuGet.config" />
     <Content Include="nsharp-library/project.yml" Pack="true" PackagePath="content/nsharp-library/project.yml" />
 
     <Content Include="nsharp-test/.template.config/template.json" Pack="true" PackagePath="content/nsharp-test/.template.config/template.json" />
+    <Content Include="nsharp-test/.gitignore" Pack="true" PackagePath="content/nsharp-test/.gitignore" />
     <Content Include="nsharp-test/Calculator.nl" Pack="true" PackagePath="content/nsharp-test/Calculator.nl" />
     <Content Include="nsharp-test/Calculator.tests.nl" Pack="true" PackagePath="content/nsharp-test/Calculator.tests.nl" />
     <Content Include="nsharp-test/global.json" Pack="true" PackagePath="content/nsharp-test/global.json" />
@@ -39,6 +43,7 @@
     <Content Include="nsharp-test/project.yml" Pack="true" PackagePath="content/nsharp-test/project.yml" />
 
     <Content Include="nsharp-webapi/.template.config/template.json" Pack="true" PackagePath="content/nsharp-webapi/.template.config/template.json" />
+    <Content Include="nsharp-webapi/.gitignore" Pack="true" PackagePath="content/nsharp-webapi/.gitignore" />
     <Content Include="nsharp-webapi/Controllers/WeatherController.nl" Pack="true" PackagePath="content/nsharp-webapi/Controllers/WeatherController.nl" />
     <Content Include="nsharp-webapi/global.json" Pack="true" PackagePath="content/nsharp-webapi/global.json" />
     <Content Include="nsharp-webapi/NuGet.config" Pack="true" PackagePath="content/nsharp-webapi/NuGet.config" />
@@ -46,6 +51,7 @@
     <Content Include="nsharp-webapi/project.yml" Pack="true" PackagePath="content/nsharp-webapi/project.yml" />
 
     <Content Include="nsharp-systems-cli/.template.config/template.json" Pack="true" PackagePath="content/nsharp-systems-cli/.template.config/template.json" />
+    <Content Include="nsharp-systems-cli/.gitignore" Pack="true" PackagePath="content/nsharp-systems-cli/.gitignore" />
     <Content Include="nsharp-systems-cli/global.json" Pack="true" PackagePath="content/nsharp-systems-cli/global.json" />
     <Content Include="nsharp-systems-cli/NuGet.config" Pack="true" PackagePath="content/nsharp-systems-cli/NuGet.config" />
     <Content Include="nsharp-systems-cli/Program.nl" Pack="true" PackagePath="content/nsharp-systems-cli/Program.nl" />
@@ -53,6 +59,7 @@
     <Content Include="nsharp-systems-cli/project.yml" Pack="true" PackagePath="content/nsharp-systems-cli/project.yml" />
 
     <Content Include="nsharp-systems-lib/.template.config/template.json" Pack="true" PackagePath="content/nsharp-systems-lib/.template.config/template.json" />
+    <Content Include="nsharp-systems-lib/.gitignore" Pack="true" PackagePath="content/nsharp-systems-lib/.gitignore" />
     <Content Include="nsharp-systems-lib/global.json" Pack="true" PackagePath="content/nsharp-systems-lib/global.json" />
     <Content Include="nsharp-systems-lib/NuGet.config" Pack="true" PackagePath="content/nsharp-systems-lib/NuGet.config" />
     <Content Include="nsharp-systems-lib/PacketCore.nl" Pack="true" PackagePath="content/nsharp-systems-lib/PacketCore.nl" />

@@ -46,6 +46,34 @@ Updated: 2026-06-01
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
 
+## Daemon Commands
+
+```bash
+nlc daemon start
+nlc daemon status
+nlc daemon stop
+```
+
+`nlc daemon start` waits for the spawned daemon to answer `daemon/ping` on its socket. It returns
+as soon as the daemon is responsive, with a 120-second overall deadline for genuinely stuck
+starts. If the child exits first, the command fails immediately and reports its exit code. A
+deadline failure reports how long it waited, the socket path, whether the child was alive, and the
+last daemon output (up to 20 captured stderr lines and, when available, the last 20 from the daemon
+log). The messages begin `Startup failed after <milliseconds> ms: child process
+exited with code <exit-code> before daemon/ping was accepted...` for an early exit, and `Startup
+timed out after <milliseconds> ms waiting for daemon/ping to be accepted at <socket>...` when the
+deadline expires.
+
+For normal project-local sockets, the CLI creates `.nlc/daemon.log` when starting the daemon and
+truncates any previous log at the beginning of each start. The daemon's initial startup messages
+remain on captured stderr; after readiness, subsequent daemon output is appended to this log. If a
+long project path requires the temporary socket fallback, the log is placed beside that socket in
+`{TMPDIR}/nlc-daemon/{sha256-16}/daemon.log`. `.nlc/` contains runtime state and should not be
+committed. All shipped `dotnet new` templates ignore `.nlc/`.
+
+Startup diagnostics are plain stderr text. The daemon JSON-RPC schema and versioned CLI output are
+unchanged.
+
 ## Query Commands
 
 | Command | Purpose | Example |

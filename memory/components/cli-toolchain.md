@@ -1158,6 +1158,27 @@ Socket: `{projectRoot}/.nlc/daemon.sock` (falls back to `{TMPDIR}/nlc-daemon/{sh
 PID file: `{projectRoot}/.nlc/daemon.pid`
 Protocol: JSON-RPC 2.0 over Unix socket
 
+`nlc daemon start` waits up to **120 seconds** for the spawned process to answer `daemon/ping` on
+its socket. The wait polls every 100 ms and returns as soon as the daemon responds; it does not
+wait a fixed startup duration. If the child exits first, startup fails immediately with its exit
+code. If the deadline expires, startup fails with the elapsed time, socket path, whether the child
+was still alive, and the last daemon output. Both diagnostics include the last captured output
+lines (up to 20 from captured stderr and, when available, the last 20 from the daemon log). The
+timeout form begins `Startup timed out after <milliseconds> ms waiting for daemon/ping to be
+accepted at <socket>. Child process alive: <true|false>.`; early exit begins `Startup failed after
+<milliseconds> ms: child process exited with code <exit-code> before daemon/ping was accepted.
+Child process alive: false.`
+
+For a project-local socket, startup creates `.nlc/daemon.log` before launching the child and
+truncates it on each start. The daemon writes its initial startup diagnostics to the launching
+process's captured stderr; after readiness, later daemon output is appended to `daemon.log`. When
+the project's socket path is too long and falls back to `{TMPDIR}/nlc-daemon/{sha256-16}/`, the
+log is stored beside that temporary socket instead. `.nlc/` is runtime state and should not be
+committed. All shipped templates include `.nlc/` in their `.gitignore`.
+
+Startup diagnostics are plain stderr text. The daemon JSON-RPC schema and versioned CLI output
+did not change.
+
 ### The wire contract
 
 Every request and response is one JSON-RPC 2.0 message, sent and then half-closed. The envelope's own
