@@ -243,7 +243,7 @@ class ColumnarRangeIndexPlanner {
         }
 
         if kind == ColumnarExpressionNodeKind.UnaryExpression {
-            return nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
+            return nodes.ChildCount(node) == 1 && (nodes.Text(source, node) == "^" || ColumnarConditionalPlanner.IsBooleanNot(nodes, source, node))
         }
 
         if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
@@ -502,6 +502,10 @@ class ColumnarRangeIndexPlanner {
             }
         } else if kind == ColumnarExpressionNodeKind.UnaryExpression {
             planned = ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(nodes, source, node, plan, fragment, out resultType)
+
+            if !planned && ColumnarConditionalPlanner.IsBooleanNot(nodes, source, node) {
+                planned = ColumnarConditionalPlanner.TryPlanBooleanNot(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
+            }
 
             if !planned {
                 planned = TryPlanFromEnd(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)

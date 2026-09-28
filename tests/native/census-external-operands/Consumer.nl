@@ -3,6 +3,7 @@ namespace Census.Operands
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 import System.Text
 
 
@@ -302,7 +303,7 @@ class OperandUses {
     }
 
     static func ConstructedThenInitialized(): int {
-        counter := new Counter() { Value: 12 }
+        counter := new Counter { Value: 12 }
         return counter.Value
     }
 
@@ -335,7 +336,7 @@ class OperandUses {
 
     // A SOURCE struct built with `new T() { ... }` holding a referenced struct built by an initializer.
     static func HeldCounter(): int {
-        holder := new CounterHolder() { Inner: new Counter { Value: 3 } }
+        holder := new CounterHolder { Inner: new Counter { Value: 3 } }
         return holder.Inner.Value
     }
 
@@ -351,7 +352,7 @@ class OperandUses {
     static func Interpolated(n: int): string {
         gauge := new Gauge { Unit: $"u{n}", Level: n }
         settings := new Settings { Name: $"s{n}", Count: n }
-        counter := new Counter() { Value: $"{n}{n}".Length }
+        counter := new Counter { Value: $"{n}{n}".Length }
         return gauge.Unit + gauge.Level.ToString() + " " + settings.Name + settings.Count.ToString() + settings.Owner + " " + counter.Value.ToString()
     }
 
@@ -363,6 +364,64 @@ class OperandUses {
         tuned := new Tuned { Label: "t" }
         untouched := new Settings { Name: "m" }
         return settings.Name + settings.Count.ToString() + settings.Owner + " " + tuned.Label + tuned.Level.ToString() + " " + untouched.Owner
+    }
+
+    // G12: an external overloaded instance call has to type the Boolean branch condition before it
+    // can select the method from the conditional argument's type.
+    static func AppendAnd(left: bool, right: bool): string {
+        builder := new StringBuilder()
+        builder.Append(left && right ? "x" : "y")
+        return builder.ToString()
+    }
+
+    static func AppendOr(left: bool, right: bool): string {
+        builder := new StringBuilder()
+        builder.Append(left || right ? "x" : "y")
+        return builder.ToString()
+    }
+
+    static func AppendNot(value: bool): string {
+        builder := new StringBuilder()
+        builder.Append(!value ? "x" : "y")
+        return builder.ToString()
+    }
+
+    static func AppendComparison(left: bool, right: bool): string {
+        builder := new StringBuilder()
+        builder.Append(left == right ? "x" : "y")
+        return builder.ToString()
+    }
+
+    static func AppendNested(left: bool, middle: bool, right: bool): string {
+        builder := new StringBuilder()
+        builder.Append((left ? middle : right) ? "x" : "y")
+        return builder.ToString()
+    }
+
+    // `OpCode` is a struct. These two-argument calls select ILGenerator.Emit(OpCode, MethodInfo) from
+    // the external overload family while their first argument's type comes from the condition shown.
+    static func EmitConditionalOpcode(generator: ILGenerator, target: MethodInfo, receiverType: Type, left: bool, right: bool) {
+        generator.Emit(target.IsVirtual && !receiverType.IsValueType ? OpCodes.Callvirt : OpCodes.Call, target)
+        generator.Emit(target.IsVirtual || !receiverType.IsValueType ? OpCodes.Callvirt : OpCodes.Call, target)
+        generator.Emit(!receiverType.IsValueType ? OpCodes.Callvirt : OpCodes.Call, target)
+        generator.Emit(target.IsVirtual == !receiverType.IsValueType ? OpCodes.Callvirt : OpCodes.Call, target)
+        generator.Emit((target.IsVirtual ? true : false) ? OpCodes.Callvirt : OpCodes.Call, target)
+        generator.Emit(!left ? OpCodes.Callvirt : OpCodes.Call, target)
+        generator.Emit(left == right ? OpCodes.Callvirt : OpCodes.Call, target)
+        generator.Emit(left && right ? OpCodes.Callvirt : OpCodes.Call, target)
+        generator.Emit(left || right ? OpCodes.Callvirt : OpCodes.Call, target)
+    }
+
+    static func EmitConditionalOpcodeOverload(): bool {
+        dynamicMethod := new DynamicMethod("conditional-opcode", typeof(void), Type.EmptyTypes)
+        generator := dynamicMethod.GetILGenerator()
+        target := typeof(string).GetMethod("get_Length", Type.EmptyTypes)
+        if target == null {
+            return false
+        }
+        EmitConditionalOpcode(generator, target, typeof(string), true, false)
+        generator.Emit(OpCodes.Ret)
+        return true
     }
 
     static func Digest(): string {
@@ -399,6 +458,7 @@ class OperandUses {
         lines.Add("maybe " + MaybeSameShape(shape, shape).ToString() + " " + MaybeSameShape(null, shape).ToString() + " " + MaybeNodesDiffer(node, node).ToString() + " " + MaybeNodesDiffer(null, node).ToString() + " " + MaybeNodesDiffer(null, null).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(2)).ToString() + " " + MaybeTalliesMatch(new Tally(2), new Tally(3)).ToString())
         lines.Add("conditional " + DescribeNullFirst(true, "a") + " " + DescribeNullFirst(false, "a") + " " + DescribeNullSecond(true, "b") + " " + DescribeNullSecond(false, "b") + " " + NameOfAlias(true, alias) + " " + NameOfAlias(false, alias) + " " + CountOrAbsent(true, 3).ToString() + " " + CountOrAbsent(false, 3).ToString() + " " + LabelOrPrefix(true, new Labeler("p"), "!") + " " + LabelOrPrefix(false, new Labeler("p"), "!"))
         lines.Add("default " + DescribeDefaultFirst(true, "a") + " " + DescribeDefaultFirst(false, "a") + " " + CountOrDefault(true, 3).ToString() + " " + CountOrDefault(false, 3).ToString() + " " + LabelOrDefault(true, new Labeler("p"), "!") + " " + LabelOrDefault(false, new Labeler("p"), "!"))
+        lines.Add("conditional overloads " + AppendAnd(true, true) + " " + AppendAnd(true, false) + " " + AppendOr(false, false) + " " + AppendOr(false, true) + " " + AppendNot(false) + " " + AppendNot(true) + " " + AppendComparison(true, true) + " " + AppendComparison(true, false) + " " + AppendNested(true, false, true) + " " + AppendNested(false, false, true) + " emit " + EmitConditionalOpcodeOverload().ToString())
         lines.Add("forwarded " + Forwarded())
         lines.Add("nested " + MustNested(shape).ToString() + " " + MustNestedLocal(alias).ToString() + " " + OperatorNested(-2).ToString() + " " + new Cursor("ab").Matches(1, 5).ToString() + " " + new Cursor("ab").Matches(2, 7).ToString())
         lines.Add("must-member " + MustMemberNested(alias).ToString() + " " + OverloadedOuter(shape))

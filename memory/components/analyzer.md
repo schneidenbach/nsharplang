@@ -5082,6 +5082,15 @@ back to the legacy emitter arm); inside a `func*` there is no legacy arm, so `li
   METHOD-BODY scratch, rather than `TryGetPlannableValueType`'s schema-v3 one — for the `pop` reason
   above. The type side runs the identical rows the append side will run.
 
+**A short-circuit condition can contain `!` over a member read.** The external-call argument matcher
+types a conditional before it chooses an overload. Its `&&`/`||` planner already recursed through
+ordinary Boolean expressions, but the nested-value dispatcher sent unary `!` only to the literal-only
+owner; `true && !receiverType.IsValueType` therefore had no plan-time type and made the enclosing
+`ILGenerator.Emit` overload look unmodeled. `ColumnarConditionalPlanner.TryPlanBooleanNot` now recurses
+through the same construction-value surface, requires an exact `bool`, and appends `ldc.i4.0; ceq`.
+The census pins `&&`, `||`, bare `!`, comparisons and nested conditionals through external overloads in
+both the normal and analysis-free paths (`tests/native/census-external-operands`).
+
 ### A yielded value parses at the LAMBDA level
 
 `return` parsed its value with `ParseLambdaOrAssignmentExpressionNode` and `yield` parsed its own

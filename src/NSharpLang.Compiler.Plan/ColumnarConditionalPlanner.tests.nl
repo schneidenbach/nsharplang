@@ -59,6 +59,27 @@ func ConditionalNestedTernaryInAndTree(rightText: string): ColumnarRangePlannerT
     return builder.Build(binary)
 }
 
+// `true && !receiverType.IsValueType ? true : false` — the Boolean short-circuit condition whose
+// right operand requires a general member read followed by logical negation.
+func ConditionalNotExternalMemberTree(): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, "true")
+    andStart := builder.AddToken("&&")
+    notStart := builder.AddToken("!")
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "receiverType")
+    builder.AddToken(".")
+    memberStart := builder.AddToken("IsValueType")
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, "IsValueType".Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    negation := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, notStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(member))
+    condition := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, andStart, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, negation))
+    builder.AddToken("?")
+    whenTrue := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, "true")
+    builder.AddToken(":")
+    whenFalse := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, "false")
+    root := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, whenTrue, whenFalse))
+    return builder.Build(root)
+}
+
 func ConditionalPlanOwned(tree: ColumnarRangePlannerTestTree): ColumnarCodePlan {
     plan := new ColumnarCodePlan()
     bindings := ColumnarRangePlannerEmptyBindings()
@@ -136,6 +157,17 @@ test "conditional planner plans a nested ternary inside a short-circuit operand"
 
     falsePlan := ConditionalPlanOwned(ConditionalNestedTernaryInAndTree("false"))
     assert ExecutorRunV3ScalarPlan(falsePlan, typeof(bool)) == "False"
+}
+
+test "conditional planner types external operands with logical negation under a short-circuit condition" {
+    tree := ConditionalNotExternalMemberTree()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "receiverType", 0, typeof(Type))
+    plan := new ColumnarCodePlan()
+
+    assert ColumnarConditionalPlanner.Plan(tree.Nodes, tree.Source, tree.Root, bindings, ColumnarRangeIndexHandles.Resolve(), plan) == ColumnarFragmentPlanStatus.Planned
+    assert plan.ResultType == typeof(bool)
+    ColumnarCodePlanExecutor.Validate(plan)
 }
 
 test "conditional planner declines mixed-type ternary arms and rolls back" {

@@ -4,22 +4,24 @@ import System
 import System.Reflection.Emit
 
 
-// Direct schema-v3 owner for the two Boolean control-flow expression forms:
+// Direct schema-v3 owner for Boolean control-flow expressions:
 //   * the ternary conditional `cond ? whenTrue : whenFalse` (kind 13) — a Brfalse/Br branch-merge
 //     with exact-type arm unification, and
 //   * the short-circuit logical operators `a && b` / `a || b` (kind-12 binaries whose operator text
 //     is `&&`/`||`) — conditional evaluation of the right operand, branching on the left through
-//     Brfalse (`&&`) / Brtrue (`||`) to a merge constant.
-// Both mirror the legacy ColumnarIlEmitter case-13 / case-12 short-circuit lowerings byte-for-byte.
+//     Brfalse (`&&`) / Brtrue (`||`) to a merge constant, and
+//   * logical negation `!value` — an exactly-Boolean operand followed by `ldc.i4.0; ceq`.
+// The first two mirror the legacy ColumnarIlEmitter case-13 / case-12 short-circuit lowerings; the
+// third is also the legacy unary Boolean lowering, now available recursively inside planned values.
 // Operands recurse through the shared value-position surface, so a comparison condition, a call arm,
-// or a nested conditional plans as its own owner; any operand the surface declines rolls the whole
-// candidate back to a NotOwned, whole-subtree boundary served by the legacy arm. The condition and
-// both short-circuit operands must be exactly Boolean, and the ternary arms must be the exact same
-// type — no implicit unification.
+// a member read under `!`, or a nested conditional plans as its own owner; any operand the surface
+// declines rolls the whole candidate back to a NotOwned, whole-subtree boundary served by the legacy
+// arm. Boolean operands must be exactly Boolean, and the ternary arms must be the exact same type —
+// no implicit unification.
 class ColumnarConditionalPlanner {
 
-    // Root front-door gate: a three-child ternary, or a two-child binary whose operator text is a
-    // short-circuit `&&`/`||`. Every other binary routes to its own owner.
+    // Root front-door gate: a three-child ternary, a two-child binary whose operator text is a
+    // short-circuit `&&`/`||`, or a one-child Boolean negation.
     static func MayPlanRoot(nodes: ColumnarNodeTable, source: string, node: int): bool {
         if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length {
             return false
@@ -31,7 +33,13 @@ class ColumnarConditionalPlanner {
         if nodes.Kind(candidate) == ColumnarExpressionNodeKind.TernaryExpression {
             return nodes.ChildCount(candidate) == 3
         }
-        return IsShortCircuitBinary(nodes, source, candidate)
+        return IsShortCircuitBinary(nodes, source, candidate) || IsBooleanNot(nodes, source, candidate)
+    }
+
+    // Logical negation is part of the Boolean condition surface, including when its operand is a
+    // readable member or another planned Boolean expression.
+    static func IsBooleanNot(nodes: ColumnarNodeTable, source: string, node: int): bool {
+        return nodes != null && source != null && node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 && HasExactOperatorText(nodes, source, node, "!")
     }
 
     // Value-position gate consumed by the recursive plannable-value dispatcher: a `&&`/`||` binary.
@@ -191,8 +199,9 @@ class ColumnarConditionalPlanner {
         kind := nodes.Kind(candidate)
         isTernary := kind == ColumnarExpressionNodeKind.TernaryExpression && nodes.ChildCount(candidate) == 3
         isShortCircuit := IsShortCircuitBinary(nodes, source, candidate)
+        isBooleanNot := IsBooleanNot(nodes, source, candidate)
         isNullCoalesce := IsNullCoalesceBinary(nodes, source, candidate)
-        if !isTernary && !isShortCircuit && !isNullCoalesce {
+        if !isTernary && !isShortCircuit && !isBooleanNot && !isNullCoalesce {
             return false
         }
 
@@ -203,6 +212,8 @@ class ColumnarConditionalPlanner {
             planned := false
             if isTernary {
                 planned = TryPlanTernary(nodes, source, candidate, bindings, handles, plan, fragment, 0, out resultType, out nestedOwnership)
+            } else if isBooleanNot {
+                planned = TryPlanBooleanNot(nodes, source, candidate, bindings, handles, plan, fragment, 0, out resultType, out nestedOwnership)
             } else if isNullCoalesce {
                 planned = TryPlanNullCoalesce(nodes, source, candidate, bindings, handles, plan, fragment, 0, out resultType, out nestedOwnership)
             } else {
@@ -219,6 +230,26 @@ class ColumnarConditionalPlanner {
             plan.Rollback(checkpoint)
             throw ex
         }
+    }
+
+    // General Boolean `!value`. The literal-only unary owner keeps its fast path; this case lets the
+    // same operator recurse through a Boolean member, call, comparison, or branch merge when a call
+    // planner needs the argument's type before it selects an overload.
+    static func TryPlanBooleanNot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+        resultType = typeof(bool)
+        nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        if !IsBooleanNot(nodes, source, node) {
+            return false
+        }
+
+        operandType := typeof(int)
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, out operandType, out nestedOwnership) || operandType != typeof(bool) {
+            return false
+        }
+
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+        return true
     }
 
     // Ternary `cond ? whenTrue : whenFalse` (kind 13). Appends into the already-open fragment,

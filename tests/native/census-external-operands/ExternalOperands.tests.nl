@@ -184,3 +184,17 @@ test "G11: a referenced class takes an object initializer through its parameterl
 test "G11: an initializer whose values only the emitter writes builds the same referenced struct and class" {
     assert OperandUses.Interpolated(4) == "u44 s44none 2"
 }
+
+test "G12: short-circuit, unary, comparison and nested conditions type conditional arguments before overload selection" {
+    assert OperandUses.AppendAnd(true, true) == "x"
+    assert OperandUses.AppendAnd(true, false) == "y"
+    assert OperandUses.AppendOr(false, false) == "y"
+    assert OperandUses.AppendOr(false, true) == "x"
+    assert OperandUses.AppendNot(false) == "x"
+    assert OperandUses.AppendNot(true) == "y"
+    assert OperandUses.AppendComparison(true, true) == "x"
+    assert OperandUses.AppendComparison(true, false) == "y"
+    assert OperandUses.AppendNested(true, false, true) == "y"
+    assert OperandUses.AppendNested(false, false, true) == "x"
+    assert OperandUses.EmitConditionalOpcodeOverload()
+}
