@@ -77,9 +77,9 @@ class NullabilityMetadataCore {
         return NullabilityTypeDisplay.FormatTypeInfo(typeInfo)
     }
 
-    // Preserve the source member of a nullable CLR position on the analyzed type. The compiler
-    // keeps this fact beside the type through binding so NL202 and NL905 can identify the metadata
-    // contract that introduced `?`, including when the expression is stored in a local first.
+    // Preserve the source member of every nullable CLR position on that position and its parent
+    // shape. The one transfer owner below carries it as types are narrowed, joined, substituted,
+    // stored in locals, and read back out of collections.
     static func AttachReferencedNullabilityOrigin(typeInfo: TypeInfo, member: MemberInfo?): TypeInfo {
         if member == null || !ContainsReferencedNullablePosition(typeInfo) {
             return typeInfo
@@ -90,11 +90,243 @@ class NullabilityMetadataCore {
             return typeInfo
         }
 
+        assemblyName := member.Module.Assembly.GetName().Name ?? "referenced assembly"
+        origin := new ReferencedNullabilityOrigin(FormatMemberName(member), assemblyName, PositionForMember(member), FormatTypeInfo(typeInfo))
+        AddOriginToTypeShape(typeInfo, origin)
+        return typeInfo
+    }
+
+    static func AttachReferencedParameterNullabilityOrigin(typeInfo: TypeInfo, parameter: ParameterInfo): TypeInfo {
+        if !ContainsReferencedNullablePosition(typeInfo) {
+            return typeInfo
+        }
+
+        member := parameter.Member
+        if member == null {
+            return typeInfo
+        }
+
+        declaringType := member.DeclaringType
+        if declaringType == null {
+            return typeInfo
+        }
+
         typeName := declaringType.FullName ?? declaringType.Name
         assemblyName := member.Module.Assembly.GetName().Name ?? "referenced assembly"
-        typeInfo.ReferencedNullabilityMember = typeName + "." + member.Name
-        typeInfo.ReferencedNullabilityAssembly = assemblyName
+        memberName := typeName + "." + member.Name
+        method := member as MethodBase
+        if method != null {
+            memberName = FormatMethodName(method)
+        }
+
+        parameterName := parameter.Name ?? "#" + parameter.Position.ToString()
+        origin := new ReferencedNullabilityOrigin(memberName, assemblyName, "parameter " + parameterName, FormatTypeInfo(typeInfo))
+        AddOriginToTypeShape(typeInfo, origin)
         return typeInfo
+    }
+
+    // Transfer the full set of member origins when an expression's type is reconstructed. Nullable
+    // leaves receive the fact too, so an array or generic collection can hand it to an element read.
+    static func TransferReferencedNullabilityOrigins(source: TypeInfo, target: TypeInfo): TypeInfo {
+        if !ContainsReferencedNullablePosition(target) {
+            return target
+        }
+
+        origins := new List<ReferencedNullabilityOrigin>()
+        CollectReferencedNullabilityOrigins(source, origins)
+        for origin in origins {
+            AddOriginToTypeShape(target, origin)
+        }
+
+        return target
+    }
+
+    static func MergeReferencedNullabilityOrigins(left: TypeInfo, right: TypeInfo, target: TypeInfo): TypeInfo {
+        TransferReferencedNullabilityOrigins(left, target)
+        TransferReferencedNullabilityOrigins(right, target)
+        return target
+    }
+
+    static func AddOriginToTypeShape(typeInfo: TypeInfo, origin: ReferencedNullabilityOrigin) {
+        AddOrigin(typeInfo, origin)
+        AddOriginToNullablePositions(typeInfo, origin)
+    }
+
+    static func AddOriginToNullablePositions(typeInfo: TypeInfo, origin: ReferencedNullabilityOrigin) {
+        nullable := typeInfo as NullableTypeInfo
+        if nullable != null {
+            AddOrigin(typeInfo, origin)
+            AddOriginToNullablePositions(nullable.InnerType, origin)
+            return
+        }
+
+        array := typeInfo as ArrayTypeInfo
+        if array != null {
+            AddOriginToNullablePositions(array.ElementType, origin)
+            return
+        }
+
+        byRef := typeInfo as ByRefTypeInfo
+        if byRef != null {
+            AddOriginToNullablePositions(byRef.InnerType, origin)
+            return
+        }
+
+        generic := typeInfo as GenericTypeInfo
+        if generic != null {
+            for argument in generic.TypeArguments {
+                AddOriginToNullablePositions(argument, origin)
+            }
+            return
+        }
+
+        tuple := typeInfo as TupleTypeInfo
+        if tuple != null {
+            for element in tuple.Elements {
+                AddOriginToNullablePositions(element.Type, origin)
+            }
+            return
+        }
+
+        functionType := typeInfo as FunctionTypeInfo
+        if functionType != null {
+            if functionType.ParameterTypes != null {
+                for parameterType in functionType.ParameterTypes {
+                    AddOriginToNullablePositions(parameterType, origin)
+                }
+            }
+            if functionType.ReturnType != null {
+                AddOriginToNullablePositions(functionType.ReturnType, origin)
+            }
+        }
+    }
+
+    static func AddOrigin(typeInfo: TypeInfo, origin: ReferencedNullabilityOrigin) {
+        origins := typeInfo.ReferencedNullabilityOrigins
+        if origins == null {
+            origins = new List<ReferencedNullabilityOrigin>()
+            typeInfo.ReferencedNullabilityOrigins = origins
+        }
+
+        for existing in origins {
+            if existing.MemberName == origin.MemberName && existing.AssemblyName == origin.AssemblyName && existing.Position == origin.Position && existing.TypeName == origin.TypeName {
+                return
+            }
+        }
+
+        origins.Add(origin)
+    }
+
+    static func CollectReferencedNullabilityOrigins(typeInfo: TypeInfo, origins: List<ReferencedNullabilityOrigin>) {
+        existing := typeInfo.ReferencedNullabilityOrigins
+        if existing != null {
+            for origin in existing {
+                AddOriginToList(origins, origin)
+            }
+        }
+
+        nullable := typeInfo as NullableTypeInfo
+        if nullable != null {
+            CollectReferencedNullabilityOrigins(nullable.InnerType, origins)
+            return
+        }
+
+        array := typeInfo as ArrayTypeInfo
+        if array != null {
+            CollectReferencedNullabilityOrigins(array.ElementType, origins)
+            return
+        }
+
+        byRef := typeInfo as ByRefTypeInfo
+        if byRef != null {
+            CollectReferencedNullabilityOrigins(byRef.InnerType, origins)
+            return
+        }
+
+        generic := typeInfo as GenericTypeInfo
+        if generic != null {
+            for argument in generic.TypeArguments {
+                CollectReferencedNullabilityOrigins(argument, origins)
+            }
+            return
+        }
+
+        tuple := typeInfo as TupleTypeInfo
+        if tuple != null {
+            for element in tuple.Elements {
+                CollectReferencedNullabilityOrigins(element.Type, origins)
+            }
+            return
+        }
+
+        functionType := typeInfo as FunctionTypeInfo
+        if functionType != null {
+            if functionType.ParameterTypes != null {
+                for parameterType in functionType.ParameterTypes {
+                    CollectReferencedNullabilityOrigins(parameterType, origins)
+                }
+            }
+            if functionType.ReturnType != null {
+                CollectReferencedNullabilityOrigins(functionType.ReturnType, origins)
+            }
+        }
+    }
+
+    static func AddOriginToList(origins: List<ReferencedNullabilityOrigin>, origin: ReferencedNullabilityOrigin) {
+        for existing in origins {
+            if existing.MemberName == origin.MemberName && existing.AssemblyName == origin.AssemblyName && existing.Position == origin.Position && existing.TypeName == origin.TypeName {
+                return
+            }
+        }
+
+        origins.Add(origin)
+    }
+
+    static func PositionForMember(member: MemberInfo): string {
+        if member as MethodInfo != null {
+            return "return"
+        }
+        if member as PropertyInfo != null {
+            return "property"
+        }
+        if member as FieldInfo != null {
+            return "field"
+        }
+        if member as EventInfo != null {
+            return "event"
+        }
+        return "member"
+    }
+
+    static func FormatMemberName(member: MemberInfo): string {
+        method := member as MethodBase
+        if method != null {
+            return FormatMethodName(method)
+        }
+
+        declaringType := member.DeclaringType
+        if declaringType == null {
+            return member.Name
+        }
+
+        return (declaringType.FullName ?? declaringType.Name) + "." + member.Name
+    }
+
+    static func FormatMethodName(method: MethodBase): string {
+        declaringType := method.DeclaringType
+        memberPrefix := method.Name
+        if declaringType != null {
+            memberPrefix = (declaringType.FullName ?? declaringType.Name) + "." + method.Name
+        }
+
+        parameterNames := new List<string>()
+        for parameter in method.GetParameters() {
+            parameterType := parameter.ParameterType
+            parameterName := parameterType.FullName ?? parameterType.Name
+            parameterNames.Add(parameterName)
+        }
+
+        return memberPrefix + "(" + string.Join(", ", parameterNames) + ")"
     }
 
     static func ContainsReferencedNullablePosition(typeInfo: TypeInfo): bool {
@@ -153,13 +385,40 @@ class NullabilityMetadataCore {
     }
 
     static func ReferencedNullabilityContext(typeInfo: TypeInfo): string? {
-        memberName := typeInfo.ReferencedNullabilityMember
-        assemblyName := typeInfo.ReferencedNullabilityAssembly
-        if memberName == null || assemblyName == null {
+        origins := new List<ReferencedNullabilityOrigin>()
+        CollectReferencedNullabilityOrigins(typeInfo, origins)
+        if origins.Count == 0 {
             return null
         }
 
-        return "The .NET member `" + memberName + "` is annotated nullable in assembly `" + assemblyName + "`."
+        contexts := new List<string>()
+        for origin in origins {
+            contexts.Add(FormatReferencedNullabilityOrigin(origin))
+        }
+
+        return string.Join(" ", contexts)
+    }
+
+    static func FormatReferencedNullabilityOrigin(origin: ReferencedNullabilityOrigin): string {
+        if origin.Position == "return" {
+            return "The .NET member `" + origin.MemberName + "` is annotated to return `" + origin.TypeName + "` in `" + origin.AssemblyName + "`."
+        }
+
+        if origin.Position.StartsWith("parameter ", StringComparison.Ordinal) {
+            parameterName := origin.Position.Substring("parameter ".Length)
+            return "The .NET member `" + origin.MemberName + "` annotates parameter `" + parameterName + "` as `" + origin.TypeName + "` in `" + origin.AssemblyName + "`."
+        }
+
+        positionName := origin.Position
+        if positionName == "property" {
+            positionName = "property type"
+        } else if positionName == "field" {
+            positionName = "field type"
+        } else if positionName == "event" {
+            positionName = "event handler type"
+        }
+
+        return "The .NET member `" + origin.MemberName + "` is annotated with `" + origin.TypeName + "` as its " + positionName + " in `" + origin.AssemblyName + "`."
     }
 
     static func StripMetadata(typeInfo: TypeInfo): TypeInfo {
@@ -332,10 +591,12 @@ class NullabilityMetadataCore {
 
         oblivious := typeInfo as ObliviousTypeInfo
         if oblivious != null {
-            return new NullableTypeInfo(oblivious.InnerType)
+            wrapped: TypeInfo = new NullableTypeInfo(oblivious.InnerType)
+            return TransferReferencedNullabilityOrigins(typeInfo, wrapped)
         }
 
-        return new NullableTypeInfo(typeInfo)
+        wrapped: TypeInfo = new NullableTypeInfo(typeInfo)
+        return TransferReferencedNullabilityOrigins(typeInfo, wrapped)
     }
 
     static func EnsureOblivious(typeInfo: TypeInfo): TypeInfo {
@@ -355,12 +616,12 @@ class NullabilityMetadataCore {
     static func EnsureNotNull(typeInfo: TypeInfo): TypeInfo {
         nullable := typeInfo as NullableTypeInfo
         if nullable != null {
-            return nullable.InnerType
+            return TransferReferencedNullabilityOrigins(typeInfo, nullable.InnerType)
         }
 
         oblivious := typeInfo as ObliviousTypeInfo
         if oblivious != null {
-            return oblivious.InnerType
+            return TransferReferencedNullabilityOrigins(typeInfo, oblivious.InnerType)
         }
 
         return typeInfo

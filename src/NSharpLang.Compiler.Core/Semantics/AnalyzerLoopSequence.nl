@@ -782,7 +782,7 @@ class AnalyzerLoopSequence {
     func NonNullableType(candidate: TypeInfo): TypeInfo {
         nullable := declarationContextValue.ResolveDeclaredAlias(candidate) as NullableTypeInfo
         if nullable != null {
-            return nullable.InnerType
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(candidate, nullable.InnerType)
         }
 
         return candidate

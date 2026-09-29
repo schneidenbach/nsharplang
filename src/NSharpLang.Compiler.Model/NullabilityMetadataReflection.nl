@@ -65,7 +65,7 @@ class NullabilityMetadataReflection {
         attributes := parameter.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenParameterType(parameter)
         converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(parameter.ParameterType, CreateNullabilityInfoForParameter(parameter), typeOverride, openType, attributes, parameter.Member), attributes)
-        return NullabilityMetadataCore.AttachReferencedNullabilityOrigin(ApplyFlowAttributes(converted, attributes), parameter.Member)
+        return NullabilityMetadataCore.AttachReferencedParameterNullabilityOrigin(ApplyFlowAttributes(converted, attributes), parameter)
     }
 
     // AN EVENT'S HANDLER DELEGATE TYPE, WITH THE ANNOTATIONS THE DECLARATION WROTE.

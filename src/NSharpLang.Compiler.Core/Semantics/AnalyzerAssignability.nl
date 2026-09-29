@@ -251,7 +251,19 @@ class AnalyzerAssignability {
             }
 
             reflectedInner := inner as ReflectionTypeInfo
-            return reflectedInner == null || declarationContext.EnforceReferencedNullability || !ExternalAssemblyScan.IsSharedFrameworkAssembly(reflectedInner.Type.Assembly)
+            if reflectedInner == null {
+                return true
+            }
+
+            isSharedFrameworkType := ExternalAssemblyScan.IsSharedFrameworkAssembly(reflectedInner.Type.Assembly)
+            if isSharedFrameworkType {
+                // The opt-in rule enforces nullable metadata from a reference. A source-local
+                // `System.Type?` has no referenced member to report, so it must not create an
+                // unattributable framework diagnostic on its own.
+                return declarationContext.EnforceReferencedNullability && NullabilityMetadataCore.ReferencedNullabilityContext(source) != null
+            }
+
+            return true
         }
 
         // The CLR bridge also erases nullable annotations nested inside constructed generics and

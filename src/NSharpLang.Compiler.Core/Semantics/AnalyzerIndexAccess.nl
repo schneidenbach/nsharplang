@@ -387,6 +387,11 @@ class AnalyzerIndexAccess {
     // SUFFIX rather than by metadata, deliberately: the analyzer must answer for a source-declared
     // `List` it has never reflected.
     func ResolveIndexElementType(receiver: TypeInfo, isRangeAccess: bool): TypeInfo {
+        candidate := ResolveIndexElementTypeCore(receiver, isRangeAccess)
+        return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(receiver, candidate)
+    }
+
+    func ResolveIndexElementTypeCore(receiver: TypeInfo, isRangeAccess: bool): TypeInfo {
         receiverType := declarationContextValue.ResolveDeclaredAlias(receiver)
 
         arrayType := receiverType as ArrayTypeInfo
@@ -416,6 +421,14 @@ class AnalyzerIndexAccess {
         if genericType != null {
             name := genericType.Name
             if name.EndsWith("Dictionary", StringComparison.Ordinal) && genericType.TypeArguments.Count >= 2 {
+                // A reflected dictionary indexer can add `[MaybeNull] TValue` to the value read.
+                // Resolve its metadata first so the nullable result keeps the indexer as its source;
+                // source-declared dictionaries still use the type-argument fallback below.
+                indexerType: TypeInfo = BuiltInTypes.Unknown
+                if !isRangeAccess && memberAccessValue.TryResolveConstructedGenericIndexer(genericType, out indexerType) {
+                    return indexerType
+                }
+
                 return genericType.TypeArguments[1]
             }
 
@@ -496,7 +509,7 @@ class AnalyzerIndexAccess {
     func NonNullableType(candidate: TypeInfo): TypeInfo {
         nullable := declarationContextValue.ResolveDeclaredAlias(candidate) as NullableTypeInfo
         if nullable != null {
-            return nullable.InnerType
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(candidate, nullable.InnerType)
         }
 
         return candidate

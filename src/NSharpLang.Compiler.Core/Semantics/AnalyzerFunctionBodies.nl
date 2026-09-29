@@ -634,6 +634,17 @@ class AnalyzerFunctionBodies {
     // `Analyzer.cs` wrote and the order that matters: the scope pop is what makes the parameters stop
     // resolving, and the ambient restore is what makes a `return` mean the enclosing function again.
     func AdvanceLeaveBody(state: FunctionBodyState): FunctionBodyRequest? {
+        declaration := state.Declaration
+        declaration.ReferencedNullabilityReturnType = state.ReturnType
+
+        symbolFunction := state.SymbolType as FunctionTypeInfo
+        if symbolFunction != null && symbolFunction.ReturnType != null {
+            // The source signature was registered before its body was analysed. Returns enrich the
+            // resolved body type, so copy their referenced-metadata origin back to the callable
+            // signature before callers read it.
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(state.ReturnType, symbolFunction.ReturnType)
+        }
+
         frame := state.FunctionFrame
         if frame != null {
             ambientValue.ExitNestedBody(frame)
@@ -657,7 +668,7 @@ class AnalyzerFunctionBodies {
         }
 
         functionType := functionTypeFactoryValue.CreateFromDeclaration(declaration, state.ContainingType)
-        state.SymbolType = functionType
+        state.SymbolType = RegisteredFunctionTypeForDeclaration(declaration.Name, functionType) ?? functionType
         state.Phase = 11
         if !DeclaresFunctionSymbol(declaration.Name, functionType) {
             return null
@@ -693,6 +704,29 @@ class AnalyzerFunctionBodies {
         }
 
         return !AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch(existingFunction, functionType)
+    }
+
+    // Reuse the signature registered during declaration collection. Its body is analysed later, and
+    // provenance discovered in a return must reach calls that already point at this exact signature.
+    func RegisteredFunctionTypeForDeclaration(name: string, candidate: FunctionTypeInfo): FunctionTypeInfo? {
+        existing := scopesValue.CurrentScopeSymbol(name)
+        function := existing as FunctionTypeInfo
+        if function != null && AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch(function, candidate) {
+            return function
+        }
+
+        group := existing as NSharpMethodGroupInfo
+        if group == null {
+            return null
+        }
+
+        for overload in group.Functions {
+            if AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch(overload, candidate) {
+                return overload
+            }
+        }
+
+        return null
     }
 
     // PHASE 11 — THE EXTENSION-METHOD REGISTRATION AND THE NAMING CONVENTION. A first parameter marked
@@ -913,6 +947,7 @@ class AnalyzerFunctionBodies {
         }
 
         returnType := state.ReturnType
+        NullabilityMetadataCore.TransferReferencedNullabilityOrigins(expressionType, returnType)
         if BuiltInTypes.Is(returnType, BuiltInTypes.Void) {
             // A `never` BODY HANDS BACK NOTHING, so it satisfies `void` as well as it satisfies every
             // other return type: `func Fail() => throw new NotSupportedException()` gives the caller
@@ -954,11 +989,31 @@ class AnalyzerFunctionBodies {
                 return
             }
 
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.ReturnTypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, declaration.Name, expressionTypeName, returnTypeName))
+            metadataContext: string? = null
+            metadataHint: string? = null
+            if declarationContextValue != null && declarationContextValue.EnforceReferencedNullability {
+                metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(expressionType)
+                if metadataContext != null {
+                    metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(expressionBody)
+                }
+            }
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.ReturnTypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, declaration.Name, expressionTypeName, returnTypeName, metadataContext, metadataHint))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, "This function should return '" + returnTypeName + "', but the expression body gives '" + expressionTypeName + "'", declaration.Line, declaration.Column, null, 0)
+        metadataContext: string? = null
+        metadataHint: string? = null
+        if declarationContextValue != null && declarationContextValue.EnforceReferencedNullability {
+            metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(expressionType)
+            if metadataContext != null {
+                metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(expressionBody)
+            }
+        }
+        message := "This function should return '" + returnTypeName + "', but the expression body gives '" + expressionTypeName + "'"
+        if metadataContext != null {
+            message = message + ". " + metadataContext
+        }
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, declaration.Line, declaration.Column, metadataHint, 0)
     }
 
     // PHASE 19 — LEAVING A TOP-LEVEL DECLARATION. The ambient exit is `ExitFunctionDeclaration`, and
@@ -967,6 +1022,13 @@ class AnalyzerFunctionBodies {
     // the saved one, so a stray `return` written between two declarations is reported as having no
     // function to return from. The scope closes after it, exactly as the nested form does.
     func AdvanceDeclarationLeaveBody(state: FunctionBodyState): FunctionBodyRequest? {
+        declaration := state.Declaration
+        declaration.ReferencedNullabilityReturnType = state.ReturnType
+        symbolFunction := state.SymbolType as FunctionTypeInfo
+        if symbolFunction != null && symbolFunction.ReturnType != null {
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(state.ReturnType, symbolFunction.ReturnType)
+        }
+
         frame := state.FunctionFrame
         if frame != null {
             ambientValue.ExitFunctionDeclaration(frame)
@@ -1308,7 +1370,7 @@ class AnalyzerFunctionBodies {
         resolved := declarationContextValue.ResolveDeclaredAlias(candidate)
         nullable := resolved as NullableTypeInfo
         if nullable != null {
-            return nullable.InnerType
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(candidate, nullable.InnerType)
         }
 
         return candidate

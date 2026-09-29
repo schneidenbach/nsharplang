@@ -396,6 +396,9 @@ class AnalyzerFunctionTypeFactory {
         signature.ResolvedGenericConstraintTypes = ResolveDeclarationConstraints(declaration.Constraints, methodSubstitution, declarationFile)
         signature.HasMustUseAttribute = HasMustUseAttribute(declaration.Attributes)
         signature.ReturnType = ResolveFunctionCallReturnType(declaration.Name, isAsync, isGenerator, sourceReturnType)
+        if declaration.ReferencedNullabilityReturnType != null {
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(declaration.ReferencedNullabilityReturnType, signature.ReturnType)
+        }
         return signature
     }
 
@@ -458,6 +461,10 @@ class AnalyzerFunctionTypeFactory {
             signature.MemberNullabilityPostconditions = member.MemberNullabilityPostconditions
         }
         signature.ReturnType = ResolveFunctionCallReturnType(member.Name, member.IsAsync, member.IsGenerator, sourceReturnType)
+        sourceDeclaration := member.SourceDeclaration
+        if sourceDeclaration != null && sourceDeclaration.ReferencedNullabilityReturnType != null {
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(sourceDeclaration.ReferencedNullabilityReturnType, signature.ReturnType)
+        }
         return signature
     }
 

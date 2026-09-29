@@ -60,35 +60,40 @@ class AnalyzerNullabilityPostconditions {
             return
         }
 
+        originType: TypeInfo? = null
+        if isByRefParameter {
+            originType = parameterType
+        }
+
         if NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.NotNull()) {
-            facts.Add(new NullabilityPostcondition(path, 0, NullState.NotNull, isByRefParameter))
+            facts.Add(new NullabilityPostcondition(path, 0, NullState.NotNull, isByRefParameter, originType))
             return
         }
 
         if isByRefParameter && NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.MaybeNull()) {
-            facts.Add(new NullabilityPostcondition(path, 0, NullState.MaybeNull, true))
+            facts.Add(new NullabilityPostcondition(path, 0, NullState.MaybeNull, true, originType))
             return
         }
 
         declaredState := DeclaredParameterState(parameterType)
         conditional := false
         if NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.NotNullWhenTrue()) {
-            facts.Add(new NullabilityPostcondition(path, 1, NullState.NotNull))
+            facts.Add(new NullabilityPostcondition(path, 1, NullState.NotNull, isByRefParameter, originType))
             conditional = true
         }
 
         if NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.NotNullWhenFalse()) {
-            facts.Add(new NullabilityPostcondition(path, 2, NullState.NotNull))
+            facts.Add(new NullabilityPostcondition(path, 2, NullState.NotNull, isByRefParameter, originType))
             conditional = true
         }
 
         if NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.MaybeNullWhenTrue()) {
-            facts.Add(new NullabilityPostcondition(path, 1, NullState.MaybeNull))
+            facts.Add(new NullabilityPostcondition(path, 1, NullState.MaybeNull, isByRefParameter, originType))
             conditional = true
         }
 
         if NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.MaybeNullWhenFalse()) {
-            facts.Add(new NullabilityPostcondition(path, 2, NullState.MaybeNull))
+            facts.Add(new NullabilityPostcondition(path, 2, NullState.MaybeNull, isByRefParameter, originType))
             conditional = true
         }
 
@@ -99,25 +104,25 @@ class AnalyzerNullabilityPostconditions {
         // The DECLARATION's own answer. Unconditional when no attribute spoke, and otherwise the
         // fact the branch the attribute did NOT name falls back to.
         if !conditional {
-            facts.Add(new NullabilityPostcondition(path, 0, declaredState, true))
+            facts.Add(new NullabilityPostcondition(path, 0, declaredState, true, originType))
             return
         }
 
-        AddFallbackBranchFact(facts, path, declaredState, flowFacts)
+        AddFallbackBranchFact(facts, path, declaredState, flowFacts, isByRefParameter, originType)
     }
 
     // The branch an attribute left unspoken keeps what the declaration said. Written as two explicit
     // questions rather than as a negation, because an attribute may name BOTH branches and then
     // neither fallback applies.
-    func AddFallbackBranchFact(facts: List<NullabilityPostcondition>, path: string, declaredState: NullState, flowFacts: int) {
+    func AddFallbackBranchFact(facts: List<NullabilityPostcondition>, path: string, declaredState: NullState, flowFacts: int, isAssigned: bool, originType: TypeInfo?) {
         trueSpoken := NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.NotNullWhenTrue()) || NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.MaybeNullWhenTrue())
         falseSpoken := NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.NotNullWhenFalse()) || NullabilityFlowFacts.Has(flowFacts, NullabilityFlowFacts.MaybeNullWhenFalse())
         if !trueSpoken {
-            facts.Add(new NullabilityPostcondition(path, 1, declaredState))
+            facts.Add(new NullabilityPostcondition(path, 1, declaredState, isAssigned, originType))
         }
 
         if !falseSpoken {
-            facts.Add(new NullabilityPostcondition(path, 2, declaredState))
+            facts.Add(new NullabilityPostcondition(path, 2, declaredState, isAssigned, originType))
         }
     }
 
@@ -175,6 +180,16 @@ class AnalyzerNullabilityPostconditions {
         while index < facts.Count {
             fact := facts[index]
             index = index + 1
+            if fact.ReferencedNullabilityOriginType != null && fact.Path.IndexOf('.') < 0 {
+                targetType := scopesValue.LookupSymbol(fact.Path)
+                if targetType != null {
+                    NullabilityMetadataCore.TransferReferencedNullabilityOrigins(fact.ReferencedNullabilityOriginType, targetType)
+                }
+            }
+
+            if fact.Assigned {
+                scopesValue.InvalidateNullFactsForAssignment(fact.Path)
+            }
             if fact.Condition != 0 {
                 if branchFacts == null {
                     branchFacts = new List<NullabilityPostcondition>()
@@ -195,10 +210,6 @@ class AnalyzerNullabilityPostconditions {
 
                 branchFacts.Add(new NullabilityPostcondition(fact.Path, 1, fact.State))
                 branchFacts.Add(new NullabilityPostcondition(fact.Path, 2, fact.State))
-            }
-
-            if fact.Assigned {
-                scopesValue.InvalidateNullFactsForAssignment(fact.Path)
             }
 
             scopesValue.SetNullStateInCurrentScope(fact.Path, fact.State)

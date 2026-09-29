@@ -228,7 +228,7 @@ class AnalyzerNullFlow {
 
         nullable := expressionType as NullableTypeInfo
         if nullState == NullState.NotNull && nullable != null {
-            return nullable.InnerType
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(expressionType, nullable.InnerType)
         }
 
         return expressionType
@@ -428,6 +428,11 @@ class AnalyzerNullFlow {
         valueState := GetExpressionNullState(value, valueType)
         if valueState == NullState.Unknown {
             valueState = GetDefaultNullState(targetType)
+        }
+
+        identifier := target as IdentifierExpression
+        if identifier != null {
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(valueType, targetType)
         }
 
         scopesValue.SetNullStateInCurrentScope(path, valueState)

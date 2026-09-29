@@ -856,17 +856,19 @@ class AnalyzerAmbientContext {
         }
 
         if assignability.IsAssignable(existing, candidate) {
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(candidate, existing)
             return
         }
 
         if assignability.IsAssignable(candidate, existing) {
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(existing, candidate)
             inferredReturnTypeValue = candidate
             return
         }
 
         common := AnalyzerMatchExpression.FindCommonBaseType(existing, candidate)
         if common != null {
-            inferredReturnTypeValue = common
+            inferredReturnTypeValue = NullabilityMetadataCore.MergeReferencedNullabilityOrigins(existing, candidate, common)
             return
         }
 
@@ -1243,6 +1245,7 @@ class AnalyzerAmbientContext {
         }
 
         expected := state.ExpectedReturnValueType
+        NullabilityMetadataCore.TransferReferencedNullabilityOrigins(returnedType, expected)
         if !state.Assignability.IsAssignable(expected, returnedType) {
             // The classification is read from the STATE's oracle, which is the only place this owner
             // can reach one, and handed down rather than looked up again inside the report.

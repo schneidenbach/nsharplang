@@ -630,6 +630,8 @@ class AnalyzerTargetTypedOperands {
             state.ResultType = AnalyzerOperatorExpressions.CommonType(state.ThenType, state.ElseType)
         }
 
+        state.ResultType = NullabilityMetadataCore.MergeReferencedNullabilityOrigins(state.ThenType, state.ElseType, state.ResultType)
+
         state.Phase = 99
         return null
     }
@@ -679,7 +681,7 @@ class AnalyzerTargetTypedOperands {
         }
 
         lifted: TypeInfo = new NullableTypeInfo(candidate)
-        return lifted
+        return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(candidate, lifted)
     }
 
     // A `default` WRITTEN AS AN ARM, through any parentheses around it.

@@ -808,12 +808,37 @@ class AnalyzerSyntheticCallValidator {
 
         filePath := ""
         snippet := ""
+        metadataContext: string? = null
+        metadataHint: string? = null
+        if assignability.EnforcesReferencedNullability {
+            metadataParts := new List<string>()
+            argumentIndex := 0
+            while argumentIndex < argTypes.Count {
+                argumentType := argTypes[argumentIndex]
+                argumentContext := NullabilityMetadataCore.ReferencedNullabilityContext(argumentType)
+                if argumentContext != null {
+                    metadataParts.Add(argumentContext)
+                    if metadataHint == null && argumentIndex < call.Arguments.Count {
+                        metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(call.Arguments[argumentIndex].Value)
+                    }
+                }
+                argumentIndex = argumentIndex + 1
+            }
+            if metadataParts.Count > 0 {
+                metadataContext = string.Join(" ", metadataParts)
+            }
+        }
         if TryGetRichContext(span.Line, out filePath, out snippet) {
-            diagnostics.ReportBuilt(ErrorMessageBuilder.NoMatchingOverload(filePath, span.Line, span.Column, snippet, span.Length, functionName, call.Arguments.Count, argumentTypes, candidateSignatures))
+            diagnostics.ReportBuilt(ErrorMessageBuilder.NoMatchingOverload(filePath, span.Line, span.Column, snippet, span.Length, functionName, call.Arguments.Count, argumentTypes, candidateSignatures, metadataContext, metadataHint))
             return
         }
 
-        diagnostics.Report(ErrorCode.NoMatchingOverload, "No overload of '" + functionName + "' accepts " + call.Arguments.Count.ToString() + " argument(s) with these types", span.Line, span.Column, "Check the argument count and types against the available overloads.", span.Length)
+        message := "No overload of '" + functionName + "' accepts " + call.Arguments.Count.ToString() + " argument(s) with these types"
+        if metadataContext != null {
+            message = message + ". " + metadataContext
+        }
+        suggestion := metadataHint ?? "Check the argument count and types against the available overloads."
+        diagnostics.Report(ErrorCode.NoMatchingOverload, message, span.Line, span.Column, suggestion, span.Length)
     }
 
     // THE SoA INTRINSICS' VALUE-LEVEL CHECKS. These are the only synthetic functions whose arguments

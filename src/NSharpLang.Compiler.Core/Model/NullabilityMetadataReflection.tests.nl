@@ -429,6 +429,9 @@ test "nested generic nullability is read from the BCL member transform" {
     assert converted != null, NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertProperty(environment))
     assert converted.ReferencedNullabilityMember == "System.Diagnostics.ProcessStartInfo.Environment"
     assert converted.ReferencedNullabilityAssembly != null
+    environmentAssemblyName := environment.Module.Assembly.GetName().Name ?? ""
+    assert environmentAssemblyName.Length > 0
+    assert converted.ReferencedNullabilityAssembly == environmentAssemblyName
     assert converted.TypeArguments.Count == 2
     valueType := converted.TypeArguments[1] as NullableTypeInfo
     assert valueType != null, NullabilityRenderTypeInfo(converted.TypeArguments[1])
@@ -441,11 +444,14 @@ test "nullable BCL returns retain their declaring member and assembly for diagno
 
     converted := NullabilityMetadataReflection.ConvertReturn(method) as NullableTypeInfo
     assert converted != null, NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertReturn(method))
-    assert converted.ReferencedNullabilityMember == "System.Type.GetElementType"
+    assert converted.ReferencedNullabilityMember == "System.Type.GetElementType()"
     assert converted.ReferencedNullabilityAssembly != null
     context := NullabilityMetadataCore.ReferencedNullabilityContext(converted)
     assert context != null
-    assert context.Contains("annotated nullable")
+    assert context.Contains("annotated to return `Type?`")
+    assemblyName := converted.ReferencedNullabilityAssembly ?? ""
+    assert assemblyName.Length > 0
+    assert context.Contains(assemblyName)
 }
 
 test "nullable element positions in an annotated BCL array are read independently" {

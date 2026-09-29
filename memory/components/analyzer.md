@@ -4590,14 +4590,38 @@ lambda's parameter all maybe-null: the census's ten `docQuery.Value` NL905s and 
   `Dictionary<K, V>.TryGetValue`'s `[MaybeNullWhen(false)]` is not folded into the type and leaves
   the true-branch postcondition available to flow analysis.
 
-### Temporary referenced-assembly rollout switch (phase one only)
+### Referenced nullability origins and the opt-in rollout switch
 
-`language.enforceReferencedNullability: true` temporarily enables the analyzer's strict nullability
-checks for shared-framework reflection members. It defaults to `false`, and no checked-in project is
-opted in during the measurement phase. Repository projects can enable it one at a time as their
-call sites are repaired. Existing package and user-assembly metadata checks keep their current
-behavior. The switch is rollout scaffolding only: remove it after every project has been repaired
-and strict BCL checking is the default; it is not part of the language contract.
+`language.enforceReferencedNullability: true` opts a project into strict checks for nullable
+shared-framework metadata. It defaults to `false`; projects enable it individually as their call
+sites are repaired. The opt-in applies when the maybe-null value carries a referenced member origin.
+A source-local `System.Type?` with no such origin keeps the existing shared-framework answer instead
+of generating a diagnostic that cannot name the member responsible.
+
+`NullabilityMetadataCore` is the sole owner that attaches, transfers, merges and formats
+`ReferencedNullabilityOrigin` values stored on `TypeInfo`. The reflection reader attaches them to
+nullable member and parameter positions; reconstructed flow types ask the same owner to carry them
+through local declarations and assignments, returned values and callable signatures, conditional
+joins, `??`, generic substitution, collection element reads, and reflected by-ref postconditions.
+Referenced-nullability diagnostics include the originating .NET member and a fix suggestion.
+`tests/native/census-external-nullability` has a row that exercises those hops through a nullable
+`Type` return, a conditional, coalescing, `Enumerable.FirstOrDefault<T>` and a dictionary indexer.
+
+With the switch enabled across the compiler roots, the metadata-origin census is:
+
+| Root | Diagnostics with member context and hint | Unattributed | Highest-volume origins |
+| --- | ---: | ---: | --- |
+| Plan | 134 | 0 | `System.Type.GetField(System.String)` (68), `System.Type.GetElementType()` (31), `System.Type.GetConstructor(System.Type[])` (15) |
+| Emit | 229 | 0 | `System.Reflection.Emit.ILGenerator.Emit` (93), `System.Type.GetElementType()` (61), `System.Type.GetMethod(System.String, System.Type[])` (43) |
+
+The switch-on scan covered all 12 N# roots. Plan and Emit produced 363 feature diagnostics between
+them, and all 363 had a .NET member and a fix hint. Core's switch-on and switch-off diagnostic
+identities matched exactly after the rollout fixes; Model and Driver had no new diagnostics, and the
+other roots had no referenced-nullability diagnostics. Core's front-door count fell from 364 to 363,
+so `tests/scripts/test-all-core.sh` now uses 363 as its ceiling.
+
+This switch is rollout scaffolding: remove it after every project has been repaired and strict BCL
+checking is the default; it is not part of the language contract.
 - `ConvertSubstitutedParameterType` is the conversion that takes the read state as a VALUE instead of
   reading it, and it is deliberately a sibling of `ConvertReflectedType` rather than a parameter on
   it. Only the TOP-LEVEL position is overridden; everything nested keeps reading its own

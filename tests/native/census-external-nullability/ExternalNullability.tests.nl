@@ -121,6 +121,22 @@ func NullText(errors: List<CompilerError>): string {
     return text
 }
 
+func NullOriginHopConsumer(runBody: string): string {
+    return "namespace Census.FrameworkNullability.Consumer\n\nimport System\nimport System.Collections.Generic\nimport System.Diagnostics\nimport System.Linq\n\nclass Uses {\n    static func TakeType(value: Type): int {\n        return value.Name.Length\n    }\n\n    static func TakeText(value: string): int {\n        return value.Length\n    }\n\n    static func FromBase(): Type? {\n        return typeof(string).BaseType\n    }\n\n    static func FromConditional(chooseLeft: bool): Type? {\n        return chooseLeft ? typeof(string).BaseType : typeof(int).BaseType\n    }\n\n    static func FromCoalesce(chooseLeft: bool): Type? {\n        return (chooseLeft ? typeof(string).BaseType : typeof(int).BaseType) ?? typeof(object).BaseType\n    }\n\n    static func FromGeneric(types: IEnumerable<Type>): Type? {\n        return Enumerable.FirstOrDefault<Type>(types)\n    }\n\n    static func FromElement(info: ProcessStartInfo): string? {\n        return info.Environment[\"N\"]\n    }\n\n    static func Run(info: ProcessStartInfo, types: IEnumerable<Type>): int {\n        " + runBody + "\n    }\n}\n"
+}
+
+func NullOriginHopDiagnostics(errors: List<CompilerError>): List<CompilerError> {
+    diagnostics := new List<CompilerError>()
+    for error in errors {
+        fileName := error.FileName ?? ""
+        if fileName.EndsWith("Consumer.nl", StringComparison.Ordinal) && (error.DiagnosticId == "NL202" || error.DiagnosticId == "NL905" || error.DiagnosticId == "NL402") {
+            diagnostics.Add(error)
+        }
+    }
+
+    return diagnostics
+}
+
 // The same consumer, analysed in one project and against the referenced library.
 func NullBothShapes(tag: string, consumer: string, out oneProject: List<CompilerError>, out twoProjects: List<CompilerError>) {
     single := NullRoot(tag + "-one")
@@ -265,13 +281,13 @@ test "referenced framework nullable members and parameters are errors only with 
     assert rendered.Contains("BaseType"), NullText(on)
     assert rendered.Contains("IndexOf"), NullText(on)
     assert rendered.Contains("null"), NullText(on)
-    assert rendered.Contains("annotated nullable in assembly"), NullText(on)
+    assert rendered.Contains("annotated"), NullText(on)
     assert rendered.Contains("does not accept null"), NullText(on)
 
     nullAccesses := NullConsumerErrors(on, "NL905")
     assert nullAccesses.Count == 1, NullText(on)
     assert nullAccesses[0].Message.Contains("System.Type.BaseType"), NullText(on)
-    assert nullAccesses[0].Message.Contains("annotated nullable in assembly"), NullText(on)
+    assert nullAccesses[0].Message.Contains("annotated"), NullText(on)
     nullSuggestion := nullAccesses[0].Suggestion ?? ""
     assert nullSuggestion.Contains("if ") && nullSuggestion.Contains("must "), NullText(on)
 
@@ -289,6 +305,67 @@ test "referenced framework nullable members and parameters are errors only with 
     }
     assert sawMemberSuggestion, NullText(on)
     assert sawParameterSuggestion, NullText(on)
+}
+
+test "referenced nullability origins survive locals and callable returns" {
+    root := NullRoot("framework-origin-local-return")
+    NullProject(root, "FrameworkOriginLocalReturn", "", true)
+    File.WriteAllText(Path.Combine(root, "Consumer.nl"), NullOriginHopConsumer("local: Type? = typeof(string).BaseType\n        return TakeType(local) + TakeType(FromBase())"))
+    errors := NullAnalyze(root, "FrameworkOriginLocalReturn")
+
+    diagnostics := NullOriginHopDiagnostics(errors)
+    for error in diagnostics {
+        assert error.Message.Contains("The .NET member `"), NullText(errors)
+        assert error.Suggestion != null && error.Suggestion.Length > 0, NullText(errors)
+    }
+    assert diagnostics.Count >= 2, NullText(errors)
+    assert NullText(errors).Contains("System.Type.BaseType"), NullText(errors)
+}
+
+test "referenced nullability origins survive conditional and coalescing operands" {
+    root := NullRoot("framework-origin-joins")
+    NullProject(root, "FrameworkOriginJoins", "", true)
+    File.WriteAllText(Path.Combine(root, "Consumer.nl"), NullOriginHopConsumer("return TakeType(FromConditional(true)) + TakeType(FromCoalesce(true))"))
+    errors := NullAnalyze(root, "FrameworkOriginJoins")
+
+    diagnostics := NullOriginHopDiagnostics(errors)
+    for error in diagnostics {
+        assert error.Message.Contains("The .NET member `"), NullText(errors)
+        assert error.Suggestion != null && error.Suggestion.Length > 0, NullText(errors)
+    }
+    assert diagnostics.Count >= 2, NullText(errors)
+    assert NullText(errors).Contains("System.Type.BaseType"), NullText(errors)
+}
+
+test "referenced nullability origins survive generic substitution" {
+    root := NullRoot("framework-origin-generic")
+    NullProject(root, "FrameworkOriginGeneric", "", true)
+    File.WriteAllText(Path.Combine(root, "Consumer.nl"), NullOriginHopConsumer("return TakeType(FromGeneric(types))"))
+    errors := NullAnalyze(root, "FrameworkOriginGeneric")
+
+    diagnostics := NullOriginHopDiagnostics(errors)
+    for error in diagnostics {
+        assert error.Message.Contains("The .NET member `"), NullText(errors)
+        assert error.Suggestion != null && error.Suggestion.Length > 0, NullText(errors)
+    }
+    assert diagnostics.Count >= 1, NullText(errors)
+    assert NullText(errors).Contains("System.Linq.Enumerable.FirstOrDefault"), NullText(errors)
+}
+
+test "referenced nullability origins survive collection element reads" {
+    root := NullRoot("framework-origin-collection")
+    NullProject(root, "FrameworkOriginCollection", "", true)
+    File.WriteAllText(Path.Combine(root, "Consumer.nl"), NullOriginHopConsumer("return TakeText(FromElement(info))"))
+    errors := NullAnalyze(root, "FrameworkOriginCollection")
+
+    diagnostics := NullOriginHopDiagnostics(errors)
+    for error in diagnostics {
+        assert error.Message.Contains("The .NET member `"), NullText(errors)
+        assert error.Suggestion != null && error.Suggestion.Length > 0, NullText(errors)
+    }
+    assert diagnostics.Count >= 1, NullText(errors)
+    assert NullText(errors).Contains("ProcessStartInfo.Environment"), NullText(errors)
+    assert NullText(errors).Contains("IDictionary`2.Item") || NullText(errors).Contains("get_Item"), NullText(errors)
 }
 
 test "BCL nullable arguments survive overload selection and report NL202 for outer and nested annotations" {
@@ -314,7 +391,7 @@ test "BCL nullable arguments survive overload selection and report NL202 for out
     rendered := string.Join("\n", findings)
     assert rendered.Contains("System.Type.GetElementType"), NullText(on)
     assert rendered.Contains("ProcessStartInfo.Environment"), NullText(on)
-    assert rendered.Contains("annotated nullable in assembly"), NullText(on)
+    assert rendered.Contains("annotated to return"), NullText(on)
     for diagnostic in NullConsumerErrors(on, "NL202") {
         suggestion := diagnostic.Suggestion ?? ""
         assert suggestion.Contains("if ") && suggestion.Contains("must "), NullText(on)

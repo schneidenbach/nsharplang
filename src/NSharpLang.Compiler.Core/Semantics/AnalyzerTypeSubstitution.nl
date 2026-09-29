@@ -114,17 +114,23 @@ class AnalyzerTypeSubstitution {
 
         array := typeReference as ArrayTypeReference
         if array != null {
-            return new ArrayTypeInfo(ResolveTypeWithSubstitution(array.ElementType, substitution))
+            elementType := ResolveTypeWithSubstitution(array.ElementType, substitution)
+            result: TypeInfo = new ArrayTypeInfo(elementType)
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(elementType, result)
         }
 
         nullable := typeReference as NullableTypeReference
         if nullable != null {
-            return new NullableTypeInfo(ResolveTypeWithSubstitution(nullable.InnerType, substitution))
+            innerType := ResolveTypeWithSubstitution(nullable.InnerType, substitution)
+            result: TypeInfo = new NullableTypeInfo(innerType)
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(innerType, result)
         }
 
         byRef := typeReference as ByRefTypeReference
         if byRef != null {
-            return new ByRefTypeInfo(ResolveTypeWithSubstitution(byRef.InnerType, substitution))
+            innerType := ResolveTypeWithSubstitution(byRef.InnerType, substitution)
+            result: TypeInfo = new ByRefTypeInfo(innerType)
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(innerType, result)
         }
 
         // THE PLAIN WALK RUNS FIRST ON THE THREE COMPOSED FORMS BELOW, FOR ITS EFFECTS. It records
@@ -145,7 +151,11 @@ class AnalyzerTypeSubstitution {
                 elements.Add(new TupleTypeElementInfo(element.Name, ResolveTypeWithSubstitution(element.Type, substitution)))
             }
 
-            return new TupleTypeInfo(elements)
+            result: TypeInfo = new TupleTypeInfo(elements)
+            for element in elements {
+                NullabilityMetadataCore.TransferReferencedNullabilityOrigins(element.Type, result)
+            }
+            return result
         }
 
         functionReference := typeReference as FunctionTypeReference
@@ -162,6 +172,10 @@ class AnalyzerTypeSubstitution {
             signature.ParameterTypes = parameterTypes
             signature.ParameterModifiers = parameterModifiers
             signature.ReturnType = ResolveTypeWithSubstitution(functionReference.ReturnType, substitution)
+            for parameterType3 in parameterTypes {
+                NullabilityMetadataCore.TransferReferencedNullabilityOrigins(parameterType3, signature)
+            }
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(signature.ReturnType, signature)
             return signature
         }
 
@@ -173,7 +187,11 @@ class AnalyzerTypeSubstitution {
                 arms.Add(ResolveTypeWithSubstitution(arm2, substitution))
             }
 
-            return new AnonymousUnionTypeInfo(arms)
+            result: TypeInfo = new AnonymousUnionTypeInfo(arms)
+            for arm in arms {
+                NullabilityMetadataCore.TransferReferencedNullabilityOrigins(arm, result)
+            }
+            return result
         }
 
         return typeResolverValue.ResolveType(typeReference)
@@ -207,9 +225,16 @@ class AnalyzerTypeSubstitution {
         // The rebuild goes through the SAME normalisation the plain walk applied.
         normalizedTuple: TypeInfo = BuiltInTypes.Unknown
         if ValueTupleTypeFacts.TryNormalizeConstructed(genericDefinition, typeArguments, out normalizedTuple) {
+            for typeArgument3 in typeArguments {
+                NullabilityMetadataCore.TransferReferencedNullabilityOrigins(typeArgument3, normalizedTuple)
+            }
             return normalizedTuple
         }
 
-        return new GenericTypeInfo(generic.Name, typeArguments, genericDefinition)
+        result: TypeInfo = new GenericTypeInfo(generic.Name, typeArguments, genericDefinition)
+        for typeArgument3 in typeArguments {
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(typeArgument3, result)
+        }
+        return result
     }
 }

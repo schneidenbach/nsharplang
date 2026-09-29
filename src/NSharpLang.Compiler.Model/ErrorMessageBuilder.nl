@@ -293,6 +293,10 @@ class ErrorMessageBuilder {
     }
 
     static func NoMatchingOverload(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, actualArgumentCount: int, argumentTypes: List<string>, candidateSignatures: List<string>): CompilerError {
+        return NoMatchingOverload(fileName, line, column, sourceSnippet, length, functionName, actualArgumentCount, argumentTypes, candidateSignatures, null, null)
+    }
+
+    static func NoMatchingOverload(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, actualArgumentCount: int, argumentTypes: List<string>, candidateSignatures: List<string>, metadataContext: string?, metadataHint: string?): CompilerError {
         argumentText := "no arguments"
         if HasItems(argumentTypes) {
             argumentText = JoinBackticked(argumentTypes)
@@ -306,13 +310,22 @@ class ErrorMessageBuilder {
         argumentCountText := IntText(actualArgumentCount) + " " + Pluralize(actualArgumentCount, "argument", "arguments")
         humanExplanation := "I cannot find an overload of `" + functionName + "` that matches this call:"
         contextualHint := "This call passes " + argumentCountText + ": " + argumentText + ".\n" + signatureText + "\n\n" + "Check the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+        message := "No overload of '" + functionName + "' accepts " + argumentCountText + " with these types"
+        if metadataContext != null {
+            message = message + ". " + metadataContext
+            humanExplanation = "A maybe-null argument comes from referenced metadata: " + metadataContext
+            if metadataHint != null {
+                contextualHint = metadataHint
+            }
+        }
 
-        return new CompilerError(ErrorCode.NoMatchingOverload, "No overload of '" + functionName + "' accepts " + argumentCountText + " with these types", line, column, ErrorSeverity.Error) {
+        return new CompilerError(ErrorCode.NoMatchingOverload, message, line, column, ErrorSeverity.Error) {
             FileName: fileName,
             SourceSnippet: sourceSnippet,
             Length: length,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
+            Suggestion: metadataHint,
             DocsUrl: DiagnosticDocs.UrlFor("NL402")
         }
     }

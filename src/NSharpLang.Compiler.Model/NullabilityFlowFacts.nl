@@ -279,6 +279,7 @@ class NullabilityPostcondition {
     conditionValue: int
     stateValue: NullState
     assignedValue: bool
+    referencedNullabilityOriginTypeValue: TypeInfo?
 
     Path: string => pathValue
 
@@ -290,11 +291,13 @@ class NullabilityPostcondition {
     // derived from the path is stale afterwards; `Assert.NotNull(x)` writes nothing, so a fact
     // already proved about `x.y` survives it.
     Assigned: bool => assignedValue
+    ReferencedNullabilityOriginType: TypeInfo? => referencedNullabilityOriginTypeValue
 
-    constructor(path: string, condition: int, state: NullState, assigned: bool = false) {
+    constructor(path: string, condition: int, state: NullState, assigned: bool = false, referencedNullabilityOriginType: TypeInfo? = null) {
         pathValue = path
         conditionValue = condition
         stateValue = state
         assignedValue = assigned
+        referencedNullabilityOriginTypeValue = referencedNullabilityOriginType
     }
 }

@@ -560,10 +560,11 @@ class AnalyzerOperatorExpressions {
 
         throwNode := expression.Right as ThrowExpression
         if throwNode != null {
-            return NonNullable(leftType)
+            result := NonNullable(leftType)
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(leftType, result)
         }
 
-        return rightType
+        return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(rightType, rightType)
     }
 
     // A LEFT SIDE THAT CANNOT BE NULL IS TOLD SO, because `??` on it is dead code the programmer
@@ -607,7 +608,7 @@ class AnalyzerOperatorExpressions {
     func NonNullable(candidate: TypeInfo): TypeInfo {
         nullableType := declarationsValue.ResolveDeclaredAlias(candidate) as NullableTypeInfo
         if nullableType != null {
-            return nullableType.InnerType
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(candidate, nullableType.InnerType)
         }
 
         return candidate
@@ -1576,6 +1577,11 @@ class AnalyzerOperatorExpressions {
     // this slice: the ternary asked for a common type as a STEP because the widening table lived in
     // the host, and now that the table is here the ternary's owner calls it directly.
     static func CommonType(left: TypeInfo, right: TypeInfo): TypeInfo {
+        result := CommonTypeCore(left, right)
+        return NullabilityMetadataCore.MergeReferencedNullabilityOrigins(left, right, result)
+    }
+
+    static func CommonTypeCore(left: TypeInfo, right: TypeInfo): TypeInfo {
         // IDENTITY, NOT EQUALITY. The host compared the two answers with `==` on a class that
         // overrides `Equals` but not `operator ==`, so two SEPARATELY CONSTRUCTED `int`s are not the
         // same answer here — they reach the promotion table instead and come back `int` anyway. The

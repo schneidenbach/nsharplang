@@ -486,12 +486,21 @@ class AnalyzerAccessorBodies {
         memberText := ""
         TypeMismatchDisplay.Pair(declarationContextValue, expressionType, memberType, out expressionText, out memberText)
         message := "Property '" + property.Name + "' is typed as '" + memberText + "', but the expression body returns '" + expressionText + "'"
+        metadataContext: string? = null
+        metadataHint: string? = null
+        if declarationContextValue != null && declarationContextValue.EnforceReferencedNullability {
+            metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(expressionType)
+            if metadataContext != null {
+                metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(expressionBody)
+                message = message + ". " + metadataContext
+            }
+        }
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, expressionText, memberText, message))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, expressionText, memberText, message, metadataContext, metadataHint))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.InvalidSyntax, message, property.Line, property.Column, null, 0)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, message, property.Line, property.Column, metadataHint, 0)
     }
 
     // PHASE 10 — AN INDEXER'S WHOLE ENTRY: THE TYPE, THEN THE PARAMETER-LIST RULES. The order is the

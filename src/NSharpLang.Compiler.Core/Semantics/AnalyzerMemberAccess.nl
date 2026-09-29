@@ -458,7 +458,7 @@ class AnalyzerMemberAccess {
             // `else if`: the SoA column registration must not run when the report did.
             ReportUndefinedMember(receiverType, member, includeStaticMembers)
             if member.IsNullConditional {
-                state.ResultType = MakeNullableResult(memberType)
+                state.ResultType = MakeNullableResult(memberType, receiverType)
             } else {
                 state.ResultType = memberType
             }
@@ -484,7 +484,7 @@ class AnalyzerMemberAccess {
         // and no postconditions, which is why `map?.TryGetValue(k, out v) == true` proved nothing
         // about `v` and `h?.M("a", "b", "c")` reported no arity error at all.
         if (member.IsNullConditional || isChainContinuation) && !invocationPosition {
-            state.ResultType = MakeNullableResult(memberType)
+            state.ResultType = MakeNullableResult(memberType, receiverType)
         } else {
             state.ResultType = memberType
         }
@@ -1828,12 +1828,17 @@ class AnalyzerMemberAccess {
     //
     // PUBLISHED because the index arm applies the identical rule to `a?[i]`.
     func MakeNullableResult(candidate: TypeInfo): TypeInfo {
+        return MakeNullableResult(candidate, BuiltInTypes.Unknown)
+    }
+
+    func MakeNullableResult(candidate: TypeInfo, receiverType: TypeInfo): TypeInfo {
         resolved := declarationContextValue.ResolveDeclaredAlias(candidate)
         if BuiltInTypes.Is(resolved, BuiltInTypes.Void) || BuiltInTypes.Is(resolved, BuiltInTypes.Never) || resolved as UnknownTypeInfo != null || resolved as NullableTypeInfo != null {
-            return candidate
+            return NullabilityMetadataCore.MergeReferencedNullabilityOrigins(candidate, receiverType, candidate)
         }
 
-        return new NullableTypeInfo(candidate)
+        lifted: TypeInfo = new NullableTypeInfo(candidate)
+        return NullabilityMetadataCore.MergeReferencedNullabilityOrigins(candidate, receiverType, lifted)
     }
 
     // THE INDEXER OF A CONSTRUCTED EXTERNAL GENERIC, asked on the index arm's behalf. The arm is built
@@ -1854,7 +1859,7 @@ class AnalyzerMemberAccess {
     func NonNullableType(candidate: TypeInfo): TypeInfo {
         nullable := declarationContextValue.ResolveDeclaredAlias(candidate) as NullableTypeInfo
         if nullable != null {
-            return nullable.InnerType
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(candidate, nullable.InnerType)
         }
 
         return candidate

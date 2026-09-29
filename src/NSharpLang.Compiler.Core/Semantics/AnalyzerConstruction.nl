@@ -1493,7 +1493,16 @@ class AnalyzerConstruction {
         }
 
         span := spansValue.GetExpressionDiagnosticSpan(property.Value)
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, elementLabel + " is '" + TypeText(valueType) + "', but the target " + state.PendingTargetKind + " expects '" + TypeText(expectedElementType) + "'", span.Line, span.Column, null, span.Length)
+        message := elementLabel + " is '" + TypeText(valueType) + "', but the target " + state.PendingTargetKind + " expects '" + TypeText(expectedElementType) + "'"
+        suggestion: string? = null
+        if declarationContextValue.EnforceReferencedNullability {
+            metadataContext := NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
+            if metadataContext != null {
+                message = message + ". " + metadataContext
+                suggestion = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(property.Value)
+            }
+        }
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, suggestion, span.Length)
     }
 
     // NL202, IN TWO RENDERINGS, AND THE RICH ONE IS PREFERRED. A diagnostic with a source line to
@@ -1511,12 +1520,21 @@ class AnalyzerConstruction {
         memberText := ""
         TypeMismatchDisplay.Pair(declarationContextValue, valueType, memberType, out valueText, out memberText)
         message := "'" + property.Name + "' is typed as '" + memberText + "', but the value is '" + valueText + "'"
+        metadataContext: string? = null
+        metadataHint: string? = null
+        if declarationContextValue.EnforceReferencedNullability {
+            metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
+            if metadataContext != null {
+                metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(property.Value)
+                message = message + ". " + metadataContext
+            }
+        }
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, valueText, memberText, message))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, valueText, memberText, message, metadataContext, metadataHint))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, null, span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, metadataHint, span.Length)
     }
 
     // ------------------------------------------------------------------------------------------
@@ -1654,7 +1672,16 @@ class AnalyzerConstruction {
         }
 
         span := spansValue.GetExpressionDiagnosticSpan(property.Value)
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, "'" + property.Name + "' is typed as '" + TypeText(memberType) + "', but the value is '" + TypeText(valueType) + "'", span.Line, span.Column, null, span.Length)
+        message := "'" + property.Name + "' is typed as '" + TypeText(memberType) + "', but the value is '" + TypeText(valueType) + "'"
+        suggestion: string? = null
+        if declarationContextValue.EnforceReferencedNullability {
+            metadataContext := NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
+            if metadataContext != null {
+                message = message + ". " + metadataContext
+                suggestion = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(property.Value)
+            }
+        }
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, suggestion, span.Length)
     }
 
     // ------------------------------------------------------------------------------------------
@@ -2028,7 +2055,7 @@ class AnalyzerConstruction {
     func NonNullableType(candidate: TypeInfo): TypeInfo {
         nullable := declarationContextValue.ResolveDeclaredAlias(candidate) as NullableTypeInfo
         if nullable != null {
-            return nullable.InnerType
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(candidate, nullable.InnerType)
         }
 
         return candidate

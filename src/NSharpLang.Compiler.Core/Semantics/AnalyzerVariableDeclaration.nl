@@ -330,6 +330,7 @@ class AnalyzerVariableDeclaration {
         state.Phase = 2
 
         if declaredType != null && inferredType != null && initializer != null {
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(inferredType, declaredType)
             ReportIfNotAssignable(declaration, declaredType, inferredType, initializer)
             state.FinalType = declaredType
             return null

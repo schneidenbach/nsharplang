@@ -61,6 +61,7 @@ class DeclaredMemberInfo {
     declaredModifiersValue: int
     hasBodyValue: bool
     hasSetsRequiredMembersAttributeValue: bool
+    sourceDeclarationValue: FunctionDeclaration?
 
     Name: string => nameValue
     ContainingType: string => containingTypeValue
@@ -140,9 +141,11 @@ class DeclaredMemberInfo {
     // reason `HasMustUseAttribute` beside it is: the attribute LIST does not travel with this record,
     // so a question about one named attribute has to be answered where the declaration is read.
     HasSetsRequiredMembersAttribute: bool => hasSetsRequiredMembersAttributeValue
+    SourceDeclaration: FunctionDeclaration? => sourceDeclarationValue
 
-    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null, hasSetsRequiredMembersAttribute: bool = false, memberNullabilityPostconditions: NullabilityMemberPostcondition[]? = null) {
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null, hasSetsRequiredMembersAttribute: bool = false, memberNullabilityPostconditions: NullabilityMemberPostcondition[]? = null, sourceDeclaration: FunctionDeclaration? = null) {
         hasSetsRequiredMembersAttributeValue = hasSetsRequiredMembersAttribute
+        sourceDeclarationValue = sourceDeclaration
         doesNotReturnValue = doesNotReturn
         parameterReachabilityFactsValue = parameterReachabilityFacts ?? new int[](0)
         parameterNullabilityFactsValue = parameterNullabilityFacts ?? new int[](0)
@@ -223,25 +226,56 @@ class NestedTypeInfo {
     }
 }
 
-class TypeInfo {
-    referencedNullabilityMemberValue: string?
-    referencedNullabilityAssemblyValue: string?
+class ReferencedNullabilityOrigin {
+    MemberName: string
+    AssemblyName: string
+    Position: string
+    TypeName: string
 
-    ReferencedNullabilityMember: string? {
+    constructor(memberName: string, assemblyName: string, position: string, typeName: string) {
+        MemberName = memberName
+        AssemblyName = assemblyName
+        Position = position
+        TypeName = typeName
+    }
+}
+
+class TypeInfo {
+    referencedNullabilityOriginsValue: List<ReferencedNullabilityOrigin>?
+
+    // A nullable type may have arrived through several referenced members, such as the two arms of
+    // a conditional. The metadata reader and every transfer of those facts are owned by
+    // `NullabilityMetadataCore`; this property is the value carrier, not a second origin policy.
+    ReferencedNullabilityOrigins: List<ReferencedNullabilityOrigin>? {
         get {
-            return referencedNullabilityMemberValue
+            return referencedNullabilityOriginsValue
         }
         set {
-            referencedNullabilityMemberValue = value
+            referencedNullabilityOriginsValue = value
+        }
+    }
+
+    // Kept as convenient first-origin views for the reflection contract rows. Diagnostics render
+    // the complete origin set through `NullabilityMetadataCore.ReferencedNullabilityContext`.
+    ReferencedNullabilityMember: string? {
+        get {
+            origins := referencedNullabilityOriginsValue
+            if origins == null || origins.Count == 0 {
+                return null
+            }
+
+            return origins[0].MemberName
         }
     }
 
     ReferencedNullabilityAssembly: string? {
         get {
-            return referencedNullabilityAssemblyValue
-        }
-        set {
-            referencedNullabilityAssemblyValue = value
+            origins := referencedNullabilityOriginsValue
+            if origins == null || origins.Count == 0 {
+                return null
+            }
+
+            return origins[0].AssemblyName
         }
     }
 }
