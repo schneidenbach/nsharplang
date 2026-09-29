@@ -1,8 +1,7 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
 import System.Collections.Generic
-import System.IO
+import NSharpLang.Compiler.Ast
 
 // Snapshot plumbing for signature help. The policy — which declarations a call name means, how each
 // overload reads, which one is active and which row the caret is in — lives in

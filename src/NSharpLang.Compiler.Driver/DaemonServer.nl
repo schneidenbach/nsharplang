@@ -11,7 +11,6 @@ import System.Text.Json
 import System.Threading
 import NSharpLang.Cli
 import NSharpLang.Cli.Commands
-import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 
 // The error the query dispatch throws to answer with a JSON-RPC code rather than a message alone.
@@ -246,7 +245,7 @@ class DaemonServer {
                             kick.Connect(new UnixDomainSocketEndPoint(socketPath))
                             kick.Close()
                         } catch kickFailure: Exception {
-                            // the kick is best-effort: Accept() unblocks on shutdown either way
+                            WriteDiagnostic(DaemonServerKernels.GetServerErrorMessage(kickFailure.Message))
                         }
                     }
                 }
@@ -433,7 +432,6 @@ class DaemonServer {
             // Extract params
             filePath := GetParam<string>(request.Params, "file")
             posStr := GetParam<string>(request.Params, "pos")
-            name := GetParam<string>(request.Params, "name")
             kind := GetParam<string>(request.Params, "kind")
             severity := GetParam<string>(request.Params, "severity")
             includeKeywords := GetParam<bool>(request.Params, "includeKeywords")
@@ -733,13 +731,13 @@ class DaemonServer {
         try {
             File.Delete(socketPath)
         } catch socketDeleteFailure: Exception {
-            // best-effort: the socket may already be gone
+            WriteDiagnostic(DaemonServerKernels.GetServerErrorMessage(socketDeleteFailure.Message))
         }
 
         try {
             File.Delete(pidPath)
         } catch pidDeleteFailure: Exception {
-            // best-effort: the pid file may already be gone
+            WriteDiagnostic(DaemonServerKernels.GetServerErrorMessage(pidDeleteFailure.Message))
         }
 
         WriteDiagnostic(DaemonServerKernels.GetShutdownCompleteMessage())

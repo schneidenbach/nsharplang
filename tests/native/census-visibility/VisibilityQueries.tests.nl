@@ -17,7 +17,7 @@ import System.IO
 //
 // The NEGATIVE half is here too, and it has to be: a cross-namespace reference must still FAIL, and
 // the only place an N# test can watch a diagnostic being produced is a real analysis over real
-// files. `Compiler.dll` holds `CodeIntelligenceService`, so the route is reflection, exactly as
+// files. `NSharpLang.Compiler.Driver.dll` holds `CodeIntelligenceService`, so the route is reflection, exactly as
 // `tests/native/query-integration` established.
 func SetVisibilityObject(values: object?[], index: int, value: object?) {
     values[index] = value
@@ -29,7 +29,7 @@ func SetVisibilityInt(values: object?[], index: int, value: int) {
 }
 
 func VisibilityServiceType(): Type {
-    found := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceService, Compiler")
+    found := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceService, NSharpLang.Compiler.Driver")
     if found == null {
         throw new InvalidOperationException("The production code-intelligence service type was not loadable.")
     }
@@ -224,7 +224,7 @@ func VisibilityUsingSource(): string {
 }
 
 func VisibilityCompletionEngineType(): Type {
-    found := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, Compiler")
+    found := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, NSharpLang.Compiler.Driver")
     if found == null {
         throw new InvalidOperationException("The production completion engine type was not loadable.")
     }

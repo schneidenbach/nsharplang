@@ -1463,7 +1463,7 @@ class ColumnarDirectCallPlanner {
                 typeArguments[typeIndex] = resolved
                 typeIndex += 1
             }
-        } else if typeArguments.Length > 0 && !TryInferReceiverSiblingTypeArguments(nodes, source, callNode, receiverNode, receiverType, bindings, argumentTypes, argumentFacts, facts, typeParameters, out typeArguments) {
+        } else if typeArguments.Length > 0 && !TryInferReceiverSiblingTypeArguments(nodes, source, callNode, receiverType, bindings, argumentTypes, argumentFacts, facts, typeParameters, out typeArguments) {
             return false
         }
 
@@ -1511,7 +1511,7 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    static func TryInferReceiverSiblingTypeArguments(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, receiverType: Type, bindings: ColumnarFragmentBindings, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, facts: ColumnarSiblingCallFacts, typeParameters: Type[], out typeArguments: Type[]): bool {
+    static func TryInferReceiverSiblingTypeArguments(nodes: ColumnarNodeTable, source: string, callNode: int, receiverType: Type, bindings: ColumnarFragmentBindings, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, facts: ColumnarSiblingCallFacts, typeParameters: Type[], out typeArguments: Type[]): bool {
         typeArguments = new Type[](typeParameters.Length)
         if facts.ParameterTypes.Length == 0 || facts.ParameterTypes.Length != facts.ParameterNames.Length || facts.ParameterTypes.Length != facts.ParameterModifierKinds.Length || argumentTypes.Length != argumentFacts.ArgumentNodes.Length {
             return false
@@ -1540,7 +1540,7 @@ class ColumnarDirectCallPlanner {
             }
 
             typeArguments = new Type[](typeParameters.Length)
-            if !ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(typeParameters, typeArguments, receiverParameter, must widenedReceiver) {
+            if !ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(typeParameters, typeArguments, receiverParameter, widenedReceiver) {
                 return false
             }
         }

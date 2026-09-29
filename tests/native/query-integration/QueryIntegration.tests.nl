@@ -113,15 +113,15 @@ func QueryType(typeName: string): Type {
 }
 
 func QueryServiceType(): Type {
-    return QueryType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceService, Compiler")
+    return QueryType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceService, NSharpLang.Compiler.Driver")
 }
 
 func QueryFormatterType(): Type {
-    return QueryType("NSharpLang.Compiler.CodeIntelligence.OutputFormatter, Compiler")
+    return QueryType("NSharpLang.Compiler.CodeIntelligence.OutputFormatter, NSharpLang.Compiler.Driver")
 }
 
 func QueryCompletionEngineType(): Type {
-    return QueryType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, Compiler")
+    return QueryType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, NSharpLang.Compiler.Driver")
 }
 
 func QueryDiagnosticResultType(): Type {

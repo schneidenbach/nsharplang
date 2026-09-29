@@ -6,7 +6,6 @@ import System.Security.Cryptography
 import System.Text
 import System.Text.Json
 import System.Text.Json.Serialization
-import NSharpLang.Compiler
 
 // The daemon's JSON-RPC 2.0 wire, as types the serializer reads.
 //

@@ -561,6 +561,12 @@ else
     # and removes nothing through its own CLI. Plan and Emit stay 0 with the new planner and emitter
     # arms, and every other project is unmoved.
     #
+    # 2026-09-29, after the daemon/query ownership move into Compiler.Driver and the completed
+    # compiler-fix batch: Model 0, Syntax 0, Core 364, Plan 0, Emit 0, CodeIntel 0, Tooling 0,
+    # Driver 0, Compiler 9, Playground 0 and Build.Tasks 0. Every project was measured with this
+    # worktree's CLI through `nlc check --use-built-references`; lower Compiler's previous 34 ceiling
+    # to its observed 9. The newly independent Plan, Emit and Driver checks are all at zero.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
@@ -570,7 +576,7 @@ else
         0
         0
         0
-        34
+        9
         0
         0
     )

@@ -93,7 +93,7 @@ test "every self-host ceiling is a measured number, and none of them is the old 
     assert ceilings[5] == "0", "Compiler.CodeIntel's front-door ceiling must stay 0; found '" + ceilings[5] + "'."
     assert ceilings[6] == "0", "Compiler.Tooling's front-door ceiling must stay 0; found '" + ceilings[6] + "'."
     assert ceilings[7] == "0", "Compiler.Driver's front-door ceiling must stay 0; found '" + ceilings[7] + "'."
-    assert ceilings[8] == "34", "Compiler's front-door ceiling must stay 34; found '" + ceilings[8] + "'."
+    assert ceilings[8] == "9", "Compiler's front-door ceiling must stay 9; found '" + ceilings[8] + "'."
     assert ceilings[9] == "0", "Playground's front-door ceiling must stay 0; found '" + ceilings[9] + "'."
     assert ceilings[10] == "0", "Build.Tasks' front-door ceiling must stay 0; found '" + ceilings[10] + "'."
     for ceiling in ceilings {

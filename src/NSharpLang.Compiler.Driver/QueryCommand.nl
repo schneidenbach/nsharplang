@@ -385,7 +385,7 @@ static class QueryCommand {
         }
 
         if subcommandKind == QuerySubcommandKind.Trusted {
-            return TrustedCommand(positionalArgs, options)
+            return TrustedCommand(options)
         }
 
         if subcommandKind == QuerySubcommandKind.Implementors {
@@ -640,7 +640,7 @@ static class QueryCommand {
         return 0
     }
 
-    static func TrustedCommand(args: string[], options: QueryOptions): int {
+    static func TrustedCommand(options: QueryOptions): int {
         if QueryCommandKernels.GetJsonOnlyOutputMode(options.UseText) == -1 {
             return QueryError(QueryCommandKernels.GetTrustedJsonOnlyMessage())
         }

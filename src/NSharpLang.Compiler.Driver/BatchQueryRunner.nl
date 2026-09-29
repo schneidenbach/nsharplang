@@ -6,7 +6,6 @@ import System.IO
 import System.Linq
 import System.Text.Json
 import System.Text.Json.Serialization
-import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 
 // One batch request as it arrives, either from a --requests file or from the daemon's `query/batch`

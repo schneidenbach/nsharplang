@@ -3,7 +3,7 @@ namespace NSharpLang.QueryIntegration.Tests
 import System
 
 
-// CodeIntelligenceService stays in Compiler, so this one integration fact remains in the native
+// CodeIntelligenceService lives in Compiler.Driver, so this one integration fact remains in the native
 // query estate. The project.yml and Program.nl strings are byte-for-byte the decoded C# raw
 // literals from ErrorRecoveryPipelineTests.cs: neither has a leading nor trailing line ending.
 test "QueryDiagnostics_MalformedProject_ReturnsSyntaxAndSemanticDiagnosticsWithoutPlaceholderCascade" {

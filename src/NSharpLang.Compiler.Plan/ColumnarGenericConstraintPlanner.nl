@@ -279,7 +279,7 @@ class ColumnarGenericConstraintPlanner {
                     baseEntailed := ColumnarTypeEquivalenceFacts.TypesEquivalent(bound, closedBaseConstraint)
                     if !baseEntailed {
                         for declaredBoundConstraint in bound.GetGenericParameterConstraints() {
-                            if ColumnarTypeEquivalenceFacts.TypesEquivalent(declaredBoundConstraint, closedBaseConstraint) || (closedBaseConstraint.IsInterface && BoundSatisfiesInterfaceConstraint(declaredBoundConstraint, closedBaseConstraint, structRegistry)) || (!closedBaseConstraint.IsInterface && !(declaredBoundConstraint.Assembly is AssemblyBuilder) && !(closedBaseConstraint.Assembly is AssemblyBuilder) && closedBaseConstraint.IsAssignableFrom(declaredBoundConstraint)) {
+                            if ColumnarTypeEquivalenceFacts.TypesEquivalent(declaredBoundConstraint, closedBaseConstraint) || (closedBaseConstraint.IsInterface && BoundSatisfiesInterfaceConstraint(declaredBoundConstraint, closedBaseConstraint, structRegistry)) || BoundSatisfiesBaseConstraint(System.Type.EmptyTypes, System.Type.EmptyTypes, declaredBoundConstraint, closedBaseConstraint, structRegistry) || (!closedBaseConstraint.IsInterface && !(declaredBoundConstraint.Assembly is AssemblyBuilder) && !(closedBaseConstraint.Assembly is AssemblyBuilder) && closedBaseConstraint.IsAssignableFrom(declaredBoundConstraint)) {
                                 baseEntailed = true
                                 break
                             }
@@ -320,7 +320,7 @@ class ColumnarGenericConstraintPlanner {
                 return false
             }
 
-            if baseConstraint != null && !BoundSatisfiesBaseConstraint(typeParams, boundArgs, bound, baseConstraint) {
+            if baseConstraint != null && !BoundSatisfiesBaseConstraint(typeParams, boundArgs, bound, baseConstraint, structRegistry) {
                 return false
             }
             constraintIndex := 0
@@ -403,6 +403,16 @@ class ColumnarGenericConstraintPlanner {
         bound: Type,
         baseConstraint: Type
     ): bool {
+        return BoundSatisfiesBaseConstraint(typeParams, boundArgs, bound, baseConstraint, null)
+    }
+
+    static func BoundSatisfiesBaseConstraint(
+        typeParams: Type[],
+        boundArgs: Type[],
+        bound: Type,
+        baseConstraint: Type,
+        structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>?
+    ): bool {
         if baseConstraint.IsGenericParameter {
             otherPosition := -1
             parameterIndex := 0
@@ -421,12 +431,18 @@ class ColumnarGenericConstraintPlanner {
             if otherBound.IsGenericParameter {
                 return false
             }
+            if structRegistry != null && SourceTypeSatisfiesBaseConstraint(bound, otherBound, structRegistry) {
+                return true
+            }
             if otherBound.Assembly is AssemblyBuilder {
                 return false
             }
             return otherBound.IsAssignableFrom(bound)
         }
 
+        if structRegistry != null && SourceTypeSatisfiesBaseConstraint(bound, baseConstraint, structRegistry) {
+            return true
+        }
         if baseConstraint.Assembly is AssemblyBuilder {
             return false
         }
@@ -437,6 +453,61 @@ class ColumnarGenericConstraintPlanner {
             return false
         }
         return baseConstraint.IsAssignableFrom(bound)
+    }
+
+    // A source type builder cannot answer Type.IsAssignableFrom before its assembly is baked. The
+    // declaration graph and each exact base template already hold the same relation, including the
+    // type arguments carried by a constructed source base, so validate that graph directly.
+    static func SourceTypeSatisfiesBaseConstraint(
+        bound: Type,
+        expectedBase: Type,
+        structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
+    ): bool {
+        if bound == null || expectedBase == null || structRegistry == null {
+            return false
+        }
+
+        currentDefinition := TryResolveSourceDefinitionForConstraint(bound, structRegistry)
+        currentType := bound
+        while currentDefinition != null {
+            if ColumnarTypeEquivalenceFacts.TypesEquivalent(currentType, expectedBase) {
+                return true
+            }
+
+            exactBaseType := currentDefinition.ExactBaseType
+            if exactBaseType == null {
+                return false
+            }
+
+            closedBaseType: Type = exactBaseType
+            sourceTypeParameters := currentDefinition.Builder.GetGenericArguments()
+            if sourceTypeParameters.Length > 0 {
+                if !currentType.IsGenericType {
+                    return false
+                }
+                sourceTypeArguments := currentType.GetGenericArguments()
+                if sourceTypeArguments.Length != sourceTypeParameters.Length || !TrySubstituteGenericTypeArguments(sourceTypeParameters, sourceTypeArguments, exactBaseType, out closedBaseType) {
+                    return false
+                }
+            }
+
+            if ColumnarTypeEquivalenceFacts.TypesEquivalent(closedBaseType, expectedBase) {
+                return true
+            }
+
+            nextDefinition := currentDefinition.BaseDef
+            if nextDefinition == null {
+                if !RuntimeTypeShapeFacts.ContainsBuilderBoundType(closedBaseType) && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(expectedBase) {
+                    return expectedBase.IsAssignableFrom(closedBaseType)
+                }
+                return false
+            }
+
+            currentDefinition = nextDefinition
+            currentType = closedBaseType
+        }
+
+        return false
     }
 
     static func BoundSatisfiesInterfaceConstraint(

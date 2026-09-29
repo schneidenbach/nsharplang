@@ -10,7 +10,7 @@ import System.IO
 //
 // WHY THIS IS A NATIVE PROJECT AND NOT AN ESTATE CONTRACT. `CompletionEngine`'s inputs need a
 // `SemanticModel`, and the only thing that produces one is the C# `Analyzer`, which lives in
-// `Compiler.dll` — the assembly that DEPENDS on `NSharpLang.Compiler.Core`. A
+// `NSharpLang.Compiler.Driver.dll` — the assembly that owns this command-facing service over Core. A
 // `.tests.nl` inside Compiler Core therefore cannot reach it in any spelling; the dependency
 // runs the wrong way. A native project can, because it references both assemblies and reaches the
 // production types BY REFLECTION, exactly as `tests/native/query-completions` already does. This
@@ -59,7 +59,7 @@ func CompletionFixtureFile(fixtureRoot: string): string {
 
 // The production snapshot load — `CodeIntelligenceService.LoadProject(projectRoot)`.
 func LoadCompletionSnapshot(fixtureRoot: string): object {
-    serviceType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceService, Compiler")
+    serviceType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceService, NSharpLang.Compiler.Driver")
     if serviceType == null {
         throw new InvalidOperationException("The production code-intelligence service type was not loadable.")
     }
@@ -90,7 +90,7 @@ func LoadCompletionSnapshot(fixtureRoot: string): object {
 // The production completion question — `CompletionEngine.GetCompletions(snapshot, file, line, col,
 // includeKeywords)`, exactly as `CompletionsCommand` asks it.
 func AskCompletions(snapshot: object, sourceFile: string, line: int, column: int, includeKeywords: bool): object {
-    engineType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, Compiler")
+    engineType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, NSharpLang.Compiler.Driver")
     snapshotType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.ProjectSnapshot, NSharpLang.Compiler.CodeIntel")
     if engineType == null || snapshotType == null {
         throw new InvalidOperationException("The production completion types were not loadable.")

@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Compiler.Ast
 
 // Snapshot plumbing for completions. Completion policy remains in the Core completion owners.
 class CompletionEngine {

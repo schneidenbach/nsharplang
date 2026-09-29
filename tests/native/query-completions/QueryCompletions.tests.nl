@@ -55,7 +55,7 @@ func WriteQueryCompletionsFixture(): string {
 // The production snapshot load — CodeIntelligenceService.LoadProject(projectRoot), the call
 // QueryCommand.LoadProjectOrFail makes and the call that used to never return.
 func LoadQueryCompletionsSnapshot(fixtureRoot: string): object {
-    serviceType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceService, Compiler")
+    serviceType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceService, NSharpLang.Compiler.Driver")
     if serviceType == null {
         throw new InvalidOperationException("The production code-intelligence service type was not loadable.")
     }
@@ -86,7 +86,7 @@ func LoadQueryCompletionsSnapshot(fixtureRoot: string): object {
 // The production completion question — CompletionEngine.GetCompletions(snapshot, file, line, col,
 // includeKeywords), exactly as CompletionsCommand asks it.
 func AskQueryCompletions(snapshot: object, sourceFile: string, line: int, column: int): object {
-    engineType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, Compiler")
+    engineType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, NSharpLang.Compiler.Driver")
     snapshotType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.ProjectSnapshot, NSharpLang.Compiler.CodeIntel")
     if engineType == null || snapshotType == null {
         throw new InvalidOperationException("The production completion types were not loadable.")

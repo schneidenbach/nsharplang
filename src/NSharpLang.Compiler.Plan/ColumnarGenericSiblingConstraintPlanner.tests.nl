@@ -418,6 +418,39 @@ test "generic sibling base constraints retain runtime, sibling-parameter, and un
     )
 }
 
+test "generic sibling dependent base constraints accept source builder inheritance" {
+    sourceBase := SourceCallDefinition("SiblingConstraintDependentBase", true)
+    sourceDerived := SourceCallDefinition("SiblingConstraintDependentDerived", true)
+    sourceDerived.RecordBase(sourceBase, sourceBase.Builder)
+    sourceDerived.Builder.SetParent(sourceBase.Builder)
+    definitions := new ColumnarStructDef[](2)
+    definitions[0] = sourceBase
+    definitions[1] = sourceDerived
+    registry := SiblingConstraintRegistry(definitions)
+
+    parameters := SiblingConstraintParameters("DependentSourceConstraint", 2)
+    specials := new int[](2)
+    specials[1] = 1
+    bases := new Type?[](2)
+    bases[0] = parameters[1]
+    interfaces := new Type[][](2)
+    interfaces[0] = new Type[](0)
+    interfaces[1] = new Type[](0)
+    binding := new Type[](2)
+    binding[0] = sourceDerived.Builder
+    binding[1] = sourceBase.Builder
+
+    assert ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(
+        parameters,
+        specials,
+        bases,
+        interfaces,
+        binding,
+        binding,
+        registry
+    )
+}
+
 test "generic sibling substitution closes recursive arrays byrefs and generic arguments while preserving failure slots" {
     parameters := SiblingConstraintParameters("Substitution", 2)
     binding := new Type[](2)
