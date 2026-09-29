@@ -1183,6 +1183,16 @@ test "a right-operand write stays maybe-null when its short-circuit side was ski
     assert FlowNarrowingCountDiagnosticsStartingWith(diagnostics, "NL202@") == 1, String.Join(" | ", diagnostics)
 }
 
+test "right-operand call facts do not narrow branches where short-circuiting can skip the call" {
+    program := FlowNarrowingShortCircuitProgram(
+        "func PlainOrSkipped(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other == null || TryPick(name, out chosen) {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc PlainAndSkippedElse(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPick(name, out chosen) { } else {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc AnnotatedOrSkipped(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other == null || TryPickNullable(name, out chosen) {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc AnnotatedAndSkippedElse(name: string, other: Item?): string {\n    let chosen: Item? = null\n    if other != null && TryPickNullable(name, out chosen) { } else {\n        return Use(chosen)\n    }\n    return \"\"\n}\n\nfunc ObliviousOrSkipped(name: string, other: Item?): int {\n    let resolved: Type? = null\n    if other == null || TryResolve(name, out resolved) {\n        return resolved.GetMethods().Length\n    }\n    return 0\n}\n\nfunc ObliviousAndSkippedElse(name: string, other: Item?): int {\n    let resolved: Type? = null\n    if other != null && TryResolve(name, out resolved) { } else {\n        return resolved.GetMethods().Length\n    }\n    return 0\n}\n"
+    )
+    diagnostics := FlowNarrowingShortCircuitDiagnosticIds(program)
+    assert diagnostics.Count == 6, String.Join(" | ", diagnostics)
+    assert FlowNarrowingCountDiagnosticsStartingWith(diagnostics, "NL202@") == 4, String.Join(" | ", diagnostics)
+    assert FlowNarrowingCountDiagnosticsStartingWith(diagnostics, "NL905@") == 2, String.Join(" | ", diagnostics)
+}
+
 test "a `!x.HasValue` THROW guard leaves x.Value and the bare x usable, exactly as `x == null` does" {
     FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if !x.HasValue {\n        throw new FormatException()\n    }\n    return x.Value + x\n}\n")
     FlowNarrowingAssertClean("func F(s: string): int {\n    x := Parse(s)\n    if x == null {\n        throw new FormatException()\n    }\n    return x.Value + x\n}\n")
