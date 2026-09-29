@@ -1266,6 +1266,47 @@ test "construction planner selects source constructors with exact arity before d
     assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Newobj()
 }
 
+test "construction planner returns an in parameter rvalue to declared argument emission" {
+    owner := ConstructionSourceDefinition("ConstructionInParametersOwner", true)
+    parameters := new Type[](1)
+    parameters[0] = typeof(int).MakeByRefType()
+    modifierKinds := new int[](1)
+    modifierKinds[0] = 5
+    owner.DefineUserConstructor(
+        parameters,
+        ConstructionDefaults(1),
+        ConstructionDefaultTexts(1),
+        0,
+        ["value"],
+        modifierKinds
+    )
+    tree := ConstructionNewTree(
+        "ConstructionInParametersOwner",
+        ConstructionOneText("7"),
+        ConstructionOneKind(ColumnarExpressionNodeKind.IntLiteralExpression)
+    )
+    ConstructionStampScope(tree, "class ConstructionInParametersOwner {}")
+
+    plan := new ColumnarCodePlan()
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacyWholeSubtreePlanning := false
+    resultType := typeof(int)
+    status := ColumnarConstructionPlanner.Plan(
+        tree.Nodes,
+        tree.Source,
+        tree.Root,
+        ConstructionBindings(SourceCallDefinitions(owner)),
+        plan,
+        out ownership,
+        out legacyWholeSubtreePlanning,
+        out resultType
+    )
+    assert status == ColumnarFragmentPlanStatus.NotOwned
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacyWholeSubtreePlanning
+    ColumnarRangePlannerAssertEmptyRollback(plan)
+}
+
 test "construction planner prefers identity source constructors in either declaration order" {
     intParameters := new Type[](1)
     intParameters[0] = typeof(int)
@@ -3989,6 +4030,41 @@ func ConstructionTwoTypes(first: Type, second: Type): Type[] {
     result[0] = first
     result[1] = second
     return result
+}
+
+func ConstructionRuntimeInConstructorType(): Type {
+    assemblyName := "NSharpTests.ConstructionRuntimeInConstructor"
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    owner := dynamicModule.DefineType("ConstructionTests.RuntimeInConstructor", TypeAttributes.Public | TypeAttributes.Class)
+    constructor := owner.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, ConstructionOneType(typeof(int).MakeByRefType()))
+    constructor.DefineParameter(1, ParameterAttributes.In, "value")
+    il := constructor.GetILGenerator()
+    il.Emit(OpCodes.Ldarg_0)
+    objectConstructor := typeof(object).GetConstructor(Type.EmptyTypes)
+    if objectConstructor == null {
+        throw new InvalidOperationException("The object constructor was not found.")
+    }
+    il.Emit(OpCodes.Call, objectConstructor)
+    il.Emit(OpCodes.Ret)
+    created := owner.CreateType()
+    if created == null {
+        throw new InvalidOperationException("The reflected in-constructor fixture could not be created.")
+    }
+    return created
+}
+
+test "runtime constructor selection carries the reflected in direction" {
+    targetType := ConstructionRuntimeInConstructorType()
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    selected: ConstructorInfo? = null
+    parameters := new Type[](0)
+    elementType: Type? = null
+    assert ColumnarConstructionPlanner.TrySelectRuntimeConstructor(targetType, ConstructionOneType(typeof(int)), facts, out selected, out parameters, out elementType)
+    assert selected != null
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(selected.GetParameters())[0] == 5
+    assert parameters.Length == 1
+    assert parameters[0] == typeof(int).MakeByRefType()
 }
 
 test "a constructor the allow-list did not list now plans end to end" {

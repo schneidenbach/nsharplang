@@ -60,6 +60,40 @@ test "a surviving if branch does not emit a nullable read after its write" {
     assert !ColumnarIlEmitter.TryEmitColumnarAssembly("LoopBodyNarrowingWriteRefusal" + Guid.NewGuid().ToString("N"), "Program", program, false, out bytes, null, null)
 }
 
+test "InParameters: a source in call spills a constructed rvalue once" {
+    program := EmitFixtureProgram(
+        [""],
+        ["class SpillNode {\n    Name: string\n    constructor(name: string) { Name = name }\n}\nclass SpillBox {\n    static func Peek(in value: SpillNode): string { return value.Name }\n}\nfunc ReadSpilled(): string { return SpillBox.Peek(new SpillNode(\"emitter\")) }\n"],
+        "ByRefCallSpillProbe"
+    )
+    bytes: byte[] = null
+    assert ColumnarIlEmitter.TryEmitColumnarAssembly("ByRefCallSpill" + Guid.NewGuid().ToString("N"), "Program", program, false, out bytes, null, null)
+    assembly := Assembly.Load(bytes)
+    programType := assembly.GetType("Program")
+    assert programType != null
+    read := programType.GetMethod("ReadSpilled", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+    assert read != null
+    assert (must read.Invoke(null, null)).ToString() == "emitter"
+}
+
+test "a source byref parameter forwards its existing address to another byref parameter" {
+    program := EmitFixtureProgram(
+        [""],
+        ["class ByRefForwardProbe {\n    static func Inner(value: &int): bool { return true }\n    static func Outer(value: &int): bool { return Inner(value) }\n}\n"],
+        "ByRefForwardProbe"
+    )
+    bytes: byte[] = null
+    assert ColumnarIlEmitter.TryEmitColumnarAssembly("ByRefForward" + Guid.NewGuid().ToString("N"), "Program", program, false, out bytes, null, null)
+    assembly := Assembly.Load(bytes)
+    probeType := assembly.GetType("ByRefForwardProbe")
+    assert probeType != null
+    outer := probeType.GetMethod("Outer", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+    assert outer != null
+    arguments := new object?[](1)
+    arguments[0] = 42
+    assert (must outer.Invoke(null, arguments)).ToString() == "True"
+}
+
 test "constructor chain selection rebinds every differing exact base before emitting IL" {
     invalidBase := EmitFixtureStructDefinition("ConstructorChainSelectionInvalidExactBase", 0)
     invalidBase.DefaultCtor = invalidBase.Builder.DefineDefaultConstructor(MethodAttributes.Public)

@@ -1417,6 +1417,7 @@ sealed class ColumnarProgramInputBuilder {
         paramNameTexts := new string[](cap)
         paramTypeTexts := new string[](cap)
         paramLabeledTypeTexts := new string[](cap)
+        paramModifierKinds := new int[](cap)
         caKinds := new int[](cap)
         caStarts := new int[](cap)
         caLengths := new int[](cap)
@@ -1440,6 +1441,7 @@ sealed class ColumnarProgramInputBuilder {
             paramNameTexts,
             paramTypeTexts,
             paramLabeledTypeTexts,
+            paramModifierKinds,
             caKinds,
             caStarts,
             caLengths,
@@ -1461,6 +1463,7 @@ sealed class ColumnarProgramInputBuilder {
         paramNames := new string[](paramCount)
         paramCanonicals := new string[](paramCount)
         paramLabeledCanonicals := new string[](paramCount)
+        parsedParamModifierKinds := new int[](paramCount)
         parsedParamDefaultKinds := new int[](paramCount)
         parsedParamDefaultTexts := new string[](paramCount)
         p := 0
@@ -1470,6 +1473,7 @@ sealed class ColumnarProgramInputBuilder {
             paramCanonical := paramTypeTexts[p]
             paramCanonicals[p] = paramCanonical
             paramLabeledCanonicals[p] = paramLabeledTypeTexts[p] ?? paramCanonical
+            parsedParamModifierKinds[p] = paramModifierKinds[p]
             parsedParamDefaultKinds[p] = caKinds[p]
             parsedParamDefaultTexts[p] = caKinds[p] >= 0 ? caTexts[p] : ""
             p = p + 1
@@ -1543,7 +1547,7 @@ sealed class ColumnarProgramInputBuilder {
             null,
             null,
             null,
-            null,
+            parsedParamModifierKinds,
             null,
             null,
             false,

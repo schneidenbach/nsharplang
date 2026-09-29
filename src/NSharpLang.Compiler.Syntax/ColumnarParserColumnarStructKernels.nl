@@ -636,7 +636,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
 func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, ctorCount: int, isReference: int): int {
     constructorTokens := new ColumnarConstructorTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
     cap := ColumnarLargestDeclarationScratchCapacity(tokens.Kinds, tokens.Count, outputs.CtorIndices, ctorCount) * 4
-    signatureOutputs := new ColumnarConstructorSignatureOutputTable(new string[](cap), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new int[](cap), new string[](cap))
+    signatureOutputs := new ColumnarConstructorSignatureOutputTable(new string[](cap), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new string[](cap))
     body := new ColumnarConstructorBodyTable(new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap))
     result := new ColumnarConstructorResultTable(new int[](6))
     localResults := new LocalFunctionResultTable(new int[](cap), new int[](cap))

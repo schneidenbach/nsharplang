@@ -1617,6 +1617,22 @@ func ParsePrimaryConstructorParameterSpansCore(_source: string, tokens: ParserDe
             return -1
         }
 
+        modifierKind := 0
+        while pos < count && (tokens.Kinds[pos] == 78 || tokens.Kinds[pos] == 79 || tokens.Kinds[pos] == 82 || tokens.Kinds[pos] == 42 || tokens.Kinds[pos] == 28) {
+            if tokens.Kinds[pos] == 78 {
+                modifierKind = 1
+            } else if tokens.Kinds[pos] == 79 {
+                modifierKind = 2
+            } else if tokens.Kinds[pos] == 82 {
+                modifierKind = 3
+            } else if tokens.Kinds[pos] == 42 {
+                modifierKind = 4
+            } else if tokens.Kinds[pos] == 28 {
+                modifierKind = 5
+            }
+            pos = pos + 1
+        }
+
         if tokens.Kinds[pos] != 0 {
             return -1
         }
@@ -1638,6 +1654,7 @@ func ParsePrimaryConstructorParameterSpansCore(_source: string, tokens: ParserDe
 
         parameters.TypeStarts[paramCount] = typeResult.Values[0]
         parameters.TypeLengths[paramCount] = typeResult.Values[1]
+        parameters.ModifierKinds[paramCount] = modifierKind
         parameters.DefaultKinds[paramCount] = -1
         parameters.DefaultStarts[paramCount] = -1
         parameters.DefaultLengths[paramCount] = 0

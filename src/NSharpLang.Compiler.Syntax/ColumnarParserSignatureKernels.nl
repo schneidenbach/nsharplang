@@ -155,14 +155,16 @@ class ConstructorSignatureOutputTable {
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
     ParamLabeledTypeTexts: string[]
+    ParamModifierKinds: int[]
     ArgKinds: int[]
     ArgStarts: int[]
     ArgLengths: int[]
     ArgTexts: string[]
-    constructor(paramNameTexts: string[], paramTypeTexts: string[], paramLabeledTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
+    constructor(paramNameTexts: string[], paramTypeTexts: string[], paramLabeledTypeTexts: string[], paramModifierKinds: int[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
         ParamNameTexts = paramNameTexts
         ParamTypeTexts = paramTypeTexts
         ParamLabeledTypeTexts = paramLabeledTypeTexts
+        ParamModifierKinds = paramModifierKinds
         ArgKinds = argKinds
         ArgStarts = argStarts
         ArgLengths = argLengths
@@ -1293,7 +1295,7 @@ func ParseConstructorSignatureInfoCore(source: string, tokens: ParserTokenTable,
         return -1
     }
 
-    if paramCount > outputs.ParamNameTexts.Length || paramCount > outputs.ParamTypeTexts.Length {
+    if paramCount > outputs.ParamNameTexts.Length || paramCount > outputs.ParamTypeTexts.Length || paramCount > outputs.ParamModifierKinds.Length {
         return -1
     }
 
@@ -1399,7 +1401,7 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
     paramCount := 0
     foundDefault := 0
     while pos < count && tokens.Kinds[pos] != 128 {
-        if paramCount >= outputs.ArgKinds.Length || paramCount >= outputs.ArgTexts.Length {
+        if paramCount >= outputs.ParamModifierKinds.Length || paramCount >= outputs.ArgKinds.Length || paramCount >= outputs.ArgTexts.Length {
             return -1
         }
 
@@ -1417,7 +1419,19 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
             }
         }
 
+        modifierKind := 0
         while pos < count && (tokens.Kinds[pos] == 78 || tokens.Kinds[pos] == 79 || tokens.Kinds[pos] == 82 || tokens.Kinds[pos] == 42 || tokens.Kinds[pos] == 28) {
+            if tokens.Kinds[pos] == 78 {
+                modifierKind = 1
+            } else if tokens.Kinds[pos] == 79 {
+                modifierKind = 2
+            } else if tokens.Kinds[pos] == 82 {
+                modifierKind = 3
+            } else if tokens.Kinds[pos] == 42 {
+                modifierKind = 4
+            } else if tokens.Kinds[pos] == 28 {
+                modifierKind = 5
+            }
             pos = pos + 1
         }
 
@@ -1447,6 +1461,7 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
 
         outputs.ArgKinds[paramCount] = -1
         outputs.ArgTexts[paramCount] = ""
+        outputs.ParamModifierKinds[paramCount] = modifierKind
 
         if pos < count && tokens.Kinds[pos] == 93 {
             foundDefault = 1

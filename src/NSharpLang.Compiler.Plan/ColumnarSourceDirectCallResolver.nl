@@ -89,6 +89,10 @@ class ColumnarDirectCallArgumentFacts {
     // run the written expressions out of order.
     RequiresReorder: bool
 
+    // A read-only-reference rvalue belongs to the emitter's declared-argument owner. Set while a
+    // candidate is being appended so the call boundary can return it to that owner atomically.
+    RequiresEmitterByRefRvalue: bool
+
     constructor(isUnsuffixedIntegerLiteral: bool[], isNegativeIntegerLiteral: bool[], integerLiteralValues: long[]) {
         if isUnsuffixedIntegerLiteral == null || isNegativeIntegerLiteral == null || integerLiteralValues == null || isUnsuffixedIntegerLiteral.Length != isNegativeIntegerLiteral.Length || isUnsuffixedIntegerLiteral.Length != integerLiteralValues.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must be non-null and positional.")
@@ -107,6 +111,7 @@ class ColumnarDirectCallArgumentFacts {
         ArgumentNodes = new int[](isUnsuffixedIntegerLiteral.Length)
         WrittenOrderSlots = new int[](isUnsuffixedIntegerLiteral.Length)
         RequiresReorder = false
+        RequiresEmitterByRefRvalue = false
         slot := 0
         while slot < isUnsuffixedIntegerLiteral.Length {
             ArgumentNodes[slot] = -1
@@ -135,6 +140,7 @@ class ColumnarSourceDirectCallSelection {
     DeclaringType: Type
     Method: MethodInfo?
     ParameterTypes: Type[]
+    ParameterModifierKinds: int[]
     ReturnType: Type
     ReceiverIsReference: bool
     IsStatic: bool
@@ -143,7 +149,7 @@ class ColumnarSourceDirectCallSelection {
     IsSourceType: bool => Status != ColumnarSourceDirectCallStatus.NotSourceType
     IsSelected: bool => Status == ColumnarSourceDirectCallStatus.Selected
 
-    constructor(status: ColumnarSourceDirectCallStatus, dispatch: ColumnarSourceDirectCallDispatch, sourceDefinition: ColumnarStructDef?, receiverType: Type, declaringType: Type, method: MethodInfo?, parameterTypes: Type[], returnType: Type, receiverIsReference: bool, isStatic: bool, isAbstract: bool) {
+    constructor(status: ColumnarSourceDirectCallStatus, dispatch: ColumnarSourceDirectCallDispatch, sourceDefinition: ColumnarStructDef?, receiverType: Type, declaringType: Type, method: MethodInfo?, parameterTypes: Type[], returnType: Type, receiverIsReference: bool, isStatic: bool, isAbstract: bool, parameterModifierKinds: int[]? = null) {
         if receiverType == null || declaringType == null || parameterTypes == null || returnType == null {
             throw new InvalidOperationException("Source direct-call selection facts cannot be null.")
         }
@@ -163,6 +169,7 @@ class ColumnarSourceDirectCallSelection {
         DeclaringType = declaringType
         Method = method
         ParameterTypes = parameterTypes
+        ParameterModifierKinds = parameterModifierKinds ?? new int[](0)
         ReturnType = returnType
         ReceiverIsReference = receiverIsReference
         IsStatic = isStatic
@@ -655,7 +662,7 @@ class ColumnarSourceDirectCallResolver {
             returnType = SubstituteTypeArguments(definition.ReturnType, receiverType.GetGenericArguments())
         }
 
-        return new ColumnarSourceDirectCallSelection(ColumnarSourceDirectCallStatus.Selected, root.IsReference ? ColumnarSourceDirectCallDispatch.CallVirtual : ColumnarSourceDirectCallDispatch.Call, owner, receiverType, declaringType, method, parameterTypes, returnType, root.IsReference, false, method.IsAbstract)
+        return new ColumnarSourceDirectCallSelection(ColumnarSourceDirectCallStatus.Selected, root.IsReference ? ColumnarSourceDirectCallDispatch.CallVirtual : ColumnarSourceDirectCallDispatch.Call, owner, receiverType, declaringType, method, parameterTypes, returnType, root.IsReference, false, method.IsAbstract, definition.ParamModifierKinds)
     }
 
     static func SelectedStatic(root: ColumnarStructDef, owner: ColumnarStructDef, ownerType: Type, closed: bool, definition: ColumnarStaticMethodDef, parameterTypes: Type[]): ColumnarSourceDirectCallSelection {
@@ -676,13 +683,13 @@ class ColumnarSourceDirectCallResolver {
             returnType = SubstituteTypeArguments(definition.ReturnType, ownerType.GetGenericArguments())
         }
 
-        return new ColumnarSourceDirectCallSelection(ColumnarSourceDirectCallStatus.Selected, ColumnarSourceDirectCallDispatch.Call, owner, ownerType, declaringType, method, parameterTypes, returnType, root.IsReference, true, false)
+        return new ColumnarSourceDirectCallSelection(ColumnarSourceDirectCallStatus.Selected, ColumnarSourceDirectCallDispatch.Call, owner, ownerType, declaringType, method, parameterTypes, returnType, root.IsReference, true, false, definition.ParamModifierKinds)
     }
 
     static func IsCallableInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarInstanceMethodDef, receiverIsAccessingInstance: bool): bool {
         method: MethodInfo = definition.Builder
         accessAttributes := (int)method.Attributes & 7
-        if !CanAccessSourceInstanceMethod(receiverDefinition, declaringDefinition, accessingDefinition, sameAssembly, accessAttributes, receiverIsAccessingInstance) || method.IsGenericMethod || IsVarArgs(method) || method.IsAbstract && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
+        if !CanAccessSourceInstanceMethod(receiverDefinition, declaringDefinition, accessingDefinition, sameAssembly, accessAttributes, receiverIsAccessingInstance) || method.IsGenericMethod || IsVarArgs(method) || method.IsAbstract && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType, definition.ParamModifierKinds) {
             return false
         }
 
@@ -722,7 +729,7 @@ class ColumnarSourceDirectCallResolver {
     static func IsCallableStaticMethod(declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarStaticMethodDef): bool {
         method: MethodInfo = definition.Builder
         accessAttributes := (int)method.Attributes & 7
-        if !CanAccessSourceMethod(declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) || method.IsAbstract || method.IsGenericMethod || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
+        if !CanAccessSourceMethod(declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) || method.IsAbstract || method.IsGenericMethod || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType, definition.ParamModifierKinds) {
             return false
         }
 
@@ -777,15 +784,24 @@ class ColumnarSourceDirectCallResolver {
         return false
     }
 
-    static func HasSupportedSignature(parameterTypes: Type[], returnType: Type): bool {
-        if returnType.IsByRef || returnType.IsGenericTypeDefinition {
+    static func HasSupportedSignature(parameterTypes: Type[], returnType: Type, parameterModifierKinds: int[]): bool {
+        if parameterModifierKinds == null || parameterModifierKinds.Length != 0 && parameterModifierKinds.Length != parameterTypes.Length || returnType.IsByRef || returnType.IsGenericTypeDefinition {
             return false
         }
 
-        for parameterType in parameterTypes {
-            if parameterType.IsByRef || parameterType.IsGenericTypeDefinition {
+        index := 0
+        while index < parameterTypes.Length {
+            parameterType := parameterTypes[index]
+            modifierKind := index < parameterModifierKinds.Length ? parameterModifierKinds[index] : 0
+            if parameterType.IsByRef {
+                element := parameterType.GetElementType()
+                if modifierKind != 5 || element == null || element.IsByRef || element.IsGenericTypeDefinition {
+                    return false
+                }
+            } else if modifierKind != 0 && modifierKind != 3 && modifierKind != 4 || parameterType.IsGenericTypeDefinition {
                 return false
             }
+            index += 1
         }
 
         return true
@@ -938,12 +954,12 @@ class ColumnarSourceDirectCallResolver {
 
     static func IsExcludedInstanceMethod(definition: ColumnarInstanceMethodDef): bool {
         method: MethodInfo = definition.Builder
-        return method.IsGenericMethod || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || HasByRefSignature(definition.ParamTypes, definition.ReturnType)
+        return method.IsGenericMethod || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || HasByRefSignature(definition.ParamTypes, definition.ReturnType, definition.ParamModifierKinds)
     }
 
     static func IsExcludedStaticMethod(definition: ColumnarStaticMethodDef): bool {
         method: MethodInfo = definition.Builder
-        return method.IsGenericMethod || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || HasByRefSignature(definition.ParamTypes, definition.ReturnType)
+        return method.IsGenericMethod || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || HasByRefSignature(definition.ParamTypes, definition.ReturnType, definition.ParamModifierKinds)
     }
 
     // Excluded declarations compete only when the legacy call owner could bind the current
@@ -971,15 +987,17 @@ class ColumnarSourceDirectCallResolver {
         return false
     }
 
-    static func HasByRefSignature(parameterTypes: Type[], returnType: Type): bool {
+    static func HasByRefSignature(parameterTypes: Type[], returnType: Type, parameterModifierKinds: int[]? = null): bool {
         if returnType.IsByRef {
             return true
         }
 
-        for parameterType in parameterTypes {
-            if parameterType.IsByRef {
+        index := 0
+        while index < parameterTypes.Length {
+            if parameterTypes[index].IsByRef && (parameterModifierKinds == null || index >= parameterModifierKinds.Length || parameterModifierKinds[index] != 5) {
                 return true
             }
+            index += 1
         }
 
         return false
@@ -1071,6 +1089,37 @@ class ColumnarSourceDirectCallResolver {
             // type has to BE the storage's type. A `ref`/`out`/`in` ARGUMENT never binds a by-value
             // parameter — `f(ref x)` may not bind an ordinary one — and the three directions' own
             // call-site rules are read immediately below, because they are not the same rule.
+            expectsReadOnlyByRef := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 5
+            if expected[index].IsByRef && expectsReadOnlyByRef && !argumentFacts.IsByRefArgument[index] {
+                // Bare `in` arguments are values first. An exact storage location can be passed
+                // directly, while every other expression converts to the parameter element and is
+                // spilled by the argument planner. Keep the exact bare-in score below a by-value
+                // identity overload; converted values use the ordinary conversion rank.
+                byRefElement := expected[index].GetElementType()
+                if byRefElement == null {
+                    return -1
+                }
+                if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(byRefElement, actual[index]) {
+                    score += 3
+                    index += 1
+                    continue
+                }
+
+                argumentScore := argumentFacts.IsNullLiteral[index] ? (ColumnarNullableArgumentLowering.CanAdoptNull(byRefElement) ? 4 : -1) : ArgumentFlowScore(byRefElement, actual[index], argumentFacts.SourceTypeDefinitions)
+                if argumentScore < 0 && argumentFacts.IsUnsuffixedIntegerLiteral[index] && CanAdoptIntegerLiteralArgument(byRefElement, argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
+                    argumentScore = 2
+                }
+                if argumentScore < 0 && argumentFacts.IsIntegerConstantArrayLiteral[index] && CanAdoptIntegerConstantArrayLiteral(byRefElement, argumentFacts.ArrayLiteralMinimumValues[index], argumentFacts.ArrayLiteralMaximumValues[index]) {
+                    argumentScore = 2
+                }
+                if argumentScore < 0 {
+                    return -1
+                }
+                score += argumentScore
+                index += 1
+                continue
+            }
+
             if expected[index].IsByRef || argumentFacts.IsByRefArgument[index] {
                 if !expected[index].IsByRef {
                     return -1
@@ -1091,7 +1140,6 @@ class ColumnarSourceDirectCallResolver {
                 // `out` is not separated from `ref` by the argument facts; the ordinary runtime gate
                 // refuses it by its written word.
                 expectsReadOnlyLocation := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 6
-                expectsReadOnlyByRef := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 5
                 if expectsReadOnlyByRef {
                     if argumentFacts.IsByRefArgument[index] && !argumentFacts.IsInArgument[index] {
                         return -1

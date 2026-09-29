@@ -59,6 +59,30 @@ class ColumnarParamsExpansion {
         return parameterTypes.Length - 1 - argumentSlotOffset
     }
 
+    // Expand the declared modifier facts to match the expanded argument list. Fixed arguments keep
+    // their own parameter direction; every packed element belongs to the single declared params
+    // slot, even when the call supplies several elements for it.
+    static func ExpandedParameterModifierKindsOrNull(parameterModifierKinds: int[], argumentSlotOffset: int, fixedArgumentCount: int, argumentCount: int): int[]? {
+        if parameterModifierKinds == null || argumentSlotOffset < 0 || fixedArgumentCount < 0 || argumentCount < fixedArgumentCount || argumentSlotOffset + fixedArgumentCount >= parameterModifierKinds.Length {
+            return null
+        }
+
+        result := new int[](argumentCount)
+        index := 0
+        while index < fixedArgumentCount {
+            result[index] = parameterModifierKinds[argumentSlotOffset + index]
+            index += 1
+        }
+
+        packedModifierKind := parameterModifierKinds[argumentSlotOffset + fixedArgumentCount]
+        while index < argumentCount {
+            result[index] = packedModifierKind
+            index += 1
+        }
+
+        return result
+    }
+
     // THE PER-ARGUMENT PARAMETER TYPES OF THE EXPANDED CALL, which is the one thing every caller
     // needs and the only shape the shared argument scorer understands: a list exactly as long as the
     // supplied arguments, carrying each fixed parameter's own type and then the element type once per

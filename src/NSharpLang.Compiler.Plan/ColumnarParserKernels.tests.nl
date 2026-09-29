@@ -81,6 +81,7 @@ class ColumnarConstructorDefaultParseProbe {
     ParamCount: int
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
+    ParamModifierKinds: int[]
     ArgKinds: int[]
     ArgTexts: string[]
     Result: int[]
@@ -107,6 +108,7 @@ class ColumnarConstructorDefaultParseProbe {
 
         ParamNameTexts = new string[](capacity)
         ParamTypeTexts = new string[](capacity)
+        ParamModifierKinds = new int[](capacity)
         paramLabeledTypeTexts := new string[](capacity)
         ArgKinds = new int[](capacity)
         argStarts := new int[](capacity)
@@ -132,6 +134,7 @@ class ColumnarConstructorDefaultParseProbe {
             ParamNameTexts,
             ParamTypeTexts,
             paramLabeledTypeTexts,
+            ParamModifierKinds,
             ArgKinds,
             argStarts,
             argLengths,
@@ -1564,6 +1567,28 @@ test "constructor parser preserves dotted enum member defaults" {
     assert probe.ArgTexts[0] == ""
     assert probe.ArgKinds[1] == 1000
     assert probe.ArgTexts[1] == "System.DayOfWeek.Friday"
+}
+
+test "constructor parser preserves by-reference type and direction facts" {
+    probe := new ColumnarConstructorDefaultParseProbe(
+        "constructor(in value: int, ref target: string, out result: bool) {}"
+    )
+
+    assert probe.ParamCount == 3, "constructor parameter count"
+    assert probe.ParamTypeTexts[0] == "&int", "in constructor type"
+    assert probe.ParamTypeTexts[1] == "&string", "ref constructor type"
+    assert probe.ParamTypeTexts[2] == "&bool", "out constructor type"
+    assert probe.ParamModifierKinds[0] == 5, "in constructor direction"
+    assert probe.ParamModifierKinds[1] == 1, "ref constructor direction"
+    assert probe.ParamModifierKinds[2] == 2, "out constructor direction"
+}
+
+test "primary constructor parser preserves an in parameter direction" {
+    probe := new ColumnarConstructorDefaultParseProbe("class InSeed(in value: int) {}")
+
+    assert probe.ParamCount == 1, "primary constructor parameter count"
+    assert probe.ParamTypeTexts[0] == "&int", "primary constructor type"
+    assert probe.ParamModifierKinds[0] == 5, "primary constructor direction"
 }
 
 test "primary constructor parser canonicalizes dotted enum member defaults" {

@@ -1525,7 +1525,11 @@ class ColumnarConstructionPlanner {
         }
 
         suppliedParameters := PrefixTypes(selected.ParamTypes, argumentCount)
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts, ColumnarDirectCallPlanner.ParameterModifierKindSlice(selected.ParamModifierKinds, 0, argumentCount)) {
+            if argumentFacts.RequiresEmitterByRefRvalue {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+            }
             return false
         }
 
@@ -1547,6 +1551,7 @@ class ColumnarConstructionPlanner {
         legacyWholeSubtreePlanning = false
         candidates := new List<ColumnarConstructorDef>()
         candidateParameters := new List<Type[]>()
+        candidateModifierKinds := new List<int[]>()
         candidatePlacements := new List<int[]>()
         candidateClaims := new List<bool[]>()
         for candidate in definition.Constructors {
@@ -1572,11 +1577,12 @@ class ColumnarConstructionPlanner {
             if fillable && ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(projected, argumentTypes, argumentFacts, ProjectedModifierKinds(candidate.ParamModifierKinds, placement, argumentTypes.Length)) >= 0 {
                 candidates.Add(candidate)
                 candidateParameters.Add(projected)
+                candidateModifierKinds.Add(ProjectedModifierKinds(candidate.ParamModifierKinds, placement, argumentTypes.Length))
                 candidatePlacements.Add(placement)
                 candidateClaims.Add(claimed)
             }
         }
-        selectedIndex := BestSourceConstructorIndex(candidateParameters, argumentTypes, argumentFacts)
+        selectedIndex := BestSourceConstructorIndex(candidateParameters, candidateModifierKinds, argumentTypes, argumentFacts)
         if selectedIndex < 0 {
             return false
         }
@@ -1594,7 +1600,12 @@ class ColumnarConstructionPlanner {
             actual := new Type[](1)
             actual[0] = argumentTypes[written]
             oneFacts := ColumnarDirectCallPlanner.CopyArgumentFact(argumentFacts, written)
-            if !ColumnarDirectCallPlanner.AppendArgumentSlot(nodes, source, bindings, handles, plan, fragment, depth + 1, true, actual, expected, oneFacts, 0) {
+            if !ColumnarDirectCallPlanner.AppendArgumentSlot(nodes, source, bindings, handles, plan, fragment, depth + 1, true, actual, expected, oneFacts, 0, selected.ParamModifierKinds[slot]) {
+                if oneFacts.RequiresEmitterByRefRvalue {
+                    argumentFacts.RequiresEmitterByRefRvalue = true
+                    ownership = ColumnarDirectCallOwnership.NotOwned
+                    legacyWholeSubtreePlanning = true
+                }
                 return false
             }
             local := plan.DeclarePlanLocal(plan.AddType(expected[0]))
@@ -1671,6 +1682,10 @@ class ColumnarConstructionPlanner {
             return false
         }
         if !TryAppendRuntimeConstructorArguments(nodes, source, node, bindings, handles, plan, fragment, depth, argumentTypes, argumentFacts, constructor, parameters, argumentCount, paramsElementType) {
+            if argumentFacts.RequiresEmitterByRefRvalue {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+            }
             return false
         }
 
@@ -1686,6 +1701,7 @@ class ColumnarConstructionPlanner {
         candidateTypes := new List<Type[]>()
         candidateParameters := new List<ParameterInfo[]>()
         candidateProjected := new List<Type[]>()
+        candidateModifierKinds := new List<int[]>()
         candidatePlacements := new List<int[]>()
         candidateClaims := new List<bool[]>()
         for candidate in RuntimeConstructorsOrEmpty(targetType) {
@@ -1724,11 +1740,12 @@ class ColumnarConstructionPlanner {
                 candidateTypes.Add(types)
                 candidateParameters.Add(parameters)
                 candidateProjected.Add(projected)
+                candidateModifierKinds.Add(ProjectedModifierKinds(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), placement, argumentTypes.Length))
                 candidatePlacements.Add(placement)
                 candidateClaims.Add(claimed)
             }
         }
-        selectedIndex := BestSourceConstructorIndex(candidateProjected, argumentTypes, argumentFacts)
+        selectedIndex := BestSourceConstructorIndex(candidateProjected, candidateModifierKinds, argumentTypes, argumentFacts)
         if selectedIndex < 0 {
             return false
         }
@@ -1747,7 +1764,13 @@ class ColumnarConstructionPlanner {
             actual := new Type[](1)
             actual[0] = argumentTypes[written]
             oneFacts := ColumnarDirectCallPlanner.CopyArgumentFact(argumentFacts, written)
-            if !ColumnarDirectCallPlanner.AppendArgumentSlot(nodes, source, bindings, handles, plan, fragment, depth + 1, true, actual, expected, oneFacts, 0) {
+            selectedModifierKinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(selectedParameters)
+            if !ColumnarDirectCallPlanner.AppendArgumentSlot(nodes, source, bindings, handles, plan, fragment, depth + 1, true, actual, expected, oneFacts, 0, selectedModifierKinds[slot]) {
+                if oneFacts.RequiresEmitterByRefRvalue {
+                    argumentFacts.RequiresEmitterByRefRvalue = true
+                    ownership = ColumnarDirectCallOwnership.NotOwned
+                    legacyWholeSubtreePlanning = true
+                }
                 return false
             }
             local := plan.DeclarePlanLocal(plan.AddType(expected[0]))
@@ -1872,7 +1895,11 @@ class ColumnarConstructionPlanner {
         selectedParameters = candidateParameters[selectedIndex]
 
         suppliedParameters := PrefixTypes(selectedParameters, argumentCount)
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts, ColumnarDirectCallPlanner.ParameterModifierKindSlice(selected.ParamModifierKinds, 0, argumentCount)) {
+            if argumentFacts.RequiresEmitterByRefRvalue {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+            }
             return false
         }
 
@@ -1946,6 +1973,10 @@ class ColumnarConstructionPlanner {
             return false
         }
         if !TryAppendRuntimeConstructorArguments(nodes, source, node, bindings, handles, plan, fragment, depth, argumentTypes, argumentFacts, constructor, parameterTypes, argumentCount, closedParamsElementType) {
+            if argumentFacts.RequiresEmitterByRefRvalue {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+            }
             return false
         }
 
@@ -1977,7 +2008,8 @@ class ColumnarConstructionPlanner {
         applicable := new List<ConstructorInfo>()
         applicableParameters := new List<Type[]>()
         CollectApplicableRuntimeConstructors(RuntimeConstructorsOrEmpty(openType), closedArguments, argumentTypes, applicable, applicableParameters)
-        selectedIndex := BestSourceConstructorIndex(applicableParameters, argumentTypes, argumentFacts)
+        applicableModifierKinds := RuntimeConstructorModifierColumns(applicable)
+        selectedIndex := BestSourceConstructorIndex(applicableParameters, applicableModifierKinds, argumentTypes, argumentFacts)
         selected: ConstructorInfo? = null
         selectedParameters := new Type[](0)
         if selectedIndex < 0 {
@@ -2218,6 +2250,20 @@ class ColumnarConstructionPlanner {
         return projected
     }
 
+    // Fixed arguments retain their declared direction in expanded `params` form; packed elements
+    // are values, even if the final array parameter carries metadata modifiers.
+    static func ExpandedModifierKinds(modifierKinds: int[], parameterTypes: Type[], argumentCount: int): int[] {
+        expanded := new int[](argumentCount)
+        fixedCount := ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 0)
+        index := 0
+        while index < argumentCount && index < fixedCount && index < modifierKinds.Length {
+            expanded[index] = modifierKinds[index]
+            index = index + 1
+        }
+
+        return expanded
+    }
+
     static func BestSourceConstructorIndex(candidateParameters: List<Type[]>, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
         return BestSourceConstructorIndex(candidateParameters, null, argumentTypes, argumentFacts)
     }
@@ -2340,7 +2386,8 @@ class ColumnarConstructionPlanner {
             CollectOptionalFillRuntimeConstructors(RuntimeConstructorsOrEmpty(targetType), new Type[](0), argumentTypes, applicable, applicableParameters)
         }
 
-        selectedIndex := BestSourceConstructorIndex(applicableParameters, argumentTypes, argumentFacts)
+        applicableModifierKinds := RuntimeConstructorModifierColumns(applicable)
+        selectedIndex := BestSourceConstructorIndex(applicableParameters, applicableModifierKinds, argumentTypes, argumentFacts)
         if selectedIndex < 0 {
             expandedConstructor: ConstructorInfo? = null
             expandedParameters := new Type[](0)
@@ -2372,6 +2419,15 @@ class ColumnarConstructionPlanner {
         return true
     }
 
+    static func RuntimeConstructorModifierColumns(candidates: List<ConstructorInfo>): List<int[]> {
+        result := new List<int[]>()
+        for candidate in candidates {
+            result.Add(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(candidate.GetParameters()))
+        }
+
+        return result
+    }
+
     // The owner check is by IDENTITY STRING, not by `==`: a constructor read out of one universe and a
     // target read out of another are different objects for the same type, and the emitter's whole
     // direction is to stop asking object questions about types.
@@ -2388,7 +2444,7 @@ class ColumnarConstructionPlanner {
                     openTypes := ConstructorParameterTypesOrNull(parameters)
                     if openTypes != null {
                         types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
-                        if !HasUnsupportedConstructorSignature(types, closedArguments) {
+                        if !HasUnsupportedConstructorSignature(types, closedArguments, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters)) {
                             applicable.Add(candidate)
                             applicableParameters.Add(types)
                         }
@@ -2413,7 +2469,7 @@ class ColumnarConstructionPlanner {
                     openTypes := ConstructorParameterTypesOrNull(parameters)
                     if openTypes != null {
                         types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
-                        if !HasUnsupportedConstructorSignature(types, closedArguments) && ConstructorOptionalTailFillable(parameters, types, argumentTypes.Length) {
+                        if !HasUnsupportedConstructorSignature(types, closedArguments, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters)) && ConstructorOptionalTailFillable(parameters, types, argumentTypes.Length) {
                             applicable.Add(candidate)
                             applicableParameters.Add(types)
                         }
@@ -2464,11 +2520,26 @@ class ColumnarConstructionPlanner {
     // `new KeyValuePair<string, T>(key, value)` inside `Bag<T>` binds `TValue` to this declaration's
     // `T`, which is exactly the type the caller has. A generic parameter the instantiation did not
     // substitute in is still open and still refused.
-    static func HasUnsupportedConstructorSignature(parameterTypes: Type[], closedArguments: Type[]): bool {
-        for parameterType in parameterTypes {
-            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedResolvedSignatureType(parameterType, closedArguments) {
+    static func HasUnsupportedConstructorSignature(parameterTypes: Type[], closedArguments: Type[], parameterModifierKinds: int[]? = null): bool {
+        if parameterModifierKinds != null && parameterModifierKinds.Length != parameterTypes.Length {
+            return true
+        }
+
+        index := 0
+        while index < parameterTypes.Length {
+            parameterType := parameterTypes[index]
+            if parameterType == null {
                 return true
             }
+            if parameterType.IsByRef {
+                elementType := parameterType.GetElementType()
+                if parameterModifierKinds == null || parameterModifierKinds[index] != 5 || elementType == null || elementType.IsByRef || elementType.IsPointer || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedResolvedSignatureType(elementType, closedArguments) {
+                    return true
+                }
+            } else if ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedResolvedSignatureType(parameterType, closedArguments) {
+                return true
+            }
+            index += 1
         }
         return false
     }
@@ -2555,6 +2626,7 @@ class ColumnarConstructionPlanner {
         applicable := new List<ConstructorInfo>()
         applicableDeclared := new List<Type[]>()
         applicableExpanded := new List<Type[]>()
+        applicableModifierKinds := new List<int[]>()
         applicableElements := new List<Type>()
         for candidate in candidates {
             if candidate != null && candidate.IsPublic && !candidate.IsStatic && !IsExpandedConstructorShape(candidate) {
@@ -2565,10 +2637,11 @@ class ColumnarConstructionPlanner {
                         types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
                         expanded := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, types, 0, argumentTypes.Length)
                         candidateElement := ColumnarParamsExpansion.ElementTypeOrNull(parameters, types)
-                        if expanded != null && candidateElement != null && !HasUnsupportedConstructorSignature(types, closedArguments) {
+                        if expanded != null && candidateElement != null && !HasUnsupportedConstructorSignature(types, closedArguments, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters)) {
                             applicable.Add(candidate)
                             applicableDeclared.Add(types)
                             applicableExpanded.Add(expanded)
+                            applicableModifierKinds.Add(ExpandedModifierKinds(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), types, argumentTypes.Length))
                             applicableElements.Add(candidateElement)
                         }
                     }
@@ -2576,7 +2649,7 @@ class ColumnarConstructionPlanner {
             }
         }
 
-        selectedIndex := BestSourceConstructorIndex(applicableExpanded, argumentTypes, argumentFacts)
+        selectedIndex := BestSourceConstructorIndex(applicableExpanded, applicableModifierKinds, argumentTypes, argumentFacts)
         if selectedIndex < 0 {
             return false
         }
@@ -2593,7 +2666,11 @@ class ColumnarConstructionPlanner {
     // holding exactly the constructor's declared parameter list.
     static func TryAppendRuntimeConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, constructor: ConstructorInfo, parameterTypes: Type[], argumentCount: int, elementType: Type?): bool {
         if elementType == null {
-            return ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameterTypes, argumentCount), argumentFacts) && TryAppendConstructorOptionalDefaults(plan, constructor, parameterTypes, argumentCount)
+            parameters := constructor.GetParameters()
+            if parameters == null {
+                return false
+            }
+            return ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameterTypes, argumentCount), argumentFacts, ColumnarDirectCallPlanner.ParameterModifierKindSlice(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), 0, argumentCount)) && TryAppendConstructorOptionalDefaults(plan, constructor, parameterTypes, argumentCount)
         }
 
         parameters := constructor.GetParameters()
@@ -2606,7 +2683,9 @@ class ColumnarConstructionPlanner {
             return false
         }
 
-        return ColumnarDirectCallPlanner.AppendExpandedArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, expanded, argumentFacts, ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 0), elementType)
+        fixedCount := ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 0)
+        expandedModifierKinds := ColumnarParamsExpansion.ExpandedParameterModifierKindsOrNull(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), 0, fixedCount, argumentCount)
+        return expandedModifierKinds != null && ColumnarDirectCallPlanner.AppendExpandedArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, expanded, argumentFacts, fixedCount, elementType, expandedModifierKinds)
     }
 
     static func ConstructorParameterTypesOrNull(parameters: ParameterInfo[]): Type[]? {

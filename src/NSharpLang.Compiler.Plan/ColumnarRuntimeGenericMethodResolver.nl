@@ -50,13 +50,14 @@ class ColumnarRuntimeGenericMethodResolver {
 
         candidates := new List<MethodInfo>()
         candidateParameters := new List<Type[]>()
+        candidateModifierKinds := new List<int[]>()
         candidateReturns := new List<Type>()
-        AppendClosedCandidates(lookupType, memberName, argumentTypes, argumentFacts, candidates, candidateParameters, candidateReturns, expectedStatic)
+        AppendClosedCandidates(lookupType, memberName, argumentTypes, argumentFacts, candidates, candidateParameters, candidateModifierKinds, candidateReturns, expectedStatic)
         if candidates.Count == 0 {
             return Unselected(lookupType, expectedStatic)
         }
 
-        selectedIndex := ColumnarConstructionPlanner.BestSourceConstructorIndex(candidateParameters, argumentTypes, argumentFacts)
+        selectedIndex := ColumnarConstructionPlanner.BestSourceConstructorIndex(candidateParameters, candidateModifierKinds, argumentTypes, argumentFacts)
         if selectedIndex < 0 {
             return Unselected(lookupType, expectedStatic)
         }
@@ -86,7 +87,7 @@ class ColumnarRuntimeGenericMethodResolver {
         )
     }
 
-    static func AppendClosedCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, candidates: List<MethodInfo>, candidateParameters: List<Type[]>, candidateReturns: List<Type>, expectedStatic: bool) {
+    static func AppendClosedCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, candidates: List<MethodInfo>, candidateParameters: List<Type[]>, candidateModifierKinds: List<int[]>, candidateReturns: List<Type>, expectedStatic: bool) {
         declared := MethodsOrEmpty(lookupType)
         for candidate in declared {
             if IsInferableCandidate(candidate, lookupType, memberName, argumentTypes.Length, expectedStatic) {
@@ -104,6 +105,7 @@ class ColumnarRuntimeGenericMethodResolver {
                             // the plan's declared signature must be the shape the CALL SITE sees.
                             candidates.Add(closed)
                             candidateParameters.Add(closedParameters)
+                            candidateModifierKinds.Add(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(candidate.GetParameters()))
                             candidateReturns.Add(closedReturn)
                         }
                     }
@@ -647,7 +649,8 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
         while index < candidates.Count {
             parameterTypes := candidateParameters[index]
             leading := LeadingParameterTypes(parameterTypes, argumentTypes.Length)
-            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
+            modifiers := ColumnarDirectCallPlanner.ParameterModifierKindSlice(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(candidates[index].GetParameters()), 0, argumentTypes.Length)
+            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts, modifiers)
             if score >= 0 {
                 parameterCount := parameterTypes.Length
                 if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {

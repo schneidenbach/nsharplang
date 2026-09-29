@@ -287,6 +287,11 @@ class ColumnarDirectCallPlanner {
         if TryAppendPlacedCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType) {
             return true
         }
+        if argumentFacts.RequiresEmitterByRefRvalue {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
 
         // AN OMITTED TRAILING DEFAULT IS NOT AN ARITY MISMATCH, AND A POSITIONAL CALL NEVER SAID SO.
         // The tier above selects a source declaration by EXACT parameter count, so
@@ -574,7 +579,7 @@ class ColumnarDirectCallPlanner {
             singleParameters := new Type[](1)
             singleParameters[0] = facts.ParameterTypes[parameterSlot]
             singleFacts := CopyArgumentFact(argumentFacts, written)
-            if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(singleParameters, singleTypes, singleFacts) < 0 || singleFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), singleTypes, singleParameters, singleFacts, 0) {
+            if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(singleParameters, singleTypes, singleFacts) < 0 || singleFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), singleTypes, singleParameters, singleFacts, 0, 0) {
                 return false
             }
             local := plan.DeclarePlanLocal(plan.AddType(singleParameters[0]))
@@ -733,7 +738,7 @@ class ColumnarDirectCallPlanner {
             actual := new Type[](1)
             actual[0] = argumentTypes[written]
             oneFacts := CopyArgumentFact(argumentFacts, written)
-            if oneFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, true, actual, expected, oneFacts, 0) {
+            if oneFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, true, actual, expected, oneFacts, 0, 0) {
                 return false
             }
             local := plan.DeclarePlanLocal(plan.AddType(expected[0]))
@@ -826,7 +831,7 @@ class ColumnarDirectCallPlanner {
             actual := new Type[](1)
             actual[0] = argumentTypes[written]
             oneFacts := CopyArgumentFact(argumentFacts, written)
-            if oneFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, true, actual, expected, oneFacts, 0) {
+            if oneFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, true, actual, expected, oneFacts, 0, 0) {
                 return false
             }
             local := plan.DeclarePlanLocal(plan.AddType(expected[0]))
@@ -960,7 +965,7 @@ class ColumnarDirectCallPlanner {
             actual := new Type[](1)
             actual[0] = argumentTypes[written]
             oneFacts := CopyArgumentFact(argumentFacts, written)
-            if oneFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, true, actual, expected, oneFacts, 0) {
+            if oneFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, true, actual, expected, oneFacts, 0, 0) {
                 return false
             }
             local := plan.DeclarePlanLocal(plan.AddType(expected[0]))
@@ -1179,7 +1184,9 @@ class ColumnarDirectCallPlanner {
             expected[0] = parameterTypes[placement[written]]
             actual := new Type[](1)
             actual[0] = argumentTypes[written]
-            part := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, CopyArgumentFact(argumentFacts, written))
+            slotModifierKinds := new int[](1)
+            slotModifierKinds[0] = modifierKinds[placement[written]]
+            part := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, CopyArgumentFact(argumentFacts, written), slotModifierKinds)
             if part < 0 {
                 score = -1
                 return false
@@ -1263,7 +1270,9 @@ class ColumnarDirectCallPlanner {
             expected[0] = slot >= 0 ? parameterTypes[slot] : elementType
             actual := new Type[](1)
             actual[0] = argumentTypes[written]
-            part := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, CopyArgumentFact(argumentFacts, written))
+            slotModifierKinds := new int[](1)
+            slotModifierKinds[0] = slot >= 0 ? modifierKinds[slot] : 0
+            part := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, CopyArgumentFact(argumentFacts, written), slotModifierKinds)
             if part < 0 {
                 score = -1
                 return false
@@ -1288,7 +1297,7 @@ class ColumnarDirectCallPlanner {
             return true
         }
         plan.Rollback(checkpoint)
-        directScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts)
+        directScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts, modifierKinds)
         directPlacement := new int[](0)
         directArgumentsInOrder := argumentTypes.Length == 0 && parameterTypes.Length == 0
         if argumentTypes.Length > 0 && parameterTypes.Length == argumentTypes.Length && ColumnarNamedArgumentBinder.TryPlace(nodes, source, callNode, 1, argumentTypes.Length, parameterNames, parameterTypes.Length, out directPlacement) {
@@ -1301,7 +1310,7 @@ class ColumnarDirectCallPlanner {
                 directWritten += 1
             }
         }
-        if (argumentFacts.RequiresReorder || directArgumentsInOrder) && directScore >= 0 && AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth, ArgumentsAdmitPrimitiveBinary(), argumentTypes, parameterTypes, argumentFacts) {
+        if (argumentFacts.RequiresReorder || directArgumentsInOrder) && directScore >= 0 && AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth, ArgumentsAdmitPrimitiveBinary(), argumentTypes, parameterTypes, argumentFacts, modifierKinds) {
             return true
         }
         plan.Rollback(checkpoint)
@@ -1331,7 +1340,9 @@ class ColumnarDirectCallPlanner {
             expected := new Type[](1)
             expected[0] = parameterTypes[parameterSlot]
             oneFacts := CopyArgumentFact(argumentFacts, written)
-            if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, oneFacts) < 0 || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth, ArgumentsAdmitPrimitiveBinary(), actual, expected, oneFacts, 0) {
+            slotModifierKinds := new int[](1)
+            slotModifierKinds[0] = modifierKinds[parameterSlot]
+            if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, oneFacts, slotModifierKinds) < 0 || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth, ArgumentsAdmitPrimitiveBinary(), actual, expected, oneFacts, 0, modifierKinds[parameterSlot]) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -1480,7 +1491,10 @@ class ColumnarDirectCallPlanner {
             if nodes.Kind(value) == ColumnarExpressionNodeKind.SpreadArgumentExpression && nodes.ChildCount(value) == 1 {
                 oneFacts.ArgumentNodes[0] = nodes.Child(value, 0)
             }
-            if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expectedArray, actual, oneFacts) < 0 || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), actual, expectedArray, oneFacts, 0) {
+            slotModifierKind := slot >= 0 ? modifierKinds[slot] : 0
+            oneModifierKinds := new int[](1)
+            oneModifierKinds[0] = slotModifierKind
+            if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expectedArray, actual, oneFacts, oneModifierKinds) < 0 || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), actual, expectedArray, oneFacts, 0, slotModifierKind) {
                 return false
             }
             local := plan.DeclarePlanLocal(plan.AddType(expected))
@@ -1855,7 +1869,7 @@ class ColumnarDirectCallPlanner {
         receiverIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, current.ExactType, false)
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), receiverIndex)
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, runtimeSelection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, runtimeSelection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(runtimeMethod.GetParameters())) {
             plan.Rollback(checkpoint)
             return false
         }
@@ -1889,7 +1903,8 @@ class ColumnarDirectCallPlanner {
             selection.ReturnType,
             selection.ReceiverIsReference,
             selection.IsStatic,
-            selection.IsAbstract
+            selection.IsAbstract,
+            selection.ParameterModifierKinds
         )
     }
 
@@ -2118,7 +2133,7 @@ class ColumnarDirectCallPlanner {
 
         AppendImplicitReceiverLoad(plan, bindings, receiverType, false)
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters())) {
             return false
         }
 
@@ -2145,7 +2160,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters())) {
             return false
         }
 
@@ -2327,7 +2342,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, facts.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, facts.ParameterTypes, argumentFacts, facts.ParameterModifierKinds) {
             return false
         }
 
@@ -2848,6 +2863,7 @@ class ColumnarDirectCallPlanner {
         if parameters == null || parameters.Length != parameterTypes.Length {
             return false
         }
+        modifierKinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters)
 
         paramsElementType := selection.ParamsElementType
         if paramsElementType != null {
@@ -2855,12 +2871,14 @@ class ColumnarDirectCallPlanner {
             // fixed ones are emitted exactly as any call's are and the rest are stored into a fresh
             // array, which is then the last ordinary argument of the same static call.
             expandedParameterTypes := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, parameterTypes, 1, explicitCount)
-            if expandedParameterTypes == null || !AppendExpandedArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, expandedParameterTypes, argumentFacts, ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 1), paramsElementType) {
+            fixedCount := ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 1)
+            expandedModifierKinds := ColumnarParamsExpansion.ExpandedParameterModifierKindsOrNull(modifierKinds, 1, fixedCount, explicitCount)
+            if expandedParameterTypes == null || expandedModifierKinds == null || !AppendExpandedArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, expandedParameterTypes, argumentFacts, fixedCount, paramsElementType, expandedModifierKinds) {
                 return false
             }
         } else {
             leadingParameterTypes := ColumnarExtensionMethodResolver.ExplicitParameterTypes(parameterTypes, explicitCount)
-            if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts) {
+            if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts, ParameterModifierKindSlice(modifierKinds, 1, explicitCount)) {
                 return false
             }
 
@@ -2909,12 +2927,8 @@ class ColumnarDirectCallPlanner {
         }
 
         leadingParameterTypes := ExtensionLeadingTypes(parameterTypes, explicitCount)
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts) {
-            return false
-        }
-
         parameters := method.GetParameters()
-        if parameters == null || parameters.Length != parameterTypes.Length {
+        if parameters == null || parameters.Length != parameterTypes.Length || !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts, ParameterModifierKindSlice(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), 0, explicitCount)) {
             return false
         }
 
@@ -2971,7 +2985,10 @@ class ColumnarDirectCallPlanner {
                 return false
             }
 
-            if !AppendExpandedArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, selection.FixedArgumentCount, expandedElementType) {
+            declaredParameters := method.GetParameters()
+            modifierKinds := declaredParameters == null ? null : ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(declaredParameters)
+            expandedModifierKinds := modifierKinds == null ? null : ColumnarParamsExpansion.ExpandedParameterModifierKindsOrNull(modifierKinds, 0, selection.FixedArgumentCount, selection.ParameterTypes.Length)
+            if expandedModifierKinds == null || !AppendExpandedArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, selection.FixedArgumentCount, expandedElementType, expandedModifierKinds) {
                 resultType = typeof(int)
                 return false
             }
@@ -3078,7 +3095,7 @@ class ColumnarDirectCallPlanner {
             AppendInterfaceReceiverWidening(plan, selection)
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, selection.ParameterModifierKinds) {
             return false
         }
 
@@ -3102,7 +3119,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters())) {
             return false
         }
 
@@ -3249,8 +3266,11 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+    static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, parameterModifierKinds: int[]? = null): bool {
         if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != parameterTypes.Length || argumentFacts.ArgumentNodes.Length != parameterTypes.Length || argumentFacts.WrittenOrderSlots.Length != parameterTypes.Length {
+            return false
+        }
+        if parameterModifierKinds != null && parameterModifierKinds.Length != 0 && parameterModifierKinds.Length != parameterTypes.Length {
             return false
         }
 
@@ -3261,12 +3281,13 @@ class ColumnarDirectCallPlanner {
         // Nothing is spilled when the two orders agree, which is every call whose names were written
         // where the signature keeps them.
         if argumentFacts.RequiresReorder {
-            return AppendReorderedArguments(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts)
+            return AppendReorderedArguments(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts, parameterModifierKinds)
         }
 
         index := 0
         while index < parameterTypes.Length {
-            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts, index) {
+            modifierKind := parameterModifierKinds != null && parameterModifierKinds.Length > 0 ? parameterModifierKinds[index] : 0
+            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts, index, modifierKind) {
                 return false
             }
 
@@ -3274,6 +3295,18 @@ class ColumnarDirectCallPlanner {
         }
 
         return true
+    }
+
+    static func ParameterModifierKindSlice(parameterModifierKinds: int[], first: int, count: int): int[] {
+        if parameterModifierKinds == null || first < 0 || count < 0 || parameterModifierKinds.Length > 0 && first + count > parameterModifierKinds.Length {
+            throw new InvalidOperationException("Argument modifier kinds must name a valid parameter slice.")
+        }
+
+        result := new int[](count)
+        if parameterModifierKinds.Length > 0 {
+            Array.Copy(parameterModifierKinds, first, result, 0, count)
+        }
+        return result
     }
 
     // THE ARGUMENTS OF A CALL WHOSE TAIL PACKS INTO A `params` ARRAY. The fixed arguments are emitted
@@ -3286,7 +3319,7 @@ class ColumnarDirectCallPlanner {
     // EVALUATION ORDER IS THE WRITTEN ORDER, unchanged: `newarr` runs after the fixed arguments and
     // before the first element, and the elements run left to right, which is where a C# call site
     // evaluates them too.
-    static func AppendExpandedArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], expandedParameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, fixedCount: int, elementType: Type): bool {
+    static func AppendExpandedArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], expandedParameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, fixedCount: int, elementType: Type, parameterModifierKinds: int[]? = null): bool {
         if elementType == null || fixedCount < 0 || fixedCount > expandedParameterTypes.Length {
             return false
         }
@@ -3304,7 +3337,8 @@ class ColumnarDirectCallPlanner {
 
         index := 0
         while index < fixedCount {
-            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, expandedParameterTypes, argumentFacts, index) {
+            modifierKind := parameterModifierKinds != null && index < parameterModifierKinds.Length ? parameterModifierKinds[index] : 0
+            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, expandedParameterTypes, argumentFacts, index, modifierKind) {
                 return false
             }
 
@@ -3315,7 +3349,8 @@ class ColumnarDirectCallPlanner {
         ColumnarParamsExpansion.AppendArrayHeader(plan, elementTypeIndex, expandedParameterTypes.Length - fixedCount)
         while index < expandedParameterTypes.Length {
             ColumnarParamsExpansion.AppendElementPrologue(plan, index - fixedCount)
-            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, expandedParameterTypes, argumentFacts, index) {
+            modifierKind := parameterModifierKinds != null && index < parameterModifierKinds.Length ? parameterModifierKinds[index] : 0
+            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, expandedParameterTypes, argumentFacts, index, modifierKind) {
                 return false
             }
 
@@ -3330,7 +3365,7 @@ class ColumnarDirectCallPlanner {
     // type, then load the temporaries in the order the signature keeps. A by-reference parameter's
     // type is itself a managed pointer, so its temporary holds the caller's ADDRESS and preserves the
     // alias across later argument evaluation; it must not copy the pointed-to value.
-    static func AppendReorderedArguments(nodes: ColumnarNodeTable, source: string, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+    static func AppendReorderedArguments(nodes: ColumnarNodeTable, source: string, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, parameterModifierKinds: int[]? = null): bool {
         slotLocals := new int[](parameterTypes.Length)
         guard := 0
         while guard < parameterTypes.Length {
@@ -3348,7 +3383,8 @@ class ColumnarDirectCallPlanner {
         written := 0
         while written < parameterTypes.Length {
             slot := argumentFacts.WrittenOrderSlots[written]
-            if slot < 0 || slot >= parameterTypes.Length || slotLocals[slot] >= 0 || !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts, slot) {
+            modifierKind := parameterModifierKinds != null && parameterModifierKinds.Length > 0 && slot >= 0 && slot < parameterModifierKinds.Length ? parameterModifierKinds[slot] : 0
+            if slot < 0 || slot >= parameterTypes.Length || slotLocals[slot] >= 0 || !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts, slot, modifierKind) {
                 return false
             }
 
@@ -3373,7 +3409,7 @@ class ColumnarDirectCallPlanner {
 
     // ONE argument slot: the row at `index` -- its node, its inferred type and its literal facts --
     // planned against the parameter that slot belongs to.
-    static func AppendArgumentSlot(nodes: ColumnarNodeTable, source: string, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, index: int): bool {
+    static func AppendArgumentSlot(nodes: ColumnarNodeTable, source: string, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, index: int, parameterModifierKind: int = 0): bool {
 
         // THE ARGUMENT THAT LANDED IN THIS SLOT, which is the call's child at this position only
         // when nothing was named: a named argument was placed by its name, and the row carrying
@@ -3389,18 +3425,23 @@ class ColumnarDirectCallPlanner {
         // or an `out`, so by the time a call is being planned the pairing has already been proved. What
         // goes on the stack is the same managed address either spelling produces.
         if argumentFacts.IsByRefArgument[index] || parameterTypes[index].IsByRef {
-            byRefTarget := argumentFacts.IsByRefArgument[index] ? ByRefArgumentTarget(nodes, source, argumentNode) : ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
+            byRefTarget := -1
+            writtenModifierKind := 0
+            syntacticStorage := ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget(nodes, source, argumentNode, out byRefTarget, out writtenModifierKind)
             byRefElement := typeof(int)
-            if byRefTarget < 0 || !parameterTypes[index].IsByRef || !ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement) {
-                return false
+            addressCheckpoint := plan.CreateCheckpoint()
+            mayPassAddress := ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(parameterModifierKind, writtenModifierKind)
+            hasAddress := syntacticStorage && mayPassAddress && parameterTypes[index].IsByRef && ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement)
+            expectedElement := parameterTypes[index].IsByRef ? parameterTypes[index].GetElementType() : null
+            if hasAddress && expectedElement != null && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedElement, byRefElement) {
+                return true
             }
+            plan.Rollback(addressCheckpoint)
 
-            expectedElement := parameterTypes[index].GetElementType()
-            if expectedElement == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedElement, byRefElement) {
-                return false
+            if ColumnarByRefCallArgumentFacts.IsBareUnmodifiedArgument(nodes, argumentNode) && parameterTypes[index].IsByRef && expectedElement != null && parameterModifierKind == 5 {
+                argumentFacts.RequiresEmitterByRefRvalue = true
             }
-
-            return true
+            return false
         }
 
         if argumentFacts.IsNullLiteral[index] {
@@ -3704,27 +3745,22 @@ class ColumnarDirectCallPlanner {
     // with its own overload-resolution rules, and admitting it through the `ref`/`out` door would bind
     // the wrong overload.
     static func ByRefArgumentTarget(nodes: ColumnarNodeTable, source: string, argumentNode: int): int {
-        if argumentNode < 0 || argumentNode >= nodes.Kinds.Length || nodes.Kind(argumentNode) != ColumnarExpressionNodeKind.RefOutArgument || nodes.ChildCount(argumentNode) != 1 {
-            return -1
+        targetNode := -1
+        modifierKind := 0
+        if ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget(nodes, source, argumentNode, out targetNode, out modifierKind) && modifierKind != 0 {
+            return targetNode
         }
 
-        modifier := nodes.Text(source, argumentNode)
-        if modifier != "ref" && modifier != "out" && modifier != "in" {
-            return -1
-        }
-
-        return nodes.Child(argumentNode, 0)
+        return -1
     }
 
     // Whether the modifier word on a by-reference argument is `in`. Asked beside `ByRefArgumentTarget`
     // rather than folded into it, because the two answer different questions: one is "is there storage
     // here", the other is "which direction did the caller ask for".
     static func IsInArgumentNode(nodes: ColumnarNodeTable, source: string, argumentNode: int): bool {
-        if argumentNode < 0 || argumentNode >= nodes.Kinds.Length || nodes.Kind(argumentNode) != ColumnarExpressionNodeKind.RefOutArgument || nodes.ChildCount(argumentNode) != 1 {
-            return false
-        }
-
-        return nodes.Text(source, argumentNode) == "in"
+        targetNode := -1
+        modifierKind := 0
+        return ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget(nodes, source, argumentNode, out targetNode, out modifierKind) && modifierKind == 5
     }
 
     static func TryGetTargetTypedIntegerArgumentValue(nodes: ColumnarNodeTable, source: string, node: int, out value: long, out isNegative: bool): bool {

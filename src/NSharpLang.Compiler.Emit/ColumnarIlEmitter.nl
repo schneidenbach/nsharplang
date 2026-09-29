@@ -2763,7 +2763,7 @@ sealed class ColumnarIlEmitter {
                 if (!TrySubstituteByRefGenericElement(target.TypeParams, binding, declared, Child(callIdx, a), out byRefElement)) {
                     return Decline("emit.call.generic-byref-argument", "generic call by-reference argument " + a.ToString() + " did not bind the selected signature", Child(callIdx, a))
                 }
-                if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType())) {
+                if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType(), target.ParamModifierKinds[a - 1])) {
                     return false
                 }
                 continue
@@ -3233,6 +3233,7 @@ sealed class ColumnarIlEmitter {
         generics: ColumnarGenericMethodFacts,
         builder: MethodBuilder,
         declaredParamTypes: Type[],
+        declaredParamModifierKinds: int[],
         declaredReturnType: Type,
         binding: Type[],
         constructedOwner: Type?,
@@ -3242,7 +3243,7 @@ sealed class ColumnarIlEmitter {
     ): bool {
         columnarResolvedType = null
         argCount := _nodes.ChildCount(callIdx) - 1
-        if (argCount != declaredParamTypes.Length || binding.Length != generics.TypeParams.Length) {
+        if (argCount != declaredParamTypes.Length || declaredParamModifierKinds == null || declaredParamModifierKinds.Length != declaredParamTypes.Length || binding.Length != generics.TypeParams.Length) {
             return false
         }
 
@@ -3271,7 +3272,7 @@ sealed class ColumnarIlEmitter {
                 if (!TrySubstituteByRefGenericElement(generics.TypeParams, binding, declared, Child(callIdx, a), out byRefElement)) {
                     return false
                 }
-                if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType())) {
+                if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType(), declaredParamModifierKinds[a - 1])) {
                     return false
                 }
                 continue
@@ -3435,7 +3436,7 @@ sealed class ColumnarIlEmitter {
             true => OpCodes.Callvirt,
             _ => OpCodes.Call
         }
-        return TryEmitGenericSourceMethodCall(callIdx, generics, method.Builder, method.ParamTypes, method.ReturnType, binding, constructedOwner, ownerArguments, callOpcode, out columnarResolvedType)
+        return TryEmitGenericSourceMethodCall(callIdx, generics, method.Builder, method.ParamTypes, method.ParamModifierKinds, method.ReturnType, binding, constructedOwner, ownerArguments, callOpcode, out columnarResolvedType)
     }
 
     // A generic STATIC method on a source type, called with no receiver. A GENERIC owner has no
@@ -3470,7 +3471,7 @@ sealed class ColumnarIlEmitter {
         if (generics == null) {
             return false
         }
-        return TryEmitGenericSourceMethodCall(callIdx, generics, method.Builder, method.ParamTypes, method.ReturnType, binding, constructedOwner, ownerTypeArguments, OpCodes.Call, out columnarResolvedType)
+        return TryEmitGenericSourceMethodCall(callIdx, generics, method.Builder, method.ParamTypes, method.ParamModifierKinds, method.ReturnType, binding, constructedOwner, ownerTypeArguments, OpCodes.Call, out columnarResolvedType)
     }
 
     // The declared type of a lexical value binding, WITHOUT emitting anything. A dotted explicit
@@ -3593,7 +3594,7 @@ sealed class ColumnarIlEmitter {
                 true => OpCodes.Callvirt,
                 _ => OpCodes.Call
             }
-            return TryEmitGenericSourceMethodCall(callIdx, instanceGenerics, instanceMethod.Builder, instanceMethod.ParamTypes, instanceMethod.ReturnType, instanceBinding, constructedOwner, receiverArguments, instanceCallOpcode, out columnarResolvedType)
+            return TryEmitGenericSourceMethodCall(callIdx, instanceGenerics, instanceMethod.Builder, instanceMethod.ParamTypes, instanceMethod.ParamModifierKinds, instanceMethod.ReturnType, instanceBinding, constructedOwner, receiverArguments, instanceCallOpcode, out columnarResolvedType)
         }
 
         // THE SAME INSTANCE CALL, OVER A RECEIVER THAT IS AN EXPRESSION AND NOT A NAME — the chained
@@ -3630,7 +3631,7 @@ sealed class ColumnarIlEmitter {
                             if (!EmitExpression(expressionReceiverNode, out emittedExpressionReceiverType) || !TypesEquivalent(emittedExpressionReceiverType, expressionReceiverType)) {
                                 return false
                             }
-                            return TryEmitGenericSourceMethodCall(callIdx, expressionGenerics, expressionMethod.Builder, expressionMethod.ParamTypes, expressionMethod.ReturnType, expressionBinding, expressionConstructedOwner, expressionReceiverArguments, OpCodes.Callvirt, out columnarResolvedType)
+                            return TryEmitGenericSourceMethodCall(callIdx, expressionGenerics, expressionMethod.Builder, expressionMethod.ParamTypes, expressionMethod.ParamModifierKinds, expressionMethod.ReturnType, expressionBinding, expressionConstructedOwner, expressionReceiverArguments, OpCodes.Callvirt, out columnarResolvedType)
                         }
                     }
                 }
@@ -3780,18 +3781,19 @@ sealed class ColumnarIlEmitter {
     private func EmitExplicitGenericExternalCall(callIdx: int, selection: ColumnarExplicitGenericCallSelection, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         parameterTypes := selection.ParameterTypes
+        optionalParameters := (must selection.Method).GetParameters()
+        if (optionalParameters == null || optionalParameters.Length != parameterTypes.Length) {
+            return false
+        }
+        modifierKinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(optionalParameters)
         for a := 0; a < selection.ExplicitArgumentCount; a++ {
-            if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a], true)) {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a], true, modifierKinds[a])) {
                 return false
             }
         }
         // Every parameter past the supplied arguments is a trailing optional, and its metadata default
         // is written here as a literal — the same fill the ordinary resolver's optional tier emits,
         // through the one owner that knows which defaults are constants.
-        optionalParameters := (must selection.Method).GetParameters()
-        if (optionalParameters == null || optionalParameters.Length != parameterTypes.Length) {
-            return false
-        }
         for filled := selection.ExplicitArgumentCount; filled < parameterTypes.Length; filled++ {
             if (!ColumnarExtensionMethodResolver.TryEmitOptionalDefault(_il, optionalParameters[filled], parameterTypes[filled])) {
                 return false
@@ -3885,7 +3887,7 @@ sealed class ColumnarIlEmitter {
         applicableCount := 0
         for c := 0; c < admitted.Count; c++ {
             candidate := admitted[c]
-            if (candidate.IsSelected && candidate.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, candidate.ParameterTypes)) {
+            if (candidate.IsSelected && candidate.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, candidate)) {
                 applicable = candidate
                 applicableCount = applicableCount + 1
             }
@@ -3914,7 +3916,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitOrdinaryRuntimeStaticCall(callIdx: int, ownerType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         selection := SelectOrdinaryRuntimeCall(callIdx, ownerType, member, argCount, true)
-        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection)) {
             return false
         }
         return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
@@ -3929,7 +3931,7 @@ sealed class ColumnarIlEmitter {
         }
         argCount := _nodes.ChildCount(callIdx) - 1
         selection := SelectOrdinaryRuntimeCall(callIdx, receiverType, member, argCount, false)
-        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection)) {
             return false
         }
         if (receiverType.IsValueType && !RuntimeTypeShapeFacts.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
@@ -3944,7 +3946,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitOrdinaryRuntimeInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         selection := SelectOrdinaryRuntimeCall(callIdx, receiverType, member, argCount, false)
-        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection)) {
             return false
         }
         if (receiverType.IsValueType) {
@@ -3982,12 +3984,24 @@ sealed class ColumnarIlEmitter {
     // remaining per-API residuals, so a selection it abandoned halfway would leave the arguments it had
     // already written on the stack in front of whichever arm answered next. The check is the same
     // predicate the planned-external door uses, asked of the same declared parameter types.
-    private func CanEmitOrdinaryRuntimeCallArguments(callIdx: int, parameterTypes: Type[]): bool {
+    private func CanEmitOrdinaryRuntimeCallArguments(callIdx: int, selection: ColumnarOrdinaryRuntimeDirectCallSelection): bool {
+        if (selection == null || selection.Method == null) {
+            return false
+        }
+        parameters := selection.Method.GetParameters()
+        if (parameters == null) {
+            return false
+        }
+        return CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters))
+    }
+
+    private func CanEmitOrdinaryRuntimeCallArguments(callIdx: int, parameterTypes: Type[], modifierKinds: int[]): bool {
         if (_nodes.ChildCount(callIdx) - 1 != parameterTypes.Length) {
             return false
         }
         for a := 0; a < parameterTypes.Length; a++ {
-            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a + 1), parameterTypes[a], true)) {
+            modifierKind := a < modifierKinds.Length ? modifierKinds[a] : 0
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a + 1), parameterTypes[a], true, modifierKind)) {
                 return false
             }
         }
@@ -3997,6 +4011,15 @@ sealed class ColumnarIlEmitter {
     private func EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx: int, selection: ColumnarOrdinaryRuntimeDirectCallSelection, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         parameterTypes := selection.ParameterTypes
+        method := selection.Method
+        if method == null {
+            return false
+        }
+        optionalParameters := method.GetParameters()
+        if (optionalParameters == null) {
+            return false
+        }
+        modifierKinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(optionalParameters)
         // A `params` TAIL IS PACKED HERE, at the call site, and nothing else about the call changes.
         // The fixed arguments are written exactly as any call's are; `newarr` then runs, and each
         // remaining argument is stored into the fresh array through a `dup` of it — so the array is
@@ -4014,7 +4037,8 @@ sealed class ColumnarIlEmitter {
             if (elementType != null && a >= fixedCount) {
                 ColumnarParamsExpansion.EmitElementPrologue(_il, a - fixedCount)
             }
-            if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a], true)) {
+            modifierKind := a < modifierKinds.Length ? modifierKinds[a] : 0
+            if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a], true, modifierKind)) {
                 return false
             }
             if (elementType != null && a >= fixedCount) {
@@ -4060,7 +4084,7 @@ sealed class ColumnarIlEmitter {
                 // call this tier cannot write leaves nothing on the stack for the tier after it. They
                 // are the ordinary instance door's own, which is what an outside receiver gets.
                 instanceSelection := SelectOrdinaryRuntimeCall(callIdx, instanceBase, name, argCount, false)
-                if (instanceSelection.IsSelected && instanceSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, instanceSelection.ParameterTypes)) {
+                if (instanceSelection.IsSelected && instanceSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, instanceSelection)) {
                     _il.Emit(OpCodes.Ldarg_0)
                     return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, instanceSelection, out columnarResolvedType)
                 }
@@ -4104,7 +4128,7 @@ sealed class ColumnarIlEmitter {
         }
         argCount := _nodes.ChildCount(callIdx) - 1
         staticSelection := SelectOrdinaryRuntimeCall(callIdx, staticBase, name, argCount, true)
-        if (staticSelection.IsSelected && staticSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, staticSelection.ParameterTypes)) {
+        if (staticSelection.IsSelected && staticSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, staticSelection)) {
             columnarResolvedType = staticSelection.ReturnType
             return true
         }
@@ -4128,7 +4152,7 @@ sealed class ColumnarIlEmitter {
         }
         _il.Emit(OpCodes.Ldarg_0)
         for a := 1; a <= argCount; a++ {
-            if (!EmitDeclaredCallArgument(Child(callIdx, a), method.ParamTypes[a - 1], true)) {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a), method.ParamTypes[a - 1], true, method.ParamModifierKinds[a - 1])) {
                 return false
             }
         }
@@ -4163,7 +4187,7 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Ldarg_0)
         _il.Emit(OpCodes.Ldfld, enclosingThisField)
         for a := 1; a <= argCount; a++ {
-            if (!EmitDeclaredCallArgument(Child(callIdx, a), method.ParamTypes[a - 1], true)) {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a), method.ParamTypes[a - 1], true, method.ParamModifierKinds[a - 1])) {
                 return false
             }
         }
@@ -4235,7 +4259,7 @@ sealed class ColumnarIlEmitter {
 
         selected := false
         for candidate in overloads {
-            if (candidate.Generics != null || candidate.ParamTypes.Length != argCount || !CanDeclaredCallArgumentsMatch(callIdx, candidate.ParamTypes, true)) {
+            if (candidate.Generics != null || candidate.ParamTypes.Length != argCount || !CanDeclaredCallArgumentsMatch(callIdx, candidate.ParamTypes, true, candidate.ParamModifierKinds)) {
                 continue
             }
             if (selected) {
@@ -14087,7 +14111,7 @@ sealed class ColumnarIlEmitter {
                     }
                     // Contextual lambdas and method groups remain on this legacy-only tier.
                     for a := 1; a <= argCount; a++ {
-                        if (!EmitDeclaredCallArgument(Child(idx, a), target.ParamTypes[a - 1], true)) {
+                        if (!EmitDeclaredCallArgument(Child(idx, a), target.ParamTypes[a - 1], true, target.ParamModifierKinds[a - 1])) {
                             return false
                         }
                     }
@@ -14133,7 +14157,7 @@ sealed class ColumnarIlEmitter {
                     // No receiver: just the args, then a direct `call` to the declaring type's static.
                     staticArgCount := _nodes.ChildCount(idx) - 1
                     for a := 1; a <= staticArgCount; a++ {
-                        if (!EmitDeclaredCallArgument(Child(idx, a), ownStatic.ParamTypes[a - 1], true)) {
+                        if (!EmitDeclaredCallArgument(Child(idx, a), ownStatic.ParamTypes[a - 1], true, ownStatic.ParamModifierKinds[a - 1])) {
                             return Decline("emit.call.static-argument", "static call argument " + a.ToString() + " for '" + name + "' could not be emitted", Child(idx, a))
                         }
                     }
@@ -15045,6 +15069,7 @@ sealed class ColumnarIlEmitter {
                     if (!TrySelectUserConstructor(idx, ctorDef, out chosenCtor, out chosenParamTypes, out chosenDefaultKinds, out chosenDefaultTexts)) {
                         return false
                     }
+                    chosenParamModifierKinds := UserConstructorModifierKinds(ctorDef, chosenCtor)
                     providedCtorArgCount := _nodes.ChildCount(idx) - 1
                     for a := 0; a < chosenParamTypes.Length; a++ {
                         if (a >= providedCtorArgCount) {
@@ -15071,7 +15096,7 @@ sealed class ColumnarIlEmitter {
                         // to the declared type, lambda literals and method groups converted to the
                         // declared delegate, collection and array literals, and every conversion the
                         // subset spelled by hand.
-                        if (!EmitDeclaredCallArgument(Child(idx, 1 + a), chosenParamTypes[a], true)) {
+                        if (!EmitDeclaredCallArgument(Child(idx, 1 + a), chosenParamTypes[a], true, chosenParamModifierKinds[a])) {
                             return false
                         }
                     }
@@ -17697,7 +17722,7 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                         for addressableArgument := 0; addressableArgument < argCount; addressableArgument++ {
-                            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + addressableArgument), addressableStructMethod.ParamTypes[addressableArgument], true)) {
+                            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + addressableArgument), addressableStructMethod.ParamTypes[addressableArgument], true, addressableStructMethod.ParamModifierKinds[addressableArgument])) {
                                 return false
                             }
                         }
@@ -18252,7 +18277,7 @@ sealed class ColumnarIlEmitter {
                 return Decline("emit.call.static-user-member-unmodeled", "static call '" + typeName + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled", callIdx)
             }
             for a := 1; a <= argCount; a++ {
-                if (!EmitDeclaredCallArgument(Child(callIdx, a), userStatic.ParamTypes[a - 1], true)) {
+                if (!EmitDeclaredCallArgument(Child(callIdx, a), userStatic.ParamTypes[a - 1], true, userStatic.ParamModifierKinds[a - 1])) {
                     return Decline("emit.call.static-user-argument", "static call argument " + a.ToString() + " for '" + typeName + "." + member + "' could not be emitted", Child(callIdx, a))
                 }
             }
@@ -23978,7 +24003,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         for a := 0; a < argCount; a++ {
-            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true)) {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true, target.ParamModifierKinds[1 + a])) {
                 return false
             }
         }
@@ -24003,7 +24028,7 @@ sealed class ColumnarIlEmitter {
 
                 argsMatch := true
                 for a := 0; a < argCount; a++ {
-                    if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true)) {
+                    if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true, target.ParamModifierKinds[1 + a])) {
                         argsMatch = false
                         break
                     }
@@ -25314,8 +25339,9 @@ sealed class ColumnarIlEmitter {
         if (optionalParameters == null || optionalParameters.Length != parameterTypes.Length) {
             return false
         }
+        selectedModifierKinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(optionalParameters)
         for a := 0; a < argCount; a++ {
-            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), parameterTypes[a], true)) {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), parameterTypes[a], true, selectedModifierKinds[a])) {
                 return false
             }
         }
@@ -25483,7 +25509,7 @@ sealed class ColumnarIlEmitter {
         applicableParameterTypes := new List<Type[]>()
         for c := 0; c < candidates.Count; c++ {
             parameterTypes := candidateParameterTypes[c]
-            if (CanEmitWrittenConstructorArguments(callIdx, argCount, parameterTypes)) {
+            if (CanEmitWrittenConstructorArguments(callIdx, argCount, parameterTypes, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(candidates[c].GetParameters()))) {
                 applicable.Add(candidates[c])
                 applicableParameterTypes.Add(parameterTypes)
             }
@@ -25517,12 +25543,12 @@ sealed class ColumnarIlEmitter {
     // EVERY WRITTEN ARGUMENT IS CHECKED BEFORE THE FIRST ONE IS EMITTED, against the leading
     // parameters it is written for -- the same predicate `CanEmitOrdinaryRuntimeCallArguments` asks of
     // a call, which is also the one the emission itself relies on.
-    private func CanEmitWrittenConstructorArguments(callIdx: int, argCount: int, parameterTypes: Type[]): bool {
+    private func CanEmitWrittenConstructorArguments(callIdx: int, argCount: int, parameterTypes: Type[], parameterModifierKinds: int[]): bool {
         if (parameterTypes.Length < argCount) {
             return false
         }
         for a := 0; a < argCount; a++ {
-            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a + 1), parameterTypes[a], true)) {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a + 1), parameterTypes[a], true, parameterModifierKinds[a])) {
                 return false
             }
         }
@@ -25806,7 +25832,7 @@ sealed class ColumnarIlEmitter {
         let objectInheritedOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
         if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) && ColumnarSourceDefinitionResolver.TryResolveStruct(receiverType, _structRegistry.Values, out objectInheritedOwner) && objectInheritedOwner != null) {
             objectInheritedSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(object), member, argCount, false)
-            if (objectInheritedSelection.IsSelected && objectInheritedSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, objectInheritedSelection.ParameterTypes)) {
+            if (objectInheritedSelection.IsSelected && objectInheritedSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, objectInheritedSelection)) {
                 if (receiverType.IsValueType) {
                     _il.Emit(OpCodes.Box, receiverType)
                 }
@@ -26506,7 +26532,7 @@ sealed class ColumnarIlEmitter {
                         true => OpCodes.Callvirt,
                         _ => OpCodes.Call
                     }
-                    return TryEmitGenericSourceMethodCall(callIdx, genericStructFacts, genericStructMethod.Builder, genericStructMethod.ParamTypes, genericStructMethod.ReturnType, new Type[genericStructFacts.TypeParams.Length], null, null, genericStructOpcode, out columnarResolvedType)
+                    return TryEmitGenericSourceMethodCall(callIdx, genericStructFacts, genericStructMethod.Builder, genericStructMethod.ParamTypes, genericStructMethod.ParamModifierKinds, genericStructMethod.ReturnType, new Type[genericStructFacts.TypeParams.Length], null, null, genericStructOpcode, out columnarResolvedType)
                 }
                 let structMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
                 if (TrySelectInstanceMethodOnChain(d, member, callIdx, out structMethod)) {
@@ -26518,7 +26544,7 @@ sealed class ColumnarIlEmitter {
                     receiverLoadOpcode := d.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca
                     _il.Emit(receiverLoadOpcode, receiverTemp)
                     for a := 0; a < argCount; a++ {
-                        if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), structMethod.ParamTypes[a], true)) {
+                        if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), structMethod.ParamTypes[a], true, structMethod.ParamModifierKinds[a])) {
                             return false
                         }
                     }
@@ -26549,7 +26575,7 @@ sealed class ColumnarIlEmitter {
                     true => OpCodes.Callvirt,
                     _ => OpCodes.Call
                 }
-                return TryEmitGenericSourceMethodCall(callIdx, closedGenericFacts, closedGenericMethod.Builder, closedGenericMethod.ParamTypes, closedGenericMethod.ReturnType, new Type[closedGenericFacts.TypeParams.Length], receiverType, closedArgs, closedGenericOpcode, out columnarResolvedType)
+                return TryEmitGenericSourceMethodCall(callIdx, closedGenericFacts, closedGenericMethod.Builder, closedGenericMethod.ParamTypes, closedGenericMethod.ParamModifierKinds, closedGenericMethod.ReturnType, new Type[closedGenericFacts.TypeParams.Length], receiverType, closedArgs, closedGenericOpcode, out columnarResolvedType)
             }
             let closedMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
             if (!TrySelectInstanceMethodOnChain(closedDef, member, callIdx, out closedMethod)) {
@@ -26911,7 +26937,7 @@ sealed class ColumnarIlEmitter {
             argumentTypes[a] = argumentType
         }
         selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, member, argumentTypes, false)
-        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection)) {
             return false
         }
         if (receiverType.IsValueType) {
@@ -26981,7 +27007,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         for a := 0; a < argCount; a++ {
-            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true)) {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true, target.ParamModifierKinds[1 + a])) {
                 return false
             }
         }
@@ -27104,6 +27130,7 @@ sealed class ColumnarIlEmitter {
         columnarResolvedType = null
         selectedBuilder: MethodBuilder? = null
         selectedParamTypes: Type[]? = null
+        selectedModifierKinds: int[]? = null
         selectedReturnType: Type? = null
         found := false
         for def in _structRegistry.Values {
@@ -27118,7 +27145,7 @@ sealed class ColumnarIlEmitter {
 
                 argsMatch := true
                 for a := 0; a < argCount; a++ {
-                    if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true)) {
+                    if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true, target.ParamModifierKinds[1 + a])) {
                         argsMatch = false
                         break
                     }
@@ -27132,19 +27159,20 @@ sealed class ColumnarIlEmitter {
                 }
                 selectedBuilder = target.Builder
                 selectedParamTypes = target.ParamTypes
+                selectedModifierKinds = target.ParamModifierKinds
                 selectedReturnType = target.ReturnType
                 found = true
             }
         }
 
-        if (!found || selectedBuilder == null || selectedParamTypes == null || selectedReturnType == null) {
+        if (!found || selectedBuilder == null || selectedParamTypes == null || selectedModifierKinds == null || selectedReturnType == null) {
             return false
         }
         if (!TryConvertAlreadyEmittedValue(receiverType, selectedParamTypes[0])) {
             return false
         }
         for a := 0; a < argCount; a++ {
-            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), selectedParamTypes[1 + a], true)) {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), selectedParamTypes[1 + a], true, selectedModifierKinds[1 + a])) {
                 return false
             }
         }
@@ -27193,7 +27221,7 @@ sealed class ColumnarIlEmitter {
         }
 
         objectSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(object), member, argCount, false)
-        if (!objectSelection.IsSelected || objectSelection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, objectSelection.ParameterTypes)) {
+        if (!objectSelection.IsSelected || objectSelection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, objectSelection)) {
             method = null
             paramTypes = Array.Empty<Type>()
             returnType = null
@@ -27313,7 +27341,7 @@ sealed class ColumnarIlEmitter {
             for i := 0; i < closedParams.Length; i++ {
                 closedParams[i] = ColumnarClosedGenericMemberResolver.SubstituteInterfaceMemberType(overload.ParamTypes[i], closedInterfaceType)
             }
-            if (!CanDeclaredCallArgumentsMatch(callIdx, closedParams, true)) {
+            if (!CanDeclaredCallArgumentsMatch(callIdx, closedParams, true, overload.ParamModifierKinds)) {
                 continue
             }
 
@@ -27406,7 +27434,7 @@ sealed class ColumnarIlEmitter {
 
         selected := false
         for candidate in overloads {
-            if (candidate.Generics != null || candidate.ParamTypes.Length != argCount || !CanDeclaredCallArgumentsMatch(callIdx, candidate.ParamTypes, true)) {
+            if (candidate.Generics != null || candidate.ParamTypes.Length != argCount || !CanDeclaredCallArgumentsMatch(callIdx, candidate.ParamTypes, true, candidate.ParamModifierKinds)) {
                 continue
             }
             if (selected) {
@@ -27421,11 +27449,19 @@ sealed class ColumnarIlEmitter {
     }
 
     private func CanDeclaredCallArgumentsMatch(callIdx: int, parameterTypes: Type[], allowLambdaLiteral: bool): bool {
+        return CanDeclaredCallArgumentsMatch(callIdx, parameterTypes, allowLambdaLiteral, null)
+    }
+
+    private func CanDeclaredCallArgumentsMatch(callIdx: int, parameterTypes: Type[], allowLambdaLiteral: bool, parameterModifierKinds: int[]?): bool {
         if (_nodes.ChildCount(callIdx) - 1 != parameterTypes.Length) {
             return false
         }
+        if parameterModifierKinds != null && parameterModifierKinds.Length != parameterTypes.Length {
+            return false
+        }
         for a := 0; a < parameterTypes.Length; a++ {
-            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), parameterTypes[a], allowLambdaLiteral)) {
+            modifierKind := parameterModifierKinds != null ? parameterModifierKinds[a] : 0
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), parameterTypes[a], allowLambdaLiteral, modifierKind)) {
                 return false
             }
         }
@@ -27433,14 +27469,21 @@ sealed class ColumnarIlEmitter {
     }
 
     private func CanDeclaredCallArgumentMatch(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool): bool {
+        return CanDeclaredCallArgumentMatch(argNode, expectedParamType, allowLambdaLiteral, 0)
+    }
+
+    private func CanDeclaredCallArgumentMatch(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool, parameterModifierKind: int): bool {
         if (expectedParamType.IsByRef) {
-            let targetType: System.Type? = null
-            // The MODIFIER NODE IS OPTIONAL, because `in` is: an argument written bare is addressed
-            // directly. See `EmitByRefCallArgument` for why a bare argument here can only be an `in`.
-            addressableNode := _nodes.Kind(argNode) == ColumnarExpressionNodeKind.RefOutArgument ? (_nodes.ChildCount(argNode) == 1 ? Child(argNode, 0) : -1) : argNode
-            return addressableNode >= 0 && TryGetAddressableTargetType(addressableNode, out targetType) && TypesEquivalent(targetType, expectedParamType.GetElementType())
+            let addressableNode: int = -1
+            if (TryGetAddressableByRefArgument(argNode, expectedParamType, parameterModifierKind, out addressableNode)) {
+                return true
+            }
+            if (parameterModifierKind != 5 || !ColumnarByRefCallArgumentFacts.IsBareUnmodifiedArgument(_nodes, argNode)) {
+                return false
+            }
+            return CanDeclaredCallArgumentMatch(argNode, expectedParamType.GetElementType(), allowLambdaLiteral)
         }
-        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.RefOutArgument) {
+        if (!ColumnarByRefCallArgumentFacts.IsBareUnmodifiedArgument(_nodes, argNode)) {
             return false
         }
         if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.SpreadArgumentExpression) {
@@ -27498,8 +27541,12 @@ sealed class ColumnarIlEmitter {
     }
 
     private func EmitDeclaredCallArgument(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool): bool {
+        return EmitDeclaredCallArgument(argNode, expectedParamType, allowLambdaLiteral, 0)
+    }
+
+    private func EmitDeclaredCallArgument(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool, parameterModifierKind: int): bool {
         if (expectedParamType.IsByRef) {
-            return EmitByRefCallArgument(argNode, expectedParamType)
+            return EmitByRefCallArgument(argNode, expectedParamType, parameterModifierKind)
         }
         if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.RefOutArgument) {
             return false
@@ -28226,20 +28273,52 @@ sealed class ColumnarIlEmitter {
     // settled by overload resolution, which refuses a plain argument for a `ref` or an `out` — so a
     // by-reference parameter reached without a word can only be an `in`.
     private func EmitByRefCallArgument(argNode: int, expectedByRefType: Type): bool {
+        return EmitByRefCallArgument(argNode, expectedByRefType, 0)
+    }
+
+    private func EmitByRefCallArgument(argNode: int, expectedByRefType: Type, parameterModifierKind: int): bool {
         if (!expectedByRefType.IsByRef) {
             return false
         }
-        if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.RefOutArgument) {
-            return EmitAddressOfByRefTarget(argNode, expectedByRefType.GetElementType())
+        let addressableNode: int = -1
+        if (TryGetAddressableByRefArgument(argNode, expectedByRefType, parameterModifierKind, out addressableNode)) {
+            return EmitAddressOfByRefTarget(addressableNode, expectedByRefType.GetElementType())
         }
-        if (_nodes.ChildCount(argNode) != 1) {
+        if (parameterModifierKind != 5 || !ColumnarByRefCallArgumentFacts.IsBareUnmodifiedArgument(_nodes, argNode)) {
             return false
         }
-        modifier := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
-        if (modifier != "ref" && modifier != "out" && modifier != "in") {
+
+        elementType := expectedByRefType.GetElementType()
+        if (!EmitDeclaredCallArgument(argNode, elementType, true)) {
             return false
         }
-        return EmitAddressOfByRefTarget(Child(argNode, 0), expectedByRefType.GetElementType())
+
+        temporary := _il.DeclareLocal(elementType)
+        _il.Emit(OpCodes.Stloc, temporary)
+        _il.Emit(OpCodes.Ldloca, temporary)
+        return true
+    }
+
+    // One storage-target predicate is shared with the direct-call planner. This owner supplies the
+    // emitter's symbol table to resolve whether the target is real storage and whether its type is
+    // exact. The ordinary declared-argument path owns value conversion and rvalue temporaries.
+    private func TryGetAddressableByRefArgument(argNode: int, expectedByRefType: Type, parameterModifierKind: int, out targetNode: int): bool {
+        targetNode = -1
+        if (expectedByRefType == null || !expectedByRefType.IsByRef) {
+            return false
+        }
+        writtenModifierKind := 0
+        if (!ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget(_nodes, _source, argNode, out targetNode, out writtenModifierKind) || !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(parameterModifierKind, writtenModifierKind)) {
+            targetNode = -1
+            return false
+        }
+
+        let targetType: System.Type? = null
+        if (!TryGetAddressableTargetType(targetNode, out targetType) || !TypesEquivalent(targetType, expectedByRefType.GetElementType())) {
+            targetNode = -1
+            return false
+        }
+        return true
     }
 
     private func TryGetAddressableTargetType(targetNode: int, out targetType: Type): bool {
@@ -30696,7 +30775,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
         selection := SelectOrdinaryRuntimeCall(callIdx, ownerType, member, argCount, true)
-        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection)) {
             return false
         }
         columnarResolvedType = selection.ReturnType
@@ -30908,6 +30987,24 @@ sealed class ColumnarIlEmitter {
             out chosenDefaultKinds,
             out chosenDefaultTexts
         )
+    }
+
+    private static func UserConstructorModifierKinds(definition: ColumnarStructDef, selected: ConstructorBuilder): int[] {
+        if (definition == null || selected == null) {
+            return new int[](0)
+        }
+
+        for candidate in definition.Constructors {
+            if (Object.ReferenceEquals(candidate.Builder, selected)) {
+                if (candidate.ParamModifierKinds.Length == candidate.ParamTypes.Length) {
+                    return candidate.ParamModifierKinds
+                }
+                // Empty source modifier facts have always meant that every parameter is by value.
+                return new int[](candidate.ParamTypes.Length)
+            }
+        }
+
+        throw new InvalidOperationException("The selected source constructor has no declaration facts.")
     }
 
     private func ConstructorChainArgumentNodeUsesCurrentInstance(node: int): bool {

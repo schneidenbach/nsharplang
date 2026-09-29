@@ -34,6 +34,16 @@ func ByRefTypes2(first: Type, second: Type): Type[] {
     return result
 }
 
+test "an unannotated source byref type preserves its caller storage forms" {
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 0)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 1)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 2)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(0, 5)
+    assert ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(5, 0)
+    assert !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(1, 0)
+    assert !ColumnarByRefCallArgumentFacts.DirectionAllowsArgument(2, 0)
+}
+
 // ── what a by-ref parameter may be ────────────────────────────────────────────────────────────
 
 test "a by-reference parameter is supported and a by-reference return is not" {

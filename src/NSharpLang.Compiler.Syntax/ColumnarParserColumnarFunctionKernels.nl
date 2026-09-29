@@ -118,14 +118,16 @@ class ColumnarConstructorSignatureOutputTable {
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
     ParamLabeledTypeTexts: string[]
+    ParamModifierKinds: int[]
     ArgKinds: int[]
     ArgStarts: int[]
     ArgLengths: int[]
     ArgTexts: string[]
-    constructor(paramNameTexts: string[], paramTypeTexts: string[], paramLabeledTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
+    constructor(paramNameTexts: string[], paramTypeTexts: string[], paramLabeledTypeTexts: string[], paramModifierKinds: int[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
         ParamNameTexts = paramNameTexts
         ParamTypeTexts = paramTypeTexts
         ParamLabeledTypeTexts = paramLabeledTypeTexts
+        ParamModifierKinds = paramModifierKinds
         ArgKinds = argKinds
         ArgStarts = argStarts
         ArgLengths = argLengths
@@ -358,9 +360,9 @@ func ColumnarFunctionLocalFunctionNamesDistinct(source: string, tokens: Columnar
     return 1
 }
 
-func ParseColumnarConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outParamNameTexts: string[], outParamTypeTexts: string[], outParamLabeledTypeTexts: string[], outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
+func ParseColumnarConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outParamNameTexts: string[], outParamTypeTexts: string[], outParamLabeledTypeTexts: string[], outParamModifierKinds: int[], outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
     tokens := new ColumnarConstructorTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    signatureOutputs := new ColumnarConstructorSignatureOutputTable(outParamNameTexts, outParamTypeTexts, outParamLabeledTypeTexts, outArgKinds, outArgStarts, outArgLengths, outArgTexts)
+    signatureOutputs := new ColumnarConstructorSignatureOutputTable(outParamNameTexts, outParamTypeTexts, outParamLabeledTypeTexts, outParamModifierKinds, outArgKinds, outArgStarts, outArgLengths, outArgTexts)
     body := new ColumnarConstructorBodyTable(outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths)
     result := new ColumnarConstructorResultTable(outResult)
     return ParseColumnarConstructorInfoCore(source, tokens, ctorIndex, signatureOutputs, body, result)
@@ -377,7 +379,7 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
     }
 
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    signatureOutput := new ConstructorSignatureOutputTable(signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.ArgKinds, signatureOutputs.ArgStarts, signatureOutputs.ArgLengths, signatureOutputs.ArgTexts)
+    signatureOutput := new ConstructorSignatureOutputTable(signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ArgKinds, signatureOutputs.ArgStarts, signatureOutputs.ArgLengths, signatureOutputs.ArgTexts)
     typeStack := new ParserArgumentStack(new int[](declarationCapacity))
     nodes := new ParserNodeTable(new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity), new int[](declarationCapacity))
     children := new ParserChildIndexTable(new int[](declarationCapacity))
@@ -587,7 +589,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
     }
 
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    primaryParameters := new PrimaryConstructorParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    primaryParameters := new PrimaryConstructorParameterTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
     primaryResult := new ParserDeclarationResultTable(new int[](1))
     paramCount := 0
     if pos < tokens.Count && tokens.Kinds[pos] == 127 {
@@ -596,7 +598,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
         primaryResult.Values[0] = pos
     }
 
-    if paramCount < 0 || paramCount > signatureOutputs.ParamNameTexts.Length || paramCount > signatureOutputs.ParamTypeTexts.Length || paramCount > signatureOutputs.ArgKinds.Length || paramCount > signatureOutputs.ArgTexts.Length {
+    if paramCount < 0 || paramCount > signatureOutputs.ParamNameTexts.Length || paramCount > signatureOutputs.ParamTypeTexts.Length || paramCount > signatureOutputs.ParamLabeledTypeTexts.Length || paramCount > signatureOutputs.ParamModifierKinds.Length || paramCount > signatureOutputs.ArgKinds.Length || paramCount > signatureOutputs.ArgTexts.Length {
         return -1
     }
 
@@ -609,7 +611,11 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
         }
 
         signatureOutputs.ParamNameTexts[p] = paramName
+        if primaryParameters.ModifierKinds[p] == 1 || primaryParameters.ModifierKinds[p] == 2 || primaryParameters.ModifierKinds[p] == 5 {
+            paramType = "&" + paramType
+        }
         signatureOutputs.ParamTypeTexts[p] = paramType
+        signatureOutputs.ParamModifierKinds[p] = primaryParameters.ModifierKinds[p]
         if p < signatureOutputs.ParamLabeledTypeTexts.Length {
             // A PRIMARY constructor's parameter types are read as text spans rather than from a
             // type-reference tree, so the labelled spelling is the spelling already read.

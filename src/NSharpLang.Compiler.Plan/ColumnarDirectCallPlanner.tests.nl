@@ -14,6 +14,37 @@ class ColumnarDirectCallByRefProbe {
     }
 }
 
+class ColumnarDirectCallInSpillProbe {
+    static func Peek(in value: long): long {
+        return value
+    }
+}
+
+func DirectCallClosedGenericInMethod(): MethodInfo {
+    owner := TypeOfCreateBuilder("DirectCallGenericInOwner", "DirectCallGenericInOwner", 0)
+    method := owner.DefineMethod("Echo", MethodAttributes.Public | MethodAttributes.Static)
+    genericParameters := method.DefineGenericParameters(["T"])
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = genericParameters[0].MakeByRefType()
+    method.SetParameters(parameterTypes)
+    method.SetReturnType(genericParameters[0])
+    method.DefineParameter(1, ParameterAttributes.In, "value")
+    il := method.GetILGenerator()
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Ldobj, genericParameters[0])
+    il.Emit(OpCodes.Ret)
+
+    created := owner.CreateType()
+    if created == null {
+        throw new InvalidOperationException("The generic read-only reference fixture could not be created.")
+    }
+    definition := created.GetMethod("Echo")
+    if definition == null {
+        throw new InvalidOperationException("The generic read-only reference fixture method could not be found.")
+    }
+    return definition.MakeGenericMethod([typeof(long)])
+}
+
 struct ColumnarDirectCallMutableReceiverProbe {
     Value: int
 
@@ -1919,4 +1950,65 @@ test "the written .Invoke spelling plans the same call as the bare one" {
     assert plan.ResultType == typeof(bool)
     assert DirectCallHasMethod(plan, "Invoke")
     ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "InParameters: a bare read-only reference rvalue returns to the declared-argument owner" {
+    tree := DirectCallParsedTree("7")
+    bindings := ColumnarRangePlannerEmptyBindings()
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.ArgumentNodes[0] = tree.Root
+    facts.IsUnsuffixedIntegerLiteral[0] = true
+    facts.IntegerLiteralValues[0] = 7
+    actual := new Type[](1)
+    actual[0] = typeof(int)
+    expected := new Type[](1)
+    expected[0] = typeof(long).MakeByRefType()
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, ColumnarExpressionNodeKind.CallExpression, tree.Root)
+    handles := ColumnarRangeIndexHandles.Resolve()
+    assert !ColumnarDirectCallPlanner.AppendArgumentSlot(tree.Nodes, tree.Source, bindings, handles, plan, root, 0, true, actual, expected, facts, 0, 5)
+    assert facts.RequiresEmitterByRefRvalue
+    assert plan.PlanLocalCount == 0
+}
+
+test "InParameters: a bare storage value at a read-only reference returns to the declared-argument owner" {
+    tree := DirectCallParsedTree("number")
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "number", 0, typeof(int))
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.ArgumentNodes[0] = tree.Root
+    actual := new Type[](1)
+    actual[0] = typeof(int)
+    expected := new Type[](1)
+    expected[0] = typeof(long).MakeByRefType()
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, ColumnarExpressionNodeKind.CallExpression, tree.Root)
+    handles := ColumnarRangeIndexHandles.Resolve()
+    assert !ColumnarDirectCallPlanner.AppendArgumentSlot(tree.Nodes, tree.Source, bindings, handles, plan, root, 0, true, actual, expected, facts, 0, 5)
+    assert facts.RequiresEmitterByRefRvalue
+    assert plan.PlanLocalCount == 0
+}
+
+test "InParameters: a written in argument never receives an rvalue temporary" {
+    tree := DirectCallParsedTree("Peek(in 7)")
+    bindings := ColumnarRangePlannerEmptyBindings()
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.ArgumentNodes[0] = tree.Nodes.Child(tree.Root, 1)
+    facts.IsByRefArgument[0] = true
+    facts.IsInArgument[0] = true
+    actual := new Type[](1)
+    actual[0] = typeof(int)
+    expected := new Type[](1)
+    expected[0] = typeof(long).MakeByRefType()
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, ColumnarExpressionNodeKind.CallExpression, tree.Root)
+
+    assert !ColumnarDirectCallPlanner.AppendArgumentSlot(tree.Nodes, tree.Source, bindings, ColumnarRangeIndexHandles.Resolve(), plan, root, 0, true, actual, expected, facts, 0, 5)
+    assert !facts.RequiresEmitterByRefRvalue
+    assert plan.PlanLocalCount == 0
 }

@@ -2902,6 +2902,25 @@ test "async iterator planner admits a bound await and refuses a nested one" {
     assert nested.Shape.DeclineMessage == "an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)"
 }
 
+test "async iterator planner refuses a read-only reference rvalue before a later awaited argument" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Ticks(): IAsyncEnumerable<int> { yield Consume(new Node(\"a\"), await Other()) }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
+    // The first argument is an unmodified rvalue intended for an `in` parameter. Spilling it into
+    // an ordinary plan local would leave that local live across the later argument's suspension,
+    // but async iterator lowering hoists only its own declared state-machine fields.
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+    assert probe.Shape.DeclineMessage == "an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)"
+}
+
 // `await` OUTSIDE AN ASYNC GENERATOR IS STILL AN ERROR, in both positions.
 test "a synchronous generator refuses await in either position" {
     unit := new ColumnarIteratorShapeProbe(

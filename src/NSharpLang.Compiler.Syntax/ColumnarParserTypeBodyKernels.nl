@@ -71,7 +71,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
     result.Values[7] = typeParamCount
 
-    primaryParameters := new PrimaryConstructorParameterTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    primaryParameters := new PrimaryConstructorParameterTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     primaryResult := new ParserDeclarationResultTable(new int[](1))
     primaryCtorParamCount := 0
     primaryAssignedFlags := new int[](count + 1)

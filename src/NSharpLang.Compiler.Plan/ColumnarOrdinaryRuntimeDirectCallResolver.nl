@@ -1064,11 +1064,9 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return declaringType == candidateLookupType || declaringType.ContainsGenericParameters
     }
 
-    // A REFLECTED member's directions in the same encoding a source one carries: 5 for `in`, 0 for
-    // everything else — plus 6, which only metadata can say, for `ref readonly`. `ref` and `out` are
-    // deliberately NOT reported here — the scorer only needs to know which by-reference parameters are
-    // READ-ONLY, because those are the directions whose call-site word is optional, and reporting the
-    // other two would say nothing the types do not. See `ReflectedParameterDirection`.
+    // A REFLECTED member's directions in the same encoding a source one carries: 1 `ref`, 2 `out`,
+    // 5 `in`, and 6 `ref readonly`. Metadata distinguishes all four and the planner/emitter share this
+    // column so a bare argument cannot be mistaken for writable storage. See ReflectedParameterDirection.
     static func ReflectedModifierKinds(parameters: ParameterInfo[]): int[] {
         kinds := new int[](parameters.Length)
         index := 0
@@ -1077,6 +1075,8 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 kinds[index] = 6
             } else if ReflectedParameterDirection.IsReadOnlyReference(parameters[index]) {
                 kinds[index] = 5
+            } else if parameters[index].ParameterType.IsByRef {
+                kinds[index] = parameters[index].IsOut ? 2 : 1
             }
             index = index + 1
         }

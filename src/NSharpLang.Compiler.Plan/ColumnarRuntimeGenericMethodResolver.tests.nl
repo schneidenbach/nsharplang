@@ -5,6 +5,12 @@ import System.Collections.Generic
 import System.Numerics
 import System.Reflection
 
+class RuntimeGenericInProbe {
+    static func Echo<T>(in value: T): T {
+        return value
+    }
+}
+
 // Generic external methods closed by inference from their arguments. `System.Numerics.Vector`'s static
 // surface is the witness for inference through a CONSTRUCTED generic argument; `System.HashCode` and
 // `System.Array` witness inference from plain and array arguments.
@@ -82,6 +88,38 @@ test "runtime generic method resolver infers each type parameter from its own ar
     assert combine.ParameterTypes[0] == typeof(byte)
     assert combine.ParameterTypes[1] == typeof(string)
     assert combine.ReturnType == typeof(int)
+}
+
+test "runtime generic method inference keeps the read-only direction on a bare argument" {
+    argumentTypes := GenericMethodTypes1(typeof(string))
+    selection := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(
+        typeof(RuntimeGenericInProbe),
+        "Echo",
+        argumentTypes,
+        ColumnarDirectCallArgumentFacts.Empty(1),
+        true
+    )
+
+    assert selection.IsSelected
+    selectedMethod := GenericMethodRequiredMethod(selection)
+    assert selectedMethod.GetGenericArguments()[0] == typeof(string)
+    assert selection.ParameterTypes[0] == typeof(string).MakeByRefType()
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(selectedMethod.GetParameters())[0] == 5
+}
+
+test "explicit runtime generic binding accepts a bare value for an in parameter" {
+    argumentTypes := GenericMethodTypes1(typeof(string))
+    selection := ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(
+        typeof(RuntimeGenericInProbe),
+        "Echo",
+        GenericMethodTypes1(typeof(string)),
+        argumentTypes,
+        ColumnarDirectCallArgumentFacts.Empty(1),
+        true
+    )
+
+    assert selection.IsSelected
+    assert selection.ParameterTypes[0] == typeof(string).MakeByRefType()
 }
 
 test "runtime generic method resolver infers through array and interface positions" {

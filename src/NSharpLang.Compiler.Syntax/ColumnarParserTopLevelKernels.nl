@@ -259,14 +259,16 @@ class PrimaryConstructorParameterTable {
     NameLengths: int[]
     TypeStarts: int[]
     TypeLengths: int[]
+    ModifierKinds: int[]
     DefaultKinds: int[]
     DefaultStarts: int[]
     DefaultLengths: int[]
-    constructor(nameStarts: int[], nameLengths: int[], typeStarts: int[], typeLengths: int[], defaultKinds: int[], defaultStarts: int[], defaultLengths: int[]) {
+    constructor(nameStarts: int[], nameLengths: int[], typeStarts: int[], typeLengths: int[], modifierKinds: int[], defaultKinds: int[], defaultStarts: int[], defaultLengths: int[]) {
         NameStarts = nameStarts
         NameLengths = nameLengths
         TypeStarts = typeStarts
         TypeLengths = typeLengths
+        ModifierKinds = modifierKinds
         DefaultKinds = defaultKinds
         DefaultStarts = defaultStarts
         DefaultLengths = defaultLengths

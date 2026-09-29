@@ -617,22 +617,34 @@ func OrdinaryRuntimeDirectionSelected(owner: Type, memberName: string, writtenBy
     return ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(owner, memberName, OrdinaryRuntimeArgumentTypes1(typeof(int)), facts, true).IsSelected
 }
 
+func RequireOrdinaryRuntimeDirectionSelection(owner: Type, memberName: string, writtenByRef: bool, writtenIn: bool, expected: bool, description: string) {
+    actual := OrdinaryRuntimeDirectionSelected(owner, memberName, writtenByRef, writtenIn)
+    if actual != expected {
+        throw new InvalidOperationException(description)
+    }
+}
+
 test "a reflected in parameter takes its argument bare or written in, and never written ref" {
     owner := OrdinaryRuntimeDirectionOwner()
 
-    assert OrdinaryRuntimeDirectionSelected(owner, "Peek", false, false)
-    assert OrdinaryRuntimeDirectionSelected(owner, "Peek", true, true)
-    assert !OrdinaryRuntimeDirectionSelected(owner, "Peek", true, false)
+    RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", false, false, true, "An in parameter accepts a bare value.")
+    RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", true, true, true, "An in parameter accepts a written in storage argument.")
+    RequireOrdinaryRuntimeDirectionSelection(owner, "Peek", true, false, false, "An in parameter refuses written ref.")
 
     // A `ref` parameter is the opposite: it must be written `ref`, and neither a bare argument nor
     // an `in` stands in for the word.
-    assert OrdinaryRuntimeDirectionSelected(owner, "Bump", true, false)
-    assert !OrdinaryRuntimeDirectionSelected(owner, "Bump", false, false)
-    assert !OrdinaryRuntimeDirectionSelected(owner, "Bump", true, true)
+    RequireOrdinaryRuntimeDirectionSelection(owner, "Bump", true, false, true, "A ref parameter accepts written ref.")
+    RequireOrdinaryRuntimeDirectionSelection(owner, "Bump", false, false, false, "A ref parameter refuses a bare value.")
+    RequireOrdinaryRuntimeDirectionSelection(owner, "Bump", true, true, false, "A ref parameter refuses written in.")
 
     kinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds((must owner.GetMethod("Peek")).GetParameters())
-    assert kinds.Length == 1 && kinds[0] == 5
-    assert ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds((must owner.GetMethod("Bump")).GetParameters())[0] == 0
+    if kinds.Length != 1 || kinds[0] != 5 {
+        throw new InvalidOperationException("The reflected in parameter must retain modifier kind 5.")
+    }
+    bumpKinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds((must owner.GetMethod("Bump")).GetParameters())
+    if bumpKinds[0] != 1 {
+        throw new InvalidOperationException("The reflected ref parameter must retain modifier kind 1.")
+    }
 }
 
 // `Volatile.Read(ref running)` is the shape: .NET 10 declares the location `ref readonly`, which metadata
