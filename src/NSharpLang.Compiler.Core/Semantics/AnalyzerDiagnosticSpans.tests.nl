@@ -24,7 +24,7 @@ import NSharpLang.Compiler.Ast
 //     whole written statement rather than one token;
 //   * a multi-line `SourceSpan` is REFUSED as a span, because one underlined run cannot render it.
 func SpanSource(): string {
-    return "package probe\n" + "func main() {\n" + "    total := customer.Account.Balance\n" + "    name := \"he said \\\"hi\\\" ok\"\n" + "    values := [1, 2, 3]\n" + "    Compute(alpha,beta) ok\n" + "    a.b = a.b\n" + "}\n" + "    length := (must customer).Account.Balance\n"
+    return "package probe\n" + "func main() {\n" + "    total := customer.Account.Balance\n" + "    name := \"he said \\\"hi\\\" ok\"\n" + "    values := [1, 2, 3]\n" + "    Compute(alpha,beta) ok\n" + "    a.b = a.b\n" + "}\n" + "    length := (must customer).Account.Balance\n" + "    CountWidgets(new List<Widget>())\n" + "    Make(new Widget() { Name = \"value )\" })\n"
 }
 
 func SpanResolver(): AnalyzerDiagnosticSpans {
@@ -64,6 +64,19 @@ test "a literal's width comes from its lexeme where the lexeme is faithful" {
     assert SpanText(spans.GetExpressionDiagnosticSpan(new BoolLiteralExpression(false, 5, 16))) == "5|16|5"
     assert SpanText(spans.GetExpressionDiagnosticSpan(new NullLiteralExpression(5, 16))) == "5|16|4"
     assert SpanText(spans.GetExpressionDiagnosticSpan(new ThisExpression(5, 16))) == "5|16|4"
+}
+
+test "a new expression includes its constructor arguments and object initializer" {
+    spans := SpanResolver()
+    arguments := new List<Argument>()
+    constructed := new NewExpression(null, arguments, null, 10, 18)
+    properties := new List<PropertyInitializer>()
+    properties.Add(new PropertyInitializer("Name", null, new StringLiteralExpression("value", 11, 32), 11, 23))
+    initializerNode := new ObjectInitializerExpression(properties, 11, 23)
+    initializer := new NewExpression(null, arguments, initializerNode, 11, 10)
+
+    assert SpanText(spans.GetExpressionDiagnosticSpan(constructed)) == "10|18|" + "new List<Widget>()".Length.ToString()
+    assert SpanText(spans.GetExpressionDiagnosticSpan(initializer)) == "11|10|" + "new Widget() { Name = \"value )\" }".Length.ToString()
 }
 
 test "AN ESCAPED STRING IS MEASURED FROM THE SOURCE, NOT FROM ITS VALUE" {

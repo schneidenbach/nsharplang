@@ -6625,9 +6625,9 @@ test "020 s30 analyzer error codes: `TypeMismatch`: the whole census is pinned (
     assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@15:32+1"
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL202:TypeMismatch@15:32+3;"
+    assert AcCensus(rich) == "NL202:TypeMismatch@15:32+19;"
     assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|'Item' is typed as 'Pt', but the value is 'Rs'|<null>|Error"
-    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@15:32+3"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@15:32+19"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "These types are not compatible. Check if you need to convert or cast."
 }
@@ -6795,7 +6795,7 @@ test "020 s30 analyzer error codes: `UndefinedMember`: the whole census is pinne
     assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@8:16+13"
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL303:UndefinedMember@8:16+13;NL202:TypeMismatch@8:12+3;"
+    assert AcCensus(rich) == "NL303:UndefinedMember@8:16+13;NL202:TypeMismatch@8:12+36;"
     assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|'Sucess' is not a case of union 'Result' — check the union definition for available cases|Did you mean 'Result.Success'?|Error"
     assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@8:16+13"
     assert AcSuggestions(rich, 0) == "<null>"
@@ -8671,8 +8671,8 @@ test "020 s31 analyzer error codes: a resource whose `Dispose` has the wrong sha
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
     // Column 27 is the `new` keyword, not column 9 where the `using` is: the squiggle goes under the
-    // RESOURCE, because the statement and the name it binds are both correct. The LENGTH widens from
-    // one to three between the routes — a `new` keyword's width is a fact only the source carries.
+    // RESOURCE, because the statement and the name it binds are both correct. Without source text,
+    // analysis can only underline `new`; the rich route underlines the whole construction.
     assert AcCensus(analysis) == "NL333:ResourceNotDisposable@6:27+1;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
@@ -8684,7 +8684,7 @@ test "020 s31 analyzer error codes: a resource whose `Dispose` has the wrong sha
     assert AcCodeErrorCount(analysis, "ResourceNotDisposable") == 1
     assert AcCodeAnchor(analysis, "ResourceNotDisposable") == "NL333@6:27+1"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL333:ResourceNotDisposable@6:27+3;"
+    assert AcCensus(rich) == "NL333:ResourceNotDisposable@6:27+14;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
     assert AcRow(rich, 0) == "ResourceNotDisposable|A 'Resource' is not a resource 'using' can release|Make `Resource` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|Error"
@@ -8693,7 +8693,7 @@ test "020 s31 analyzer error codes: a resource whose `Dispose` has the wrong sha
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "ResourceNotDisposable") == 1
     assert AcCodeErrorCount(rich, "ResourceNotDisposable") == 1
-    assert AcCodeAnchor(rich, "ResourceNotDisposable") == "NL333@6:27+3"
+    assert AcCodeAnchor(rich, "ResourceNotDisposable") == "NL333@6:27+14"
 }
 
 test "020 s31 analyzer error codes: deconstructing a non-tuple initializer is `NL103` naming the initializer type, three rows, two of which split one column against two between the routes (was AnalyzerTests.TupleDeconstruction_InvalidInitializer_Error, all 3 [InlineData] rows)" with (statement: string, message: string, census: string, row0: string, codeAnchorInvalidSyntax: string, richCensus: string, richCodeAnchorInvalidSyntax: string) [

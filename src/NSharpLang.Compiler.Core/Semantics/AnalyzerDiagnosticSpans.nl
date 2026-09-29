@@ -476,6 +476,11 @@ class AnalyzerDiagnosticSpans {
             return new DiagnosticSpan(genericTypeExpression.Line, genericTypeExpression.Column, Math.Max(1, genericTypeExpression.Type.Name.Length))
         }
 
+        newExpression := expression as NewExpression
+        if newExpression != null {
+            return GetNewExpressionDiagnosticSpan(newExpression)
+        }
+
         memberAccess := expression as MemberAccessExpression
         if memberAccess != null {
             memberColumn := GetMemberNameColumn(memberAccess)
@@ -519,6 +524,119 @@ class AnalyzerDiagnosticSpans {
         }
 
         return new DiagnosticSpan(expression.Line, expression.Column, GetTokenLength(expression.Line, expression.Column))
+    }
+
+    // `new` is the beginning of an argument value, not the whole value. Walk its written type and
+    // the root constructor/array/object initializer so a type mismatch covers the complete
+    // construction expression. The scan stops at the enclosing call's comma or closing delimiter.
+    func GetNewExpressionDiagnosticSpan(expression: NewExpression): DiagnosticSpan {
+        fallback := new DiagnosticSpan(expression.Line, expression.Column, GetTokenLength(expression.Line, expression.Column))
+        sourceLine := SourceSnippet(expression.Line)
+        if sourceLine == null {
+            return fallback
+        }
+
+        start := expression.Column - 1
+        if start < 0 || start + 3 > sourceLine.Length || sourceLine.Substring(start, 3) != "new" {
+            return fallback
+        }
+
+        cursor := start + 3
+        while cursor < sourceLine.Length && Char.IsWhiteSpace(sourceLine[cursor]) {
+            cursor = cursor + 1
+        }
+
+        expressionEnd := cursor
+        genericDepth := 0
+        while cursor < sourceLine.Length {
+            ch := sourceLine[cursor]
+            if ch == '<' {
+                genericDepth = genericDepth + 1
+                expressionEnd = cursor + 1
+                cursor = cursor + 1
+                continue
+            }
+
+            if ch == '>' && genericDepth > 0 {
+                genericDepth = genericDepth - 1
+                expressionEnd = cursor + 1
+                cursor = cursor + 1
+                continue
+            }
+
+            if genericDepth == 0 && (ch == '(' || ch == '[' || (ch == '{' && expression.Initializer != null)) {
+                closingDelimiter := ')'
+                if ch == '[' {
+                    closingDelimiter = ']'
+                } else if ch == '{' {
+                    closingDelimiter = '}'
+                }
+
+                groupLength := GetBalancedDelimiterLength(sourceLine, cursor, ch, closingDelimiter)
+                expressionEnd = cursor + groupLength
+                cursor = expressionEnd
+                if ch != '{' && expression.Initializer != null {
+                    while cursor < sourceLine.Length && Char.IsWhiteSpace(sourceLine[cursor]) {
+                        cursor = cursor + 1
+                    }
+
+                    if cursor < sourceLine.Length && sourceLine[cursor] == '{' {
+                        initializerLength := GetBalancedDelimiterLength(sourceLine, cursor, '{', '}')
+                        expressionEnd = cursor + initializerLength
+                    }
+                }
+
+                return new DiagnosticSpan(expression.Line, expression.Column, Math.Max(3, expressionEnd - start))
+            }
+
+            if genericDepth == 0 && Char.IsWhiteSpace(ch) {
+                next := cursor
+                while next < sourceLine.Length && Char.IsWhiteSpace(sourceLine[next]) {
+                    next = next + 1
+                }
+
+                if next < sourceLine.Length && (sourceLine[next] == '(' || sourceLine[next] == '[' || sourceLine[next] == '{') {
+                    cursor = next
+                    continue
+                }
+
+                break
+            }
+
+            if genericDepth == 0 && (ch == ',' || ch == ')' || ch == ']' || ch == '}') {
+                break
+            }
+
+            expressionEnd = cursor + 1
+            cursor = cursor + 1
+        }
+
+        return new DiagnosticSpan(expression.Line, expression.Column, Math.Max(3, expressionEnd - start))
+    }
+
+    func GetBalancedDelimiterLength(sourceLine: string, start: int, openingDelimiter: char, closingDelimiter: char): int {
+        depth := 0
+        cursor := start
+        while cursor < sourceLine.Length {
+            ch := sourceLine[cursor]
+            if ch == '"' || ch == '\'' {
+                cursor = cursor + Math.Max(1, AnalyzerDiagnosticSpanFacts.ScanQuotedTokenLength(sourceLine, cursor, ch))
+                continue
+            }
+
+            if ch == openingDelimiter {
+                depth = depth + 1
+            } else if ch == closingDelimiter {
+                depth = depth - 1
+                if depth == 0 {
+                    return cursor - start + 1
+                }
+            }
+
+            cursor = cursor + 1
+        }
+
+        return Math.Max(1, sourceLine.TrimEnd().Length - start)
     }
 
     // A CALL reports on its callee's written NAME. A call through an arbitrary expression has no

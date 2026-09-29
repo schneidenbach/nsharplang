@@ -2261,7 +2261,7 @@ test "020 s27 analyzer semantic model: a `using` over a type whose three `Dispos
     assert source.Length == 225
     assert SmParseCensus(source) == ""
     analysis := SmAnalyze(source)
-    assert SmCensus(analysis) == "NL333:ResourceNotDisposable@15:23+3;"
+    assert SmCensus(analysis) == "NL333:ResourceNotDisposable@15:23+14;"
     assert SmHasErrors(analysis) == "True"
     assert SmErrorCount(analysis) == 1
     assert SmRow(analysis, 0) == "ResourceNotDisposable|A 'Resource' is not a resource 'using' can release|Make `Resource` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|Error"
@@ -2277,7 +2277,7 @@ test "020 s27 analyzer semantic model: a `using` over a type whose `Dispose` ret
     assert source.Length == 130
     assert SmParseCensus(source) == ""
     analysis := SmAnalyze(source)
-    assert SmCensus(analysis) == "NL333:ResourceNotDisposable@9:23+3;"
+    assert SmCensus(analysis) == "NL333:ResourceNotDisposable@9:23+14;"
     assert SmHasErrors(analysis) == "True"
     assert SmErrorCount(analysis) == 1
     assert SmRow(analysis, 0) == "ResourceNotDisposable|A 'Resource' is not a resource 'using' can release|Make `Resource` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|Error"

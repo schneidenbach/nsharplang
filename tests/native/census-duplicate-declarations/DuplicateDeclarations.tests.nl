@@ -267,7 +267,7 @@ test "a call between the two declarations names both of them instead of contradi
         DupWrite(directory, "C.nl", "namespace Catalog\n\nimport System.Collections.Generic\n\nfunc Total(): int {\n    return CountWidgets(new List<Widget>())\n}\n")
 
         census := DupCheckCensus(directory)
-        assert DupJoin(census) == "NL339@B.nl:5:7+6;NL202@C.nl:6:25+3", DupJoin(census)
+        assert DupJoin(census) == "NL339@B.nl:5:7+6;NL202@C.nl:6:25+18", DupJoin(census)
         assert DupSingleMessage(directory, "NL202") == "Cannot pass `List<Widget [A.nl:3]>` as argument for parameter `widgets` of type `List<Widget [B.nl:5]>`"
     } finally {
         DupDelete(directory)
