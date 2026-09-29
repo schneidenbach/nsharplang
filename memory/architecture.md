@@ -539,8 +539,14 @@ answer alike" (`tests/native/census-external-nullability`, `census-external-oper
   preflight twin of the contextual and ordinary static tiers (the instance twin already existed), so a
   call the direct-call planner cannot type -- a `must` operand, a call over an operator at depth three --
   types as an argument exactly as it emits.
-A referenced `in` parameter with an rvalue argument (`Peek(new Node(...))`) still declines at emit, in
-one project and in two (no temporary is spilled): separate follow-up.
+The referenced `in` rvalue follow-up is fixed (2026-09-28): a bare non-storage argument is converted to
+the substituted element type, stored in a fresh emitter local, and passed by address for source and
+referenced methods and constructors. `ColumnarByRefCallArgumentFacts.TryGetAddressableArgumentTarget`
+is the shared syntactic storage predicate used by the planner and emitter; the emitter's declared-
+argument preflight and emission both own temporary allocation. Unsupported explicit generic calls
+remain with the emitter's ordinary referenced generic-call tier, which handles by-value and by-ref
+signatures alike. Written `in` still requires storage, and written `in` at a by-value parameter is
+rejected during analysis with the existing NL202/NL402 families.
 The route-arounds: gaps 1-3's collapsed in the commits that fixed them (ten base-chain walks step with
 `d.BaseDef`, the enumerator member names are `nameof`s, 34 of the carve's 88 retyped `out` locals are
 `T?` again -- the other 54 are its front-door fixes, chosen by the tip's front door, and wait on the

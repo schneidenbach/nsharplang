@@ -323,9 +323,12 @@ you to write `ref` in front of it.
 
 ### `in` Parameters
 
-`in` passes the caller's storage **by reference and read-only**. Reach for it when a parameter is a
-large `struct` and copying it costs more than the indirection — and only then, because for a reference
-type or a machine word it buys nothing.
+`in` passes a value **by reference and read-only**. When an argument is compatible storage, the call
+passes that storage's address. A bare argument that is not compatible storage — a literal, a call
+result, or a value that needs conversion — is evaluated once, converted to the parameter's element
+type, stored in a fresh call-site temporary, and passed by address. The callee still cannot change the
+caller's value. Reach for `in` when a parameter is a large `struct` and copying it costs more than the
+indirection — and only then, because for a reference type or a machine word it buys nothing.
 
 ```n#
 struct Matrix {
@@ -343,7 +346,13 @@ func determinant(in m: Matrix): double {
 m := new Matrix { A: 1.0, B: 2.0, C: 3.0, D: 4.0 }
 print determinant(m)
 print determinant(in m)      // identical; the `in` just says it out loud
+print determinant(new Matrix { A: 1.0, B: 2.0, C: 3.0, D: 4.0 }) // a temporary lives through this call
 ```
+
+The `in` keyword on an argument requires storage: `determinant(in new Matrix { ... })` is refused
+with NL103. Leave the modifier off to pass a value through a temporary. Writing `in` for a parameter
+declared by value is an analysis error (NL202 for an N# source call, NL402 for a referenced call); the
+diagnostic names the parameter and suggests removing `in`.
 
 Three rules follow from "read-only":
 
