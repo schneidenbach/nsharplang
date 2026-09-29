@@ -41,7 +41,7 @@ class ColumnarSourceAttributeInput {
 class ColumnarSourceAttributes {
     static func Read(source: string, kinds: int[], starts: int[], lengths: int[], declarationIndex: int): ColumnarSourceAttributeInput[] {
         tokens := new ParserDeclarationTokenTable(kinds, starts, lengths)
-        previous := TopLevelFunctionPreamblePreviousToken(tokens, declarationIndex - 1)
+        previous := PreviousTokenBeforeParameterModifiers(tokens, declarationIndex - 1)
         result := new List<ColumnarSourceAttributeInput>()
         index := previous + 1
         while index < declarationIndex {
@@ -70,6 +70,23 @@ class ColumnarSourceAttributes {
             index = close
         }
         return result.ToArray()
+    }
+
+    // A parameter's attribute group can precede its passing modifier — `[NotNullWhen(true)] out
+    // value: T?`. The name is what ReadParameters indexes, so walk back over `out`/`ref`/`in` (and
+    // `params`) before asking the shared preamble reader to step over the attribute group.
+    static func PreviousTokenBeforeParameterModifiers(tokens: ParserDeclarationTokenTable, start: int): int {
+        position := start
+        while position >= 0 {
+            kind := tokens.Kinds[position]
+            if kind == (int)TokenType.Ref || kind == (int)TokenType.Out || kind == (int)TokenType.In || kind == (int)TokenType.Params {
+                position -= 1
+            } else {
+                break
+            }
+        }
+
+        return TopLevelFunctionPreamblePreviousToken(tokens, position)
     }
 
     static func ReadOne(source: string, tokens: ParserDeclarationTokenTable, start: int, end: int): ColumnarSourceAttributeInput? {

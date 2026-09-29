@@ -24,6 +24,26 @@ test "source attributes retain declaration order and decoded strings" {
     assert attributes[1].Arguments[0] == "second"
 }
 
+test "parameter attributes before out survive the parameter name scan" {
+    program := SourceAttributeProgram("func Pick([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out value: object?): bool { return true }\n")
+    parameterAttributes := program.Functions[0].ParameterSourceAttributes
+    assert parameterAttributes != null
+    assert parameterAttributes.Length == 1
+    assert parameterAttributes[0] != null
+    assert parameterAttributes[0].Length == 1
+    assert parameterAttributes[0][0].Name == "System.Diagnostics.CodeAnalysis.NotNullWhen"
+}
+
+test "a source member's parameter attributes before out survive the same scan" {
+    program := SourceAttributeProgram("class Probe { func Pick([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out value: object?): bool { return true } }\n")
+    parameterAttributes := program.Structs[0].Methods[0].ParameterSourceAttributes
+    assert parameterAttributes != null
+    assert parameterAttributes.Length == 1
+    assert parameterAttributes[0] != null
+    assert parameterAttributes[0].Length == 1
+    assert parameterAttributes[0][0].Name == "System.Diagnostics.CodeAnalysis.NotNullWhen"
+}
+
 // ── every argument as written, and which of them a blob can carry ───────────────────────────────
 //
 // The reader used to REFUSE an attribute whose arguments were not all string literals, and the
