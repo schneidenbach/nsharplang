@@ -41,7 +41,7 @@ static class RuntimeTypeShapeFacts {
             return false
         }
 
-        candidate := valueType.GetType()
+        candidate: Type? = valueType.GetType()
         while candidate != null {
             if candidate.FullName == "System.Reflection.Emit.EnumBuilder" {
                 return true

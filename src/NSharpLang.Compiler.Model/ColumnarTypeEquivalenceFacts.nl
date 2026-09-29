@@ -206,7 +206,7 @@ class ColumnarTypeEquivalenceFacts {
 
     // Null means "no element type is knowable here", which covers both a non-composite type and a shape
     // whose element type the emit-time reflection surface refuses to answer.
-    static func TryGetElementType(candidate: Type): Type {
+    static func TryGetElementType(candidate: Type): Type? {
         try {
             return candidate.GetElementType()
         } catch ex: NotImplementedException {

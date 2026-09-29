@@ -23,7 +23,7 @@ class CompilationReferenceResolverKernels {
         candidates := new List<string>()
         candidates.Add(Path.Combine(baseDirectory, "NSharpLang.Runtime.dll"))
 
-        if !string.IsNullOrWhiteSpace(compilerDirectory ?? "") {
+        if compilerDirectory != null && !string.IsNullOrWhiteSpace(compilerDirectory) {
             candidates.Add(Path.Combine(compilerDirectory, "NSharpLang.Runtime.dll"))
         }
 
@@ -39,7 +39,7 @@ class CompilationReferenceResolverKernels {
     }
 
     static func GetGlobalPackagesFolder(configuredPackagesFolder: string?, userProfileFolder: string): string {
-        if !string.IsNullOrWhiteSpace(configuredPackagesFolder ?? "") {
+        if configuredPackagesFolder != null && !string.IsNullOrWhiteSpace(configuredPackagesFolder) {
             return Path.GetFullPath(configuredPackagesFolder)
         }
 
@@ -332,7 +332,7 @@ class CompilationReferenceResolverKernels {
         for reference in references {
             if reference.Type == ReferenceType.Dll {
                 referencePath := reference.Dll
-                if !string.IsNullOrWhiteSpace(referencePath ?? "") {
+                if referencePath != null && !string.IsNullOrWhiteSpace(referencePath) {
                     if string.Equals(Path.GetFullPath(referencePath), fullPath, StringComparison.OrdinalIgnoreCase) {
                         return false
                     }
