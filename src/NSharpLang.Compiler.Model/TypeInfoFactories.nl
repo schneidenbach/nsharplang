@@ -28,24 +28,24 @@ class NominalTypeInfoFactory {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
         nestedTypes := GetNestedTypeArray(declaration)
-        return new ClassTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), HasModifier(declaration, Convert.ToInt32(Modifiers.Sealed)), GetOptionalTypeReference(declaration, "BaseClass"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, nestedTypes, HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers), GetGenericConstraintArray(declaration), HasModifier(declaration, Convert.ToInt32(Modifiers.Abstract)))
+        return new ClassTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), HasModifier(declaration, Convert.ToInt32(Modifiers.Sealed)), GetOptionalTypeReference(declaration, "BaseClass"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, nestedTypes, HasParameterlessClassConstructor(primaryConstructorParameters, declaredMembers), GetGenericConstraintArray(declaration), HasModifier(declaration, Convert.ToInt32(Modifiers.Abstract)), GetIndexerTypeReferences(declaration))
     }
 
     static func FromStructDeclaration(declaration: object): StructTypeInfo {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
-        return new StructTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration), GetGenericConstraintArray(declaration))
+        return new StructTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration), GetGenericConstraintArray(declaration), GetIndexerTypeReferences(declaration))
     }
 
     static func FromRecordDeclaration(declaration: object): RecordTypeInfo {
         primaryConstructorParameters := GetParameterArray(declaration, "PrimaryConstructorParameters")
         declaredMembers := GetDeclaredMemberArray(declaration)
-        return new RecordTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration), GetGenericConstraintArray(declaration))
+        return new RecordTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsStruct"), GetTypeReferenceArray(declaration, "Interfaces"), GetTypeParameterArray(declaration), primaryConstructorParameters, declaredMembers, GetNestedTypeArray(declaration), GetGenericConstraintArray(declaration), GetIndexerTypeReferences(declaration))
     }
 
     static func FromInterfaceDeclaration(declaration: object): InterfaceTypeInfo {
         declaredMembers := GetDeclaredMemberArray(declaration)
-        return new InterfaceTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"), GetTypeReferenceArray(declaration, "BaseInterfaces"), GetTypeParameterArray(declaration), declaredMembers, GetNestedTypeArray(declaration), GetGenericConstraintArray(declaration))
+        return new InterfaceTypeInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column"), TypeInfoFactoryReflection.GetRequiredBool(declaration, "IsDuckInterface"), GetTypeReferenceArray(declaration, "BaseInterfaces"), GetTypeParameterArray(declaration), declaredMembers, GetNestedTypeArray(declaration), GetGenericConstraintArray(declaration), GetIndexerTypeReferences(declaration))
     }
 
     static func HasModifier(declaration: object, flag: int): bool {
@@ -159,6 +159,38 @@ class NominalTypeInfoFactory {
             }
 
             result[index] = CreateDeclaredMemberInfo(containingType, item)
+            index = index + 1
+        }
+
+        return result
+    }
+
+    static func GetIndexerTypeReferences(owner: object): TypeReference[] {
+        source := TypeInfoFactoryReflection.GetRequiredList(owner, "Members")
+        count := 0
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item != null && item.GetType().Name == "IndexerDeclaration" && TypeInfoFactoryReflection.GetOptionalProperty(item, "GetBody") != null {
+                count = count + 1
+            }
+            index = index + 1
+        }
+
+        result := new TypeReference[](count)
+        resultIndex := 0
+        index = 0
+        while index < source.Count {
+            item := source[index]
+            if item != null && item.GetType().Name == "IndexerDeclaration" && TypeInfoFactoryReflection.GetOptionalProperty(item, "GetBody") != null {
+                typeReference := GetOptionalTypeReference(item, "Type")
+                if typeReference == null {
+                    throw new InvalidOperationException("Expected 'IndexerDeclaration.Type' to be a type reference.")
+                }
+
+                result[resultIndex] = typeReference
+                resultIndex = resultIndex + 1
+            }
             index = index + 1
         }
 

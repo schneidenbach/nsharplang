@@ -268,6 +268,7 @@ class ClassTypeInfo: TypeInfo {
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
     declaredMembersValue: DeclaredMemberInfo[]
+    indexerTypesValue: TypeReference[]
     nestedTypesValue: NestedTypeInfo[]
     hasParameterlessConstructorValue: bool
 
@@ -280,6 +281,7 @@ class ClassTypeInfo: TypeInfo {
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
+    IndexerTypes: TypeReference[] => indexerTypesValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
     HasParameterlessConstructor: bool => hasParameterlessConstructorValue
 
@@ -296,9 +298,10 @@ class ClassTypeInfo: TypeInfo {
     // constructor parameter so that every hand-built shape in the estate keeps its own arity.
     IsAbstract: bool => isAbstractValue
 
-    constructor(name: string, line: int, column: int, isSealed: bool, baseClass: TypeReference?, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], hasParameterlessConstructor: bool, constraints: GenericConstraint[]? = null, isAbstract: bool = false) {
+    constructor(name: string, line: int, column: int, isSealed: bool, baseClass: TypeReference?, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], hasParameterlessConstructor: bool, constraints: GenericConstraint[]? = null, isAbstract: bool = false, indexerTypes: TypeReference[]? = null) {
         constraintsValue = constraints ?? new GenericConstraint[](0)
         isAbstractValue = isAbstract
+        indexerTypesValue = indexerTypes ?? new TypeReference[](0)
         nameValue = name
         lineValue = line
         columnValue = column
@@ -325,6 +328,7 @@ class StructTypeInfo: TypeInfo {
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
     declaredMembersValue: DeclaredMemberInfo[]
+    indexerTypesValue: TypeReference[]
     nestedTypesValue: NestedTypeInfo[]
 
     Name: string => nameValue
@@ -334,6 +338,7 @@ class StructTypeInfo: TypeInfo {
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
+    IndexerTypes: TypeReference[] => indexerTypesValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
     constraintsValue: GenericConstraint[]
@@ -342,8 +347,9 @@ class StructTypeInfo: TypeInfo {
     // caller never has to distinguish "no clause" from "not carried".
     Constraints: GenericConstraint[] => constraintsValue
 
-    constructor(name: string, line: int, column: int, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], constraints: GenericConstraint[]? = null) {
+    constructor(name: string, line: int, column: int, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], constraints: GenericConstraint[]? = null, indexerTypes: TypeReference[]? = null) {
         constraintsValue = constraints ?? new GenericConstraint[](0)
+        indexerTypesValue = indexerTypes ?? new TypeReference[](0)
         nameValue = name
         lineValue = line
         columnValue = column
@@ -368,6 +374,7 @@ class RecordTypeInfo: TypeInfo {
     typeParametersValue: TypeParameter[]
     primaryConstructorParametersValue: ParameterDeclarationInfo[]
     declaredMembersValue: DeclaredMemberInfo[]
+    indexerTypesValue: TypeReference[]
     nestedTypesValue: NestedTypeInfo[]
 
     Name: string => nameValue
@@ -378,6 +385,7 @@ class RecordTypeInfo: TypeInfo {
     TypeParameters: TypeParameter[] => typeParametersValue
     PrimaryConstructorParameters: ParameterDeclarationInfo[] => primaryConstructorParametersValue
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
+    IndexerTypes: TypeReference[] => indexerTypesValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
     constraintsValue: GenericConstraint[]
@@ -386,8 +394,9 @@ class RecordTypeInfo: TypeInfo {
     // caller never has to distinguish "no clause" from "not carried".
     Constraints: GenericConstraint[] => constraintsValue
 
-    constructor(name: string, line: int, column: int, isStruct: bool, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], constraints: GenericConstraint[]? = null) {
+    constructor(name: string, line: int, column: int, isStruct: bool, interfaces: TypeReference[], typeParameters: TypeParameter[], primaryConstructorParameters: ParameterDeclarationInfo[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], constraints: GenericConstraint[]? = null, indexerTypes: TypeReference[]? = null) {
         constraintsValue = constraints ?? new GenericConstraint[](0)
+        indexerTypesValue = indexerTypes ?? new TypeReference[](0)
         nameValue = name
         lineValue = line
         columnValue = column
@@ -412,6 +421,7 @@ class InterfaceTypeInfo: TypeInfo {
     baseInterfacesValue: TypeReference[]
     typeParametersValue: TypeParameter[]
     declaredMembersValue: DeclaredMemberInfo[]
+    indexerTypesValue: TypeReference[]
     nestedTypesValue: NestedTypeInfo[]
 
     Name: string => nameValue
@@ -421,6 +431,7 @@ class InterfaceTypeInfo: TypeInfo {
     BaseInterfaces: TypeReference[] => baseInterfacesValue
     TypeParameters: TypeParameter[] => typeParametersValue
     DeclaredMembers: DeclaredMemberInfo[] => declaredMembersValue
+    IndexerTypes: TypeReference[] => indexerTypesValue
     NestedTypes: NestedTypeInfo[] => nestedTypesValue
 
     constraintsValue: GenericConstraint[]
@@ -429,8 +440,9 @@ class InterfaceTypeInfo: TypeInfo {
     // caller never has to distinguish "no clause" from "not carried".
     Constraints: GenericConstraint[] => constraintsValue
 
-    constructor(name: string, line: int, column: int, isDuckInterface: bool, baseInterfaces: TypeReference[], typeParameters: TypeParameter[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], constraints: GenericConstraint[]? = null) {
+    constructor(name: string, line: int, column: int, isDuckInterface: bool, baseInterfaces: TypeReference[], typeParameters: TypeParameter[], declaredMembers: DeclaredMemberInfo[], nestedTypes: NestedTypeInfo[], constraints: GenericConstraint[]? = null, indexerTypes: TypeReference[]? = null) {
         constraintsValue = constraints ?? new GenericConstraint[](0)
+        indexerTypesValue = indexerTypes ?? new TypeReference[](0)
         nameValue = name
         lineValue = line
         columnValue = column

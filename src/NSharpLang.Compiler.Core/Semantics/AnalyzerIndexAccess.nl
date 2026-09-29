@@ -432,6 +432,11 @@ class AnalyzerIndexAccess {
             }
         }
 
+        declaredIndexerType: TypeInfo = BuiltInTypes.Unknown
+        if !isRangeAccess && memberAccessValue.TryResolveDeclaredIndexer(receiverType, out declaredIndexerType) {
+            return declaredIndexerType
+        }
+
         reflectionType := receiverType as ReflectionTypeInfo
         if reflectionType != null {
             reflected := reflectionType.Type

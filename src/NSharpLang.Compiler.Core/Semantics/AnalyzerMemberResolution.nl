@@ -724,6 +724,46 @@ class AnalyzerMemberResolution {
         return false
     }
 
+    // THE INDEXER DECLARED BY A SOURCE TYPE. Its return type is kept as the original TypeReference so
+    // `Box<T>` resolves `T?` under the receiver's spelled arguments, including their nullability.
+    // Metadata-backed generics continue through the reflected path below.
+    func TryResolveDeclaredIndexer(receiver: TypeInfo, out elementType: TypeInfo): bool {
+        elementType = BuiltInTypes.Unknown
+        substitution: Dictionary<string, TypeInfo>? = null
+        declarationOwner := typeSubstitution.GetSourceDeclarationOwner(receiver, out substitution)
+        indexerTypes := GetDeclaredIndexerTypeReferences(declarationOwner)
+        if indexerTypes.Length == 0 {
+            return false
+        }
+
+        elementType = typeSubstitution.ResolveTypeForSourceOwner(indexerTypes[0], declarationOwner, substitution)
+        return true
+    }
+
+    static func GetDeclaredIndexerTypeReferences(declarationOwner: TypeInfo): TypeReference[] {
+        classType := declarationOwner as ClassTypeInfo
+        if classType != null {
+            return classType.IndexerTypes
+        }
+
+        structType := declarationOwner as StructTypeInfo
+        if structType != null {
+            return structType.IndexerTypes
+        }
+
+        recordType := declarationOwner as RecordTypeInfo
+        if recordType != null {
+            return recordType.IndexerTypes
+        }
+
+        interfaceType := declarationOwner as InterfaceTypeInfo
+        if interfaceType != null {
+            return interfaceType.IndexerTypes
+        }
+
+        return new TypeReference[](0)
+    }
+
     // THE INDEXER OF A CONSTRUCTED EXTERNAL GENERIC — `Vector<int>[i]`, `ArraySegment<Item>[i]`,
     // `ImmutableArray<string?>[i]`. The index arm names the element of an array, a string, a table and
     // the collection spellings it recognises by NAME; every other generic receiver used to answer

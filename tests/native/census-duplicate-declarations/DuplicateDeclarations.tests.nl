@@ -289,6 +289,18 @@ test "an `in` argument needs an `in` parameter in source and referenced methods"
     }
 }
 
+test "class and record indexers keep generic nullable element types during analysis" {
+    directory := DupNewProject("nsharp-declared-indexer-types")
+    try {
+        DupWrite(directory, "Main.nl", "namespace Catalog\n\nimport System\n\nclass Box<T> {\n    func this[i: int]: T? {\n        get { return null }\n    }\n}\n\nrecord Shelf<T> {\n    func this[i: int]: T? {\n        get { return null }\n    }\n}\n\nfunc Accept(value: string?): void {\n    Console.WriteLine(value)\n}\nfunc Check(box: Box<string>, shelf: Shelf<string>) {\n    Accept(box[0])\n    Accept(shelf[0])\n    count: int = box[0]\n    Console.WriteLine(count)\n}\n")
+
+        census := DupCheckCensus(directory)
+        assert DupJoin(census) == "NL202@Main.nl:23:21+2", DupJoin(census)
+    } finally {
+        DupDelete(directory)
+    }
+}
+
 // ─── THE SHAPES THAT MUST STAY LEGAL ──────────────────────────────────────────────────────────
 
 test "the same name in two DIFFERENT namespaces is two types and reports nothing" {

@@ -372,6 +372,22 @@ test "a constructed EXTERNAL generic answers its definition's indexer, substitut
     assert IndexExternalAnswer("System.Private.CoreLib", "System.Numerics.Vector`1", "Vector", BuiltInTypes.Int, false) == "simple:int"
 }
 
+test "a generic source declaration answers its indexer under nullable type arguments" {
+    harness := IndexArmOf(false)
+    typeParameters := new TypeParameter[](1)
+    typeParameters[0] = new TypeParameter("T")
+    indexerTypes := new TypeReference[](1)
+    indexerTypes[0] = new NullableTypeReference(new SimpleTypeReference("T"))
+    definition := new ClassTypeInfo("Box", 1, 1, false, null, new TypeReference[](0), typeParameters, new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0), false, null, false, indexerTypes)
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.String)
+    receiver: TypeInfo = new GenericTypeInfo("Box", arguments, definition)
+
+    trace := IndexDrive(harness, IndexAccessOf("box", IndexIntLiteral("0"), false), receiver, BuiltInTypes.Int, false)
+
+    assert trace.Answer == "nullable(simple:string)"
+}
+
 test "the SPELLED argument substitutes, so its nullability survives into the element" {
     assert IndexExternalAnswer("System.Private.CoreLib", "System.ArraySegment`1", "ArraySegment", new NullableTypeInfo(BuiltInTypes.String), false) == "nullable(simple:string)"
 }

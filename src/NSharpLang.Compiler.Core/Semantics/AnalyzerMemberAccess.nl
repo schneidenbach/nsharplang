@@ -1797,6 +1797,10 @@ class AnalyzerMemberAccess {
         return memberResolutionValue.TryResolveConstructedGenericIndexer(genericType, out elementType)
     }
 
+    func TryResolveDeclaredIndexer(receiver: TypeInfo, out elementType: TypeInfo): bool {
+        return memberResolutionValue.TryResolveDeclaredIndexer(receiver, out elementType)
+    }
+
     // The nullable unwrap `Analyzer.cs` performs before every structural question. Its C# original
     // has fourteen other callers and therefore could not move; its two-call body is reproduced rather
     // than reached back for, so nothing here re-enters C#.
