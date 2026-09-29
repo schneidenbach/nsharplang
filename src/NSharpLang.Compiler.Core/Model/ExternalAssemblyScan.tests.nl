@@ -323,9 +323,17 @@ test "external assembly scan resolves framework-pack metadata to the shared runt
 
     sharedDirectory := Path.GetDirectoryName(runtimeFrameworkDirectory)
     dotnetRoot := Path.GetDirectoryName(sharedDirectory)
+    if dotnetRoot == null {
+        throw new InvalidOperationException("The loaded runtime path does not have a dotnet installation root.")
+    }
+
     referencePackRoot := Path.Combine(Path.Combine(dotnetRoot, "packs"), "Microsoft.NETCore.App.Ref")
 
     runtimeVersion := Path.GetFileName(runtimeVersionDirectory)
+    if runtimeVersion == null {
+        throw new InvalidOperationException("The loaded runtime path does not identify a runtime version directory.")
+    }
+
     referencePath := Path.Combine(Path.Combine(Path.Combine(referencePackRoot, runtimeVersion), "ref/net10.0"), "System.Formats.Tar.dll")
 
     if !File.Exists(referencePath) {

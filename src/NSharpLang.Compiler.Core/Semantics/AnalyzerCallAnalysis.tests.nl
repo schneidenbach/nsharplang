@@ -1005,20 +1005,29 @@ test "a reflected call that binds to nothing answers unknown through the reporte
 // FOUR SINGLE-OVERLOAD STATICS, used only as identity TAGS. A candidate's identity has to be
 // observable to pin STABILITY, and the runtime method is the one field that is already there and
 // already distinct — so the transcripts below read the method NAMES rather than comparing references.
+func CallWalkRequireMethod(name: string): MethodInfo {
+    method := typeof(string).GetMethod(name)
+    if method == null {
+        throw new InvalidOperationException("System.String must define the reflection candidate '" + name + "'.")
+    }
+
+    return method
+}
+
 func CallWalkCandidateMethod(tag: int): MethodInfo {
     if tag == 1 {
-        return typeof(string).GetMethod("IsNullOrWhiteSpace")
+        return CallWalkRequireMethod("IsNullOrWhiteSpace")
     }
 
     if tag == 2 {
-        return typeof(string).GetMethod("Intern")
+        return CallWalkRequireMethod("Intern")
     }
 
     if tag == 3 {
-        return typeof(string).GetMethod("IsInterned")
+        return CallWalkRequireMethod("IsInterned")
     }
 
-    return typeof(string).GetMethod("IsNullOrEmpty")
+    return CallWalkRequireMethod("IsNullOrEmpty")
 }
 
 // One argument position's worth of parameter types, as the specificity comparison reads them. A

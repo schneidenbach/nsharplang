@@ -145,7 +145,12 @@ func MemberResolutionCoreAssembly(): Assembly {
 
 func MemberResolutionCoreType(fullName: string): Type {
     coreAssembly := MemberResolutionCoreAssembly()
-    return coreAssembly.GetType(fullName)
+    resolved := coreAssembly.GetType(fullName)
+    if resolved == null {
+        throw new InvalidOperationException("System.Private.CoreLib does not define '" + fullName + "'.")
+    }
+
+    return resolved
 }
 
 func MemberResolutionIntArrayType(): Type {

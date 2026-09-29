@@ -2375,6 +2375,10 @@ test "ACROSS AN ASSEMBLY BOUNDARY A `protected internal` SLOT IS WORTH `protecte
     // documents as `protected` — is `FamORAssem` in metadata, so it is exactly the shape the rule is
     // about and it moves to `protected` when it is read from outside CoreLib.
     toString := typeof(object).GetMethod("ToString", BindingFlags.Instance | BindingFlags.Public)
+    if toString == null {
+        throw new InvalidOperationException("System.Object must define ToString for the accessibility contract.")
+    }
+
     assert AnalyzerTypeDeclarations.MethodAccessibilityLevel(toString) == 6
     assert AnalyzerTypeDeclarations.InheritedMethodAccessibilityLevel(toString, false) == 6
 

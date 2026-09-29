@@ -418,7 +418,12 @@ test "the supported INTERFACE list is exactly seven definitions" {
 
     // A non-interface and an unrelated interface are both out.
     assert !AnalyzerArrayLiteral.IsSupportedCollectionExpressionInterfaceTarget(typeof(List<int>))
-    assert !AnalyzerArrayLiteral.IsSupportedCollectionExpressionInterfaceTarget(Type.GetType("System.IDisposable"))
+    disposableType := Type.GetType("System.IDisposable")
+    if disposableType == null {
+        throw new InvalidOperationException("System.IDisposable must exist in the loaded runtime.")
+    }
+
+    assert !AnalyzerArrayLiteral.IsSupportedCollectionExpressionInterfaceTarget(disposableType)
 }
 
 test "the mutator rule holds a VALUE element to identity and lets a REFERENCE element widen" {

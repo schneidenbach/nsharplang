@@ -27,6 +27,15 @@ func AssignabilityRuntimeType(canonicalName: string): Type {
     return resolved
 }
 
+func AssignabilityMetadataType(assembly: Assembly, fullName: string): Type {
+    resolved := assembly.GetType(fullName)
+    if resolved == null {
+        throw new InvalidOperationException("The System.Runtime reference does not define '" + fullName + "'.")
+    }
+
+    return resolved
+}
+
 func AssignabilityDefault(): AnalyzerAssignability {
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
@@ -667,12 +676,12 @@ test "chip: a BUILT-IN spelling reaches its generic INTERFACES, which made every
         assignability := AssignabilityWithWellKnownTypes(context)
         core := context.LoadFromAssemblyName("System.Runtime")
 
-        stringType := core.GetType("System.String")
-        charType := core.GetType("System.Char")
-        intType := core.GetType("System.Int32")
-        comparableDefinition := core.GetType("System.IComparable`1")
-        equatableDefinition := core.GetType("System.IEquatable`1")
-        enumerableDefinition := core.GetType("System.Collections.Generic.IEnumerable`1")
+        stringType := AssignabilityMetadataType(core, "System.String")
+        charType := AssignabilityMetadataType(core, "System.Char")
+        intType := AssignabilityMetadataType(core, "System.Int32")
+        comparableDefinition := AssignabilityMetadataType(core, "System.IComparable`1")
+        equatableDefinition := AssignabilityMetadataType(core, "System.IEquatable`1")
+        enumerableDefinition := AssignabilityMetadataType(core, "System.Collections.Generic.IEnumerable`1")
 
         comparableOfString: TypeInfo = new ReflectionTypeInfo(AssignabilityCloseOver(comparableDefinition, stringType))
         equatableOfString: TypeInfo = new ReflectionTypeInfo(AssignabilityCloseOver(equatableDefinition, stringType))

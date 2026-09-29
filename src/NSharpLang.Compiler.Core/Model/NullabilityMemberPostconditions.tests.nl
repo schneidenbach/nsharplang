@@ -97,7 +97,12 @@ test "the reflection reader handles both member postcondition constructors" {
     assert bddType != null
     leafProperty := bddType.GetProperty("IsLeaf", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
     assert leafProperty != null
-    conditional := MemberPostconditionReflection(leafProperty.GetMethod)
+    conditionalMethod := leafProperty.GetMethod
+    if conditionalMethod == null {
+        throw new InvalidOperationException("The BDD.IsLeaf contract must expose a getter.")
+    }
+
+    conditional := MemberPostconditionReflection(conditionalMethod)
     assert conditional.Length == 2, "BDD.IsLeaf facts: " + MemberPostconditionCensus(conditional)
     assert conditional[0].Condition == NullabilityMemberPostconditions.WhenFalse(), MemberPostconditionCensus(conditional)
     assert conditional[1].Condition == NullabilityMemberPostconditions.WhenFalse(), MemberPostconditionCensus(conditional)

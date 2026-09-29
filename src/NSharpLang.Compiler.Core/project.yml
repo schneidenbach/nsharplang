@@ -16,3 +16,5 @@ dependencies:
     version: 10.0.5
   - nuget: NSharpLang.Runtime
     version: 0.1.0
+language:
+  enforceReferencedNullability: true

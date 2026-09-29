@@ -138,6 +138,10 @@ class AnalyzerExternalTypeProbe {
 
         for assemblyItem in assemblies {
             candidate := assemblyItem.GetType(fullName)
+            if candidate == null {
+                continue
+            }
+
             // `Assembly.GetType` answers for INTERNAL types too (`System.TokenType` lives in
             // System.Private.CoreLib); only a NAMEABLE type is a name this program can spell, so an
             // unnameable one is no rival for NL209 and no answer for a qualified spelling — the rule

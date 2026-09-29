@@ -825,18 +825,33 @@ func OnRoot(): Type {
 // A stand-in accessor pair. What the walk reads from them is only whether the ADD is static, so any
 // real `MethodInfo` pair with the right staticness is the shape under test.
 func OnStaticAccessor(): MethodInfo {
-    return typeof(string).GetMethod("IsNullOrEmpty")
+    method := typeof(string).GetMethod("IsNullOrEmpty")
+    if method == null {
+        throw new InvalidOperationException("System.String must define IsNullOrEmpty for the static accessor contract.")
+    }
+
+    return method
 }
 
 func OnInstanceAccessor(): MethodInfo {
-    return typeof(string).GetMethod("ToUpperInvariant", new Type[](0))
+    method := typeof(string).GetMethod("ToUpperInvariant", new Type[](0))
+    if method == null {
+        throw new InvalidOperationException("System.String must define ToUpperInvariant() for the instance accessor contract.")
+    }
+
+    return method
 }
 
 // AN EVENT WHOSE DECLARATION ANNOTATES ITS HANDLER. `AssemblyLoadContext.Resolving` is the BCL's
 // own `event Func<AssemblyLoadContext, AssemblyName, Assembly?>?` — the shape whose annotation is
 // invisible in the CLR type and visible only in the event's metadata.
 func OnAnnotatedEvent(): EventInfo {
-    return typeof(System.Runtime.Loader.AssemblyLoadContext).GetEvent("Resolving")
+    eventInfo := typeof(System.Runtime.Loader.AssemblyLoadContext).GetEvent("Resolving")
+    if eventInfo == null {
+        throw new InvalidOperationException("AssemblyLoadContext must define the Resolving event for this contract.")
+    }
+
+    return eventInfo
 }
 
 func OnHandlerDelegate(): Type {

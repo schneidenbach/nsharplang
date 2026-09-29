@@ -439,7 +439,12 @@ test "the indexer lookup finds exactly what GetDefaultMembers found" {
     assert stringIndexer != null
     assert stringIndexer.get_PropertyType() == typeof(char)
 
-    matrixIndexer := AnalyzerMemberResolution.FindReflectedIndexerProperty(Type.GetType("System.Numerics.Matrix4x4, System.Numerics.Vectors"))
+    matrixType := Type.GetType("System.Numerics.Matrix4x4, System.Numerics.Vectors")
+    if matrixType == null {
+        throw new InvalidOperationException("System.Numerics.Vectors must define Matrix4x4 for this contract.")
+    }
+
+    matrixIndexer := AnalyzerMemberResolution.FindReflectedIndexerProperty(matrixType)
     assert matrixIndexer != null
 
     assert AnalyzerMemberResolution.FindReflectedIndexerProperty(typeof(int)) == null
