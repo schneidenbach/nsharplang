@@ -581,6 +581,23 @@ func FactoryFlowFacts(signature: FunctionTypeInfo, index: int): int {
     return facts[index]
 }
 
+test "an `in` parameter survives the source member model into its callable signature" {
+    parameters := new List<Parameter>()
+    parameters.Add(new Parameter("p", new SimpleTypeReference("Pair"), null, false, Ast.ParameterModifier.In, null, 1, 1, false, null))
+    declaration := FactoryDeclaration("Product", parameters, "double", Modifiers.Static)
+    member := FactoryDeclaredMember(declaration)
+
+    assert member.ParameterModifiers.Length == 1
+    assert member.ParameterModifiers[0] == Ast.ParameterModifier.In
+
+    factory := FactoryUnderTest()
+    signature := factory.CreateFromDeclaredMember(member, null, null)
+    signatureModifiers := signature.ParameterModifiers
+    assert signatureModifiers != null
+    assert signatureModifiers.Count == 1
+    assert signatureModifiers[0] == Ast.ParameterModifier.In
+}
+
 // A MEMBER'S NULLABILITY POSTCONDITIONS TRAVEL WITH IT. A member declared on a type reaches its
 // callers through `DeclaredMemberInfo`, and the attributes used to be dropped on the way — so
 // `Assert.NotNull(x)` proved nothing whenever `Assert` was a class rather than a free function. The

@@ -863,6 +863,26 @@ test "by-ref direction is an equality and a params element is exempt from it" {
         out defaultsUsed
     )
 
+    // `in` is also a direction, not an alternate spelling for a value argument. The first
+    // parameter is by value; the second still matches its `out` declaration so that only the new
+    // mismatch decides this candidate.
+    inToValue := BinderArguments()
+    inToValue.Add(new Argument(null, BinderIdentifier("text"), ArgumentModifier.In))
+    inToValue.Add(BinderOut("parsed"))
+    assert !binder.TryBindReflectionArguments(
+        parameters,
+        0,
+        BinderCall(inToValue),
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed2(BuiltInTypes.String, BuiltInTypes.Int),
+        out bound,
+        out score,
+        out usesParams,
+        out defaultsUsed
+    )
+
     // A params ELEMENT is exempt: the element of a by-ref params array is not itself by-ref.
     element := new SuppliedReflectionBoundArgument(
         1,

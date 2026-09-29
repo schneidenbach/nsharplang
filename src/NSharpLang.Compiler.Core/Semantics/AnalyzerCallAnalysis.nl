@@ -1471,7 +1471,7 @@ class AnalyzerCallAnalysis {
             return null
         }
 
-        state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes)
+        state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes, state.ReflectionReceiverClrType)
         state.Phase = 99
         return null
     }

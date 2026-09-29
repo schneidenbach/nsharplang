@@ -537,6 +537,34 @@ class AnalyzerDiagnosticSpans {
         return new DiagnosticSpan(call.Line, call.Column, Math.Max(1, functionName.Length))
     }
 
+    // An argument-direction diagnostic names the modifier itself. Argument stores its semantic
+    // modifier but not a token position, so locate the `in` immediately before the written value in
+    // the same source snapshot used to render the diagnostic. The value's parser position is the
+    // start of its syntax, including an opening parenthesis or `new` keyword when either is present.
+    func GetInArgumentModifierDiagnosticSpan(argument: Argument): DiagnosticSpan {
+        value := argument.Value
+        sourceLine := SourceSnippet(value.Line)
+        if sourceLine != null {
+            cursor := value.Column - 2
+            while cursor >= 0 && Char.IsWhiteSpace(sourceLine[cursor]) {
+                cursor = cursor - 1
+            }
+
+            wordEnd := cursor + 1
+            while cursor >= 0 && (Char.IsLetterOrDigit(sourceLine[cursor]) || sourceLine[cursor] == '_') {
+                cursor = cursor - 1
+            }
+
+            wordStart := cursor + 1
+            if wordEnd - wordStart == 2 && sourceLine.Substring(wordStart, 2) == "in" && (wordStart == 0 || !(Char.IsLetterOrDigit(sourceLine[wordStart - 1]) || sourceLine[wordStart - 1] == '_')) {
+                return new DiagnosticSpan(value.Line, wordStart + 1, 2)
+            }
+        }
+
+        fallbackColumn := Math.Max(1, value.Column - 3)
+        return new DiagnosticSpan(value.Line, fallbackColumn, 2)
+    }
+
     // THE WRITTEN PATH, LOCATED IN THE LINE. The path is found by searching FORWARD from the
     // expression's start, and only then from the start of the line, so a line that mentions `a.b`
     // twice underlines the occurrence this expression actually is.

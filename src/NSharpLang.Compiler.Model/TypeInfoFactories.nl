@@ -751,6 +751,9 @@ class NominalTypeInfoFactory {
         if modifier == 3 {
             return ParameterModifier.Params
         }
+        if modifier == 4 {
+            return ParameterModifier.In
+        }
 
         return ParameterModifier.None
     }

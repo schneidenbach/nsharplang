@@ -308,6 +308,14 @@ class AnalyzerSyntheticCallValidator {
                 continue
             }
 
+            argument := call.Arguments[currentArgument]
+            if argument.Modifier == ArgumentModifier.In && !ExpectsInArgument(functionType, parameterIndex) {
+                span := spans.GetInArgumentModifierDiagnosticSpan(argument)
+                parameterName := ParameterNameForDirectionError(functionType, parameterIndex)
+                diagnostics.Report(ErrorCode.NoMatchingOverload, "Argument uses `in`, but parameter '" + parameterName + "' of '" + functionName + "' is passed by value", span.Line, span.Column, "Remove `in`, or declare the parameter as `in`.", span.Length)
+                continue
+            }
+
             expectedType := declarationContext.ResolveDeclaredAlias(AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints))))
             argType := declarationContext.ResolveDeclaredAlias(argTypes[currentArgument])
             if hasParamsParameter && parameterIndex == paramsParameterIndex {
@@ -357,6 +365,22 @@ class AnalyzerSyntheticCallValidator {
 
         ValidateSoaCall(functionType, functionName, call, argTypes, parameterIndexByArgument)
         RecordCallPostconditions(functionType, call, parameterIndexByArgument, genericBindings, expectedCount)
+    }
+
+    // `in` is a call-site spelling only for an `in` parameter. A by-value parameter may read the
+    // same value, but accepting the modifier leaves emission with a direction it cannot honor.
+    static func ExpectsInArgument(functionType: FunctionTypeInfo, parameterIndex: int): bool {
+        modifiers := functionType.ParameterModifiers
+        return modifiers != null && parameterIndex >= 0 && parameterIndex < modifiers.Count && modifiers[parameterIndex] == Ast.ParameterModifier.In
+    }
+
+    static func ParameterNameForDirectionError(functionType: FunctionTypeInfo, parameterIndex: int): string {
+        names := functionType.ParameterNames
+        if names != null && parameterIndex >= 0 && parameterIndex < names.Count {
+            return names[parameterIndex]
+        }
+
+        return "parameter " + (parameterIndex + 1).ToString()
     }
 
     // WHAT THIS CALL LEAVES BEHIND, read off the same binding the argument checks just used.

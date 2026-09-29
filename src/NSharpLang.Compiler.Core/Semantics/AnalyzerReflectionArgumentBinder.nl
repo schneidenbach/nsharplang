@@ -351,7 +351,7 @@ class AnalyzerReflectionArgumentBinder {
             } else if argumentModifier == ArgumentModifier.Out || argumentModifier == ArgumentModifier.Ref {
                 return false
             }
-        } else if expectsByRef != suppliedByRef {
+        } else if argumentModifier == ArgumentModifier.In || expectsByRef != suppliedByRef {
             return false
         }
 

@@ -610,6 +610,49 @@ test "a ref parameter's expected type is by-REF" {
     assert VTypeText(owner.GetExpectedArgumentType(signature, call, 0, 0, null)) == "&int"
 }
 
+test "`in` is accepted only by an `in` parameter and reports on the modifier for a by-value parameter" {
+    errors := ValidatorErrors()
+    owner := ValidatorOwnerWithText(errors, "f(in value)\n")
+    signature := VSignature(VTypes1(BuiltInTypes.Int))
+    arguments := VArgs0()
+    arguments.Add(new Argument(null, new IdentifierExpression("value", 1, 6), ArgumentModifier.In))
+    call := VCall(arguments)
+
+    owner.ValidateCall(signature, call, VTypes1(BuiltInTypes.Int), null)
+
+    assert VCodes(errors) == "NL402"
+    assert errors[0].Line == 1
+    assert errors[0].Column == 3
+    assert errors[0].Length == 2
+    assert errors[0].Suggestion == "Remove `in`, or declare the parameter as `in`."
+
+    errors.Clear()
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.In)
+    signature.ParameterModifiers = modifiers
+    owner.ValidateCall(signature, call, VTypes1(BuiltInTypes.Int), null)
+    assert errors.Count == 0
+}
+
+test "the new `in` direction check leaves existing `ref` mismatches as NL202" {
+    errors := ValidatorErrors()
+    owner := ValidatorOwnerWithText(errors, "f(ref value)\n")
+    signature := VSignature(VTypes1(BuiltInTypes.Int))
+    arguments := VArgs0()
+    arguments.Add(new Argument(null, new IdentifierExpression("value", 1, 7), ArgumentModifier.Ref))
+
+    owner.ValidateCall(signature, VCall(arguments), VTypes1(new ByRefTypeInfo(BuiltInTypes.Int)), null)
+
+    assert VCodes(errors) == "NL202"
+
+    errors.Clear()
+    owner = ValidatorOwnerWithText(errors, "f(out value)\n")
+    arguments = VArgs0()
+    arguments.Add(new Argument(null, new IdentifierExpression("value", 1, 7), ArgumentModifier.Out))
+    owner.ValidateCall(signature, VCall(arguments), VTypes1(new ByRefTypeInfo(BuiltInTypes.Int)), null)
+    assert VCodes(errors) == "NL202"
+}
+
 // ------------------------------------------------------------------ generic constraints
 
 test "the `class` constraint reports a value type and accepts a reference type" {

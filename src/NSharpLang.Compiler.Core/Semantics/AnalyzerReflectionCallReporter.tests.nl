@@ -783,3 +783,22 @@ test "an unbound call with no written type arguments still reports NL402" {
     assert errors.Count == 1
     assert errors[0].Code == ErrorCode.NoMatchingOverload
 }
+
+test "one referenced by-value method reports an `in` argument on the modifier" {
+    errors := ReporterErrors()
+    source := "IsNullOrEmpty(in value)\n"
+    owner := ReporterOwnerWith(errors, ReporterScopes(), source, new AnalyzerCallableReferenceReportLog())
+    argumentColumn := source.IndexOf("value") + 1
+    arguments := RArgs0()
+    arguments.Add(new Argument(null, RIdentifier("value", 1, argumentColumn), ArgumentModifier.In))
+    call := RCall("IsNullOrEmpty", arguments)
+
+    owner.ReportUnboundCall(call, RMethods(typeof(string), "IsNullOrEmpty"), RTypes1(BuiltInTypes.String))
+
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.NoMatchingOverload
+    assert errors[0].Line == 1
+    assert errors[0].Column == source.IndexOf("in value") + 1
+    assert errors[0].Length == 2
+    assert errors[0].Suggestion == "Remove `in`, or declare the parameter as `in`."
+}

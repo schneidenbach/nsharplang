@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
@@ -80,7 +81,7 @@ class AnalyzerReflectionCallReporter {
     // THE VERDICT ON A REFLECTED CALL THAT BOUND TO NOTHING. Chooses the arm and answers `unknown`,
     // which is the type the call expression takes from here: the analysis continues so the rest of
     // the statement is still checked, but nothing downstream may claim to know the result's type.
-    func ReportUnboundCall(call: CallExpression, candidateMethods: IReadOnlyList<MethodInfo>, argTypes: IReadOnlyList<TypeInfo>): TypeInfo {
+    func ReportUnboundCall(call: CallExpression, candidateMethods: IReadOnlyList<MethodInfo>, argTypes: IReadOnlyList<TypeInfo>, receiverClrType: Type? = null): TypeInfo {
         methodGroupArgumentName := ""
         if TryGetNSharpMethodGroupArgumentName(call, out methodGroupArgumentName) {
             ReportNoMatchingMethodGroupOverload(call, candidateMethods, methodGroupArgumentName)
@@ -91,8 +92,81 @@ class AnalyzerReflectionCallReporter {
             return BuiltInTypes.Unknown
         }
 
+        if TryReportInArgumentToByValueParameter(call, candidateMethods, receiverClrType) {
+            return BuiltInTypes.Unknown
+        }
+
         ReportNoMatchingOverload(call, candidateMethods, argTypes)
         return BuiltInTypes.Unknown
+    }
+
+    // A single reflected candidate gives the same precise direction diagnostic as a source
+    // signature. For an overload set the ordinary NL402 report remains authoritative because each
+    // candidate may place a named or positional argument differently.
+    func TryReportInArgumentToByValueParameter(call: CallExpression, candidateMethods: IReadOnlyList<MethodInfo>, receiverClrType: Type?): bool {
+        if candidateMethods.Count != 1 {
+            return false
+        }
+
+        method := candidateMethods[0]
+        parameterOffset := 0
+        if AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(method, call, receiverClrType) {
+            parameterOffset = 1
+        }
+
+        parameters := method.GetParameters()
+        nextPositionalParameter := parameterOffset
+        usedParameters := new bool[parameters.Length]
+        argumentIndex := 0
+        while argumentIndex < call.Arguments.Count {
+            argument := call.Arguments[argumentIndex]
+            parameterIndex := -1
+            if argument.Name != null {
+                parameterIndex = FindParameterIndex(parameters, parameterOffset, argument.Name)
+            } else {
+                while nextPositionalParameter < parameters.Length && usedParameters[nextPositionalParameter] {
+                    nextPositionalParameter = nextPositionalParameter + 1
+                }
+
+                if nextPositionalParameter < parameters.Length {
+                    parameterIndex = nextPositionalParameter
+                    nextPositionalParameter = nextPositionalParameter + 1
+                }
+            }
+
+            if parameterIndex >= parameterOffset && parameterIndex < parameters.Length {
+                usedParameters[parameterIndex] = true
+                parameter := parameters[parameterIndex]
+                if argument.Modifier == ArgumentModifier.In && !parameter.ParameterType.IsByRef {
+                    span := spans.GetInArgumentModifierDiagnosticSpan(argument)
+                    parameterName := parameter.Name
+                    if string.IsNullOrEmpty(parameterName) {
+                        parameterName = "parameter " + (parameterIndex - parameterOffset + 1).ToString()
+                    }
+
+                    functionName := ResolveReflectionCallName(call, candidateMethods)
+                    diagnostics.Report(ErrorCode.NoMatchingOverload, "Argument uses `in`, but parameter '" + parameterName + "' of '" + functionName + "' is passed by value", span.Line, span.Column, "Remove `in`, or declare the parameter as `in`.", span.Length)
+                    return true
+                }
+            }
+
+            argumentIndex = argumentIndex + 1
+        }
+
+        return false
+    }
+
+    static func FindParameterIndex(parameters: ParameterInfo[], parameterOffset: int, name: string): int {
+        index := parameterOffset
+        while index < parameters.Length {
+            if parameters[index].Name == name {
+                return index
+            }
+
+            index = index + 1
+        }
+
+        return -1
     }
 
     // NL207 FOR A REFLECTED CALL'S WRITTEN TYPE-ARGUMENT LIST, in the words the source path already

@@ -159,6 +159,25 @@ func DupSingleMessage(directory: string, code: string): string {
     return found ?? ""
 }
 
+func DupSuggestionAt(directory: string, code: string, line: int): string {
+    run := DupNlcIn(directory, "check --json")
+    suggestion: string? = null
+    document := JsonDocument.Parse(run.Stdout)
+    try {
+        enumerator := document.RootElement.GetProperty("results").EnumerateArray()
+        while enumerator.MoveNext() {
+            row := enumerator.Current
+            if (row.GetProperty("code").GetString() ?? "") == code && row.GetProperty("line").GetInt32() == line {
+                suggestion = row.GetProperty("suggestion").GetString()
+            }
+        }
+    } finally {
+        document.Dispose()
+    }
+
+    return suggestion ?? ""
+}
+
 func DupJoin(items: List<string>): string {
     text := ""
     index := 0
@@ -250,6 +269,21 @@ test "a call between the two declarations names both of them instead of contradi
         census := DupCheckCensus(directory)
         assert DupJoin(census) == "NL339@B.nl:5:7+6;NL202@C.nl:6:25+3", DupJoin(census)
         assert DupSingleMessage(directory, "NL202") == "Cannot pass `List<Widget [A.nl:3]>` as argument for parameter `widgets` of type `List<Widget [B.nl:5]>`"
+    } finally {
+        DupDelete(directory)
+    }
+}
+
+test "an `in` argument needs an `in` parameter in source and referenced methods" {
+    directory := DupNewProject("nsharp-in-argument-direction")
+    try {
+        DupWrite(directory, "Main.nl", "namespace Catalog\n\nclass Direction {\n    static func ByValue(value: string): bool => value.Length > 0\n    static func ByIn(in value: string): bool => value.Length > 0\n}\n\nfunc ByValue(value: string): bool => value.Length > 0\nfunc ByIn(in value: string): bool => value.Length > 0\nfunc SameAssemblyWrong(value: string): bool {\n    return ByValue(in value)\n}\nfunc SameAssemblyRight(value: string): bool {\n    return ByIn(in value)\n}\nfunc SameAssemblyMethodWrong(value: string): bool {\n    return Direction.ByValue(in value)\n}\nfunc SameAssemblyMethodRight(value: string): bool {\n    return Direction.ByIn(in value)\n}\nfunc ReferencedWrong(value: string): bool {\n    return string.IsNullOrEmpty(in value)\n}\n")
+
+        census := DupCheckCensus(directory)
+        assert DupJoin(census) == "NL402@Main.nl:11:20+2;NL402@Main.nl:17:30+2;NL402@Main.nl:23:33+2", DupJoin(census)
+        assert DupSuggestionAt(directory, "NL402", 11) == "Remove `in`, or declare the parameter as `in`."
+        assert DupSuggestionAt(directory, "NL402", 17) == "Remove `in`, or declare the parameter as `in`."
+        assert DupSuggestionAt(directory, "NL402", 23) == "Remove `in`, or declare the parameter as `in`."
     } finally {
         DupDelete(directory)
     }
