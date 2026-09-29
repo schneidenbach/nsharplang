@@ -46,6 +46,16 @@ class NullabilityFlowFacts {
         return 32
     }
 
+    // Input contracts for a parameter or settable member. These do not change the value produced by
+    // a call; they change only what the caller may pass into the declaration.
+    static func AllowNull(): int {
+        return 64
+    }
+
+    static func DisallowNull(): int {
+        return 128
+    }
+
     static func Has(facts: int, bit: int): bool {
         return (facts & bit) != 0
     }
@@ -85,6 +95,14 @@ class NullabilityFlowFacts {
         return MatchesAttributeName(name, "MaybeNullWhen")
     }
 
+    static func IsAllowNullName(name: string): bool {
+        return MatchesAttributeName(name, "AllowNull")
+    }
+
+    static func IsDisallowNullName(name: string): bool {
+        return MatchesAttributeName(name, "DisallowNull")
+    }
+
     static func IsNotNullIfNotNullName(name: string): bool {
         return MatchesAttributeName(name, "NotNullIfNotNull")
     }
@@ -113,6 +131,16 @@ class NullabilityFlowFacts {
 
             if IsMaybeNullName(name) {
                 facts = facts | MaybeNull()
+                continue
+            }
+
+            if IsAllowNullName(name) {
+                facts = facts | AllowNull()
+                continue
+            }
+
+            if IsDisallowNullName(name) {
+                facts = facts | DisallowNull()
                 continue
             }
 
@@ -174,6 +202,16 @@ class NullabilityFlowAttributeReflection {
 
             if NullabilityFlowFacts.IsMaybeNullName(name) {
                 facts = facts | NullabilityFlowFacts.MaybeNull()
+                continue
+            }
+
+            if NullabilityFlowFacts.IsAllowNullName(name) {
+                facts = facts | NullabilityFlowFacts.AllowNull()
+                continue
+            }
+
+            if NullabilityFlowFacts.IsDisallowNullName(name) {
+                facts = facts | NullabilityFlowFacts.DisallowNull()
                 continue
             }
 

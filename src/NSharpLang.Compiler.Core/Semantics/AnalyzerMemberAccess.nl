@@ -429,6 +429,9 @@ class AnalyzerMemberAccess {
         includeStaticMembers := IsStaticMemberAccessTarget(member.Object)
         invocationPosition := IsCallCalleePosition(member)
         memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition, InheritsProtectedThrough(receiverType, member.Object))
+        if !invocationPosition && ambientValue.WriteTargetExpressionTypes != null {
+            memberType = ApplyReflectedPropertyInputNullability(receiverType, member, includeStaticMembers, memberType)
+        }
         if invocationPosition && BuiltInTypes.IsUnknown(memberType) && ReportMemberNotCallableIfNeeded(receiverType, member, includeStaticMembers) {
             state.ResultType = BuiltInTypes.Unknown
             return
@@ -485,6 +488,50 @@ class AnalyzerMemberAccess {
         } else {
             state.ResultType = memberType
         }
+    }
+
+    // `[AllowNull]` / `[DisallowNull]` on an external property describe its setter input, while
+    // `NullabilityInfoContext.Create(PropertyInfo)` describes the getter result. The write-target
+    // walk is the only place that knows which direction applies, so it adjusts the resolved type
+    // here and leaves ordinary reads untouched. The BCL follows the temporary rollout policy; other
+    // referenced assemblies already take the strict reflection path.
+    func ApplyReflectedPropertyInputNullability(receiverType: TypeInfo, member: MemberAccessExpression, includeStaticMembers: bool, memberType: TypeInfo): TypeInfo {
+        owner := clrTypeConversionValue.TryConvertTypeInfoToClrType(declarationContextValue.ResolveDeclaredAlias(receiverType))
+        if owner == null {
+            return memberType
+        }
+
+        flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy
+        if includeStaticMembers {
+            flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy
+        }
+
+        property := owner.GetProperty(member.MemberName, flags)
+        if property == null {
+            return memberType
+        }
+
+        setter := property.GetSetMethod(true)
+        if setter == null {
+            return memberType
+        }
+
+        propertyType := property.DeclaringType
+        if propertyType != null && ExternalAssemblyScan.IsSharedFrameworkAssembly(propertyType.Assembly) && !declarationContextValue.EnforceReferencedNullability {
+            return memberType
+        }
+
+        facts := NullabilityFlowAttributeReflection.FromAttributes(property.GetCustomAttributesData())
+        setterParameters := setter.GetParameters()
+        if setterParameters.Length == 1 {
+            facts = facts | NullabilityFlowAttributeReflection.FromParameter(setterParameters[0])
+        }
+
+        if !NullabilityFlowFacts.Has(facts, NullabilityFlowFacts.AllowNull()) && !NullabilityFlowFacts.Has(facts, NullabilityFlowFacts.DisallowNull()) {
+            return memberType
+        }
+
+        return NullabilityMetadataCore.ApplyInputFlowFacts(memberType, facts)
     }
 
     // `HasValue` AND `Value` ON A NULLABLE, and nothing else — a third name falls through so member

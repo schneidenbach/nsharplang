@@ -628,6 +628,21 @@ test "a MEMBER's `[NotNull]` and `[NotNullWhen(false)]` reach its signature" {
     assert FactoryFlowFacts(freeSignature, 1) == NullabilityFlowFacts.NotNullWhenFalse()
 }
 
+test "`MemberNotNull` source attributes travel from a type declaration to its method signature" {
+    factory := FactoryUnderTest()
+    declaration := FactoryDeclaration("EnsureValue", new List<Parameter>(), "void", Modifiers.None)
+    arguments := new List<Argument>()
+    arguments.Add(new Argument(null, new StringLiteralExpression("Value", 1, 1), Ast.ArgumentModifier.None))
+    declaration.Attributes.Add(new AttributeNode("System.Diagnostics.CodeAnalysis.MemberNotNullAttribute", arguments, 1, 1, null))
+
+    member := FactoryDeclaredMember(declaration)
+    assert member.MemberNullabilityPostconditions.Length == 1, MemberPostconditionCensus(member.MemberNullabilityPostconditions)
+    signature := factory.CreateFromDeclaredMember(member, null, null)
+    signatureFacts := must signature.MemberNullabilityPostconditions
+    assert signatureFacts.Length == 1, MemberPostconditionCensus(signatureFacts)
+    assert signatureFacts[0].MemberName == "Value"
+}
+
 test "a member whose parameters say NOTHING carries a null list, so the cheap skip still skips" {
     factory := FactoryUnderTest()
     parameters := new List<Parameter>()

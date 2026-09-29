@@ -4572,14 +4572,32 @@ lambda's parameter all maybe-null: the census's ten `docQuery.Value` NL905s and 
   (`List<string>.Find` → `List<>.Find`). The declaring type is the member's, not the receiver's, so
   an inherited member resolves against the base that declares it; an ambiguous overload name or a
   lookup that finds nothing answers with the CLOSED type, which is the old behaviour.
-- `IsAnnotatedNullable` reads the annotation from THREE places, because C# writes it in three:
-  `NullableAttribute(2)` on the position (`List<T>.Find`'s return), the nearest
-  `NullableContextAttribute(2)` at or above the member (`Enumerable.FirstOrDefault` carries it on the
-  METHOD while `Enumerable` carries `(1)` — reading only the position makes `First` and
-  `FirstOrDefault` mean the same thing), and `[MaybeNullWhen(...)]`, which N# does not model
-  conditionally and therefore reads as plainly nullable (this is also what preserves
-  `Dictionary<K, V>.TryGetValue`'s `out string? value`). Nothing found at all is oblivious, which is
-  NOT annotated-nullable: the argument decides.
+- `IsAnnotatedNullable` reads the member's explicit `NullableAttribute` flag first, including its
+  byte-array transform, then the nearest `NullableContextAttribute` on the member, declaring type,
+  module or assembly. `Enumerable.FirstOrDefault` carries context `(2)` on the METHOD while
+  `Enumerable` carries `(1)` — reading only the position makes `First` and `FirstOrDefault` mean the
+  same thing. A flag of `0` is explicitly oblivious; no flag or context is oblivious too, so the
+  substituted argument decides.
+- `NullablePublicOnlyAttribute` says transforms were omitted for inaccessible members. When the
+  member has no explicit `NullableAttribute`, the reader checks the declaring type and member
+  visibility before inheriting a nullable context. An omitted private signature is converted with
+  unknown read states throughout its array and generic tree, rather than inheriting a context that
+  applied only to public signatures. An explicit transform still wins.
+- Flow attributes are read separately. `[MaybeNull]` / `[NotNull]` adjust the declared value;
+  `[MaybeNullWhen]` / `[NotNullWhen]` become branch postconditions, `[AllowNull]` / `[DisallowNull]`
+  describe input positions, `[MemberNotNull]` / `[MemberNotNullWhen]` narrow named members, and
+  `[DoesNotReturn]` / `[DoesNotReturnIf]` use the existing reachability owner. In particular,
+  `Dictionary<K, V>.TryGetValue`'s `[MaybeNullWhen(false)]` is not folded into the type and leaves
+  the true-branch postcondition available to flow analysis.
+
+### Temporary referenced-assembly rollout switch (phase one only)
+
+`language.enforceReferencedNullability: true` temporarily enables the analyzer's strict nullability
+checks for shared-framework reflection members. It defaults to `false`, and no checked-in project is
+opted in during the measurement phase. Repository projects can enable it one at a time as their
+call sites are repaired. Existing package and user-assembly metadata checks keep their current
+behavior. The switch is rollout scaffolding only: remove it after every project has been repaired
+and strict BCL checking is the default; it is not part of the language contract.
 - `ConvertSubstitutedParameterType` is the conversion that takes the read state as a VALUE instead of
   reading it, and it is deliberately a sibling of `ConvertReflectedType` rather than a parameter on
   it. Only the TOP-LEVEL position is overridden; everything nested keeps reading its own

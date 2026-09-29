@@ -555,6 +555,20 @@ test "020 s20 parser attributes: a method attribute and a parameter attribute ne
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
+test "a member function keeps its MemberNotNull attribute on the method declaration" {
+    actual := PsAst("class Holder {\n    [System.Diagnostics.CodeAnalysis.MemberNotNull(\"Ready\")]\n    func EnsureReady(): void {\n    }\n}\n")
+    assert actual != null, "class parse returned no syntax tree"
+    holder := actual.Declarations[0] as ClassDeclaration
+    assert holder != null, "class parse returned " + actual.Declarations[0].GetType().Name
+    method := holder.Members[0] as FunctionDeclaration
+    assert method != null, "member parse returned " + holder.Members[0].GetType().Name
+    assert method.Attributes.Count == 1, "method attribute count: " + method.Attributes.Count.ToString()
+    assert method.Attributes[0].Name == "System.Diagnostics.CodeAnalysis.MemberNotNull", "method attribute name: " + method.Attributes[0].Name
+    assert method.Attributes[0].Arguments.Count == 1, "method attribute argument count: " + method.Attributes[0].Arguments.Count.ToString()
+    literal := method.Attributes[0].Arguments[0].Value as StringLiteralExpression
+    assert literal != null && StringLiteralDecoder.Decode(literal.Value, literal.IsRaw) == "Ready", "method attribute argument shape was " + method.Attributes[0].Arguments[0].Value.GetType().Name
+}
+
 test "020 s20 parser attributes: an attribute after the parameter NAME reports NL102 with a repair suggestion and then CASCADES into seven NL101s, leaving a body-less function and seven synthetic `<error>` classes behind (was ParserTests.TestParameterAttributesAfterNameReportParseError)" {
     source := "\n            func Create(dto [FromBody]: TaskDto): void {\n            }\n        "
     assert !PeParse(source).Success

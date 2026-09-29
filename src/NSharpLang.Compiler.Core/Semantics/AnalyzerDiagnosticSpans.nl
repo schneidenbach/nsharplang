@@ -172,6 +172,17 @@ class AnalyzerDiagnosticSpanFacts {
         return null
     }
 
+    // A referenced nullable value needs a repair suggestion that points at the value at this use
+    // site. One formatter keeps NL202 and NL905 aligned on guard, fallback, and explicit unwrap.
+    static func ReferencedNullabilityHint(expression: Expression): string {
+        subject := TryGetStableNullPath(expression)
+        if subject == null {
+            return "Store this value in a local, then guard it with `if value != null`, add `?? default`, or use `must value` after proving it is not null."
+        }
+
+        return "Guard with `if " + subject + " != null`, add `?? default`, or use `must " + subject + "` after proving it is not null."
+    }
+
     // THE PATH A NULL-CONDITIONAL CHAIN DENOTES, AND THE RECEIVERS IT TESTED ON THE WAY.
     //
     // `a?.B` denotes the same storage `a.B` does; what the `?.` adds is a TEST of `a`. So the chain

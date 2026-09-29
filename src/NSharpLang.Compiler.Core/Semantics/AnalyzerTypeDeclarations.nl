@@ -991,12 +991,21 @@ class AnalyzerTypeDeclarations {
         fieldText := ""
         TypeMismatchDisplay.Pair(declarationContextValue, initializerType, state.FieldType, out initializerText, out fieldText)
         message := "Field '" + field.Name + "' is typed as '" + fieldText + "', but the initializer gives '" + initializerText + "'"
+        metadataContext: string? = null
+        metadataHint: string? = null
+        if state.Assignability.EnforcesReferencedNullability {
+            metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(initializerType)
+            if metadataContext != null {
+                metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(initializer)
+                message = message + ". " + metadataContext
+            }
+        }
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, initializerText, fieldText, message))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, initializerText, fieldText, message, metadataContext, metadataHint))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.InvalidSyntax, message, field.Line, field.Column, null, 0)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, message, field.Line, field.Column, metadataHint, 0)
     }
 
     // PHASE 43 — THE FIELD'S NAME, DECLARED INTO WHATEVER SCOPE ENCLOSES IT: the type's own scope for

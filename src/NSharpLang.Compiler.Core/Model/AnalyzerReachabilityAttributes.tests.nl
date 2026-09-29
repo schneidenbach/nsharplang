@@ -1,6 +1,8 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
+import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
@@ -96,6 +98,33 @@ test "THE PARAMETER READER SEES ONLY [DoesNotReturnIf] AND ONLY ITS BOOLEAN LITE
     // An argument that is not a literal, and a list with no argument at all, are both unreadable.
     assert ReachabilityFlowFacts.FromSourceParameterAttributes(ReachabilityAttributeList([ReachabilityAttributeWith("DoesNotReturnIf", new IdentifierExpression("flag", 1, 1))])) == ReachabilityFlowFacts.None()
     assert ReachabilityFlowFacts.FromSourceParameterAttributes(ReachabilityAttributeList([ReachabilityAttribute("DoesNotReturnIf")])) == ReachabilityFlowFacts.None()
+}
+
+test "the reflection reader recognizes BCL DoesNotReturn and DoesNotReturnIf metadata" {
+    flags := BindingFlags.Public | BindingFlags.Static
+    failFast: MethodInfo? = null
+    for method in typeof(Environment).GetMethods(flags) {
+        if method.Name == "FailFast" && ReachabilityFlowAttributeReflection.FromMethodAttributes(method.GetCustomAttributesData()) == ReachabilityFlowFacts.DoesNotReturn() {
+            failFast = method
+            break
+        }
+    }
+    assert failFast != null, "Environment.FailFast did not expose [DoesNotReturn]"
+
+    debugType := Type.GetType("System.Diagnostics.Debug, System.Private.CoreLib")
+    assert debugType != null
+    assertMethod: MethodInfo? = null
+    for method in debugType.GetMethods(flags) {
+        if method.Name != "Assert" {
+            continue
+        }
+        parameters := method.GetParameters()
+        if parameters.Length > 0 && parameters[0].ParameterType == typeof(bool) && ReachabilityFlowAttributeReflection.FromParameter(parameters[0]) == ReachabilityFlowFacts.DoesNotReturnIfFalse() {
+            assertMethod = method
+            break
+        }
+    }
+    assert assertMethod != null, "Debug.Assert(bool) did not expose [DoesNotReturnIf(false)]"
 }
 
 test "THE FILED FACT IS A CALL'S, AND A SIGNATURE WITH NOTHING TO SAY CLEARS IT" {

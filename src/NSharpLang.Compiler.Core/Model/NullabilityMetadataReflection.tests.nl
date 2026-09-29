@@ -414,6 +414,86 @@ test "a nullable annotation on a real BCL parameter reaches the converted type" 
     assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(notNullParameter)) == "Simple(string)"
 }
 
+test "nested generic nullability is read from the BCL member transform" {
+    processStartInfo := Type.GetType("System.Diagnostics.ProcessStartInfo, System.Diagnostics.Process")
+    if processStartInfo == null {
+        throw new InvalidOperationException("System.Diagnostics.ProcessStartInfo was not found.")
+    }
+
+    environment := processStartInfo.GetProperty("Environment")
+    if environment == null {
+        throw new InvalidOperationException("ProcessStartInfo.Environment was not found.")
+    }
+
+    converted := NullabilityMetadataReflection.ConvertProperty(environment) as GenericTypeInfo
+    assert converted != null, NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertProperty(environment))
+    assert converted.ReferencedNullabilityMember == "System.Diagnostics.ProcessStartInfo.Environment"
+    assert converted.ReferencedNullabilityAssembly != null
+    assert converted.TypeArguments.Count == 2
+    valueType := converted.TypeArguments[1] as NullableTypeInfo
+    assert valueType != null, NullabilityRenderTypeInfo(converted.TypeArguments[1])
+    assert NullabilityRenderTypeInfo(valueType.InnerType) == "Simple(string)"
+}
+
+test "nullable BCL returns retain their declaring member and assembly for diagnostics" {
+    method := typeof(Type).GetMethod("GetElementType")
+    assert method != null
+
+    converted := NullabilityMetadataReflection.ConvertReturn(method) as NullableTypeInfo
+    assert converted != null, NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertReturn(method))
+    assert converted.ReferencedNullabilityMember == "System.Type.GetElementType"
+    assert converted.ReferencedNullabilityAssembly != null
+    context := NullabilityMetadataCore.ReferencedNullabilityContext(converted)
+    assert context != null
+    assert context.Contains("annotated nullable")
+}
+
+test "nullable element positions in an annotated BCL array are read independently" {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string[])
+    concat := typeof(string).GetMethod("Concat", parameterTypes)
+    assert concat != null
+
+    converted := NullabilityMetadataReflection.ConvertParameter(concat.GetParameters()[0])
+    array := converted as ArrayTypeInfo
+    assert array != null, NullabilityRenderTypeInfo(converted)
+    assert (array as NullableTypeInfo) == null, "the array shell was nullable"
+    element := array.ElementType as NullableTypeInfo
+    assert element != null, "the nullable element transform was lost: " + NullabilityRenderTypeInfo(array.ElementType)
+    assert NullabilityRenderTypeInfo(element.InnerType) == "Simple(string)"
+}
+
+test "NullablePublicOnly makes an omitted non-public member wholly oblivious" {
+    flags := BindingFlags.Instance | BindingFlags.NonPublic
+    method := typeof(System.IO.BufferedStream).GetMethod("EnsureBufferAllocated", flags)
+    if method == null {
+        throw new InvalidOperationException("BufferedStream.EnsureBufferAllocated was not found.")
+    }
+
+    methodAttributes := method.GetCustomAttributesData()
+    assert !NullabilityMetadataReflection.HasNullableAttribute(methodAttributes)
+    publicSurface := method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly
+    internalSurface := publicSurface || method.IsAssembly || method.IsFamilyAndAssembly
+    assert NullabilityMetadataReflection.ShouldForceObliviousPosition(methodAttributes, method, true, false) == !publicSurface
+    assert NullabilityMetadataReflection.ShouldForceObliviousPosition(methodAttributes, method, true, true) == !internalSurface
+    assert !NullabilityMetadataReflection.ShouldForceObliviousPosition(methodAttributes, method, false, false)
+
+    publicMethod := typeof(string).GetMethod("Trim", new Type[](0))
+    assert publicMethod != null
+    assert !NullabilityMetadataReflection.ShouldForceObliviousPosition(publicMethod.GetCustomAttributesData(), publicMethod, true, false)
+
+    dictionaryDefinition := Type.GetType("System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+    assert dictionaryDefinition != null
+    arguments := new Type[](2)
+    arguments[0] = typeof(string)
+    arguments[1] = typeof(string)
+    dictionary := dictionaryDefinition.MakeGenericType(arguments)
+    omittedTree := NullabilityMetadataReflection.ConvertReflectedType(dictionary, null, null)
+    rendered := NullabilityRenderTypeInfo(omittedTree)
+    assert rendered.Contains("Oblivious(Generic(Dictionary"), rendered
+    assert rendered.Contains("Oblivious(Simple(string))"), rendered
+}
+
 test "flow attributes are formatted ahead of the parameter modifier" {
     nullableParameter := NullabilityProbeStringParameter("IsNullOrEmpty")
     assert NullabilityMetadataReflection.FormatParameter(nullableParameter) == "[NotNullWhen(false)] string? value"

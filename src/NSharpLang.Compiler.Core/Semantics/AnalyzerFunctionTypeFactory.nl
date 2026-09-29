@@ -364,6 +364,7 @@ class AnalyzerFunctionTypeFactory {
         signature.SyntheticName = declaration.Name
         signature.SourceName = declaration.Name
         signature.SourceContainingType = containingType
+        signature.SourceIsStatic = (modifierBits & System.Convert.ToInt32(Modifiers.Static)) != 0
         signature.SourceFilePath = declarationFile
         signature.SourceLine = declaration.Line
         signature.SourceColumn = declaration.Column
@@ -376,6 +377,11 @@ class AnalyzerFunctionTypeFactory {
         signature.ParameterModifiers = parameterModifiers
         if declaresFlowFacts {
             signature.ParameterFlowFacts = parameterFlowFacts
+        }
+
+        memberNullabilityPostconditions := NullabilityMemberPostconditions.FromSourceAttributes(declaration.Attributes)
+        if memberNullabilityPostconditions.Length > 0 {
+            signature.MemberNullabilityPostconditions = memberNullabilityPostconditions
         }
 
         signature.DoesNotReturn = ReachabilityFlowFacts.Has(ReachabilityFlowFacts.FromSourceMethodAttributes(declaration.Attributes), ReachabilityFlowFacts.DoesNotReturn())
@@ -428,6 +434,7 @@ class AnalyzerFunctionTypeFactory {
         signature.SyntheticName = member.Name
         signature.SourceName = member.Name
         signature.SourceContainingType = member.ContainingType
+        signature.SourceIsStatic = member.IsStatic
         signature.SourceLine = member.Line
         signature.SourceColumn = member.Column
         signature.SourceParameterCount = member.ParameterCount
@@ -447,6 +454,9 @@ class AnalyzerFunctionTypeFactory {
         signature.DoesNotReturn = member.DoesNotReturn
         signature.ParameterReachabilityFacts = ToDeclaredFactList(member.ParameterReachabilityFacts)
         signature.ParameterFlowFacts = ToDeclaredFactList(member.ParameterNullabilityFacts)
+        if member.MemberNullabilityPostconditions.Length > 0 {
+            signature.MemberNullabilityPostconditions = member.MemberNullabilityPostconditions
+        }
         signature.ReturnType = ResolveFunctionCallReturnType(member.Name, member.IsAsync, member.IsGenerator, sourceReturnType)
         return signature
     }

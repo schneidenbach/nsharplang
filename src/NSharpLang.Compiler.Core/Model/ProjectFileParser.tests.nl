@@ -200,6 +200,10 @@ test "the async default type and the pooled-async flag are read from the languag
 
     unset := ProjectFileParser.Parse(PfpWrite(directory, "name: DefaultProject\n"))
     assert unset.Language.PooledAsync == false
+    assert unset.Language.EnforceReferencedNullability == false
+
+    temporaryRollout := ProjectFileParser.Parse(PfpWrite(directory, "name: ReferencedNullability\nlanguage:\n  enforceReferencedNullability: true\n"))
+    assert temporaryRollout.Language.EnforceReferencedNullability
 
     Directory.Delete(directory, true)
 }

@@ -1,6 +1,8 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Generic
+import System.Reflection
 
 class NullabilityMetadataCore {
     static func ConvertBuiltInType(fullName: string?): TypeInfo? {
@@ -75,6 +77,91 @@ class NullabilityMetadataCore {
         return NullabilityTypeDisplay.FormatTypeInfo(typeInfo)
     }
 
+    // Preserve the source member of a nullable CLR position on the analyzed type. The compiler
+    // keeps this fact beside the type through binding so NL202 and NL905 can identify the metadata
+    // contract that introduced `?`, including when the expression is stored in a local first.
+    static func AttachReferencedNullabilityOrigin(typeInfo: TypeInfo, member: MemberInfo?): TypeInfo {
+        if member == null || !ContainsReferencedNullablePosition(typeInfo) {
+            return typeInfo
+        }
+
+        declaringType := member.DeclaringType
+        if declaringType == null {
+            return typeInfo
+        }
+
+        typeName := declaringType.FullName ?? declaringType.Name
+        assemblyName := member.Module.Assembly.GetName().Name ?? "referenced assembly"
+        typeInfo.ReferencedNullabilityMember = typeName + "." + member.Name
+        typeInfo.ReferencedNullabilityAssembly = assemblyName
+        return typeInfo
+    }
+
+    static func ContainsReferencedNullablePosition(typeInfo: TypeInfo): bool {
+        if typeInfo as NullableTypeInfo != null {
+            return true
+        }
+
+        if typeInfo as ObliviousTypeInfo != null {
+            return false
+        }
+
+        array := typeInfo as ArrayTypeInfo
+        if array != null {
+            return ContainsReferencedNullablePosition(array.ElementType)
+        }
+
+        byRef := typeInfo as ByRefTypeInfo
+        if byRef != null {
+            return ContainsReferencedNullablePosition(byRef.InnerType)
+        }
+
+        generic := typeInfo as GenericTypeInfo
+        if generic != null {
+            for argument in generic.TypeArguments {
+                if ContainsReferencedNullablePosition(argument) {
+                    return true
+                }
+            }
+        }
+
+        tuple := typeInfo as TupleTypeInfo
+        if tuple != null {
+            for element in tuple.Elements {
+                if ContainsReferencedNullablePosition(element.Type) {
+                    return true
+                }
+            }
+        }
+
+        functionType := typeInfo as FunctionTypeInfo
+        if functionType != null {
+            if functionType.ParameterTypes != null {
+                for parameterType in functionType.ParameterTypes {
+                    if ContainsReferencedNullablePosition(parameterType) {
+                        return true
+                    }
+                }
+            }
+
+            if functionType.ReturnType != null && ContainsReferencedNullablePosition(functionType.ReturnType) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func ReferencedNullabilityContext(typeInfo: TypeInfo): string? {
+        memberName := typeInfo.ReferencedNullabilityMember
+        assemblyName := typeInfo.ReferencedNullabilityAssembly
+        if memberName == null || assemblyName == null {
+            return null
+        }
+
+        return "The .NET member `" + memberName + "` is annotated nullable in assembly `" + assemblyName + "`."
+    }
+
     static func StripMetadata(typeInfo: TypeInfo): TypeInfo {
         return NullabilityTypeDisplay.StripMetadata(typeInfo)
     }
@@ -108,7 +195,7 @@ class NullabilityMetadataCore {
         return typeInfo
     }
 
-    static func FormatFlowAttributePrefix(hasNotNullWhen: bool, notNullWhenValue: bool, hasMaybeNull: bool, hasNotNull: bool): string {
+    static func FormatFlowAttributePrefix(hasNotNullWhen: bool, notNullWhenValue: bool, hasMaybeNull: bool, hasNotNull: bool, hasAllowNull: bool, hasDisallowNull: bool): string {
         formatted := ""
         if hasNotNullWhen {
             valueText := "false"
@@ -125,6 +212,14 @@ class NullabilityMetadataCore {
 
         if hasNotNull {
             formatted = AppendFlowAttribute(formatted, "[NotNull]")
+        }
+
+        if hasAllowNull {
+            formatted = AppendFlowAttribute(formatted, "[AllowNull]")
+        }
+
+        if hasDisallowNull {
+            formatted = AppendFlowAttribute(formatted, "[DisallowNull]")
         }
 
         if formatted == "" {
@@ -146,6 +241,14 @@ class NullabilityMetadataCore {
         return 3
     }
 
+    static func GetAllowNullAttributeKind(): int {
+        return 5
+    }
+
+    static func GetDisallowNullAttributeKind(): int {
+        return 6
+    }
+
     static func GetParamArrayAttributeKind(): int {
         return 4
     }
@@ -162,6 +265,14 @@ class NullabilityMetadataCore {
 
         if string.Equals(name, "System.Diagnostics.CodeAnalysis.NotNullWhenAttribute", StringComparison.Ordinal) {
             return GetNotNullWhenAttributeKind()
+        }
+
+        if string.Equals(name, "System.Diagnostics.CodeAnalysis.AllowNullAttribute", StringComparison.Ordinal) {
+            return GetAllowNullAttributeKind()
+        }
+
+        if string.Equals(name, "System.Diagnostics.CodeAnalysis.DisallowNullAttribute", StringComparison.Ordinal) {
+            return GetDisallowNullAttributeKind()
         }
 
         if string.Equals(name, "System.ParamArrayAttribute", StringComparison.Ordinal) {
@@ -253,6 +364,116 @@ class NullabilityMetadataCore {
         }
 
         return typeInfo
+    }
+
+    // OVERLOAD CANDIDATE SELECTION SOMETIMES NEEDS TO SEE THE CLR SHAPE BEFORE NULLABILITY IS
+    // REPORTED. When a referenced nullable argument is otherwise a valid candidate, the candidate
+    // must survive selection so the chosen-call validator can issue NL202 at the argument and name
+    // the annotated .NET member. This projection is only for that selection question; callers keep
+    // the original type for diagnostics and code generation.
+    static func EraseNullableAnnotations(typeInfo: TypeInfo): TypeInfo {
+        nullable := typeInfo as NullableTypeInfo
+        if nullable != null {
+            return EraseNullableAnnotations(nullable.InnerType)
+        }
+
+        oblivious := typeInfo as ObliviousTypeInfo
+        if oblivious != null {
+            return new ObliviousTypeInfo(EraseNullableAnnotations(oblivious.InnerType))
+        }
+
+        array := typeInfo as ArrayTypeInfo
+        if array != null {
+            return new ArrayTypeInfo(EraseNullableAnnotations(array.ElementType))
+        }
+
+        generic := typeInfo as GenericTypeInfo
+        if generic != null {
+            arguments := new List<TypeInfo>()
+            for argument in generic.TypeArguments {
+                arguments.Add(EraseNullableAnnotations(argument))
+            }
+
+            return new GenericTypeInfo(generic.Name, arguments, generic.GenericDefinition)
+        }
+
+        tuple := typeInfo as TupleTypeInfo
+        if tuple != null {
+            elements := new List<TupleTypeElementInfo>()
+            for element in tuple.Elements {
+                elements.Add(new TupleTypeElementInfo(element.Name, EraseNullableAnnotations(element.Type)))
+            }
+
+            return new TupleTypeInfo(elements)
+        }
+
+        byRef := typeInfo as ByRefTypeInfo
+        if byRef != null {
+            return new ByRefTypeInfo(EraseNullableAnnotations(byRef.InnerType), byRef.IsOutArgument)
+        }
+
+        functionType := typeInfo as FunctionTypeInfo
+        if functionType != null {
+            parameters: List<TypeInfo>? = null
+            if functionType.ParameterTypes != null {
+                parameters = new List<TypeInfo>()
+                for parameter in functionType.ParameterTypes {
+                    parameters.Add(EraseNullableAnnotations(parameter))
+                }
+            }
+
+            returnType: TypeInfo? = null
+            if functionType.ReturnType != null {
+                returnType = EraseNullableAnnotations(functionType.ReturnType)
+            }
+
+            return functionType.WithSignatureTypes(parameters, returnType)
+        }
+
+        unionValue := typeInfo as AnonymousUnionTypeInfo
+        if unionValue != null {
+            arms := new List<TypeInfo>()
+            for arm in unionValue.Arms {
+                arms.Add(EraseNullableAnnotations(arm))
+            }
+
+            return new AnonymousUnionTypeInfo(arms)
+        }
+
+        return typeInfo
+    }
+
+    // `[AllowNull]` and `[DisallowNull]` describe the value a caller may WRITE into a parameter or
+    // settable member. They apply to reference annotations only: `int?` is a CLR Nullable<int>, and
+    // an attribute must never manufacture or erase that distinct value type.
+    static func ApplyInputFlowFacts(typeInfo: TypeInfo, facts: int): TypeInfo {
+        if !CanCarryInputReferenceNullability(typeInfo) {
+            return typeInfo
+        }
+
+        if NullabilityFlowFacts.Has(facts, NullabilityFlowFacts.DisallowNull()) {
+            return EnsureNotNull(typeInfo)
+        }
+
+        if NullabilityFlowFacts.Has(facts, NullabilityFlowFacts.AllowNull()) {
+            return EnsureNullable(typeInfo)
+        }
+
+        return typeInfo
+    }
+
+    static func CanCarryInputReferenceNullability(typeInfo: TypeInfo): bool {
+        nullable := typeInfo as NullableTypeInfo
+        if nullable != null {
+            return CanCarryInputReferenceNullability(nullable.InnerType)
+        }
+
+        oblivious := typeInfo as ObliviousTypeInfo
+        if oblivious != null {
+            return CanCarryInputReferenceNullability(oblivious.InnerType)
+        }
+
+        return CanCarryReferenceNullability(typeInfo)
     }
 
     static func CanCarryReferenceNullability(typeInfo: TypeInfo): bool {

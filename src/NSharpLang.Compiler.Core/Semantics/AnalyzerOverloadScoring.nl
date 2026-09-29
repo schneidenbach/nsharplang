@@ -955,6 +955,16 @@ class AnalyzerOverloadScoring {
             return true
         }
 
+        // A referenced argument with nullable metadata can still be the CLR-shaped overload
+        // candidate. Keep its original type for the post-selection NL202, where the analyzer can
+        // point at the member that supplied the maybe-null value.
+        if assignability.EnforcesReferencedNullability && NullabilityMetadataCore.ReferencedNullabilityContext(argumentType) != null {
+            erasedArgumentType := NullabilityMetadataCore.EraseNullableAnnotations(argumentType)
+            if assignability.IsAssignable(expectedType, erasedArgumentType) {
+                return true
+            }
+        }
+
         resolvedArgument := declarationContext.ResolveDeclaredAlias(argumentType)
         nullableArgument := resolvedArgument as NullableTypeInfo
         if nullableArgument == null {

@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections
 import System.Collections.Generic
+import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
@@ -126,6 +127,44 @@ class AnalyzerNullabilityPostconditions {
     // either, and only an error-recovery `unknown` says nothing at all.
     func DeclaredParameterState(parameterType: TypeInfo): NullState {
         return NullStateFacts.DefaultFor(declarationContextValue.ResolveDeclaredAlias(parameterType))
+    }
+
+    // `[MemberNotNull]` names members on the instance the method was called on. The same parsed
+    // facts are used for source signatures and reflected CustomAttributeData; only the receiver is a
+    // call-site fact. Unqualified source instance calls denote `this` and are recognized from their
+    // source member signature. A static method never contributes a receiver fact.
+    func AddMemberPostconditions(call: CallExpression, memberFacts: NullabilityMemberPostcondition[]?, isStatic: bool, sourceContainingType: string?, facts: List<NullabilityPostcondition>) {
+        if isStatic || memberFacts == null || memberFacts.Length == 0 {
+            return
+        }
+
+        receiverPath: string? = null
+        memberAccess := call.Callee as MemberAccessExpression
+        if memberAccess != null {
+            receiverPath = AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(memberAccess.Object)
+        } else if sourceContainingType != null && (call.Callee as IdentifierExpression) != null {
+            receiverPath = "this"
+        }
+
+        if receiverPath == null {
+            return
+        }
+
+        for memberFact in memberFacts {
+            condition := memberFact.Condition
+            if condition < NullabilityMemberPostconditions.Always() || condition > NullabilityMemberPostconditions.WhenFalse() {
+                continue
+            }
+
+            facts.Add(new NullabilityPostcondition(receiverPath + "." + memberFact.MemberName, condition, NullState.NotNull))
+        }
+    }
+
+    // A reflected method uses the exact same fact parser as source declarations. `sourceContainingType`
+    // is null because the receiver comes only from the written member-access expression.
+    func AddReflectedMemberPostconditions(call: CallExpression, attributes: IList<CustomAttributeData>, isStatic: bool, facts: List<NullabilityPostcondition>) {
+        memberFacts := NullabilityMemberPostconditions.FromReflectionAttributes(attributes)
+        AddMemberPostconditions(call, memberFacts, isStatic, null, facts)
     }
 
     // THE CALL'S VERDICT. The unconditional facts go into the flow now; branch facts are also filed

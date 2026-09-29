@@ -17,6 +17,7 @@ class Node {
 class Holder {
     Child: Node?
     Label: string?
+    Ready: string?
 
     constructor(child: Node?, label: string?) {
         Child = child
@@ -37,6 +38,33 @@ class Holder {
 
     static func TakeText(text: string): int {
         return text.Length
+    }
+
+    static func TakeAllowed([System.Diagnostics.CodeAnalysis.AllowNull] text: string): int {
+        if text == null {
+            return 0
+        }
+
+        return text.Length
+    }
+
+    static func TakeDisallowed([System.Diagnostics.CodeAnalysis.DisallowNull] text: string?): int {
+        if text == null {
+            return 0
+        }
+
+        return text.Length
+    }
+
+    [System.Diagnostics.CodeAnalysis.MemberNotNull("Ready")]
+    func EnsureReady(): void {
+        Ready = "ready"
+    }
+
+    [System.Diagnostics.CodeAnalysis.MemberNotNullWhen(true, "Ready")]
+    func TryEnsureReady(): bool {
+        Ready = "ready"
+        return true
     }
 
     // THE THREE BY-REF DIRECTIONS. An `out` is written by the call, a `ref` is read and written, and an

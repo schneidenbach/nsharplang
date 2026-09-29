@@ -381,7 +381,14 @@ class AnalyzerSyntheticCallWalk {
                 }
 
                 if !assignability.IsAssignable(expectedType, argumentType) {
-                    return -1
+                    if !assignability.EnforcesReferencedNullability || NullabilityMetadataCore.ReferencedNullabilityContext(argumentType) == null {
+                        return -1
+                    }
+
+                    erasedArgumentType := NullabilityMetadataCore.EraseNullableAnnotations(argumentType)
+                    if !assignability.IsAssignable(expectedType, erasedArgumentType) {
+                        return -1
+                    }
                 }
 
                 score = score + overloadScoring.GetNSharpMatchScore(expectedType, argumentType)

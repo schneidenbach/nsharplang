@@ -245,13 +245,131 @@ class AnalyzerAssignability {
     func IsMaybeNullIntoNotNull(target: TypeInfo, source: TypeInfo): bool {
         resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
         inner := ReferenceNullableInnerType(source)
-        if inner == null || target is ObliviousTypeInfo || resolvedTarget is NullableTypeInfo || resolvedTarget is ObliviousTypeInfo {
+        if inner != null {
+            if target is ObliviousTypeInfo || resolvedTarget is NullableTypeInfo || resolvedTarget is ObliviousTypeInfo {
+                return false
+            }
+
+            reflectedInner := inner as ReflectionTypeInfo
+            return reflectedInner == null || declarationContext.EnforceReferencedNullability || !ExternalAssemblyScan.IsSharedFrameworkAssembly(reflectedInner.Type.Assembly)
+        }
+
+        // The CLR bridge also erases nullable annotations nested inside constructed generics and
+        // arrays. Only a type carrying the reflection reader's source-member origin enters this new
+        // recursive rule, so switch-off behaviour remains byte-for-byte equivalent for existing
+        // framework references and source declarations.
+        if !declarationContext.EnforceReferencedNullability || NullabilityMetadataCore.ReferencedNullabilityContext(source) == null {
             return false
         }
 
-        reflectedInner := inner as ReflectionTypeInfo
-        return reflectedInner == null || !ExternalAssemblyScan.IsSharedFrameworkAssembly(reflectedInner.Type.Assembly)
+        return HasNullablePositionMismatch(resolvedTarget, declarationContext.ResolveDeclaredAlias(source))
     }
+
+    // Is there a maybe-null source position where the target promises a non-null reference? This
+    // walks only structural positions whose CLR type is otherwise the same. Variance reverses the
+    // direction for input positions; invariant generic arguments must agree in both directions.
+    func HasNullablePositionMismatch(target: TypeInfo, source: TypeInfo): bool {
+        targetOblivious := target as ObliviousTypeInfo
+        if targetOblivious != null {
+            return false
+        }
+
+        sourceOblivious := source as ObliviousTypeInfo
+        if sourceOblivious != null {
+            return HasNullablePositionMismatch(target, sourceOblivious.InnerType)
+        }
+
+        targetNullable := target as NullableTypeInfo
+        sourceNullable := source as NullableTypeInfo
+        if sourceNullable != null {
+            if ReferenceNullableInnerType(sourceNullable) != null && targetNullable == null {
+                return true
+            }
+
+            if targetNullable != null {
+                return HasNullablePositionMismatch(targetNullable.InnerType, sourceNullable.InnerType)
+            }
+        }
+
+        if targetNullable != null {
+            return HasNullablePositionMismatch(targetNullable.InnerType, source)
+        }
+
+        targetArray := target as ArrayTypeInfo
+        sourceArray := source as ArrayTypeInfo
+        if targetArray != null && sourceArray != null {
+            return HasNullablePositionMismatch(targetArray.ElementType, sourceArray.ElementType)
+        }
+
+        targetGeneric := target as GenericTypeInfo
+        sourceGeneric := source as GenericTypeInfo
+        if targetGeneric != null && sourceGeneric != null && SameConstructedGenericDefinition(targetGeneric, sourceGeneric) {
+            index := 0
+            while index < targetGeneric.TypeArguments.Count {
+                targetArgument := targetGeneric.TypeArguments[index]
+                sourceArgument := sourceGeneric.TypeArguments[index]
+                variance := GenericArgumentVariance(targetGeneric, index)
+                if variance == GenericParameterAttributes.Covariant {
+                    if HasNullablePositionMismatch(targetArgument, sourceArgument) {
+                        return true
+                    }
+                } else if variance == GenericParameterAttributes.Contravariant {
+                    if HasNullablePositionMismatch(sourceArgument, targetArgument) {
+                        return true
+                    }
+                } else if HasNullablePositionMismatch(targetArgument, sourceArgument) || HasNullablePositionMismatch(sourceArgument, targetArgument) {
+                    return true
+                }
+
+                index += 1
+            }
+        }
+
+        targetTuple := target as TupleTypeInfo
+        sourceTuple := source as TupleTypeInfo
+        if targetTuple != null && sourceTuple != null && targetTuple.Elements.Count == sourceTuple.Elements.Count {
+            index := 0
+            while index < targetTuple.Elements.Count {
+                if HasNullablePositionMismatch(targetTuple.Elements[index].Type, sourceTuple.Elements[index].Type) || HasNullablePositionMismatch(sourceTuple.Elements[index].Type, targetTuple.Elements[index].Type) {
+                    return true
+                }
+                index += 1
+            }
+        }
+
+        return false
+    }
+
+    static func SameConstructedGenericDefinition(target: GenericTypeInfo, source: GenericTypeInfo): bool {
+        if target.TypeArguments.Count != source.TypeArguments.Count {
+            return false
+        }
+
+        targetDefinition := target.GenericDefinition
+        sourceDefinition := source.GenericDefinition
+        if targetDefinition != null || sourceDefinition != null {
+            return targetDefinition != null && sourceDefinition != null && TypeInfoIdentityFacts.TypeDefinitionsEqual(targetDefinition, sourceDefinition)
+        }
+
+        return target.Name == source.Name
+    }
+
+    static func GenericArgumentVariance(genericType: GenericTypeInfo, index: int): GenericParameterAttributes {
+        definition := genericType.GenericDefinition as ReflectionTypeInfo
+        if definition == null || !definition.Type.IsGenericTypeDefinition {
+            return GenericParameterAttributes.None
+        }
+
+        parameters := definition.Type.GetGenericArguments()
+        if index < 0 || index >= parameters.Length {
+            return GenericParameterAttributes.None
+        }
+
+        return parameters[index].GenericParameterAttributes & GenericParameterAttributes.VarianceMask
+    }
+
+    // The reflection call binder reads the same temporary policy as assignment conversion.
+    EnforcesReferencedNullability: bool => declarationContext.EnforceReferencedNullability
 
     // Whether the relation refuses a MAYBE-NULL reference value for a target that states not-null:
     // the source carries a reference `?`, the target carries neither a `?` nor an oblivious shell,
@@ -444,6 +562,16 @@ class AnalyzerAssignability {
             }
 
             return IsAssignable(nullableTarget.InnerType, resolvedSource)
+        }
+
+        // THE CLR SUBTYPE WALK MUST NOT ERASE A REFERENCED MEMBER'S `?`. The bridge below avoids
+        // treating a `NullableTypeInfo` source as its CLR type, but a later nominal subtype query can
+        // still accept `Type?` as `Type` after unwrapping it. Keep the nullable-reference refusal at
+        // the semantic boundary so every later CLR or generic relation sees the same answer. When
+        // the temporary rollout setting is off, `IsMaybeNullIntoNotNull` deliberately answers false
+        // for shared-framework references and preserves the existing lenient result.
+        if declarationContext.EnforceReferencedNullability && IsMaybeNullIntoNotNull(resolvedTarget, resolvedSource) {
+            return false
         }
 
         sourceReflection := resolvedSource as ReflectionTypeInfo

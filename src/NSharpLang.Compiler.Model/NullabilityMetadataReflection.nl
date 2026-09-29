@@ -43,7 +43,7 @@ class NullabilityMetadataReflection {
         attributes := property.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenPropertyType(property)
         converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(property.PropertyType, CreateNullabilityInfoForProperty(property), typeOverride, openType, attributes, property), attributes)
-        return ApplyFlowAttributes(converted, attributes)
+        return NullabilityMetadataCore.AttachReferencedNullabilityOrigin(ApplyFlowAttributes(converted, attributes), property)
     }
 
     static func ConvertField(field: FieldInfo): TypeInfo {
@@ -54,7 +54,7 @@ class NullabilityMetadataReflection {
         attributes := field.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenFieldType(field)
         converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(field.FieldType, CreateNullabilityInfoForField(field), typeOverride, openType, attributes, field), attributes)
-        return ApplyFlowAttributes(converted, attributes)
+        return NullabilityMetadataCore.AttachReferencedNullabilityOrigin(ApplyFlowAttributes(converted, attributes), field)
     }
 
     static func ConvertParameter(parameter: ParameterInfo): TypeInfo {
@@ -65,7 +65,7 @@ class NullabilityMetadataReflection {
         attributes := parameter.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenParameterType(parameter)
         converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(parameter.ParameterType, CreateNullabilityInfoForParameter(parameter), typeOverride, openType, attributes, parameter.Member), attributes)
-        return ApplyFlowAttributes(converted, attributes)
+        return NullabilityMetadataCore.AttachReferencedNullabilityOrigin(ApplyFlowAttributes(converted, attributes), parameter.Member)
     }
 
     // AN EVENT'S HANDLER DELEGATE TYPE, WITH THE ANNOTATIONS THE DECLARATION WROTE.
@@ -92,7 +92,7 @@ class NullabilityMetadataReflection {
 
         attributes := eventMember.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenEventHandlerType(eventMember, handlerType)
-        converted := ConvertMemberType(handlerType, CreateNullabilityInfoForEvent(eventMember), null, openType, attributes, eventMember)
+        converted := NullabilityMetadataCore.AttachReferencedNullabilityOrigin(ConvertMemberType(handlerType, CreateNullabilityInfoForEvent(eventMember), null, openType, attributes, eventMember), eventMember)
         nullableShell := converted as NullableTypeInfo
         if nullableShell != null {
             return nullableShell.InnerType
@@ -110,7 +110,7 @@ class NullabilityMetadataReflection {
         attributes := returnParameter.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenParameterType(returnParameter)
         converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(method.ReturnType, CreateNullabilityInfoForParameter(returnParameter), typeOverride, openType, attributes, method), attributes)
-        return ApplyFlowAttributes(converted, attributes)
+        return NullabilityMetadataCore.AttachReferencedNullabilityOrigin(ApplyFlowAttributes(converted, attributes), method)
     }
 
     static func FormatType(clrType: Type): string {
@@ -159,11 +159,24 @@ class NullabilityMetadataReflection {
     // MEMBER wrote (`T?`, i.e. `NullableAttribute(2)`) overrides it. `[MaybeNull]` / `[NotNull]` are
     // a separate pass and still apply on top. See `NullabilityGenericSubstitution`.
     static func ConvertMemberType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?, openType: Type?, attributes: IList<CustomAttributeData>, member: MemberInfo?): TypeInfo {
+        // `NullablePublicOnly` means a non-public member can inherit an assembly/type context even
+        // though the compiler deliberately omitted this member's nullable transform. Clear the
+        // whole tree before converting it: an omitted nested generic argument is just as oblivious
+        // as the member's outer reference type.
+        if ShouldForceObliviousPosition(attributes, member) {
+            return ConvertReflectedType(clrType, null, typeOverride)
+        }
+
         if !NullabilityGenericSubstitution.IsTypeParameterPosition(openType) {
             return ConvertReflectedType(clrType, nullabilityInfo, typeOverride)
         }
 
-        return ConvertSubstitutedParameterType(clrType, nullabilityInfo, typeOverride, NullabilityGenericSubstitution.IsAnnotatedNullable(attributes, member))
+        annotationFlag := NullabilityGenericSubstitution.ReadAnnotationFlag(attributes, member)
+        if ShouldForceObliviousPosition(attributes, member) {
+            annotationFlag = 0
+        }
+
+        return ConvertSubstitutedParameterType(clrType, nullabilityInfo, typeOverride, annotationFlag)
     }
 
     static func ConvertReflectedType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
@@ -184,19 +197,19 @@ class NullabilityMetadataReflection {
     //
     // The override arm has to honour the supplied state too. `Enumerable.FirstOrDefault<TSource>`
     // returns `TSource?`, and the override alone answers the ARGUMENT verbatim, which loses the `?`.
-    static func ConvertSubstitutedParameterType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?, isNullableReadState: bool): TypeInfo {
+    static func ConvertSubstitutedParameterType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?, annotationFlag: int): TypeInfo {
         effectiveType := DereferenceByRef(clrType)
         if effectiveType.IsGenericParameter && typeOverride != null {
             answered := typeOverride.Answer(effectiveType)
-            if !isNullableReadState {
+            if annotationFlag < 0 || annotationFlag == 1 {
                 return answered
             }
 
-            return NullabilityMetadataCore.ApplyReadState(answered, false, CanConvertedTypeCarryReferenceNullability(answered), true, false)
+            return NullabilityMetadataCore.ApplyReadState(answered, false, CanConvertedTypeCarryReferenceNullability(answered), annotationFlag == 2, annotationFlag == 0)
         }
 
         converted := ConvertReflectedTypeCore(effectiveType, nullabilityInfo, typeOverride)
-        return NullabilityMetadataCore.ApplyReadState(converted, IsNullableValueType(effectiveType), CanReflectedTypeCarryReferenceNullability(effectiveType, converted), isNullableReadState, false)
+        return NullabilityMetadataCore.ApplyReadState(converted, IsNullableValueType(effectiveType), CanReflectedTypeCarryReferenceNullability(effectiveType, converted), annotationFlag == 2, annotationFlag == 0)
     }
 
     static func DereferenceByRef(clrType: Type): Type {
@@ -276,6 +289,132 @@ class NullabilityMetadataReflection {
 
         reflected: TypeInfo = new ReflectionTypeInfo(clrType)
         return reflected
+    }
+
+    // NullablePublicOnly marks signatures whose nullable annotations were omitted for inaccessible
+    // members. An explicit NullableAttribute on the position still wins; when it is absent, inherited
+    // context must not make the omitted signature look non-nullable.
+    static func ShouldForceObliviousPosition(attributes: IList<CustomAttributeData>, member: MemberInfo?): bool {
+        if member == null {
+            return false
+        }
+
+        moduleAttributes := member.Module.GetCustomAttributesData()
+        return ShouldForceObliviousPosition(attributes, member, HasNullablePublicOnly(moduleAttributes), NullablePublicOnlyIncludesInternals(moduleAttributes))
+    }
+
+    // Kept as a fact-only overload so the public-only boundary can be tested without manufacturing
+    // an assembly carrying the compiler's internal attribute.
+    static func ShouldForceObliviousPosition(attributes: IList<CustomAttributeData>, member: MemberInfo, hasNullablePublicOnly: bool, includeInternals: bool): bool {
+        if HasNullableAttribute(attributes) || !hasNullablePublicOnly {
+            return false
+        }
+
+        return !IsInNullablePublicSurface(member, includeInternals)
+    }
+
+    static func HasNullableAttribute(attributes: IList<CustomAttributeData>): bool {
+        count := SequenceCount(attributes)
+        index := 0
+        while index < count {
+            if string.Equals(attributes.get_Item(index).AttributeType.FullName ?? "", "System.Runtime.CompilerServices.NullableAttribute", StringComparison.Ordinal) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func HasNullablePublicOnly(attributes: IList<CustomAttributeData>): bool {
+        count := SequenceCount(attributes)
+        index := 0
+        while index < count {
+            if string.Equals(attributes.get_Item(index).AttributeType.FullName ?? "", "System.Runtime.CompilerServices.NullablePublicOnlyAttribute", StringComparison.Ordinal) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func NullablePublicOnlyIncludesInternals(attributes: IList<CustomAttributeData>): bool {
+        falseValue: object = false
+        count := SequenceCount(attributes)
+        index := 0
+        while index < count {
+            attribute := attributes.get_Item(index)
+            if !string.Equals(attribute.AttributeType.FullName ?? "", "System.Runtime.CompilerServices.NullablePublicOnlyAttribute", StringComparison.Ordinal) {
+                index = index + 1
+                continue
+            }
+
+            arguments := attribute.ConstructorArguments
+            if SequenceCount(arguments) == 1 {
+                value := arguments.get_Item(0).get_Value()
+                if value != null {
+                    boxed: object = value
+                    return boxed.Equals(falseValue) == false
+                }
+            }
+
+            return false
+        }
+
+        return false
+    }
+
+    static func IsInNullablePublicSurface(member: MemberInfo, includeInternals: bool): bool {
+        owner := member.DeclaringType
+        if owner != null && !IsTypeInNullablePublicSurface(owner, includeInternals) {
+            return false
+        }
+
+        method := member as MethodBase
+        if method != null {
+            return method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly || (includeInternals && (method.IsAssembly || method.IsFamilyAndAssembly))
+        }
+
+        field := member as FieldInfo
+        if field != null {
+            return field.IsPublic || field.IsFamily || field.IsFamilyOrAssembly || (includeInternals && (field.IsAssembly || field.IsFamilyAndAssembly))
+        }
+
+        property := member as PropertyInfo
+        if property != null {
+            return IsIncludedAccessor(property.GetMethod, includeInternals) || IsIncludedAccessor(property.SetMethod, includeInternals)
+        }
+
+        eventMember := member as EventInfo
+        if eventMember != null {
+            return IsIncludedAccessor(eventMember.AddMethod, includeInternals) || IsIncludedAccessor(eventMember.RemoveMethod, includeInternals) || IsIncludedAccessor(eventMember.RaiseMethod, includeInternals)
+        }
+
+        return owner == null
+    }
+
+    static func IsTypeInNullablePublicSurface(type: Type, includeInternals: bool): bool {
+        current: Type? = type
+        while current != null {
+            if current.IsNested {
+                if !current.IsNestedPublic && !current.IsNestedFamily && !current.IsNestedFamORAssem && !(includeInternals && (current.IsNestedAssembly || current.IsNestedFamANDAssem)) {
+                    return false
+                }
+            } else if !current.IsPublic && !(includeInternals && current.IsNotPublic) {
+                return false
+            }
+
+            current = current.DeclaringType
+        }
+
+        return true
+    }
+
+    static func IsIncludedAccessor(accessor: MethodInfo?, includeInternals: bool): bool {
+        return accessor != null && (accessor.IsPublic || accessor.IsFamily || accessor.IsFamilyOrAssembly || (includeInternals && (accessor.IsAssembly || accessor.IsFamilyAndAssembly)))
     }
 
     static func ApplyFlowAttributes(typeInfo: TypeInfo, attributes: IList<CustomAttributeData>): TypeInfo {
@@ -425,6 +564,8 @@ class NullabilityMetadataReflection {
         notNullWhenValue := false
         hasMaybeNull := false
         hasNotNull := false
+        hasAllowNull := false
+        hasDisallowNull := false
         falseValue: object = false
         trueValue: object = true
 
@@ -460,13 +601,17 @@ class NullabilityMetadataReflection {
                     hasMaybeNull = true
                 } else if attributeKind == NullabilityMetadataCore.GetNotNullAttributeKind() {
                     hasNotNull = true
+                } else if attributeKind == NullabilityMetadataCore.GetAllowNullAttributeKind() {
+                    hasAllowNull = true
+                } else if attributeKind == NullabilityMetadataCore.GetDisallowNullAttributeKind() {
+                    hasDisallowNull = true
                 }
             }
 
             index = index + 1
         }
 
-        return NullabilityMetadataCore.FormatFlowAttributePrefix(hasNotNullWhen, notNullWhenValue, hasMaybeNull, hasNotNull)
+        return NullabilityMetadataCore.FormatFlowAttributePrefix(hasNotNullWhen, notNullWhenValue, hasMaybeNull, hasNotNull, hasAllowNull, hasDisallowNull)
     }
 
     static func FormatClrTypeName(clrType: Type): string {

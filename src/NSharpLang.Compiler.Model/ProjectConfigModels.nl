@@ -399,6 +399,7 @@ class LanguageConfig {
     profileValue: string?
     asyncDefaultTypeValue: string?
     pooledAsyncValue: bool
+    enforceReferencedNullabilityValue: bool
     systemsValue: SystemsConfig?
 
     Profile: string {
@@ -433,6 +434,17 @@ class LanguageConfig {
         }
         set {
             pooledAsyncValue = value
+        }
+    }
+
+    // Temporary phase-one rollout switch. The final language contract has no project-level
+    // nullability mode; this exists only while repository projects opt in individually.
+    EnforceReferencedNullability: bool {
+        get {
+            return enforceReferencedNullabilityValue
+        }
+        set {
+            enforceReferencedNullabilityValue = value
         }
     }
 

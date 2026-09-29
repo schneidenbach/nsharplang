@@ -1728,13 +1728,18 @@ class AnalyzerReflectionArgumentBinder {
             argumentType := ReferencedStorageType(state.PendingArgumentModifier, analyzedType) ?? analyzedType
             if expectedType == null || !IsAcceptedReflectionArgument(expectedType, argumentType, state.PendingConstant) {
                 state.Failed = true
-            } else if state.PendingArgumentIndex >= 0 && RefusesMaybeNullArgument(state, expectedType, argumentType) {
-                // A `ref` position is reported as the by-ref pair it is, which is how the same call
-                // against the same declaration in source reads.
-                if state.PendingArgumentModifier == ArgumentModifier.Ref {
-                    state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, new ByRefTypeInfo(expectedType), new ByRefTypeInfo(argumentType)))
-                } else {
-                    state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, expectedType, argumentType))
+            } else {
+                diagnosticExpectedType := ApplyReflectedInputNullability(state, expectedType)
+                if state.PendingArgumentIndex >= 0 && RefusesMaybeNullArgument(state, diagnosticExpectedType, argumentType) {
+                    // A `ref` position is reported as the by-ref pair it is, which is how the same call
+                    // against the same declaration in source reads. The expected type includes input
+                    // attributes such as `[DisallowNull]`; rendering the raw `T` metadata type here
+                    // would say `string?` even though the attribute makes this an error.
+                    if state.PendingArgumentModifier == ArgumentModifier.Ref {
+                        state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, new ByRefTypeInfo(diagnosticExpectedType), new ByRefTypeInfo(argumentType)))
+                    } else {
+                        state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, diagnosticExpectedType, argumentType))
+                    }
                 }
             }
         }
@@ -1792,10 +1797,46 @@ class AnalyzerReflectionArgumentBinder {
     // for a not-null `out T` is exactly right — the call is what fills it. A `ref` argument flows both
     // ways, so its annotation must match in both directions: a not-null variable handed to a `ref T?`
     // could come back null. Everything else — `in` included — flows in.
+    // The type a caller is allowed to WRITE to a reflected input position, including
+    // `[AllowNull]` / `[DisallowNull]`. Shared-framework flow facts stay behind the rollout switch;
+    // package and user assemblies already follow their declared metadata.
+    func ApplyReflectedInputNullability(state: ReflectionCallFinalizeState, expectedType: TypeInfo): TypeInfo {
+        declaringType := state.OpenMethod.DeclaringType
+        if declaringType == null || (!assignability.EnforcesReferencedNullability && ExternalAssemblyScan.IsSharedFrameworkAssembly(declaringType.Assembly)) {
+            return expectedType
+        }
+
+        parameterIndex := state.PendingParameterIndex
+        if parameterIndex < 0 || parameterIndex >= state.OpenParameters.Length {
+            return expectedType
+        }
+
+        facts := NullabilityFlowAttributeReflection.FromParameter(state.OpenParameters[parameterIndex])
+        if NullabilityFlowFacts.Has(facts, NullabilityFlowFacts.AllowNull()) || NullabilityFlowFacts.Has(facts, NullabilityFlowFacts.DisallowNull()) {
+            return NullabilityMetadataCore.ApplyInputFlowFacts(expectedType, facts)
+        }
+
+        return expectedType
+    }
+
     func RefusesMaybeNullArgument(state: ReflectionCallFinalizeState, expectedType: TypeInfo, analyzedType: TypeInfo): bool {
         declaringType := state.OpenMethod.DeclaringType
-        if declaringType == null || ExternalAssemblyScan.IsSharedFrameworkAssembly(declaringType.Assembly) {
+        if declaringType == null || (!assignability.EnforcesReferencedNullability && ExternalAssemblyScan.IsSharedFrameworkAssembly(declaringType.Assembly)) {
             return false
+        }
+
+        parameterIndex := state.PendingParameterIndex
+        if parameterIndex < 0 || parameterIndex >= state.OpenParameters.Length {
+            return false
+        }
+
+        parameterFlowFacts := NullabilityFlowAttributeReflection.FromParameter(state.OpenParameters[parameterIndex])
+        if NullabilityFlowFacts.Has(parameterFlowFacts, NullabilityFlowFacts.AllowNull()) && !NullabilityFlowFacts.Has(parameterFlowFacts, NullabilityFlowFacts.DisallowNull()) {
+            return false
+        }
+
+        if NullabilityFlowFacts.Has(parameterFlowFacts, NullabilityFlowFacts.DisallowNull()) {
+            expectedType = NullabilityMetadataCore.ApplyInputFlowFacts(expectedType, parameterFlowFacts)
         }
 
         modifier := state.PendingArgumentModifier
@@ -1804,7 +1845,6 @@ class AnalyzerReflectionArgumentBinder {
         }
 
         // A `ref` written for a READ-ONLY reference (`ref readonly`) flows in only: the callee reads it.
-        parameterIndex := state.PendingParameterIndex
         readOnlyTarget := parameterIndex >= 0 && parameterIndex < state.OpenParameters.Length && !IsWrittenThroughParameter(state.OpenParameters[parameterIndex])
         if modifier == ArgumentModifier.Ref && !readOnlyTarget {
             return assignability.RefusesMaybeNull(expectedType, analyzedType) || assignability.RefusesMaybeNull(analyzedType, expectedType)

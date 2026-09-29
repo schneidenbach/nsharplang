@@ -1310,7 +1310,7 @@ class AnalyzerAmbientContext {
                 return
             }
 
-            diagnosticsValue.ReportBuilt(BuildReturnValueMismatchError(currentFilePath, span, diagnosticSourceSnippet, returnedType, expectedReturnValueType))
+            diagnosticsValue.ReportBuilt(BuildReturnValueMismatchError(currentFilePath, span, diagnosticSourceSnippet, returnedType, expectedReturnValueType, returnedValue))
             return
         }
 
@@ -1341,7 +1341,7 @@ class AnalyzerAmbientContext {
 
     // The rich builder choice for a `return` statement: the two `void` shapes, or the general
     // mismatch against the expected type.
-    func BuildReturnValueMismatchError(currentFilePath: string, span: DiagnosticSpan, sourceSnippet: string, returnedType: TypeInfo, expectedReturnValueType: TypeInfo): CompilerError {
+    func BuildReturnValueMismatchError(currentFilePath: string, span: DiagnosticSpan, sourceSnippet: string, returnedType: TypeInfo, expectedReturnValueType: TypeInfo, returnedValue: Expression?): CompilerError {
         if BuiltInTypes.Is(currentReturnTypeValue, BuiltInTypes.Void) {
             return BuildVoidReturnValueError(currentFilePath, span, sourceSnippet, EnclosingFunctionName(), returnedType)
         }
@@ -1351,7 +1351,18 @@ class AnalyzerAmbientContext {
         actualTypeName := ""
         expectedTypeName := ""
         TypeMismatchDisplay.Pair(declarationContextValue, returnedType, expectedReturnValueType, out actualTypeName, out expectedTypeName)
-        return ErrorMessageBuilder.ReturnTypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, EnclosingFunctionName(), actualTypeName, expectedTypeName)
+        metadataContext: string? = null
+        metadataHint: string? = null
+        if declarationContextValue != null && declarationContextValue.EnforceReferencedNullability {
+            metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(returnedType)
+            if metadataContext != null {
+                if returnedValue != null {
+                    metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(returnedValue)
+                }
+            }
+        }
+
+        return ErrorMessageBuilder.ReturnTypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, EnclosingFunctionName(), actualTypeName, expectedTypeName, metadataContext, metadataHint)
     }
 
     // The `void` pair, shared by the `return` statement and the expression body: an OMITTED return

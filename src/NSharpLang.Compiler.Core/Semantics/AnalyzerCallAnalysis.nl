@@ -1354,7 +1354,32 @@ class AnalyzerCallAnalysis {
         signature.ParameterTypes = finalizeState.ParameterTypes
         for mismatch in finalizeState.NullabilityMismatches {
             if mismatch.ArgumentIndex < call.Arguments.Count {
-                syntheticCallValidator.ReportWrongArgumentType(signature, call, finalizeState.OpenMethod.Name, mismatch.ArgumentIndex, mismatch.ParameterIndex, mismatch.ExpectedType, mismatch.ArgumentType)
+                method := finalizeState.OpenMethod
+                declaringType := method.DeclaringType
+                ownerName := "referenced type"
+                assemblyName := "referenced assembly"
+                if declaringType != null {
+                    ownerName = declaringType.FullName ?? declaringType.Name
+                    assemblyName = declaringType.Assembly.GetName().Name ?? "referenced assembly"
+                }
+
+                metadataContext: string? = null
+                metadataHint: string? = null
+                if assignability.EnforcesReferencedNullability {
+                    memberName := ownerName + "." + method.Name
+                    parameterName := "parameter " + (mismatch.ParameterIndex + 1).ToString()
+                    if mismatch.ParameterIndex >= 0 && mismatch.ParameterIndex < finalizeState.OpenParameters.Length {
+                        parameterName = finalizeState.OpenParameters[mismatch.ParameterIndex].Name ?? parameterName
+                    }
+                    metadataContext = "The .NET member `" + memberName + "` requires a non-null `" + parameterName + "`; its assembly metadata says this parameter does not accept null. (assembly `" + assemblyName + "`)."
+                    argumentPath := AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(call.Arguments[mismatch.ArgumentIndex].Value)
+                    fixSubject := "this value"
+                    if argumentPath != null {
+                        fixSubject = argumentPath
+                    }
+                    metadataHint = "Guard with `if " + fixSubject + " != null`, pass `" + fixSubject + " ?? default`, or use `must " + fixSubject + "` after proving it is not null."
+                }
+                syntheticCallValidator.ReportWrongArgumentType(signature, call, method.Name, mismatch.ArgumentIndex, mismatch.ParameterIndex, mismatch.ExpectedType, mismatch.ArgumentType, metadataContext, metadataHint)
             }
         }
     }
@@ -1400,9 +1425,14 @@ class AnalyzerCallAnalysis {
 
             // The candidate is the call's now, so its postconditions become the flow's. A candidate
             // that failed has already had its diagnostics withdrawn and leaves nothing behind.
-            if acceptedPostconditions != null {
-                postconditions.Commit(state.Call, acceptedPostconditions)
+            if acceptedPostconditions == null {
+                acceptedPostconditions = new List<NullabilityPostcondition>()
             }
+            memberOwner := finalizeState.OpenMethod.DeclaringType
+            if memberOwner == null || declarationContext.EnforceReferencedNullability || !ExternalAssemblyScan.IsSharedFrameworkAssembly(memberOwner.Assembly) {
+                postconditions.AddReflectedMemberPostconditions(state.Call, finalizeState.OpenMethod.GetCustomAttributesData(), finalizeState.OpenMethod.IsStatic, acceptedPostconditions)
+            }
+            postconditions.Commit(state.Call, acceptedPostconditions)
 
             // And so do its reachability facts: a `[DoesNotReturn]` signature ends the path the call
             // is written on, and a `[DoesNotReturnIf(b)]` parameter ends it on the branch its

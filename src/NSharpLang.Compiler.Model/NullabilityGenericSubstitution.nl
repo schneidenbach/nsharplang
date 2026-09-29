@@ -334,18 +334,29 @@ class NullabilityGenericSubstitution {
     // NL905 in the branch the call just proved. The same goes for `[MaybeNull]`, `[NotNull]` and
     // `[NotNullWhen(b)]`, which the flow-attribute pass and the postcondition owner read.
     static func IsAnnotatedNullable(attributes: IList<CustomAttributeData>, member: MemberInfo?): bool {
+        return ReadAnnotationFlag(attributes, member) == 2
+    }
+
+    // The byte carried by a substituted type-parameter position, or -1 when it is absent. Keeping
+    // 0 distinct from -1 matters: explicit oblivious metadata is not the same as a missing
+    // annotation that inherits the constructed type argument's nullability.
+    static func ReadAnnotationFlag(attributes: IList<CustomAttributeData>, member: MemberInfo?): int {
         direct := ReadFlag(attributes, "System.Runtime.CompilerServices.NullableAttribute")
         if direct >= 0 {
-            return direct == 2
+            return direct
         }
 
-        return ContextFlag(member) == 2
+        return ContextFlag(member)
     }
 
     // The nearest `NullableContextAttribute` at or above this member, or -1 when there is none.
     static func ContextFlag(member: MemberInfo?): int {
         if member == null {
             return -1
+        }
+
+        if NullabilityMetadataReflection.ShouldForceObliviousPosition(member.GetCustomAttributesData(), member) {
+            return 0
         }
 
         memberFlag := ReadFlag(member.GetCustomAttributesData(), "System.Runtime.CompilerServices.NullableContextAttribute")
@@ -363,12 +374,22 @@ class NullabilityGenericSubstitution {
             owner = owner.DeclaringType
         }
 
+        moduleFlag := ReadFlag(member.Module.GetCustomAttributesData(), "System.Runtime.CompilerServices.NullableContextAttribute")
+        if moduleFlag >= 0 {
+            return moduleFlag
+        }
+
+        assemblyFlag := ReadFlag(member.Module.Assembly.GetCustomAttributesData(), "System.Runtime.CompilerServices.NullableContextAttribute")
+        if assemblyFlag >= 0 {
+            return assemblyFlag
+        }
+
         return -1
     }
 
-    // The single-byte argument of the named attribute, or -1 when it is absent or carries the
-    // byte-ARRAY form — an array describes a COMPOSITE type and never a bare parameter, so reading
-    // its first element here would answer about the wrong position.
+    // The single byte at this position, or -1 when the attribute is absent or malformed. A
+    // byte-array form is read at its first position; the rest of a composite transform is consumed
+    // in type-tree order by NullabilityInfoContext.
     static func ReadFlag(attributes: IList<CustomAttributeData>, attributeFullName: string): int {
         count := NullabilityMetadataReflection.SequenceCount(attributes)
         index := 0
@@ -406,6 +427,11 @@ class NullabilityGenericSubstitution {
         annotatedByte: object = ByteOf(2)
         if value.Equals(annotatedByte) {
             return 2
+        }
+
+        values := value as IList<CustomAttributeTypedArgument>
+        if values != null && NullabilityMetadataReflection.SequenceCount(value) > 0 {
+            return ByteValue(values.get_Item(0).get_Value())
         }
 
         return -1

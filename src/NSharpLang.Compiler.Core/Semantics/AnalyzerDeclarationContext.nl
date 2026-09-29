@@ -213,6 +213,7 @@ class AnalyzerDeclarationContext {
     // nothing experimental; a caller that wants the feature says so on the context rather than
     // rewriting the process environment, which every other compilation in the process would read.
     soaEnabledValue: bool
+    enforceReferencedNullabilityValue: bool
 
     constructor() {
         projectRoot = Path.GetFullPath(".")
@@ -229,12 +230,19 @@ class AnalyzerDeclarationContext {
         importUsageFilePath = null
         declaredTypeNames = null
         soaEnabledValue = false
+        enforceReferencedNullabilityValue = false
     }
 
     SoaEnabled: bool => soaEnabledValue
 
+    EnforceReferencedNullability: bool => enforceReferencedNullabilityValue
+
     func SetSoaEnabled(enabled: bool) {
         soaEnabledValue = enabled
+    }
+
+    func SetEnforceReferencedNullability(enabled: bool) {
+        enforceReferencedNullabilityValue = enabled
     }
 
     // One call per `Analyze`: which file is being analysed, and where its import-usage facts go.

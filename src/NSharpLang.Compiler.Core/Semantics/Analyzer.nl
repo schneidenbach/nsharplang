@@ -2278,6 +2278,7 @@ class Analyzer: IDisposable {
     func LoadFromProjectConfig(config: ProjectConfig, projectDirectory: string? = null) {
         directory := projectDirectory ?? Environment.CurrentDirectory
         FriendGrants.SetCompilingAssemblyName(CompilationReferenceResolverKernels.GetProjectAssemblyName(directory, config.Name))
+        DeclarationContext.SetEnforceReferencedNullability(config.Language.EnforceReferencedNullability)
         ReferenceLoadOrchestration.Load(config, directory)
     }
 

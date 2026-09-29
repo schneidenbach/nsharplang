@@ -233,7 +233,7 @@ class NominalTypeInfoFactory {
         kind := GetDeclaredMemberKind(typeName)
         typeParameters := GetTypeParameterArray(member)
         genericConstraints := GetGenericConstraintArray(member)
-        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16) || HasOptionalModifier(member, 1024), HasOptionalModifier(member, 512) || HasOptionalModifier(member, 1024), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member), HasMemberBody(member), HasDoesNotReturnAttribute(member), GetParameterReachabilityFactArray(member), GetParameterNullabilityFactArray(member), HasSetsRequiredMembersAttribute(member))
+        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16) || HasOptionalModifier(member, 1024), HasOptionalModifier(member, 512) || HasOptionalModifier(member, 1024), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member), HasMemberBody(member), HasDoesNotReturnAttribute(member), GetParameterReachabilityFactArray(member), GetParameterNullabilityFactArray(member), HasSetsRequiredMembersAttribute(member), GetMemberNullabilityPostconditionArray(member))
     }
 
     static func GetGenericConstraintArray(owner: object): GenericConstraint[] {
@@ -621,6 +621,22 @@ class NominalTypeInfoFactory {
         return result
     }
 
+    // `[MemberNotNull]` and `[MemberNotNullWhen]` on a method become member postconditions on the
+    // declared-member record, so a type member reaches the same analyzer owner as a free function.
+    static func GetMemberNullabilityPostconditionArray(owner: object): NullabilityMemberPostcondition[] {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Attributes")
+        if value == null {
+            return new NullabilityMemberPostcondition[](0)
+        }
+
+        source := value as List<AttributeNode>
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' to be a list.")
+        }
+
+        return NullabilityMemberPostconditions.FromSourceAttributes(source)
+    }
+
     // ONE PARAMETER'S NULLABILITY ATTRIBUTES, read the way `NullabilityFlowFacts` reads a
     // `FunctionDeclaration`'s — by name, and by the single boolean literal the conditional forms
     // carry. An argument this reader cannot see as a literal contributes nothing, for the reason it
@@ -653,6 +669,16 @@ class NominalTypeInfoFactory {
 
             if NullabilityFlowFacts.IsMaybeNullName(name) {
                 facts = facts | NullabilityFlowFacts.MaybeNull()
+                continue
+            }
+
+            if NullabilityFlowFacts.IsAllowNullName(name) {
+                facts = facts | NullabilityFlowFacts.AllowNull()
+                continue
+            }
+
+            if NullabilityFlowFacts.IsDisallowNullName(name) {
+                facts = facts | NullabilityFlowFacts.DisallowNull()
                 continue
             }
 

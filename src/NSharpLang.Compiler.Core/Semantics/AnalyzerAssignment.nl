@@ -481,12 +481,21 @@ class AnalyzerAssignment {
         targetText := ""
         TypeMismatchDisplay.Pair(declarationContextValue, valueType, targetType, out valueText, out targetText)
         message := "Type mismatch in assignment — expected '" + targetText + "' but got '" + valueText + "'"
+        metadataContext: string? = null
+        metadataHint: string? = null
+        if assignabilityValue.EnforcesReferencedNullability {
+            metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
+            if metadataContext != null {
+                metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(assignment.Value)
+                message = message + ". " + metadataContext
+            }
+        }
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, valueText, targetText, message))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, valueText, targetText, message, metadataContext, metadataHint))
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, null, span.Length)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, metadataHint, span.Length)
     }
 
     // ------------------------------------------------------------------------------------------

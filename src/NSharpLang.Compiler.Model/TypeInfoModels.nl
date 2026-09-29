@@ -49,6 +49,7 @@ class DeclaredMemberInfo {
     doesNotReturnValue: bool
     parameterReachabilityFactsValue: int[]
     parameterNullabilityFactsValue: int[]
+    memberNullabilityPostconditionsValue: NullabilityMemberPostcondition[]
     isAsyncValue: bool
     isGeneratorValue: bool
     isOperatorOverloadValue: bool
@@ -98,6 +99,7 @@ class DeclaredMemberInfo {
     // function — the same hole `ParameterReachabilityFacts` above was added to close for
     // `[DoesNotReturnIf]`.
     ParameterNullabilityFacts: int[] => parameterNullabilityFactsValue
+    MemberNullabilityPostconditions: NullabilityMemberPostcondition[] => memberNullabilityPostconditionsValue
     IsAsync: bool => isAsyncValue
     IsGenerator: bool => isGeneratorValue
     IsOperatorOverload: bool => isOperatorOverloadValue
@@ -139,11 +141,12 @@ class DeclaredMemberInfo {
     // so a question about one named attribute has to be answered where the declaration is read.
     HasSetsRequiredMembersAttribute: bool => hasSetsRequiredMembersAttributeValue
 
-    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null, hasSetsRequiredMembersAttribute: bool = false) {
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null, hasSetsRequiredMembersAttribute: bool = false, memberNullabilityPostconditions: NullabilityMemberPostcondition[]? = null) {
         hasSetsRequiredMembersAttributeValue = hasSetsRequiredMembersAttribute
         doesNotReturnValue = doesNotReturn
         parameterReachabilityFactsValue = parameterReachabilityFacts ?? new int[](0)
         parameterNullabilityFactsValue = parameterNullabilityFacts ?? new int[](0)
+        memberNullabilityPostconditionsValue = memberNullabilityPostconditions ?? new NullabilityMemberPostcondition[](0)
         nameValue = name
         containingTypeValue = containingType
         kindValue = kind
@@ -221,6 +224,26 @@ class NestedTypeInfo {
 }
 
 class TypeInfo {
+    referencedNullabilityMemberValue: string?
+    referencedNullabilityAssemblyValue: string?
+
+    ReferencedNullabilityMember: string? {
+        get {
+            return referencedNullabilityMemberValue
+        }
+        set {
+            referencedNullabilityMemberValue = value
+        }
+    }
+
+    ReferencedNullabilityAssembly: string? {
+        get {
+            return referencedNullabilityAssemblyValue
+        }
+        set {
+            referencedNullabilityAssemblyValue = value
+        }
+    }
 }
 
 // AN EVENT A SOURCE TYPE DECLARES, as every reader outside that type sees it.
@@ -778,6 +801,7 @@ class FunctionTypeInfo: TypeInfo {
     SyntheticName: string?
     SourceName: string?
     SourceContainingType: string?
+    SourceIsStatic: bool
     // The source file that owns a top-level declaration. Line and column alone are not a stable
     // overload identity across project files.
     SourceFilePath: string?
@@ -795,6 +819,10 @@ class FunctionTypeInfo: TypeInfo {
     // bits and in the same order as `ParameterNames`. Null when the signature declares none, which is
     // almost every signature.
     ParameterFlowFacts: List<int>?
+
+    // `[MemberNotNull]` / `[MemberNotNullWhen]` on a source member, shared with the reflection
+    // reader's result for an external method. The receiver path is supplied by the call site.
+    MemberNullabilityPostconditions: NullabilityMemberPostcondition[]?
 
     // Whether the declaration carries `[DoesNotReturn]`. A call to it ends the path it is written on,
     // which is a fact about REACHABILITY rather than about nullability and therefore its own field.
@@ -831,6 +859,7 @@ class FunctionTypeInfo: TypeInfo {
         substituted.SyntheticName = SyntheticName
         substituted.SourceName = SourceName
         substituted.SourceContainingType = SourceContainingType
+        substituted.SourceIsStatic = SourceIsStatic
         substituted.SourceFilePath = SourceFilePath
         substituted.SourceLine = SourceLine
         substituted.SourceColumn = SourceColumn
@@ -842,6 +871,7 @@ class FunctionTypeInfo: TypeInfo {
         substituted.SourceReturnType = SourceReturnType
         substituted.ParameterModifiers = ParameterModifiers
         substituted.ParameterFlowFacts = ParameterFlowFacts
+        substituted.MemberNullabilityPostconditions = MemberNullabilityPostconditions
         substituted.DoesNotReturn = DoesNotReturn
         substituted.ParameterReachabilityFacts = ParameterReachabilityFacts
         substituted.RequiredParameterCount = RequiredParameterCount

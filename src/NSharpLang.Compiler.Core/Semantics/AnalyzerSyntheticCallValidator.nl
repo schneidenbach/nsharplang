@@ -317,6 +317,7 @@ class AnalyzerSyntheticCallValidator {
             }
 
             expectedType := declarationContext.ResolveDeclaredAlias(AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints))))
+            expectedType = ApplyParameterInputNullability(functionType, parameterIndex, expectedType)
             argType := declarationContext.ResolveDeclaredAlias(argTypes[currentArgument])
             if hasParamsParameter && parameterIndex == paramsParameterIndex {
                 paramsType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[paramsParameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)))
@@ -374,6 +375,15 @@ class AnalyzerSyntheticCallValidator {
         return modifiers != null && parameterIndex >= 0 && parameterIndex < modifiers.Count && modifiers[parameterIndex] == Ast.ParameterModifier.In
     }
 
+    static func ApplyParameterInputNullability(functionType: FunctionTypeInfo, parameterIndex: int, expectedType: TypeInfo): TypeInfo {
+        facts := functionType.ParameterFlowFacts
+        if facts == null || parameterIndex < 0 || parameterIndex >= facts.Count {
+            return expectedType
+        }
+
+        return NullabilityMetadataCore.ApplyInputFlowFacts(expectedType, facts[parameterIndex])
+    }
+
     static func ParameterNameForDirectionError(functionType: FunctionTypeInfo, parameterIndex: int): string {
         names := functionType.ParameterNames
         if names != null && parameterIndex >= 0 && parameterIndex < names.Count {
@@ -393,13 +403,9 @@ class AnalyzerSyntheticCallValidator {
         parameterTypes := functionType.ParameterTypes
         modifiers := functionType.ParameterModifiers
         flowFactsByParameter := functionType.ParameterFlowFacts
-        if parameterTypes == null {
-            return
-        }
-
         facts := new List<NullabilityPostcondition>()
         argumentIndex := 0
-        while argumentIndex < call.Arguments.Count {
+        while parameterTypes != null && argumentIndex < call.Arguments.Count {
             currentArgument := argumentIndex
             argumentIndex = argumentIndex + 1
             parameterIndex := parameterIndexByArgument[currentArgument]
@@ -437,6 +443,7 @@ class AnalyzerSyntheticCallValidator {
             postconditions.AddArgumentFacts(facts, call.Arguments[currentArgument], parameterType, isByRefParameter, parameterFlowFacts)
         }
 
+        postconditions.AddMemberPostconditions(call, functionType.MemberNullabilityPostconditions, functionType.SourceIsStatic, functionType.SourceContainingType, facts)
         postconditions.Commit(call, facts)
         RecordCallTermination(functionType, call, parameterIndexByArgument, expectedCount)
     }
@@ -505,7 +512,26 @@ class AnalyzerSyntheticCallValidator {
     // "the parameter `x` expects …" — so a signature that carries no names falls back even when the
     // snippet is available.
     func ReportWrongArgumentType(functionType: FunctionTypeInfo, call: CallExpression, functionName: string, argumentIndex: int, parameterIndex: int, expectedType: TypeInfo, argType: TypeInfo) {
+        ReportWrongArgumentType(functionType, call, functionName, argumentIndex, parameterIndex, expectedType, argType, null, null)
+    }
+
+    func ReportWrongArgumentType(functionType: FunctionTypeInfo, call: CallExpression, functionName: string, argumentIndex: int, parameterIndex: int, expectedType: TypeInfo, argType: TypeInfo, metadataContext: string?, metadataHint: string?) {
         span := spans.GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value)
+        if assignability.EnforcesReferencedNullability {
+            sourceContext := NullabilityMetadataCore.ReferencedNullabilityContext(argType)
+            if sourceContext != null {
+                if metadataContext == null {
+                    metadataContext = sourceContext
+                } else {
+                    metadataContext = sourceContext + " " + metadataContext
+                }
+
+                if metadataHint == null {
+                    metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(call.Arguments[argumentIndex].Value)
+                }
+            }
+        }
+
         parameterName: string? = null
         parameterNames := functionType.ParameterNames
         if parameterNames != null && parameterIndex < parameterNames.Count {
@@ -543,7 +569,7 @@ class AnalyzerSyntheticCallValidator {
                 argumentDisplayName = argumentTypeText
             }
 
-            built := ErrorMessageBuilder.WrongArgumentType(filePath, span.Line, span.Column, snippet, span.Length, functionName, argumentIndex + 1, parameterNameText, argumentDisplayName, expectedTypeText)
+            built := ErrorMessageBuilder.WrongArgumentType(filePath, span.Line, span.Column, snippet, span.Length, functionName, argumentIndex + 1, parameterNameText, argumentDisplayName, expectedTypeText, metadataContext, metadataHint)
             if byReferenceHint != null {
                 built.ContextualHint = byReferenceHint
             }
@@ -564,7 +590,15 @@ class AnalyzerSyntheticCallValidator {
             suggestion = byReferenceHint
         }
 
-        diagnostics.Report(ErrorCode.TypeMismatch, ErrorMessageBuilder.WrongArgumentTypeMessage(argumentDescription, functionName, actualType, parameterName, expectedTypeText), span.Line, span.Column, suggestion, span.Length)
+        message := ErrorMessageBuilder.WrongArgumentTypeMessage(argumentDescription, functionName, actualType, parameterName, expectedTypeText)
+        if metadataContext != null {
+            message = message + ". " + metadataContext
+            if metadataHint != null {
+                suggestion = metadataHint
+            }
+        }
+
+        diagnostics.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, suggestion, span.Length)
     }
 
     // A BARE ARGUMENT WHERE THE PARAMETER TAKES A REFERENCE, and the storage it names is the right

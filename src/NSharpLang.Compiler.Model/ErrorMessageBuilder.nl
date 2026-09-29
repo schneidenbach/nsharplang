@@ -12,10 +12,20 @@ class ErrorMessageBuilder {
     // than substituted for it. A builder that wrote its own headline could only ever write the bare
     // words `Type mismatch`, because the two disagreeing NAMES are not among its arguments.
     static func TypeMismatch(fileName: string, line: int, column: int, sourceSnippet: string, length: int, actualType: string, expectedType: string, message: string): CompilerError {
+        return TypeMismatch(fileName, line, column, sourceSnippet, length, actualType, expectedType, message, null, null)
+    }
+
+    static func TypeMismatch(fileName: string, line: int, column: int, sourceSnippet: string, length: int, actualType: string, expectedType: string, message: string, metadataContext: string?, metadataHint: string?): CompilerError {
         humanExplanation := "I am having trouble with this code on line " + IntText(line) + ":"
         contextualHint := TypeConversionSuggester.SuggestConversion(actualType, expectedType)
         if contextualHint == null {
             contextualHint = "These types are not compatible. Check if you need to convert or cast."
+        }
+        if metadataContext != null {
+            humanExplanation = "The value comes from a nullable .NET member annotation: " + metadataContext
+            if metadataHint != null {
+                contextualHint = metadataHint
+            }
         }
 
         return new CompilerError(ErrorCode.TypeMismatch, message, line, column, ErrorSeverity.Error) {
@@ -26,6 +36,7 @@ class ErrorMessageBuilder {
             ExpectedType: expectedType,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
+            Suggestion: metadataHint,
             DocsUrl: DiagnosticDocs.UrlFor("NL202")
         }
     }
@@ -74,19 +85,34 @@ class ErrorMessageBuilder {
     }
 
     static func ReturnTypeMismatch(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, actualType: string, expectedType: string): CompilerError {
+        return ReturnTypeMismatch(fileName, line, column, sourceSnippet, length, functionName, actualType, expectedType, null, null)
+    }
+
+    static func ReturnTypeMismatch(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, actualType: string, expectedType: string, metadataContext: string?, metadataHint: string?): CompilerError {
         contextualHint := TypeConversionSuggester.SuggestConversion(actualType, expectedType)
         if contextualHint == null {
             contextualHint = "`" + functionName + "` is declared to return `" + expectedType + "`, so every returned value must be assignable to `" + expectedType + "`."
         }
 
-        return new CompilerError(ErrorCode.TypeMismatch, "Function '" + functionName + "' should return " + expectedType + " but returns " + actualType, line, column, ErrorSeverity.Error) {
+        humanExplanation := "This return value does not match `" + functionName + "`'s return type:"
+        message := "Function '" + functionName + "' should return " + expectedType + " but returns " + actualType
+        if metadataContext != null {
+            humanExplanation = "The returned value comes from a nullable .NET member annotation: " + metadataContext
+            message = message + ". " + metadataContext
+            if metadataHint != null {
+                contextualHint = metadataHint
+            }
+        }
+
+        return new CompilerError(ErrorCode.TypeMismatch, message, line, column, ErrorSeverity.Error) {
             FileName: fileName,
             SourceSnippet: sourceSnippet,
             Length: length,
             ActualType: actualType,
             ExpectedType: expectedType,
-            HumanExplanation: "This return value does not match `" + functionName + "`'s return type:",
+            HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
+            Suggestion: metadataHint,
             DocsUrl: DiagnosticDocs.UrlFor("NL202")
         }
     }
@@ -430,6 +456,10 @@ class ErrorMessageBuilder {
     }
 
     static func WrongArgumentType(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, argIndex: int, paramName: string, actualType: string, expectedType: string): CompilerError {
+        return WrongArgumentType(fileName, line, column, sourceSnippet, length, functionName, argIndex, paramName, actualType, expectedType, null, null)
+    }
+
+    static func WrongArgumentType(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, argIndex: int, paramName: string, actualType: string, expectedType: string, metadataContext: string?, metadataHint: string?): CompilerError {
         humanExplanation := "Argument " + IntText(argIndex) + " in the call to `" + functionName + "` has the wrong type:"
 
         contextualHint := TypeConversionSuggester.SuggestConversion(actualType, expectedType)
@@ -437,7 +467,16 @@ class ErrorMessageBuilder {
             contextualHint = "The parameter `" + paramName + "` expects a `" + expectedType + "` value, but you passed a\n" + "`" + actualType + "`. These types are not compatible."
         }
 
-        return new CompilerError(ErrorCode.TypeMismatch, "Cannot pass `" + actualType + "` as argument for parameter `" + paramName + "` of type `" + expectedType + "`", line, column, ErrorSeverity.Error) {
+        message := "Cannot pass `" + actualType + "` as argument for parameter `" + paramName + "` of type `" + expectedType + "`"
+        if metadataContext != null {
+            message = message + ". " + metadataContext
+            humanExplanation = "The .NET member metadata rejects this nullable argument: " + metadataContext
+            if metadataHint != null {
+                contextualHint = metadataHint
+            }
+        }
+
+        return new CompilerError(ErrorCode.TypeMismatch, message, line, column, ErrorSeverity.Error) {
             FileName: fileName,
             SourceSnippet: sourceSnippet,
             Length: length,
@@ -445,6 +484,7 @@ class ErrorMessageBuilder {
             ExpectedType: expectedType,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
+            Suggestion: metadataHint,
             DocsUrl: DiagnosticDocs.UrlFor("NL202")
         }
     }
