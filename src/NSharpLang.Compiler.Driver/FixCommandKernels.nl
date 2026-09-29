@@ -40,7 +40,7 @@ class FixAppliedFileGrouping {
 
 class FixCommandKernels {
     static func GetProjectDirectory(projectOption: string?, positionalProject: string?, currentDirectory: string): string {
-        if !string.IsNullOrWhiteSpace(projectOption ?? "") {
+        if projectOption != null && !string.IsNullOrWhiteSpace(projectOption) {
             return Path.GetFullPath(projectOption)
         }
 

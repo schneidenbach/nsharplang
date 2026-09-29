@@ -201,10 +201,10 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
         }
 
         targetReferencePathForWhitespace := TargetReferenceAssemblyPath
-        if string.IsNullOrWhiteSpace(targetReferencePathForWhitespace) {
+        if targetReferencePathForWhitespace == null || string.IsNullOrWhiteSpace(targetReferencePathForWhitespace) {
             return false
         }
-        targetReferencePathForNormalization := TargetReferenceAssemblyPath
+        targetReferencePathForNormalization := targetReferencePathForWhitespace
         return SdkEmitTaskKernels.IsSameOutputPath(fullPath, Path.GetFullPath(targetReferencePathForNormalization))
     }
 
@@ -220,8 +220,12 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
             return
         }
 
+        if targetReferencePathForDecision == null {
+            return
+        }
+
         assemblyPath := Path.GetFullPath(TargetAssemblyPath)
-        referenceAssemblyPath := Path.GetFullPath(TargetReferenceAssemblyPath)
+        referenceAssemblyPath := Path.GetFullPath(targetReferencePathForDecision)
         if SdkEmitTaskKernels.IsSameOutputPath(assemblyPath, referenceAssemblyPath) {
             return
         }

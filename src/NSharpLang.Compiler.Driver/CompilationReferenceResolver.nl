@@ -635,6 +635,10 @@ sealed class CompilationReferenceResolver {
             parentDirectory := CompilationReferenceResolverKernels.GetNuGetPackageParentDirectory(
                 versionDirectory
             )
+            if parentDirectory == null {
+                throw new InvalidOperationException("The NuGet package version directory has no parent directory.")
+            }
+
             Directory.CreateDirectory(parentDirectory)
             extractDirectory := CompilationReferenceResolverKernels.GetNuGetExtractDirectory(
                 versionDirectory,

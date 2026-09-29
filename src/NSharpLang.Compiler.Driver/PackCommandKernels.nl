@@ -153,7 +153,7 @@ class PackCommandKernels {
     }
 
     static func GetPackageOutputDirectory(projectRoot: string, configuration: string, outputDir: string?): string {
-        if string.IsNullOrEmpty(outputDir ?? "") {
+        if outputDir == null || string.IsNullOrEmpty(outputDir) {
             return Path.Combine(Path.Combine(projectRoot, "bin"), configuration)
         }
 
