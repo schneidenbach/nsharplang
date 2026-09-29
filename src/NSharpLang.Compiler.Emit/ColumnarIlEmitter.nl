@@ -918,7 +918,12 @@ sealed class ColumnarIlEmitter {
     // builder-bound instantiations rebind via TypeBuilder.GetMethod/GetConstructor (the only legal member
     // resolution on a TypeBuilderInstantiation — the legacy emitter's TryGetDeclaredGeneratedRuntimeMethod /
     // BindRuntimeConstructorCall idiom); fully baked instantiations resolve the closed runtime handle.
-    private static func ResolveClosedGenericMethod(closedType: Type, openMethod: MethodInfo): MethodInfo => ColumnarClosedGenericMemberResolver.ResolveMethod(closedType, openMethod)
+    private static func ResolveClosedGenericMethod(closedType: Type, openMethod: MethodInfo?): MethodInfo => ResolveClosedGenericMethod(closedType, openMethod, "open generic method")
+
+    private static func ResolveClosedGenericMethod(closedType: Type, openMethod: MethodInfo?, lookup: string): MethodInfo {
+        requiredOpenMethod := ColumnarEmitReflectionFacts.RequiredMethod(openMethod, lookup + " for closed CLR type '" + closedType.ToString() + "'")
+        return ColumnarClosedGenericMemberResolver.ResolveMethod(closedType, requiredOpenMethod)
+    }
 
     // Nullable<T> is a generic value type, and source enums keep the enclosing Nullable<T> as a
     // TypeBuilderInstantiation until the persisted assembly is finalized. Reflection's ordinary
@@ -956,11 +961,14 @@ sealed class ColumnarIlEmitter {
         return ResolveClosedGenericCtor(nullableType, constructor)
     }
 
-    private static func ResolveClosedGenericCtor(closedType: Type, openCtor: ConstructorInfo): ConstructorInfo {
+    private static func ResolveClosedGenericCtor(closedType: Type, openCtor: ConstructorInfo?): ConstructorInfo => ResolveClosedGenericCtor(closedType, openCtor, "open generic constructor")
+
+    private static func ResolveClosedGenericCtor(closedType: Type, openCtor: ConstructorInfo?, lookup: string): ConstructorInfo {
+        requiredOpenCtor := ColumnarEmitReflectionFacts.RequiredConstructor(openCtor, lookup + " for closed CLR type '" + closedType.ToString() + "'")
         if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(closedType)) {
-            return TypeBuilder.GetConstructor(closedType, openCtor)
+            return TypeBuilder.GetConstructor(closedType, requiredOpenCtor)
         }
-        resolved := MethodBase.GetMethodFromHandle(openCtor.MethodHandle, closedType.TypeHandle)
+        resolved := MethodBase.GetMethodFromHandle(requiredOpenCtor.MethodHandle, closedType.TypeHandle)
         resolvedObject: object? = resolved
         return (ConstructorInfo)resolvedObject
     }
@@ -999,13 +1007,21 @@ sealed class ColumnarIlEmitter {
 
         if (t == typeof(Action)) {
             returnType = ColumnarTypeOfPlanner.RequiredVoidType()
-            delegateCtor = typeof(Action).GetConstructor([typeof(object), typeof(IntPtr)])
-            return delegateCtor != null
+            let actionCtor: System.Reflection.ConstructorInfo? = typeof(Action).GetConstructor([typeof(object), typeof(IntPtr)])
+            if (actionCtor == null) {
+                return false
+            }
+            delegateCtor = actionCtor
+            return true
         }
         if (t == typeof(ThreadStart)) {
             returnType = ColumnarTypeOfPlanner.RequiredVoidType()
-            delegateCtor = typeof(ThreadStart).GetConstructor([typeof(object), typeof(IntPtr)])
-            return delegateCtor != null
+            let threadStartCtor: System.Reflection.ConstructorInfo? = typeof(ThreadStart).GetConstructor([typeof(object), typeof(IntPtr)])
+            if (threadStartCtor == null) {
+                return false
+            }
+            delegateCtor = threadStartCtor
+            return true
         }
 
         typeBuilderType := t as TypeBuilder
@@ -1094,8 +1110,12 @@ sealed class ColumnarIlEmitter {
         if (openCtor == null) {
             return false
         }
-        delegateCtor = RuntimeTypeShapeFacts.ContainsBuilderBoundType(t) ? TypeBuilder.GetConstructor(t, openCtor) : t.GetConstructor([typeof(object), typeof(IntPtr)])
-        return delegateCtor != null
+        let resolvedCtor: System.Reflection.ConstructorInfo? = RuntimeTypeShapeFacts.ContainsBuilderBoundType(t) ? TypeBuilder.GetConstructor(t, openCtor) : t.GetConstructor([typeof(object), typeof(IntPtr)])
+        if (resolvedCtor == null) {
+            return false
+        }
+        delegateCtor = resolvedCtor
+        return true
     }
 
     // THE SIGNATURE A BAKED DELEGATE DECLARES ON ITS `Invoke`. Only a delegate answers — a type that
@@ -1204,8 +1224,13 @@ sealed class ColumnarIlEmitter {
     }
 
     private static func TryResolveDelegateConstructor(t: Type, out delegateCtor: ConstructorInfo): bool {
-        delegateCtor = t.GetConstructor([typeof(object), typeof(IntPtr)])
-        return delegateCtor != null
+        let resolvedCtor: System.Reflection.ConstructorInfo? = t.GetConstructor([typeof(object), typeof(IntPtr)])
+        if (resolvedCtor == null) {
+            delegateCtor = null
+            return false
+        }
+        delegateCtor = resolvedCtor
+        return true
     }
 
     // WHETHER THIS IS A DELEGATE AT ALL — `System.MulticastDelegate` somewhere on the base chain.
@@ -2463,7 +2488,7 @@ sealed class ColumnarIlEmitter {
             delegateType = boxedDelegate.ValueType
             _il.Emit(OpCodes.Ldarg_0)
             _il.Emit(OpCodes.Ldfld, boxedDelegate.BoxField)
-            _il.Emit(OpCodes.Ldfld, ColumnarClosureBindingPlanner.StrongBoxValueField(boxedDelegate.ValueType))
+            _il.Emit(OpCodes.Ldfld, ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(boxedDelegate.ValueType, "closure capture value type")), "StrongBox<T>.Value field for closure storage"))
         } else {
             let liftedDelegateBox: System.Reflection.Emit.LocalBuilder? = null
             let liftedDelegateValueType: System.Type? = null
@@ -2474,7 +2499,7 @@ sealed class ColumnarIlEmitter {
                 }
                 delegateType = liftedDelegate.ValueType
                 _il.Emit(OpCodes.Ldloc, liftedDelegate.Box)
-                _il.Emit(OpCodes.Ldfld, ColumnarClosureBindingPlanner.StrongBoxValueField(liftedDelegate.ValueType))
+                _il.Emit(OpCodes.Ldfld, ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(liftedDelegate.ValueType, "closure capture value type")), "StrongBox<T>.Value field for closure storage"))
             } else {
                 let local: System.Reflection.Emit.LocalBuilder? = null
                 if (_locals.TryGetValue(name, out local)) {
@@ -2965,7 +2990,7 @@ sealed class ColumnarIlEmitter {
         if (argCount < fixedCount) {
             return false
         }
-        paramsElementDeclared := target.ParamTypes[^1].GetElementType()
+        paramsElementDeclared := ColumnarEmitReflectionFacts.RequiredElementType(target.ParamTypes[^1].GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
         for a := 1; a <= fixedCount; a++ {
             if (!CanGenericCallArgumentMatch(target.TypeParams, binding, target.ParamTypes[a - 1], Child(callIdx, a), true)) {
                 return false
@@ -3176,7 +3201,12 @@ sealed class ColumnarIlEmitter {
     // the DECLARED one (a local's, a by-ref parameter's element, a field's), not a flow-narrowed read:
     // `ref text` over a narrowed `string?` still passes the `string?` storage.
     private func TrySubstituteByRefGenericElement(typeParams: Type[], binding: Type[], declared: Type, argNode: int, out byRefElement: Type): bool {
-        if (ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(typeParams, binding, declared.GetElementType(), out byRefElement)) {
+        byRefElement = null
+        if (!declared.IsByRef) {
+            return false
+        }
+        declaredElementType := ColumnarEmitReflectionFacts.RequiredElementType(declared.GetElementType(), "by-ref parameter element type")
+        if (ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(typeParams, binding, declaredElementType, out byRefElement)) {
             return true
         }
         targetNode := argNode
@@ -3195,10 +3225,10 @@ sealed class ColumnarIlEmitter {
         } else if (!TryGetPreflightExpressionTypeRaw(targetNode, out storageType)) {
             return false
         }
-        if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(typeParams, binding, declared.GetElementType(), storageType)) {
+        if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(typeParams, binding, declaredElementType, storageType)) {
             return false
         }
-        return ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(typeParams, binding, declared.GetElementType(), out byRefElement)
+        return ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(typeParams, binding, declaredElementType, out byRefElement)
     }
 
     private func CanGenericCallArgumentMatch(typeParams: Type[], binding: Type[], declared: Type, argNode: int, allowLambdaLiteral: bool): bool {
@@ -4054,7 +4084,7 @@ sealed class ColumnarIlEmitter {
             true => OpCodes.Callvirt,
             _ => OpCodes.Call
         }
-        _il.Emit(ordinaryCallOpcode, selection.Method)
+        ColumnarEmitReflectionFacts.EmitMethod(_il, ordinaryCallOpcode, selection.Method, "selected runtime member method")
         columnarResolvedType = selection.ReturnType
         return true
     }
@@ -5862,7 +5892,7 @@ sealed class ColumnarIlEmitter {
                     staticProperty.SetGetMethod(staticGetter)
                     staticSetter := staticAccessors.Setter
                     if (prop.Setter != null) {
-                        exactStaticSetter := staticSetter
+                        exactStaticSetter := ColumnarEmitReflectionFacts.RequiredMethodBuilder(staticSetter, "setter for static property '" + prop.Name + "'")
                         if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactStaticSetter, prop.Setter.SourceAttributes, typeResolution)) {
                             return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
                         }
@@ -5957,7 +5987,7 @@ sealed class ColumnarIlEmitter {
                 property.SetGetMethod(getter)
                 setter := accessors.Setter
                 if (prop.Setter != null) {
-                    exactSetter := setter
+                    exactSetter := ColumnarEmitReflectionFacts.RequiredMethodBuilder(setter, "setter for property '" + prop.Name + "'")
                     if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactSetter, prop.Setter.SourceAttributes, typeResolution)) {
                         return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
                     }
@@ -6369,7 +6399,7 @@ sealed class ColumnarIlEmitter {
             baseCtor := baseTb.DefineConstructor(MethodAttributes.Family, CallingConventions.Standard, Type.EmptyTypes)
             bcil := baseCtor.GetILGenerator()
             bcil.Emit(OpCodes.Ldarg_0)
-            bcil.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitConstructor(bcil, OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes), "required CLR constructor with the emitted signature")
             bcil.Emit(OpCodes.Ret)
             // A union is TWO owners: the base and every nested case, which REDECLARES the same parameters.
             // Both must carry the constraints — the CLR refuses to load a case less constrained than its base.
@@ -6628,8 +6658,8 @@ sealed class ColumnarIlEmitter {
                                         genericReturnIsParameterArray := false
                                         genericReturnIsSzArray := ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(returnType)
                                         if (genericReturnIsSzArray) {
-                                            genericReturnElement := returnType.GetElementType()
-                                            genericReturnIsParameterArray = (must genericReturnElement).IsGenericParameter
+                                            genericReturnElement := ColumnarEmitReflectionFacts.RequiredElementType(returnType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
+                                            genericReturnIsParameterArray = genericReturnElement.IsGenericParameter
                                         }
                                         if (genericReturnIsParameterArray) {
                                             genericReturnSupported = true
@@ -6666,8 +6696,8 @@ sealed class ColumnarIlEmitter {
                             genericParameterIsParameterArray := false
                             genericParameterIsSzArray := ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(pt)
                             if (genericParameterIsSzArray) {
-                                genericParameterElement := pt.GetElementType()
-                                genericParameterIsParameterArray = (must genericParameterElement).IsGenericParameter
+                                genericParameterElement := ColumnarEmitReflectionFacts.RequiredElementType(pt.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
+                                genericParameterIsParameterArray = genericParameterElement.IsGenericParameter
                             }
                             if (genericParameterIsParameterArray) {
                                 genericParameterSupported = true
@@ -7915,9 +7945,10 @@ sealed class ColumnarIlEmitter {
                 if !runsOnDisplay {
                     gpBuilders[outerConstraintIndex].SetGenericParameterAttributes((GenericParameterAttributes)ColumnarGenericConstraintPlanner.AttributeBitsFor(enclosingMethod.SpecialConstraints[outerConstraintIndex]))
                 }
-                if enclosingMethod.BaseConstraints[outerConstraintIndex] != null {
+                baseConstraint := enclosingMethod.BaseConstraints[outerConstraintIndex]
+                if baseConstraint != null {
                     let copiedBaseConstraint: Type = null
-                    if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(enclosingMethod.TypeParams, localTypeParams, enclosingMethod.BaseConstraints[outerConstraintIndex], out copiedBaseConstraint) {
+                    if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(enclosingMethod.TypeParams, localTypeParams, baseConstraint, out copiedBaseConstraint) {
                         return false
                     }
                     if !runsOnDisplay {
@@ -8022,7 +8053,7 @@ sealed class ColumnarIlEmitter {
             return ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(valueType, declaringType)
         }
         if valueType.HasElementType {
-            elementType := valueType.GetElementType()
+            let elementType: System.Type? = valueType.GetElementType()
             return elementType != null && IsValidGenericLocalFunctionSignatureType(elementType, declaringType, ownTypeParameters)
         }
         if !valueType.IsGenericType {
@@ -8600,9 +8631,11 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Initobj, typeof(System.Threading.Tasks.ValueTask))
                 _il.Emit(OpCodes.Ldloc, unitTemp)
             } else {
-                _il.Emit(
+                ColumnarEmitReflectionFacts.EmitMethod(
+                    _il,
                     OpCodes.Call,
-                    (must typeof(System.Threading.Tasks.Task).GetProperty(nameof(System.Threading.Tasks.Task.CompletedTask))).GetGetMethod()
+                    ColumnarEmitReflectionFacts.RequiredGetter(typeof(System.Threading.Tasks.Task).GetProperty(nameof(System.Threading.Tasks.Task.CompletedTask)), "Task.CompletedTask"),
+                    "Task.CompletedTask getter"
                 )
             }
             return
@@ -8611,7 +8644,7 @@ sealed class ColumnarIlEmitter {
             throw new InvalidOperationException("async value return requires the value on the stack")
         }
         if (_asyncReturnsValueTask) {
-            _il.Emit(OpCodes.Newobj, (must _asyncReturnType).GetConstructor([_asyncResultType]))
+            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, ColumnarEmitReflectionFacts.RequiredType(_asyncReturnType, "configured async return type").GetConstructor([_asyncResultType]), "required CLR constructor with the emitted signature")
         } else {
             _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromResult", true).MakeGenericMethod([_asyncResultType]))
         }
@@ -8633,14 +8666,14 @@ sealed class ColumnarIlEmitter {
         if (_asyncResultType == null) {
             _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", false))
             if (_asyncReturnsValueTask) {
-                _il.Emit(OpCodes.Newobj, typeof(System.Threading.Tasks.ValueTask).GetConstructor([typeof(System.Threading.Tasks.Task)]))
+                ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(System.Threading.Tasks.ValueTask).GetConstructor([typeof(System.Threading.Tasks.Task)]), "required CLR constructor with the emitted signature")
             }
             return
         }
         _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", true).MakeGenericMethod([_asyncResultType]))
         if (_asyncReturnsValueTask) {
             taskOfT := typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([_asyncResultType])
-            _il.Emit(OpCodes.Newobj, (must _asyncReturnType).GetConstructor([taskOfT]))
+            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, ColumnarEmitReflectionFacts.RequiredType(_asyncReturnType, "configured async return type").GetConstructor([taskOfT]), "required CLR constructor with the emitted signature")
         }
     }
 
@@ -8655,7 +8688,7 @@ sealed class ColumnarIlEmitter {
             vtLocal := _il.DeclareLocal(awaitableType)
             _il.Emit(OpCodes.Stloc, vtLocal)
             _il.Emit(OpCodes.Ldloca, vtLocal)
-            _il.Emit(OpCodes.Call, awaitableType.GetMethod(nameof(System.Threading.Tasks.ValueTask.AsTask), Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, awaitableType.GetMethod(nameof(System.Threading.Tasks.ValueTask.AsTask), Type.EmptyTypes), "CLR method AsTask")
             return TryEmitBlockingAwait(typeof(System.Threading.Tasks.Task), out resultType)
         }
         if (awaitableType.IsGenericType && !awaitableType.IsGenericTypeDefinition && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition()) {
@@ -8664,7 +8697,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldloca, vtLocal)
             _il.Emit(
                 OpCodes.Call,
-                ResolveClosedGenericMethod(awaitableType, typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition().GetMethod("AsTask", Type.EmptyTypes))
+                ResolveClosedGenericMethod(awaitableType, typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition().GetMethod("AsTask", Type.EmptyTypes), "open member lookup: typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition().GetMethod(\"AsTask\", Type.EmptyTypes)")
             )
             return TryEmitBlockingAwait(
                 typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([awaitableType.GetGenericArguments()[0]]),
@@ -8672,12 +8705,12 @@ sealed class ColumnarIlEmitter {
             )
         }
         if (awaitableType == typeof(System.Threading.Tasks.Task)) {
-            _il.Emit(OpCodes.Callvirt, awaitableType.GetMethod("GetAwaiter", Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, awaitableType.GetMethod("GetAwaiter", Type.EmptyTypes), "CLR method GetAwaiter")
             awaiterType := typeof(System.Runtime.CompilerServices.TaskAwaiter)
             awaiterLocal := _il.DeclareLocal(awaiterType)
             _il.Emit(OpCodes.Stloc, awaiterLocal)
             _il.Emit(OpCodes.Ldloca, awaiterLocal)
-            _il.Emit(OpCodes.Call, awaiterType.GetMethod("GetResult", Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, awaiterType.GetMethod("GetResult", Type.EmptyTypes), "CLR method GetResult")
             resultType = ColumnarTypeOfPlanner.RequiredVoidType()
             return true
         }
@@ -8688,7 +8721,7 @@ sealed class ColumnarIlEmitter {
             }
             _il.Emit(
                 OpCodes.Callvirt,
-                ResolveClosedGenericMethod(awaitableType, typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().GetMethod("GetAwaiter", Type.EmptyTypes))
+                ResolveClosedGenericMethod(awaitableType, typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().GetMethod("GetAwaiter", Type.EmptyTypes), "open member lookup: typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().GetMethod(\"GetAwaiter\", Type.EmptyTypes)")
             )
             awaiterType := typeof(System.Runtime.CompilerServices.TaskAwaiter<int>).GetGenericTypeDefinition().MakeGenericType([taskResult])
             awaiterLocal := _il.DeclareLocal(awaiterType)
@@ -8696,7 +8729,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldloca, awaiterLocal)
             _il.Emit(
                 OpCodes.Call,
-                ResolveClosedGenericMethod(awaiterType, typeof(System.Runtime.CompilerServices.TaskAwaiter<int>).GetGenericTypeDefinition().GetMethod("GetResult", Type.EmptyTypes))
+                ResolveClosedGenericMethod(awaiterType, typeof(System.Runtime.CompilerServices.TaskAwaiter<int>).GetGenericTypeDefinition().GetMethod("GetResult", Type.EmptyTypes), "open member lookup: typeof(System.Runtime.CompilerServices.TaskAwaiter<int>).GetGenericTypeDefinition().GetMethod(\"GetResult\", Type.EmptyTypes)")
             )
             resultType = taskResult
             return true
@@ -9066,7 +9099,7 @@ sealed class ColumnarIlEmitter {
             lockLocal := _il.DeclareLocal(typeof(object))
             _il.Emit(OpCodes.Stloc, lockLocal)
             _il.Emit(OpCodes.Ldloc, lockLocal)
-            _il.Emit(OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Enter), [typeof(object)]))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Enter), [typeof(object)]), "CLR method Enter")
             _protectedDepth = _protectedDepth + 1
             _il.BeginExceptionBlock()
             if (!EmitStatement(Child(idx, 1))) {
@@ -9075,7 +9108,7 @@ sealed class ColumnarIlEmitter {
             _il.BeginFinallyBlock()
             _finallyDepth = _finallyDepth + 1
             _il.Emit(OpCodes.Ldloc, lockLocal)
-            _il.Emit(OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Exit), [typeof(object)]))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Exit), [typeof(object)]), "CLR method Exit")
             _finallyDepth = _finallyDepth - 1
             _il.EndExceptionBlock()
             _protectedDepth = _protectedDepth - 1
@@ -9163,7 +9196,7 @@ sealed class ColumnarIlEmitter {
             if (printedType.IsValueType) {
                 _il.Emit(OpCodes.Box, printedType)
             }
-            _il.Emit(OpCodes.Call, typeof(Console).GetMethod(nameof(Console.WriteLine), [typeof(object)]))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(Console).GetMethod(nameof(Console.WriteLine), [typeof(object)]), "CLR method WriteLine")
             return true
         } else if columnarSwitchValue0 == ColumnarStatementNodeKind.ReturnStatement {
             // Return [value?] — in a VOID function a value-less `return` emits a bare `ret`; in a VALUE
@@ -9333,7 +9366,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(idx, 0), out initType)) {
                 return Decline("emit.local.initializer", "local initializer expression emission declined for '" + name + "'", Child(idx, 0))
             }
-            if (!(initType.IsGenericParameter || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(initType) && (must initType.GetElementType()).IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(initType))) {
+            if (!(initType.IsGenericParameter || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(initType) && (ColumnarEmitReflectionFacts.RequiredElementType(initType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")).IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(initType))) {
                 return Decline("emit.local.unsupported-type", "local initializer type is not supported for '" + name + "': " + initType.FullName, idx)
             }
             // L3b: a lifted candidate (captured by some lambda AND bare-assigned) declares as a shared
@@ -9719,7 +9752,7 @@ sealed class ColumnarIlEmitter {
                 if (CallStatementNeverReturns(expr, out terminatingCallee)) {
                     _neverReturningCallStatements.Add(idx)
                     _il.Emit(OpCodes.Ldstr, "'" + terminatingCallee + "' is annotated [DoesNotReturn] but returned.")
-                    _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                    ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]), "required CLR constructor with the emitted signature")
                     _il.Emit(OpCodes.Throw)
                 }
                 return true
@@ -9763,7 +9796,7 @@ sealed class ColumnarIlEmitter {
                     // element and once to store it back -- so a side-effecting index expression runs a
                     // single time, and the bounds check is the CLR's own on both halves.
                     if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(idxRecvType)) {
-                        arrayElementType := idxRecvType.GetElementType()
+                        arrayElementType := ColumnarEmitReflectionFacts.RequiredElementType(idxRecvType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
                         arrayTemp := _il.DeclareLocal(idxRecvType)
                         _il.Emit(OpCodes.Stloc, arrayTemp)
                         let arrayIndexType: System.Type? = null
@@ -9809,7 +9842,7 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Ldloc, idxKeyTemp)
                     _il.Emit(OpCodes.Ldloc, idxRecvTemp)
                     _il.Emit(OpCodes.Ldloc, idxKeyTemp)
-                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("get_Item")))
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("get_Item"), "open member lookup: idxRecvDef.GetMethod(\"get_Item\")"), "CLR method get_Item")
                     let idxRhsType: System.Type? = null
                     if (TryEmitIntLiteralAsType(Child(expr, 1), idxElemType, out idxRhsType)) {
                     } else {
@@ -9821,7 +9854,7 @@ sealed class ColumnarIlEmitter {
                     if (!TryEmitCompoundOperation(assignOp, idxElemType, idxRhsType)) {
                         return false
                     }
-                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("set_Item")))
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("set_Item"), "open member lookup: idxRecvDef.GetMethod(\"set_Item\")"), "CLR method set_Item")
                     return true
                 }
                 // A MEMBER compound target (`s.X += 1`, `c.X += 1`, `o.i.X += 3` — the post-#22
@@ -9897,7 +9930,7 @@ sealed class ColumnarIlEmitter {
                         // for the store, and the operation is on the element type.
                         if (compoundType.IsByRef) {
                             compoundThroughReference = true
-                            compoundType = compoundType.GetElementType()
+                            compoundType = ColumnarEmitReflectionFacts.RequiredElementType(compoundType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
                         }
                     } else {
                         return false
@@ -9958,13 +9991,13 @@ sealed class ColumnarIlEmitter {
                         if (!EmitDeclaredCallArgument(Child(expr, 1), setValType, true)) {
                             return false
                         }
-                        _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item")))
+                        ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item"), "open member lookup: setDef.GetMethod(\"set_Item\")"), "CLR method set_Item")
                         return true
                     }
                     if (!EmitExpression(Child(expr, 1), out setValueType) || (!TypesEquivalent(setValueType, setValType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(setValueType, setValType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(setValueType, setValType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(setValueType, setValType))) {
                         return false
                     }
-                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item")))
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item"), "open member lookup: setDef.GetMethod(\"set_Item\")"), "CLR method set_Item")
                     return true
                 }
                 if (ColumnarTypeOfPlanner.IsSupportedSpanType(arrayType)) {
@@ -10005,7 +10038,7 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 // Stelem order is (array, index, value): emit the array ref, the int index, the value, store.
-                elementType := arrayType.GetElementType()
+                elementType := ColumnarEmitReflectionFacts.RequiredElementType(arrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
                 let indexType: System.Type? = null
                 if (!EmitExpression(Child(target, 1), out indexType) || indexType != typeof(int)) {
                     return false
@@ -10283,13 +10316,13 @@ sealed class ColumnarIlEmitter {
                     if (!EmitDeclaredCallArgument(Child(expr, 1), boxedWrite.ValueType, true)) {
                         return false
                     }
-                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(boxedWrite.ValueType))
+                    _il.Emit(OpCodes.Stfld, ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(boxedWrite.ValueType, "closure capture value type")), "StrongBox<T>.Value field for closure storage"))
                     return true
                 }
                 if (!EmitExpression(Child(expr, 1), out boxedValueType) || boxedValueType != boxedWrite.ValueType) {
                     return false
                 }
-                _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(boxedWrite.ValueType))
+                _il.Emit(OpCodes.Stfld, ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(boxedWrite.ValueType, "closure capture value type")), "StrongBox<T>.Value field for closure storage"))
                 return true
             }
             let liftedWriteBox: System.Reflection.Emit.LocalBuilder? = null
@@ -10302,13 +10335,13 @@ sealed class ColumnarIlEmitter {
                     if (!EmitDeclaredCallArgument(Child(expr, 1), liftedWrite.ValueType, true)) {
                         return false
                     }
-                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(liftedWrite.ValueType))
+                    _il.Emit(OpCodes.Stfld, ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(liftedWrite.ValueType, "closure capture value type")), "StrongBox<T>.Value field for closure storage"))
                     return true
                 }
                 if (!EmitExpression(Child(expr, 1), out liftedValueType) || liftedValueType != liftedWrite.ValueType) {
                     return false
                 }
-                _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(liftedWrite.ValueType))
+                _il.Emit(OpCodes.Stfld, ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(liftedWrite.ValueType, "closure capture value type")), "StrongBox<T>.Value field for closure storage"))
                 return true
             }
             let assignTarget: System.Reflection.Emit.LocalBuilder? = null
@@ -10379,7 +10412,7 @@ sealed class ColumnarIlEmitter {
             if (_paramOrdinals.TryGetValue(targetName, out paramOrdinal)) {
                 declaredParamType := _paramTypes[targetName]
                 if (declaredParamType.IsByRef) {
-                    paramElementType := declaredParamType.GetElementType()
+                    paramElementType := ColumnarEmitReflectionFacts.RequiredElementType(declaredParamType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
                     ColumnarArgumentInstructionEmitter.EmitLoad(_il, paramOrdinal)
                     let byRefParamValueType: System.Type = null
                     if (IsAdoptableUnionConstruction(Child(expr, 1), paramElementType)) {
@@ -10881,21 +10914,21 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldloca, tokenLocal)
             _il.Emit(OpCodes.Initobj, typeof(System.Threading.CancellationToken))
             _il.Emit(OpCodes.Ldloc, tokenLocal)
-            _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(streamType, typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().GetMethod("GetAsyncEnumerator")))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(streamType, typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().GetMethod("GetAsyncEnumerator"), "open member lookup: typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().GetMethod(\"GetAsyncEnumerator\")"), "CLR method GetAsyncEnumerator")
             asyncEnumeratorLocal := _il.DeclareLocal(asyncEnumeratorType)
             _il.Emit(OpCodes.Stloc, asyncEnumeratorLocal)
             awaitLoopStart := _il.DefineLabel()
             awaitDisposeLabel := _il.DefineLabel()
             _il.MarkLabel(awaitLoopStart)
             _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal)
-            _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(asyncEnumeratorType, typeof(IAsyncEnumerator<int>).GetGenericTypeDefinition().GetMethod("MoveNextAsync")))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(asyncEnumeratorType, typeof(IAsyncEnumerator<int>).GetGenericTypeDefinition().GetMethod("MoveNextAsync"), "open member lookup: typeof(IAsyncEnumerator<int>).GetGenericTypeDefinition().GetMethod(\"MoveNextAsync\")"), "CLR method MoveNextAsync")
             let columnarDiscard23: System.Type = null
             if (!TryEmitBlockingAwait(typeof(System.Threading.Tasks.ValueTask<bool>), out columnarDiscard23)) {
                 return false
             }
             _il.Emit(OpCodes.Brfalse, awaitDisposeLabel)
             _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal)
-            _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(asyncEnumeratorType, (must typeof(IAsyncEnumerator<int>).GetGenericTypeDefinition().GetProperty("Current")).GetGetMethod()))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(asyncEnumeratorType, ColumnarEmitReflectionFacts.RequiredGetter(typeof(IAsyncEnumerator<int>).GetGenericTypeDefinition().GetProperty("Current"), "IAsyncEnumerator<T>.Current")), "CLR property getter Current")
             awaitLoopVar := _il.DeclareLocal(streamElementType)
             _il.Emit(OpCodes.Stloc, awaitLoopVar)
             _locals[awaitVarName] = awaitLoopVar
@@ -10912,7 +10945,7 @@ sealed class ColumnarIlEmitter {
             }
             _il.MarkLabel(awaitDisposeLabel)
             _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal)
-            _il.Emit(OpCodes.Callvirt, typeof(IAsyncDisposable).GetMethod(nameof(IAsyncDisposable.DisposeAsync)))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(IAsyncDisposable).GetMethod(nameof(IAsyncDisposable.DisposeAsync)), "CLR method DisposeAsync")
             let columnarDiscard24: System.Type = null
             if (!TryEmitBlockingAwait(typeof(System.Threading.Tasks.ValueTask), out columnarDiscard24)) {
                 return false
@@ -11122,12 +11155,12 @@ sealed class ColumnarIlEmitter {
                     if (assertMessageType.IsValueType) {
                         _il.Emit(OpCodes.Box, assertMessageType)
                     }
-                    _il.Emit(OpCodes.Callvirt, typeof(object).GetMethod(nameof(Object.ToString), Type.EmptyTypes))
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(object).GetMethod(nameof(Object.ToString), Type.EmptyTypes), "CLR method ToString")
                 }
             } else {
                 _il.Emit(OpCodes.Ldstr, "Assertion failed")
             }
-            _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]), "required CLR constructor with the emitted signature")
             _il.Emit(OpCodes.Throw)
             _il.MarkLabel(assertOk)
             PushNarrowedNames(assertNarrowing.Then)
@@ -11170,7 +11203,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldloc, assertThrowsMissed)
             _il.Emit(OpCodes.Brfalse, assertThrowsOk)
             _il.Emit(OpCodes.Ldstr, "Expected exception of type " + expectedExceptionType.Name + " was not thrown")
-            _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]), "required CLR constructor with the emitted signature")
             _il.Emit(OpCodes.Throw)
             _il.MarkLabel(assertThrowsOk)
             return true
@@ -11351,7 +11384,7 @@ sealed class ColumnarIlEmitter {
         if (indexType != typeof(int) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
             return false
         }
-        elementType := arrayType.GetElementType()
+        elementType := ColumnarEmitReflectionFacts.RequiredElementType(arrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
         helper := ReductionHelperForColumnarElementType(elementType)
         if (helper == null || accumulatorType != elementType) {
             return false
@@ -11388,7 +11421,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         let arrayType: System.Type? = null
-        if (!EmitExpression(shape.ArrayNode, out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType) || arrayType.GetElementType() != shape.ElementType) {
+        if (!EmitExpression(shape.ArrayNode, out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType) || ColumnarEmitReflectionFacts.RequiredElementType(arrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape") != shape.ElementType) {
             return false
         }
         let indexType: System.Type? = null
@@ -12974,46 +13007,46 @@ sealed class ColumnarIlEmitter {
     private static func TryGetSupportedBclReadableProperty(receiverType: Type, member: string, out property: PropertyInfo): bool {
         property = null
         if (receiverType == typeof(Process) && (member == nameof(Process.ExitCode) || member == nameof(Process.StandardOutput) || member == nameof(Process.StandardError))) {
-            resolvedProperty := must typeof(Process).GetProperty(member)
+            resolvedProperty := ColumnarEmitReflectionFacts.RequiredProperty(typeof(Process).GetProperty(member), "Process." + member)
             property = resolvedProperty
             return resolvedProperty.GetMethod != null
         }
         if (member == nameof(Exception.Message) && typeof(Exception).IsAssignableFrom(receiverType)) {
-            resolvedProperty := must typeof(Exception).GetProperty(nameof(Exception.Message))
+            resolvedProperty := ColumnarEmitReflectionFacts.RequiredProperty(typeof(Exception).GetProperty(nameof(Exception.Message)), "Exception.Message")
             property = resolvedProperty
             return resolvedProperty.GetMethod != null
         }
         if (receiverType.IsGenericType && !receiverType.IsGenericTypeDefinition && receiverType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition() && member == "Result" && ColumnarTypeOfPlanner.IsSupportedType(receiverType.GetGenericArguments()[0])) {
-            resolvedProperty := must receiverType.GetProperty("Result")
+            resolvedProperty := ColumnarEmitReflectionFacts.RequiredProperty(receiverType.GetProperty("Result"), "Task<T>.Result")
             property = resolvedProperty
             return resolvedProperty.GetMethod != null
         }
         if (receiverType == typeof(IList) && member == "Count") {
-            resolvedProperty := must typeof(ICollection).GetProperty("Count")
+            resolvedProperty := ColumnarEmitReflectionFacts.RequiredProperty(typeof(ICollection).GetProperty("Count"), "ICollection.Count")
             property = resolvedProperty
             return resolvedProperty.GetMethod != null
         }
         if (receiverType == typeof(Assembly) && (member == nameof(Assembly.IsDynamic) || member == nameof(Assembly.IsCollectible))) {
-            resolvedProperty := must typeof(Assembly).GetProperty(member)
+            resolvedProperty := ColumnarEmitReflectionFacts.RequiredProperty(typeof(Assembly).GetProperty(member), "Assembly." + member)
             property = resolvedProperty
             return resolvedProperty.GetMethod != null
         }
         if (receiverType == typeof(JsonDocument) && member == nameof(JsonDocument.RootElement)) {
-            resolvedProperty := must typeof(JsonDocument).GetProperty(nameof(JsonDocument.RootElement))
+            resolvedProperty := ColumnarEmitReflectionFacts.RequiredProperty(typeof(JsonDocument).GetProperty(nameof(JsonDocument.RootElement)), "JsonDocument.RootElement")
             property = resolvedProperty
             return resolvedProperty.GetMethod != null
         }
         if (receiverType == typeof(JsonElement) && member == nameof(JsonElement.ValueKind)) {
-            resolvedProperty := must typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind))
+            resolvedProperty := ColumnarEmitReflectionFacts.RequiredProperty(typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind)), "JsonElement.ValueKind")
             property = resolvedProperty
             return resolvedProperty.GetMethod != null
         }
         if (ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver(receiverType)) {
             resolvedProperty := receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
-            property = resolvedProperty
             if (resolvedProperty == null || resolvedProperty.GetMethod == null) {
                 return false
             }
+            property = resolvedProperty
             return ColumnarTypeOfPlanner.IsSupportedType(resolvedProperty.PropertyType)
         }
         return false
@@ -13054,7 +13087,7 @@ sealed class ColumnarIlEmitter {
         if (!ColumnarTypeOfPlanner.IsSupportedType(resolvedProperty.PropertyType)) {
             return false
         }
-        property = resolvedProperty
+        property = ColumnarEmitReflectionFacts.RequiredProperty(resolvedProperty, "writable BCL property '" + member + "'")
         return true
     }
 
@@ -13333,10 +13366,10 @@ sealed class ColumnarIlEmitter {
             nullableLocal := _il.DeclareLocal(receiverType)
             _il.Emit(OpCodes.Stloc, nullableLocal)
             _il.Emit(OpCodes.Ldloca, nullableLocal)
-            _il.Emit(OpCodes.Call, receiverType.GetMethod("get_HasValue"))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, receiverType.GetMethod("get_HasValue"), "CLR method get_HasValue")
             _il.Emit(OpCodes.Brfalse, escape)
             _il.Emit(OpCodes.Ldloca, nullableLocal)
-            _il.Emit(OpCodes.Call, receiverType.GetMethod("get_Value"))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, receiverType.GetMethod("get_Value"), "CLR method get_Value")
             columnarResolvedType = receiverType.GetGenericArguments()[0]
             return true
         }
@@ -13487,7 +13520,7 @@ sealed class ColumnarIlEmitter {
                 paramType := _paramTypes[name]
                 if (paramType.IsByRef) {
                     ColumnarArgumentInstructionEmitter.EmitLoad(_il, ordinal)
-                    columnarResolvedType = paramType.GetElementType()
+                    columnarResolvedType = ColumnarEmitReflectionFacts.RequiredElementType(paramType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
                     EmitLoadByRefElement(columnarResolvedType)
                     return true
                 }
@@ -13613,7 +13646,7 @@ sealed class ColumnarIlEmitter {
                 // negate — Neg works on i4/i8/r8/r4; result is the operand's numeric type. N# forbids ulong.
                 // IEEE double/float negation preserves signed zero; decimal uses op_UnaryNegation.
                 if (operandType == typeof(decimal)) {
-                    _il.Emit(OpCodes.Call, typeof(decimal).GetMethod("op_UnaryNegation", [typeof(decimal)]))
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(decimal).GetMethod("op_UnaryNegation", [typeof(decimal)]), "CLR method op_UnaryNegation")
                     columnarResolvedType = typeof(decimal)
                     return true
                 }
@@ -13950,7 +13983,7 @@ sealed class ColumnarIlEmitter {
             // right is an enum string-constant member access) reaches here; nested `+` chains recurse
             // through this pair concat. The N# planner owns fully-plannable string-pair concat at the front door.
             if (op == "+" && opType == typeof(string)) {
-                _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]), "CLR method Concat")
                 columnarResolvedType = typeof(string)
                 return true
             }
@@ -13981,7 +14014,7 @@ sealed class ColumnarIlEmitter {
             } else if columnarSwitchValue4 == "==" || columnarSwitchValue4 == "!=" {
                 if (opType == typeof(string)) {
                     // String equality is VALUE equality (String.op_Equality), NOT `ceq`. `!=` negates.
-                    _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]))
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]), "CLR method op_Equality")
                     if (op == "!=") {
                         _il.Emit(OpCodes.Ldc_I4_0)
                         _il.Emit(OpCodes.Ceq)
@@ -14495,12 +14528,12 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 if (structReceiverType == typeof(string)) {
-                    _il.Emit(OpCodes.Callvirt, (must typeof(string).GetProperty(nameof(string.Length))).GetGetMethod())
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, RequiredStringLengthGetter(), "required CLR method for this emitted instruction")
                     columnarResolvedType = typeof(int)
                     return true
                 }
                 if (structReceiverType == typeof(System.Text.StringBuilder)) {
-                    _il.Emit(OpCodes.Callvirt, (must typeof(System.Text.StringBuilder).GetProperty(nameof(System.Text.StringBuilder.Length))).GetGetMethod())
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ColumnarEmitReflectionFacts.RequiredGetter(typeof(System.Text.StringBuilder).GetProperty(nameof(System.Text.StringBuilder.Length)), "StringBuilder.Length"), "CLR property getter Length")
                     columnarResolvedType = typeof(int)
                     return true
                 }
@@ -14508,7 +14541,7 @@ sealed class ColumnarIlEmitter {
                     spanTemp := _il.DeclareLocal(structReceiverType)
                     _il.Emit(OpCodes.Stloc, spanTemp)
                     _il.Emit(OpCodes.Ldloca, spanTemp)
-                    _il.Emit(OpCodes.Call, (must structReceiverType.GetProperty("Length")).GetGetMethod())
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, ColumnarEmitReflectionFacts.RequiredGetter(structReceiverType.GetProperty("Length"), "Length getter on a supported span-like type"), "CLR property getter Length")
                     columnarResolvedType = typeof(int)
                     return true
                 }
@@ -14525,7 +14558,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             if (structReceiverType == typeof(System.Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision")) {
-                _il.Emit(OpCodes.Callvirt, (must typeof(System.Version).GetProperty(member)).GetGetMethod())
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ColumnarEmitReflectionFacts.RequiredGetter(typeof(System.Version).GetProperty(member), "Version." + member), "required CLR method for this emitted instruction")
                 columnarResolvedType = typeof(int)
                 return true
             }
@@ -14533,7 +14566,7 @@ sealed class ColumnarIlEmitter {
                 timeSpanTemp := _il.DeclareLocal(typeof(TimeSpan))
                 _il.Emit(OpCodes.Stloc, timeSpanTemp)
                 _il.Emit(OpCodes.Ldloca, timeSpanTemp)
-                _il.Emit(OpCodes.Call, (must typeof(TimeSpan).GetProperty(nameof(TimeSpan.TotalMilliseconds))).GetGetMethod())
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, ColumnarEmitReflectionFacts.RequiredGetter(typeof(TimeSpan).GetProperty(nameof(TimeSpan.TotalMilliseconds)), "TimeSpan.TotalMilliseconds"), "CLR property getter TotalMilliseconds")
                 columnarResolvedType = typeof(double)
                 return true
             }
@@ -14552,7 +14585,7 @@ sealed class ColumnarIlEmitter {
                 jsonElementTemp := _il.DeclareLocal(typeof(JsonElement))
                 _il.Emit(OpCodes.Stloc, jsonElementTemp)
                 _il.Emit(OpCodes.Ldloca, jsonElementTemp)
-                _il.Emit(OpCodes.Call, (must typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind))).GetGetMethod())
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, ColumnarEmitReflectionFacts.RequiredGetter(typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind)), "JsonElement.ValueKind"), "CLR property getter ValueKind")
                 columnarResolvedType = typeof(JsonValueKind)
                 return true
             }
@@ -14563,7 +14596,7 @@ sealed class ColumnarIlEmitter {
                 enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ArrayEnumerator))
                 _il.Emit(OpCodes.Stloc, enumeratorTemp)
                 _il.Emit(OpCodes.Ldloca, enumeratorTemp)
-                _il.Emit(OpCodes.Call, (must typeof(JsonElement.ArrayEnumerator).GetProperty("Current")).GetGetMethod())
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, ColumnarEmitReflectionFacts.RequiredGetter(typeof(JsonElement.ArrayEnumerator).GetProperty("Current"), "JsonElement.ArrayEnumerator.Current"), "CLR property getter Current")
                 columnarResolvedType = typeof(JsonElement)
                 return true
             }
@@ -14571,7 +14604,7 @@ sealed class ColumnarIlEmitter {
                 enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ObjectEnumerator))
                 _il.Emit(OpCodes.Stloc, enumeratorTemp)
                 _il.Emit(OpCodes.Ldloca, enumeratorTemp)
-                _il.Emit(OpCodes.Call, (must typeof(JsonElement.ObjectEnumerator).GetProperty("Current")).GetGetMethod())
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, ColumnarEmitReflectionFacts.RequiredGetter(typeof(JsonElement.ObjectEnumerator).GetProperty("Current"), "JsonElement.ObjectEnumerator.Current"), "CLR property getter Current")
                 columnarResolvedType = typeof(JsonProperty)
                 return true
             }
@@ -14597,18 +14630,18 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             if (structReceiverType == typeof(YamlDotNet.Core.IParser) && member == nameof(YamlDotNet.Core.IParser.Current)) {
-                _il.Emit(OpCodes.Callvirt, (must typeof(YamlDotNet.Core.IParser).GetProperty(nameof(YamlDotNet.Core.IParser.Current))).GetGetMethod())
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ColumnarEmitReflectionFacts.RequiredGetter(typeof(YamlDotNet.Core.IParser).GetProperty(nameof(YamlDotNet.Core.IParser.Current)), "YamlDotNet.Core.IParser.Current"), "CLR property getter Current")
                 columnarResolvedType = typeof(ParsingEvent)
                 return true
             }
             if (structReceiverType == typeof(Scalar) && member == nameof(Scalar.Value)) {
-                _il.Emit(OpCodes.Callvirt, (must typeof(Scalar).GetProperty(nameof(Scalar.Value))).GetGetMethod())
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ColumnarEmitReflectionFacts.RequiredGetter(typeof(Scalar).GetProperty(nameof(Scalar.Value)), "YamlDotNet.Core.Scalar.Value"), "CLR property getter Value")
                 columnarResolvedType = typeof(string)
                 return true
             }
             let bclPropertyRead: System.Reflection.PropertyInfo? = null
             if (TryGetSupportedBclReadableProperty(structReceiverType, member, out bclPropertyRead)) {
-                _il.Emit(OpCodes.Callvirt, bclPropertyRead.GetMethod)
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, bclPropertyRead.GetMethod, "required CLR method for this emitted instruction")
                 columnarResolvedType = bclPropertyRead.PropertyType
                 return true
             }
@@ -14666,8 +14699,8 @@ sealed class ColumnarIlEmitter {
                 kvpTemp := _il.DeclareLocal(structReceiverType)
                 _il.Emit(OpCodes.Stloc, kvpTemp)
                 _il.Emit(OpCodes.Ldloca, kvpTemp)
-                openKvpGetter := (must typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().GetProperty(member)).GetGetMethod()
-                _il.Emit(OpCodes.Call, ResolveClosedGenericMethod(structReceiverType, openKvpGetter))
+                openKvpGetter := ColumnarEmitReflectionFacts.RequiredGetter(typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().GetProperty(member), "KeyValuePair<TKey, TValue>." + member)
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, ResolveClosedGenericMethod(structReceiverType, openKvpGetter), "closed generic CLR method")
                 columnarResolvedType = structReceiverType.GetGenericArguments()[member == "Key" ? 0 : 1]
                 return true
             }
@@ -14789,7 +14822,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitExpression(indexNode, out stringIndexType) || stringIndexType != typeof(int)) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, typeof(string).GetMethod("get_Chars", [typeof(int)]))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(string).GetMethod("get_Chars", [typeof(int)]), "CLR method get_Chars")
                 columnarResolvedType = typeof(char)
                 return true
             }
@@ -14804,7 +14837,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(idx, 1, idxParamType)) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(indexedType, indexedDef.GetMethod("get_Item")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(indexedType, indexedDef.GetMethod("get_Item"), "open member lookup: indexedDef.GetMethod(\"get_Item\")"), "CLR method get_Item")
                 columnarResolvedType = indexedDef == typeof(List<int>).GetGenericTypeDefinition() ? indexedType.GetGenericArguments()[0] : indexedType.GetGenericArguments()[1]
                 return true
             }
@@ -14812,8 +14845,8 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(idx, 1, typeof(int))) {
                     return false
                 }
-                itemGetter := (must typeof(IReadOnlyList<int>).GetGenericTypeDefinition().GetProperty("Item")).GetGetMethod()
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(indexedType, itemGetter))
+                itemGetter := ColumnarEmitReflectionFacts.RequiredGetter(typeof(IReadOnlyList<int>).GetGenericTypeDefinition().GetProperty("Item"), "IReadOnlyList<T>.Item")
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(indexedType, itemGetter), "closed generic CLR method")
                 columnarResolvedType = indexedType.GetGenericArguments()[0]
                 return true
             }
@@ -14821,7 +14854,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(idx, 1, typeof(int))) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, (must typeof(IList).GetProperty("Item")).GetGetMethod())
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ColumnarEmitReflectionFacts.RequiredGetter(typeof(IList).GetProperty("Item"), "IList.Item"), "CLR property getter Item")
                 columnarResolvedType = typeof(object)
                 return true
             }
@@ -14872,11 +14905,11 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(indexNode, out arrayIndexType)) {
                 return false
             }
-            elementType := indexedType.GetElementType()
+            elementType := ColumnarEmitReflectionFacts.RequiredElementType(indexedType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
             if (arrayIndexType != typeof(int)) {
                 return false
             }
-            if (!(must elementType).IsGenericParameter) {
+            if (!elementType.IsGenericParameter) {
                 elementTypeBuilder := elementType as TypeBuilder
                 if (elementTypeBuilder == null && elementType.IsValueType && !ColumnarTypeOfPlanner.IsSupportedType(elementType)) {
                     return false
@@ -14929,7 +14962,7 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     let charArrType: System.Type? = null
-                    if (!EmitExpression(Child(idx, 1), out charArrType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(charArrType) || charArrType.GetElementType() != typeof(char)) {
+                    if (!EmitExpression(Child(idx, 1), out charArrType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(charArrType) || ColumnarEmitReflectionFacts.RequiredElementType(charArrType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape") != typeof(char)) {
                         return false
                     }
                     if (!EmitArg(idx, 2, typeof(int)) || !EmitArg(idx, 3, typeof(int))) {
@@ -14972,7 +15005,7 @@ sealed class ColumnarIlEmitter {
                     if (_nodes.ChildCount(idx) != 5 || !EmitArg(idx, 1, typeof(int)) || !EmitArg(idx, 2, typeof(int)) || !EmitArg(idx, 3, typeof(int)) || !EmitArg(idx, 4, typeof(int))) {
                         return false
                     }
-                    _il.Emit(OpCodes.Newobj, typeof(System.Version).GetConstructor([typeof(int), typeof(int), typeof(int), typeof(int)]))
+                    ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(System.Version).GetConstructor([typeof(int), typeof(int), typeof(int), typeof(int)]), "required CLR constructor with the emitted signature")
                     columnarResolvedType = typeof(System.Version)
                     return true
                 }
@@ -14980,7 +15013,7 @@ sealed class ColumnarIlEmitter {
                     if (_nodes.ChildCount(idx) != 1) {
                         return false
                     }
-                    _il.Emit(OpCodes.Newobj, typeof(object).GetConstructor(Type.EmptyTypes))
+                    ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(object).GetConstructor(Type.EmptyTypes), "required CLR constructor with the emitted signature")
                     columnarResolvedType = typeof(object)
                     return true
                 }
@@ -14989,7 +15022,7 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     bclCtorType := newTypeName == "ProcessStartInfo" ? typeof(ProcessStartInfo) : typeof(Process)
-                    _il.Emit(OpCodes.Newobj, bclCtorType.GetConstructor(Type.EmptyTypes))
+                    ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, bclCtorType.GetConstructor(Type.EmptyTypes), "required CLR constructor with the emitted signature")
                     columnarResolvedType = bclCtorType
                     return true
                 }
@@ -14997,7 +15030,7 @@ sealed class ColumnarIlEmitter {
                     if (_nodes.ChildCount(idx) != 1) {
                         return false
                     }
-                    _il.Emit(OpCodes.Newobj, typeof(JsonSerializerOptions).GetConstructor(Type.EmptyTypes))
+                    ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(JsonSerializerOptions).GetConstructor(Type.EmptyTypes), "required CLR constructor with the emitted signature")
                     columnarResolvedType = typeof(JsonSerializerOptions)
                     return true
                 }
@@ -15005,7 +15038,7 @@ sealed class ColumnarIlEmitter {
                     if (_nodes.ChildCount(idx) != 2 || !EmitArg(idx, 1, typeof(Stream))) {
                         return false
                     }
-                    _il.Emit(OpCodes.Newobj, typeof(StreamReader).GetConstructor([typeof(Stream)]))
+                    ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(StreamReader).GetConstructor([typeof(Stream)]), "required CLR constructor with the emitted signature")
                     columnarResolvedType = typeof(StreamReader)
                     return true
                 }
@@ -15024,7 +15057,7 @@ sealed class ColumnarIlEmitter {
                     if (_nodes.ChildCount(idx) != 1) {
                         return false
                     }
-                    _il.Emit(OpCodes.Newobj, typeof(DeserializerBuilder).GetConstructor(Type.EmptyTypes))
+                    ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(DeserializerBuilder).GetConstructor(Type.EmptyTypes), "required CLR constructor with the emitted signature")
                     columnarResolvedType = typeof(DeserializerBuilder)
                     return true
                 }
@@ -15032,7 +15065,7 @@ sealed class ColumnarIlEmitter {
                     if (_nodes.ChildCount(idx) != 2 || !EmitArg(idx, 1, typeof(string))) {
                         return false
                     }
-                    _il.Emit(OpCodes.Newobj, typeof(Scalar).GetConstructor([typeof(string)]))
+                    ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(Scalar).GetConstructor([typeof(string)]), "required CLR constructor with the emitted signature")
                     columnarResolvedType = typeof(Scalar)
                     return true
                 }
@@ -15041,7 +15074,7 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     eventType := newTypeName == "MappingStart" ? typeof(MappingStart) : typeof(MappingEnd)
-                    _il.Emit(OpCodes.Newobj, eventType.GetConstructor(Type.EmptyTypes))
+                    ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, eventType.GetConstructor(Type.EmptyTypes), "required CLR constructor with the emitted signature")
                     columnarResolvedType = eventType
                     return true
                 }
@@ -15169,7 +15202,7 @@ sealed class ColumnarIlEmitter {
                     collectionOpenDef := closedType.GetGenericTypeDefinition()
                     collectionCtorArgs := _nodes.ChildCount(idx) - 1
                     if (collectionCtorArgs == 0) {
-                        _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(closedType, collectionOpenDef.GetConstructor(Type.EmptyTypes)))
+                        ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, ResolveClosedGenericCtor(closedType, collectionOpenDef.GetConstructor(Type.EmptyTypes), "open member lookup: collectionOpenDef.GetConstructor(Type.EmptyTypes)"), "required CLR constructor with the emitted signature")
                         columnarResolvedType = closedType
                         return true
                     }
@@ -15853,7 +15886,7 @@ sealed class ColumnarIlEmitter {
             }
             withLocal := _il.DeclareLocal(withReceiverType)
             if (withPlan.Strategy == ColumnarRecordWithStrategy.ReferenceClone) {
-                _il.Emit(OpCodes.Callvirt, withPlan.CloneMethod)
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, withPlan.CloneMethod, "record clone method")
             }
             _il.Emit(OpCodes.Stloc, withLocal)
             for p := 0; p < withPairCount; p++ {
@@ -15967,7 +16000,7 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Call, ResolveNullableGetter(mustType, "HasValue"))
                 _il.Emit(OpCodes.Brtrue, mustOk)
                 _il.Emit(OpCodes.Ldstr, "must unwrap failed: value was null")
-                _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]), "required CLR constructor with the emitted signature")
                 _il.Emit(OpCodes.Throw)
                 _il.MarkLabel(mustOk)
                 _il.Emit(OpCodes.Ldloca, mustLocal)
@@ -15981,7 +16014,7 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Brtrue, refOk)
                 _il.Emit(OpCodes.Pop)
                 _il.Emit(OpCodes.Ldstr, "must unwrap failed: value was null")
-                _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]), "required CLR constructor with the emitted signature")
                 _il.Emit(OpCodes.Throw)
                 _il.MarkLabel(refOk)
                 columnarResolvedType = mustType
@@ -16419,7 +16452,7 @@ sealed class ColumnarIlEmitter {
 
             // No case matched -> throw (mirrors the N# backend path). Unreachable if a catch-all arm is present.
             _il.Emit(OpCodes.Ldstr, "No matching case in match expression")
-            _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]), "required CLR constructor with the emitted signature")
             _il.Emit(OpCodes.Throw)
             _il.MarkLabel(matchEnd)
             columnarResolvedType = matchResultType
@@ -16673,7 +16706,7 @@ sealed class ColumnarIlEmitter {
 
         if (ownerType == typeof(string) && member == nameof(string.Length)) {
             _il.Emit(OpCodes.Ldloc, ownerLocal)
-            _il.Emit(OpCodes.Callvirt, (must typeof(string).GetProperty(nameof(string.Length))).GetGetMethod())
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, RequiredStringLengthGetter(), "required CLR method for this emitted instruction")
             memberType = typeof(int)
             return StoreReadablePatternMember(memberType, out memberLocal)
         }
@@ -16693,7 +16726,7 @@ sealed class ColumnarIlEmitter {
             bclPropertyMethodForOpcode := bclProperty.GetMethod
             bclPropertyOpCode := (must bclPropertyMethodForOpcode).IsVirtual ? OpCodes.Callvirt : OpCodes.Call
             bclPropertyMethod := bclProperty.GetMethod
-            bclPropertyIl.Emit(bclPropertyOpCode, bclPropertyMethod)
+            ColumnarEmitReflectionFacts.EmitMethod(bclPropertyIl, bclPropertyOpCode, bclPropertyMethod, "required CLR method for this emitted instruction")
             memberType = bclProperty.PropertyType
             return StoreReadablePatternMember(memberType, out memberLocal)
         }
@@ -16723,7 +16756,7 @@ sealed class ColumnarIlEmitter {
         if (_nodes.Kind(patternNode) != ColumnarExpressionNodeKind.ListPattern || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(matchValueType)) {
             return false
         }
-        elementType := matchValueType.GetElementType()
+        elementType := ColumnarEmitReflectionFacts.RequiredElementType(matchValueType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
         if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
             return false
         }
@@ -16828,7 +16861,7 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Stloc, sliceLengthLocal)
 
         _il.Emit(OpCodes.Ldloc, sliceLengthLocal)
-        _il.Emit(OpCodes.Newarr, elementType)
+        ColumnarEmitReflectionFacts.EmitType(_il, OpCodes.Newarr, elementType, "required CLR type for this emitted instruction")
         _il.Emit(OpCodes.Stloc, sliceLocal)
 
         copy := typeof(Array).GetMethod(nameof(Array.Copy), [typeof(Array), typeof(int), typeof(Array), typeof(int), typeof(int)])
@@ -16934,7 +16967,7 @@ sealed class ColumnarIlEmitter {
                     }
                     _il.Emit(OpCodes.Ldloc, matchLocal)
                     _il.Emit(OpCodes.Ldstr, stringValue)
-                    _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]))
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]), "CLR method op_Equality")
                     _il.Emit(OpCodes.Brtrue, successLabel)
                     _il.Emit(OpCodes.Br, failLabel)
                     return true
@@ -17011,7 +17044,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             if (matchValueType == typeof(string)) {
-                _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]), "CLR method op_Equality")
             } else {
                 _il.Emit(OpCodes.Ceq)
             }
@@ -17390,7 +17423,7 @@ sealed class ColumnarIlEmitter {
     private func IsSupportedMatchValueType(t: Type): bool {
         let columnarDiscard69: NSharpLang.Compiler.Columnar.ColumnarUnionDef = null
         let columnarDiscard70: System.Type[] = null
-        return t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string) || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(t) && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType())) || RuntimeTypeShapeFacts.IsEnumType(t) || t is TypeBuilder || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t) || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t) || TryGetUnionDefForMatchValue(t, out columnarDiscard69, out columnarDiscard70)
+        return t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string) || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(t) && ColumnarTypeOfPlanner.IsSupportedElementType(ColumnarEmitReflectionFacts.RequiredElementType(t.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape"))) || RuntimeTypeShapeFacts.IsEnumType(t) || t is TypeBuilder || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t) || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t) || TryGetUnionDefForMatchValue(t, out columnarDiscard69, out columnarDiscard70)
     }
 
     // True when `type` is the struct of a value-struct (payload-free tag) union. Used to decline `is`/`as` whose
@@ -17711,7 +17744,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitAddressOfByRefTarget(receiver, addressableReceiverType)) {
                 return false
             }
-            _il.Emit(OpCodes.Call, addressableReceiverType.GetMethod(nameof(JsonElement.ArrayEnumerator.MoveNext), Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, addressableReceiverType.GetMethod(nameof(JsonElement.ArrayEnumerator.MoveNext), Type.EmptyTypes), "CLR method MoveNext")
             resolvedClrType = typeof(bool)
             return true
         }
@@ -18135,7 +18168,7 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        _il.Emit(OpCodes.Call, selection.Method)
+        ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, selection.Method, "selected runtime member method")
         resolvedClrType = selection.ReturnType
         return true
     }
@@ -18194,6 +18227,9 @@ sealed class ColumnarIlEmitter {
             }
         }
 
+        if (hop.ValueType == null) {
+            return false
+        }
         resolvedClrType = hop.ValueType
         stackHasCurrentAddress = false
         return true
@@ -18984,7 +19020,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
-            elementType := must arrayType.GetElementType()
+            elementType := ColumnarEmitReflectionFacts.RequiredElementType(arrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
             if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
                 return false
             }
@@ -19013,7 +19049,7 @@ sealed class ColumnarIlEmitter {
             if (!TryGetAddressableTargetType(Child(refArg, 0), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
-            elementType := must arrayType.GetElementType()
+            elementType := ColumnarEmitReflectionFacts.RequiredElementType(arrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
             if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
                 return false
             }
@@ -19046,7 +19082,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
-            elementType := must arrayType.GetElementType()
+            elementType := ColumnarEmitReflectionFacts.RequiredElementType(arrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
             if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
                 return false
             }
@@ -19078,7 +19114,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
-            elementType := must arrayType.GetElementType()
+            elementType := ColumnarEmitReflectionFacts.RequiredElementType(arrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
             if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
                 return false
             }
@@ -19100,7 +19136,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
-            elementType := arrayType.GetElementType()
+            elementType := ColumnarEmitReflectionFacts.RequiredElementType(arrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
             if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
                 return false
             }
@@ -19186,8 +19222,8 @@ sealed class ColumnarIlEmitter {
         if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceArrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(destinationArrayType)) {
             return false
         }
-        sourceElementType := sourceArrayType.GetElementType()
-        destinationElementType := destinationArrayType.GetElementType()
+        sourceElementType := ColumnarEmitReflectionFacts.RequiredElementType(sourceArrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
+        destinationElementType := ColumnarEmitReflectionFacts.RequiredElementType(destinationArrayType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
         return sourceElementType == destinationElementType && ColumnarTypeOfPlanner.IsSupportedElementType(sourceElementType)
     }
 
@@ -19208,10 +19244,10 @@ sealed class ColumnarIlEmitter {
                 continue
             }
             parameters := method.GetParameters()
-            if (argumentCount == 0 && parameters.Length == 1 && parameters[0].ParameterType.IsArray && (must parameters[0].ParameterType.GetElementType()).IsGenericParameter) {
+            if (argumentCount == 0 && parameters.Length == 1 && parameters[0].ParameterType.IsArray && (ColumnarEmitReflectionFacts.RequiredElementType(parameters[0].ParameterType.GetElementType(), "params array element type")).IsGenericParameter) {
                 return method
             }
-            if (argumentCount == 2 && parameters.Length == 3 && parameters[0].ParameterType.IsArray && (must parameters[0].ParameterType.GetElementType()).IsGenericParameter && parameters[1].ParameterType == typeof(int) && parameters[2].ParameterType == typeof(int)) {
+            if (argumentCount == 2 && parameters.Length == 3 && parameters[0].ParameterType.IsArray && (ColumnarEmitReflectionFacts.RequiredElementType(parameters[0].ParameterType.GetElementType(), "params array element type")).IsGenericParameter && parameters[1].ParameterType == typeof(int) && parameters[2].ParameterType == typeof(int)) {
                 return method
             }
         }
@@ -19259,7 +19295,7 @@ sealed class ColumnarIlEmitter {
             m := methods[methodIndex]
             if (m.Name == "Sort" && m.IsGenericMethodDefinition && m.GetGenericArguments().Length == 1) {
                 parameters := m.GetParameters()
-                if (parameters.Length == parameterCount && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].ParameterType) && (must parameters[0].ParameterType.GetElementType()).IsGenericParameter) {
+                if (parameters.Length == parameterCount && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].ParameterType) && (ColumnarEmitReflectionFacts.RequiredElementType(parameters[0].ParameterType.GetElementType(), "params array element type")).IsGenericParameter) {
                     rangeParametersMatch := parameterCount < 3 || (parameters[1].ParameterType == typeof(int) && parameters[2].ParameterType == typeof(int))
                     if (rangeParametersMatch) {
                         comparerMatches := true
@@ -19289,7 +19325,7 @@ sealed class ColumnarIlEmitter {
                 continue
             }
             parameters := m.GetParameters()
-            if (parameters.Length != parameterCount || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].ParameterType) || !(must parameters[0].ParameterType.GetElementType()).IsGenericParameter) {
+            if (parameters.Length != parameterCount || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].ParameterType) || !(ColumnarEmitReflectionFacts.RequiredElementType(parameters[0].ParameterType.GetElementType(), "params array element type")).IsGenericParameter) {
                 continue
             }
             if (parameterCount == 1 || (parameters[1].ParameterType == typeof(int) && parameters[2].ParameterType == typeof(int))) {
@@ -19922,7 +19958,7 @@ sealed class ColumnarIlEmitter {
         resolvedClrType = null
         if (leftType == typeof(string) && rightType == typeof(char)) {
             EmitTopCharToString()
-            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]), "CLR method Concat")
             resolvedClrType = typeof(string)
             return true
         }
@@ -19932,7 +19968,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Stloc, right)
             EmitTopCharToString()
             _il.Emit(OpCodes.Ldloc, right)
-            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]), "CLR method Concat")
             resolvedClrType = typeof(string)
             return true
         }
@@ -19944,7 +19980,7 @@ sealed class ColumnarIlEmitter {
         value := _il.DeclareLocal(typeof(char))
         _il.Emit(OpCodes.Stloc, value)
         _il.Emit(OpCodes.Ldloca, value)
-        _il.Emit(OpCodes.Call, typeof(char).GetMethod(nameof(char.ToString), Type.EmptyTypes))
+        ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(char).GetMethod(nameof(char.ToString), Type.EmptyTypes), "CLR method ToString")
     }
 
     // N#'s implicit NUMERIC widening for the modelled scalars, emitted as a conversion on the value
@@ -20058,7 +20094,7 @@ sealed class ColumnarIlEmitter {
         if (!TryEmitAssignableValue(valueNode, selection.ParameterTypes[1], out assignedValueType)) {
             return false
         }
-        _il.Emit(OpCodes.Callvirt, selection.Method)
+        ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, selection.Method, "selected runtime member method")
         return true
     }
 
@@ -20089,9 +20125,9 @@ sealed class ColumnarIlEmitter {
             return false
         }
         if (selection.UsesCallVirtual) {
-            _il.Emit(OpCodes.Callvirt, selection.Method)
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, selection.Method, "selected external indexer getter")
         } else {
-            _il.Emit(OpCodes.Call, selection.Method)
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, selection.Method, "selected external indexer getter")
         }
         resolvedClrType = selection.ReturnType
         return true
@@ -20182,7 +20218,7 @@ sealed class ColumnarIlEmitter {
             if (op != "+" || !TypesEquivalent(valueType, targetType)) {
                 return false
             }
-            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]), "CLR method Concat")
             return true
         }
 
@@ -21381,7 +21417,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        _il.Emit(OpCodes.Callvirt, property.SetMethod)
+        ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, property.SetMethod, "property setter method")
         return true
     }
 
@@ -21403,7 +21439,7 @@ sealed class ColumnarIlEmitter {
         }
         _il.Emit(OpCodes.Ldc_I4, sign)
         _il.Emit(OpCodes.Ldc_I4, (bits[3] >> 16) & 0xFF)
-        _il.Emit(OpCodes.Newobj, typeof(decimal).GetConstructor([typeof(int), typeof(int), typeof(int), typeof(bool), typeof(byte)]))
+        ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(decimal).GetConstructor([typeof(int), typeof(int), typeof(int), typeof(bool), typeof(byte)]), "required CLR constructor with the emitted signature")
         resolvedClrType = typeof(decimal)
         return true
     }
@@ -21744,7 +21780,7 @@ sealed class ColumnarIlEmitter {
         if (!CanUseArrayLiteralAsType(node, target)) {
             return false
         }
-        elementType := target.GetElementType()
+        elementType := ColumnarEmitReflectionFacts.RequiredElementType(target.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
         elementCount := _nodes.ChildCount(node)
         _il.Emit(OpCodes.Ldc_I4, elementCount)
         _il.Emit(OpCodes.Newarr, elementType)
@@ -21768,7 +21804,7 @@ sealed class ColumnarIlEmitter {
         if (_nodes.Kind(node) != ColumnarExpressionNodeKind.ArrayLiteralExpression || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(target)) {
             return false
         }
-        elementType := target.GetElementType()
+        elementType := ColumnarEmitReflectionFacts.RequiredElementType(target.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
         if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
             return false
         }
@@ -22125,7 +22161,7 @@ sealed class ColumnarIlEmitter {
         // reference: the address is loaded once and kept under the value for the store, exactly as
         // the `this` field arm above keeps its receiver.
         if (paramOrdinal >= 0 && targetType.IsByRef) {
-            elementType := targetType.GetElementType()
+            elementType := ColumnarEmitReflectionFacts.RequiredElementType(targetType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
             if (!IsSteppableTargetType(elementType)) {
                 return false
             }
@@ -22289,7 +22325,7 @@ sealed class ColumnarIlEmitter {
         parameters := deconstruct.GetParameters()
         outLocals := new LocalBuilder[](nameCount)
         for i := 0; i < nameCount; i++ {
-            elementType := parameters[i].ParameterType.GetElementType()
+            let elementType: System.Type? = parameters[i].ParameterType.GetElementType()
             if (elementType == null || !ColumnarTypeOfPlanner.IsSupportedType(elementType)) {
                 return Decline("emit.deconstruction.out-type", "deconstruction out parameter type is not supported", idx)
             }
@@ -23460,8 +23496,8 @@ sealed class ColumnarIlEmitter {
             if (arrayIndexType != typeof(int)) {
                 return false
             }
-            elementType := indexedType.GetElementType()
-            if (!(must elementType).IsGenericParameter && !(elementType is TypeBuilder) && !ColumnarTypeOfPlanner.IsSupportedElementType(elementType) && !ColumnarTypeOfPlanner.IsSupportedType(elementType)) {
+            elementType := ColumnarEmitReflectionFacts.RequiredElementType(indexedType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
+            if (!elementType.IsGenericParameter && !(elementType is TypeBuilder) && !ColumnarTypeOfPlanner.IsSupportedElementType(elementType) && !ColumnarTypeOfPlanner.IsSupportedType(elementType)) {
                 return false
             }
             columnarResolvedType = elementType
@@ -23591,8 +23627,12 @@ sealed class ColumnarIlEmitter {
             return false
         }
         if (!RuntimeTypeShapeFacts.ContainsBuilderBoundType(tupleType)) {
-            tupleConstructor = tupleType.GetConstructor(elementTypes)
-            return tupleConstructor != null
+            let runtimeConstructor: System.Reflection.ConstructorInfo? = tupleType.GetConstructor(elementTypes)
+            if (runtimeConstructor == null) {
+                return false
+            }
+            tupleConstructor = runtimeConstructor
+            return true
         }
         openDefinition := tupleType.GetGenericTypeDefinition()
         openConstructor := openDefinition.GetConstructor(openDefinition.GetGenericArguments())
@@ -23774,8 +23814,12 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        method = declaringType.GetMethod(plan.MemberName, parameterTypes)
-        return method != null && method.IsStatic == isStatic && method.ReturnType == returnType
+        let resolvedMethod: System.Reflection.MethodInfo? = declaringType.GetMethod(plan.MemberName, parameterTypes)
+        if (resolvedMethod == null || resolvedMethod.IsStatic != isStatic || resolvedMethod.ReturnType != returnType) {
+            return false
+        }
+        method = resolvedMethod
+        return true
     }
 
     private func TryEmitPlannedExternalCall(ownerTypeName: string, receiverType: Type?, isStatic: bool, member: string, callIdx: int, legacyWholeSubtreePlanning: bool, out columnarResolvedType: Type): bool {
@@ -23953,7 +23997,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) && receiverType.GetElementType() == typeof(byte) && member == "AsSpan" && (_nodes.ChildCount(callIdx) == 1 || _nodes.ChildCount(callIdx) == 3)) {
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) && ColumnarEmitReflectionFacts.RequiredElementType(receiverType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape") == typeof(byte) && member == "AsSpan" && (_nodes.ChildCount(callIdx) == 1 || _nodes.ChildCount(callIdx) == 3)) {
             columnarResolvedType = typeof(Span<byte>)
             return true
         }
@@ -24161,7 +24205,7 @@ sealed class ColumnarIlEmitter {
         }
         let instanceReceiverType: System.Type? = null
         let instanceHop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
-        if (TryGetPreflightExpressionType(receiver, out instanceReceiverType) && TryResolveInterpolationMemberPlan(instanceReceiverType, member, out instanceHop) && ColumnarTypeOfPlanner.IsSupportedType(instanceHop.ValueType)) {
+        if (TryGetPreflightExpressionType(receiver, out instanceReceiverType) && TryResolveInterpolationMemberPlan(instanceReceiverType, member, out instanceHop) && instanceHop != null && instanceHop.ValueType != null && ColumnarTypeOfPlanner.IsSupportedType(instanceHop.ValueType)) {
             columnarResolvedType = instanceHop.ValueType
             return true
         }
@@ -24337,7 +24381,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)) {
-            elementType = receiverType.GetElementType()
+            elementType = ColumnarEmitReflectionFacts.RequiredElementType(receiverType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
             return ColumnarTypeOfPlanner.IsSupportedElementType(elementType)
         }
 
@@ -25993,7 +26037,7 @@ sealed class ColumnarIlEmitter {
             let memberDelegateInvoke: System.Reflection.MethodInfo = null
             let memberDelegateParameterTypes: System.Type[] = null
             let memberDelegateReturnType: System.Type = null
-            if (TryResolveDelegateInvocation(delegateMemberHop.ValueType, out memberDelegateInvoke, out memberDelegateParameterTypes, out memberDelegateReturnType) && argCount == memberDelegateParameterTypes.Length) {
+            if (delegateMemberHop.ValueType != null && TryResolveDelegateInvocation(delegateMemberHop.ValueType, out memberDelegateInvoke, out memberDelegateParameterTypes, out memberDelegateReturnType) && argCount == memberDelegateParameterTypes.Length) {
                 memberHopHasReceiverAddress := false
                 let loadedDelegateType: System.Type? = null
                 if (!TryEmitResolvedMemberHop(receiverType, delegateMemberHop, ref memberHopHasReceiverAddress, out loadedDelegateType)) {
@@ -26050,12 +26094,12 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             if (member == nameof(DeserializerBuilder.IgnoreUnmatchedProperties) && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, typeof(DeserializerBuilder).GetMethod(nameof(DeserializerBuilder.IgnoreUnmatchedProperties), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(DeserializerBuilder).GetMethod(nameof(DeserializerBuilder.IgnoreUnmatchedProperties), Type.EmptyTypes), "CLR method IgnoreUnmatchedProperties")
                 columnarResolvedType = typeof(DeserializerBuilder)
                 return true
             }
             if (member == nameof(DeserializerBuilder.Build) && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, typeof(DeserializerBuilder).GetMethod(nameof(DeserializerBuilder.Build), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(DeserializerBuilder).GetMethod(nameof(DeserializerBuilder.Build), Type.EmptyTypes), "CLR method Build")
                 columnarResolvedType = typeof(IDeserializer)
                 return true
             }
@@ -26070,7 +26114,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (receiverType == typeof(YamlDotNet.Core.IParser) && member == nameof(YamlDotNet.Core.IParser.MoveNext) && argCount == 0) {
-            _il.Emit(OpCodes.Callvirt, typeof(YamlDotNet.Core.IParser).GetMethod(nameof(YamlDotNet.Core.IParser.MoveNext), Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(YamlDotNet.Core.IParser).GetMethod(nameof(YamlDotNet.Core.IParser.MoveNext), Type.EmptyTypes), "CLR method MoveNext")
             columnarResolvedType = typeof(bool)
             return true
         }
@@ -26078,7 +26122,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitArg(callIdx, 1, typeof(ParsingEvent))) {
                 return false
             }
-            _il.Emit(OpCodes.Callvirt, typeof(YamlDotNet.Core.IEmitter).GetMethod(nameof(YamlDotNet.Core.IEmitter.Emit), [typeof(ParsingEvent)]))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(YamlDotNet.Core.IEmitter).GetMethod(nameof(YamlDotNet.Core.IEmitter.Emit), [typeof(ParsingEvent)]), "CLR method Emit")
             columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
             return true
         }
@@ -26230,7 +26274,7 @@ sealed class ColumnarIlEmitter {
                 receiverTemp := _il.DeclareLocal(typeof(JsonElement))
                 _il.Emit(OpCodes.Stloc, receiverTemp)
                 _il.Emit(OpCodes.Ldloca, receiverTemp)
-                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.EnumerateArray), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.EnumerateArray), Type.EmptyTypes), "CLR method EnumerateArray")
                 columnarResolvedType = typeof(JsonElement.ArrayEnumerator)
                 return true
             }
@@ -26238,7 +26282,7 @@ sealed class ColumnarIlEmitter {
                 receiverTemp := _il.DeclareLocal(typeof(JsonElement))
                 _il.Emit(OpCodes.Stloc, receiverTemp)
                 _il.Emit(OpCodes.Ldloca, receiverTemp)
-                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.EnumerateObject), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.EnumerateObject), Type.EmptyTypes), "CLR method EnumerateObject")
                 columnarResolvedType = typeof(JsonElement.ObjectEnumerator)
                 return true
             }
@@ -26246,7 +26290,7 @@ sealed class ColumnarIlEmitter {
                 receiverTemp := _il.DeclareLocal(typeof(JsonElement))
                 _il.Emit(OpCodes.Stloc, receiverTemp)
                 _il.Emit(OpCodes.Ldloca, receiverTemp)
-                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.GetInt32), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.GetInt32), Type.EmptyTypes), "CLR method GetInt32")
                 columnarResolvedType = typeof(int)
                 return true
             }
@@ -26254,7 +26298,7 @@ sealed class ColumnarIlEmitter {
                 receiverTemp := _il.DeclareLocal(typeof(JsonElement))
                 _il.Emit(OpCodes.Stloc, receiverTemp)
                 _il.Emit(OpCodes.Ldloca, receiverTemp)
-                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.GetString), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.GetString), Type.EmptyTypes), "CLR method GetString")
                 columnarResolvedType = typeof(string)
                 return true
             }
@@ -26280,7 +26324,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, typeof(int))) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.ArrayPool<int>).GetGenericTypeDefinition().GetMethod("Rent")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.ArrayPool<int>).GetGenericTypeDefinition().GetMethod("Rent"), "open member lookup: typeof(System.Buffers.ArrayPool<int>).GetGenericTypeDefinition().GetMethod(\"Rent\")"), "CLR method Rent")
                 columnarResolvedType = typeof(byte[])
                 return true
             }
@@ -26295,7 +26339,7 @@ sealed class ColumnarIlEmitter {
                 } else {
                     _il.Emit(OpCodes.Ldc_I4_0)
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.ArrayPool<int>).GetGenericTypeDefinition().GetMethod("Return")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.ArrayPool<int>).GetGenericTypeDefinition().GetMethod("Return"), "open member lookup: typeof(System.Buffers.ArrayPool<int>).GetGenericTypeDefinition().GetMethod(\"Return\")"), "CLR method Return")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
@@ -26307,7 +26351,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, typeof(int))) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.MemoryPool<int>).GetGenericTypeDefinition().GetMethod("Rent")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.MemoryPool<int>).GetGenericTypeDefinition().GetMethod("Rent"), "open member lookup: typeof(System.Buffers.MemoryPool<int>).GetGenericTypeDefinition().GetMethod(\"Rent\")"), "CLR method Rent")
                 columnarResolvedType = typeof(System.Buffers.IMemoryOwner<byte>)
                 return true
             }
@@ -26315,7 +26359,7 @@ sealed class ColumnarIlEmitter {
         }
 
         if (ColumnarTypeOfPlanner.IsSupportedMemoryOwnerType(receiverType) && member == nameof(IDisposable.Dispose) && argCount == 0) {
-            _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes), "CLR method Dispose")
             columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
             return true
         }
@@ -26350,7 +26394,7 @@ sealed class ColumnarIlEmitter {
                 if (ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(IReadOnlySet<int>).GetGenericTypeDefinition().GetMethod("Contains")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(IReadOnlySet<int>).GetGenericTypeDefinition().GetMethod("Contains"), "open member lookup: typeof(IReadOnlySet<int>).GetGenericTypeDefinition().GetMethod(\"Contains\")"), "CLR method Contains")
                 columnarResolvedType = typeof(bool)
                 return true
             }
@@ -26358,7 +26402,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Add")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Add"), "open member lookup: typeof(List<int>).GetGenericTypeDefinition().GetMethod(\"Add\")"), "CLR method Add")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
@@ -26388,7 +26432,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Insert")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Insert"), "open member lookup: typeof(List<int>).GetGenericTypeDefinition().GetMethod(\"Insert\")"), "CLR method Insert")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
@@ -26396,7 +26440,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, typeof(int))) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("RemoveAt")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("RemoveAt"), "open member lookup: typeof(List<int>).GetGenericTypeDefinition().GetMethod(\"RemoveAt\")"), "CLR method RemoveAt")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
@@ -26404,7 +26448,7 @@ sealed class ColumnarIlEmitter {
                 if (ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Contains")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Contains"), "open member lookup: typeof(List<int>).GetGenericTypeDefinition().GetMethod(\"Contains\")"), "CLR method Contains")
                 columnarResolvedType = typeof(bool)
                 return true
             }
@@ -26427,22 +26471,22 @@ sealed class ColumnarIlEmitter {
                 if (ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Remove")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Remove"), "open member lookup: typeof(List<int>).GetGenericTypeDefinition().GetMethod(\"Remove\")"), "CLR method Remove")
                 columnarResolvedType = typeof(bool)
                 return true
             }
             if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "Reverse" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Reverse", Type.EmptyTypes)))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Reverse", Type.EmptyTypes), "open member lookup: typeof(List<int>).GetGenericTypeDefinition().GetMethod(\"Reverse\", Type.EmptyTypes)"), "CLR method Reverse")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
             if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "Clear" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Clear")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Clear"), "open member lookup: typeof(List<int>).GetGenericTypeDefinition().GetMethod(\"Clear\")"), "CLR method Clear")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
             if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "ToArray" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("ToArray", Type.EmptyTypes)))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("ToArray", Type.EmptyTypes), "open member lookup: typeof(List<int>).GetGenericTypeDefinition().GetMethod(\"ToArray\", Type.EmptyTypes)"), "CLR method ToArray")
                 columnarResolvedType = collectionArgs[0].MakeArrayType()
                 return true
             }
@@ -26450,7 +26494,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("ContainsKey")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("ContainsKey"), "open member lookup: collectionDef.GetMethod(\"ContainsKey\")"), "CLR method ContainsKey")
                 columnarResolvedType = typeof(bool)
                 return true
             }
@@ -26459,7 +26503,7 @@ sealed class ColumnarIlEmitter {
                 if (!ColumnarCanonicalTypeResolver.IsSupportedByRefElementType(valueType) || !EmitArg(callIdx, 1, collectionArgs[0]) || !EmitByRefCallArgument(Child(callIdx, 2), valueType.MakeByRefType())) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("TryGetValue")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("TryGetValue"), "open member lookup: collectionDef.GetMethod(\"TryGetValue\")"), "CLR method TryGetValue")
                 columnarResolvedType = typeof(bool)
                 return true
             }
@@ -26467,7 +26511,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, collectionArgs[0]) || !EmitArg(callIdx, 2, collectionArgs[1])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("Add")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("Add"), "open member lookup: collectionDef.GetMethod(\"Add\")"), "CLR method Add")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
@@ -26475,7 +26519,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, collectionArgs[0]) || !EmitArg(callIdx, 2, collectionArgs[1])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Dictionary<int, int>).GetGenericTypeDefinition().GetMethod("TryAdd")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Dictionary<int, int>).GetGenericTypeDefinition().GetMethod("TryAdd"), "open member lookup: typeof(Dictionary<int, int>).GetGenericTypeDefinition().GetMethod(\"TryAdd\")"), "CLR method TryAdd")
                 columnarResolvedType = typeof(bool)
                 return true
             }
@@ -26511,7 +26555,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             if (ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Clear" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("Clear")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("Clear"), "open member lookup: collectionDef.GetMethod(\"Clear\")"), "CLR method Clear")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
@@ -26519,7 +26563,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Add")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Add"), "open member lookup: typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod(\"Add\")"), "CLR method Add")
                 columnarResolvedType = typeof(bool)
                 return true
             }
@@ -26527,7 +26571,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Contains")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Contains"), "open member lookup: typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod(\"Contains\")"), "CLR method Contains")
                 columnarResolvedType = typeof(bool)
                 return true
             }
@@ -26535,12 +26579,12 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Remove")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Remove"), "open member lookup: typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod(\"Remove\")"), "CLR method Remove")
                 columnarResolvedType = typeof(bool)
                 return true
             }
             if (collectionDef == typeof(HashSet<int>).GetGenericTypeDefinition() && member == "Clear" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Clear")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Clear"), "open member lookup: typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod(\"Clear\")"), "CLR method Clear")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
@@ -26548,22 +26592,22 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, collectionArgs[0])) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Push")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Push"), "open member lookup: typeof(Stack<int>).GetGenericTypeDefinition().GetMethod(\"Push\")"), "CLR method Push")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
             if (collectionDef == typeof(Stack<int>).GetGenericTypeDefinition() && member == "Pop" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Pop")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Pop"), "open member lookup: typeof(Stack<int>).GetGenericTypeDefinition().GetMethod(\"Pop\")"), "CLR method Pop")
                 columnarResolvedType = collectionArgs[0]
                 return true
             }
             if (collectionDef == typeof(Stack<int>).GetGenericTypeDefinition() && member == "Peek" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Peek")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Peek"), "open member lookup: typeof(Stack<int>).GetGenericTypeDefinition().GetMethod(\"Peek\")"), "CLR method Peek")
                 columnarResolvedType = collectionArgs[0]
                 return true
             }
             if (collectionDef == typeof(Stack<int>).GetGenericTypeDefinition() && member == "Clear" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Clear")))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Clear"), "open member lookup: typeof(Stack<int>).GetGenericTypeDefinition().GetMethod(\"Clear\")"), "CLR method Clear")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
@@ -26571,12 +26615,12 @@ sealed class ColumnarIlEmitter {
         }
 
         if (receiverType == typeof(object) && member == "GetType" && argCount == 0) {
-            _il.Emit(OpCodes.Callvirt, typeof(object).GetMethod(nameof(object.GetType), Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(object).GetMethod(nameof(object.GetType), Type.EmptyTypes), "CLR method GetType")
             columnarResolvedType = typeof(Type)
             return true
         }
         if (receiverType == typeof(object) && member == "ToString" && argCount == 0) {
-            _il.Emit(OpCodes.Callvirt, typeof(object).GetMethod(nameof(object.ToString), Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(object).GetMethod(nameof(object.ToString), Type.EmptyTypes), "CLR method ToString")
             columnarResolvedType = typeof(string)
             return true
         }
@@ -26600,14 +26644,14 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             if (member == nameof(Stream.Dispose) && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, typeof(Stream).GetMethod(nameof(Stream.Dispose), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(Stream).GetMethod(nameof(Stream.Dispose), Type.EmptyTypes), "CLR method Dispose")
                 columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
                 return true
             }
             return false
         }
         if (receiverType == typeof(Process) && member == nameof(IDisposable.Dispose) && argCount == 0) {
-            _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes), "CLR method Dispose")
             columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
             return true
         }
@@ -26697,7 +26741,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) && receiverType.GetElementType() == typeof(byte) && member == "AsSpan" && (argCount == 0 || argCount == 2)) {
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) && ColumnarEmitReflectionFacts.RequiredElementType(receiverType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape") == typeof(byte) && member == "AsSpan" && (argCount == 0 || argCount == 2)) {
             method := ResolveMemoryExtensionsAsSpan(argCount)
             if (method == null) {
                 return false
@@ -26953,17 +26997,17 @@ sealed class ColumnarIlEmitter {
             //   .ToString()              -> string
             sb := typeof(System.Text.StringBuilder)
             if (member == "ToString" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(object.ToString), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, sb.GetMethod(nameof(object.ToString), Type.EmptyTypes), "CLR method ToString")
                 columnarResolvedType = typeof(string)
                 return true
             }
             if (member == "Clear" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.Clear), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.Clear), Type.EmptyTypes), "CLR method Clear")
                 columnarResolvedType = sb
                 return true
             }
             if (member == "AppendLine" && argCount == 0) {
-                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.AppendLine), Type.EmptyTypes))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.AppendLine), Type.EmptyTypes), "CLR method AppendLine")
                 columnarResolvedType = sb
                 return true
             }
@@ -26971,7 +27015,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitArg(callIdx, 1, typeof(string))) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.AppendLine), [typeof(string)]))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.AppendLine), [typeof(string)]), "CLR method AppendLine")
                 columnarResolvedType = sb
                 return true
             }
@@ -27060,7 +27104,7 @@ sealed class ColumnarIlEmitter {
     private func TryResolveDelegateValuedMember(receiverType: Type, member: string, out hop: ColumnarInterpolationMemberPlan): bool {
         hop = null
         let plannedHop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
-        if (TryResolveInterpolationMemberPlan(receiverType, member, out plannedHop) && plannedHop != null && IsInvocableDelegateType(plannedHop.ValueType)) {
+        if (TryResolveInterpolationMemberPlan(receiverType, member, out plannedHop) && plannedHop != null && plannedHop.ValueType != null && IsInvocableDelegateType(plannedHop.ValueType)) {
             hop = plannedHop
             return true
         }
@@ -27437,7 +27481,7 @@ sealed class ColumnarIlEmitter {
         if (_locals.TryGetValue(name, out local)) {
             receiverType = local.LocalType
         } else if (_paramTypes.TryGetValue(name, out paramType)) {
-            receiverType = paramType.IsByRef ? paramType.GetElementType() : paramType
+            receiverType = paramType.IsByRef ? ColumnarEmitReflectionFacts.RequiredElementType(paramType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape") : paramType
         } else if (_currentStruct != null && _currentStruct.IsReference && !_currentStruct.IsClosureDisplay && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out fieldOwner, out ownField) && Object.ReferenceEquals(fieldOwner, _currentStruct) && ownField != null && !ownField.IsStatic && !ownField.IsInitOnly) {
             receiverType = ownField.FieldType
             storageField = ColumnarSourceSelfInstantiation.BindField(ownField)
@@ -27620,7 +27664,7 @@ sealed class ColumnarIlEmitter {
             if (parameterModifierKind != 5 || !ColumnarByRefCallArgumentFacts.IsBareUnmodifiedArgument(_nodes, argNode)) {
                 return false
             }
-            return CanDeclaredCallArgumentMatch(argNode, expectedParamType.GetElementType(), allowLambdaLiteral)
+            return CanDeclaredCallArgumentMatch(argNode, ColumnarEmitReflectionFacts.RequiredElementType(expectedParamType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape"), allowLambdaLiteral)
         }
         if (!ColumnarByRefCallArgumentFacts.IsBareUnmodifiedArgument(_nodes, argNode)) {
             return false
@@ -28378,7 +28422,7 @@ sealed class ColumnarIlEmitter {
 
     private static func CanUseSpanConversion(sourceType: Type, targetType: Type): bool {
         if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) && ColumnarTypeOfPlanner.IsSupportedSpanLikeType(targetType)) {
-            return TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0])
+            return TypesEquivalent(ColumnarEmitReflectionFacts.RequiredElementType(sourceType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape"), targetType.GetGenericArguments()[0])
         }
         if (ColumnarTypeOfPlanner.IsSupportedSpanType(sourceType) && ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(targetType)) {
             return TypesEquivalent(sourceType.GetGenericArguments()[0], targetType.GetGenericArguments()[0])
@@ -28455,13 +28499,13 @@ sealed class ColumnarIlEmitter {
         }
         let addressableNode: int = -1
         if (TryGetAddressableByRefArgument(argNode, expectedByRefType, parameterModifierKind, out addressableNode)) {
-            return EmitAddressOfByRefTarget(addressableNode, expectedByRefType.GetElementType())
+            return EmitAddressOfByRefTarget(addressableNode, ColumnarEmitReflectionFacts.RequiredElementType(expectedByRefType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape"))
         }
         if (parameterModifierKind != 5 || !ColumnarByRefCallArgumentFacts.IsBareUnmodifiedArgument(_nodes, argNode)) {
             return false
         }
 
-        elementType := expectedByRefType.GetElementType()
+        elementType := ColumnarEmitReflectionFacts.RequiredElementType(expectedByRefType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
         if (!EmitDeclaredCallArgument(argNode, elementType, true)) {
             return false
         }
@@ -28487,7 +28531,7 @@ sealed class ColumnarIlEmitter {
         }
 
         let targetType: System.Type? = null
-        if (!TryGetAddressableTargetType(targetNode, out targetType) || !TypesEquivalent(targetType, expectedByRefType.GetElementType())) {
+        if (!TryGetAddressableTargetType(targetNode, out targetType) || !TypesEquivalent(targetType, ColumnarEmitReflectionFacts.RequiredElementType(expectedByRefType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape"))) {
             targetNode = -1
             return false
         }
@@ -28510,7 +28554,7 @@ sealed class ColumnarIlEmitter {
             }
             let paramType: System.Type? = null
             if (_paramTypes.TryGetValue(name, out paramType)) {
-                targetType = paramType.IsByRef ? paramType.GetElementType() : paramType
+                targetType = paramType.IsByRef ? ColumnarEmitReflectionFacts.RequiredElementType(paramType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape") : paramType
                 return true
             }
             let bareField: System.Reflection.Emit.FieldBuilder? = null
@@ -28576,7 +28620,7 @@ sealed class ColumnarIlEmitter {
             let paramType: System.Type? = null
             if (_paramOrdinals.TryGetValue(name, out ordinal) && _paramTypes.TryGetValue(name, out paramType)) {
                 if (paramType.IsByRef) {
-                    if (!TypesEquivalent(paramType.GetElementType(), expectedElementType)) {
+                    if (!TypesEquivalent(ColumnarEmitReflectionFacts.RequiredElementType(paramType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape"), expectedElementType)) {
                         return false
                     }
                     ColumnarArgumentInstructionEmitter.EmitLoad(_il, ordinal)
@@ -29124,7 +29168,7 @@ sealed class ColumnarIlEmitter {
 
         if (plan.DisposeKind == 1) {
             _il.Emit(OpCodes.Ldloca, enumeratorLocal)
-            _il.Emit(OpCodes.Constrained, plan.EnumeratorType)
+            ColumnarEmitReflectionFacts.EmitType(_il, OpCodes.Constrained, plan.EnumeratorType, "foreach enumerator type for constrained disposal")
             _il.Emit(OpCodes.Callvirt, disposeMethod)
             return
         }
@@ -29177,21 +29221,9 @@ sealed class ColumnarIlEmitter {
         return candidate.FullName ?? candidate.Name
     }
 
-    private static func RequiredStringLengthGetter(): MethodInfo {
-        getter := (must typeof(string).GetProperty("Length")).GetGetMethod()
-        if (getter == null) {
-            throw new InvalidOperationException("The foreach lowering requires System.String.Length.")
-        }
-        return getter
-    }
+    private static func RequiredStringLengthGetter(): MethodInfo => ColumnarEmitReflectionFacts.RequiredGetter(typeof(string).GetProperty("Length"), "System.String.Length")
 
-    private static func RequiredStringCharGetter(): MethodInfo {
-        getter := (must typeof(string).GetProperty("Chars")).GetGetMethod()
-        if (getter == null) {
-            throw new InvalidOperationException("The foreach lowering requires System.String.Chars.")
-        }
-        return getter
-    }
+    private static func RequiredStringCharGetter(): MethodInfo => ColumnarEmitReflectionFacts.RequiredGetter(typeof(string).GetProperty("Chars"), "System.String.Chars")
 
     // THROUGH A MANAGED REFERENCE: `ldind.ref`/`stind.ref` for an element known to be a reference, and
     // `ldobj`/`stobj` for everything else. A GENERIC PARAMETER is "everything else" whatever it may be
@@ -29258,7 +29290,7 @@ sealed class ColumnarIlEmitter {
         // a sibling/type/unknown name is not a variable root.
 
         hops := new List<FieldBuilder>(hopNodes.Count)
-        current := rootType.IsByRef ? rootType.GetElementType() : rootType
+        current := rootType.IsByRef ? ColumnarEmitReflectionFacts.RequiredElementType(rootType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape") : rootType
         // Resolve the innermost hop (adjacent to the root) first.
         for h := hopNodes.Count - 1; h >= 0; h-- {
             let hopField: System.Reflection.Emit.FieldBuilder = null
@@ -29424,14 +29456,14 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Ldloca, handlerLocal)
         _il.Emit(OpCodes.Ldc_I4, literalLength)
         _il.Emit(OpCodes.Ldc_I4, formattedCount)
-        _il.Emit(OpCodes.Call, handlerType.GetConstructor([typeof(int), typeof(int)]))
+        ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Call, handlerType.GetConstructor([typeof(int), typeof(int)]), "required CLR constructor with the emitted signature")
         holeIndex := 0
         for part in parts {
             _il.Emit(OpCodes.Ldloca, handlerLocal)
             if (!part.IsHole) {
                 decodedLiteralText := StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text)
                 _il.Emit(OpCodes.Ldstr, decodedLiteralText)
-                _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendLiteral"))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, handlerType.GetMethod("AppendLiteral"), "CLR method AppendLiteral")
                 continue
             }
             plan := holePlans[holeIndex++]
@@ -29445,26 +29477,26 @@ sealed class ColumnarIlEmitter {
                 )
             }
             if (plan.ValueType == typeof(string) && plan.Format == null) {
-                _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendFormatted", [typeof(string)]))
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, handlerType.GetMethod("AppendFormatted", [typeof(string)]), "CLR method AppendFormatted")
             } else {
                 if (plan.Format != null) {
                     _il.Emit(OpCodes.Ldstr, plan.Format)
                     appendFormattedDefinition := FindAppendFormattedGeneric(handlerType, true)
                     appendFormattedTypeArguments := new Type[](1)
-                    appendFormattedTypeArguments[0] = plan.ValueType
+                    appendFormattedTypeArguments[0] = ColumnarEmitReflectionFacts.RequiredType(plan.ValueType, "formatted interpolation value type")
                     appendFormattedMethod := appendFormattedDefinition.MakeGenericMethod(appendFormattedTypeArguments)
                     _il.Emit(OpCodes.Call, appendFormattedMethod)
                 } else {
                     appendFormattedDefinition := FindAppendFormattedGeneric(handlerType, false)
                     appendFormattedTypeArguments := new Type[](1)
-                    appendFormattedTypeArguments[0] = plan.ValueType
+                    appendFormattedTypeArguments[0] = ColumnarEmitReflectionFacts.RequiredType(plan.ValueType, "formatted interpolation value type")
                     appendFormattedMethod := appendFormattedDefinition.MakeGenericMethod(appendFormattedTypeArguments)
                     _il.Emit(OpCodes.Call, appendFormattedMethod)
                 }
             }
         }
         _il.Emit(OpCodes.Ldloca, handlerLocal)
-        _il.Emit(OpCodes.Call, handlerType.GetMethod("ToStringAndClear"))
+        ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, handlerType.GetMethod("ToStringAndClear"), "CLR method ToStringAndClear")
         columnarResolvedType = typeof(string)
         return true
     }
@@ -29532,7 +29564,7 @@ sealed class ColumnarIlEmitter {
         if (ColumnarInterpolationSplitter.TrySplitCoalesce(text, out coalesceLeftText, out coalesceRightText)) {
             let left: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
             let right: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
-            if (!TryResolveInterpolationChainPlan(coalesceLeftText, out left) || !TryResolveInterpolationChainPlan(coalesceRightText, out right) || (must left.ValueType).IsValueType || !TypesEquivalent(left.ValueType, right.ValueType)) {
+            if (!TryResolveInterpolationChainPlan(coalesceLeftText, out left) || !TryResolveInterpolationChainPlan(coalesceRightText, out right) || left == null || right == null || left.ValueType == null || right.ValueType == null || left.ValueType.IsValueType || !TypesEquivalent(left.ValueType, right.ValueType)) {
                 return false
             }
 
@@ -29658,7 +29690,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitInterpolationHoleValue(must plan.BinaryLeft) || !EmitInterpolationHoleValue(must plan.BinaryRight)) {
                 return false
             }
-            EmitInterpolationEquality(plan.BinaryOperator, plan.BinaryLeft.ValueType)
+            EmitInterpolationEquality(plan.BinaryOperator, ColumnarEmitReflectionFacts.RequiredType(plan.BinaryLeft.ValueType, "left operand type in an emitted interpolation equality"))
             return true
         }
 
@@ -29683,7 +29715,7 @@ sealed class ColumnarIlEmitter {
     private func EmitInterpolationSimpleHoleValue(plan: ColumnarInterpolationHolePlan): bool {
         if (plan.ExpressionNodes != null && plan.ExpressionSource != null) {
             let emittedType: System.Type? = null
-            return plan.ExpressionRoot >= 0 && EmitParsedInterpolationExpression(plan.ExpressionNodes, plan.ExpressionSource, plan.ExpressionRoot, out emittedType) && TypesEquivalent(emittedType, plan.ValueType)
+            return plan.ExpressionRoot >= 0 && EmitParsedInterpolationExpression(plan.ExpressionNodes, plan.ExpressionSource, plan.ExpressionRoot, out emittedType) && plan.ValueType != null && TypesEquivalent(emittedType, plan.ValueType)
         }
 
         constantInt := plan.ConstantInt
@@ -29707,10 +29739,10 @@ sealed class ColumnarIlEmitter {
                 ColumnarArgumentInstructionEmitter.EmitLoad(_il, plan.RootOrdinal)
             }
         }
-        current := plan.RootType
+        current := ColumnarEmitReflectionFacts.RequiredType(plan.RootType, "root type in an emitted interpolation chain")
         stackHasCurrentAddress := plan.RootThis && !IsReferenceWriteLink(current)
         if (plan.RootGetter != null) {
-            _il.Emit(IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, plan.RootGetter)
+            ColumnarEmitReflectionFacts.EmitMethod(_il, IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, plan.RootGetter, "interpolation root getter")
             current = plan.RootGetter.ReturnType
             stackHasCurrentAddress = false
         }
@@ -29741,12 +29773,12 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Ldfld, hop.Field)
             } else {
                 if (hop.Getter != null) {
-                    _il.Emit(IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, hop.Getter)
+                    ColumnarEmitReflectionFacts.EmitMethod(_il, IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, hop.Getter, "interpolation member getter")
                 } else {
                     return false
                 }
             }
-            current = hop.ValueType
+            current = ColumnarEmitReflectionFacts.RequiredType(hop.ValueType, "member value type in an emitted interpolation chain")
             stackHasCurrentAddress = false
         }
         if (plan.CallBuilder != null) {
@@ -29956,7 +29988,7 @@ sealed class ColumnarIlEmitter {
 
     private func EmitInterpolationEquality(op: string, operandType: Type): void {
         if (operandType == typeof(string)) {
-            _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]))
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]), "CLR method op_Equality")
         } else if (operandType == typeof(Type)) {
             typeEqualityMethodName := "op_Inequality"
             if (op == "==") {
@@ -30184,7 +30216,7 @@ sealed class ColumnarIlEmitter {
                     }
                 }
             }
-            rootIndexElementType = rootType.GetElementType()
+            rootIndexElementType = ColumnarEmitReflectionFacts.RequiredElementType(rootType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
             if (rootIndexElementType == null || !ColumnarTypeOfPlanner.IsSupportedType(rootIndexElementType)) {
                 return false
             }
@@ -30199,7 +30231,7 @@ sealed class ColumnarIlEmitter {
                 if (hops.Count == 0) {
                     current = rootType
                 } else {
-                    current = hops[hops.Count - 1].ValueType
+                    current = ColumnarEmitReflectionFacts.RequiredType(hops[hops.Count - 1].ValueType, "last member value type in an interpolation chain")
                 }
             }
         }
@@ -30210,6 +30242,9 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             hops.Add(hop)
+            if (hop.ValueType == null) {
+                return false
+            }
             current = hop.ValueType
         }
         if (callMember != null) {
@@ -30301,7 +30336,7 @@ sealed class ColumnarIlEmitter {
         }
 
         if (member == "Length" && current == typeof(string)) {
-            getter := (must typeof(string).GetProperty(nameof(string.Length))).GetGetMethod()
+            getter := RequiredStringLengthGetter()
             hop = new ColumnarInterpolationMemberPlan(null, getter, typeof(int))
             return true
         }
@@ -30313,7 +30348,7 @@ sealed class ColumnarIlEmitter {
         }
 
         if ((member == "Key" || member == "Value") && ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(current)) {
-            getter := ResolveClosedGenericMethod(current, (must typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().GetProperty(member)).GetGetMethod())
+            getter := ResolveClosedGenericMethod(current, ColumnarEmitReflectionFacts.RequiredGetter(typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().GetProperty(member), "KeyValuePair<TKey, TValue>." + member))
             hop = new ColumnarInterpolationMemberPlan(null, getter, current.GetGenericArguments()[member == "Key" ? 0 : 1])
             return true
         }
@@ -30463,7 +30498,7 @@ sealed class ColumnarIlEmitter {
         } else {
             flags = flags | BindingFlags.Instance
         }
-        walk := ownerType
+        let walk: System.Type? = ownerType
         while (walk != null) {
             // A TYPE STILL BEING BUILT ANSWERS NO REFLECTION QUESTION — `TypeBuilder.GetEvent` throws
             // rather than returning null — so a source rung is SKIPPED rather than asked. A source rung

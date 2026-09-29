@@ -405,7 +405,7 @@ class ColumnarIteratorRealization {
         ctorIl := ctor.GetILGenerator()
         ctorIl.Emit(OpCodes.Ldarg_0)
         objectCtor := typeof(object).GetConstructor(System.Type.EmptyTypes)
-        ctorIl.Emit(OpCodes.Call, objectCtor)
+        ColumnarEmitReflectionFacts.EmitConstructor(ctorIl, OpCodes.Call, objectCtor, "System.Object parameterless constructor")
         ctorIl.Emit(OpCodes.Ldarg_0)
         ctorIl.Emit(OpCodes.Ldarg_1)
         ctorIl.Emit(OpCodes.Stfld, memberFields[0])
@@ -668,7 +668,7 @@ class ColumnarIteratorRealization {
         ctorIl := ctor.GetILGenerator()
         ctorIl.Emit(OpCodes.Ldarg_0)
         objectCtor := typeof(object).GetConstructor(System.Type.EmptyTypes)
-        ctorIl.Emit(OpCodes.Call, objectCtor)
+        ColumnarEmitReflectionFacts.EmitConstructor(ctorIl, OpCodes.Call, objectCtor, "System.Object parameterless constructor")
         ctorIl.Emit(OpCodes.Ldarg_0)
         ctorIl.Emit(OpCodes.Ldarg_1)
         ctorIl.Emit(OpCodes.Stfld, fields[0])
@@ -680,7 +680,7 @@ class ColumnarIteratorRealization {
         actionConstructorTypes[0] = typeof(object)
         actionConstructorTypes[1] = typeof(IntPtr)
         actionCtor := typeof(Action).GetConstructor(actionConstructorTypes)
-        ctorIl.Emit(OpCodes.Newobj, actionCtor)
+        ColumnarEmitReflectionFacts.EmitConstructor(ctorIl, OpCodes.Newobj, actionCtor, "System.Action(object, IntPtr) delegate constructor")
         ctorIl.Emit(OpCodes.Stfld, continuationField)
         ctorIl.Emit(OpCodes.Ret)
 
@@ -824,7 +824,7 @@ class ColumnarIteratorRealization {
                 typeResolution.Structs,
                 typeResolution.Unions,
                 out resolvedType
-            ) && (resolvedType.IsGenericParameter || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(resolvedType) && ((Type)resolvedType.GetElementType()).IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(resolvedType)) && !ContainsMethodVarReference(resolvedType, smTypeParamMap)
+            ) && (resolvedType.IsGenericParameter || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(resolvedType) && ColumnarEmitReflectionFacts.RequiredElementType(resolvedType.GetElementType(), "array element type in iterator parameter analysis").IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(resolvedType)) && !ContainsMethodVarReference(resolvedType, smTypeParamMap)
         }
         return ColumnarCanonicalTypeResolver.TryResolveType(
             canonical,
@@ -854,7 +854,7 @@ class ColumnarIteratorRealization {
             return !smTypeParamMap.ContainsValue(valueType)
         }
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
-            return ContainsMethodVarReference(valueType.GetElementType(), smTypeParamMap)
+            return ContainsMethodVarReference(ColumnarEmitReflectionFacts.RequiredElementType(valueType.GetElementType(), "element type of iterator signature"), smTypeParamMap)
         }
         if valueType.IsGenericType && !valueType.IsGenericTypeDefinition {
             arguments := valueType.GetGenericArguments()
