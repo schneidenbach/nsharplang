@@ -2646,6 +2646,23 @@ test "016 close: a trailing comma in a parameter list reports NL102 spanning the
     assert e.Suggestion == "Add a parameter after the comma"
 }
 
+test "016 close: trailing-comma parameter spans include `ref`, `out` and `in` modifiers" {
+    errors := RunPreamble("func f(ref a: int,)\n")
+    assert errors.Count == 1
+    assert errors[0].Column == 8
+    assert errors[0].Length == 11
+
+    errors = RunPreamble("func f(out a: int,)\n")
+    assert errors.Count == 1
+    assert errors[0].Column == 8
+    assert errors[0].Length == 11
+
+    errors = RunPreamble("func f(in a: int,)\n")
+    assert errors.Count == 1
+    assert errors[0].Column == 8
+    assert errors[0].Length == 10
+}
+
 // ---- the block's own missing-'}' (NL106) — end-of-file and found-declaration variants ----
 
 test "016 close: a block left open at end of file reports the NL106 missing-brace anchored on the function name" {

@@ -137,13 +137,17 @@ test "a call's wrapped argument list reads a `ref` argument at the head of each 
 
 // ---- the shapes that still END the list ----------------------------------------------------------
 
-test "a trailing comma after a wrapped `ref` parameter is the one trailing-comma NL102, exactly as after an unmodified one" {
-    // N# rejects a trailing comma in a parameter list. What the fix owes is that a `ref` last line
-    // reaches THAT diagnostic — spanning the last parameter's name through the comma — rather than
-    // the NL107/NL101 cascade the early boundary produced before the `,` was ever read.
+test "a trailing comma after a wrapped by-ref parameter includes its modifier in NL102" {
+    // N# rejects a trailing comma in a parameter list. Each by-ref last line reaches THAT diagnostic
+    // with a span from its modifier through the comma, rather than the NL107/NL101 cascade the early
+    // boundary produced before the `,` was ever read.
     refForm := "func F(\n    a: int,\n    ref b: int,\n) { }"
+    outForm := "func F(\n    a: int,\n    out b: int,\n) { }"
+    inForm := "func F(\n    a: int,\n    in b: int,\n) { }"
     plainForm := "func F(\n    a: int,\n    b: int,\n) { }"
-    assert PsCensus(refForm) == "NL102@3:9+7;", PsCensus(refForm)
+    assert PsCensus(refForm) == "NL102@3:5+11;", PsCensus(refForm)
+    assert PsCensus(outForm) == "NL102@3:5+11;", PsCensus(outForm)
+    assert PsCensus(inForm) == "NL102@3:5+10;", PsCensus(inForm)
     assert PsCensus(plainForm) == "NL102@3:5+7;", PsCensus(plainForm)
 }
 

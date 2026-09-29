@@ -1521,6 +1521,7 @@ class ColumnarParserRecovery {
                         parsing = false
                     } else {
                         // Parser.cs :778 break — the partial list is the result
+                        parameterStartToken := Current()
 
                         // Per-parameter attributes (Parser.cs :781), before the modifier/name.
                         paramAttrs := ParseAttributes()
@@ -1558,7 +1559,6 @@ class ColumnarParserRecovery {
                             Advance()
                         }
 
-                        paramStartToken := Current()
                         paramLine := Current().Line
                         paramColumn := Current().Column
                         paramName := ConsumeNameWithSpan("Expected parameter name", GetMissingParameterNameDiagnosticSpan())
@@ -1602,7 +1602,7 @@ class ColumnarParserRecovery {
                         }
 
                         if paramName != "<error>" {
-                            lastParameterStartToken = paramStartToken
+                            lastParameterStartToken = parameterStartToken
                         }
 
                         // Parser.cs's `do { … } while (Match(Comma))`.
