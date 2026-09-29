@@ -152,14 +152,14 @@ class ColumnarModifiedMemberReferenceRepair {
 
     static func RuntimeTypeIdentity(clrType: Type): string {
         if clrType.IsByRef {
-            return RuntimeTypeIdentity(clrType.GetElementType()) + "&"
+            return RuntimeTypeIdentity(ColumnarRuntimeTypeFacts.RequiredElementType(clrType)) + "&"
         }
         if clrType.IsPointer {
-            return RuntimeTypeIdentity(clrType.GetElementType()) + "*"
+            return RuntimeTypeIdentity(ColumnarRuntimeTypeFacts.RequiredElementType(clrType)) + "*"
         }
         if clrType.IsArray {
             if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) {
-                return RuntimeTypeIdentity(clrType.GetElementType()) + "[]"
+                return RuntimeTypeIdentity(ColumnarRuntimeTypeFacts.RequiredElementType(clrType)) + "[]"
             }
             rank := clrType.GetArrayRank()
             suffix := rank == 1 ? "[*]" : "["
@@ -169,7 +169,7 @@ class ColumnarModifiedMemberReferenceRepair {
             if rank > 1 {
                 suffix = suffix + "]"
             }
-            return RuntimeTypeIdentity(clrType.GetElementType()) + suffix
+            return RuntimeTypeIdentity(ColumnarRuntimeTypeFacts.RequiredElementType(clrType)) + suffix
         }
         if clrType.IsGenericParameter {
             if clrType.IsGenericMethodParameter {
@@ -1175,10 +1175,10 @@ class ColumnarModifiedMemberReferenceRepair {
             if code == SzArray && !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) {
                 return false
             }
-            return SignatureTypeMatchesRuntime(reader, bytes, ref cursor, clrType.GetElementType())
+            return SignatureTypeMatchesRuntime(reader, bytes, ref cursor, ColumnarRuntimeTypeFacts.RequiredElementType(clrType))
         }
         if code == ArrayType {
-            if !clrType.IsArray || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) || !SignatureTypeMatchesRuntime(reader, bytes, ref cursor, clrType.GetElementType()) {
+            if !clrType.IsArray || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) || !SignatureTypeMatchesRuntime(reader, bytes, ref cursor, ColumnarRuntimeTypeFacts.RequiredElementType(clrType)) {
                 return false
             }
             let rank: int = 0

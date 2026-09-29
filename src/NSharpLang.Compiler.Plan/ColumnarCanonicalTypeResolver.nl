@@ -127,8 +127,13 @@ class ColumnarCanonicalTypeResolver {
         fullName: string,
         out resolvedType: Type
     ): bool {
-        resolvedType = Type.GetType(fullName)
-        return resolvedType != null
+        runtimeType := Type.GetType(fullName)
+        if runtimeType == null {
+            resolvedType = null
+            return false
+        }
+        resolvedType = runtimeType
+        return true
     }
 
     static func TrySelectRuntimeType(
@@ -2115,7 +2120,7 @@ class ColumnarCanonicalTypeResolver {
         exceptionBase := typeof(Exception)
         if IsPlainTypeNameSpelling(canonical) {
             qualified := Type.GetType(canonical)
-            if IsCatchableExceptionType(qualified, exceptionBase) {
+            if qualified != null && IsCatchableExceptionType(qualified, exceptionBase) {
                 result = qualified
                 return true
             }

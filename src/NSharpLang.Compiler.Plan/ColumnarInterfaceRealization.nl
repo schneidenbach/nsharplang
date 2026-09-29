@@ -293,7 +293,15 @@ class ColumnarInterfaceRealization {
     }
 
     static func IsSupportedParameterType(parameterType: Type): bool {
-        return ColumnarTypeOfPlanner.IsSupportedType(parameterType) || (parameterType.IsByRef && ColumnarCanonicalTypeResolver.IsSupportedByRefElementType(parameterType.GetElementType()))
+        if ColumnarTypeOfPlanner.IsSupportedType(parameterType) {
+            return true
+        }
+        if !parameterType.IsByRef {
+            return false
+        }
+        return ColumnarCanonicalTypeResolver.IsSupportedByRefElementType(
+            ColumnarRuntimeTypeFacts.RequiredElementType(parameterType)
+        )
     }
 
     static func TryComputeAsyncReturnShape(

@@ -468,7 +468,7 @@ test "instance member planner maps open and closed multilevel generic base field
         expectedOpenBase
     )
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
-        openField.Fields[0].get_DeclaringType(),
+        ColumnarRuntimeTypeFacts.RequiredDeclaringType(openField.Fields[0]),
         expectedOpenBase
     )
 
@@ -482,7 +482,7 @@ test "instance member planner maps open and closed multilevel generic base field
         expectedOpenBase
     )
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
-        openProperty.Methods[0].get_DeclaringType(),
+        ColumnarRuntimeTypeFacts.RequiredDeclaringType(openProperty.Methods[0]),
         expectedOpenBase
     )
 
@@ -513,7 +513,7 @@ test "instance member planner maps open and closed multilevel generic base field
         closedBase
     )
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
-        closedField.Fields[0].get_DeclaringType(),
+        ColumnarRuntimeTypeFacts.RequiredDeclaringType(closedField.Fields[0]),
         closedBase
     )
 
@@ -527,7 +527,7 @@ test "instance member planner maps open and closed multilevel generic base field
         closedBase
     )
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
-        closedProperty.Methods[0].get_DeclaringType(),
+        ColumnarRuntimeTypeFacts.RequiredDeclaringType(closedProperty.Methods[0]),
         closedBase
     )
 

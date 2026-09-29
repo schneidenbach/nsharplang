@@ -1431,10 +1431,10 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
 
     smType := typeof(ColumnarIteratorRunProbe)
     fields := new FieldInfo[](4)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("n")
-    fields[3] = smType.GetField("i")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "i")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -1517,10 +1517,10 @@ func IteratorCloneProbeContextWithTable(
     )
     smType := typeof(ColumnarIteratorCloneProbe)
     fields := new FieldInfo[](4)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("n")
-    fields[3] = smType.GetField("i")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "i")
     ctorTypes := new Type[](1)
     ctorTypes[0] = typeof(int)
     smConstructor := smType.GetConstructor(ctorTypes)
@@ -1671,9 +1671,9 @@ test "iterator planner guard yield break plans run for both branch outcomes" {
 
     smType := typeof(ColumnarIteratorCloneProbe)
     fields := new FieldInfo[](3)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("n")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -1731,9 +1731,9 @@ test "iterator planner while body ending in yield break omits the back edge" {
 
     smType := typeof(ColumnarIteratorCloneProbe)
     fields := new FieldInfo[](3)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("n")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -1831,11 +1831,11 @@ func IteratorArrayProbeContext(source: string): ColumnarIteratorEmitContext {
     }
     smType := typeof(ColumnarIteratorArrayProbe)
     fields := new FieldInfo[](5)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("xs")
-    fields[3] = smType.GetField("idx")
-    fields[4] = smType.GetField("x")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "xs")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "idx")
+    fields[4] = ColumnarRuntimeTypeFacts.RequiredField(smType, "x")
     return new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -1926,9 +1926,9 @@ test "iterator planner throw plans classify and raise the constructed exception"
 
     smType := typeof(ColumnarIteratorCloneProbe)
     fields := new FieldInfo[](3)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("n")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -1991,10 +1991,10 @@ test "iterator planner reuses the hoisted slot for same-typed disjoint redeclara
 
     smType := typeof(ColumnarIteratorCloneProbe)
     fields := new FieldInfo[](4)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("n")
-    fields[3] = smType.GetField("i")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "i")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -2081,11 +2081,11 @@ func IteratorEnumProbeContext(source: string): ColumnarIteratorEmitContext {
     }
     smType := typeof(ColumnarIteratorEnumProbe)
     fields := new FieldInfo[](5)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("xs")
-    fields[3] = smType.GetField("en")
-    fields[4] = smType.GetField("item")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "xs")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "en")
+    fields[4] = ColumnarRuntimeTypeFacts.RequiredField(smType, "item")
     ctorTypes := new Type[](1)
     ctorTypes[0] = typeof(int)
     smConstructor := smType.GetConstructor(ctorTypes)
@@ -2222,11 +2222,11 @@ test "iterator planner generic repeat plans run over a closed instantiation" {
     machineBox: object = machine
     smType := machineBox.GetType()
     fields := new FieldInfo[](5)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("value")
-    fields[3] = smType.GetField("count")
-    fields[4] = smType.GetField("i")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "value")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "count")
+    fields[4] = ColumnarRuntimeTypeFacts.RequiredField(smType, "i")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -2323,12 +2323,12 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
     smType := typeof(ColumnarIteratorInstanceProbe)
     hostType := typeof(ColumnarIteratorHostProbe)
     fields := new FieldInfo[](3)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("thisRef")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "thisRef")
     hostFields := new FieldInfo[](2)
-    hostFields[0] = hostType.GetField("Value")
-    hostFields[1] = hostType.GetField("Worth")
+    hostFields[0] = ColumnarRuntimeTypeFacts.RequiredField(hostType, "Value")
+    hostFields[1] = ColumnarRuntimeTypeFacts.RequiredField(hostType, "Worth")
     context := new ColumnarIteratorEmitContext(
         parseProbe.Nodes,
         parseProbe.Source,
@@ -2425,11 +2425,11 @@ test "iterator planner factory copies a struct receiver into the machine" {
     smType := typeof(ColumnarIteratorValueInstanceProbe)
     hostType := typeof(ColumnarIteratorValueHostProbe)
     fields := new FieldInfo[](3)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("thisRef")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "thisRef")
     hostFields := new FieldInfo[](1)
-    hostFields[0] = hostType.GetField("Value")
+    hostFields[0] = ColumnarRuntimeTypeFacts.RequiredField(hostType, "Value")
     ctorTypes := new Type[](1)
     ctorTypes[0] = typeof(int)
     smConstructor := smType.GetConstructor(ctorTypes)
@@ -3435,10 +3435,10 @@ test "iterator planner classic for plans run the counting sequence" {
 
     smType := typeof(ColumnarIteratorRunProbe)
     fields := new FieldInfo[](4)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("n")
-    fields[3] = smType.GetField("i")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "i")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -3489,10 +3489,10 @@ test "iterator planner postfix yield value steps after producing the old value" 
 
     smType := typeof(ColumnarIteratorRunProbe)
     fields := new FieldInfo[](4)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("n")
-    fields[3] = smType.GetField("i")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "i")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -3543,12 +3543,12 @@ test "iterator planner string call plans transform each yielded element" {
 
     smType := typeof(ColumnarIteratorStringProbe)
     fields := new FieldInfo[](6)
-    fields[0] = smType.GetField("state")
-    fields[1] = smType.GetField("current")
-    fields[2] = smType.GetField("xs")
-    fields[3] = smType.GetField("idx")
-    fields[4] = smType.GetField("x")
-    fields[5] = smType.GetField("r")
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "xs")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "idx")
+    fields[4] = ColumnarRuntimeTypeFacts.RequiredField(smType, "x")
+    fields[5] = ColumnarRuntimeTypeFacts.RequiredField(smType, "r")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -3717,11 +3717,11 @@ test "iterator structural rows remain conditional and the table is consumed lazi
     )
     referenceType := typeof(ColumnarIteratorStringProbe)
     referenceFields := new FieldInfo[](5)
-    referenceFields[0] = referenceType.GetField("state")
-    referenceFields[1] = referenceType.GetField("current")
-    referenceFields[2] = referenceType.GetField("xs")
-    referenceFields[3] = referenceType.GetField("idx")
-    referenceFields[4] = referenceType.GetField("x")
+    referenceFields[0] = ColumnarRuntimeTypeFacts.RequiredField(referenceType, "state")
+    referenceFields[1] = ColumnarRuntimeTypeFacts.RequiredField(referenceType, "current")
+    referenceFields[2] = ColumnarRuntimeTypeFacts.RequiredField(referenceType, "xs")
+    referenceFields[3] = ColumnarRuntimeTypeFacts.RequiredField(referenceType, "idx")
+    referenceFields[4] = ColumnarRuntimeTypeFacts.RequiredField(referenceType, "x")
     referenceTable := IteratorStructuralTypeReferences()
     referenceContext := new ColumnarIteratorEmitContext(
         referenceProbe.Nodes,
@@ -3752,8 +3752,8 @@ test "iterator structural rows remain conditional and the table is consumed lazi
     )
     noCaptureType := typeof(ColumnarIteratorCloneProbe)
     noCaptureFields := new FieldInfo[](2)
-    noCaptureFields[0] = noCaptureType.GetField("state")
-    noCaptureFields[1] = noCaptureType.GetField("current")
+    noCaptureFields[0] = ColumnarRuntimeTypeFacts.RequiredField(noCaptureType, "state")
+    noCaptureFields[1] = ColumnarRuntimeTypeFacts.RequiredField(noCaptureType, "current")
     noCaptureCtorTypes := new Type[](1)
     noCaptureCtorTypes[0] = typeof(int)
     noCaptureConstructor := noCaptureType.GetConstructor(noCaptureCtorTypes)

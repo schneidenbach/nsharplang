@@ -1913,7 +1913,7 @@ class ColumnarTypeOfPlanner {
 
     static func IsAssemblyBuilderBacked(valueType: Type): bool {
         assemblyObject: object = valueType.Assembly
-        assemblyType := assemblyObject.GetType()
+        assemblyType: Type? = assemblyObject.GetType()
         while assemblyType != null {
             if assemblyType.FullName == "System.Reflection.Emit.AssemblyBuilder" {
                 return true

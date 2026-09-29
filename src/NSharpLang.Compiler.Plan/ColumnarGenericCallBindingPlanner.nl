@@ -52,13 +52,15 @@ class ColumnarGenericCallBindingPlanner {
         if declared.IsGenericParameter {
             return TryUnifyTypeParam(typeParams, binding, declared, actual)
         }
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declared) && (must declared.GetElementType()).IsGenericParameter {
-            return ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(actual) && TryUnifyTypeParam(
-                typeParams,
-                binding,
-                declared.GetElementType(),
-                actual.GetElementType()
-            )
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declared) {
+            declaredElement := ColumnarRuntimeTypeFacts.RequiredElementType(declared)
+            if declaredElement.IsGenericParameter {
+                if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(actual) {
+                    return false
+                }
+                actualElement := ColumnarRuntimeTypeFacts.RequiredElementType(actual)
+                return TryUnifyTypeParam(typeParams, binding, declaredElement, actualElement)
+            }
         }
         if declared.IsGenericType && !declared.IsGenericTypeDefinition {
             return TryUnifyGenericContainer(typeParams, binding, declared, actual)
@@ -139,17 +141,19 @@ class ColumnarGenericCallBindingPlanner {
             return false
         }
 
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declaredReturn) && (must declaredReturn.GetElementType()).IsGenericParameter {
-            element := declaredReturn.GetElementType()
-            parameterIndex := 0
-            while parameterIndex < typeParams.Length {
-                if RuntimeTypeShapeFacts.SameTypeParameterIdentity(typeParams[parameterIndex], element) {
-                    substituted = binding[parameterIndex].MakeArrayType()
-                    return true
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declaredReturn) {
+            element := ColumnarRuntimeTypeFacts.RequiredElementType(declaredReturn)
+            if element.IsGenericParameter {
+                parameterIndex := 0
+                while parameterIndex < typeParams.Length {
+                    if RuntimeTypeShapeFacts.SameTypeParameterIdentity(typeParams[parameterIndex], element) {
+                        substituted = binding[parameterIndex].MakeArrayType()
+                        return true
+                    }
+                    parameterIndex = parameterIndex + 1
                 }
-                parameterIndex = parameterIndex + 1
+                return false
             }
-            return false
         }
 
         if ColumnarTypeOfPlanner.IsClosedSourceGeneric(declaredReturn) {

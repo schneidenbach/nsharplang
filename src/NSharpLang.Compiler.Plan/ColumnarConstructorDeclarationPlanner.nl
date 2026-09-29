@@ -76,7 +76,11 @@ class ColumnarConstructorDeclarationPlanner {
         structDepths: int[],
         sourceAttributeQueue: ColumnarSourceAttributeQueue
     ): ColumnarConstructorDeclarationResult {
-        objectConstructor := typeof(object).GetConstructor(Type.EmptyTypes)
+        objectConstructor := ColumnarRuntimeTypeFacts.RequiredConstructor(
+            typeof(object),
+            Type.EmptyTypes,
+            "System.Object()"
+        )
         constructorJobs := new List<ColumnarConstructorBodyJob>()
         defaultConstructorJobs := new List<ColumnarDefaultConstructorJob>()
 

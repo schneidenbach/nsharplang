@@ -264,10 +264,7 @@ class ColumnarForeachLoopPlanner {
         elementType := currentType
         currentIsByRef := currentType.IsByRef
         if currentIsByRef {
-            elementType = currentType.GetElementType()
-            if elementType == null {
-                return null
-            }
+            elementType = ColumnarRuntimeTypeFacts.RequiredElementType(currentType)
         }
 
         plan := new ColumnarForeachPlan(3, elementType)

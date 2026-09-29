@@ -57,8 +57,9 @@ class ColumnarReferenceConversionFacts {
         }
 
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) && targetType.IsGenericType && !targetType.IsGenericTypeDefinition {
+            sourceElement := ColumnarRuntimeTypeFacts.RequiredElementType(sourceType)
             targetDefinition := targetType.GetGenericTypeDefinition()
-            if (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0]) {
+            if (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceElement, targetType.GetGenericArguments()[0]) {
                 return true
             }
         }

@@ -535,7 +535,7 @@ class ColumnarConstructionPlanner {
         if targetType == null || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
             return false
         }
-        elementType := targetType.GetElementType()
+        elementType := ColumnarRuntimeTypeFacts.RequiredElementType(targetType)
         if !IsSupportedArrayElement(elementType) {
             return false
         }

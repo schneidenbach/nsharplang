@@ -1229,7 +1229,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
         fixedCount := parameterTypes.Length - 1
-        elementType := parameterTypes[fixedCount].GetElementType()
+        elementType := ColumnarRuntimeTypeFacts.RequiredElementType(parameterTypes[fixedCount])
         claimed := new bool[](fixedCount)
         paramsArrayClaimed := false
         expandedSeen := false
@@ -1588,14 +1588,11 @@ class ColumnarDirectCallPlanner {
                 }
                 paramsStart := facts.ParameterTypes.Length - 1
                 if slot == paramsStart && argumentTypes.Length > trailingCount {
-                    declared = declared.GetElementType()
+                    declared = ColumnarRuntimeTypeFacts.RequiredElementType(declared)
                 }
             }
             if declared.IsByRef {
-                declared = declared.GetElementType()
-                if declared == null {
-                    return false
-                }
+                declared = ColumnarRuntimeTypeFacts.RequiredElementType(declared)
             } else if argumentFacts.IsByRefArgument[argumentIndex] {
                 return false
             }
@@ -1709,7 +1706,7 @@ class ColumnarDirectCallPlanner {
         fixedCount := parameterTypes.Length - 1
         paramsSlot := fixedCount
         paramsType := parameterTypes[paramsSlot]
-        elementType := paramsType.GetElementType()
+        elementType := ColumnarRuntimeTypeFacts.RequiredElementType(paramsType)
 
         fixedLocals := new int[](fixedCount)
         Array.Fill(fixedLocals, -1)

@@ -114,3 +114,48 @@ test "the direct-call and process interop gates admit disjoint type sets" {
     assert !ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(NamedRuntimeType("System.IO.FileStream"))
     assert !ColumnarRuntimeTypeFacts.IsSupportedProcessInteropType(NamedRuntimeType("System.IO.DirectoryInfo"))
 }
+
+test "required CLR element lookup returns the element type of an array" {
+    assert ColumnarRuntimeTypeFacts.RequiredElementType(typeof(int[])) == typeof(int)
+}
+
+test "required CLR element lookup names a type with no element" {
+    failedWithMemberName := false
+    try {
+        ColumnarRuntimeTypeFacts.RequiredElementType(typeof(int))
+    } catch ex: InvalidOperationException {
+        failedWithMemberName = ex.Message.Contains("System.Int32") && ex.Message.Contains("has no element type")
+    }
+    assert failedWithMemberName
+}
+
+test "required CLR constructor lookup names a missing constructor" {
+    failedWithMemberName := false
+    missingParameterTypes: Type[] = [typeof(string)]
+    try {
+        ColumnarRuntimeTypeFacts.RequiredConstructor(typeof(object), missingParameterTypes, "System.Object(string)")
+    } catch ex: InvalidOperationException {
+        failedWithMemberName = ex.Message.Contains("System.Object(string)") && ex.Message.Contains("was not found")
+    }
+    assert failedWithMemberName
+}
+
+test "required CLR method lookup names a missing method" {
+    failedWithMemberName := false
+    try {
+        ColumnarRuntimeTypeFacts.RequiredMethod(typeof(object), "MissingNSharpProbe", Type.EmptyTypes)
+    } catch ex: InvalidOperationException {
+        failedWithMemberName = ex.Message.Contains("System.Object.MissingNSharpProbe") && ex.Message.Contains("was not found")
+    }
+    assert failedWithMemberName
+}
+
+test "required CLR field lookup names a missing field" {
+    failedWithMemberName := false
+    try {
+        ColumnarRuntimeTypeFacts.RequiredField(typeof(object), "MissingNSharpProbe")
+    } catch ex: InvalidOperationException {
+        failedWithMemberName = ex.Message.Contains("System.Object.MissingNSharpProbe") && ex.Message.Contains("was not found")
+    }
+    assert failedWithMemberName
+}

@@ -239,7 +239,7 @@ class ColumnarSourceAttributeBinder {
     // attribute being BUILT and the reference-loaded `Xunit.FactAttribute` it derives from live in
     // two different type universes.
     static func DerivesFromFullName(candidate: Type, baseFullName: string): bool {
-        current: Type = candidate
+        current: Type? = candidate
         depth := 0
         while current != null && depth < 64 {
             if current.FullName == baseFullName {

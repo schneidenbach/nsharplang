@@ -63,7 +63,8 @@ class ColumnarSourceStaticMemberPlanner {
         property: ColumnarPropertyDef? = null
         if ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(owner, memberName, out property) && property != null {
             getter := ColumnarSourceSelfInstantiation.Bind(property.Getter)
-            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(getter, getter.DeclaringType, Type.EmptyTypes, property.PropertyType, true, false))
+            getterOwner := ColumnarRuntimeTypeFacts.RequiredDeclaringType(getter)
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(getter, getterOwner, Type.EmptyTypes, property.PropertyType, true, false))
             resultType = property.PropertyType
             return true
         }
@@ -109,9 +110,10 @@ class ColumnarSourceStaticMemberPlanner {
         // A resolved target that is not a field is a property: the resolver answers one of the two.
         storeProperty := must property
         bound := ColumnarSourceSelfInstantiation.Bind(storeProperty.Setter)
+        setterOwner := ColumnarRuntimeTypeFacts.RequiredDeclaringType(bound)
         parameterTypes := new Type[](1)
         parameterTypes[0] = storeProperty.PropertyType
-        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(bound, bound.DeclaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), true, false))
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(bound, setterOwner, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), true, false))
         return true
     }
 
@@ -208,11 +210,10 @@ class ColumnarSourceStaticMemberPlanner {
     // what the pool needs: reading them back through reflection off an unbaked type is exactly the
     // question `AddFieldWithSignature` exists to avoid asking.
     static func AddStaticField(plan: ColumnarCodePlan, fieldOwner: ColumnarStructDef?, field: FieldBuilder): int {
-        declaringType := field.DeclaringType
         if fieldOwner != null {
-            declaringType = fieldOwner.Builder
+            return plan.AddFieldWithSignature(field, fieldOwner.Builder, field.FieldType, true)
         }
-
+        declaringType := ColumnarRuntimeTypeFacts.RequiredDeclaringType(field)
         return plan.AddFieldWithSignature(field, declaringType, field.FieldType, true)
     }
 

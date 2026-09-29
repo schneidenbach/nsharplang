@@ -158,7 +158,7 @@ class ColumnarStoreTargetPlanner {
         }
 
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) {
-            elementType: Type = receiverType.GetElementType()
+            elementType := ColumnarRuntimeTypeFacts.RequiredElementType(receiverType)
             planned := typeof(int)
             if !TryAppendValue(nodes, source, receiverNode, bindings, plan, out planned) {
                 declineReason = "the indexed target's receiver could not be planned"

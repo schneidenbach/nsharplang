@@ -624,11 +624,12 @@ class ColumnarGenericConstraintPlanner {
         // A managed reference reports an element type too, but it is not an SZ array. Check it
         // before the defensive array probe so a pre-bake `T&` closes to `int&`, never `int[]`.
         if sourceType.IsByRef {
+            sourceElement := ColumnarRuntimeTypeFacts.RequiredElementType(sourceType)
             element: Type = null
             if !TrySubstituteGenericTypeArguments(
                 typeParams,
                 binding,
-                sourceType.GetElementType(),
+                sourceElement,
                 out element
             ) {
                 return false
@@ -638,11 +639,12 @@ class ColumnarGenericConstraintPlanner {
         }
 
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
+            sourceElement := ColumnarRuntimeTypeFacts.RequiredElementType(sourceType)
             element: Type = null
             if !TrySubstituteGenericTypeArguments(
                 typeParams,
                 binding,
-                sourceType.GetElementType(),
+                sourceElement,
                 out element
             ) {
                 return false
@@ -715,16 +717,18 @@ class ColumnarGenericConstraintPlanner {
             return false
         }
         if sourceType.IsByRef {
+            sourceElement := ColumnarRuntimeTypeFacts.RequiredElementType(sourceType)
             element: Type = null
-            if !TrySubstituteGenericMemberType(ownerParameters, ownerArguments, methodParameters, methodArguments, sourceType.GetElementType(), out element) {
+            if !TrySubstituteGenericMemberType(ownerParameters, ownerArguments, methodParameters, methodArguments, sourceElement, out element) {
                 return false
             }
             substituted = element.MakeByRefType()
             return true
         }
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
+            sourceElement := ColumnarRuntimeTypeFacts.RequiredElementType(sourceType)
             element: Type = null
-            if !TrySubstituteGenericMemberType(ownerParameters, ownerArguments, methodParameters, methodArguments, sourceType.GetElementType(), out element) {
+            if !TrySubstituteGenericMemberType(ownerParameters, ownerArguments, methodParameters, methodArguments, sourceElement, out element) {
                 return false
             }
             substituted = element.MakeArrayType()

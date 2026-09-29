@@ -2257,7 +2257,13 @@ class ColumnarCodePlanExecutor {
             }
         } else {
             value := state.Pop()
-            storesManagedPointer := localType.IsByRef && value.IsAddress && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(localType.GetElementType(), value.ValueType)
+            storesManagedPointer := false
+            if localType.IsByRef && value.IsAddress {
+                storesManagedPointer = RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
+                    ColumnarRuntimeTypeFacts.RequiredElementType(localType),
+                    value.ValueType
+                )
+            }
             if !storesManagedPointer && (value.IsAddress || !IsStackCompatible(localType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue)) {
                 throw new InvalidOperationException(schemaName + " stloc value does not match its local type.")
             }

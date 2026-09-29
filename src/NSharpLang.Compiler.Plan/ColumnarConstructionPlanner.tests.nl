@@ -2568,7 +2568,7 @@ test "construction planner rebinds inherited object members on a closed generic 
     )
     assert plan.FieldValueTypes[0] == typeof(int)
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
-        plan.Fields[0].get_DeclaringType(),
+        ColumnarRuntimeTypeFacts.RequiredDeclaringType(plan.Fields[0]),
         closedBase
     )
     assert ConstructionHasOpcode(plan, ColumnarCodePlanContract.Stfld())
@@ -2580,7 +2580,7 @@ test "construction planner rebinds inherited object members on a closed generic 
     assert plan.MethodParameterTypes[0].Length == 1
     assert plan.MethodParameterTypes[0][0] == typeof(int)
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
-        plan.Methods[0].get_DeclaringType(),
+        ColumnarRuntimeTypeFacts.RequiredDeclaringType(plan.Methods[0]),
         closedBase
     )
     assert plan.Methods[0].get_Name() == "set_Label"
@@ -2715,7 +2715,7 @@ test "construction planner follows multilevel reordered and fixed generic bases"
     )
     assert plan.FieldValueTypes[0] == typeof(string)
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
-        plan.Fields[0].get_DeclaringType(),
+        ColumnarRuntimeTypeFacts.RequiredDeclaringType(plan.Fields[0]),
         closedBase
     )
     assert plan.MethodCount == 1
@@ -2726,7 +2726,7 @@ test "construction planner follows multilevel reordered and fixed generic bases"
     assert plan.MethodParameterTypes[0].Length == 1
     assert plan.MethodParameterTypes[0][0] == typeof(long)
     assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
-        plan.Methods[0].get_DeclaringType(),
+        ColumnarRuntimeTypeFacts.RequiredDeclaringType(plan.Methods[0]),
         closedBase
     )
 }

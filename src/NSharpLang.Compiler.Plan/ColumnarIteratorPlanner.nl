@@ -3002,32 +3002,43 @@ class ColumnarIteratorBodyPlanner {
 
     static func StrongBoxValueField(boxType: Type): FieldInfo {
         definition := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
-        openField := definition.GetField("Value")
+        openField := ColumnarRuntimeTypeFacts.RequiredField(definition, "Value")
         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(boxType) {
-            return TypeBuilder.GetField(boxType, openField)
+            rebound := TypeBuilder.GetField(boxType, openField)
+            if rebound == null {
+                throw new InvalidOperationException("Compiler internal error: StrongBox<T>.Value could not be rebound on '" + boxType.ToString() + "'.")
+            }
+            return rebound
         }
-        return boxType.GetField("Value")
+        return ColumnarRuntimeTypeFacts.RequiredField(boxType, "Value")
     }
 
     static func StrongBoxConstructor(boxType: Type, takesValue: bool): ConstructorInfo {
         definition := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
-        let openConstructor: ConstructorInfo = null
+        openParameters := System.Type.EmptyTypes
         if takesValue {
             definitionParameter := definition.GetGenericArguments()[0]
-            parameters := new Type[](1)
-            parameters[0] = definitionParameter
-            openConstructor = definition.GetConstructor(parameters)
-        } else {
-            openConstructor = definition.GetConstructor(System.Type.EmptyTypes)
+            openParameters = new Type[](1)
+            openParameters[0] = definitionParameter
         }
+        openDisplay := takesValue ? "System.Runtime.CompilerServices.StrongBox<T>(T)" : "System.Runtime.CompilerServices.StrongBox<T>()"
+        openConstructor := ColumnarRuntimeTypeFacts.RequiredConstructor(definition, openParameters, openDisplay)
         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(boxType) {
-            return TypeBuilder.GetConstructor(boxType, openConstructor)
+            rebound := TypeBuilder.GetConstructor(boxType, openConstructor)
+            if rebound == null {
+                throw new InvalidOperationException("Compiler internal error: the " + openDisplay + " constructor could not be rebound on '" + boxType.ToString() + "'.")
+            }
+            return rebound
         }
         parameters := takesValue ? new Type[](1) : System.Type.EmptyTypes
         if takesValue {
             parameters[0] = boxType.GetGenericArguments()[0]
         }
-        return boxType.GetConstructor(parameters)
+        return ColumnarRuntimeTypeFacts.RequiredConstructor(
+            boxType,
+            parameters,
+            "constructor on '" + boxType.ToString() + "'"
+        )
     }
 
     static func AppendFreshLoopCaptureBox(emit: ColumnarMoveNextEmit, name: string, valueNode: int, valueType: Type, hasValue: bool): bool {
@@ -3535,17 +3546,23 @@ class ColumnarIteratorBodyPlanner {
         } else {
             flags = flags | BindingFlags.Instance
         }
-        walk: Type = ownerType
+        walk: Type? = ownerType
         while walk != null {
             // A type still being BUILT answers no reflection question — `TypeBuilder.GetEvent` throws
             // rather than answering — so a source rung is skipped rather than asked.
             if walk as TypeBuilder == null && walk as EnumBuilder == null {
                 candidate := walk.GetEvent(eventName, flags)
                 if candidate != null {
-                    handlerType = candidate.EventHandlerType
-                    addMethod = candidate.GetAddMethod(false)
-                    removeMethod = candidate.GetRemoveMethod(false)
-                    return handlerType != null && addMethod != null && removeMethod != null
+                    candidateHandlerType := candidate.EventHandlerType
+                    candidateAddMethod := candidate.GetAddMethod(false)
+                    candidateRemoveMethod := candidate.GetRemoveMethod(false)
+                    if candidateHandlerType == null || candidateAddMethod == null || candidateRemoveMethod == null {
+                        return false
+                    }
+                    handlerType = candidateHandlerType
+                    addMethod = candidateAddMethod
+                    removeMethod = candidateRemoveMethod
+                    return true
                 }
             }
             walk = walk.BaseType
@@ -4044,7 +4061,11 @@ class ColumnarIteratorBodyPlanner {
 
     static func AppendCompletedAsyncLambdaReturn(plan: ColumnarCodePlan, returnType: Type, resultType: Type) {
         if returnType == typeof(System.Threading.Tasks.Task) {
-            getter := (must typeof(System.Threading.Tasks.Task).GetProperty("CompletedTask")).GetGetMethod()
+            getter := ColumnarRuntimeTypeFacts.RequiredMethod(
+                typeof(System.Threading.Tasks.Task),
+                "get_CompletedTask",
+                Type.EmptyTypes
+            )
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(getter))
             return
         }
@@ -4060,7 +4081,12 @@ class ColumnarIteratorBodyPlanner {
             return
         }
         constructorTypes: Type[] = [resultType]
-        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(returnType.GetConstructor(constructorTypes)))
+        constructor := ColumnarRuntimeTypeFacts.RequiredConstructor(
+            returnType,
+            constructorTypes,
+            "async lambda result constructor on '" + returnType.ToString() + "'"
+        )
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(constructor))
     }
 
     static func AppendFaultedAsyncLambdaReturn(plan: ColumnarCodePlan, returnType: Type, resultType: Type) {
@@ -4071,14 +4097,24 @@ class ColumnarIteratorBodyPlanner {
         if returnType == typeof(System.Threading.Tasks.ValueTask) {
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(RequiredTaskFactory("FromException", false)))
             constructorTypes: Type[] = [typeof(System.Threading.Tasks.Task)]
-            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(returnType.GetConstructor(constructorTypes)))
+            constructor := ColumnarRuntimeTypeFacts.RequiredConstructor(
+                returnType,
+                constructorTypes,
+                "async lambda ValueTask(Task) constructor"
+            )
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(constructor))
             return
         }
         taskType := typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([resultType])
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(RequiredTaskFactory("FromException", true).MakeGenericMethod([resultType])))
         if returnType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition() {
             constructorTypes: Type[] = [taskType]
-            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(returnType.GetConstructor(constructorTypes)))
+            constructor := ColumnarRuntimeTypeFacts.RequiredConstructor(
+                returnType,
+                constructorTypes,
+                "async lambda ValueTask<T>(Task<T>) constructor"
+            )
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(constructor))
         }
     }
 
@@ -5377,7 +5413,7 @@ class ColumnarIteratorBodyPlanner {
         arrayPool := FieldPool(emit, sourceName)
         indexPool := FieldPool(emit, indexName)
         arrayType := emit.Context.FieldForName(sourceName).FieldType
-        elementType: Type = arrayType.GetElementType()
+        elementType := ColumnarRuntimeTypeFacts.RequiredElementType(arrayType)
         storageType := elementType
         if !TryResolveLoopVariableStorage(emit, varName, elementType, out storageType) {
             return false
@@ -5685,8 +5721,8 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
-            elementType = sourceType.GetElementType()
-            return elementType != null
+            elementType = ColumnarRuntimeTypeFacts.RequiredElementType(sourceType)
+            return true
         }
         if IsConstructedEnumerable(sourceType) {
             elementType = sourceType.GetGenericArguments()[0]

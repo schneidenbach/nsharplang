@@ -161,26 +161,14 @@ class ColumnarRangeIndexHandles {
     }
 
     static func RequiredConstructor(owner: Type, parameters: Type[], display: string): ConstructorInfo {
-        constructor := owner.GetConstructor(parameters)
-        if constructor == null {
-            throw new InvalidOperationException("Required CLR constructor " + display + " was not found.")
-        }
-        return constructor
+        return ColumnarRuntimeTypeFacts.RequiredConstructor(owner, parameters, display)
     }
 
     static func RequiredMethod(owner: Type, name: string, parameters: Type[]): MethodInfo {
-        method := owner.GetMethod(name, parameters)
-        if method == null {
-            throw new InvalidOperationException("Required CLR method " + name + " was not found on its exact owner.")
-        }
-        return method
+        return ColumnarRuntimeTypeFacts.RequiredMethod(owner, name, parameters)
     }
 
     static func RequiredField(owner: Type, name: string): FieldInfo {
-        field := owner.GetField(name)
-        if field == null {
-            throw new InvalidOperationException("Required CLR field " + name + " was not found on its exact owner.")
-        }
-        return field
+        return ColumnarRuntimeTypeFacts.RequiredField(owner, name)
     }
 }
