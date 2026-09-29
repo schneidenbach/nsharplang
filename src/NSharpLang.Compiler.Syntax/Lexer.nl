@@ -457,11 +457,11 @@ class Lexer {
             builder.Append(Peek())
             Advance()
 
-            if IsAtEnd() || !IsHexDigit(Peek()) {
+            if IsAtEnd() || !Lexer.IsHexDigit(Peek()) {
                 return new Token(TokenType.Unknown, builder.ToString(), startLine, startColumn, fileNameValue)
             }
 
-            while !IsAtEnd() && (IsHexDigit(Peek()) || Peek() == '_') {
+            while !IsAtEnd() && (Lexer.IsHexDigit(Peek()) || Peek() == '_') {
                 if Peek() == '_' {
                     sawSeparator = true
                     Advance()

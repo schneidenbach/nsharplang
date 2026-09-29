@@ -86,11 +86,11 @@ class FixCommand {
             // those two are exactly the fixes that delete and add import lines. Loading the project
             // here costs what `nlc check` costs and makes `nlc fix` offer the same set `nlc check`
             // reports, rather than a strictly smaller one.
-            analyzedUnits := AnalyzedUnitsFor(projectDir)
+            analyzedSnapshot := AnalyzedSnapshotFor(projectDir)
 
             for filePath in files {
                 source := File.ReadAllText(filePath)
-                fixes := FixApplicator.GetFixesForFile(filePath, source, AnalyzedUnitFor(analyzedUnits, filePath))
+                fixes := FixApplicator.GetFixesForFile(filePath, source, AnalyzedUnitFor(analyzedSnapshot, filePath), CompilerErrorsFor(analyzedSnapshot))
                 if fixes.Count == 0 {
                     continue
                 }
@@ -164,7 +164,7 @@ class FixCommand {
     // Every file of the project, analysed, keyed by full path. A project that cannot be loaded at all
     // answers with nothing, and the two import rules are then silent for every file — the same answer
     // a unit with no binding facts already gives, rather than a guess.
-    private static func AnalyzedUnitsFor(projectDir: string): IReadOnlyDictionary<string, CompilationUnit>? {
+    private static func AnalyzedSnapshotFor(projectDir: string): ProjectSnapshot? {
         try {
             projectConfig := ProjectFileParser.ParseFromDirectory(projectDir)
             if projectConfig != null {
@@ -173,19 +173,33 @@ class FixCommand {
 
             service := new CodeIntelligenceService()
             snapshot := service.LoadProjectIncludingTests(projectDir, projectConfig, null)
-            return snapshot.CompilationUnits
+            return snapshot
         } catch {
             return null
         }
     }
 
-    private static func AnalyzedUnitFor(units: IReadOnlyDictionary<string, CompilationUnit>?, filePath: string): CompilationUnit? {
-        table := units
+    private static func AnalyzedUnitFor(snapshot: ProjectSnapshot?, filePath: string): CompilationUnit? {
+        projectSnapshot := snapshot
+        if projectSnapshot == null {
+            return null
+        }
+
+        table := projectSnapshot.CompilationUnits
         if table == null {
             return null
         }
 
         return LookupAnalyzedUnit(table, filePath)
+    }
+
+    private static func CompilerErrorsFor(snapshot: ProjectSnapshot?): IReadOnlyList<CompilerError>? {
+        projectSnapshot := snapshot
+        if projectSnapshot == null {
+            return null
+        }
+
+        return projectSnapshot.AllErrors
     }
 
     private static func LookupAnalyzedUnit(units: IReadOnlyDictionary<string, CompilationUnit>, filePath: string): CompilationUnit? {

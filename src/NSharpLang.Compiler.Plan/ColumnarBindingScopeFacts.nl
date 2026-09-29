@@ -2871,7 +2871,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
                 inWhereClause = true
             } else if atTopLevel && kind == 120 {
                 inWhereClause = false
-            } else if !inWhereClause && TypeDeclarationHeadKind(source, compactKinds, compactStarts, compactLengths, compactCount, index) != 0 && !IsRecordStructTailToken(compactKinds, index) {
+            } else if !inWhereClause && TypeDeclarationHeadKind(source, compactKinds, compactStarts, compactLengths, compactCount, index) != 0 && !ColumnarBindingScopeFacts.IsRecordStructTailToken(compactKinds, index) {
                 nameIndex := index + 1
                 if kind == 13 && nameIndex < compactCount && compactKinds[nameIndex] == 9 {
                     nameIndex = nameIndex + 1

@@ -125,8 +125,8 @@ class RecordedDevRun {
     Run: ProcessRun
     Invocations: string[]
     constructor(run: ProcessRun, invocations: string[]) {
-        Run = run
-        Invocations = invocations
+        this.Run = run
+        this.Invocations = invocations
     }
 }
 

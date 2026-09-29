@@ -2,24 +2,25 @@ namespace Census.FreeFunctionIdentity.MemberShadow
 
 import System.Collections.Generic
 
-test "a member of the enclosing type hides a same-file free function of the same name" {
+test "an explicit member receiver preserves behavior beside a same-file free function" {
     shadowing := new Shadowing()
     assert shadowing.Direct() == "member"
+    assert shadowing.SameNamespaceFreeFunction() == 1
     assert shadowing.FromConstructor() == "member"
 }
 
-test "a member hides a free function another file of the namespace declares" {
+test "an explicit member receiver preserves behavior beside a cross-file free function" {
     shadowing := new Shadowing()
     assert shadowing.CrossFile() == "cross-file member"
     assert shadowing.DelegateField() == "delegate member"
 }
 
-test "a static member hides a free function from a static body and from an instance body" {
+test "a type-qualified static member preserves behavior beside a free function" {
     assert Shadowing.FromStaticBody() == "static member"
     assert new Shadowing().FromInstanceBodyToStatic() == "static member"
 }
 
-test "an inherited member hides a free function, from a source base and from an external one" {
+test "an explicit inherited member receiver preserves behavior beside free functions" {
     assert new Shadowing().Inherited() == "base member"
     names := new ShadowingNames()
     names.Add("first")
@@ -34,12 +35,12 @@ test "a lambda, a nested lambda, a local function and a method group in a member
     assert shadowing.AsMethodGroup() == "member"
 }
 
-test "a struct's member hides a free function of the same name" {
+test "a struct's explicit member receiver preserves behavior beside a free function" {
     value := new ShadowingValue()
     assert value.Direct() == "struct member"
 }
 
-test "a member generator reads the member, not the free function it hides" {
+test "a member generator's explicit receivers preserve behavior beside free functions" {
     collected := new List<string>()
     for text in new Shadowing().InIterator() {
         collected.Add(text)
@@ -67,7 +68,7 @@ test "a member generator reads the member, not the free function it hides" {
     assert presence[0]
 }
 
-// A `test` block is a free function of this namespace, so nothing hides the free functions here.
+// A `test` block is outside any type, so it can use these free functions by their bare names.
 test "outside every type the free function is what the bare name means" {
     assert Label() == 1
     assert Title() == 4

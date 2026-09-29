@@ -4,22 +4,13 @@ import System
 import System.Collections.Generic
 
 
-// A MEMBER OF THE ENCLOSING TYPE HIDES A FREE FUNCTION OF THE SAME NAME.
+// MEMBER CALLS THAT SHARE A NAME WITH FREE FUNCTIONS SAY `this.` EXPLICITLY.
 //
-// Inside a type body a bare name is looked up in the type before the namespace, as C# does it: the
-// member wins whether the free function sits in this file, in another file of the namespace, or in a
-// referenced assembly, and whether the member is the type's own or inherited. The emitter used to ask
-// its sibling table first, so `Direct()` below called the free `Label` and returned its value while
-// `check` — which binds the member — reported nothing.
+// Inside a type, a same-name bare member/free-function use is NL209. These execution rows spell
+// member uses with `this.` so they keep the old member behavior without relying on implicit hiding.
 //
-// EVERY FREE FUNCTION HERE RETURNS AN `int` AND NO MEMBER OF ITS NAME DOES. A body that bound the
-// free function would not type-check, so the analyzer's half of the rule is held at compile time and the
-// emitter's half by the values the rows read.
+// These functions keep same-file free groups present beside the member examples below.
 //
-// `Label`, `Kind` and `Contains` are declared in THIS file on purpose: the analyzer's scope stack holds
-// a file's own free functions in its global scope, which it walks before it asks the enclosing type
-// for an INHERITED member, so a same-file free function beat an inherited one there — `Inherited()`
-// and `HasFirst()` below were NL202 until the two were ordered.
 func Label(): int => 1
 
 func Kind(): int => 2
@@ -41,49 +32,50 @@ class Shadowing: ShadowBase {
     fromConstructor: string
 
     constructor() {
-        Pick = () => "delegate member"
-        fromConstructor = Label()
+        this.Pick = () => "delegate member"
+        fromConstructor = this.Label()
     }
 
     func Label(): string => "member"
     func Title(): string => "cross-file member"
     static func Tag(): string => "static member"
 
-    func Direct(): string => Label()
+    func Direct(): string => this.Label()
+    func SameNamespaceFreeFunction(): int => Census.FreeFunctionIdentity.MemberShadow.Label()
     func FromConstructor(): string => fromConstructor
-    func CrossFile(): string => Title()
-    func Inherited(): string => Kind()
-    func DelegateField(): string => Pick()
-    static func FromStaticBody(): string => Tag()
-    func FromInstanceBodyToStatic(): string => Tag()
+    func CrossFile(): string => this.Title()
+    func Inherited(): string => this.Kind()
+    func DelegateField(): string => this.Pick()
+    static func FromStaticBody(): string => Shadowing.Tag()
+    func FromInstanceBodyToStatic(): string => Shadowing.Tag()
 
     func InLambda(): string {
-        read := () => Label()
+        read := () => this.Label()
         return read()
     }
 
     func InNestedLambda(): string {
-        outer := () => CallThrough(() => Label())
+        outer := () => CallThrough(() => this.Label())
         return outer()
     }
 
     func InLocalFunction(): string {
-        func local(): string => Label()
+        func local(): string => this.Label()
         return local()
     }
 
     func AsMethodGroup(): string {
-        read: Func<string> = Label
+        read: Func<string> = this.Label
         return read()
     }
 
-    // A member GENERATOR runs on a state machine that holds this instance in a field, and every bare
-    // name in it still means the member: own, cross-file-hidden, static and inherited alike.
+    // A member GENERATOR runs on a state machine that holds this instance in a field, so member calls
+    // use explicit receiver spellings just like ordinary member bodies.
     func* InIterator(): IEnumerable<string> {
-        yield Label()
-        yield Title()
-        yield Tag()
-        yield Kind()
+        yield this.Label()
+        yield this.Title()
+        yield Shadowing.Tag()
+        yield this.Kind()
     }
 }
 
@@ -91,18 +83,18 @@ struct ShadowingValue {
     Seed: int
 
     func Label(): string => "struct member"
-    func Direct(): string => Label()
+    func Direct(): string => this.Label()
 
     func* InIterator(): IEnumerable<string> {
-        yield Label()
+        yield this.Label()
     }
 }
 
-// An EXTERNAL base's members hide too: `Contains` is `List<string>.Contains`, not the free `int` one.
+// An EXTERNAL base's member shares the name; `this.` selects `List<string>.Contains` explicitly.
 class ShadowingNames: List<string> {
-    func HasFirst(): bool => Contains("first")
+    func HasFirst(): bool => this.Contains("first")
 
     func* Presence(): IEnumerable<bool> {
-        yield Contains("first")
+        yield this.Contains("first")
     }
 }

@@ -247,11 +247,16 @@ class AnalyzerDiagnosticSink {
         return true
     }
 
+    func ReportAmbiguousBareName(name: string, memberCandidate: string, functionCandidate: string, suggestion: string, line: int, column: int): bool {
+        ReportBuilt(ErrorMessageBuilder.AmbiguousBareName(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, memberCandidate, functionCandidate, suggestion))
+        return true
+    }
+
     // NL413, FROM BOTH OF ITS DOORS: a bare callee (`Label()`, the identifier rule) and a member access
     // (`box.Size()`, the member-access arm). One builder behind both is what keeps the two spellings of
     // one mistake reading as one mistake.
-    func ReportValueNotCallable(name: string, kind: string?, valueType: string, owner: string?, hidesFreeFunction: bool, receiverWritten: bool, line: int, column: int) {
-        ReportBuilt(ErrorMessageBuilder.ValueNotCallable(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, kind, valueType, owner, hidesFreeFunction, receiverWritten))
+    func ReportValueNotCallable(name: string, kind: string?, valueType: string, owner: string?, receiverWritten: bool, line: int, column: int) {
+        ReportBuilt(ErrorMessageBuilder.ValueNotCallable(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, kind, valueType, owner, receiverWritten))
     }
 
     // NL010: BOTH CANDIDATES SUPPLIED THE NAME, WHICH IS WHY THIS IS A TIE. The name does not

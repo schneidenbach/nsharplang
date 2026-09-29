@@ -75,6 +75,14 @@ func FreeText(errors: IEnumerable<CompilerError>): string {
     return text
 }
 
+func FreeSuggestions(errors: IEnumerable<CompilerError>): string {
+    text := ""
+    for error in errors {
+        text = text + (error.Suggestion ?? "") + "\n"
+    }
+    return text
+}
+
 func FreeCodes(errors: IEnumerable<CompilerError>, code: string): int {
     count := 0
     for error in errors {
@@ -144,22 +152,52 @@ test "a referenced free function in an enclosing namespace outranks an imported 
     assert FreeRun(Path.Combine(Path.Combine(root, "out"), "FreeFunctionsNearestEmit.dll"), "Census.FreeFunctions.Consumer.NearUses", "Answer") == "enclosing-referenced"
 }
 
-// A MEMBER OF THE ENCLOSING TYPE HIDES A REFERENCED FREE FUNCTION OF THE SAME NAME, exactly as it
-// hides a source one (`ColumnarSiblingHiding`, `AnalyzerIdentifierResolution.EnclosingTypeHasMember`):
-// the type is asked before any namespace. The library's `Twice` returns an `int` and the member a
-// `string`, so an analysis that bound the free function would not compile; `Nearest` and `Describe`
-// return `string` either way, so the answer is what tells the member from the function.
-test "a member of the enclosing type hides a referenced assembly's free function of the same name" {
+// Referenced free functions participate in NL209 by simple name. Explicit member and namespace
+// qualification then preserve the intended behavior in a real emitted assembly.
+test "a member and referenced assembly free-function group are NL209 until qualified" {
     root := FreeRoot("MemberHides")
-    File.WriteAllText(Path.Combine(root, "Hides.nl"), "namespace Census.FreeFunctions.Consumer\n\nclass HidingBase {\n    func Describe(value: int): string => \"inherited \" + value.ToString()\n}\n\nclass MemberHides: HidingBase {\n    func Twice(value: int): string => \"member \" + value.ToString()\n    static func Nearest(): string => \"static member\"\n    func Uses(): string => Twice(2) + \"|\" + Nearest() + \"|\" + Describe(3)\n    static func Answer(): string => new MemberHides().Uses() + \"|\" + Outside.Answer()\n}\n\nclass Outside {\n    static func Answer(): string => Twice(2).ToString() + \"|\" + Nearest()\n}\n")
+    path := Path.Combine(root, "Hides.nl")
+    ambiguousSource := "namespace Census.FreeFunctions.Consumer\n\nclass HidingBase {\n    func Describe(value: int): string => \"inherited \" + value.ToString()\n}\n\nclass MemberHides: HidingBase {\n    func Twice(value: int): string => \"member \" + value.ToString()\n    static func Nearest(): string => \"static member\"\n    func Uses(): string => Twice(2) + \"|\" + Nearest() + \"|\" + Describe(3)\n}\n"
+    File.WriteAllText(path, ambiguousSource)
 
     analysed := FreeCompile(root, "FreeFunctionsMemberHides", true)
-    assert analysed.Success, FreeText(analysed.Errors)
-    assert FreeRun(Path.Combine(Path.Combine(root, "out"), "FreeFunctionsMemberHides.dll"), "Census.FreeFunctions.Consumer.MemberHides", "Answer") == "member 2|static member|inherited 3|4|enclosing-referenced"
+    assert !analysed.Success, "a same-name member and referenced free function must be rejected"
+    assert FreeCodes(analysed.Errors, "NL209") == 3, FreeText(analysed.Errors)
+    assert FreeText(analysed.Errors).Contains("Census.FreeFunctions.Twice"), FreeText(analysed.Errors)
+    assert FreeText(analysed.Errors).Contains("Census.FreeFunctions.Nearest"), FreeText(analysed.Errors)
+    assert FreeText(analysed.Errors).Contains("Census.FreeFunctions.Describe"), FreeText(analysed.Errors)
+
+    assert FreeSuggestions(analysed.Errors).Contains("Census.FreeFunctions.Program.Twice(...)"), FreeSuggestions(analysed.Errors)
+    qualifiedSource := "namespace Census.FreeFunctions.Consumer\n\nclass HidingBase {\n    func Describe(value: int): string => \"inherited \" + value.ToString()\n}\n\nclass MemberHides: HidingBase {\n    func Twice(value: int): string => \"member \" + value.ToString()\n    static func Nearest(): string => \"static member\"\n    func Uses(): string => this.Twice(2) + \"|\" + MemberHides.Nearest() + \"|\" + this.Describe(3) + \"|\" + Census.FreeFunctions.Program.Twice(2).ToString() + \"|\" + Census.FreeFunctions.Program.Nearest() + \"|\" + Census.FreeFunctions.Program.Describe(3)\n    static func Answer(): string => new MemberHides().Uses() + \"|\" + Outside.Answer()\n}\n\nclass Outside {\n    static func Answer(): string => Twice(2).ToString() + \"|\" + Nearest()\n}\n"
+    File.WriteAllText(path, qualifiedSource)
+
+    qualified := FreeCompile(root, "FreeFunctionsMemberHidesQualified", true)
+    assert qualified.Success, FreeText(qualified.Errors)
+    assert FreeRun(Path.Combine(Path.Combine(root, "out"), "FreeFunctionsMemberHidesQualified.dll"), "Census.FreeFunctions.Consumer.MemberHides", "Answer") == "member 2|static member|inherited 3|4|enclosing-referenced|3 units|4|enclosing-referenced"
 
     emitted := FreeCompile(root, "FreeFunctionsMemberHidesEmit", false)
     assert emitted.Success, FreeText(emitted.Errors)
-    assert FreeRun(Path.Combine(Path.Combine(root, "out"), "FreeFunctionsMemberHidesEmit.dll"), "Census.FreeFunctions.Consumer.MemberHides", "Answer") == "member 2|static member|inherited 3|4|enclosing-referenced"
+    assert FreeRun(Path.Combine(Path.Combine(root, "out"), "FreeFunctionsMemberHidesEmit.dll"), "Census.FreeFunctions.Consumer.MemberHides", "Answer") == "member 2|static member|inherited 3|4|enclosing-referenced|3 units|4|enclosing-referenced"
+}
+
+test "a member and an imported referenced free function are NL209 until qualified" {
+    root := FreeRoot("MemberImported")
+    path := Path.Combine(root, "ImportedMember.nl")
+    ambiguousSource := "namespace Census.FreeFunctions.Consumer\n\nimport Census.FreeFunctions.Imported\n\nclass ImportedMember {\n    func ImportedOnly(): string => \"member\"\n    func Answer(): string => ImportedOnly()\n}\n"
+    File.WriteAllText(path, ambiguousSource)
+
+    analysed := FreeCompile(root, "FreeFunctionsImportedMemberAmbiguous", true)
+    assert !analysed.Success, "a member and imported assembly free function must be ambiguous"
+    assert FreeCodes(analysed.Errors, "NL209") == 1, FreeText(analysed.Errors)
+    assert FreeText(analysed.Errors).Contains("member 'Census.FreeFunctions.Consumer.ImportedMember.ImportedOnly'"), FreeText(analysed.Errors)
+    assert FreeText(analysed.Errors).Contains("Census.FreeFunctions.Imported.ImportedOnly"), FreeText(analysed.Errors)
+
+    assert FreeSuggestions(analysed.Errors).Contains("Census.FreeFunctions.Imported.Program.ImportedOnly(...)"), FreeSuggestions(analysed.Errors)
+    qualifiedSource := "namespace Census.FreeFunctions.Consumer\n\nclass ImportedMember {\n    func ImportedOnly(): string => \"member\"\n    func Member(): string => this.ImportedOnly()\n    static func Free(): string => Census.FreeFunctions.Imported.Program.ImportedOnly()\n    static func Answer(): string => new ImportedMember().Member() + \"|\" + ImportedMember.Free()\n}\n"
+    File.WriteAllText(path, qualifiedSource)
+    qualified := FreeCompile(root, "FreeFunctionsImportedMemberQualified", true)
+    assert qualified.Success, FreeText(qualified.Errors)
+    assert FreeRun(Path.Combine(Path.Combine(root, "out"), "FreeFunctionsImportedMemberQualified.dll"), "Census.FreeFunctions.Consumer.ImportedMember", "Answer") == "member|imported"
 }
 
 test "an unexported referenced free function is not a name another assembly can call" {

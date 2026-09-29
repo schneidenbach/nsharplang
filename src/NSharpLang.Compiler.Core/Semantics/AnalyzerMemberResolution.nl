@@ -64,6 +64,98 @@ class AnalyzerMemberResolution {
         ambient = context
     }
 
+    // The diagnostic names the declaration that owns a bare member, including a base type's
+    // declaration rather than merely repeating the type where the ambiguous use appears.
+    func MemberDeclarationOwnerName(owner: TypeInfo, memberName: string): string {
+        selection := new AnalyzerMemberSelection()
+        if declarationContext.TryFindMember(owner, memberName, out selection) {
+            sourceTypeName := AnalyzerDeclarationContext.TypeName(selection.Owner) ?? ""
+            if sourceTypeName.Length > 0 {
+                namespaceName := declarationContext.NamespaceForFile(selection.FilePath)
+                return namespaceName == null || namespaceName.Length == 0 ? sourceTypeName : namespaceName + "." + sourceTypeName
+            }
+        }
+
+        fallback := AnalyzerDeclarationContext.TypeName(owner) ?? ""
+        runtimeOwner := clrTypeConversion.TryConvertTypeInfoToClrType(owner)
+        if runtimeOwner == null {
+            runtimeOwner = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(owner)
+        }
+        if runtimeOwner != null {
+            try {
+                flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.FlattenHierarchy
+                for declaredMember in runtimeOwner.GetMember(memberName, flags) {
+                    if declaredMember.DeclaringType != null {
+                        return declaredMember.DeclaringType.FullName ?? declaredMember.DeclaringType.Name
+                    }
+                }
+            } catch {
+                if fallback.Length > 0 {
+                    return fallback
+                }
+                return owner.ToString() ?? ""
+            }
+        }
+
+        if fallback.Length > 0 {
+            return fallback
+        }
+        return owner.ToString() ?? ""
+    }
+
+    // Static members need a type receiver in the offered repair; `this.Name` only names an
+    // instance member. Source declarations are cheaper and more exact than reflection, and the
+    // metadata arm covers members inherited from referenced base types.
+    func MemberIsStatic(owner: TypeInfo, memberName: string): bool {
+        selection := new AnalyzerMemberSelection()
+        if declarationContext.TryFindMember(owner, memberName, out selection) {
+            member := selection.Member
+            if member != null {
+                return member.IsStatic
+            }
+        }
+
+        runtimeOwner := clrTypeConversion.TryConvertTypeInfoToClrType(owner)
+        if runtimeOwner == null {
+            runtimeOwner = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(owner)
+        }
+        if runtimeOwner == null {
+            return false
+        }
+
+        try {
+            flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.FlattenHierarchy
+            for reflectedMember in runtimeOwner.GetMember(memberName, flags) {
+                method := reflectedMember as MethodInfo
+                if method != null {
+                    return method.IsStatic
+                }
+                field := reflectedMember as FieldInfo
+                if field != null {
+                    return field.IsStatic
+                }
+                property := reflectedMember as PropertyInfo
+                if property != null {
+                    accessors := property.GetAccessors(true)
+                    if accessors.Length > 0 {
+                        return accessors[0].IsStatic
+                    }
+                }
+                eventInfo := reflectedMember as EventInfo
+                if eventInfo != null {
+                    addMethod := eventInfo.GetAddMethod(true)
+                    if addMethod != null {
+                        return addMethod.IsStatic
+                    }
+                }
+            }
+        } catch {
+            return false
+        }
+
+        return false
+    }
+
     // IS THIS NAME BEING READ AS AN EVENT? `on`/`off` open this slot around their target expression,
     // and `AnalyzerExpressionTail` already reads the same flag to decide whether an event reaching a
     // value position is a mistake. An owner with no ambient behind it answers no, which is the

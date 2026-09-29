@@ -3418,15 +3418,16 @@ class ColumnarIteratorBodyPlanner {
         // A BINDING OF THAT SPELLING SHADOWS THE FREE FUNCTION, exactly as a local shadows one in an
         // ordinary body: a hoisted field of the machine (every parameter and local of the generator is
         // one), an enclosing member reached through the captured receiver, or a root binding the node
-        // table records. Any of them and the ordinary value door answers instead. So does a member of
-        // the enclosing type of that name, which hides the free function (`ColumnarSiblingHiding`).
+        // table records. Any of them and the ordinary value door answers instead. An enclosing member
+        // also keeps the provisional plan aligned with the analyzer after NL209 has ruled out a clean
+        // member/free-function collision (`ColumnarProvisionalMemberBinding`).
         name := nodes.Text(emit.Context.Source, handlerNode)
         if name.Length == 0 || emit.Context.HasHoistedField(name) || emit.Context.EnclosingFieldIndex(name) >= 0 || nodes.HasAdditionalRootBinding(name) {
             return false
         }
         let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingCallFacts? = null
         iteratorFacts := emit.Context.RequiredScope().Facts
-        if !iteratorFacts.SiblingCallables.TryGetValue(name, out sibling) || ColumnarSiblingHiding.IsHiddenByEnclosingMember(iteratorFacts.EnclosingTypeDefinition, name) {
+        if !iteratorFacts.SiblingCallables.TryGetValue(name, out sibling) || ColumnarProvisionalMemberBinding.HasEnclosingMember(iteratorFacts.EnclosingTypeDefinition, name) {
             return false
         }
         if sibling.TypeParameterCount != 0 || !sibling.Method.IsStatic {

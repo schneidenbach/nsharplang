@@ -139,6 +139,12 @@ sealed class ColumnarEmitContext {
         return clone
     }
 
+    func WithSourceFileId(sourceFileId: int): ColumnarEmitContext {
+        clone := Copy()
+        clone.SourceFileId = sourceFileId
+        return clone
+    }
+
     func TryGetBoundSibling(sourceOffset: int, out sibling: ColumnarSiblingMethodDefinition?): bool {
         sibling = null
         if freeFunctions == null || SourceFileId < 0 {

@@ -3,9 +3,8 @@ namespace Census.FreeFunctionIdentity.MemberShadow
 import System
 
 
-// The namespace's free functions that `MemberShadow.nl`'s types hide from ANOTHER file. The emitter's
-// sibling table holds these beside the calling file's own, and the analyzer finds them through
-// project function discovery; a member of the enclosing type answers before either.
+// The namespace's free functions that collide by name with members in `MemberShadow.nl`. Member
+// call sites use `this.` to select their member group; an unqualified collision reports NL209.
 func Title(): int => 4
 
 func Tag(): int => 5

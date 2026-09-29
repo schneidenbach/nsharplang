@@ -353,9 +353,10 @@ class AnalyzerScopeStack {
     }
 
     // `symbolFloor` IS THE LOWEST SCOPE WHOSE SYMBOLS MAY ANSWER. The identifier rule raises it to the
-    // type scope when the enclosing type has a member of this name, because a member hides everything
-    // declared OUTSIDE its type — the file's own free functions sit in the global scope below it. The
-    // type walk is not floored: which declarations a type NAME means is a separate rule.
+    // type scope when the enclosing type has a member of this name, after it reports NL209 if a
+    // visible free-function group has that name too. The member remains the provisional binding so
+    // follow-on analysis can continue without treating the free function as the winner. The type walk
+    // is not floored: which declarations a type NAME means is a separate rule.
     func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int, symbolFloor: int): TypeInfo? {
         symbolScopeIndex := -1
         namesType := false

@@ -375,7 +375,7 @@ class ColumnarFragmentBindings {
     }
 
     func IsCallable(name: string): bool {
-        return (ContainsName(declaredCallableNames, name) && !IsSiblingHiddenByMember(name)) || ContainsName(visibleLocalCallableNames, name)
+        return (ContainsName(declaredCallableNames, name) && !IsSiblingBlockedByMemberBinding(name)) || ContainsName(visibleLocalCallableNames, name)
     }
 
     // A visible local function stays on the legacy delegate/closure tier; direct-call planning
@@ -385,18 +385,18 @@ class ColumnarFragmentBindings {
     }
 
     // A top-level sibling function with routed plannable facts. Only these participate in the
-    // direct-call planner's sibling-ownership path. A sibling the enclosing type hides behind a
-    // member of the same name is not one: the bare name means the member there.
+    // direct-call planner's sibling-ownership path. When a name collides with an enclosing member,
+    // preserve the analyzer's provisional member binding after the NL209 diagnostic.
     func HasSiblingCallable(name: string): bool {
-        return SiblingCallables.ContainsKey(name) && !IsSiblingHiddenByMember(name)
+        return SiblingCallables.ContainsKey(name) && !IsSiblingBlockedByMemberBinding(name)
     }
 
     // THE ONE READ OF A SIBLING'S FACTS BY NAME. Every owner that selects a sibling for a bare callee
-    // asks here rather than indexing `SiblingCallables`, so a hidden sibling is invisible to all of
-    // them at once.
+    // asks here rather than indexing `SiblingCallables`, so a colliding sibling stays unavailable to
+    // all provisional member-binding paths at once.
     func TryGetSiblingCallable(name: string, out facts: ColumnarSiblingCallFacts?): bool {
         facts = null
-        if !SiblingCallables.TryGetValue(name, out facts) || IsSiblingHiddenByMember(name) {
+        if !SiblingCallables.TryGetValue(name, out facts) || IsSiblingBlockedByMemberBinding(name) {
             facts = null
             return false
         }
@@ -404,12 +404,11 @@ class ColumnarFragmentBindings {
         return facts != null
     }
 
-    // A member of the enclosing type hides a free function of the same name
-    // (`ColumnarSiblingHiding`). `EnclosingTypeDefinition` is the anchor rather than `CurrentInstance`
-    // because a static member hides a sibling in a static body exactly as an instance one does in an
-    // instance body.
-    func IsSiblingHiddenByMember(name: string): bool {
-        return ColumnarSiblingHiding.IsHiddenByEnclosingMember(EnclosingTypeDefinition, name)
+    // Preserve the analyzer's provisional member binding after its NL209 name-collision check.
+    // `EnclosingTypeDefinition` is the anchor rather than `CurrentInstance`, because static members
+    // take part in the same collision check as instance members.
+    func IsSiblingBlockedByMemberBinding(name: string): bool {
+        return ColumnarProvisionalMemberBinding.HasEnclosingMember(EnclosingTypeDefinition, name)
     }
 
     // A value binding of the same name shadows the sibling. The mechanical host's bare-call arm

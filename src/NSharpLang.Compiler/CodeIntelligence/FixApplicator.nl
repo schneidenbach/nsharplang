@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
+import System
 import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler
@@ -19,10 +20,14 @@ static class FixApplicator {
     // TWO EXPLICIT ARITIES RATHER THAN ONE DEFAULTED PARAMETER: omitting a defaulted argument on a
     // static call is a recorded columnar emit decline, and this owner is called from a product path.
     static func GetFixesForFile(filePath: string, source: string): List<CodeAction> {
-        return GetFixesForFile(filePath, source, null)
+        return GetFixesForFile(filePath, source, null, null)
     }
 
     static func GetFixesForFile(filePath: string, source: string, analyzedUnit: CompilationUnit?): List<CodeAction> {
+        return GetFixesForFile(filePath, source, analyzedUnit, null)
+    }
+
+    static func GetFixesForFile(filePath: string, source: string, analyzedUnit: CompilationUnit?, compilerErrors: IReadOnlyList<CompilerError>?): List<CodeAction> {
         ast: CompilationUnit? = analyzedUnit
         lintable := analyzedUnit != null
         if ast == null {
@@ -48,6 +53,15 @@ static class FixApplicator {
         if lintable {
             linter := new Linter(LinterConfig.FromEditorConfig(fileDir))
             diagnostics = linter.Lint(ast, filePath, source)
+        }
+
+        if compilerErrors != null {
+            fullPath := Path.GetFullPath(filePath)
+            for error in compilerErrors {
+                if error.DiagnosticId == "NL209" && error.FileName != null && string.Equals(Path.GetFullPath(error.FileName), fullPath, StringComparison.OrdinalIgnoreCase) {
+                    diagnostics.Add(EditorCodeActionFacts.AsDiagnostic(error))
+                }
+            }
         }
 
         fixService := new CodeFixService()

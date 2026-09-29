@@ -1059,7 +1059,7 @@ owners:
   so a source function wins at its own namespace and a referenced one in a nearer namespace beats a
   source one further out. A referenced winner is typed as its reflected method, so the call arm binds
   it like any reflected call (a refused argument is NL402, not NL202), and it credits the import that
-  supplied it (NL010). The NL209 import tie counts referenced functions too.
+  supplied it (NL010). NL209 covers import ties and member/free-function collisions inside a type.
 - **The emitter** (`ColumnarFreeFunctionScope.BuildViews`, reading
   `ColumnarExternalTypeCatalog.FreeFunctionHolders` and `ColumnarExternalFreeFunctions`): each
   candidate namespace's referenced holders enter the file's sibling view at that namespace's rank,
@@ -1877,12 +1877,53 @@ Two consequences the analyzer owns:
   whatever the function names are. Measured at 353fb69f7 the src projects share NO free-function or
   type identity across assemblies (294 function identities, 1,520 type identities).
 
-**A MEMBER OF THE ENCLOSING TYPE HIDES A FREE FUNCTION OF THE SAME NAME** (census 2026-09-24,
-`census/member-first-bare-calls`). Inside a type body a bare name is the type's member before it is
-any namespace's free function — C#'s type-before-namespace order — by NAME, not signature, for own
-and inherited (source base or external base: public and protected) members, instance and static,
-methods, fields, properties, events and constants alike, and whatever file or assembly declared the
-free function. Measured on 79851f0b5 before the fix, the two halves disagreed three ways:
+**A MEMBER AND FREE FUNCTION WITH THE SAME BARE NAME ARE NL209** (owner decision 2026-09-29;
+replaces `census/member-first-bare-calls`, landed 2026-09-24). Inside a type, the analyzer reports
+NL209 when an enclosing member group and a visible free-function group can both serve the written
+position. The check is name-based, before call argument applicability, and covers own or inherited
+members (including referenced bases), instance or static members, source or metadata functions, and
+method-group references. A call compares the function group with methods and delegate-typed fields or
+properties; a non-delegate field or property leaves the free function as the call target. A bare read
+compares fields, properties and method groups with the free-function group. Assignment and compound
+assignment targets, `++`/`--` operands, `ref`/`out` targets, and object/record initializer member
+names are storage positions and do not compare against free functions. Locals and local functions
+retain lexical shadowing; `this.Foo()`, `base.Foo()`, qualified `Type.Foo()`/`Namespace.Foo()`, and
+bare uses with only one viable side stay unambiguous. Outside a type there is no member/free-function
+collision.
+
+`AnalyzerIdentifierResolution.ReportMemberFunctionAmbiguityIfNeeded` owns the diagnostic. It asks
+`AnalyzerProjectDiscovery.TryResolveQualifiedFunctionGroup` / `TryResolveVisibleProjectFunction` for
+the free-function group, obtains the member's declaring owner from
+`AnalyzerMemberResolution.MemberDeclarationOwnerName`, and sends both candidates and both repairs
+through `AnalyzerDiagnosticSink.ReportAmbiguousBareName` and
+`ErrorMessageBuilder.AmbiguousBareName`. Reporting is deduplicated by source name position. NL209 is
+reused: `website/docs/errors/NL209.md` documents both this case and the existing import tie. The
+analyzer keeps the member as a provisional binding after reporting so type and binding checks do not
+add unrelated errors; a project with NL209 is rejected before emit.
+
+The explicit spelling for a source function is its declaring namespace plus the function name,
+including the file's own namespace (`Probe.Foo()` inside `Probe.Widget`). A global source function
+uses its generated `Program` holder (`Program.Foo()`). A referenced assembly's function uses its
+actual emitted holder type (`Reporting.Program.Helper()`); the ambiguity suggestion takes that name
+from the reflected method's declaring type. `AnalyzerMemberAccess` resolves qualified source groups
+and records the declaration at the function-name segment. The emitter consumes that semantic binding
+for qualified source calls and method groups; it does not rediscover functions by text. An external
+holder spelling resolves through the ordinary qualified type/member path. A member iterator's
+explicit `this.` call keeps using the captured receiver path
+(`ColumnarFragmentBindings.CapturedReceiverField`, `AppendImplicitReceiverLoad`). Contracts are in
+`AnalyzerIdentifierResolution.tests.nl`, `AnalyzerCallAnalysis.tests.nl`, `CodeFix.tests.nl`, and the
+`census-free-function-identity`, `census-external-free-functions` and language-server handler suites.
+
+Before this rule, the compiler deliberately bound the member first. The backend had to keep those
+member calls aligned with the analyzer, which is why the planner has a provisional-binding helper:
+`ColumnarProvisionalMemberBinding.HasEnclosingMember` reads through
+`ColumnarFragmentBindings.HasSiblingCallable`/`TryGetSiblingCallable`/`IsCallable` and
+`TryGetVisibleSibling`, while `AnalyzerIdentifierResolution` floors its symbol walk at the type
+scope for the provisional binding. Those hooks now support the follow-on analysis after NL209; they
+do not make the source valid or suppress the diagnostic. `object`'s implicit members do not create
+a collision for a source type with no written base.
+
+The earlier member-first behavior was measured on 79851f0b5, when the two halves disagreed three ways:
 - the EMITTER asked its sibling table first at every bare-name door (the legacy bare-call arm, its
   preflight, the direct-call planner's `SiblingCallables`, the method-group, never-returns and
   labelled-return reads, the lambda capture walks), so `Widget.Show() => Label()` beside a same-named
@@ -1892,16 +1933,16 @@ free function. Measured on 79851f0b5 before the fix, the two halves disagreed th
   member against a CROSS-file function (channel 2 before channel 5), but a SAME-file free function
   beat an INHERITED member, because the file's own functions sit in the global scope that channel 1
   walked before channel 2 was asked.
-One owner per side now: `ColumnarSiblingHiding.IsHiddenByEnclosingMember` (walks `ClosureEnclosingDef`
-out of closure displays to the declaring type; a free function's display hides nothing), read through
+At that time, the implementation used the now-renamed `ColumnarProvisionalMemberBinding.HasEnclosingMember` (walking `ClosureEnclosingDef`
+out of closure displays to the declaring type; a free function's display has no enclosing member), read through
 `ColumnarFragmentBindings.HasSiblingCallable`/`TryGetSiblingCallable`/`IsCallable` and the emitter's
 `TryGetVisibleSibling`; and `AnalyzerIdentifierResolution.EnclosingTypeHasMember`, which floors
 channel 1's SYMBOL walk at the type scope (`AnalyzerScopeStack.ResolveBindingTarget(..., symbolFloor)`)
 when the type has a member of the name. The type walk is not floored. `object`'s implicit members do
 not hide (the analyzer's channel 2 does not answer them for a source type with no written base).
-A non-invocable member hides too: `Label()` against a `string` field is refused (today at emit,
-NL103 — the analyzer does not yet report calling a non-delegate member). A member iterator's bare
-(or `this.`) call to its own member now emits the MEMBER: the machine's captured `<>__this` is
+A non-invocable member also took precedence then: `Label()` against a `string` field was refused
+(at emit, NL103 — the analyzer did not report calling a non-delegate member). A member iterator's bare
+(or `this.`) call to its own member emitted the MEMBER: the machine's captured `<>__this` was
 published as `ColumnarFragmentBindings.CapturedReceiverField` (`ColumnarIteratorBodyScope.
 PublishEnclosingReceiver`), `ImplicitInstanceDefinition()` answers the declaring type, and the direct-call
 planner loads the receiver in two hops (`AppendImplicitReceiverLoad`; `ldflda` for a struct). A member
@@ -1909,7 +1950,7 @@ machine is nested (NestedAssembly) in its declaring type so `private` members ar
 machine's factory copies `this` with `ldobj`. Contracts: `tests/native/census-free-function-identity`
 (`MemberShadow*.nl` — free functions return `int`, members don't, so an analyzer that bound the free
 function is an NL202 at compile time), `tests/native/census-iterators/CensusIteratorMemberCalls*.nl`,
-`ColumnarSiblingHiding.tests.nl`, `ColumnarIteratorBodyScope.tests.nl`, `AnalyzerScopeStack.tests.nl`.
+`ColumnarProvisionalMemberBinding.tests.nl`, `ColumnarIteratorBodyScope.tests.nl`, `AnalyzerScopeStack.tests.nl`.
 
 **A BARE INHERITED MEMBER NAVIGATES LIKE `this.` ONE** (2026-09-24). Channel 2 used to answer an
 inherited member's TYPE and record nothing, so `Label()` inside `Widget: Base` had no definition, no
@@ -2977,9 +3018,9 @@ semantic model still records the value's own type, so hover says `string`). Both
 through `AnalyzerDiagnosticSink.ReportValueNotCallable` → `ErrorMessageBuilder.ValueNotCallable`, so
 `Label()` and `this.Label()` read identically; `AnalyzerMemberResolution.DescribeValueMemberKind`
 supplies `field`/`property`/`event`/`constructor parameter` (source chain, record positional
-components, then the first referenced base's metadata). A member HIDES a same-named free function
-even when it cannot be called (the member-first rule is by name, and `ColumnarSiblingHiding` agrees),
-so the hint names the hidden free function when one is visible. A delegate-typed member (`Func<…>`,
+components, then the first referenced base's metadata). With syntax-position viability, a method or
+delegate-typed member and a same-named visible free function produce NL209 at a call; non-delegate
+fields and properties leave the free function as the call target. A delegate-typed member (`Func<…>`,
 `Action`, a field-like `event` raised from its own type) is still a call.
 
 Two guards keep it honest. It reports only when `AnalyzerCallableReferenceFacts.IsKnownNonInvocableType`
@@ -4198,13 +4239,18 @@ columnar call path:
    null-conditional indexing, and a plain non-nullable value receiver (which has no null to test for).
 
 **AN ENCLOSING NAMESPACE IS THE FILE'S OWN SCOPE, AND ONE OWNER SAYS SO.** `SimpleNamePrecedence` is
-the single ordering both halves of the compiler read:
+the shared ordering for type names and free-function visibility:
 
 1. built-ins and lexical scope;
 2. the file's own namespace, then each ENCLOSING namespace outward, ending at the global namespace —
    an exported declaration there wins outright, with no diagnostic;
 3. the file's explicit namespace imports (exactly one supplying the name wins; two or more is NL209);
 4. project-wide auto-discovery of a unique exported project type, which never overrides 2 or 3.
+
+Inside a type, `AnalyzerIdentifierResolution` checks the visible member and free-function groups
+before using this ordering to choose a provisional binding. If both groups contain the bare name,
+NL209 reports the name-level collision even when only one group accepts the call arguments.
+Qualified names and local values do not enter that ambiguity check.
 
 `LexicalNamespaces` is step 2, `CandidateNamespaces` is 2+3, `IsLexicalNamespace` answers "does this
 namespace win by nearness rather than by being imported", `EnclosingNamespaceNames` is step 2 alone in

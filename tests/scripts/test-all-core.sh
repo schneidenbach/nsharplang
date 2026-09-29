@@ -567,16 +567,24 @@ else
     # worktree's CLI through `nlc check --use-built-references`; lower Compiler's previous 34 ceiling
     # to its observed 9. The newly independent Plan, Emit and Driver checks are all at zero.
     #
+    # 2026-09-29, after NL209 began rejecting bare member/free-function collisions and remeasured on
+    # 1361201e6 with referenced nullability enabled: Model 0, Syntax 0, Core 358, Plan 0, Emit 0,
+    # CodeIntel 0, Tooling 0, Driver 0, Compiler 5, Playground 0 and Build.Tasks 0. Removing the six
+    # redundant `must` unwraps surfaced by the rebased references brought Core and Compiler to these
+    # measured counts; none of the eleven project ceilings increased. The write-position analysis
+    # routes nullable request nodes through one position-aware helper, avoiding three duplicate
+    # NL202s that the earlier split call sites added to Core's front door.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
-        363
+        358
         0
         0
         0
         0
         0
-        9
+        5
         0
         0
     )

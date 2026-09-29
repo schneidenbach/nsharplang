@@ -16,18 +16,21 @@ import NSharpLang.Compiler.Ast
 // referenced-assembly probe — so there is no request type, no state type, no phase and no driver
 // loop here. The two consumers call a method and get a `TypeInfo` back.
 //
-// THE SIX CHANNELS, IN ORDER, ARE THE WHOLE OF `TryResolveBindingTarget`, AND THE ORDER IS
-// BEHAVIOUR:
+// THE SIX CHANNELS, IN ORDER, ARE THE WHOLE OF `TryResolveBindingTarget`. A member/free-function
+// collision is diagnosed by simple name only when both candidates serve the written position:
 //   1  the SCOPE STACK — locals, parameters and locally declared types, symbols before types. This
 //      is also where NARROWING pays off: `AnalyzerFlowNarrowing` writes the narrowed type into the
 //      scope's own symbol table, so `text` inside `if text != null { … }` answers `string` here
-//      without this rule naming narrowing at all. A symbol declared OUTSIDE the enclosing type — a
-//      free function of this file, in the global scope — does not answer when the type has a member
-//      of that name: a member hides a free function, as C# looks in the type before the namespace.
-//   2  the ENCLOSING TYPE's members, static ones included, so a field or property used bare inside
-//      its own type resolves without `this.`, and an inherited one wins over any free function. It
-//      RECORDS the binding for a member a source type declares, as channels 1, 4 and 5 do, so a bare
-//      inherited member navigates exactly as the `this.` form does.
+//      without this rule naming narrowing at all. A local variable, parameter or local function
+//      keeps its current shadowing behavior; free-function groups outside the type are compared with
+//      a viable member group before the type wins the provisional binding below.
+//   2  the ENCLOSING TYPE's members, static ones included. Reads admit value members and method
+//      groups; calls admit methods and delegate values, with a non-invocable member yielding to a
+//      visible free function. Write targets do not compare with free functions. When both candidates
+//      are viable, NL209 is based on the name regardless of call arguments. The resolver RECORDS the
+//      binding for a member a source type declares, as
+//      channels 1, 4 and 5 do, so a bare inherited member navigates like its `this.` form after the
+//      ambiguity diagnostic has been reported.
 //   3  the BUILT-IN TYPE KEYWORDS, so `int.Parse`, `string.IsNullOrEmpty` and `int.TryParse` have a
 //      receiver.
 //   4  project-wide TYPE discovery, which also RECORDS the binding and the semantic-model type.
@@ -74,6 +77,7 @@ class AnalyzerIdentifierResolution {
     compilationUnitValue: CompilationUnit?
     suppressErrorTupleResultUseValue: bool
     reportedUnverifiedResultsValue: Dictionary<(Line: int, Column: int, Name: string), bool>
+    reportedMemberFunctionAmbiguitiesValue: Dictionary<(Line: int, Column: int, Name: string), bool>
 
     // THE ERROR-TUPLE SUPPRESSION, saved and restored by the assignment arm exactly as
     // `AnalyzerNullFlow.SuppressedFlowTypeNode` is: writing INTO a result name is not a use of it, so a
@@ -100,6 +104,7 @@ class AnalyzerIdentifierResolution {
         compilationUnitValue = null
         suppressErrorTupleResultUseValue = false
         reportedUnverifiedResultsValue = new Dictionary<(Line: int, Column: int, Name: string), bool>()
+        reportedMemberFunctionAmbiguitiesValue = new Dictionary<(Line: int, Column: int, Name: string), bool>()
     }
 
     // One call per analysis, from the analyzer's own reset block. The semantic model and the binding
@@ -111,6 +116,7 @@ class AnalyzerIdentifierResolution {
         bindingsValue = bindings
         suppressErrorTupleResultUseValue = false
         reportedUnverifiedResultsValue.Clear()
+        reportedMemberFunctionAmbiguitiesValue.Clear()
     }
 
     // Member resolution and the well-known-type bag are both REBUILT when the metadata load context
@@ -149,12 +155,24 @@ class AnalyzerIdentifierResolution {
         return ResolveNamingType(name, line, column, reportMissingAsFunction, 0, out source, out namesType)
     }
 
+    // A write target is a storage location, not a value or call target. A free function cannot be a
+    // candidate there, so let the existing member/type lookup answer without the NL209 name tie.
+    func ResolveWriteTarget(name: string, line: int, column: int): TypeInfo {
+        source := BareNameSource.Other
+        namesType := false
+        return ResolveNamingType(name, line, column, false, 0, out source, out namesType, false)
+    }
+
     func ResolveNamingType(name: string, line: int, column: int, reportMissingAsFunction: bool, typeArgumentCount: int, out namesType: bool): TypeInfo {
         source := BareNameSource.Other
         return ResolveNamingType(name, line, column, reportMissingAsFunction, typeArgumentCount, out source, out namesType)
     }
 
     func ResolveNamingType(name: string, line: int, column: int, reportMissingAsFunction: bool, typeArgumentCount: int, out source: BareNameSource, out namesType: bool): TypeInfo {
+        return ResolveNamingType(name, line, column, reportMissingAsFunction, typeArgumentCount, out source, out namesType, true)
+    }
+
+    private func ResolveNamingType(name: string, line: int, column: int, reportMissingAsFunction: bool, typeArgumentCount: int, out source: BareNameSource, out namesType: bool, checkMemberFunctionAmbiguity: bool): TypeInfo {
         source = BareNameSource.Other
         namesType = false
         if name == "<error>" {
@@ -162,7 +180,7 @@ class AnalyzerIdentifierResolution {
         }
 
         resolved: TypeInfo = BuiltInTypes.Unknown
-        if TryResolveBindingTarget(name, line, column, out resolved, out source, out namesType, reportMissingAsFunction) {
+        if TryResolveBindingTarget(name, line, column, out resolved, out source, out namesType, reportMissingAsFunction, checkMemberFunctionAmbiguity) {
             ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
             ReportCapturedByRefParameterIfNeeded(name, line, column)
             return resolved
@@ -249,12 +267,15 @@ class AnalyzerIdentifierResolution {
     // did not resolve is left alone: NL201 already reported the type, and the value's callability is
     // exactly what the analyzer cannot know.
     //
-    // A MEMBER IS NEVER A DOOR TO THE FREE FUNCTION IT HIDES. Hiding is by name (channel 1's floor),
-    // so `Label()` beside a `string` field `Label` and a `func Label()` is this report, not a call to
-    // the function — the emitter's `ColumnarSiblingHiding` hides it the same way, and the analyzer
-    // accepting what the emitter refuses is the gap this closes. The report says the function is
-    // there and hidden, because that is exactly what a developer who meant it needs to know.
+    // NL209 ALREADY OWNS A MEMBER/FUNCTION COLLISION. The identifier walk returns `unknown` after
+    // reporting that name-level ambiguity, so a field's non-callable type must not add a second
+    // NL413 for `Label()` beside both a `string` field `Label` and a `func Label()`.
     func ReportNotCallableIfNeeded(identifier: IdentifierExpression, resolved: TypeInfo, source: BareNameSource): bool {
+        ambiguityKey := (Line: identifier.Line, Column: identifier.Column, Name: identifier.Name)
+        if reportedMemberFunctionAmbiguitiesValue.ContainsKey(ambiguityKey) {
+            return true
+        }
+
         if source == BareNameSource.Other || identifier.Line <= 0 || !AnalyzerCallableReferenceFacts.IsKnownNonInvocableType(resolved) {
             return false
         }
@@ -262,7 +283,6 @@ class AnalyzerIdentifierResolution {
         name := identifier.Name
         kind: string? = null
         owner: string? = null
-        hidesFreeFunction := false
         currentType := scopesValue.CurrentTypeScope()
         if source == BareNameSource.Member && currentType != null {
             kind = memberResolutionValue.DescribeValueMemberKind(currentType, name)
@@ -271,25 +291,10 @@ class AnalyzerIdentifierResolution {
             }
 
             owner = NullabilityMetadataReflection.FormatTypeInfo(currentType)
-            hidesFreeFunction = HidesFreeFunction(name)
         }
 
-        diagnosticsValue.ReportValueNotCallable(name, kind, NullabilityMetadataReflection.FormatTypeInfo(resolved), owner, hidesFreeFunction, false, identifier.Line, identifier.Column)
+        diagnosticsValue.ReportValueNotCallable(name, kind, NullabilityMetadataReflection.FormatTypeInfo(resolved), owner, false, identifier.Line, identifier.Column)
         return true
-    }
-
-    // Whether a free function of this name is visible here and hidden by the enclosing type's member:
-    // one of this file's own, which the global scope holds, or one project discovery finds in another
-    // file or a referenced assembly.
-    private func HidesFreeFunction(name: string): bool {
-        globalSymbol: TypeInfo = BuiltInTypes.Unknown
-        if scopesValue.GlobalScope().Symbols.TryGetValue(name, out globalSymbol) && AnalyzerCallableReferenceFacts.IsInvocableMemberType(globalSymbol) {
-            return true
-        }
-
-        functionType: TypeInfo = BuiltInTypes.Unknown
-        functionDeclaration: SymbolDeclaration? = null
-        return TryResolveVisibleProjectFunction(name, out functionType, out functionDeclaration)
     }
 
     // A BARE NAME HAS NO WRITTEN RECEIVER, so the receiver is the enclosing instance and the
@@ -299,12 +304,10 @@ class AnalyzerIdentifierResolution {
         return memberResolutionValue.ResolveMember(currentType, name, true, ambientValue.CurrentTypeName, false, true)
     }
 
-    // A MEMBER OF THE ENCLOSING TYPE HIDES A FREE FUNCTION OF THE SAME NAME, whatever file or assembly
-    // declared the function, as C# looks a simple name up in its type before its namespace. The type's
-    // OWN members already sit in the type scope, above the global scope that holds the file's own free
-    // functions, so they won there without this; an INHERITED member is not in any scope, and without
-    // this a free function in the same file beat it while the same function in another file lost to
-    // it. The emitter applies the same rule to its sibling table (`ColumnarSiblingHiding`).
+    // Whether an enclosing member is the provisional binding after `ReportMemberFunctionAmbiguityIfNeeded`
+    // has reported any same-name free-function group. Own members sit in the type scope; inherited
+    // members are discovered through the member resolver. Planning uses the same provisional choice
+    // (`ColumnarProvisionalMemberBinding`) if requested while analysis errors are present.
     private func EnclosingTypeHasMember(name: string): bool {
         currentType := scopesValue.CurrentTypeScope()
         return currentType != null && !BuiltInTypes.IsUnknown(ResolveEnclosingMember(currentType, name))
@@ -359,6 +362,71 @@ class AnalyzerIdentifierResolution {
                 declaration = null
                 return true
             }
+
+            if externalFunctions.Count > 1 {
+                resolvedType = new ReflectionMethodGroupInfo(externalFunctions.ToArray(), name + "(...)")
+                declaration = null
+                return true
+            }
+        }
+
+        resolvedType = BuiltInTypes.Unknown
+        declaration = null
+        return false
+    }
+
+    // THE QUALIFIED FUNCTION HALF OF MEMBER ACCESS. Unlike bare lookup, the caller has already
+    // settled the namespace, so this asks one exact namespace and records its source declaration at
+    // the member-name position for navigation, overload selection, and rename.
+    func TryResolveQualifiedProjectFunction(name: string, namespaceName: string, line: int, column: int, out resolvedType: TypeInfo, out declaration: SymbolDeclaration?): bool {
+        candidates := new List<ProjectFunctionCandidate>()
+        externalFunctions := new List<MethodInfo>()
+        if !projectDiscoveryValue.TryResolveQualifiedFunctionGroup(name, namespaceName, UnitNamespace(), out candidates, out externalFunctions) {
+            resolvedType = BuiltInTypes.Unknown
+            declaration = null
+            return false
+        }
+
+        if candidates.Count > 0 {
+            functions := new List<FunctionTypeInfo>()
+            for candidate in candidates {
+                if candidate.Declaration != null {
+                    functions.Add(functionTypeFactoryValue.CreateFromDeclarationInFile(candidate.Declaration, candidate.FilePath))
+                }
+            }
+
+            if functions.Count == 0 {
+                resolvedType = BuiltInTypes.Unknown
+                declaration = null
+                return false
+            }
+
+            if functions.Count == 1 {
+                resolvedType = functions[0]
+            } else {
+                resolvedType = NSharpMethodGroupInfoFactory.FromFunctions(functions)
+            }
+            first := candidates[0]
+            declaration = first.Declaration == null ? null : projectDiscoveryValue.SymbolForFunction(name, first.FilePath, first.Declaration)
+            if declaration != null {
+                bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, line, column, name.Length, declaration)
+            }
+            semanticModelValue.RecordExpressionType(line, column, resolvedType)
+            return true
+        }
+
+        if externalFunctions.Count == 1 {
+            resolvedType = new ReflectionMethodInfo(externalFunctions[0])
+            declaration = null
+            semanticModelValue.RecordExpressionType(line, column, resolvedType)
+            return true
+        }
+
+        if externalFunctions.Count > 1 {
+            resolvedType = new ReflectionMethodGroupInfo(externalFunctions.ToArray(), name + "(...)")
+            declaration = null
+            semanticModelValue.RecordExpressionType(line, column, resolvedType)
+            return true
         }
 
         resolvedType = BuiltInTypes.Unknown
@@ -389,6 +457,10 @@ class AnalyzerIdentifierResolution {
     }
 
     func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource, out namesType: bool, preferProjectFunctions: bool): bool {
+        return TryResolveBindingTarget(name, line, column, out resolvedType, out source, out namesType, preferProjectFunctions, true)
+    }
+
+    private func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource, out namesType: bool, preferProjectFunctions: bool, checkMemberFunctionAmbiguity: bool): bool {
         source = BareNameSource.Other
         namesType = false
         // 1. Local symbols first, then local types. A symbol declared OUTSIDE the enclosing type — the
@@ -403,9 +475,20 @@ class AnalyzerIdentifierResolution {
         symbolScopeIndex := -1
         scopeBinding := scopesValue.ResolveBindingTarget(bindingsValue, diagnosticsValue.CurrentFilePath, name, line, column, symbolFloor, out symbolScopeIndex, out namesType)
         if scopeBinding != null {
+            if symbolScopeIndex >= 0 && symbolScopeIndex == typeScopeIndex && preferProjectFunctions && !AnalyzerCallableReferenceFacts.IsInvocableMemberType(scopeBinding) {
+                freeFunction: TypeInfo = BuiltInTypes.Unknown
+                if TryResolveFreeFunctionForCall(name, line, column, out freeFunction) {
+                    resolvedType = freeFunction
+                    return true
+                }
+            }
+
             resolvedType = AugmentSameNamespaceFreeFunctionOverloads(name, scopeBinding)
             if symbolScopeIndex >= 0 && symbolScopeIndex == typeScopeIndex {
                 source = BareNameSource.Member
+                if checkMemberFunctionAmbiguity && ReportMemberFunctionAmbiguityIfNeeded(name, line, column, scopesValue.CurrentTypeScope(), resolvedType, preferProjectFunctions) {
+                    resolvedType = BuiltInTypes.Unknown
+                }
             } else if symbolScopeIndex >= 0 {
                 source = BareNameSource.Value
             }
@@ -424,6 +507,14 @@ class AnalyzerIdentifierResolution {
         if currentType != null {
             memberType := ResolveEnclosingMember(currentType, name)
             if !BuiltInTypes.IsUnknown(memberType) {
+                if preferProjectFunctions && !AnalyzerCallableReferenceFacts.IsInvocableMemberType(memberType) {
+                    freeFunction: TypeInfo = BuiltInTypes.Unknown
+                    if TryResolveFreeFunctionForCall(name, line, column, out freeFunction) {
+                        resolvedType = freeFunction
+                        return true
+                    }
+                }
+
                 memberDeclaration: SymbolDeclaration? = null
                 if sourceMemberDeclarationsValue.TryFind(currentType, name, out memberDeclaration) {
                     // TOTAL on this path: the finder materialises the declaration before answering `true`.
@@ -434,6 +525,9 @@ class AnalyzerIdentifierResolution {
 
                 resolvedType = memberType
                 source = BareNameSource.Member
+                if checkMemberFunctionAmbiguity && ReportMemberFunctionAmbiguityIfNeeded(name, line, column, currentType, resolvedType, preferProjectFunctions) {
+                    resolvedType = BuiltInTypes.Unknown
+                }
                 return true
             }
         }
@@ -526,6 +620,24 @@ class AnalyzerIdentifierResolution {
                 bindingsValue.RecordBinding(diagnosticsValue.CurrentFilePath, line, column, name.Length, declaration)
             }
 
+            return true
+        }
+
+        resolvedType = BuiltInTypes.Unknown
+        return false
+    }
+
+    // A call can choose the free-function group when the enclosing member is not invocable. This is
+    // still a name lookup, and it uses the same project visibility probe as the ordinary free-call
+    // channel plus the current-file global symbol fallback used by analyzer harnesses.
+    private func TryResolveFreeFunctionForCall(name: string, line: int, column: int, out resolvedType: TypeInfo): bool {
+        if TryResolveProjectFunctionBinding(name, line, column, out resolvedType) {
+            return true
+        }
+
+        globalSymbol: TypeInfo = BuiltInTypes.Unknown
+        if scopesValue.GlobalScope().Symbols.TryGetValue(name, out globalSymbol) && (globalSymbol is FunctionTypeInfo || globalSymbol is NSharpMethodGroupInfo || globalSymbol is ReflectionMethodInfo || globalSymbol is ReflectionMethodGroupInfo) {
+            resolvedType = globalSymbol
             return true
         }
 
@@ -702,6 +814,114 @@ class AnalyzerIdentifierResolution {
 
     func UnitNamespace(): string? {
         return AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue)
+    }
+
+    // The strict-language tie is decided by SIMPLE NAME when both sides can serve the written
+    // position. Reads admit fields, properties and methods; calls admit methods and delegate values.
+    // Locals and local functions never reach this arm; they remain source Value and keep shadowing.
+    private func ReportMemberFunctionAmbiguityIfNeeded(name: string, line: int, column: int, currentType: TypeInfo?, memberType: TypeInfo, callPosition: bool): bool {
+        if currentType == null || line <= 0 {
+            return false
+        }
+
+        key := (Line: line, Column: column, Name: name)
+        if reportedMemberFunctionAmbiguitiesValue.ContainsKey(key) {
+            return true
+        }
+
+        if callPosition && !AnalyzerCallableReferenceFacts.IsInvocableMemberType(memberType) {
+            return false
+        }
+
+        functionGroup: TypeInfo = BuiltInTypes.Unknown
+        functionDeclaration: SymbolDeclaration? = null
+        foundFunction := TryResolveVisibleProjectFunction(name, out functionGroup, out functionDeclaration)
+        if !foundFunction {
+            // Unit harnesses and declaration-time probes can have a current-file top-level function
+            // in the global scope before project discovery has a source snapshot to consult.
+            globalSymbol: TypeInfo = BuiltInTypes.Unknown
+            if scopesValue.GlobalScope().Symbols.TryGetValue(name, out globalSymbol) && (globalSymbol is FunctionTypeInfo || globalSymbol is NSharpMethodGroupInfo || globalSymbol is ReflectionMethodInfo || globalSymbol is ReflectionMethodGroupInfo) {
+                functionGroup = globalSymbol
+                foundFunction = true
+            }
+        }
+        if !foundFunction {
+            return false
+        }
+
+        functionSpelling := name
+        functionNamespace: string? = null
+        if !TryGetFreeFunctionQualification(functionGroup, name, out functionNamespace, out functionSpelling) {
+            return false
+        }
+
+        if functionNamespace == null {
+            functionNamespace = UnitNamespace()
+            if functionNamespace != null && functionNamespace.Length > 0 {
+                functionSpelling = functionNamespace + "." + name
+            }
+        }
+
+        memberOwner := memberResolutionValue.MemberDeclarationOwnerName(currentType, name)
+        if string.IsNullOrWhiteSpace(memberOwner) {
+            memberOwner = currentType.ToString() ?? ""
+        }
+        memberCandidate := memberOwner + "." + name
+        memberDescription := "member '" + memberCandidate + "' (declared by '" + memberOwner + "')"
+        namespaceDescription := functionNamespace == null || functionNamespace.Length == 0 ? "the global namespace" : "namespace '" + functionNamespace + "'"
+        functionCandidate := functionNamespace == null || functionNamespace.Length == 0 ? name : functionNamespace + "." + name
+        functionDescription := "free function '" + functionCandidate + "' (declared in " + namespaceDescription + ")"
+        memberSpelling := memberResolutionValue.MemberIsStatic(currentType, name) ? memberOwner + "." + name : "this." + name
+        suggestion := callPosition ? "Call the member with `" + memberSpelling + "(...)` or call the free function with `" + functionSpelling + "(...)`." : "Use the member `" + memberSpelling + "` or the free-function group `" + functionSpelling + "`."
+        reportedMemberFunctionAmbiguitiesValue[key] = true
+        diagnosticsValue.ReportAmbiguousBareName(name, memberDescription, functionDescription, suggestion, line, column)
+        return true
+    }
+
+    private func TryGetFreeFunctionQualification(functionGroup: TypeInfo, name: string, out namespaceName: string?, out qualifiedName: string): bool {
+        namespaceName = null
+        qualifiedName = ""
+        function := functionGroup as FunctionTypeInfo
+        if function != null && function.SourceFilePath != null {
+            namespaceName = projectDiscoveryValue.NamespaceForFile(function.SourceFilePath)
+        } else {
+            sourceGroup := functionGroup as NSharpMethodGroupInfo
+            if sourceGroup != null && sourceGroup.Functions.Count > 0 && sourceGroup.Functions[0].SourceFilePath != null {
+                namespaceName = projectDiscoveryValue.NamespaceForFile(sourceGroup.Functions[0].SourceFilePath)
+            } else {
+                reflected := functionGroup as ReflectionMethodInfo
+                reflectedGroup := functionGroup as ReflectionMethodGroupInfo
+                method: MethodInfo? = null
+                if reflected != null {
+                    method = reflected.Method
+                } else if reflectedGroup != null && reflectedGroup.Methods.Length > 0 {
+                    method = reflectedGroup.Methods[0]
+                }
+                if method != null && method.DeclaringType != null {
+                    namespaceName = method.DeclaringType.Namespace
+                    declaringTypeName := method.DeclaringType.FullName
+                    if declaringTypeName != null && declaringTypeName.Length > 0 {
+                        // Referenced free functions are methods on the emitted namespace holder.
+                        // Unlike source functions, an external one is qualified through that real
+                        // CLR type (`Reporting.Program.Helper`) so the suggested spelling binds.
+                        qualifiedName = declaringTypeName.Replace('+', '.') + "." + name
+                    }
+                }
+            }
+        }
+
+        if qualifiedName.Length > 0 {
+            return true
+        }
+
+        if namespaceName == null || namespaceName.Length == 0 {
+            // The global holder is a source-level type in N# and provides the unambiguous qualified
+            // spelling for global free functions.
+            qualifiedName = "Program." + name
+        } else {
+            qualifiedName = namespaceName + "." + name
+        }
+        return true
     }
 }
 

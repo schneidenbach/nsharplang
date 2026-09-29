@@ -7124,7 +7124,7 @@ sealed class ColumnarIlEmitter {
                 memberVisibleLocalFuncNames = memberLocalFunctionLowering.VisibleNames
                 memberLocalFunctionClosure = memberLocalFunctionLowering.Closure
             }
-            memberBodyContext := emitContext.WithRegistries(methodJobEnumRegistry, methodJobStructRegistry, methodJobUnionRegistry, methodJobUnionCaseRegistry).WithSiblings(methodJobSiblings, freeFunctionScope.ReturnLabeledCanonicalsFor(job.Item2.SourceFileId)).WithProgramHolder(new ColumnarFreeFunctionHolderSlot(holders, job.Item2.SourceFileId)).WithTypeResolution(bodyTypeResolution).WithGenericInterfaceConstraints(memberGenericInterfaceConstraints)
+            memberBodyContext := emitContext.WithRegistries(methodJobEnumRegistry, methodJobStructRegistry, methodJobUnionRegistry, methodJobUnionCaseRegistry).WithSiblings(methodJobSiblings, freeFunctionScope.ReturnLabeledCanonicalsFor(job.Item2.SourceFileId)).WithSourceFileId(job.Item2.SourceFileId).WithProgramHolder(new ColumnarFreeFunctionHolderSlot(holders, job.Item2.SourceFileId)).WithTypeResolution(bodyTypeResolution).WithGenericInterfaceConstraints(memberGenericInterfaceConstraints)
             emitter := new ColumnarIlEmitter(
                 memberBodyContext,
                 methodJobNodes,
@@ -17667,6 +17667,16 @@ sealed class ColumnarIlEmitter {
         receiver := Child(callee, 0)
         argCount := _nodes.ChildCount(callIdx) - 1
 
+        // A NAMESPACE-QUALIFIED FREE FUNCTION is a member-access AST node but its receiver is not
+        // a CLR type or runtime value. The analyzer has already recorded the exact source overload at
+        // this callee position; use the same declaration identity as a bare free-function call.
+        let qualifiedSibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        qualifiedNameOffset := _nodes.ValueStart(callee)
+        hasQualifiedSibling := _context.TryGetBoundSibling(qualifiedNameOffset, out qualifiedSibling)
+        if (hasQualifiedSibling && qualifiedSibling != null && qualifiedSibling.Method.Name == memberName) {
+            return TryEmitBoundQualifiedSiblingCall(callIdx, qualifiedSibling, out resolvedClrType)
+        }
+
         if (IsBareTypeNameReceiver(receiver)) {
             receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
             // CALL-STYLE newtype construction through a file-import ALIAS (`Ids.UserId(42)`):
@@ -17806,14 +17816,36 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // THE FREE FUNCTION A BARE NAME CAN MEAN IN THIS BODY. A member of the enclosing type hides a
-    // sibling of the same name — own or inherited, instance or static, whatever its arity — so every
-    // bare-name read of `_siblings` asks here, and a hidden one leaves the name to the member tiers
-    // (`ColumnarSiblingHiding`). Only bare names: a dotted or receiver-qualified spelling never
-    // reaches a sibling through this door.
+    private func TryEmitBoundQualifiedSiblingCall(callIdx: int, target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        useExpandedParams := ShouldUseExpandedParamsCall(callIdx, target.ParamTypes, target.ParamModifierKinds)
+        if argCount != target.ParamTypes.Length && !useExpandedParams {
+            return false
+        }
+        if target.TypeParams.Length > 0 {
+            return TryEmitGenericSiblingCall(callIdx, target, new Type[target.TypeParams.Length], out resolvedClrType)
+        }
+        if useExpandedParams {
+            return TryEmitSiblingExpandedParamsCall(callIdx, target, out resolvedClrType)
+        }
+        for argumentIndex := 1; argumentIndex <= argCount; argumentIndex++ {
+            if !EmitDeclaredCallArgument(Child(callIdx, argumentIndex), target.ParamTypes[argumentIndex - 1], true, target.ParamModifierKinds[argumentIndex - 1]) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Call, target.Method)
+        resolvedClrType = target.ReturnType
+        return true
+    }
+
+    // THE FREE FUNCTION A BARE NAME CAN MEAN IN THIS BODY. After analysis has rejected a same-name
+    // member/free-function pair with NL209, this door keeps the emitter's provisional member choice
+    // aligned with the analyzer. Only bare names reach it; a dotted or receiver-qualified spelling
+    // resolves through its explicit receiver.
     private func TryGetVisibleSibling(name: string, out sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition?): bool {
         sibling = null
-        if (_siblings == null || !_siblings.TryGetValue(name, out sibling) || sibling == null || ColumnarSiblingHiding.IsHiddenByEnclosingMember(_enclosingType, name)) {
+        if (_siblings == null || !_siblings.TryGetValue(name, out sibling) || sibling == null || ColumnarProvisionalMemberBinding.HasEnclosingMember(_enclosingType, name)) {
             sibling = null
             return false
         }
@@ -23317,9 +23349,9 @@ sealed class ColumnarIlEmitter {
         } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.CallExpression {
 
             // Preflight a CALL's result type via the bare-call resolution tiers (no emission):
-            // local function -> sibling top-level -> instance chain -> static chain, where a sibling
-            // the enclosing type hides behind a same-named member is no candidate at all. Shadowed
-            // names and member-access callees stay un-preflighted.
+            // local function -> sibling top-level -> instance chain -> static chain, where a
+            // same-name enclosing member keeps the analyzer's provisional binding. Shadowed names
+            // and member-access callees stay un-preflighted.
             callee := Child(node, 0)
             if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                 receiver := Child(callee, 0)
@@ -27836,6 +27868,19 @@ sealed class ColumnarIlEmitter {
     private func TryGetSiblingMethodGroupCandidates(argNode: int, out candidates: List<ColumnarEnclosingMethodGroupCandidate>): bool {
         candidates = new List<ColumnarEnclosingMethodGroupCandidate>()
         argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.MemberAccessExpression) {
+            // The semantic model carries the selected free-function declaration for a qualified
+            // method-group reference. Type-qualified members do not pass this lookup because the
+            // free-function scope rejects FunctionTypeInfo values with a containing type.
+            let qualifiedSibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+            memberName := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
+            qualifiedNameOffset := _nodes.ValueStart(argNode)
+            if (_context.TryGetBoundSibling(qualifiedNameOffset, out qualifiedSibling) && qualifiedSibling != null && qualifiedSibling.TypeParams.Length == 0 && !HasModifiedParameter(qualifiedSibling.ParamModifierKinds)) {
+                candidates.Add(new ColumnarEnclosingMethodGroupCandidate(qualifiedSibling.Method, qualifiedSibling.ParamTypes, qualifiedSibling.ReturnType))
+                return true
+            }
+            return false
+        }
         if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
             return false
         }

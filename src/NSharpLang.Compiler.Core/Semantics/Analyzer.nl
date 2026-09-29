@@ -1795,7 +1795,7 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpressionAtPosition(step.Node, step.IsWriteTarget)
             }
             if kind == 2 {
                 previousSuppressedFlowTypeNode := NullFlow.SuppressedFlowTypeNode
@@ -1861,7 +1861,7 @@ class Analyzer: IDisposable {
     private func DriveAssignment(state: AssignmentState): TypeInfo {
         step := Assignment.NextStep(state)
         while step != null {
-            Assignment.Supply(state, AnalyzeExpression(step.Node))
+            Assignment.Supply(state, AnalyzeExpressionAtPosition(step.Node, step.IsWriteTarget))
             step = Assignment.NextStep(state)
         }
         return Assignment.Result(state)
@@ -2019,7 +2019,7 @@ class Analyzer: IDisposable {
                 // An argument's target comes from its parameter, never the enclosing call's result.
                 previousArgumentTarget := Ambient.EnterExpectedType(step.CarriedType)
                 try {
-                    answer = AnalyzeExpressionWithExpectedType(step.Node, step.CarriedType, step.Flag)
+                    answer = AnalyzeExpressionWithExpectedTypeAtPosition(step.Node, step.CarriedType, step.Flag, step.IsWriteTarget)
                 } finally {
                     Ambient.ExitExpectedType(previousArgumentTarget)
                 }
@@ -2076,6 +2076,62 @@ class Analyzer: IDisposable {
             Ambient.ExitAllowUnboundCallableReference(previousAllowUnboundCallableReference)
         }
         return result
+    }
+
+    private func AnalyzeWriteTargetWithExpectedType(expression: Expression, expectedType: TypeInfo?, allowUnboundCallableReference: bool): TypeInfo {
+        previousExpectedType := Ambient.EnterExpectedTypeIfProvided(expectedType)
+        previousAllowUnboundCallableReference := Ambient.EnterAllowUnboundCallableReferenceIfRequested(allowUnboundCallableReference)
+        result: TypeInfo = null
+        try {
+            result = AnalyzeWriteTargetExpression(expression)
+        } finally {
+            Ambient.ExitExpectedType(previousExpectedType)
+            Ambient.ExitAllowUnboundCallableReference(previousAllowUnboundCallableReference)
+        }
+        return result
+    }
+
+    private func AnalyzeExpressionWithExpectedTypeAtPosition(expression: Expression?, expectedType: TypeInfo?, allowUnboundCallableReference: bool, writeTarget: bool): TypeInfo {
+        if expression == null {
+            return BuiltInTypes.Unknown
+        }
+
+        if writeTarget {
+            return AnalyzeWriteTargetWithExpectedType(expression, expectedType, allowUnboundCallableReference)
+        }
+
+        return AnalyzeExpressionWithExpectedType(expression, expectedType, allowUnboundCallableReference)
+    }
+
+    private func AnalyzeExpressionAtPosition(expression: Expression?, writeTarget: bool): TypeInfo {
+        if expression == null {
+            return BuiltInTypes.Unknown
+        }
+
+        if writeTarget {
+            return AnalyzeWriteTargetExpression(expression)
+        }
+
+        return AnalyzeExpression(expression)
+    }
+
+    // Assignment, mutation and ref/out targets are storage positions. A bare member name there has
+    // no competing free-function interpretation. Only suppress the collision at the target's root;
+    // receivers and index expressions inside a more complex target remain ordinary reads.
+    private func AnalyzeWriteTargetExpression(expression: Expression): TypeInfo {
+        identifier := expression as IdentifierExpression
+        if identifier != null {
+            resolved := IdentifierResolution.ResolveWriteTarget(identifier.Name, identifier.Line, identifier.Column)
+            return ExpressionTail.Finish(expression, resolved)
+        }
+
+        parenthesized := expression as ParenthesizedExpression
+        if parenthesized != null {
+            innerType := AnalyzeWriteTargetExpression(parenthesized.Inner)
+            return ExpressionTail.Finish(expression, innerType)
+        }
+
+        return AnalyzeExpression(expression)
     }
 
     private func DriveOnSubscription(state: OnSubscriptionState): TypeInfo {

@@ -67,7 +67,7 @@ class PackCommand {
                 return CliError.Report(PackCommandKernels.GetMissingVersionTextMessage())
             }
 
-            resolvedVersion := must effectiveVersion
+            resolvedVersion := effectiveVersion
             buildOutputDir := PackCommandKernels.GetBuildOutputDirectory(projectRoot, configuration, parsedConfig.TargetFramework)
             assemblyPath := CliIlBackend.BuildProjectWithIlBackendForCommand(
                 projectRoot,
@@ -87,7 +87,7 @@ class PackCommand {
                 return CliError.Report(PackCommandKernels.GetBuildFailedTextMessage())
             }
 
-            resolvedAssemblyPath := must assemblyPath
+            resolvedAssemblyPath := assemblyPath
             packageOutputDir := PackCommandKernels.GetPackageOutputDirectory(projectRoot, configuration, outputDir)
             Directory.CreateDirectory(packageOutputDir)
 
@@ -148,7 +148,7 @@ class PackCommand {
 
         runtimeConfigPath := PackCommandKernels.GetRuntimeConfigPath(assemblyPath)
         if runtimeConfigPath != null && File.Exists(runtimeConfigPath) {
-            resolvedRuntimeConfigPath := must runtimeConfigPath
+            resolvedRuntimeConfigPath := runtimeConfigPath
             archive.CreateEntryFromFile(
                 resolvedRuntimeConfigPath,
                 PackCommandKernels.GetRuntimeConfigEntryPath(config.TargetFramework, resolvedRuntimeConfigPath)
@@ -174,7 +174,7 @@ class PackCommand {
 
         pdbPath := PackCommandKernels.GetSymbolsPdbPath(assemblyPath)
         if pdbPath != null && File.Exists(pdbPath) {
-            resolvedPdbPath := must pdbPath
+            resolvedPdbPath := pdbPath
             archive.CreateEntryFromFile(resolvedPdbPath, PackCommandKernels.GetSymbolsPdbEntryPath(resolvedPdbPath))
         }
     }

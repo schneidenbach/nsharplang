@@ -628,6 +628,19 @@ class AnalyzerDeclarationContext {
         return TryFindMemberCore(owner, name, null, visited, out selection)
     }
 
+    func NamespaceForFile(filePath: string?): string? {
+        if filePath == null {
+            return null
+        }
+
+        facts: AnalyzerDeclarationFileFacts? = null
+        if filesByPath.TryGetValue(Path.GetFullPath(filePath), out facts) && facts != null {
+            return facts.NamespaceName
+        }
+
+        return null
+    }
+
     // Readonly-field eligibility is a semantic property of the selected source member, including
     // inherited members reached through closed generic base substitutions. Return `claimed` when
     // a source member with this name exists so the mechanical analyzer bridge cannot fall through

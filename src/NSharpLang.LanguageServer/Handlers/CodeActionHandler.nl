@@ -124,7 +124,10 @@ class CodeActionHandler: CodeActionHandlerBase {
 
         changes[uri] = textEdits
 
-        isSuggestionOnly := action.Safety == FixSafety.SuggestionOnly
+        // SuggestionOnly marks alternative edits that `nlc fix` must never apply automatically.
+        // Real edits are still enabled in the editor; only the empty-edit manual placeholders remain
+        // disabled because they have no workspace change to offer.
+        isSuggestionOnly := action.Safety == FixSafety.SuggestionOnly && action.Edits.Count == 0
 
         // Omit workspace edit for SuggestionOnly to prevent non-conformant clients from applying
         workspaceEdit: WorkspaceEdit? = null

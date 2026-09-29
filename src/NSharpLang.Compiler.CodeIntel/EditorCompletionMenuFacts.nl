@@ -100,7 +100,7 @@ class EditorCompletionMenuFacts {
         rows := new List<EditorCompletionMenuRow>()
 
         for keyword in Keywords() {
-            rows.Add(new EditorCompletionMenuRow(keyword, KeywordKind, "keyword", keyword, false, SortText(SortLanguage, keyword, "keyword"), null, "keyword:" + keyword))
+            rows.Add(new EditorCompletionMenuRow(keyword, EditorCompletionMenuFacts.KeywordKind, "keyword", keyword, false, SortText(SortLanguage, keyword, "keyword"), null, "keyword:" + keyword))
         }
 
         snippetLabels := SnippetLabels()
@@ -113,7 +113,7 @@ class EditorCompletionMenuFacts {
         }
 
         for primitive in PrimitiveTypes() {
-            rows.Add(new EditorCompletionMenuRow(primitive, KeywordKind, "primitive type", primitive, false, SortText(SortLanguage, primitive, "primitive"), null, "primitive:" + primitive))
+            rows.Add(new EditorCompletionMenuRow(primitive, EditorCompletionMenuFacts.KeywordKind, "primitive type", primitive, false, SortText(SortLanguage, primitive, "primitive"), null, "primitive:" + primitive))
         }
 
         return rows

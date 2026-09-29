@@ -777,6 +777,50 @@ class AnalyzerProjectTypeDiscovery {
         return false
     }
 
+    // A FUNCTION NAMED THROUGH ITS NAMESPACE, the qualified counterpart of the visible-name walk.
+    // `App.Render` asks exactly `App`; lexical qualifier expansion is owned by the member-access
+    // resolver, so this method never guesses from imports or from a simple-name scan. Source wins
+    // over a referenced holder in the same namespace, and private functions remain visible only
+    // when the caller is in that namespace.
+    func TryResolveQualifiedFunctionGroup(name: string, namespaceName: string, currentNamespace: string?, out candidates: List<ProjectFunctionCandidate>, out externalFunctions: List<MethodInfo>): bool {
+        candidates = new List<ProjectFunctionCandidate>()
+        externalFunctions = new List<MethodInfo>()
+        requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, namespaceName)
+        for candidatePath in sources.SourceFilePaths() {
+            unit := sources.GetProjectCompilationUnit(candidatePath)
+            if unit == null || !string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit) ?? "", namespaceName ?? "", StringComparison.Ordinal) {
+                continue
+            }
+
+            for declaration in unit.Declarations {
+                functionDeclaration := declaration as FunctionDeclaration
+                if functionDeclaration != null && IsFunctionNamed(functionDeclaration, name, requireExported) {
+                    candidates.Add(new ProjectFunctionCandidate(candidatePath, functionDeclaration))
+                }
+            }
+        }
+
+        if candidates.Count > 0 {
+            CreditFunctionNamespace(namespaceName)
+            return true
+        }
+
+        probe := externalTypeProbe
+        if probe != null {
+            externalFunctions = probe.NamespaceFreeFunctions(namespaceName, name)
+            if externalFunctions.Count > 0 {
+                CreditFunctionNamespace(namespaceName)
+                return true
+            }
+        }
+
+        return false
+    }
+
+    func NamespaceForFile(filePath: string?): string? {
+        return sources.GetNamespaceForFile(filePath)
+    }
+
     func CreditFunctionNamespace(namespaceName: string?) {
         functionCredit := importUsageCredit
         if functionCredit != null {

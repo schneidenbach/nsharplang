@@ -132,9 +132,8 @@ test "a static member called bare from a member generator loads no receiver" {
     assert plan.Methods[plan.OperandIndices[0]].get_Name() == "Shared"
 }
 
-// `ColumnarSiblingHiding`: the declaring type's member hides the free function of the same name, in
-// a generator exactly as in an ordinary member body.
-test "a member of the declaring type hides a same-named free function in a member generator" {
+// Preserve `AnalyzerIdentifierResolution`'s provisional member binding when planning an NL209 use.
+test "a colliding member name keeps its provisional binding in a member generator" {
     sibling := DirectCallSiblingFacts("IteratorScopeHiddenFree", "Label", new Type[](0), typeof(int))
     siblings := IteratorScopeNoSiblings()
     siblings["Label"] = sibling
@@ -148,7 +147,7 @@ test "a member of the declaring type hides a same-named free function in a membe
     assert fixture.LastResultType == typeof(string)
 }
 
-test "a free function no member hides is still what a member generator's bare name calls" {
+test "a sibling function with no enclosing member remains plannable in a member generator" {
     sibling := DirectCallSiblingFacts("IteratorScopeVisibleFree", "Caption", new Type[](0), typeof(int))
     siblings := IteratorScopeNoSiblings()
     siblings["Caption"] = sibling

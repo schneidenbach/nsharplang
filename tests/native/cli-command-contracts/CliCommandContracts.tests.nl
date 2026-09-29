@@ -579,6 +579,122 @@ test "nlc fix help routes preserve the documented options and help stream" {
     assert longRun.Stdout.EndsWith(Environment.NewLine)
 }
 
+test "nlc fix reports both NL209 alternatives as non-applying suggestions" {
+    directory := NewTempDirectory("nlc-fix-ambiguous-bare-name")
+    source := "namespace Probe\n\nfunc Foo(): string => \"free\"\n\nclass Widget {\n    func Foo(): string => \"member\"\n    func Run(): string => Foo()\n}\n"
+    path := Path.Combine(directory, "Program.nl")
+    File.WriteAllText(Path.Combine(directory, "project.yml"), "name: AmbiguousBareName\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n")
+    File.WriteAllText(path, source)
+    try {
+        run := NlcIn(directory, "fix --dry-run")
+
+        assert run.ExitCode == 0
+        assert run.Stderr.Length == 0
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("dryRun").GetBoolean()
+        assert root.GetProperty("filesModified").GetInt32() == 0
+        assert root.GetProperty("results").GetArrayLength() == 2
+        assert root.GetProperty("fixesApplied").GetArrayLength() == 0
+
+        results := root.GetProperty("results")
+        memberFix := ElementAt(results, 0)
+        freeFix := ElementAt(results, 1)
+        assert TextOf(memberFix.GetProperty("diagnostic")) == "NL209"
+        assert TextOf(memberFix.GetProperty("title")) == "Call the member with this.Foo(...)"
+        assert TextOf(memberFix.GetProperty("safety")) == "suggestionOnly"
+        assert TextOf(ElementAt(memberFix.GetProperty("edits"), 0).GetProperty("newText")) == "this."
+        assert TextOf(freeFix.GetProperty("diagnostic")) == "NL209"
+        assert TextOf(freeFix.GetProperty("title")) == "Call the free function with Probe.Foo(...)"
+        assert TextOf(freeFix.GetProperty("safety")) == "suggestionOnly"
+        assert TextOf(ElementAt(freeFix.GetProperty("edits"), 0).GetProperty("newText")) == "Probe.Foo"
+        document.Dispose()
+        assert File.ReadAllText(path) == source
+
+        qualifiedSource := "namespace Probe\n\nfunc Foo(): string => \"free\"\n\nclass Widget {\n    func Foo(): string => \"member\"\n    func Member(): string => this.Foo()\n    func Free(): string => Probe.Foo()\n}\n"
+        File.WriteAllText(path, qualifiedSource)
+        check := NlcIn(directory, "check --json")
+        assert check.ExitCode == 0
+        assert check.Stderr.Length == 0
+        checkDocument := JsonDocument.Parse(check.Stdout)
+        assert checkDocument.RootElement.GetProperty("ok").GetBoolean()
+        assert checkDocument.RootElement.GetProperty("results").GetArrayLength() == 0
+        checkDocument.Dispose()
+        assert File.ReadAllText(path) == qualifiedSource
+
+        globalSource := "func Foo(): string => \"free\"\n\nclass Widget {\n    func Foo(): string => \"member\"\n    func Run(): string => Foo()\n}\n"
+        File.WriteAllText(path, globalSource)
+        globalFix := NlcIn(directory, "fix --dry-run")
+        assert globalFix.ExitCode == 0
+        assert globalFix.Stderr.Length == 0
+        globalDocument := JsonDocument.Parse(globalFix.Stdout)
+        globalResults := globalDocument.RootElement.GetProperty("results")
+        assert globalResults.GetArrayLength() == 2
+        assert TextOf(ElementAt(globalResults, 1).GetProperty("title")) == "Call the free function with Program.Foo(...)"
+        assert TextOf(ElementAt(globalResults, 1).GetProperty("edits")[0].GetProperty("newText")) == "Program.Foo"
+        globalDocument.Dispose()
+
+        globallyQualifiedSource := "func Foo(): string => \"free\"\n\nclass Widget {\n    func Foo(): string => \"member\"\n    func Member(): string => this.Foo()\n    func Free(): string => Program.Foo()\n}\n"
+        File.WriteAllText(path, globallyQualifiedSource)
+        globalCheck := NlcIn(directory, "check --json")
+        assert globalCheck.ExitCode == 0
+        assert globalCheck.Stderr.Length == 0
+        globalCheckDocument := JsonDocument.Parse(globalCheck.Stdout)
+        assert globalCheckDocument.RootElement.GetProperty("ok").GetBoolean()
+        globalCheckDocument.Dispose()
+        globalBuild := NlcIn(directory, "build")
+        assert globalBuild.ExitCode == 0, globalBuild.Stdout + globalBuild.Stderr
+        assert globalBuild.Stderr.Length == 0
+
+        staticSource := "namespace Probe\n\nfunc Foo(): string => \"free\"\n\nclass Widget {\n    static func Foo(): string => \"member\"\n    static func Run(): string => Foo()\n}\n"
+        File.WriteAllText(path, staticSource)
+        staticFix := NlcIn(directory, "fix --dry-run")
+        assert staticFix.ExitCode == 0
+        assert staticFix.Stderr.Length == 0
+        staticDocument := JsonDocument.Parse(staticFix.Stdout)
+        staticResults := staticDocument.RootElement.GetProperty("results")
+        assert staticResults.GetArrayLength() == 2
+        assert TextOf(ElementAt(staticResults, 0).GetProperty("title")) == "Call the member with Probe.Widget.Foo(...)"
+        assert TextOf(ElementAt(staticResults, 0).GetProperty("edits")[0].GetProperty("newText")) == "Probe.Widget.Foo"
+        staticDocument.Dispose()
+
+        staticQualifiedSource := "namespace Probe\n\nfunc Foo(): string => \"free\"\n\nclass Widget {\n    static func Foo(): string => \"member\"\n    static func Run(): string => Probe.Widget.Foo()\n}\n"
+        File.WriteAllText(path, staticQualifiedSource)
+        staticCheck := NlcIn(directory, "check --json")
+        assert staticCheck.ExitCode == 0
+        assert staticCheck.Stderr.Length == 0
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc fix uses value spellings for a bare field read collision" {
+    directory := NewTempDirectory("nlc-fix-ambiguous-field-read")
+    source := "namespace Probe\n\nfunc Foo(): string => \"free\"\n\nclass Widget {\n    Foo: string = \"member\"\n    func Read(): string {\n        value := Foo\n        return value\n    }\n}\n"
+    path := Path.Combine(directory, "Program.nl")
+    File.WriteAllText(Path.Combine(directory, "project.yml"), "name: AmbiguousFieldRead\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n")
+    File.WriteAllText(path, source)
+    try {
+        run := NlcIn(directory, "fix --dry-run")
+        assert run.ExitCode == 0
+        assert run.Stderr.Length == 0
+        document := JsonDocument.Parse(run.Stdout)
+        results := document.RootElement.GetProperty("results")
+        assert results.GetArrayLength() == 2
+        memberFix := ElementAt(results, 0)
+        freeFix := ElementAt(results, 1)
+        assert TextOf(memberFix.GetProperty("title")) == "Use the member this.Foo"
+        assert TextOf(ElementAt(memberFix.GetProperty("edits"), 0).GetProperty("newText")) == "this."
+        assert TextOf(freeFix.GetProperty("title")) == "Use the free-function group Probe.Foo"
+        assert TextOf(ElementAt(freeFix.GetProperty("edits"), 0).GetProperty("newText")) == "Probe.Foo"
+        document.Dispose()
+        assert File.ReadAllText(path) == source
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 test "nlc fix empty dry run emits the versioned zero-work JSON envelope" {
     directory := NewTempDirectory("nlc-fix-empty")
     try {

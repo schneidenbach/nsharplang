@@ -145,42 +145,50 @@ wins over a referenced one of the same name, and a referenced one at a nearer st
 source one further out. Only what the library exports is reachable: a camelCase free function is
 namespace-private there and invisible to every other assembly.
 
-### Inside a type, a member of the same name wins
+### A member and free function with the same bare name are ambiguous
 
-The lookup above starts only once the **enclosing type** has had its turn. Inside a class, struct or
-record, a bare name is first a member of that type, exactly as in C#, and a free function of the
-same name is hidden there:
+Inside a class, struct or record, a bare name is ambiguous when both the enclosing type's member
+group and a visible free-function group can serve the written position. N# reports
+[NL209](./errors/NL209.md) by simple name, before checking call arguments, so overload applicability
+does not choose which group the bare name means.
 
 ```n
+namespace Probe
+
 func Label(): string => "free"
 
 class Widget {
     func Label(): string => "member"
 
-    func Show(): string => Label()        // "member" — Widget.Label
+    func Show(): string => this.Label()      // member — make the receiver explicit
+    func ShowFree(): string => Probe.Label() // free function — qualify its namespace
 }
-
-func Caption(): string => Label()         // "free" — no type around it
 ```
 
-The member wins whatever kind of member it is and wherever the free function comes from:
+The diagnostic names both declarations and offers both edits: `this.Label()` for the member and
+`Probe.Label()` for the free function. A member group includes own and inherited members, instance
+and static members, and members found in referenced base types. A visible free function may come
+from the same namespace, an imported namespace, or a referenced assembly. A field or property can
+compete at a call only when its type is a delegate; a non-delegate field or property leaves the free
+function as the call target. A bare read of a field or property does compete with the function's
+method group, as does a read of a method group. Inside lambdas and local functions written in a member
+body, the enclosing type still applies.
 
-- the type's **own** members and its **inherited** ones — from a source base class or from a .NET
-  base such as `List<T>`, whose public and `protected` members count;
-- **instance and static** members alike, so a static method hides a free function in a static body
-  and in an instance body;
-- a free function declared in the **same file**, in **another file** of the namespace, or in a
-  **referenced assembly** — all hidden the same way.
+Write positions do not compare the name with a free function: assignment and compound-assignment
+targets, `++`/`--` operands, `ref`/`out` targets, and object or record initializer member names name
+storage members. A local variable, parameter, or local function keeps shadowing as before.
 
-The same holds inside a lambda or a local function written in a member body. `object`'s own members
-(`ToString`, `GetHashCode`, …) do not hide a free function unless the type names a base class.
+There is no ambiguity when only one side exists, outside a type, or when a local variable, parameter
+or local function shadows the name. Explicit receivers and qualification select a side directly:
+`this.Label()` selects an instance member, `base.Label()` selects a base member, and
+`Probe.Label()` selects the free function. A static type-qualified spelling such as
+`Widget.Label()` selects that type's static member.
 
-Hiding is **by name**, not by signature. If `Widget` declares `Label()` and the namespace declares
-`func Label(text: string)`, then `Label("x")` inside `Widget` is an arity error against the member
-([NL401](./errors/NL401.md)), not a call to the free function. A member that cannot be called at
-all — a `string` field named `Label` — hides the free function too, so `Label()` there is
-[NL413](./errors/NL413.md) rather than a call to it. To reach the free function from inside such a type, give one of the two a
-different name.
+When the colliding free function is in the current namespace, qualify it with that namespace, such as
+`Probe.Label()` from inside `Probe.Widget`. A global-namespace function uses its emitted `Program`
+holder, such as `Program.Label()`.
+
+`object`'s implicit members do not create a collision for a source type without an explicit base.
 
 ### What a free function looks like from .NET
 
@@ -1553,8 +1561,8 @@ consume a resume state from the enclosing generator.
 A `func*` declared inside a class or struct is a member like any other, and its body sees the type's
 members the way an ordinary member body does: a bare `Label()` and `this.Label()` call the member —
 instance or static, own or inherited, `private` included — with the same overload selection, and a
-member hides a free function of the same name here too ([Inside a type, a member of the same name
-wins](#inside-a-type-a-member-of-the-same-name-wins)):
+member and free function with the same bare name are ambiguous here too ([A member and free function
+with the same bare name are ambiguous](#a-member-and-free-function-with-the-same-bare-name-are-ambiguous)):
 
 ```n#
 import System.Collections.Generic

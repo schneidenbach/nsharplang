@@ -654,8 +654,8 @@ test "a declared type's surrogate is the external base its colon clause names" {
         // Shells rebuild around the base, exactly as they rebuilt around `object`.
         arrayed := funnel.TryConvertTypeInfoToClrTypeForBinding(new ArrayTypeInfo(names))
         assert arrayed != null
-        assert (must arrayed).get_IsArray()
-        assert ClrGenericShape((must arrayed).GetElementType()) == "System.Collections.Generic.List`1<System.String>"
+        assert arrayed.get_IsArray()
+        assert ClrGenericShape(arrayed.GetElementType()) == "System.Collections.Generic.List`1<System.String>"
 
         // A record, a struct and an interface name no base class, so their surrogate is untouched.
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(ClrConversionRecord("Point"))) == "System.Object"

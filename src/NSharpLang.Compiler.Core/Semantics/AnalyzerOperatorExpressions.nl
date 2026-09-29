@@ -40,6 +40,7 @@ class OperatorExpressionRequest {
     Narrowings: List<FlowNarrowing>?
     Line: int
     Column: int
+    IsWriteTarget: bool
 
     constructor(kind: int, node: Expression?, narrowings: List<FlowNarrowing>?, line: int, column: int) {
         Kind = kind
@@ -47,6 +48,7 @@ class OperatorExpressionRequest {
         Narrowings = narrowings
         Line = line
         Column = column
+        IsWriteTarget = false
     }
 }
 
@@ -965,7 +967,9 @@ class AnalyzerOperatorExpressions {
             state.CaptureOpen = true
         }
 
-        return new OperatorExpressionRequest(1, operand, null, operand.Line, operand.Column)
+        request := new OperatorExpressionRequest(1, operand, null, operand.Line, operand.Column)
+        request.IsWriteTarget = true
+        return request
     }
 
     // THE OPERAND HAS ANSWERED, AND THE ROW ESCAPE IS ASKED FIRST OF ALL. The capture bracket has

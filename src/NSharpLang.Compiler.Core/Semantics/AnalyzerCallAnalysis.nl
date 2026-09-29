@@ -60,6 +60,7 @@ class CallAnalysisRequest {
     Line: int
     Column: int
     Flag: bool
+    IsWriteTarget: bool
 
     constructor(kind: int) {
         Kind = kind
@@ -70,6 +71,7 @@ class CallAnalysisRequest {
         Line = 0
         Column = 0
         Flag = false
+        IsWriteTarget = false
     }
 }
 
@@ -2097,6 +2099,7 @@ class AnalyzerCallAnalysis {
         request.Node = argument.Value
         request.CarriedType = targetExpectedType
         request.Flag = allowUnbound
+        request.IsWriteTarget = true
         return request
     }
 

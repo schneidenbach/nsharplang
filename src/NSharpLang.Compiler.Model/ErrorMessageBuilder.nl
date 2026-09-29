@@ -174,6 +174,24 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL209 FOR A MEMBER AND A FREE FUNCTION WITH ONE BARE SPELLING. The error is name-based: the
+    // compiler reports it before argument applicability, and the two fixes say how to choose either
+    // meaning without renaming a declaration.
+    static func AmbiguousBareName(fileName: string?, line: int, column: int, sourceSnippet: string?, length: int, name: string, memberCandidate: string, functionCandidate: string, suggestion: string): CompilerError {
+        humanExplanation := "`" + name + "` names both a member of the enclosing type and a visible free function on line " + IntText(line) + "."
+        contextualHint := memberCandidate + " and " + functionCandidate + " are both visible here. N# does not choose by overload applicability; make the receiver explicit so the call says which declaration you mean."
+
+        return new CompilerError(ErrorCode.AmbiguousTypeReference, "'" + name + "' is ambiguous between " + memberCandidate + " and " + functionCandidate, line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            Suggestion: suggestion,
+            DocsUrl: DiagnosticDocs.UrlFor("NL209")
+        }
+    }
+
     // NL202, IN THE SHAPE A TIE NEEDS. The ordinary type-mismatch sentence — "these types are not
     // compatible" — is exactly wrong here: the two types are compatible, TWICE OVER, and the value
     // would silently become whichever operator happened to be found first. This is the same code
@@ -222,12 +240,9 @@ class ErrorMessageBuilder {
     // `event`, `constructor parameter`, `member`) or null for a local or parameter; `owner` names the
     // type a member belongs to.
     //
-    // `hidesFreeFunction` is the member-first rule made visible. A bare name inside a type is the
-    // type's member before it is any free function of that name, whether or not the member can be
-    // called, so a developer who meant the free function is told it is there and why it lost.
     // `receiverWritten` is `box.Size()` rather than `Size()`: only a written receiver can reach an
     // extension of that name, so only that form suggests one.
-    static func ValueNotCallable(fileName: string?, line: int, column: int, sourceSnippet: string?, length: int, name: string, kind: string?, valueType: string, owner: string?, hidesFreeFunction: bool, receiverWritten: bool): CompilerError {
+    static func ValueNotCallable(fileName: string?, line: int, column: int, sourceSnippet: string?, length: int, name: string, kind: string?, valueType: string, owner: string?, receiverWritten: bool): CompilerError {
         described := "a value of type `" + valueType + "`"
         if kind != null && owner != null {
             described = IndefiniteArticle(kind) + " " + kind + " of type `" + valueType + "` on `" + owner + "`"
@@ -237,10 +252,6 @@ class ErrorMessageBuilder {
         contextualHint := "Only a delegate value can be called. If you meant to read `" + name + "`, drop the parentheses.\n" + "If `" + name + "` is meant to be called, give it a delegate type such as `Func<" + valueType + ">`."
         if receiverWritten {
             contextualHint = contextualHint + "\n" + "If you meant a method or an extension named `" + name + "`, check its spelling and that whatever\n" + "declares it is imported."
-        }
-
-        if hidesFreeFunction && owner != null {
-            contextualHint = contextualHint + "\n" + "There is also a free function `" + name + "`, but inside `" + owner + "` the " + (kind ?? "member") + " hides it:\n" + "a member always wins over a free function of the same name, so rename one of the two to call it here."
         }
 
         return new CompilerError(ErrorCode.MemberNotCallable, "`" + name + "` is " + described + ", not something you can call", line, column, ErrorSeverity.Error) {

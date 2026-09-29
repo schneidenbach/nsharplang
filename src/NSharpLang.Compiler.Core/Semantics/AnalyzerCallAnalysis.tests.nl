@@ -1587,14 +1587,21 @@ test "call argument inference restores the enclosing target after a nested call"
 // it — `Func<string>`, `Action`, `Predicate<int>`, `List<string>` — and a bare `Analyzer` in a
 // temporary directory has no reference assemblies at all: `import System` would be NL704 and every
 // such member an unresolved type.
-func NotCallableErrors(source: string): List<CompilerError> {
+func NotCallableErrors(source: string, projectMode: bool = false): List<CompilerError> {
     projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-not-callable-" + Guid.NewGuid().ToString("N"))
     filePath := Path.Combine(projectRoot, "Probe.nl")
     parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
-    assert parsed.Errors.Count == 0
+    if parsed.Errors.Count > 0 {
+        throw new InvalidOperationException("parse error: " + parsed.Errors[0].Message)
+    }
     unit := parsed.CompilationUnit
-    assert unit != null
+    if unit == null {
+        throw new InvalidOperationException("The parsed compilation unit was missing.")
+    }
     Directory.CreateDirectory(projectRoot)
+    if projectMode {
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: NotCallableProbe\nversion: 0.1.0\noutputType: library\ntargetFramework: net10.0\n")
+    }
     analyzer := new Analyzer()
     errors := new List<CompilerError>()
     try {
@@ -1613,9 +1620,9 @@ func NotCallableErrors(source: string): List<CompilerError> {
     return errors
 }
 
-func NotCallableReports(source: string): string {
+func NotCallableReports(source: string, projectMode: bool = false): string {
     text := ""
-    for error in NotCallableErrors(source) {
+    for error in NotCallableErrors(source, projectMode) {
         codeValue: int = (int)error.Code
         text = text + "NL" + codeValue.ToString() + "@" + error.Line.ToString() + ":" + error.Column.ToString() + " " + error.Message + "\n"
     }
@@ -1625,8 +1632,8 @@ func NotCallableReports(source: string): string {
 
 // The comparison, with BOTH texts in the failure: a row that pins a sentence is only useful if a
 // mismatch shows the sentence the analyzer actually wrote.
-func AssertNotCallableReports(source: string, expected: string) {
-    actual := NotCallableReports(source)
+func AssertNotCallableReports(source: string, expected: string, projectMode: bool = false) {
+    actual := NotCallableReports(source, projectMode)
     if actual != expected {
         throw new InvalidOperationException("expected:\n" + expected + "actual:\n" + actual)
     }
@@ -1641,6 +1648,17 @@ func NotCallableHint(source: string): string {
     }
 
     return hint
+}
+
+func MemberFunctionAmbiguityCount(source: string): int {
+    count := 0
+    for error in NotCallableErrors(source, true) {
+        if error.Code == ErrorCode.AmbiguousTypeReference {
+            count = count + 1
+        }
+    }
+
+    return count
 }
 
 test "a bare call of a `string` FIELD is NL413 at the name, not an emitter decline" {
@@ -1670,21 +1688,110 @@ test "a delegate is a delegate however it is spelled: qualified, or a generic de
     AssertNotCallableReports(source, "")
 }
 
-test "a member hides a same-named free function even when it cannot be called" {
-    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => Label()\n}\n"
-    AssertNotCallableReports(source, "NL413@8:28 `Label` is a field of type `string` on `Widget`, not something you can call\n")
-    assert NotCallableHint(source).Contains("There is also a free function `Label`, but inside `Widget` the field hides it")
+test "a method-group reference with a member and free function is NL209 before delegate applicability" {
+    source := "namespace Probe\n\nimport System\n\nfunc Label(value: int): string => value.ToString()\n\nclass Widget {\n    func Label(): string => \"member\"\n    func Show(): string {\n        read: Func<int, string> = Label\n        return read(1)\n    }\n}\n"
+    expected := "NL209@10:35 'Label' is ambiguous between member 'Probe.Widget.Label' (declared by 'Probe.Widget') and free function 'Probe.Label' (declared in namespace 'Probe')\n"
+    AssertNotCallableReports(source, expected, true)
 }
 
-test "an INHERITED field hides the free function the same way, and is named on the deriving type" {
+test "explicit this chooses the member when a same-named free function is visible" {
+    source := "namespace Probe\n\nfunc Label(value: int): string => value.ToString()\n\nclass Widget {\n    func Label(): string => \"member\"\n    func Member(): string => this.Label()\n}\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "base, this, static type-qualified and outside-type spellings are unambiguous" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Base {\n    func Label(): string => \"base\"\n}\n\nclass Child: Base {\n    func FromThis(): string => this.Label()\n    func FromBase(): string => base.Label()\n}\n\nclass StaticWidget {\n    static func Label(): string => \"static\"\n    static func FromType(): string => StaticWidget.Label()\n}\n\nfunc Outside(): string => Label()\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "local values and local functions shadow a member and free-function name before NL209" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Widget {\n    func Label(): string => \"member\"\n    func LocalValue(): string {\n        Label := \"local\"\n        return Label()\n    }\n    func Parameter(Label: string): string => Label()\n    func LocalFunction(): string {\n        func Label(): string => \"local function\"\n        return Label()\n    }\n}\n"
+    errors := NotCallableErrors(source, true)
+    notCallable := 0
+    ambiguities := 0
+    for error in errors {
+        if error.Code == ErrorCode.MemberNotCallable {
+            notCallable = notCallable + 1
+        }
+        if error.Code == ErrorCode.AmbiguousTypeReference {
+            ambiguities = ambiguities + 1
+        }
+    }
+    assert errors.Count == 2, NotCallableReports(source, true)
+    assert notCallable == 2
+    assert ambiguities == 0
+}
+
+test "a non-delegate field does not compete with a free function at a call site" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => Label()\n}\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "member ambiguity is independent of overload applicability" {
+    ambiguous := "namespace Probe\n\nfunc Label(value: int): string => value.ToString()\n\nclass Widget {\n    func Label(): string => \"member\"\n\n    func Ambiguous(): string => Label(1)\n    func Member(): string => this.Label()\n}\n"
+    expected := "NL209@8:33 'Label' is ambiguous between member 'Probe.Widget.Label' (declared by 'Probe.Widget') and free function 'Probe.Label' (declared in namespace 'Probe')\n"
+    AssertNotCallableReports(ambiguous, expected, true)
+}
+
+test "a bare static member and free function are ambiguous by name" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Widget {\n    static func Label(): string => \"member\"\n    static func Show(): string => Label()\n}\n"
+    expected := "NL209@7:35 'Label' is ambiguous between member 'Probe.Widget.Label' (declared by 'Probe.Widget') and free function 'Probe.Label' (declared in namespace 'Probe')\n"
+    AssertNotCallableReports(source, expected, true)
+    errors := NotCallableErrors(source, true)
+    assert (errors[0].Suggestion ?? "").Contains("Probe.Widget.Label(...)")
+    assert (errors[0].Suggestion ?? "").Contains("Probe.Label(...)")
+}
+
+test "an inherited non-delegate field leaves the free function as the call target" {
     source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Base {\n    Label: string = \"field\"\n}\n\nclass Widget: Base {\n    func Show(): string => Label()\n}\n"
-    AssertNotCallableReports(source, "NL413@10:28 `Label` is a field of type `string` on `Widget`, not something you can call\n")
-    assert NotCallableHint(source).Contains("the field hides it")
+    AssertNotCallableReports(source, "", true)
 }
 
 test "a member of a REFERENCED base is named from its metadata" {
     source := "namespace Probe\n\nimport System.Collections.Generic\n\nclass Bag: List<string> {\n    func Show(): int => Count()\n}\n"
     AssertNotCallableReports(source, "NL413@6:25 `Count` is a property of type `int` on `Bag`, not something you can call\n")
+}
+
+test "a referenced non-delegate property does not compete with a free function at a call site" {
+    source := "namespace Probe\n\nimport System.Collections.Generic\n\nfunc Count(): int => 1\n\nclass Bag: List<string> {\n    func Show(): int => Count()\n}\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "write positions do not compare field, property, or method names with free functions" {
+    source := "namespace Probe\n\nimport System\n\nfunc Field(): string => \"free\"\nfunc Property(): string => \"free\"\nfunc Method(): string => \"free\"\n\nclass Target {\n    Field: string\n    Property: string {\n        get { return fieldValue }\n        set { fieldValue = value }\n    }\n    fieldValue: string\n    func Method(): string => \"method\"\n}\n\nclass Widget {\n    Field: Func<string> = () => \"member\"\n    propertyValue: Func<string> = () => \"member\"\n    Property: Func<string> {\n        get { return propertyValue }\n        set { propertyValue = value }\n    }\n    func Method(): string => \"member\"\n\n    func Touch(ref value: Func<string>) {}\n    func Fill(out value: Func<string>) { value = () => \"out\" }\n\n    func Writes(): Target {\n        Field = () => \"assigned\"\n        Property = () => \"assigned\"\n        Method = () => \"assigned\"\n        Field += () => \"added\"\n        Property += () => \"added\"\n        Method += () => \"added\"\n        Field++\n        Property++\n        Method++\n        Touch(ref Field)\n        Touch(ref Property)\n        Touch(ref Method)\n        Fill(out Field)\n        Fill(out Property)\n        Fill(out Method)\n        return new Target { Field: \"field\", Property: \"property\", Method: \"method\" }\n    }\n}\n"
+    assert MemberFunctionAmbiguityCount(source) == 0
+    decremented := source.Replace("Field++", "Field--").Replace("Property++", "Property--").Replace("Method++", "Method--")
+    assert MemberFunctionAmbiguityCount(decremented) == 0
+}
+
+test "call positions report only when a field, property, or method is invocable" {
+    source := "namespace Probe\n\nimport System\n\nfunc Field(): string => \"free\"\nfunc Property(): string => \"free\"\nfunc Method(): string => \"free\"\n\nclass Widget {\n    Field: Func<string> = () => \"member\"\n    propertyValue: Func<string> = () => \"member\"\n    Property: Func<string> {\n        get { return propertyValue }\n        set { propertyValue = value }\n    }\n    func Method(): string => \"member\"\n\n    func Calls(): string {\n        first := Field()\n        second := Property()\n        return Method()\n    }\n}\n"
+    assert MemberFunctionAmbiguityCount(source) == 3
+    for error in NotCallableErrors(source, true) {
+        if error.Code == ErrorCode.AmbiguousTypeReference {
+            suggestion := error.Suggestion ?? ""
+            assert suggestion.Contains("Call the member with `this.")
+            assert suggestion.Contains("(...)` or call the free function with `Probe.")
+        }
+    }
+}
+
+test "non-delegate fields and properties leave a bare call to the free function" {
+    source := "namespace Probe\n\nfunc Field(): string => \"free\"\nfunc Property(): string => \"free\"\n\nclass Widget {\n    Field: string = \"member\"\n    Property: string => \"member\"\n    func Calls(): string => Field() + Property()\n}\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "bare reads and method-group references compare all three member kinds by name" {
+    source := "namespace Probe\n\nimport System\n\nfunc Field(): string => \"free\"\nfunc Property(): string => \"free\"\nfunc Method(): string => \"free\"\nfunc Accept(value: Func<string>) {}\n\nclass Widget {\n    Field: Func<string> = () => \"member\"\n    propertyValue: Func<string> = () => \"member\"\n    Property: Func<string> {\n        get { return propertyValue }\n        set { propertyValue = value }\n    }\n    func Method(): string => \"member\"\n\n    func Reads() {\n        fieldRead: Func<string> = Field\n        propertyRead: Func<string> = Property\n        methodRead: Func<string> = Method\n        Accept(Field)\n        Accept(Property)\n        Accept(Method)\n    }\n}\n"
+    assert MemberFunctionAmbiguityCount(source) == 6
+    for error in NotCallableErrors(source, true) {
+        if error.Code == ErrorCode.AmbiguousTypeReference {
+            suggestion := error.Suggestion ?? ""
+            assert suggestion.StartsWith("Use the member `this.")
+            assert suggestion.Contains("` or the free-function group `Probe.")
+            assert !suggestion.Contains("(...)")
+        }
+    }
 }
 
 test "a record's POSITIONAL component is a property, not a bare `member`" {

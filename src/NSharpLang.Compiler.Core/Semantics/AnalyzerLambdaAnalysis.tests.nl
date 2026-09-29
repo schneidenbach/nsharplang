@@ -113,8 +113,8 @@ func LambdaHarnessOf(): LambdaHarness {
     return new LambdaHarness(owner, errors, scopes, model, diagnostics)
 }
 
-// Named apart from the production `AnalyzerLambdaAnalysis.LambdaTypeText`: a seed that predates the
-// member-first bare-call rule bound that type's own bare calls to a free function of the same name.
+// Named apart from the production `AnalyzerLambdaAnalysis.LambdaTypeText`: the committed seed can
+// bind the type's own bare calls to a same-name free function before NL209 is in the next toolchain.
 func LambdaTypeShown(candidate: TypeInfo?): string {
     if candidate == null {
         return "<null>"

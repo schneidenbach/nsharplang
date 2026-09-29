@@ -472,6 +472,75 @@ test "the service dispatches each code to its own provider" {
     assert maybeNullFixes[0].DiagnosticCode == "NL905"
 }
 
+test "NL209 offers both explicit member and namespace-qualified free-function edits" {
+    source := "namespace Probe\n\nclass Widget {\n    func Run(): string => Label()\n}\n"
+    line := 4
+    sourceLine := ""
+    assert CodeFixActionHelpers.TryGetSourceLine(source, line, out sourceLine)
+    column := sourceLine.IndexOf("Label", StringComparison.Ordinal) + 1
+    suggestion := "Call the member with `this.Label(...)` or call the free function with `Probe.Label(...)`."
+    diagnostic := CodeFixDiagnostic("NL209", "'Label' is ambiguous", line, column, DiagnosticSeverity.Error, suggestion)
+    fixes := new CodeFixService().GetCodeActions(diagnostic, CodeFixUnit(source), source)
+
+    assert fixes.Count == 2
+    assert fixes[0].Title == "Call the member with this.Label(...)"
+    assert fixes[0].Safety == FixSafety.SuggestionOnly
+    assert fixes[0].Edits.Count == 1
+    assert fixes[0].Edits[0].StartColumn == column - 1
+    assert fixes[0].Edits[0].EndColumn == column - 1
+    assert fixes[0].Edits[0].NewText == "this."
+    assert FixApplicatorCore.ApplyEdits(source, fixes[0].Edits).Contains("this.Label()")
+
+    assert fixes[1].Title == "Call the free function with Probe.Label(...)"
+    assert fixes[1].Safety == FixSafety.SuggestionOnly
+    assert fixes[1].Edits.Count == 1
+    assert fixes[1].Edits[0].StartColumn == column - 1
+    assert fixes[1].Edits[0].EndColumn == column - 1 + "Label".Length
+    assert fixes[1].Edits[0].NewText == "Probe.Label"
+    assert FixApplicatorCore.ApplyEdits(source, fixes[1].Edits).Contains("Probe.Label()")
+}
+
+test "NL209 qualifies a static member through its declaring type" {
+    source := "namespace Probe\n\nclass Widget {\n    static func Label(): string => \"member\"\n    static func Run(): string => Label()\n}\n"
+    line := 5
+    sourceLine := ""
+    assert CodeFixActionHelpers.TryGetSourceLine(source, line, out sourceLine)
+    column := sourceLine.IndexOf("Label", StringComparison.Ordinal) + 1
+    suggestion := "Call the member with `Probe.Widget.Label(...)` or call the free function with `Probe.Label(...)`."
+    diagnostic := CodeFixDiagnostic("NL209", "'Label' is ambiguous", line, column, DiagnosticSeverity.Error, suggestion)
+    fixes := new CodeFixService().GetCodeActions(diagnostic, CodeFixUnit(source), source)
+
+    assert fixes.Count == 2
+    assert fixes[0].Title == "Call the member with Probe.Widget.Label(...)"
+    assert fixes[0].Edits[0].StartColumn == column - 1
+    assert fixes[0].Edits[0].EndColumn == column - 1 + "Label".Length
+    assert fixes[0].Edits[0].NewText == "Probe.Widget.Label"
+    assert FixApplicatorCore.ApplyEdits(source, fixes[0].Edits).Contains("Probe.Widget.Label()")
+}
+
+test "NL209 read-position fixes name a member value and a free-function group" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"member\"\n    func Read(): string {\n        value := Label\n        return value\n    }\n}\n"
+    line := 6
+    sourceLine := ""
+    assert CodeFixActionHelpers.TryGetSourceLine(source, line, out sourceLine)
+    column := sourceLine.IndexOf("Label", StringComparison.Ordinal) + 1
+    suggestion := "Use the member `this.Label` or the free-function group `Probe.Label`."
+    diagnostic := CodeFixDiagnostic("NL209", "'Label' is ambiguous", line, column, DiagnosticSeverity.Error, suggestion)
+    fixes := new CodeFixService().GetCodeActions(diagnostic, CodeFixUnit(source), source)
+
+    assert fixes.Count == 2
+    assert fixes[0].Title == "Use the member this.Label"
+    assert FixApplicatorCore.ApplyEdits(source, fixes[0].Edits).Contains("value := this.Label")
+    assert fixes[1].Title == "Use the free-function group Probe.Label"
+    assert FixApplicatorCore.ApplyEdits(source, fixes[1].Edits).Contains("value := Probe.Label")
+}
+
+test "NL209 import ties do not receive member-versus-function edits" {
+    source := "import Left\n\nfunc Run(): string => Render()\n"
+    diagnostic := CodeFixDiagnostic("NL209", "'Render' is ambiguous between 'Left.Render' and 'Right.Render'", 3, 28, DiagnosticSeverity.Error, "Remove the import that supplies the one you do not mean")
+    assert new CodeFixService().GetCodeActions(diagnostic, CodeFixUnit(source), source).Count == 0
+}
+
 // ---- The fixable-code declarations --------------------------------------------------------------
 
 // Successor to AddMissingImportProvider_OnlyFixesNL002.

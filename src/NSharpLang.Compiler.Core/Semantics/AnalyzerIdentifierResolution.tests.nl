@@ -986,7 +986,7 @@ test "a member of the enclosing type is named as a MEMBER, with its owner" {
     assert !(harness.Errors[0].ContextualHint ?? "").Contains("free function")
 }
 
-test "a member HIDES a same-named free function, and the report says the function is there" {
+test "a non-delegate member and a same-named free function do not compete at a call site" {
     harness := IdentifierRuleOf()
     // The file's free function lives in the global scope, below the type.
     IdentifierDeclare(harness, "Label", IdentifierSignature(0))
@@ -996,10 +996,9 @@ test "a member HIDES a same-named free function, and the report says the functio
 
     answer := harness.Rule.CallTarget(new IdentifierExpression("Label", 7, 3))
 
-    // Never the free function: hiding is by name, callable or not.
-    assert IdentifierTypeName(answer) == "unknown"
-    assert IdentifierCodes(harness.Errors) == "413"
-    assert (harness.Errors[0].ContextualHint ?? "").Contains("There is also a free function `Label`, but inside `Widget` the member hides it")
+    // The member is not invocable, so the free function is the only viable call candidate.
+    assert IdentifierTypeName(answer) == "function/0"
+    assert IdentifierCodes(harness.Errors) == ""
 }
 
 test "a delegate-typed value is a call, not a report" {

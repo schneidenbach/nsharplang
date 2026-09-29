@@ -20,6 +20,8 @@ class CodeFixService {
 
         if String.Compare(diagnostic.Code, "NL002", StringComparison.Ordinal) == 0 {
             AddActions(actions, new AddMissingImportCodeFixProvider().GetCodeActions(diagnostic, ast, sourceCode))
+        } else if String.Compare(diagnostic.Code, "NL209", StringComparison.Ordinal) == 0 {
+            AddActions(actions, new AmbiguousBareNameCodeFixProvider().GetCodeActions(diagnostic, ast, sourceCode))
         } else if String.Compare(diagnostic.Code, "NL001", StringComparison.Ordinal) == 0 {
             AddActions(actions, new RemoveUnusedVariableCodeFixProvider().GetCodeActions(diagnostic, ast, sourceCode))
         } else if String.Compare(diagnostic.Code, "NL003", StringComparison.Ordinal) == 0 {
@@ -39,6 +41,90 @@ class CodeFixService {
         for sourceItem in source {
             target.Add(sourceItem)
         }
+    }
+}
+
+class AmbiguousBareNameCodeFixProvider {
+    FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL209")
+
+    func GetCodeActions(diagnostic: Diagnostic, _ast: object, sourceCode: string): List<CodeAction> {
+        actions := new List<CodeAction>()
+        line := diagnostic.Location.Line
+        column := diagnostic.Location.Column - 1
+        if line <= 0 || column < 0 {
+            return actions
+        }
+
+        name := ""
+        memberSpelling := ""
+        qualifiedName := ""
+        callPosition := false
+        suggestion := diagnostic.Suggestion ?? ""
+        if !TryReadChoices(suggestion, out name, out memberSpelling, out qualifiedName, out callPosition) {
+            return actions
+        }
+
+        sourceLine := ""
+        if !CodeFixActionHelpers.TryGetSourceLine(sourceCode, line, out sourceLine) || column + name.Length > sourceLine.Length || sourceLine.Substring(column, name.Length) != name {
+            return actions
+        }
+
+        memberEdits := new List<TextEdit>()
+        if memberSpelling == "this." + name {
+            memberEdits.Add(new TextEdit(line, column, line, column, "this."))
+        } else {
+            memberEdits.Add(new TextEdit(line, column, line, column + name.Length, memberSpelling))
+        }
+        memberTitle := callPosition ? "Call the member with " + memberSpelling + "(...)" : "Use the member " + memberSpelling
+        actions.Add(new CodeAction(memberTitle, "NL209", memberEdits, CodeActionKind.QuickFix, FixSafety.SuggestionOnly))
+
+        functionEdits := new List<TextEdit>()
+        functionEdits.Add(new TextEdit(line, column, line, column + name.Length, qualifiedName))
+        functionTitle := callPosition ? "Call the free function with " + qualifiedName + "(...)" : "Use the free-function group " + qualifiedName
+        actions.Add(new CodeAction(functionTitle, "NL209", functionEdits, CodeActionKind.QuickFix, FixSafety.SuggestionOnly))
+        return actions
+    }
+
+    private func TryReadChoices(suggestion: string, out memberName: string, out memberSpelling: string, out qualifiedName: string, out callPosition: bool): bool {
+        memberName = ""
+        memberSpelling = ""
+        qualifiedName = ""
+        callPosition = false
+        memberPrefix := "Use the member `"
+        functionPrefix := " or the free-function group `"
+        memberSuffix := "` or "
+        functionSuffix := "`."
+        if CodeFixActionHelpers.CodeFixStartsWith(suggestion, "Call the member with `") {
+            callPosition = true
+            memberPrefix = "Call the member with `"
+            functionPrefix = " or call the free function with `"
+            memberSuffix = "(...)`"
+            functionSuffix = "(...)`."
+        }
+        memberStart := memberPrefix.Length
+        functionStart := suggestion.IndexOf(functionPrefix, StringComparison.Ordinal)
+        if !CodeFixActionHelpers.CodeFixStartsWith(suggestion, memberPrefix) || functionStart < memberStart {
+            return false
+        }
+
+        memberEnd := suggestion.IndexOf(memberSuffix, memberStart, StringComparison.Ordinal)
+        if memberEnd <= memberStart {
+            return false
+        }
+        memberSpelling = suggestion.Substring(memberStart, memberEnd - memberStart)
+        memberSeparator := memberSpelling.LastIndexOf(".", StringComparison.Ordinal)
+        if memberSeparator < 0 || memberSeparator == memberSpelling.Length - 1 {
+            return false
+        }
+        memberName = memberSpelling.Substring(memberSeparator + 1)
+
+        qualifiedStart := functionStart + functionPrefix.Length
+        qualifiedEnd := suggestion.IndexOf(functionSuffix, qualifiedStart, StringComparison.Ordinal)
+        if qualifiedEnd <= qualifiedStart {
+            return false
+        }
+        qualifiedName = suggestion.Substring(qualifiedStart, qualifiedEnd - qualifiedStart)
+        return memberName.Length > 0 && memberSpelling.Length > 0 && qualifiedName.Length > 0
     }
 }
 

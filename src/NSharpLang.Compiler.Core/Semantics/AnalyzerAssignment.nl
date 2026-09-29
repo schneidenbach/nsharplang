@@ -30,10 +30,12 @@ import NSharpLang.Compiler.Ast
 class AssignmentRequest {
     Kind: int
     Node: Expression?
+    IsWriteTarget: bool
 
     constructor(kind: int, node: Expression?) {
         Kind = kind
         Node = node
+        IsWriteTarget = false
     }
 }
 
@@ -272,7 +274,9 @@ class AnalyzerAssignment {
         }
 
         state.Phase = 3
-        return new AssignmentRequest(1, assignment.Target)
+        request := new AssignmentRequest(1, assignment.Target)
+        request.IsWriteTarget = true
+        return request
     }
 
     // A DISCARD ANSWERS ITS VALUE'S TYPE, and both escape reports run — neither short-circuits the

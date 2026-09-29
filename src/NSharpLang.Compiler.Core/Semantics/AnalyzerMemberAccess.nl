@@ -285,8 +285,104 @@ class AnalyzerMemberAccess {
             return null
         }
 
+        qualifiedFunction: TypeInfo = BuiltInTypes.Unknown
+        if TryResolveQualifiedFreeFunction(member, out qualifiedFunction) {
+            state.ResultType = qualifiedFunction
+            state.Phase = 99
+            return null
+        }
+
         state.Phase = 1
         return new MemberAccessRequest(1, member.Object)
+    }
+
+    // A NAMESPACE-QUALIFIED TOP-LEVEL FUNCTION, e.g. `App.Render`. Type receivers and expressions
+    // that are types have already had priority above. Locals, aliases that name imported symbols,
+    // and a free function used as the qualifier itself veto namespace reading just as they do for a
+    // qualified type. Imports do not create sub-namespace names; written qualifiers follow the
+    // lexical namespace chain and namespace aliases expand explicitly.
+    func TryResolveQualifiedFreeFunction(member: MemberAccessExpression, out functionType: TypeInfo): bool {
+        functionType = BuiltInTypes.Unknown
+        qualifiedName := ""
+        if !TryGetQualifiedExpressionTreeName(member, out qualifiedName) {
+            return false
+        }
+
+        separator := qualifiedName.LastIndexOf(".")
+        if separator <= 0 || separator == qualifiedName.Length - 1 {
+            return false
+        }
+
+        qualifier := qualifiedName.Substring(0, separator)
+        functionName := qualifiedName.Substring(separator + 1)
+        rootName := ExternalQualifiedTypeResolver.RootName(qualifier)
+        if scopesValue.LookupSymbol(rootName) != null || scopesValue.LookupType(rootName) != null || importedSymbolsByAliasValue.ContainsKey(rootName) {
+            return false
+        }
+
+        currentType := scopesValue.CurrentTypeScope()
+        if currentType != null && !BuiltInTypes.IsUnknown(memberResolutionValue.ResolveMember(currentType, rootName, true, ambientValue.CurrentTypeName)) {
+            return false
+        }
+
+        projectFunctionType: TypeInfo = BuiltInTypes.Unknown
+        projectFunctionDeclaration: SymbolDeclaration? = null
+        if identifierResolutionValue.TryResolveVisibleProjectFunction(rootName, out projectFunctionType, out projectFunctionDeclaration) {
+            return false
+        }
+
+        aliasedNamespace := ""
+        if usingAliasesValue.TryGetValue(rootName, out aliasedNamespace) {
+            suffix := qualifier.Substring(rootName.Length)
+            exactNamespace := aliasedNamespace + suffix
+            return TryResolveQualifiedFunctionInNamespace(functionName, exactNamespace, member, out functionType)
+        }
+
+        currentNamespace := UnitNamespace()
+        selection := SimpleNamePrecedence.SelectQualified(currentNamespace, qualifier)
+        while !selection.IsSettled {
+            candidate := selection.Current
+            candidates := new List<ProjectFunctionCandidate>()
+            externalFunctions := new List<MethodInfo>()
+            projectDiscoveryValue.TryResolveQualifiedFunctionGroup(functionName, candidate.Namespace ?? "", currentNamespace, out candidates, out externalFunctions)
+            selection.Answer(candidates.Count > 0, externalFunctions.Count > 0)
+        }
+
+        if selection.Kind == SimpleNameSelectionKind.Source || selection.Kind == SimpleNameSelectionKind.Metadata {
+            return TryResolveQualifiedFunctionInNamespace(functionName, selection.Namespace ?? "", member, out functionType)
+        }
+
+        // The final qualified candidate is the spelling the file wrote as an absolute namespace.
+        // Ask it once directly as well: source groups already resolve through the selection above,
+        // while metadata groups can otherwise fall through and analyze the namespace's first
+        // segment as a value before its referenced holder is considered.
+        if TryResolveQualifiedFunctionInNamespace(functionName, qualifier, member, out functionType) {
+            return true
+        }
+
+        // Top-level functions in the global namespace are emitted on its source-level `Program`
+        // holder. A user-declared type named Program has already been resolved by the type receiver
+        // arm in NextStep, so this fallback makes `Program.Foo()` the explicit spelling for a
+        // global function without stealing a real type-qualified member access.
+        if string.Equals(qualifier, "Program", StringComparison.Ordinal) {
+            return TryResolveQualifiedFunctionInNamespace(functionName, "", member, out functionType)
+        }
+
+        return false
+    }
+
+    func TryResolveQualifiedFunctionInNamespace(name: string, namespaceName: string, member: MemberAccessExpression, out functionType: TypeInfo): bool {
+        declaration: SymbolDeclaration? = null
+        memberColumn := spansValue.GetMemberNameColumn(member)
+        if identifierResolutionValue.TryResolveQualifiedProjectFunction(name, namespaceName, member.Line, memberColumn, out functionType, out declaration) {
+            if declaration != null {
+                RecordMemberBinding(member, declaration)
+            }
+            return true
+        }
+
+        functionType = BuiltInTypes.Unknown
+        return false
     }
 
     // THE ANSWER TO THE OUTSTANDING STEP. The one kind answers the receiver's type; a null answer is
@@ -1413,7 +1509,7 @@ class AnalyzerMemberAccess {
             return false
         }
 
-        diagnosticsValue.ReportValueNotCallable(member.MemberName, memberResolutionValue.DescribeValueMemberKind(receiverType, member.MemberName), NullabilityMetadataReflection.FormatTypeInfo(valueMemberType), NullabilityMetadataReflection.FormatTypeInfo(receiverType), false, true, member.Line, spansValue.GetMemberNameColumn(member))
+        diagnosticsValue.ReportValueNotCallable(member.MemberName, memberResolutionValue.DescribeValueMemberKind(receiverType, member.MemberName), NullabilityMetadataReflection.FormatTypeInfo(valueMemberType), NullabilityMetadataReflection.FormatTypeInfo(receiverType), true, member.Line, spansValue.GetMemberNameColumn(member))
         return true
     }
 

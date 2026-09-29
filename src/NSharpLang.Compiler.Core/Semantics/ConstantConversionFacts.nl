@@ -187,7 +187,7 @@ class ConstantOperandFacts {
 
     constructor(hasIntegerLiteral: bool, literalText: string, isNegative: bool) {
         HasIntegerLiteral = hasIntegerLiteral
-        LiteralText = literalText
+        this.LiteralText = literalText
         IsNegative = isNegative
     }
 

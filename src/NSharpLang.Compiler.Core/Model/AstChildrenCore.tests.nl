@@ -49,8 +49,8 @@ func AstGuardSourceText(fileName: string): string {
     return File.ReadAllText(found[0])
 }
 
-// Named apart from the production `EditorSymbolTableFacts.SourceLines`, which keeps each `\r`: a seed
-// that predates the member-first bare-call rule bound that type's own bare calls to this helper.
+// Named apart from the production `EditorSymbolTableFacts.SourceLines`, which keeps each `\r`: the
+// committed seed can bind type-member bare calls before NL209 is in the next toolchain.
 func AstGuardLines(text: string): string[] {
     return text.Replace("\r\n", "\n").Split('\n')
 }

@@ -249,6 +249,34 @@ func LshSignatureHelp(docs: DocumentManager, uri: string, line: int, character: 
     return task.Result
 }
 
+func LshCodeActions(
+    docs: DocumentManager,
+    uri: string,
+    line: int,
+    character: int,
+    length: int,
+    code: string
+): CommandOrCodeActionContainer? {
+    range := new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(line, character, line, character + length)
+    diagnostic := new OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic {
+        Range: range,
+        Code: new DiagnosticCode(code),
+        Source: "N#",
+        Message: code
+    }
+    context := new CodeActionContext {
+        Diagnostics: new Container<OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic>(diagnostic)
+    }
+    request := new CodeActionParams {
+        TextDocument: LshTextDocument(uri),
+        Range: range,
+        Context: context
+    }
+    handler := new CodeActionHandler(docs, NullLogger<CodeActionHandler>.Instance)
+    task := handler.Handle(request, CancellationToken.None)
+    return task.Result
+}
+
 // ---------------------------------------------------------------------------
 // Completion assertions.
 // ---------------------------------------------------------------------------

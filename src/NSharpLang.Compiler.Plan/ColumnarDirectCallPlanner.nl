@@ -2186,10 +2186,10 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        // A MEMBER OF THE ENCLOSING TYPE HIDES A SIBLING OF THE SAME NAME, and `HasSiblingCallable`
-        // has already answered no for a hidden one (`ColumnarSiblingHiding`), so a sibling reaching
-        // this arm is the only thing the bare name can mean ahead of the tiers below. Other callable
-        // names (visible local functions and residual declared-callable names) stay legacy.
+        // `HasSiblingCallable` has already excluded names whose provisional analyzer binding is an
+        // enclosing member (`ColumnarProvisionalMemberBinding`), so a sibling reaching this arm has
+        // no colliding member. Other callable names (visible local functions and residual
+        // declared-callable names) stay legacy.
         if !explicitThis && bindings.HasSiblingCallable(memberName) {
             return TryAppendSiblingCall(nodes, source, callNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, memberName, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
         }
@@ -2306,7 +2306,7 @@ class ColumnarDirectCallPlanner {
             // it, and it reads `this.Shuffle` and `Shuffle` as the same name. Refusing here made the
             // bare call emit while the `this.` call declined. A name no base exposes is still refused,
             // and so is one a value binding also answers to, which the residual would read first.
-            if currentDefinition != null && !bindings.IsValueBinding(memberName) && ColumnarSiblingHiding.ExposesToDerivedType(ResolveExternalRuntimeBase(currentDefinition), memberName) {
+            if currentDefinition != null && !bindings.IsValueBinding(memberName) && ColumnarProvisionalMemberBinding.ExposesToDerivedType(ResolveExternalRuntimeBase(currentDefinition), memberName) {
                 ownership = ColumnarDirectCallOwnership.NotOwned
                 legacyWholeSubtreePlanning = true
                 plan.Rollback(checkpoint)

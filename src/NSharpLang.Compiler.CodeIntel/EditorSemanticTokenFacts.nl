@@ -276,7 +276,7 @@ class EditorSemanticTokenFacts {
 
     static func Classify(token: Token, semanticModel: SemanticModel?, typeNames: HashSet<string>, typeKinds: Dictionary<string, string>, functionNames: HashSet<string>, parameterNames: HashSet<string>, propertyNames: HashSet<string>, enumMemberNames: HashSet<string>, catchResults: HashSet<string>): string? {
         if Lexer.IsReservedKeyword(token.Type) {
-            return KeywordKind
+            return EditorSemanticTokenFacts.KeywordKind
         }
 
         if token.Type == TokenType.Comment || token.Type == TokenType.MultiLineComment || token.Type == TokenType.XmlDocComment {
