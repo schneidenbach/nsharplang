@@ -1211,6 +1211,23 @@ Skipping and re-baselining:
 SYSTEMS_BENCH=skip VSCODE_TESTS=skip ./scripts/test-all.sh --commit   # the gate block returns without measuring and passes
 ```
 
+#### 2026-09-30 post-split baseline remeasurement
+
+Owner decision D-B keeps `src/NSharpLang.Compiler.Core` as the benchmark subject after the split;
+that project is now the Semantics façade, with Syntax and Model referenced as lower slices. This
+remains the gate's documented absolute latency budget for the Core project identity, not a new sum
+across all compiler slices. The measured stage and semantic canary are unchanged: parse, semantic
+analysis and strict lint, with the Core build rejected before emission. On the same Apple M4 / .NET
+10.0.105, five harness runs changed the live source census from **526 files / 288,658 lines** to
+**141 files / 82,718 lines**, the median wall time from **123,885 ms** to **15,180 ms**, and median
+peak RSS from **1,521,696,768 bytes** to **679,837,696 bytes**. The CLI source commit was
+`a409c9400950d42c05819627c1d0ee318ca1df03`; tolerance remains **1.5**. The valid run started at
+2026-09-30T15:25:52Z with load **1.13**, ended at 15:29:15Z with load **1.81**, and all 30-second
+samples stayed below 2.0. An earlier sweep was discarded after a 2.08 mid-run sample. The updated
+compile-time-bench passed **76/76**, including the 185-project corpus formula; its timing verdict
+was judged `ok` at load **1.31** on 10 cores (three-run median 15,168 ms against the unchanged
+22,770 ms limit). `gate-script-contracts` passed **75/75** with the worktree-built CLI.
+
 Step 3a runs one `nlc test` PROCESS per project over ~129 projects. Since 2026-09-22 it runs them
 under `xargs -P` with a capped worker count, in the same numbered-results-directory pattern Steps 8,
 9 and 10 have always used, with a pinned SERIAL group that runs first: the projects whose claim is
