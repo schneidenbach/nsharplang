@@ -1908,7 +1908,7 @@ class Analyzer: IDisposable {
         } else {
             identifier := expression as IdentifierExpression
             if identifier != null {
-                result = IdentifierResolution.Resolve(identifier.Name, identifier.Line, identifier.Column, false)
+                result = IdentifierResolution.ResolveIdentifier(identifier)
             } else if expression as BinaryExpression != null || expression as UnaryExpression != null {
                 result = DriveOperatorExpression(OperatorExpressions.Begin(expression))
             } else if expression as ThrowExpression != null || expression as IsExpression != null || expression as SpreadExpression != null || expression as AllocExpression != null || expression as MustExpression != null || expression as StackAllocExpression != null || expression as TupleExpression != null || expression as AwaitExpression != null {
@@ -2121,7 +2121,7 @@ class Analyzer: IDisposable {
     private func AnalyzeWriteTargetExpression(expression: Expression): TypeInfo {
         identifier := expression as IdentifierExpression
         if identifier != null {
-            resolved := IdentifierResolution.ResolveWriteTarget(identifier.Name, identifier.Line, identifier.Column)
+            resolved := IdentifierResolution.ResolveWriteTarget(identifier)
             return ExpressionTail.Finish(expression, resolved)
         }
 

@@ -75,15 +75,13 @@ class AnalyzerIdentifierResolution {
     semanticModelValue: SemanticModel
     bindingsValue: BindingMap
     compilationUnitValue: CompilationUnit?
-    suppressErrorTupleResultUseValue: bool
+    suppressedErrorTupleResultUseNodeValue: Expression?
     reportedUnverifiedResultsValue: Dictionary<(Line: int, Column: int, Name: string), bool>
     reportedMemberFunctionAmbiguitiesValue: Dictionary<(Line: int, Column: int, Name: string), bool>
 
-    // THE ERROR-TUPLE SUPPRESSION, saved and restored by the assignment arm exactly as
-    // `AnalyzerNullFlow.SuppressedFlowTypeNode` is: writing INTO a result name is not a use of it, so a
-    // plain `result = …` must not be told the error was never checked. A compound assignment reads
-    // the target first, so it is NOT suppressed.
-    SuppressErrorTupleResultUse: bool => suppressErrorTupleResultUseValue
+    // The assignment arm exempts one target node by identity. Reads beneath an index or member
+    // target are still checked while the target walk is open.
+    SuppressedErrorTupleResultUseNode: Expression? => suppressedErrorTupleResultUseNodeValue
 
     constructor(diagnostics: AnalyzerDiagnosticSink, scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, projectDiscovery: AnalyzerProjectTypeDiscovery, externalTypeProbe: AnalyzerExternalTypeProbe, functionTypeFactory: AnalyzerFunctionTypeFactory, ambient: AnalyzerAmbientContext, nullFlow: AnalyzerNullFlow, extensionMethods: List<FunctionDeclaration>, memberResolution: AnalyzerMemberResolution, sourceMemberDeclarations: AnalyzerSourceMemberDeclarations, semanticModel: SemanticModel, bindings: BindingMap) {
         diagnosticsValue = diagnostics
@@ -102,7 +100,7 @@ class AnalyzerIdentifierResolution {
         semanticModelValue = semanticModel
         bindingsValue = bindings
         compilationUnitValue = null
-        suppressErrorTupleResultUseValue = false
+        suppressedErrorTupleResultUseNodeValue = null
         reportedUnverifiedResultsValue = new Dictionary<(Line: int, Column: int, Name: string), bool>()
         reportedMemberFunctionAmbiguitiesValue = new Dictionary<(Line: int, Column: int, Name: string), bool>()
     }
@@ -114,7 +112,7 @@ class AnalyzerIdentifierResolution {
         compilationUnitValue = unit
         semanticModelValue = semanticModel
         bindingsValue = bindings
-        suppressErrorTupleResultUseValue = false
+        suppressedErrorTupleResultUseNodeValue = null
         reportedUnverifiedResultsValue.Clear()
         reportedMemberFunctionAmbiguitiesValue.Clear()
     }
@@ -133,8 +131,28 @@ class AnalyzerIdentifierResolution {
         importUsageCreditValue = credit
     }
 
-    func SetSuppressErrorTupleResultUse(value: bool) {
-        suppressErrorTupleResultUseValue = value
+    func SetSuppressedErrorTupleResultUseNode(node: Expression?) {
+        suppressedErrorTupleResultUseNodeValue = node
+    }
+
+    // WHETHER `expression` IS THE EXEMPT NODE — by identity. Parentheses around the stored name
+    // still make it the target, while an equal spelling elsewhere remains an ordinary read.
+    func IsErrorTupleResultUseSuppressed(expression: Expression): bool {
+        current := suppressedErrorTupleResultUseNodeValue
+        while current != null {
+            if Object.ReferenceEquals(current, expression) {
+                return true
+            }
+
+            parenthesized := current as ParenthesizedExpression
+            if parenthesized == null {
+                return false
+            }
+
+            current = parenthesized.Inner
+        }
+
+        return false
     }
 
     // THE RULE. `reportMissingAsFunction` selects which of the two report families a miss belongs to
@@ -150,6 +168,14 @@ class AnalyzerIdentifierResolution {
         return Resolve(name, line, column, reportMissingAsFunction, out source)
     }
 
+    // The node-bearing read is the only read eligible for a write-target exemption. Keep name
+    // lookup, NL209 collision reporting and the binding source in the same resolver owner.
+    func ResolveIdentifier(identifier: IdentifierExpression): TypeInfo {
+        source := BareNameSource.Other
+        namesType := false
+        return ResolveNamingType(identifier.Name, identifier.Line, identifier.Column, false, 0, out source, out namesType, true, identifier)
+    }
+
     func Resolve(name: string, line: int, column: int, reportMissingAsFunction: bool, out source: BareNameSource): TypeInfo {
         namesType := false
         return ResolveNamingType(name, line, column, reportMissingAsFunction, 0, out source, out namesType)
@@ -160,7 +186,13 @@ class AnalyzerIdentifierResolution {
     func ResolveWriteTarget(name: string, line: int, column: int): TypeInfo {
         source := BareNameSource.Other
         namesType := false
-        return ResolveNamingType(name, line, column, false, 0, out source, out namesType, false)
+        return ResolveNamingType(name, line, column, false, 0, out source, out namesType, false, null)
+    }
+
+    func ResolveWriteTarget(identifier: IdentifierExpression): TypeInfo {
+        source := BareNameSource.Other
+        namesType := false
+        return ResolveNamingType(identifier.Name, identifier.Line, identifier.Column, false, 0, out source, out namesType, false, identifier)
     }
 
     func ResolveNamingType(name: string, line: int, column: int, reportMissingAsFunction: bool, typeArgumentCount: int, out namesType: bool): TypeInfo {
@@ -169,10 +201,10 @@ class AnalyzerIdentifierResolution {
     }
 
     func ResolveNamingType(name: string, line: int, column: int, reportMissingAsFunction: bool, typeArgumentCount: int, out source: BareNameSource, out namesType: bool): TypeInfo {
-        return ResolveNamingType(name, line, column, reportMissingAsFunction, typeArgumentCount, out source, out namesType, true)
+        return ResolveNamingType(name, line, column, reportMissingAsFunction, typeArgumentCount, out source, out namesType, true, null)
     }
 
-    private func ResolveNamingType(name: string, line: int, column: int, reportMissingAsFunction: bool, typeArgumentCount: int, out source: BareNameSource, out namesType: bool, checkMemberFunctionAmbiguity: bool): TypeInfo {
+    private func ResolveNamingType(name: string, line: int, column: int, reportMissingAsFunction: bool, typeArgumentCount: int, out source: BareNameSource, out namesType: bool, checkMemberFunctionAmbiguity: bool, node: Expression?): TypeInfo {
         source = BareNameSource.Other
         namesType = false
         if name == "<error>" {
@@ -181,7 +213,9 @@ class AnalyzerIdentifierResolution {
 
         resolved: TypeInfo = BuiltInTypes.Unknown
         if TryResolveBindingTarget(name, line, column, out resolved, out source, out namesType, reportMissingAsFunction, checkMemberFunctionAmbiguity) {
-            ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
+            if node == null || !IsErrorTupleResultUseSuppressed(node) {
+                ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
+            }
             ReportCapturedByRefParameterIfNeeded(name, line, column)
             return resolved
         }
@@ -723,10 +757,6 @@ class AnalyzerIdentifierResolution {
     // position can be resolved more than once — a write target is resolved again by the classifiers
     // that follow it — and the developer must see the report once.
     func ReportUnverifiedErrorTupleResultUseIfNeeded(name: string, line: int, column: int) {
-        if suppressErrorTupleResultUseValue {
-            return
-        }
-
         guard := scopesValue.FindErrorTupleResultGuard(name)
         if guard == null {
             return

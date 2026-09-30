@@ -70,7 +70,7 @@ class AssignmentState {
     ExpressionTypes: Dictionary<object, TypeInfo>?
     SavedExpectedType: TypeInfo?
     SavedSuppressedFlowTypeNode: Expression?
-    SavedSuppressErrorTupleResultUse: bool
+    SavedSuppressedErrorTupleResultUseNode: Expression?
     SavedAllowEventReference: bool
 
     constructor(assignment: AssignmentExpression?) {
@@ -81,7 +81,7 @@ class AssignmentState {
         ExpressionTypes = null
         SavedExpectedType = null
         SavedSuppressedFlowTypeNode = null
-        SavedSuppressErrorTupleResultUse = false
+        SavedSuppressedErrorTupleResultUseNode = null
         SavedAllowEventReference = false
     }
 }
@@ -264,9 +264,13 @@ class AnalyzerAssignment {
         // than the generic "an event is not a value". And the capture table is opened only for a
         // member or index chain, because its PRESENCE is observable.
         state.SavedSuppressedFlowTypeNode = nullFlowValue.SuppressedFlowTypeNode
-        state.SavedSuppressErrorTupleResultUse = identifierResolutionValue.SuppressErrorTupleResultUse
+        state.SavedSuppressedErrorTupleResultUseNode = identifierResolutionValue.SuppressedErrorTupleResultUseNode
         nullFlowValue.SetSuppressedFlowTypeNode(assignment.Target)
-        identifierResolutionValue.SetSuppressErrorTupleResultUse(assignment.Operator == AssignmentOperator.Assign)
+        exemptTarget: Expression? = null
+        if assignment.Operator == AssignmentOperator.Assign {
+            exemptTarget = assignment.Target
+        }
+        identifierResolutionValue.SetSuppressedErrorTupleResultUseNode(exemptTarget)
         state.SavedAllowEventReference = ambientValue.EnterAllowEventReference()
         if AnalyzerWriteTargets.IsWriteTargetNeedingExpressionTypes(assignment.Target) {
             ambientValue.EnterWriteTargetExpressionTypes()
@@ -328,7 +332,7 @@ class AnalyzerAssignment {
     func TargetAnswered(state: AssignmentState, targetType: TypeInfo) {
         ambientValue.ClearWriteTargetExpressionTypes()
         ambientValue.ExitAllowEventReference(state.SavedAllowEventReference)
-        identifierResolutionValue.SetSuppressErrorTupleResultUse(state.SavedSuppressErrorTupleResultUse)
+        identifierResolutionValue.SetSuppressedErrorTupleResultUseNode(state.SavedSuppressedErrorTupleResultUseNode)
         nullFlowValue.SetSuppressedFlowTypeNode(state.SavedSuppressedFlowTypeNode)
         state.TargetType = targetType
         state.Phase = 30
