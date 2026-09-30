@@ -110,3 +110,47 @@ test "hover answers exactly what the CLI hover query answers" {
         LshDeleteTree(root)
     }
 }
+
+// A MEMBER A SOURCE TYPE INHERITS FROM A REFERENCED BASE, through the editor. Both spellings read
+// "No symbol found" from the CLI and showed no hover card in VS Code; the editor answers from the
+// same owner, so the card must carry the CLI's signature, declaring type and summary line for line.
+test "hover on a bare and a `this.` member inherited from a .NET base answers what the CLI answers" {
+    root := LshTempRoot("nsharp-inherited-")
+    source := "namespace Gaps\n\nimport System\n\nclass Failure: Exception {\n    func Text(): string => Message\n    func Text2(): string => this.Message\n}\n"
+    LshWrite(root, "project.yml", "name: Gaps\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+    LshWrite(root, "App.nl", source)
+    try {
+        docs := LshNewDocs()
+        types := LshNewTypes()
+        uri := LshFileUri(Path.Combine(root, "App.nl"))
+        LshOpen(docs, uri, source)
+
+        service := new CodeIntelligenceService()
+        snapshot := service.LoadProject(root)
+
+        // Zero-based: `Message` on line 5 (bare) and line 6 (after `this.`).
+        lines: int[] = [5, 6]
+        characters: int[] = [27, 33]
+        index := 0
+        while index < lines.Length {
+            cli := service.GetHoverInfo(snapshot, "App.nl", lines[index] + 1, characters[index] + 1)
+            assert cli != null
+            assert cli.Signature == "property Message: string { get; }"
+            assert cli.DeclaringType == "System.Exception"
+            documentation := cli.Documentation
+            assert documentation != null
+            assert documentation.Contains("message that describes the current exception", StringComparison.Ordinal)
+
+            lsp := LshHover(docs, types, uri, lines[index], characters[index])
+            assert lsp != null
+            markdown := LshHoverMarkdown(lsp)
+            assert markdown.Contains(cli.Signature, StringComparison.Ordinal)
+            assert markdown.Contains("*Declaring Type:* `System.Exception`", StringComparison.Ordinal)
+            assert markdown.Contains(documentation, StringComparison.Ordinal)
+
+            index = index + 1
+        }
+    } finally {
+        LshDeleteTree(root)
+    }
+}
