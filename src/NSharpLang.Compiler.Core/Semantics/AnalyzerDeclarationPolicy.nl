@@ -151,9 +151,6 @@ class AnalyzerDeclarationPolicy {
     currentFilePath: string?
     declarationContextFilePath: string?
     compilationUnit: CompilationUnit?
-    // The names the OTHER files of this file's namespace declare as top-level functions, built on the
-    // first top-level function of an analysis and dropped at the next `BeginAnalysis`.
-    sameNamespaceFunctionCandidates: List<ProjectFunctionCandidate>?
 
     constructor(diagnosticSink: AnalyzerDiagnosticSink, diagnosticSpans: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, flow: AnalyzerNullFlow, context: AnalyzerDeclarationContext, resolver: AnalyzerTypeResolver, parameters: AnalyzerParameterDeclarations, discovery: AnalyzerProjectTypeDiscovery, assemblies: List<Assembly>, aliases: Dictionary<string, string>, symbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo>>, declarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration>>, declarationFiles: Dictionary<string, string>) {
         diagnostics = diagnosticSink
@@ -174,7 +171,6 @@ class AnalyzerDeclarationPolicy {
         currentFilePath = null
         declarationContextFilePath = null
         compilationUnit = null
-        sameNamespaceFunctionCandidates = null
     }
 
     // One call per analysis, from the reset block, AFTER the semantic model and the binding map have
@@ -186,7 +182,6 @@ class AnalyzerDeclarationPolicy {
         currentFilePath = filePath
         compilationUnit = unit
         declarationContextFilePath = null
-        sameNamespaceFunctionCandidates = null
     }
 
     // The declaration context's file path is established after the imports are walked, so it is set
@@ -256,11 +251,8 @@ class AnalyzerDeclarationPolicy {
         }
 
         namespaceName := AnalyzerProjectSourceProvider.UnitNamespace(compilationUnit)
-        candidates := sameNamespaceFunctionCandidates
-        if candidates == null {
-            candidates = projectDiscovery.SameNamespaceFunctionCandidates(currentFilePath, namespaceName)
-            sameNamespaceFunctionCandidates = candidates
-        }
+        candidates := projectDiscovery.ProjectFunctionsInNamespace(namespaceName, name, false)
+        ownPath := currentFilePath == null ? "" : Path.GetFullPath(currentFilePath)
 
         newFunction := functionType as FunctionTypeInfo
         if newFunction == null {
@@ -269,7 +261,7 @@ class AnalyzerDeclarationPolicy {
 
         duplicate: ProjectFunctionCandidate? = null
         for candidate in candidates {
-            if candidate.Declaration != null && candidate.Declaration.Name == name && AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch(newFunction, candidate.Declaration) {
+            if candidate.Declaration != null && candidate.Declaration.Name == name && !string.Equals(Path.GetFullPath(candidate.FilePath), ownPath, StringComparison.OrdinalIgnoreCase) && AnalyzerOverloadSignatureFacts.ParameterSignaturesMatch(newFunction, candidate.Declaration) {
                 duplicate = candidate
                 break
             }

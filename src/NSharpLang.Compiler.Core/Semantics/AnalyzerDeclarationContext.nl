@@ -196,6 +196,7 @@ class AnalyzerDeclarationContext {
     // A fully-qualified external spelling is nameable when it is visible OR when its assembly named
     // this compilation in an `InternalsVisibleTo`; the resolver below asks this object which.
     friendGrants: InternalsVisibleToGrants?
+    projectSourceProviderValue: AnalyzerProjectSourceProvider?
 
     // The import-usage ledger and the file it belongs to. This owner resolves names on behalf of
     // EVERY file in the project — a member's declared type is resolved against the file that declares
@@ -227,6 +228,7 @@ class AnalyzerDeclarationContext {
         missingExternalTypes = new HashSet<string>(StringComparer.Ordinal)
         importUsageCredit = null
         importUsageFilePath = null
+        projectSourceProviderValue = null
         declaredTypeNames = null
         soaEnabledValue = false
     }
@@ -289,6 +291,13 @@ class AnalyzerDeclarationContext {
         return friendGrants
     }
 
+    // The analyzer's source provider owns immutable, ordered project declaration candidates across
+    // the per-file contexts this owner resets. TypeInfo materialization remains local to this
+    // context; only the repeated project-wide name scan is shared.
+    func SetProjectSourceProvider(provider: AnalyzerProjectSourceProvider?) {
+        projectSourceProviderValue = provider
+    }
+
     func Reset(projectRootValue: string, assemblyValues: List<Assembly>) {
         projectRoot = Path.GetFullPath(projectRootValue)
         assemblies = assemblyValues
@@ -300,6 +309,7 @@ class AnalyzerDeclarationContext {
         soaTypesByDeclaration.Clear()
         externalTypes.Clear()
         missingExternalTypes.Clear()
+        projectSourceProviderValue = null
         declaredTypeNames = null
     }
 
@@ -1666,6 +1676,76 @@ class AnalyzerDeclarationContext {
     // name but cannot resolve it (an unresolvable base, a broken alias) still answers false: that is
     // a miss, not a tie.
     func TryResolveDeclarationInNamespace(name: string, namespaceName: string?, requireExported: bool, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
+        sourceProvider := projectSourceProviderValue
+        if sourceProvider != null {
+            return TryResolveDeclarationInNamespaceFromSourceIndex(sourceProvider, name, namespaceName, requireExported, activeAliases, out typeInfo, out claimed)
+        }
+
+        return TryResolveDeclarationInNamespaceByScanning(name, namespaceName, requireExported, activeAliases, out typeInfo, out claimed)
+    }
+
+    private func TryResolveDeclarationInNamespaceFromSourceIndex(sourceProvider: AnalyzerProjectSourceProvider, name: string, namespaceName: string?, requireExported: bool, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
+        // The analyzed file is first in `files`, before the provider's ordered project snapshot.
+        // Check that one directly, then use the provider's name index for every other file.
+        currentPath := importUsageFilePath ?? ""
+        fullCurrentPath := currentPath.Length > 0 ? Path.GetFullPath(currentPath) : ""
+        if fullCurrentPath.Length > 0 {
+            currentFacts := FindFile(fullCurrentPath)
+            if currentFacts != null && string.Equals(currentFacts.NamespaceName, namespaceName, StringComparison.Ordinal) {
+                candidate := BuiltInTypes.Unknown as TypeInfo
+                declaration: object? = null
+                currentClaimed := false
+                if TryResolveDeclarationInFile(currentFacts, name, requireExported, activeAliases, out candidate, out declaration, out currentClaimed) {
+                    typeInfo = candidate
+                    claimed = true
+                    return true
+                }
+                if currentClaimed {
+                    typeInfo = BuiltInTypes.Unknown
+                    claimed = true
+                    return false
+                }
+            }
+        }
+
+        candidates := sourceProvider.SourceTypeDeclarationsNamed(name)
+        for candidate in candidates {
+            if fullCurrentPath.Length > 0 && string.Equals(Path.GetFullPath(candidate.FilePath), fullCurrentPath, StringComparison.OrdinalIgnoreCase) {
+                continue
+            }
+            if !string.Equals(candidate.NamespaceName, namespaceName, StringComparison.Ordinal) {
+                continue
+            }
+
+            candidateFacts := FindFile(candidate.FilePath)
+            if candidateFacts == null {
+                continue
+            }
+
+            // The provider keeps only the first declaration for a (file, arity-name), matching
+            // `TryResolveDeclarationInFile`'s first-match rule for duplicates in one file.
+            claimed = true
+            if requireExported && !candidate.IsExported {
+                typeInfo = BuiltInTypes.Unknown
+                return false
+            }
+
+            candidateType := ResolveDeclarationTypeCore(candidate.Declaration, candidateFacts, activeAliases)
+            if BuiltInTypes.IsUnknown(candidateType) {
+                typeInfo = BuiltInTypes.Unknown
+                return false
+            }
+
+            typeInfo = candidateType
+            return true
+        }
+
+        typeInfo = BuiltInTypes.Unknown
+        claimed = false
+        return false
+    }
+
+    private func TryResolveDeclarationInNamespaceByScanning(name: string, namespaceName: string?, requireExported: bool, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         claimed = false
         for facts in files {
             if !string.Equals(facts.NamespaceName, namespaceName, StringComparison.Ordinal) {
@@ -1743,6 +1823,91 @@ class AnalyzerDeclarationContext {
     // into a "not found" at every cross-namespace use. Two DIFFERENT namespaces exporting the name
     // remain the tie this fallback refuses to break.
     func TryResolveUniqueExported(name: string, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
+        sourceProvider := projectSourceProviderValue
+        if sourceProvider != null {
+            return TryResolveUniqueExportedFromSourceIndex(sourceProvider, name, activeAliases, out typeInfo, out claimed)
+        }
+
+        return TryResolveUniqueExportedByScanning(name, activeAliases, out typeInfo, out claimed)
+    }
+
+    // The current analysis file is registered before the project snapshot in `InitializeDeclarationContext`.
+    // Keep that precedence, then retain the provider's file/declaration order for every remaining
+    // candidate. Only matching exported declarations are materialized; the per-context type cache
+    // and the existing ambiguity rule still decide the answer.
+    private func TryResolveUniqueExportedFromSourceIndex(sourceProvider: AnalyzerProjectSourceProvider, name: string, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
+        candidates := sourceProvider.SourceTypeDeclarationsNamed(name)
+        orderedCandidates := new List<AnalyzerProjectSourceTypeCandidate>()
+        currentPath := importUsageFilePath ?? ""
+        fullCurrentPath := currentPath.Length > 0 ? Path.GetFullPath(currentPath) : ""
+        if currentPath.Length > 0 {
+            currentFacts := FindFile(fullCurrentPath)
+            if currentFacts != null {
+                for declaration in currentFacts.Declarations {
+                    currentDeclaration := declaration as Declaration
+                    if currentDeclaration == null || !IsTopLevelTypeDeclaration(currentDeclaration) {
+                        continue
+                    }
+
+                    currentName := DeclarationFacts.GetDeclarationArityName(currentDeclaration)
+                    if currentName != null && string.Equals(currentName, name, StringComparison.Ordinal) {
+                        isExported := DeclarationFacts.IsExportedDeclaration(currentDeclaration, TypeArityNames.Display(name))
+                        currentCandidate := new AnalyzerProjectSourceTypeCandidate(fullCurrentPath, currentFacts.NamespaceName, currentDeclaration, isExported)
+                        orderedCandidates.Add(currentCandidate)
+                        break
+                    }
+                }
+            }
+        }
+
+        for candidate in candidates {
+            if fullCurrentPath.Length == 0 || !string.Equals(Path.GetFullPath(candidate.FilePath), fullCurrentPath, StringComparison.OrdinalIgnoreCase) {
+                orderedCandidates.Add(candidate)
+            }
+        }
+
+        matchedType: TypeInfo? = null
+        matchedNamespace: string? = null
+        claimed = false
+        for candidate in orderedCandidates {
+            if !candidate.IsExported {
+                continue
+            }
+
+            candidateFacts := FindFile(candidate.FilePath)
+            if candidateFacts == null {
+                continue
+            }
+
+            candidateType := ResolveDeclarationTypeCore(candidate.Declaration, candidateFacts, activeAliases)
+            if BuiltInTypes.IsUnknown(candidateType) {
+                claimed = true
+                typeInfo = BuiltInTypes.Unknown
+                return false
+            }
+
+            claimed = true
+            if matchedType == null {
+                matchedType = candidateType
+                matchedNamespace = candidateFacts.NamespaceName
+            } else if !string.Equals(candidateFacts.NamespaceName, matchedNamespace, StringComparison.Ordinal) {
+                typeInfo = BuiltInTypes.Unknown
+                return false
+            }
+        }
+
+        if matchedType == null {
+            typeInfo = BuiltInTypes.Unknown
+            claimed = false
+            return false
+        }
+
+        typeInfo = matchedType
+        claimed = true
+        return true
+    }
+
+    private func TryResolveUniqueExportedByScanning(name: string, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         matchedType: TypeInfo? = null
         matchedNamespace: string? = null
         claimed = false
@@ -2375,6 +2540,11 @@ class AnalyzerDeclarationContext {
     }
 
     func SelectionForNamedDeclaration(typeInfo: TypeInfo, name: string, namespaceName: string?, filterNamespace: bool, requireExported: bool, claimed: bool): AnalyzerSourceTypeSelection {
+        sourceProvider := projectSourceProviderValue
+        if sourceProvider != null {
+            return SelectionForNamedDeclarationFromSourceIndex(sourceProvider, typeInfo, name, namespaceName, filterNamespace, requireExported, claimed)
+        }
+
         for facts in files {
             if !filterNamespace || string.Equals(facts.NamespaceName, namespaceName, StringComparison.Ordinal) {
                 declarationIndex := 0
@@ -2387,6 +2557,38 @@ class AnalyzerDeclarationContext {
                 }
             }
         }
+        return SelectionFor(typeInfo, claimed)
+    }
+
+    private func SelectionForNamedDeclarationFromSourceIndex(sourceProvider: AnalyzerProjectSourceProvider, typeInfo: TypeInfo, name: string, namespaceName: string?, filterNamespace: bool, requireExported: bool, claimed: bool): AnalyzerSourceTypeSelection {
+        currentPath := importUsageFilePath ?? ""
+        fullCurrentPath := currentPath.Length > 0 ? Path.GetFullPath(currentPath) : ""
+        if fullCurrentPath.Length > 0 {
+            currentFacts := FindFile(fullCurrentPath)
+            if currentFacts != null {
+                for declaration in currentFacts.Declarations {
+                    if declaration != null && string.Equals(DeclarationFacts.GetDeclarationArityName(declaration), name, StringComparison.Ordinal) && (!filterNamespace || string.Equals(currentFacts.NamespaceName, namespaceName, StringComparison.Ordinal)) && (!requireExported || DeclarationFacts.IsExportedDeclaration(declaration, TypeArityNames.Display(name))) {
+                        return new AnalyzerSourceTypeSelection(typeInfo, declaration, currentFacts.FilePath, claimed)
+                    }
+                }
+            }
+        }
+
+        candidates := sourceProvider.SourceTypeDeclarationsNamed(name)
+        for candidate in candidates {
+            if fullCurrentPath.Length > 0 && string.Equals(Path.GetFullPath(candidate.FilePath), fullCurrentPath, StringComparison.OrdinalIgnoreCase) {
+                continue
+            }
+            if filterNamespace && !string.Equals(candidate.NamespaceName, namespaceName, StringComparison.Ordinal) {
+                continue
+            }
+            if requireExported && !candidate.IsExported {
+                continue
+            }
+
+            return new AnalyzerSourceTypeSelection(typeInfo, candidate.Declaration, candidate.FilePath, claimed)
+        }
+
         return SelectionFor(typeInfo, claimed)
     }
 

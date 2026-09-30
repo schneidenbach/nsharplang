@@ -62,6 +62,7 @@ import NSharpLang.Compiler.Columnar
 // parse to, and what namespace they declare. Constructed once per analyzer and never rebuilt, because
 // the parsed-unit cache and the source snapshot outlive a single `Analyze` call.
 class AnalyzerProjectSourceProvider {
+    private static readonly EmptySourceTypeCandidates: List<AnalyzerProjectSourceTypeCandidate> = new List<AnalyzerProjectSourceTypeCandidate>()
 
     // The in-memory snapshot, keyed by full path, case-insensitive — exactly the shell's dictionary.
     sourceTexts: Dictionary<string, string>
@@ -75,12 +76,19 @@ class AnalyzerProjectSourceProvider {
     namespaceCache: Dictionary<string, HashSet<string>>
     // file full path -> the namespace that file declares, or null.
     fileNamespaceCache: Dictionary<string, string?>
+    sourceTypeCandidatesByArity: Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>
+    sourceTypeCandidatesBySimpleName: Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>
+    sourceTypeIndexRoot: string
+    sourceTypeIndexVersion: int
+    sourceTypeIndexReady: bool
     projectRootValue: string?
+    sourceSnapshotVersionValue: int
     // Whether the DRIVER said these files compile into one assembly. See `CompilesAsOneProgram`.
     declaredOneProgramValue: bool
 
     // The project root of the analysis in progress, or null when there is none.
     ProjectRoot: string? => projectRootValue
+    SourceSnapshotVersion: int => sourceSnapshotVersionValue
 
     constructor() {
         sourceTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -88,7 +96,13 @@ class AnalyzerProjectSourceProvider {
         unitCache = new Dictionary<string, CompilationUnit?>(StringComparer.OrdinalIgnoreCase)
         namespaceCache = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
         fileNamespaceCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        sourceTypeCandidatesByArity = new Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>(StringComparer.Ordinal)
+        sourceTypeCandidatesBySimpleName = new Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>(StringComparer.Ordinal)
+        sourceTypeIndexRoot = ""
+        sourceTypeIndexVersion = -1
+        sourceTypeIndexReady = false
         projectRootValue = null
+        sourceSnapshotVersionValue = 0
         declaredOneProgramValue = false
     }
 
@@ -108,6 +122,7 @@ class AnalyzerProjectSourceProvider {
         sourceTexts.Clear()
         sourceTextOrder.Clear()
         unitCache.Clear()
+        sourceSnapshotVersionValue = sourceSnapshotVersionValue + 1
     }
 
     // Adds one file to the snapshot. A path already present keeps its ORDER and takes the new text,
@@ -119,6 +134,7 @@ class AnalyzerProjectSourceProvider {
         }
 
         sourceTexts[fullPath] = sourceText
+        sourceSnapshotVersionValue = sourceSnapshotVersionValue + 1
     }
 
     // Called at the start of every analysis: the project root changes and the two namespace caches
@@ -212,6 +228,87 @@ class AnalyzerProjectSourceProvider {
         }
 
         return paths
+    }
+
+    // The simple-name fallback can ask whether a type name is unique across the project for many
+    // type references in every source file. Keep its ordered declaration candidates beside the
+    // parsed-unit cache so each analysis reuses one project walk rather than reflecting over every
+    // declaration for each spelling.
+    private func EnsureSourceTypeIndex() {
+        root := projectRootValue ?? ""
+        version := sourceSnapshotVersionValue
+        if sourceTypeIndexReady && sourceTypeIndexVersion == version && string.Equals(sourceTypeIndexRoot, root, StringComparison.OrdinalIgnoreCase) {
+            return
+        }
+
+        candidatesByArity := new Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>(StringComparer.Ordinal)
+        candidatesBySimpleName := new Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>(StringComparer.Ordinal)
+        for filePath in SourceFilePaths() {
+            unit := GetProjectCompilationUnit(filePath)
+            if unit == null {
+                continue
+            }
+
+            declaredArityNames := new HashSet<string>(StringComparer.Ordinal)
+            namespaceName := AnalyzerProjectSourceProvider.UnitNamespace(unit)
+            for declaration in unit.Declarations {
+                if !AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration(declaration) {
+                    continue
+                }
+
+                arityName := DeclarationFacts.GetDeclarationArityName(declaration)
+                simpleName := DeclarationFacts.GetDeclarationName(declaration)
+                if arityName == null || simpleName == null {
+                    continue
+                }
+
+                exported := DeclarationFacts.IsExportedDeclaration(declaration, TypeArityNames.Display(arityName))
+                candidate := new AnalyzerProjectSourceTypeCandidate(filePath, namespaceName, declaration, exported)
+                if declaredArityNames.Add(arityName) {
+                    candidates := new List<AnalyzerProjectSourceTypeCandidate>()
+                    if !candidatesByArity.TryGetValue(arityName, out candidates) {
+                        candidates = new List<AnalyzerProjectSourceTypeCandidate>()
+                        candidatesByArity.Add(arityName, candidates)
+                    }
+
+                    candidates.Add(candidate)
+                }
+
+                simpleCandidates := new List<AnalyzerProjectSourceTypeCandidate>()
+                if !candidatesBySimpleName.TryGetValue(simpleName, out simpleCandidates) {
+                    simpleCandidates = new List<AnalyzerProjectSourceTypeCandidate>()
+                    candidatesBySimpleName.Add(simpleName, simpleCandidates)
+                }
+
+                simpleCandidates.Add(candidate)
+            }
+        }
+
+        sourceTypeCandidatesByArity = candidatesByArity
+        sourceTypeCandidatesBySimpleName = candidatesBySimpleName
+        sourceTypeIndexRoot = root
+        sourceTypeIndexVersion = version
+        sourceTypeIndexReady = true
+    }
+
+    func SourceTypeDeclarationsNamed(arityName: string): List<AnalyzerProjectSourceTypeCandidate> {
+        EnsureSourceTypeIndex()
+        candidates := EmptySourceTypeCandidates
+        if sourceTypeCandidatesByArity.TryGetValue(arityName, out candidates) {
+            return candidates
+        }
+
+        return EmptySourceTypeCandidates
+    }
+
+    func SourceTypeDeclarationsBySimpleName(name: string): List<AnalyzerProjectSourceTypeCandidate> {
+        EnsureSourceTypeIndex()
+        candidates := EmptySourceTypeCandidates
+        if sourceTypeCandidatesBySimpleName.TryGetValue(name, out candidates) {
+            return candidates
+        }
+
+        return EmptySourceTypeCandidates
     }
 
     // ---- parsed units -------------------------------------------------------------------------
@@ -333,6 +430,9 @@ class AnalyzerProjectSourceProvider {
 // The project-discovery walk: a name resolved because another file in a visible namespace declares
 // it. Silent, except that it decides — and does not report — the inaccessible-declaration case.
 class AnalyzerProjectTypeDiscovery {
+    private static readonly EmptySourceFunctions: List<ProjectFunctionCandidate> = new List<ProjectFunctionCandidate>()
+    private static readonly EmptySourceFunctionGroups: Dictionary<string, AnalyzerProjectFunctionGroup> = new Dictionary<string, AnalyzerProjectFunctionGroup>(StringComparer.Ordinal)
+    private static readonly EmptySourceFunctionGroup: AnalyzerProjectFunctionGroup = new AnalyzerProjectFunctionGroup()
     sources: AnalyzerProjectSourceProvider
     declarationContext: AnalyzerDeclarationContext
     usingNamespaces: List<string>
@@ -351,6 +451,11 @@ class AnalyzerProjectTypeDiscovery {
     importUsageCredit: AnalyzerImportUsageCredit?
     // `SelectVisibleType`'s answers for the analysis in progress, keyed by everything they depend on.
     selectionMemo: Dictionary<string, SimpleNameSelection>
+    sourceFunctionGroups: Dictionary<string, Dictionary<string, AnalyzerProjectFunctionGroup>>
+    sourceFunctionsByNamespace: Dictionary<string, List<ProjectFunctionCandidate>>
+    sourceFunctionIndexRoot: string
+    sourceFunctionIndexVersion: int
+    sourceFunctionIndexReady: bool
 
     constructor(sourceProvider: AnalyzerProjectSourceProvider, context: AnalyzerDeclarationContext, usingNamespaceNames: List<string>, declarationFiles: Dictionary<string, string>, externalProbe: AnalyzerExternalTypeProbe? = null) {
         sources = sourceProvider
@@ -360,6 +465,11 @@ class AnalyzerProjectTypeDiscovery {
         externalTypeProbe = externalProbe
         importUsageCredit = null
         selectionMemo = new Dictionary<string, SimpleNameSelection>(StringComparer.Ordinal)
+        sourceFunctionGroups = new Dictionary<string, Dictionary<string, AnalyzerProjectFunctionGroup>>(StringComparer.Ordinal)
+        sourceFunctionsByNamespace = new Dictionary<string, List<ProjectFunctionCandidate>>(StringComparer.Ordinal)
+        sourceFunctionIndexRoot = ""
+        sourceFunctionIndexVersion = -1
+        sourceFunctionIndexReady = false
     }
 
     func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
@@ -370,6 +480,90 @@ class AnalyzerProjectTypeDiscovery {
     // imports and sources.
     func BeginAnalysis() {
         selectionMemo.Clear()
+    }
+
+    // PROJECT FUNCTION LOOKUPS MUST NOT WALK EVERY FILE FOR EVERY WRITTEN NAME. The project may
+    // contain hundreds of files and each analyzed call asks these channels repeatedly. Build the
+    // ordered namespace/name index from the provider's shared parse cache once per source snapshot;
+    // each candidate list retains the original file and declaration order, so first-wins and
+    // overload-binding behavior remain unchanged. The snapshot version also covers editor buffers
+    // replaced between analyses, while the root key covers analyzers reused for another project.
+    private func EnsureSourceFunctionIndex() {
+        root := sources.ProjectRoot ?? ""
+        version := sources.SourceSnapshotVersion
+        if sourceFunctionIndexReady && sourceFunctionIndexVersion == version && string.Equals(sourceFunctionIndexRoot, root, StringComparison.OrdinalIgnoreCase) {
+            return
+        }
+
+        groupsByNamespace := new Dictionary<string, Dictionary<string, AnalyzerProjectFunctionGroup>>(StringComparer.Ordinal)
+        functionsByNamespace := new Dictionary<string, List<ProjectFunctionCandidate>>(StringComparer.Ordinal)
+        for filePath in sources.SourceFilePaths() {
+            unit := sources.GetProjectCompilationUnit(filePath)
+            if unit == null {
+                continue
+            }
+
+            namespaceName := AnalyzerProjectSourceProvider.UnitNamespace(unit) ?? ""
+            namespaceGroups := new Dictionary<string, AnalyzerProjectFunctionGroup>(StringComparer.Ordinal)
+            if !groupsByNamespace.TryGetValue(namespaceName, out namespaceGroups) {
+                namespaceGroups = new Dictionary<string, AnalyzerProjectFunctionGroup>(StringComparer.Ordinal)
+                groupsByNamespace.Add(namespaceName, namespaceGroups)
+            }
+
+            namespaceFunctions := new List<ProjectFunctionCandidate>()
+            if !functionsByNamespace.TryGetValue(namespaceName, out namespaceFunctions) {
+                namespaceFunctions = new List<ProjectFunctionCandidate>()
+                functionsByNamespace.Add(namespaceName, namespaceFunctions)
+            }
+
+            for declaration in unit.Declarations {
+                functionDeclaration := declaration as FunctionDeclaration
+                if functionDeclaration == null {
+                    continue
+                }
+
+                candidate := new ProjectFunctionCandidate(filePath, functionDeclaration)
+                namespaceFunctions.Add(candidate)
+                group := EmptySourceFunctionGroup
+                if !namespaceGroups.TryGetValue(functionDeclaration.Name, out group) {
+                    group = new AnalyzerProjectFunctionGroup()
+                    namespaceGroups.Add(functionDeclaration.Name, group)
+                }
+
+                group.All.Add(candidate)
+                if DeclarationFacts.IsExportedDeclaration(functionDeclaration, functionDeclaration.Name) {
+                    group.Exported.Add(candidate)
+                }
+            }
+        }
+
+        sourceFunctionGroups = groupsByNamespace
+        sourceFunctionsByNamespace = functionsByNamespace
+        sourceFunctionIndexRoot = root
+        sourceFunctionIndexVersion = version
+        sourceFunctionIndexReady = true
+    }
+
+    // Cached source candidates for a namespace/name pair, in project source order. Exported and
+    // same-namespace lookups share the index but choose the visibility-appropriate ordered list.
+    func ProjectFunctionsInNamespace(namespaceName: string?, name: string, requireExported: bool = false): List<ProjectFunctionCandidate> {
+        EnsureSourceFunctionIndex()
+        wantedNamespace := namespaceName ?? ""
+        namespaceGroups := EmptySourceFunctionGroups
+        if !sourceFunctionGroups.TryGetValue(wantedNamespace, out namespaceGroups) {
+            return EmptySourceFunctions
+        }
+
+        group := EmptySourceFunctionGroup
+        if !namespaceGroups.TryGetValue(name, out group) {
+            return EmptySourceFunctions
+        }
+
+        if requireExported {
+            return group.Exported
+        }
+
+        return group.All
     }
 
     // THE TYPE CHANNEL, whole. Three outcomes in one call, because their ORDER is the semantics
@@ -642,34 +836,24 @@ class AnalyzerProjectTypeDiscovery {
     func TryResolveVisibleFunction(name: string, currentNamespace: string?, out filePath: string?, out functionDeclaration: FunctionDeclaration?, out declaration: SymbolDeclaration?, out externalFunctions: List<MethodInfo>): bool {
         externalFunctions = new List<MethodInfo>()
         visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
-        paths := sources.SourceFilePaths()
         for visibleNamespace in visible {
             requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, visibleNamespace)
-            fileIndex := 0
-            while fileIndex < paths.Count {
-                candidatePath := paths[fileIndex]
-                unit := sources.GetProjectCompilationUnit(candidatePath)
-                if unit != null && string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit), visibleNamespace, StringComparison.Ordinal) {
-                    declarations := unit.Declarations
-                    declarationIndex := 0
-                    while declarationIndex < declarations.Count {
-                        candidate := declarations[declarationIndex]
-                        if IsFunctionNamed(candidate, name, requireExported) {
-                            filePath = candidatePath
-                            functionDeclaration = candidate as FunctionDeclaration
-                            declaration = CreateTopLevelSymbolDeclaration(name, candidatePath, sources.ProjectSourceText(candidatePath), candidate)
-                            // NL010: A FREE FUNCTION IS WHAT ITS NAMESPACE'S IMPORT IS FOR, and the
-                            // call writes no type name at all. A file whose whole use of
-                            // `import Census.Holder` was `Hold(1)` had that import reported dead.
-                            CreditFunctionNamespace(visibleNamespace)
-                            return true
-                        }
-
-                        declarationIndex = declarationIndex + 1
-                    }
+            candidates := ProjectFunctionsInNamespace(visibleNamespace, name, requireExported)
+            if candidates.Count > 0 {
+                first := candidates[0]
+                firstFunction := first.Declaration
+                if firstFunction == null {
+                    continue
                 }
 
-                fileIndex = fileIndex + 1
+                filePath = first.FilePath
+                functionDeclaration = firstFunction
+                declaration = CreateTopLevelSymbolDeclaration(name, first.FilePath, sources.ProjectSourceText(first.FilePath), firstFunction)
+                // NL010: A FREE FUNCTION IS WHAT ITS NAMESPACE'S IMPORT IS FOR, and the
+                // call writes no type name at all. A file whose whole use of
+                // `import Census.Holder` was `Hold(1)` had that import reported dead.
+                CreditFunctionNamespace(visibleNamespace)
+                return true
             }
 
             probe := externalTypeProbe
@@ -712,22 +896,16 @@ class AnalyzerProjectTypeDiscovery {
     func SameNamespaceFunctionCandidates(currentFilePath: string?, currentNamespace: string?): List<ProjectFunctionCandidate> {
         candidates := new List<ProjectFunctionCandidate>()
         ownPath := currentFilePath == null ? "" : Path.GetFullPath(currentFilePath)
+        EnsureSourceFunctionIndex()
         wantedNamespace := currentNamespace ?? ""
-        for candidatePath in sources.SourceFilePaths() {
-            if string.Equals(Path.GetFullPath(candidatePath), ownPath, StringComparison.OrdinalIgnoreCase) {
-                continue
-            }
+        namespaceFunctions := EmptySourceFunctions
+        if !sourceFunctionsByNamespace.TryGetValue(wantedNamespace, out namespaceFunctions) {
+            return candidates
+        }
 
-            unit := sources.GetProjectCompilationUnit(candidatePath)
-            if unit == null || !string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit) ?? "", wantedNamespace, StringComparison.Ordinal) {
-                continue
-            }
-
-            for declaration in unit.Declarations {
-                functionDeclaration := declaration as FunctionDeclaration
-                if functionDeclaration != null {
-                    candidates.Add(new ProjectFunctionCandidate(candidatePath, functionDeclaration))
-                }
+        for candidate in namespaceFunctions {
+            if !string.Equals(Path.GetFullPath(candidate.FilePath), ownPath, StringComparison.OrdinalIgnoreCase) {
+                candidates.Add(candidate)
             }
         }
 
@@ -741,22 +919,9 @@ class AnalyzerProjectTypeDiscovery {
         candidates = new List<ProjectFunctionCandidate>()
         externalFunctions = new List<MethodInfo>()
         visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
-        paths := sources.SourceFilePaths()
         for visibleNamespace in visible {
             requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, visibleNamespace)
-            for candidatePath in paths {
-                unit := sources.GetProjectCompilationUnit(candidatePath)
-                if unit == null || !string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit), visibleNamespace, StringComparison.Ordinal) {
-                    continue
-                }
-
-                for declaration in unit.Declarations {
-                    functionDeclaration := declaration as FunctionDeclaration
-                    if functionDeclaration != null && IsFunctionNamed(functionDeclaration, name, requireExported) {
-                        candidates.Add(new ProjectFunctionCandidate(candidatePath, functionDeclaration))
-                    }
-                }
-            }
+            candidates = ProjectFunctionsInNamespace(visibleNamespace, name, requireExported)
 
             if candidates.Count > 0 {
                 CreditFunctionNamespace(visibleNamespace)
@@ -786,19 +951,7 @@ class AnalyzerProjectTypeDiscovery {
         candidates = new List<ProjectFunctionCandidate>()
         externalFunctions = new List<MethodInfo>()
         requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, namespaceName)
-        for candidatePath in sources.SourceFilePaths() {
-            unit := sources.GetProjectCompilationUnit(candidatePath)
-            if unit == null || !string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit) ?? "", namespaceName ?? "", StringComparison.Ordinal) {
-                continue
-            }
-
-            for declaration in unit.Declarations {
-                functionDeclaration := declaration as FunctionDeclaration
-                if functionDeclaration != null && IsFunctionNamed(functionDeclaration, name, requireExported) {
-                    candidates.Add(new ProjectFunctionCandidate(candidatePath, functionDeclaration))
-                }
-            }
-        }
+        candidates = ProjectFunctionsInNamespace(namespaceName, name, requireExported)
 
         if candidates.Count > 0 {
             CreditFunctionNamespace(namespaceName)
@@ -883,22 +1036,7 @@ class AnalyzerProjectTypeDiscovery {
             return true
         }
 
-        paths := sources.SourceFilePaths()
-        for candidatePath in paths {
-            unit := sources.GetProjectCompilationUnit(candidatePath)
-            if unit != null && string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit), namespaceName, StringComparison.Ordinal) {
-                declarations := unit.Declarations
-                declarationIndex := 0
-                while declarationIndex < declarations.Count {
-                    if IsFunctionNamed(declarations[declarationIndex], name, true) {
-                        return true
-                    }
-                    declarationIndex = declarationIndex + 1
-                }
-            }
-        }
-
-        return false
+        return ProjectFunctionsInNamespace(namespaceName, name, true).Count > 0
     }
 
     // The inaccessible-FUNCTION decision, for the identifier path. Types take the same decision
@@ -917,28 +1055,27 @@ class AnalyzerProjectTypeDiscovery {
     // names and its caller then tries the imports).
     func TryFindInaccessibleVisibleDeclaration(name: string, currentNamespace: string?, wantFunctions: bool, out filePath: string?): bool {
         visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
-        paths := sources.SourceFilePaths()
         for visibleNamespace in visible {
-            if !SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, visibleNamespace) {
-                fileIndex := 0
-                while fileIndex < paths.Count {
-                    candidatePath := paths[fileIndex]
-                    unit := sources.GetProjectCompilationUnit(candidatePath)
-                    if unit != null && string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit), visibleNamespace, StringComparison.Ordinal) {
-                        declarations := unit.Declarations
-                        declarationIndex := 0
-                        while declarationIndex < declarations.Count {
-                            candidate := declarations[declarationIndex]
-                            if MatchesDeclarationKind(candidate, wantFunctions) && string.Equals(DeclarationFacts.GetDeclarationName(candidate), name, StringComparison.Ordinal) && !DeclarationFacts.IsExportedDeclaration(candidate, name) {
-                                filePath = candidatePath
-                                return true
-                            }
+            if SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, visibleNamespace) {
+                continue
+            }
 
-                            declarationIndex = declarationIndex + 1
-                        }
+            if wantFunctions {
+                candidates := ProjectFunctionsInNamespace(visibleNamespace, name, false)
+                for candidate in candidates {
+                    declaration := candidate.Declaration
+                    if declaration != null && !DeclarationFacts.IsExportedDeclaration(declaration, name) {
+                        filePath = candidate.FilePath
+                        return true
                     }
-
-                    fileIndex = fileIndex + 1
+                }
+            } else {
+                candidates := sources.SourceTypeDeclarationsBySimpleName(name)
+                for candidate in candidates {
+                    if string.Equals(candidate.NamespaceName, visibleNamespace, StringComparison.Ordinal) && !candidate.IsExported {
+                        filePath = candidate.FilePath
+                        return true
+                    }
                 }
             }
         }
@@ -1019,6 +1156,33 @@ class AnalyzerProjectTypeDiscovery {
         }
 
         return DeclarationFacts.IsExportedDeclaration(declaration, name)
+    }
+}
+
+class AnalyzerProjectFunctionGroup {
+    All: List<ProjectFunctionCandidate>
+    Exported: List<ProjectFunctionCandidate>
+
+    constructor() {
+        All = new List<ProjectFunctionCandidate>()
+        Exported = new List<ProjectFunctionCandidate>()
+    }
+}
+
+// A project-level source type declaration used by the unique-exported-name index. The declaration
+// node is shared with the provider's parsed-unit cache; the per-analysis declaration context still
+// materializes its TypeInfo so its recursion and identity caches remain analysis-local.
+class AnalyzerProjectSourceTypeCandidate {
+    FilePath: string
+    NamespaceName: string?
+    Declaration: Declaration
+    IsExported: bool
+
+    constructor(filePath: string, namespaceName: string?, declaration: Declaration, isExported: bool) {
+        FilePath = filePath
+        NamespaceName = namespaceName
+        Declaration = declaration
+        IsExported = isExported
     }
 }
 

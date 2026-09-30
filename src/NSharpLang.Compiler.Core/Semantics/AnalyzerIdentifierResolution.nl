@@ -737,10 +737,11 @@ class AnalyzerIdentifierResolution {
             return resolved
         }
 
-        candidates := projectDiscoveryValue.SameNamespaceFunctionCandidates(currentPath, UnitNamespace())
+        candidates := projectDiscoveryValue.ProjectFunctionsInNamespace(UnitNamespace(), name, false)
         for candidate in candidates {
             declaration := candidate.Declaration
-            if declaration != null && declaration.Name == name {
+            candidateFullPath := System.IO.Path.GetFullPath(candidate.FilePath)
+            if declaration != null && declaration.Name == name && !string.Equals(candidateFullPath, currentFullPath, StringComparison.OrdinalIgnoreCase) {
                 functions.Add(functionTypeFactoryValue.CreateFromDeclarationInFile(declaration, candidate.FilePath))
             }
         }

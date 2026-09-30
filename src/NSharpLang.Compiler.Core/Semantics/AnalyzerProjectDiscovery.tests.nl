@@ -1360,6 +1360,41 @@ test "same-namespace function candidates include every declaration from the othe
     assert fromOther.Count == 0
 }
 
+test "project function groups preserve declaration order, reuse the snapshot index, and refresh on reset" {
+    provider := ProjectProviderOf(
+        ["/p/a.nl", "/p/b.nl", "/p/other.nl"],
+        [
+            ProjectSourceOf("Shared", "func Render(): int {\n    return 1\n}\n\nfunc helper(): int {\n    return 2\n}\n"),
+            ProjectSourceOf("Shared", "func Render(_value: int): int {\n    return 3\n}\n\nfunc helper(_value: int): int {\n    return 4\n}\n"),
+            ProjectSourceOf("Other", "func Render(): int {\n    return 5\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    sharedFunctions := discovery.ProjectFunctionsInNamespace("Shared", "Render")
+    assert sharedFunctions.Count == 2
+    assert Path.GetFileName(sharedFunctions[0].FilePath) == "a.nl"
+    assert Path.GetFileName(sharedFunctions[1].FilePath) == "b.nl"
+    assert discovery.ProjectFunctionsInNamespace("Shared", "Render", true).Count == 2
+    assert discovery.ProjectFunctionsInNamespace("Shared", "helper").Count == 2
+    assert discovery.ProjectFunctionsInNamespace("Shared", "helper", true).Count == 0
+    assert discovery.ProjectFunctionsInNamespace("Other", "Render", true).Count == 1
+
+    discovery.BeginAnalysis()
+    repeatedFunctions := discovery.ProjectFunctionsInNamespace("Shared", "Render")
+    assert Object.ReferenceEquals(sharedFunctions, repeatedFunctions)
+
+    provider.ResetSourceTexts()
+    provider.AddSourceText("/p/a.nl", ProjectSourceOf("Shared", "func Render(): int {\n    return 6\n}\n"))
+    provider.AddSourceText("/p/b.nl", ProjectSourceOf("Shared", "func Render(_flag: bool): int {\n    return 7\n}\n"))
+    refreshedFunctions := discovery.ProjectFunctionsInNamespace("Shared", "Render")
+    assert refreshedFunctions.Count == 2
+    assert !Object.ReferenceEquals(sharedFunctions, refreshedFunctions)
+    assert Path.GetFileName(refreshedFunctions[0].FilePath) == "a.nl"
+    assert Path.GetFileName(refreshedFunctions[1].FilePath) == "b.nl"
+    assert discovery.ProjectFunctionsInNamespace("Other", "Render").Count == 0
+}
+
 test "the global namespace is one namespace for the twin index, whether spelled null or empty" {
     provider := ProjectProviderOf(
         ["/p/one.nl", "/p/two.nl"],

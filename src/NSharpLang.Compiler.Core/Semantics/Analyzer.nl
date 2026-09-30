@@ -799,6 +799,7 @@ class Analyzer: IDisposable {
         }
         DeclarationPolicy.SetDeclarationContextFilePath(DeclarationContextFilePath)
         DeclarationContext.Reset(effectiveRoot, MlcAssemblies)
+        DeclarationContext.SetProjectSourceProvider(ProjectSources)
         DeclarationContext.SetImportUsageCredit(ImportUsageCredit, DeclarationContextFilePath)
         DeclarationContext.AddCompilationUnit(DeclarationContextFilePath, unit)
         ProjectSources.AddProjectUnitsTo(DeclarationContext)
