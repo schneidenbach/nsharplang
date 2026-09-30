@@ -153,7 +153,7 @@ class AnalyzerClrTypeConversion {
 
         genericType := resolvedType as GenericTypeInfo
         if genericType != null {
-            return ConstructSurrogateGenericType(facts, genericType)
+            return ConstructSurrogateGenericType(facts, genericType, false)
         }
 
         nullableType := resolvedType as NullableTypeInfo
@@ -313,9 +313,42 @@ class AnalyzerClrTypeConversion {
         return CloseGenericDefinition(typeDefinition, genericType.Name, arguments)
     }
 
+    // AN EXTERNAL GENERIC INSTANTIATED OVER AN OPEN TYPE PARAMETER, CLOSED FOR BINDING ONLY.
+    //
+    // `func FirstOf<U>(xs: List<U>)` and `class Mid<U>: List<U>` name a `List<U>` whose `U` has no CLR
+    // handle anywhere in the analysis — it is the parameter the CALLER will fix — so both conversions
+    // above answer null for it, and every member of the instantiation answered `unknown`: the call was
+    // never bound, its result was silently untyped, and the emitter then declined with a return-type
+    // mismatch against an empty type. A type parameter used as a type ARGUMENT is the same situation a
+    // source type is in, and it gets the same surrogate: `object` in that slot, so the definition's
+    // members can be found and a method group bound. The spelled `U` is what the answer carries — the
+    // member arms read off the OPEN definition and the binder rebuilds every signature position from
+    // the spelled receiver — so the `object` never survives into a type the program sees.
+    //
+    // A SEPARATE ENTRY POINT, NOT A WIDER `TryConvertTypeInfoToClrTypeForBinding`. That one also
+    // measures ARGUMENTS for overload applicability, and `List<U>` passed where `List<object>` is
+    // expected is not a conversion the CLR makes; this answer is only ever used where the instantiation
+    // is the RECEIVER whose members are being looked up. A bare `U` still answers null, exactly as
+    // `AnalyzerReflectionArgumentBinder.IsOpenWrittenTypeArgument` expects of a written type argument.
+    func TryConvertOpenInstantiationForBinding(typeInfo: TypeInfo): Type? {
+        facts := wellKnownTypes
+        if facts == null {
+            return null
+        }
+
+        genericType := declarationContext.ResolveDeclaredAlias(typeInfo) as GenericTypeInfo
+        if genericType == null {
+            return null
+        }
+
+        return ConstructSurrogateGenericType(facts, genericType, true)
+    }
+
     // The surrogate half of generic construction. It reads the SMALLER surrogate vocabulary, and
     // every type argument converts through the surrogate entry point rather than the exact one.
-    func ConstructSurrogateGenericType(facts: AnalyzerWellKnownTypes, genericType: GenericTypeInfo): Type? {
+    // `admitOpenTypeParameters` is the receiver-only widening `TryConvertOpenInstantiationForBinding`
+    // asks for; every other caller passes false.
+    func ConstructSurrogateGenericType(facts: AnalyzerWellKnownTypes, genericType: GenericTypeInfo, admitOpenTypeParameters: bool): Type? {
         definition := genericType.GenericDefinition
         candidateDefinition: Type? = null
         if definition == null {
@@ -336,7 +369,7 @@ class AnalyzerClrTypeConversion {
         arguments := new Type[](count)
         index := 0
         while index < count {
-            clrTypeArgument := TryConvertTypeInfoToClrTypeForBinding(genericType.TypeArguments[index])
+            clrTypeArgument := SurrogateTypeArgument(facts, genericType.TypeArguments[index], admitOpenTypeParameters)
             if clrTypeArgument == null {
                 return null
             }
@@ -346,6 +379,45 @@ class AnalyzerClrTypeConversion {
         }
 
         return CloseGenericDefinition(typeDefinition, genericType.Name, arguments)
+    }
+
+    // ONE TYPE ARGUMENT OF A SURROGATE INSTANTIATION. The ordinary surrogate answers first; only when
+    // it cannot, and only when the caller admitted open parameters, does a type parameter — bare, or
+    // nested inside another external generic such as `Dictionary<string, List<U>>` — bind as `object`.
+    func SurrogateTypeArgument(facts: AnalyzerWellKnownTypes, typeArgument: TypeInfo, admitOpenTypeParameters: bool): Type? {
+        converted := TryConvertTypeInfoToClrTypeForBinding(typeArgument)
+        if converted != null || !admitOpenTypeParameters {
+            return converted
+        }
+
+        resolved := declarationContext.ResolveDeclaredAlias(typeArgument)
+        if IsOpenTypeParameter(facts, resolved) {
+            return facts.Object
+        }
+
+        nested := resolved as GenericTypeInfo
+        if nested != null {
+            return ConstructSurrogateGenericType(facts, nested, true)
+        }
+
+        return null
+    }
+
+    // THE ANALYZER SPELLS A TYPE PARAMETER IN SCOPE AS A BARE `SimpleTypeInfo` (see
+    // `AnalyzerScopeStack.DeclareTypeParameter`). Every built-in is spelled that way too, and every one
+    // of them converts through `BuiltInClrType`; the four with no CLR form are excluded by name, and a
+    // name that resolved to nothing is `unknown`, never a parameter.
+    func IsOpenTypeParameter(facts: AnalyzerWellKnownTypes, candidate: TypeInfo): bool {
+        simple := candidate as SimpleTypeInfo
+        if simple == null || BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        if BuiltInTypes.Is(candidate, BuiltInTypes.Null) || BuiltInTypes.Is(candidate, BuiltInTypes.Never) || BuiltInTypes.Is(candidate, BuiltInTypes.Void) {
+            return false
+        }
+
+        return BuiltInClrType(facts, simple) == null
     }
 
     // Closing a definition over converted arguments must stay INSIDE one reflection context. The

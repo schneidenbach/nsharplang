@@ -561,8 +561,8 @@ class AnalyzerCallAnalysis {
             if implicitReceiver != null {
                 state.ReflectionReceiverTypeInfo = implicitReceiver
                 state.Phase = 31
+                return null
             }
-
             return null
         }
 
@@ -573,45 +573,73 @@ class AnalyzerCallAnalysis {
         return request
     }
 
-    // THE RECEIVER A BARE CALL NEVER WROTE. Inside a type, a simple name that finds a member of the
-    // enclosing type IS that member accessed through the enclosing instance (or, for a static member,
-    // through the type) — C#'s simple-name rule — so `ToArray()` in `class Names: List<string>` is
-    // `this.ToArray()` and must bind the same way. With no receiver the bind had nothing to close the
-    // external base's `T` over: the call typed as the open `T`, an argument the base would refuse
-    // (`IndexOf(5)`) was accepted, and a lambda argument (`ConvertAll(s => s.Length)`) had no
-    // parameter type to take.
+    // THE RECEIVER A BARE CALL NEVER WROTE. Inside `class Names: List<string>`, `ToArray()` names the
+    // same instance method `this.ToArray()` does, and the identifier walk found it the same way — on
+    // the enclosing type, through its base. But the bind had no receiver to read `T` off, so the
+    // candidate's open `T[]` survived into the answer and `ToArray()[0]` typed as `T` where the
+    // `this.` spelling typed as `string`. The enclosing instance is the receiver by construction.
     //
-    // It answers ONLY for an enclosing type whose `:` chain reaches an external base, because that is
-    // the only way a reflected method with type parameters of its own declaring type is a member
-    // found by a bare name; `object`'s members declare none. The receiver cannot turn the call into
-    // an extension call either: that needs a written member access (`IsExtensionMethodCall`).
+    // INSTANCE MEMBERS use the enclosing source type as their receiver. A STATIC MEMBER normally needs
+    // no receiver, except when it is inherited from a constructed external generic base: then the base
+    // spelling supplies the declaring type's arguments (`class ByLength: Comparer<string>` calling
+    // `Create(...)` must return `Comparer<string>`, not `Comparer<T>`). Imported names are not members
+    // of this type, and a mixed static/instance candidate set stays unresolved here for overload
+    // selection to diagnose. A bare call is never an extension call (`IsExtensionMethodCall` requires
+    // a member access).
     func ImplicitReflectionReceiver(state: CallAnalysisState): TypeInfo? {
-        if state.Call.Callee as IdentifierExpression == null {
+        identifier := state.Call.Callee as IdentifierExpression
+        if identifier == null || state.CandidateMethods.Count == 0 {
+            return null
+        }
+
+        if !scopes.IsCurrentTypeMemberReference(identifier.Name) {
             return null
         }
 
         enclosingType := scopes.CurrentTypeScope()
-        if enclosingType == null || clrTypeConversion.TryResolveDeclaredExternalBase(enclosingType) == null {
+        if enclosingType == null {
             return null
+        }
+
+        hasStatic := false
+        hasInstance := false
+        for candidate in state.CandidateMethods {
+            if candidate.IsStatic {
+                hasStatic = true
+            } else {
+                hasInstance = true
+            }
+        }
+        if hasStatic && hasInstance {
+            return null
+        }
+        if hasStatic {
+            inheritedBase := clrTypeConversion.TryResolveDeclaredExternalBase(enclosingType)
+            if inheritedBase as GenericTypeInfo == null {
+                return null
+            }
+            return inheritedBase
         }
 
         return enclosingType
     }
 
-    // PHASE 31 — THE RECEIVER AS A CLR TYPE, BY EITHER OF TWO DOORS. The ordinary conversion answers
+    // PHASE 31 — THE RECEIVER AS A CLR TYPE, BY ONE OF THREE DOORS. The ordinary conversion answers
     // for a type the CLR already holds; the binding-only conversion answers for one that exists only
-    // as a shape the binder can measure against. The second is a FALLBACK rather than an alternative,
-    // and the order is preserved.
+    // as a shape the binder can measure against; the open-instantiation door answers for an external
+    // generic over a type parameter. Each is a FALLBACK for the one before it, and the order is
+    // preserved.
     func ConvertReflectionReceiver(state: CallAnalysisState): CallAnalysisRequest? {
         state.Phase = 32
         receiverTypeInfo := state.ReflectionReceiverTypeInfo
         if receiverTypeInfo == null {
             return null
         }
+        receiverType: TypeInfo = receiverTypeInfo
 
-        restoredReceiver := TryRestoreNarrowedNullableReceiver(state, receiverTypeInfo)
+        restoredReceiver := TryRestoreNarrowedNullableReceiver(state, receiverType)
         if restoredReceiver != null {
-            receiverTypeInfo = restoredReceiver
+            receiverType = restoredReceiver
             state.ReflectionReceiverTypeInfo = restoredReceiver
         }
 
@@ -619,15 +647,34 @@ class AnalyzerCallAnalysis {
         // surface was already resolved through the same substitution, so the two must agree: an
         // extension's receiver slot is matched against `IEnumerable<string>`, not against `T`, and
         // the type arguments that match fixes are what type a lambda argument at the same call.
-        constrainedReceiver := scopes.ConstrainedReceiverType(receiverTypeInfo)
-        if !Object.ReferenceEquals(constrainedReceiver, receiverTypeInfo) {
-            receiverTypeInfo = constrainedReceiver
+        constrainedReceiver := scopes.ConstrainedReceiverType(receiverType)
+        if !Object.ReferenceEquals(constrainedReceiver, receiverType) {
+            receiverType = constrainedReceiver
             state.ReflectionReceiverTypeInfo = constrainedReceiver
         }
 
-        clrType := clrTypeConversion.TryConvertTypeInfoToClrType(receiverTypeInfo)
+        // A SOURCE TYPE THAT DERIVES FROM AN EXTERNAL BASE BINDS AS THAT BASE, SPELLED. The member was
+        // found by walking the `:` clause (`AnalyzerMemberResolution`'s base walk), so the method is
+        // declared on the base, and the base's type arguments are what its signature is written in.
+        // The CLR half already measured `class Names: List<string>` as `List<string>`; the TypeInfo
+        // half kept `Names`, whose spelling says nothing about `T`. For `class Mid<U>: List<U>` the CLR
+        // half had nothing to measure either — `List<U>` has no exact form — so `this.ToArray()`
+        // bound against `object`, refused every candidate, and typed as `unknown`.
+        externalBase := clrTypeConversion.TryResolveDeclaredExternalBase(receiverType)
+        if externalBase != null {
+            receiverType = externalBase
+            state.ReflectionReceiverTypeInfo = externalBase
+        }
+
+        clrType := clrTypeConversion.TryConvertTypeInfoToClrType(receiverType)
         if clrType == null {
-            clrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo)
+            clrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverType)
+        }
+
+        // The receiver-only door for an external generic over an open type parameter: `xs.ToArray()`
+        // on `xs: List<U>` binds against `List<object>` while the binder reads `T` as the spelled `U`.
+        if clrType == null {
+            clrType = clrTypeConversion.TryConvertOpenInstantiationForBinding(receiverType)
         }
 
         state.ReflectionReceiverClrType = clrType
