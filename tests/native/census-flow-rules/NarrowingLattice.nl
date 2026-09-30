@@ -116,7 +116,7 @@ func NarrowedLengthUnwrapped(text: string?): int {
         return -1
     }
 
-    return must parsed
+    return parsed
 }
 
 // The narrowed value used AS its inner type — the unwrap the emitter performs, spelled either way.
@@ -135,18 +135,16 @@ func NarrowedLengthUnwrappedPlusOne(text: string?): int {
         return -1
     }
 
-    unwrapped := must parsed
+    unwrapped := parsed
     return unwrapped + 1
 }
 
-// A REDUNDANT `must` IS AN IDENTITY, AND IT RUNS. NL907 says the keyword does no work, as a WARNING
-// — the program is correct — so the emitter has to produce that correct program rather than refuse
-// it. This is the shape a mechanical translation leaves behind and the one a human leaves behind
-// after tightening a guard.
-func RedundantUnwrap(value: int): int {
+// An explicit `must` on a nullable parameter is still required here even though these callers pass
+// non-null values. It verifies that the emitted unwrap returns its value on the successful path.
+func ExplicitNullableUnwrap(value: int?): int {
     return must value
 }
 
-func RedundantUnwrapOfReference(value: string): int {
+func ExplicitNullableReferenceUnwrap(value: string?): int {
     return (must value).Length
 }

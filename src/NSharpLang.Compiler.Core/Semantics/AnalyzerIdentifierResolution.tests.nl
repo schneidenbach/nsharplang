@@ -814,11 +814,15 @@ test "a generic source base between the type and the external base is substitute
 
 // THE SPELLED ARGUMENT'S NULLABILITY IS PART OF THE ANSWER. The CLR surrogate of `List<string?>` is
 // `List<string>`; only the written base says the element may be null, and both spellings read it.
+// With referenced nullability enforced unconditionally, the selected BCL member is named in each
+// return mismatch while the two name-resolution paths still produce the same nullable type.
 test "a nullable type argument on the external base is what both spellings answer" {
     maybe := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass MaybeNames: List<string?> {\n    func FirstBare(): string => ToArray()[0]\n    func FirstViaThis(): string => this.ToArray()[0]\n}\n")
     assert maybe.Count == 2
-    assert maybe[0] == "Function 'FirstBare' should return string but returns string?"
-    assert maybe[1] == "Function 'FirstViaThis' should return string but returns string?"
+    assert maybe[0].StartsWith("Function 'FirstBare' should return string but returns string?", StringComparison.Ordinal)
+    assert maybe[1].StartsWith("Function 'FirstViaThis' should return string but returns string?", StringComparison.Ordinal)
+    assert maybe[0].Contains("The .NET member `")
+    assert maybe[1].Contains("The .NET member `")
 }
 
 // ---- channel 2: the binding a bare member records --------------------------------------------------

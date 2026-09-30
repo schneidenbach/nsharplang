@@ -381,7 +381,7 @@ class AnalyzerSyntheticCallWalk {
                 }
 
                 if !assignability.IsAssignable(expectedType, argumentType) {
-                    if !assignability.EnforcesReferencedNullability || NullabilityMetadataCore.ReferencedNullabilityContext(argumentType) == null {
+                    if NullabilityMetadataCore.ReferencedNullabilityContext(argumentType) == null {
                         return -1
                     }
 

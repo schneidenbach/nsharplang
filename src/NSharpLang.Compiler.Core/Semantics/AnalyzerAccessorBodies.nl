@@ -488,7 +488,7 @@ class AnalyzerAccessorBodies {
         message := "Property '" + property.Name + "' is typed as '" + memberText + "', but the expression body returns '" + expressionText + "'"
         metadataContext: string? = null
         metadataHint: string? = null
-        if declarationContextValue != null && declarationContextValue.EnforceReferencedNullability {
+        if declarationContextValue != null {
             metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(expressionType)
             if metadataContext != null {
                 metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(expressionBody)

@@ -13,13 +13,13 @@ import System.Threading.Tasks
 // arriving at the caller — and about the SIGNATURE reflection reports, because the wrap is the thing
 // the analyzer and `build` both called clean.
 class PreambleFacts {
-    static func Holder(): Type {
+    static func Holder(): Type? {
         marker: Type = typeof(PreambleFacts)
         assembly := marker.get_Assembly()
         return assembly.GetType("NSharpLang.CensusLocalFunctions.Tests.Program")
     }
 
-    static func Method(name: string): MethodInfo {
+    static func Method(name: string): MethodInfo? {
         holder := Holder()
         if holder == null {
             return null
@@ -28,7 +28,7 @@ class PreambleFacts {
         return holder.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
     }
 
-    static func ReturnType(name: string): Type {
+    static func ReturnType(name: string): Type? {
         method := Method(name)
         if method == null {
             return null

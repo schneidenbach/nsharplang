@@ -209,7 +209,7 @@ test "a lambda reaches an indexer argument, an initializer value and a literal e
     // delegate FIELD is written `?` whenever it has no initializer.
     holder := new Holder { Transform: value => value + 1 }
     assert holder.Transform != null
-    transform := must holder.Transform
+    transform := holder.Transform
     assert transform(41) == 42
 
     // An array literal element.

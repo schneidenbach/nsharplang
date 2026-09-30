@@ -9,8 +9,8 @@ import System.Collections.Generic
 // check has narrowed — the emitter drops the shell over the value the ordinary read produced. An
 // ARGUMENT did not, because the call was typed by a door that resolves bindings from the raw maps,
 // where the name still carries the `Nullable<T>` its declaration gave it. The two walks therefore
-// disagreed about one value, and NL907 turned the disagreement into a trap: it called the `must`
-// that makes the call compile redundant, and removing it as advised declined the build.
+// disagreed about one value. The call path now preserves the narrowed value type just like the
+// return, initializer and operator paths do, so the argument needs no assertion.
 //
 // These subjects are that argument in each of the call families, with the controls that already
 // emitted beside them.
@@ -24,8 +24,7 @@ class Facts {
         return kind == SymbolKind.Method
     }
 
-    // The reported shape: an enum? narrowed, then passed where the bare enum is declared — with NO
-    // `must`, which is the spelling NL907 asks for.
+    // The reported shape: an enum? narrowed, then passed where the bare enum is declared.
     static func IsCallableSymbol(typedKind: SymbolKind?): bool {
         if typedKind != null {
             return IsCallable(typedKind)
@@ -33,10 +32,10 @@ class Facts {
         return false
     }
 
-    // The same, written with the unwrap. Both spellings must compile and must agree.
-    static func IsCallableSymbolUnwrapped(typedKind: SymbolKind?): bool {
+    // A second call path must preserve the same narrowed argument type.
+    static func IsCallableSymbolSecondCallPath(typedKind: SymbolKind?): bool {
         if typedKind != null {
-            return IsCallable(must typedKind)
+            return IsCallable(typedKind)
         }
         return false
     }

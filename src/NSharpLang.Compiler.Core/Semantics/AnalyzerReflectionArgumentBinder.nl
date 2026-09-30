@@ -1786,10 +1786,8 @@ class AnalyzerReflectionArgumentBinder {
     // WHETHER AN ACCEPTED ARGUMENT WAS ACCEPTED ONLY BY IGNORING ITS `?`. Applicability admits a
     // maybe-null reference argument for a not-null parameter (`IsAssignableReflectionArgument` peels
     // the annotation), because nullability never selects an overload. Once the candidate is chosen,
-    // a method outside the shared framework is held to what its metadata states, exactly as the same
-    // declaration in source is: the plain relation, which keeps the annotation, must accept it too.
-    // The shared framework keeps its old answer -- a separate decision, measured in
-    // `AnalyzerAssignability.IsMaybeNullIntoNotNull`.
+    // every referenced method is held to what its metadata states: the plain relation, which keeps
+    // the annotation, must accept it too. See `AnalyzerAssignability.IsMaybeNullIntoNotNull`.
     //
     // THE WRITTEN MODIFIER DECIDES WHICH WAY THE VALUE FLOWS, as it does for the same declaration in
     // source (`AnalyzerAssignability.IsAssignableCore`'s by-ref arm). An `out` argument flows OUT only:
@@ -1798,11 +1796,10 @@ class AnalyzerReflectionArgumentBinder {
     // ways, so its annotation must match in both directions: a not-null variable handed to a `ref T?`
     // could come back null. Everything else — `in` included — flows in.
     // The type a caller is allowed to WRITE to a reflected input position, including
-    // `[AllowNull]` / `[DisallowNull]`. Shared-framework flow facts stay behind the rollout switch;
-    // package and user assemblies already follow their declared metadata.
+    // `[AllowNull]` / `[DisallowNull]`. These input-flow facts apply to every referenced assembly.
     func ApplyReflectedInputNullability(state: ReflectionCallFinalizeState, expectedType: TypeInfo): TypeInfo {
         declaringType := state.OpenMethod.DeclaringType
-        if declaringType == null || (!assignability.EnforcesReferencedNullability && ExternalAssemblyScan.IsSharedFrameworkAssembly(declaringType.Assembly)) {
+        if declaringType == null {
             return expectedType
         }
 
@@ -1821,7 +1818,7 @@ class AnalyzerReflectionArgumentBinder {
 
     func RefusesMaybeNullArgument(state: ReflectionCallFinalizeState, expectedType: TypeInfo, analyzedType: TypeInfo): bool {
         declaringType := state.OpenMethod.DeclaringType
-        if declaringType == null || (!assignability.EnforcesReferencedNullability && ExternalAssemblyScan.IsSharedFrameworkAssembly(declaringType.Assembly)) {
+        if declaringType == null {
             return false
         }
 

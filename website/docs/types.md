@@ -2278,6 +2278,56 @@ func Text(markup: MarkupContent?): string? {
 Reading such a member is an ordinary dereference, so it follows the ordinary rules: guard it with
 `?.`, a null check or `must`. `must markup` on a reference `T?` is the null assertion it always was.
 
+### Nullability from .NET and NuGet APIs
+
+N# reads nullable annotations from referenced .NET and NuGet assemblies and enforces them as errors.
+This applies to return values, properties, parameters, generic arguments and array elements. A
+maybe-null value cannot flow into a non-null position, and a value returned as nullable must be
+checked before it is dereferenced.
+
+```n#
+import System
+
+func BaseTypeName(): string {
+    baseType: Type = typeof(string).BaseType       // NL202: BaseType is annotated as Type?
+    return baseType.Name                           // NL905: it may be null
+}
+
+func Find(text: string?): int {
+    return "N#".IndexOf(text)                      // NL202: IndexOf's parameter rejects null
+}
+```
+
+The diagnostic names the .NET member, its assembly metadata contract and a suggested fix. Keep the
+nullable type and handle the absent case with a guard or fallback:
+
+```n#
+func BaseTypeName(): string? {
+    baseType := typeof(string).BaseType
+    if baseType == null {
+        return null
+    }
+
+    return baseType.Name
+}
+
+func Find(text: string?): int {
+    if text == null {
+        return -1
+    }
+
+    return "N#".IndexOf(text)
+}
+```
+
+`must value` is available when a program invariant proves the value cannot be null; it throws if that
+invariant is wrong. Do not use it to silence an API annotation without that guarantee.
+
+An API compiled without nullable annotations has an **oblivious** signature. N# does not guess a
+nullable contract for it, so a maybe-null value can still be passed to that API. Nullable metadata
+is enforced whenever it is present, regardless of whether the reference comes from the .NET
+framework or a NuGet package.
+
 ### Nullable Value Types
 
 ```n#

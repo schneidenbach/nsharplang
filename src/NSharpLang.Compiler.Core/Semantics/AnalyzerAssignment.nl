@@ -483,12 +483,10 @@ class AnalyzerAssignment {
         message := "Type mismatch in assignment — expected '" + targetText + "' but got '" + valueText + "'"
         metadataContext: string? = null
         metadataHint: string? = null
-        if assignabilityValue.EnforcesReferencedNullability {
-            metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
-            if metadataContext != null {
-                metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(assignment.Value)
-                message = message + ". " + metadataContext
-            }
+        metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
+        if metadataContext != null {
+            metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(assignment.Value)
+            message = message + ". " + metadataContext
         }
         if sourceSnippet != null && currentFilePath != null {
             diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, valueText, targetText, message, metadataContext, metadataHint))

@@ -821,7 +821,7 @@ class AnalyzerVariableDeclaration {
 
         resolved := declarationContextValue.ResolveDeclaredAlias(sourceType)
         nullable := resolved as NullableTypeInfo
-        if assignabilityValue.EnforcesReferencedNullability && nullable != null {
+        if nullable != null {
             resolved = declarationContextValue.ResolveDeclaredAlias(nullable.InnerType)
         }
 
@@ -1042,12 +1042,10 @@ class AnalyzerVariableDeclaration {
         message := "Variable '" + declaration.Name + "' is typed as '" + declaredText + "', but the value is '" + inferredText + "'"
         metadataContext: string? = null
         metadataHint: string? = null
-        if assignabilityValue.EnforcesReferencedNullability {
-            metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(inferredType)
-            if metadataContext != null {
-                metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(initializer)
-                message = message + ". " + metadataContext
-            }
+        metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(inferredType)
+        if metadataContext != null {
+            metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(initializer)
+            message = message + ". " + metadataContext
         }
         if sourceSnippet != null && currentFilePath != null {
             diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, inferredText, declaredText, message, metadataContext, metadataHint))

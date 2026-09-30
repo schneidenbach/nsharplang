@@ -236,12 +236,9 @@ class AnalyzerAssignability {
     // type relation cannot see, because the annotation is not a runtime type. An OBLIVIOUS target
     // (a parameter whose assembly states no nullability) promises nothing either way and accepts it.
     //
-    // THE SHARED FRAMEWORK KEEPS ITS OLD ANSWER. A maybe-null value of a framework CLASS type
-    // (`Type?`, `MethodInfo?`) reaching a not-null one has always been accepted here, and enforcing it
-    // is a separate decision: measured on Compiler.Core alone it is 860 new NL202s, every one a
-    // framework reflection type. What must not differ is a program split into two projects: a type
-    // from any OTHER referenced assembly -- an N# library above all -- is judged exactly as the same
-    // declaration is in source, which is what `ExternalAssemblyScan.IsSharedFrameworkAssembly` decides.
+    // Nullable CLR reference types do not retain N#'s source-level `?`. A source-local
+    // `System.Type?` has no referenced member origin to name in an NL202 explanation, so it keeps
+    // its existing answer; values read from annotated members in any referenced assembly are checked.
     func IsMaybeNullIntoNotNull(target: TypeInfo, source: TypeInfo): bool {
         resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
         inner := ReferenceNullableInnerType(source)
@@ -257,20 +254,18 @@ class AnalyzerAssignability {
 
             isSharedFrameworkType := ExternalAssemblyScan.IsSharedFrameworkAssembly(reflectedInner.Type.Assembly)
             if isSharedFrameworkType {
-                // The opt-in rule enforces nullable metadata from a reference. A source-local
-                // `System.Type?` has no referenced member to report, so it must not create an
-                // unattributable framework diagnostic on its own.
-                return declarationContext.EnforceReferencedNullability && NullabilityMetadataCore.ReferencedNullabilityContext(source) != null
+                // A source-local nullable `System.Type?` has no referenced member to report. Keep
+                // that source-only case lenient while enforcing metadata read from a member.
+                return NullabilityMetadataCore.ReferencedNullabilityContext(source) != null
             }
 
             return true
         }
 
         // The CLR bridge also erases nullable annotations nested inside constructed generics and
-        // arrays. Only a type carrying the reflection reader's source-member origin enters this new
-        // recursive rule, so switch-off behaviour remains byte-for-byte equivalent for existing
-        // framework references and source declarations.
-        if !declarationContext.EnforceReferencedNullability || NullabilityMetadataCore.ReferencedNullabilityContext(source) == null {
+        // arrays. The recursive rule only considers types carrying the reflection reader's
+        // source-member origin.
+        if NullabilityMetadataCore.ReferencedNullabilityContext(source) == null {
             return false
         }
 
@@ -379,9 +374,6 @@ class AnalyzerAssignability {
 
         return parameters[index].GenericParameterAttributes & GenericParameterAttributes.VarianceMask
     }
-
-    // The reflection call binder reads the same temporary policy as assignment conversion.
-    EnforcesReferencedNullability: bool => declarationContext.EnforceReferencedNullability
 
     // Whether the relation refuses a MAYBE-NULL reference value for a target that states not-null:
     // the source carries a reference `?`, the target carries neither a `?` nor an oblivious shell,
@@ -579,10 +571,8 @@ class AnalyzerAssignability {
         // THE CLR SUBTYPE WALK MUST NOT ERASE A REFERENCED MEMBER'S `?`. The bridge below avoids
         // treating a `NullableTypeInfo` source as its CLR type, but a later nominal subtype query can
         // still accept `Type?` as `Type` after unwrapping it. Keep the nullable-reference refusal at
-        // the semantic boundary so every later CLR or generic relation sees the same answer. When
-        // the temporary rollout setting is off, `IsMaybeNullIntoNotNull` deliberately answers false
-        // for shared-framework references and preserves the existing lenient result.
-        if declarationContext.EnforceReferencedNullability && IsMaybeNullIntoNotNull(resolvedTarget, resolvedSource) {
+        // the semantic boundary so every later CLR or generic relation sees the same answer.
+        if IsMaybeNullIntoNotNull(resolvedTarget, resolvedSource) {
             return false
         }
 

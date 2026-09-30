@@ -68,8 +68,8 @@ test "a narrowed nullable used as its inner type is unwrapped by the emitter" {
     assert NarrowedLengthUnwrappedPlusOne(null) == -1
 }
 
-test "a redundant must is an identity and still runs" {
-    assert RedundantUnwrap(7) == 7
-    assert RedundantUnwrap(0) == 0
-    assert RedundantUnwrapOfReference("abcd") == 4
+test "an explicit nullable must returns a non-null value" {
+    assert ExplicitNullableUnwrap(7) == 7
+    assert ExplicitNullableUnwrap(0) == 0
+    assert ExplicitNullableReferenceUnwrap("abcd") == 4
 }

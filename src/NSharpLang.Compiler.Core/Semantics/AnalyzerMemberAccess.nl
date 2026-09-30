@@ -493,8 +493,8 @@ class AnalyzerMemberAccess {
     // `[AllowNull]` / `[DisallowNull]` on an external property describe its setter input, while
     // `NullabilityInfoContext.Create(PropertyInfo)` describes the getter result. The write-target
     // walk is the only place that knows which direction applies, so it adjusts the resolved type
-    // here and leaves ordinary reads untouched. The BCL follows the temporary rollout policy; other
-    // referenced assemblies already take the strict reflection path.
+    // here and leaves ordinary reads untouched. These setter input-flow facts apply to every
+    // referenced assembly.
     func ApplyReflectedPropertyInputNullability(receiverType: TypeInfo, member: MemberAccessExpression, includeStaticMembers: bool, memberType: TypeInfo): TypeInfo {
         owner := clrTypeConversionValue.TryConvertTypeInfoToClrType(declarationContextValue.ResolveDeclaredAlias(receiverType))
         if owner == null {
@@ -513,11 +513,6 @@ class AnalyzerMemberAccess {
 
         setter := property.GetSetMethod(true)
         if setter == null {
-            return memberType
-        }
-
-        propertyType := property.DeclaringType
-        if propertyType != null && ExternalAssemblyScan.IsSharedFrameworkAssembly(propertyType.Assembly) && !declarationContextValue.EnforceReferencedNullability {
             return memberType
         }
 

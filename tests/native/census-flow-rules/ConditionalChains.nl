@@ -45,7 +45,7 @@ func UnitCountOrMinusOne(snapshot: Snapshot?): int {
         return -1
     }
 
-    return must count
+    return count
 }
 
 // A REFERENCE result stays its own type and becomes maybe-null.

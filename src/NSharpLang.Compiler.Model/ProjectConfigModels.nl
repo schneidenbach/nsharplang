@@ -11,6 +11,8 @@ class ProjectConfig {
     backendValue: string?
     outputTypeValue: string?
     targetFrameworkValue: string?
+    excludeTestsValue: bool
+    debugTypeValue: string?
     sdkValue: string?
     dependenciesValue: List<Reference>?
     testDependenciesValue: List<Reference>?
@@ -84,6 +86,28 @@ class ProjectConfig {
         }
         set {
             targetFrameworkValue = value
+        }
+    }
+
+    ExcludeTests: bool {
+        get {
+            return excludeTestsValue
+        }
+        set {
+            excludeTestsValue = value
+        }
+    }
+
+    DebugType: string {
+        get {
+            if debugTypeValue == null {
+                return "none"
+            }
+
+            return debugTypeValue
+        }
+        set {
+            debugTypeValue = value
         }
     }
 
@@ -399,7 +423,6 @@ class LanguageConfig {
     profileValue: string?
     asyncDefaultTypeValue: string?
     pooledAsyncValue: bool
-    enforceReferencedNullabilityValue: bool
     systemsValue: SystemsConfig?
 
     Profile: string {
@@ -434,17 +457,6 @@ class LanguageConfig {
         }
         set {
             pooledAsyncValue = value
-        }
-    }
-
-    // Temporary phase-one rollout switch. The final language contract has no project-level
-    // nullability mode; this exists only while repository projects opt in individually.
-    EnforceReferencedNullability: bool {
-        get {
-            return enforceReferencedNullabilityValue
-        }
-        set {
-            enforceReferencedNullabilityValue = value
         }
     }
 

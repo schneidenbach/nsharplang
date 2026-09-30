@@ -61,7 +61,7 @@ func FactDerivedAttributeCount(method: MethodInfo): int {
     total := 0
     index := 0
     while index < data.Count {
-        walked := data[index].AttributeType
+        walked: Type? = data[index].AttributeType
         depth := 0
         while depth < 16 {
             if walked == null {

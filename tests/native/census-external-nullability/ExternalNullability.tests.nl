@@ -49,14 +49,9 @@ func NullRoot(tag: string): string {
 }
 
 // `extraDependencies` is a `dependencies:` body, possibly empty.
-func NullProject(root: string, name: string, extraDependencies: string, enforceReferencedNullability: bool = false) {
+func NullProject(root: string, name: string, extraDependencies: string) {
     dependencies := extraDependencies.Length == 0 ? "" : "\ndependencies:\n" + extraDependencies
-    language := ""
-    if enforceReferencedNullability {
-        language = "\nlanguage:\n  enforceReferencedNullability: true\n"
-    }
-
-    File.WriteAllText(Path.Combine(root, "project.yml"), "name: " + name + "\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n" + dependencies + language)
+    File.WriteAllText(Path.Combine(root, "project.yml"), "name: " + name + "\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n" + dependencies)
 }
 
 // Analysis and lint, the way `nlc build` validates a project.
@@ -194,47 +189,27 @@ test "MemberNotNull and MemberNotNullWhen source attributes narrow their named m
     assert NullConsumerFindings(errors, "NL905").Count == 0, NullText(errors)
 }
 
-test "BCL AllowNull and DisallowNull flow attributes affect metadata checks only with the switch" {
+test "BCL AllowNull and DisallowNull flow attributes govern always-on metadata checks" {
     root := NullRoot("framework-flow")
     consumer := "namespace Census.FrameworkNullability.Consumer\n\nimport System.Collections.Generic\nimport System.IO\n\nclass Uses {\n    static func Run(maybeText: string?): int {\n        writer: TextWriter = Console.Out\n        writer.NewLine = maybeText\n        comparer: IEqualityComparer<string> = EqualityComparer<string>.Default\n        return comparer.GetHashCode(maybeText)\n    }\n}\n"
 
-    offRoot := Path.Combine(root, "off")
-    Directory.CreateDirectory(offRoot)
-    NullProject(offRoot, "FrameworkFlowOff", "")
-    File.WriteAllText(Path.Combine(offRoot, "Consumer.nl"), consumer)
-    off := NullAnalyze(offRoot, "FrameworkFlowOff")
-    offFindings := NullConsumerFindings(off, "NL202")
-    assert offFindings.Count == 1, NullText(off)
-
-    strictRoot := Path.Combine(root, "on")
-    Directory.CreateDirectory(strictRoot)
-    NullProject(strictRoot, "FrameworkFlowOn", "", true)
-    File.WriteAllText(Path.Combine(strictRoot, "Consumer.nl"), consumer)
-    on := NullAnalyze(strictRoot, "FrameworkFlowOn")
-    findings := NullConsumerFindings(on, "NL202")
-    assert findings.Count == 1, NullText(on)
-    assert findings[0].Contains("GetHashCode"), NullText(on)
+    NullProject(root, "FrameworkFlow", "")
+    File.WriteAllText(Path.Combine(root, "Consumer.nl"), consumer)
+    errors := NullAnalyze(root, "FrameworkFlow")
+    findings := NullConsumerFindings(errors, "NL202")
+    assert findings.Count == 1, NullText(errors)
+    assert findings[0].Contains("GetHashCode"), NullText(errors)
 }
 
-test "nullable generic arguments on a BCL property reach its indexer value" {
+test "nullable generic arguments on a BCL property reach its indexer value with enforcement always on" {
     root := NullRoot("framework-nested-generic")
     consumer := "namespace Census.FrameworkNullability.Consumer\n\nimport System.Diagnostics\n\nclass Uses {\n    static func Run(info: ProcessStartInfo, maybeValue: string?): int {\n        info.Environment[\"N\"] = maybeValue\n        value := info.Environment[\"N\"]\n        if value != null {\n            return value.Length\n        }\n        return 0\n    }\n}\n"
 
-    offRoot := Path.Combine(root, "off")
-    Directory.CreateDirectory(offRoot)
-    NullProject(offRoot, "FrameworkNestedGenericOff", "")
-    File.WriteAllText(Path.Combine(offRoot, "Consumer.nl"), consumer)
-    off := NullAnalyze(offRoot, "FrameworkNestedGenericOff")
-    assert NullConsumerFindings(off, "NL202").Count == 0, NullText(off)
-    assert NullConsumerFindings(off, "NL905").Count == 0, NullText(off)
-
-    strictRoot := Path.Combine(root, "on")
-    Directory.CreateDirectory(strictRoot)
-    NullProject(strictRoot, "FrameworkNestedGenericOn", "", true)
-    File.WriteAllText(Path.Combine(strictRoot, "Consumer.nl"), consumer)
-    on := NullAnalyze(strictRoot, "FrameworkNestedGenericOn")
-    assert NullConsumerFindings(on, "NL202").Count == 0, NullText(on)
-    assert NullConsumerFindings(on, "NL905").Count == 0, NullText(on)
+    NullProject(root, "FrameworkNestedGeneric", "")
+    File.WriteAllText(Path.Combine(root, "Consumer.nl"), consumer)
+    errors := NullAnalyze(root, "FrameworkNestedGeneric")
+    assert NullConsumerFindings(errors, "NL202").Count == 0, NullText(errors)
+    assert NullConsumerFindings(errors, "NL905").Count == 0, NullText(errors)
 }
 
 test "a maybe-null referenced class value assigned or returned as not-null is the NL202 the one-project program reports" {
@@ -249,11 +224,11 @@ test "a maybe-null referenced class value assigned or returned as not-null is th
     assert string.Join("\n", split) == string.Join("\n", single), "two projects:\n" + NullText(twoProjects) + "---- one project:\n" + NullText(oneProject)
 }
 
-test "a shared-framework class type and a framework signature keep the answer they always had" {
-    // `Type?` into a not-null `Type`, and `string?` into `Path.GetFullPath`, are accepted today in one
-    // project and in two; enforcing the framework's own annotations is a separate decision, so this
-    // row fails the day either answer changes without one.
-    consumer := NullConsumer("    static func TakeType(type: Type): int {\n        return type.Name.Length\n    }\n\n    static func Run(holder: Holder, maybeType: Type?): int {\n        return TakeType(maybeType) + TakeType(typeof(string).BaseType) + Path.GetFullPath(holder.Label).Length\n    }\n")
+test "a source-local System.Type? without a referenced member origin keeps its existing answer" {
+    // This nullable value is declared by the consumer itself. It has no metadata member to name in
+    // an NL202 explanation, so it keeps the existing local-Type behavior; a value read from
+    // `System.Type.BaseType` is covered by the always-on referenced-member rows below.
+    consumer := NullConsumer("    static func TakeType(type: Type): int {\n        return type.Name.Length\n    }\n\n    static func Run(maybeType: Type?): int {\n        return TakeType(maybeType)\n    }\n")
     oneProject := new List<CompilerError>()
     twoProjects := new List<CompilerError>()
     NullBothShapes("framework", consumer, out oneProject, out twoProjects)
@@ -262,36 +237,43 @@ test "a shared-framework class type and a framework signature keep the answer th
     assert NullConsumerFindings(twoProjects, "NL202").Count == 0, NullText(twoProjects)
 }
 
-test "referenced framework nullable members and parameters are errors only with the temporary switch" {
-    consumerRoot := NullRoot("framework-strict")
+test "a referenced nullable string passed to a BCL non-null parameter is always NL202" {
+    consumer := NullConsumer("    static func Run(holder: Holder): int {\n        return Path.GetFullPath(holder.Label).Length\n    }\n")
+    oneProject := new List<CompilerError>()
+    twoProjects := new List<CompilerError>()
+    NullBothShapes("framework-parameter-origin", consumer, out oneProject, out twoProjects)
+
+    single := NullFindingsWithoutMetadataContext(oneProject, "NL202")
+    split := NullFindingsWithoutMetadataContext(twoProjects, "NL202")
+    assert single.Count == 1, NullText(oneProject)
+    assert string.Join("\n", split) == string.Join("\n", single), "two projects:\n" + NullText(twoProjects) + "---- one project:\n" + NullText(oneProject)
+    assert single[0].Contains("Cannot pass `string?` as argument for parameter `path` of type `string`"), NullText(oneProject)
+}
+
+test "referenced framework nullable members and parameters are always errors" {
+    consumerRoot := NullRoot("framework-nullability")
     consumer := "namespace Census.Nullability.Consumer\n\nimport System\n\nclass Uses {\n    static func Run(maybeText: string?): int {\n        type: Type = typeof(string).BaseType\n        return \"x\".IndexOf(maybeText)\n    }\n\n    static func DereferenceBaseType(): int {\n        return typeof(string).BaseType.Name.Length\n    }\n}\n"
 
-    NullProject(consumerRoot, "FrameworkNullabilityOff", "")
+    NullProject(consumerRoot, "FrameworkNullability", "")
     File.WriteAllText(Path.Combine(consumerRoot, "Consumer.nl"), consumer)
-    off := NullAnalyze(consumerRoot, "FrameworkNullabilityOff")
-    assert NullConsumerFindings(off, "NL202").Count == 0, NullText(off)
-
-    strictRoot := NullRoot("framework-strict-on")
-    NullProject(strictRoot, "FrameworkNullabilityOn", "", true)
-    File.WriteAllText(Path.Combine(strictRoot, "Consumer.nl"), consumer)
-    on := NullAnalyze(strictRoot, "FrameworkNullabilityOn")
-    strictFindings := NullConsumerFindings(on, "NL202")
-    assert strictFindings.Count >= 2, NullText(on)
+    errors := NullAnalyze(consumerRoot, "FrameworkNullability")
+    strictFindings := NullConsumerFindings(errors, "NL202")
+    assert strictFindings.Count >= 2, NullText(errors)
     rendered := string.Join("\n", strictFindings)
-    assert rendered.Contains("BaseType"), NullText(on)
-    assert rendered.Contains("IndexOf"), NullText(on)
-    assert rendered.Contains("null"), NullText(on)
-    assert rendered.Contains("annotated"), NullText(on)
-    assert rendered.Contains("does not accept null"), NullText(on)
+    assert rendered.Contains("BaseType"), NullText(errors)
+    assert rendered.Contains("IndexOf"), NullText(errors)
+    assert rendered.Contains("null"), NullText(errors)
+    assert rendered.Contains("annotated"), NullText(errors)
+    assert rendered.Contains("does not accept null"), NullText(errors)
 
-    nullAccesses := NullConsumerErrors(on, "NL905")
-    assert nullAccesses.Count == 1, NullText(on)
-    assert nullAccesses[0].Message.Contains("System.Type.BaseType"), NullText(on)
-    assert nullAccesses[0].Message.Contains("annotated"), NullText(on)
+    nullAccesses := NullConsumerErrors(errors, "NL905")
+    assert nullAccesses.Count == 1, NullText(errors)
+    assert nullAccesses[0].Message.Contains("System.Type.BaseType"), NullText(errors)
+    assert nullAccesses[0].Message.Contains("annotated"), NullText(errors)
     nullSuggestion := nullAccesses[0].Suggestion ?? ""
-    assert nullSuggestion.Contains("if ") && nullSuggestion.Contains("must "), NullText(on)
+    assert nullSuggestion.Contains("if ") && nullSuggestion.Contains("must "), NullText(errors)
 
-    diagnostics := NullConsumerErrors(on, "NL202")
+    diagnostics := NullConsumerErrors(errors, "NL202")
     sawMemberSuggestion := false
     sawParameterSuggestion := false
     for diagnostic in diagnostics {
@@ -303,13 +285,13 @@ test "referenced framework nullable members and parameters are errors only with 
             sawParameterSuggestion = suggestion.Contains("if ") && suggestion.Contains("must ")
         }
     }
-    assert sawMemberSuggestion, NullText(on)
-    assert sawParameterSuggestion, NullText(on)
+    assert sawMemberSuggestion, NullText(errors)
+    assert sawParameterSuggestion, NullText(errors)
 }
 
 test "referenced nullability origins survive locals and callable returns" {
     root := NullRoot("framework-origin-local-return")
-    NullProject(root, "FrameworkOriginLocalReturn", "", true)
+    NullProject(root, "FrameworkOriginLocalReturn", "")
     File.WriteAllText(Path.Combine(root, "Consumer.nl"), NullOriginHopConsumer("local: Type? = typeof(string).BaseType\n        return TakeType(local) + TakeType(FromBase())"))
     errors := NullAnalyze(root, "FrameworkOriginLocalReturn")
 
@@ -324,7 +306,7 @@ test "referenced nullability origins survive locals and callable returns" {
 
 test "referenced nullability origins survive conditional and coalescing operands" {
     root := NullRoot("framework-origin-joins")
-    NullProject(root, "FrameworkOriginJoins", "", true)
+    NullProject(root, "FrameworkOriginJoins", "")
     File.WriteAllText(Path.Combine(root, "Consumer.nl"), NullOriginHopConsumer("return TakeType(FromConditional(true)) + TakeType(FromCoalesce(true))"))
     errors := NullAnalyze(root, "FrameworkOriginJoins")
 
@@ -339,7 +321,7 @@ test "referenced nullability origins survive conditional and coalescing operands
 
 test "referenced nullability origins survive generic substitution" {
     root := NullRoot("framework-origin-generic")
-    NullProject(root, "FrameworkOriginGeneric", "", true)
+    NullProject(root, "FrameworkOriginGeneric", "")
     File.WriteAllText(Path.Combine(root, "Consumer.nl"), NullOriginHopConsumer("return TakeType(FromGeneric(types))"))
     errors := NullAnalyze(root, "FrameworkOriginGeneric")
 
@@ -354,7 +336,7 @@ test "referenced nullability origins survive generic substitution" {
 
 test "referenced nullability origins survive collection element reads" {
     root := NullRoot("framework-origin-collection")
-    NullProject(root, "FrameworkOriginCollection", "", true)
+    NullProject(root, "FrameworkOriginCollection", "")
     File.WriteAllText(Path.Combine(root, "Consumer.nl"), NullOriginHopConsumer("return TakeText(FromElement(info))"))
     errors := NullAnalyze(root, "FrameworkOriginCollection")
 
@@ -368,33 +350,23 @@ test "referenced nullability origins survive collection element reads" {
     assert NullText(errors).Contains("IDictionary`2.Item") || NullText(errors).Contains("get_Item"), NullText(errors)
 }
 
-test "BCL nullable arguments survive overload selection and report NL202 for outer and nested annotations" {
+test "BCL nullable arguments always report NL202 after overload selection for outer and nested annotations" {
     root := NullRoot("framework-nullable-overload")
     consumer := "namespace Census.FrameworkNullability.Consumer\n\nimport System\nimport System.Collections.Generic\nimport System.Diagnostics\n\nclass Uses {\n    static func TakeType(value: Type): int {\n        return value.Name.Length\n    }\n\n    static func TakeEnvironment(value: IDictionary<string, string>): int {\n        return value.Count\n    }\n\n    static func Run(info: ProcessStartInfo): int {\n        return TakeType(typeof(string).GetElementType()) + TakeEnvironment(info.Environment)\n    }\n}\n"
 
-    offRoot := Path.Combine(root, "off")
-    Directory.CreateDirectory(offRoot)
-    NullProject(offRoot, "FrameworkNullableOverloadOff", "")
-    File.WriteAllText(Path.Combine(offRoot, "Consumer.nl"), consumer)
-    off := NullAnalyze(offRoot, "FrameworkNullableOverloadOff")
-    assert NullConsumerFindings(off, "NL202").Count == 0, NullText(off)
-    assert NullConsumerFindings(off, "NL402").Count == 0, NullText(off)
-
-    strictRoot := Path.Combine(root, "on")
-    Directory.CreateDirectory(strictRoot)
-    NullProject(strictRoot, "FrameworkNullableOverloadOn", "", true)
-    File.WriteAllText(Path.Combine(strictRoot, "Consumer.nl"), consumer)
-    on := NullAnalyze(strictRoot, "FrameworkNullableOverloadOn")
-    findings := NullConsumerFindings(on, "NL202")
-    assert findings.Count == 2, NullText(on)
-    assert NullConsumerFindings(on, "NL402").Count == 0, NullText(on)
+    NullProject(root, "FrameworkNullableOverload", "")
+    File.WriteAllText(Path.Combine(root, "Consumer.nl"), consumer)
+    errors := NullAnalyze(root, "FrameworkNullableOverload")
+    findings := NullConsumerFindings(errors, "NL202")
+    assert findings.Count == 2, NullText(errors)
+    assert NullConsumerFindings(errors, "NL402").Count == 0, NullText(errors)
     rendered := string.Join("\n", findings)
-    assert rendered.Contains("System.Type.GetElementType"), NullText(on)
-    assert rendered.Contains("ProcessStartInfo.Environment"), NullText(on)
-    assert rendered.Contains("annotated to return"), NullText(on)
-    for diagnostic in NullConsumerErrors(on, "NL202") {
+    assert rendered.Contains("System.Type.GetElementType"), NullText(errors)
+    assert rendered.Contains("ProcessStartInfo.Environment"), NullText(errors)
+    assert rendered.Contains("annotated to return"), NullText(errors)
+    for diagnostic in NullConsumerErrors(errors, "NL202") {
         suggestion := diagnostic.Suggestion ?? ""
-        assert suggestion.Contains("if ") && suggestion.Contains("must "), NullText(on)
+        assert suggestion.Contains("if ") && suggestion.Contains("must "), NullText(errors)
     }
 }
 

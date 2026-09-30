@@ -1356,7 +1356,7 @@ class AnalyzerAmbientContext {
         TypeMismatchDisplay.Pair(declarationContextValue, returnedType, expectedReturnValueType, out actualTypeName, out expectedTypeName)
         metadataContext: string? = null
         metadataHint: string? = null
-        if declarationContextValue != null && declarationContextValue.EnforceReferencedNullability {
+        if declarationContextValue != null {
             metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(returnedType)
             if metadataContext != null {
                 if returnedValue != null {

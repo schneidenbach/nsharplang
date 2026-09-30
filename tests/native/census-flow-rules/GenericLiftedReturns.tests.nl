@@ -23,7 +23,7 @@ test "a `where T : struct` generic declares its `T?` return as a real Nullable<T
     declaration := typeof(LiftedGenerics).GetMethod("FirstOrNone")
     assert declaration != null
 
-    returnType := (must declaration).ReturnType
+    returnType := declaration.ReturnType
     assert returnType.IsGenericType
     assert returnType.GetGenericTypeDefinition() == typeof(Nullable<int>).GetGenericTypeDefinition()
 

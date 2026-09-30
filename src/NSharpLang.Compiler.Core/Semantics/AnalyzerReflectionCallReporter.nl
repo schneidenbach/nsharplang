@@ -265,23 +265,21 @@ class AnalyzerReflectionCallReporter {
         snippet := ""
         metadataContext: string? = null
         metadataHint: string? = null
-        if declarationContext.EnforceReferencedNullability {
-            metadataParts := new List<string>()
-            argumentIndex := 0
-            while argumentIndex < argTypes.Count {
-                argumentType := argTypes[argumentIndex]
-                argumentContext := NullabilityMetadataCore.ReferencedNullabilityContext(argumentType)
-                if argumentContext != null {
-                    metadataParts.Add(argumentContext)
-                    if metadataHint == null && argumentIndex < call.Arguments.Count {
-                        metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(call.Arguments[argumentIndex].Value)
-                    }
+        metadataParts := new List<string>()
+        argumentIndex := 0
+        while argumentIndex < argTypes.Count {
+            argumentType := argTypes[argumentIndex]
+            argumentContext := NullabilityMetadataCore.ReferencedNullabilityContext(argumentType)
+            if argumentContext != null {
+                metadataParts.Add(argumentContext)
+                if metadataHint == null && argumentIndex < call.Arguments.Count {
+                    metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(call.Arguments[argumentIndex].Value)
                 }
-                argumentIndex = argumentIndex + 1
             }
-            if metadataParts.Count > 0 {
-                metadataContext = string.Join(" ", metadataParts)
-            }
+            argumentIndex = argumentIndex + 1
+        }
+        if metadataParts.Count > 0 {
+            metadataContext = string.Join(" ", metadataParts)
         }
         if TryGetRichContext(span.Line, out filePath, out snippet) {
             diagnostics.ReportBuilt(ErrorMessageBuilder.NoMatchingOverload(filePath, span.Line, span.Column, snippet, span.Length, functionName, call.Arguments.Count, argumentTypes, candidateSignatures, metadataContext, metadataHint))

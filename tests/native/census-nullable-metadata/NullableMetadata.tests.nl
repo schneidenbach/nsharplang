@@ -18,7 +18,7 @@ class NullableFacts {
         return new NullabilityInfoContext()
     }
 
-    static func Method(owner: Type, name: string): MethodInfo {
+    static func Method(owner: Type, name: string): MethodInfo? {
         return owner.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)
     }
 

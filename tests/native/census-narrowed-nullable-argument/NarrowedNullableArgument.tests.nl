@@ -1,11 +1,11 @@
 namespace NSharpLang.CensusNarrowedNullableArgument.Tests
 
-test "the reported shape compiles without the unwrap and agrees with it" {
+test "the reported shape passes its flow-narrowed argument on both call paths" {
     assert Facts.IsCallableSymbol(SymbolKind.Method)
     assert !Facts.IsCallableSymbol(SymbolKind.Field)
     assert !Facts.IsCallableSymbol(null)
-    assert Facts.IsCallableSymbolUnwrapped(SymbolKind.Method) == Facts.IsCallableSymbol(SymbolKind.Method)
-    assert Facts.IsCallableSymbolUnwrapped(SymbolKind.Field) == Facts.IsCallableSymbol(SymbolKind.Field)
+    assert Facts.IsCallableSymbolSecondCallPath(SymbolKind.Method) == Facts.IsCallableSymbol(SymbolKind.Method)
+    assert Facts.IsCallableSymbolSecondCallPath(SymbolKind.Field) == Facts.IsCallableSymbol(SymbolKind.Field)
 }
 
 test "a narrowed nullable reaches a source static declared over the bare type" {

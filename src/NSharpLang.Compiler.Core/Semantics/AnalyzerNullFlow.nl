@@ -401,12 +401,10 @@ class AnalyzerNullFlow {
             suggestion = "Guard with 'if " + path + " == null { return }', use '?.' when calling through a member, or explicitly assert " + "after proving '" + path + "' is not null."
         }
 
-        if declarationContextValue.EnforceReferencedNullability {
-            metadataContext := NullabilityMetadataCore.ReferencedNullabilityContext(receiverType)
-            if metadataContext != null {
-                message = message + ". " + metadataContext
-                suggestion = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(receiver)
-            }
+        metadataContext := NullabilityMetadataCore.ReferencedNullabilityContext(receiverType)
+        if metadataContext != null {
+            message = message + ". " + metadataContext
+            suggestion = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(receiver)
         }
 
         span := spansValue.GetNullReceiverDiagnosticSpan(receiver, path, line, column)

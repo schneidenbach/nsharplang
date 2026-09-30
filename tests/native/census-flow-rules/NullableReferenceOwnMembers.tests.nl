@@ -42,11 +42,11 @@ test "the reference-nullable reader really produces the CLASS's member type" {
     // what says which member bound.
     text := GetDocumentationText(MarkupDocumentation("typed"))
     assert text != null
-    assert (must text).GetType() == typeof(string)
+    assert text.GetType() == typeof(string)
 
     field := typeof(MarkupContent).GetField("Value")
     assert field != null
-    assert (must field).FieldType == typeof(string)
+    assert field.FieldType == typeof(string)
 }
 
 test "a class that declares HasValue and GetValueOrDefault owns both names" {
@@ -62,11 +62,11 @@ test "a class that declares HasValue and GetValueOrDefault owns both names" {
     // is what proves whose member bound.
     method := typeof(Slot).GetMethod("GetValueOrDefault")
     assert method != null
-    assert (must method).ReturnType == typeof(string)
+    assert method.ReturnType == typeof(string)
 
     field := typeof(Slot).GetField("HasValue")
     assert field != null
-    assert (must field).FieldType == typeof(bool)
+    assert field.FieldType == typeof(bool)
 }
 
 test "the VALUE-type nullable surface is untouched" {

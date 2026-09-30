@@ -4590,38 +4590,30 @@ lambda's parameter all maybe-null: the census's ten `docQuery.Value` NL905s and 
   `Dictionary<K, V>.TryGetValue`'s `[MaybeNullWhen(false)]` is not folded into the type and leaves
   the true-branch postcondition available to flow analysis.
 
-### Referenced nullability origins and the opt-in rollout switch
+### Nullability from referenced assemblies
 
-`language.enforceReferencedNullability: true` opts a project into strict checks for nullable
-shared-framework metadata. It defaults to `false`; projects enable it individually as their call
-sites are repaired. The opt-in applies when the maybe-null value carries a referenced member origin.
-A source-local `System.Type?` with no such origin keeps the existing shared-framework answer instead
-of generating a diagnostic that cannot name the member responsible.
+N# enforces nullable annotations from every referenced .NET or NuGet assembly as errors. The check
+applies to member and parameter positions after reflection overload selection as well as assignment,
+return, declaration, initializer and generic positions. A maybe-null value flowing into a non-null
+position reports NL202; dereferencing an annotated maybe-null result without a guard reports NL905.
+The diagnostic carries the .NET member and assembly that supplied the annotation, with a hint to
+guard, coalesce or otherwise handle the value.
+
+An API with no nullable metadata is **oblivious**. Its signature makes no nullability promise, so N#
+does not infer one: passing a maybe-null argument remains accepted. Source-local nullable
+`System.Type?` values with no referenced member origin likewise preserve their established behavior;
+they have no metadata member to name in a referenced-nullability diagnostic. These boundaries do not
+disable checks for nullable annotations that are present.
 
 `NullabilityMetadataCore` is the sole owner that attaches, transfers, merges and formats
 `ReferencedNullabilityOrigin` values stored on `TypeInfo`. The reflection reader attaches them to
-nullable member and parameter positions; reconstructed flow types ask the same owner to carry them
-through local declarations and assignments, returned values and callable signatures, conditional
-joins, `??`, generic substitution, collection element reads, and reflected by-ref postconditions.
-Referenced-nullability diagnostics include the originating .NET member and a fix suggestion.
-`tests/native/census-external-nullability` has a row that exercises those hops through a nullable
-`Type` return, a conditional, coalescing, `Enumerable.FirstOrDefault<T>` and a dictionary indexer.
+nullable member and parameter positions; reconstructed flow types carry them through local
+declarations and assignments, returned values and callable signatures, conditional joins, `??`,
+generic substitution, collection element reads and reflected by-ref postconditions. The
+`tests/native/census-external-nullability` tests exercise those hops through a nullable `Type`
+return, a conditional, coalescing, `Enumerable.FirstOrDefault<T>` and a dictionary indexer. The same
+tests keep explicit coverage for oblivious metadata and nullable values declared only in source.
 
-With the switch enabled across the compiler roots, the metadata-origin census is:
-
-| Root | Diagnostics with member context and hint | Unattributed | Highest-volume origins |
-| --- | ---: | ---: | --- |
-| Plan | 134 | 0 | `System.Type.GetField(System.String)` (68), `System.Type.GetElementType()` (31), `System.Type.GetConstructor(System.Type[])` (15) |
-| Emit | 229 | 0 | `System.Reflection.Emit.ILGenerator.Emit` (93), `System.Type.GetElementType()` (61), `System.Type.GetMethod(System.String, System.Type[])` (43) |
-
-The switch-on scan covered all 12 N# roots. Plan and Emit produced 363 feature diagnostics between
-them, and all 363 had a .NET member and a fix hint. Core's switch-on and switch-off diagnostic
-identities matched exactly after the rollout fixes; Model and Driver had no new diagnostics, and the
-other roots had no referenced-nullability diagnostics. Core's front-door count fell from 364 to 363,
-so `tests/scripts/test-all-core.sh` now uses 363 as its ceiling.
-
-This switch is rollout scaffolding: remove it after every project has been repaired and strict BCL
-checking is the default; it is not part of the language contract.
 - `ConvertSubstitutedParameterType` is the conversion that takes the read state as a VALUE instead of
   reading it, and it is deliberately a sibling of `ConvertReflectedType` rather than a parameter on
   it. Only the TOP-LEVEL position is overridden; everything nested keeps reading its own

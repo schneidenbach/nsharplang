@@ -15,5 +15,3 @@ dependencies:
     version: 0.11.6
   - nuget: System.Reflection.MetadataLoadContext
     version: 10.0.5
-language:
-  enforceReferencedNullability: true

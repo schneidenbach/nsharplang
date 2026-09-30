@@ -26,11 +26,11 @@ class IdentityFacts {
         return markerType.get_Assembly()
     }
 
-    static func Holder(namespaceName: string): Type {
+    static func Holder(namespaceName: string): Type? {
         return Assembly().GetType(namespaceName + ".Program")
     }
 
-    static func HolderMethod(namespaceName: string, name: string): MethodInfo {
+    static func HolderMethod(namespaceName: string, name: string): MethodInfo? {
         holder := Holder(namespaceName)
         if holder == null {
             return null

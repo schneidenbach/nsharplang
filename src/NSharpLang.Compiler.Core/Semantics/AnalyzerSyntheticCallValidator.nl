@@ -517,18 +517,16 @@ class AnalyzerSyntheticCallValidator {
 
     func ReportWrongArgumentType(functionType: FunctionTypeInfo, call: CallExpression, functionName: string, argumentIndex: int, parameterIndex: int, expectedType: TypeInfo, argType: TypeInfo, metadataContext: string?, metadataHint: string?) {
         span := spans.GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value)
-        if assignability.EnforcesReferencedNullability {
-            sourceContext := NullabilityMetadataCore.ReferencedNullabilityContext(argType)
-            if sourceContext != null {
-                if metadataContext == null {
-                    metadataContext = sourceContext
-                } else {
-                    metadataContext = sourceContext + " " + metadataContext
-                }
+        sourceContext := NullabilityMetadataCore.ReferencedNullabilityContext(argType)
+        if sourceContext != null {
+            if metadataContext == null {
+                metadataContext = sourceContext
+            } else {
+                metadataContext = sourceContext + " " + metadataContext
+            }
 
-                if metadataHint == null {
-                    metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(call.Arguments[argumentIndex].Value)
-                }
+            if metadataHint == null {
+                metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(call.Arguments[argumentIndex].Value)
             }
         }
 
@@ -810,23 +808,21 @@ class AnalyzerSyntheticCallValidator {
         snippet := ""
         metadataContext: string? = null
         metadataHint: string? = null
-        if assignability.EnforcesReferencedNullability {
-            metadataParts := new List<string>()
-            argumentIndex := 0
-            while argumentIndex < argTypes.Count {
-                argumentType := argTypes[argumentIndex]
-                argumentContext := NullabilityMetadataCore.ReferencedNullabilityContext(argumentType)
-                if argumentContext != null {
-                    metadataParts.Add(argumentContext)
-                    if metadataHint == null && argumentIndex < call.Arguments.Count {
-                        metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(call.Arguments[argumentIndex].Value)
-                    }
+        metadataParts := new List<string>()
+        argumentIndex := 0
+        while argumentIndex < argTypes.Count {
+            argumentType := argTypes[argumentIndex]
+            argumentContext := NullabilityMetadataCore.ReferencedNullabilityContext(argumentType)
+            if argumentContext != null {
+                metadataParts.Add(argumentContext)
+                if metadataHint == null && argumentIndex < call.Arguments.Count {
+                    metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(call.Arguments[argumentIndex].Value)
                 }
-                argumentIndex = argumentIndex + 1
             }
-            if metadataParts.Count > 0 {
-                metadataContext = string.Join(" ", metadataParts)
-            }
+            argumentIndex = argumentIndex + 1
+        }
+        if metadataParts.Count > 0 {
+            metadataContext = string.Join(" ", metadataParts)
         }
         if TryGetRichContext(span.Line, out filePath, out snippet) {
             diagnostics.ReportBuilt(ErrorMessageBuilder.NoMatchingOverload(filePath, span.Line, span.Column, snippet, span.Length, functionName, call.Arguments.Count, argumentTypes, candidateSignatures, metadataContext, metadataHint))

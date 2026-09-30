@@ -14,7 +14,7 @@ class ProjectFileParser {
         }
 
         yaml := File.ReadAllText(yamlPath)
-        deserializer := new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).WithTypeConverter((IYamlTypeConverter)new ReferenceConverter()).IgnoreUnmatchedProperties().Build()
+        deserializer := new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).WithTypeConverter((IYamlTypeConverter)new ReferenceConverter()).Build()
 
         configObject := deserializer.Deserialize(yaml, typeof(ProjectConfig))
         config := (ProjectConfig)configObject
@@ -62,6 +62,10 @@ class ProjectFileParser {
 
         if config.TestFramework != "xunit" && config.TestFramework != "nunit" {
             throw new InvalidOperationException("Invalid testFramework: '" + config.TestFramework + "'. Must be 'xunit' or 'nunit'.")
+        }
+
+        if config.DebugType != "none" && config.DebugType != "portable" && config.DebugType != "embedded" && config.DebugType != "full" && config.DebugType != "pdbonly" {
+            throw new InvalidOperationException("Invalid debugType: '" + config.DebugType + "'. Must be 'none', 'portable', 'embedded', 'full', or 'pdbonly'.")
         }
 
         if config.Language.AsyncDefaultType != "Task" && config.Language.AsyncDefaultType != "ValueTask" {

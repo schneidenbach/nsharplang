@@ -662,11 +662,12 @@ test "AN OVERRIDE'S ANNOTATION IS WHAT THE RECEIVER'S TYPE ANSWERS, AND A TYPE W
     assert inherited.Count == 0
 
     // THE BOUNDARY: nothing in this chain overrides `ToString`, so `object`'s `string?` is the
-    // answer and NL202 is right. This is the census's `InlayHintHandler` row, and C# warns CS8603
-    // at the same line.
+    // answer and NL202 is right. The diagnostic also names the referenced .NET member. This is the
+    // census's `InlayHintHandler` row, and C# warns CS8603 at the same line.
     noOverride := MemberResolutionSourceErrors("namespace P\n\nclass Plain {\n    Tag: int\n}\n\nfunc Format(value: Plain): string {\n    return value.ToString()\n}\n")
     assert noOverride.Count == 1
-    assert noOverride[0] == "Function 'Format' should return string but returns string?"
+    assert noOverride[0].StartsWith("Function 'Format' should return string but returns string?", StringComparison.Ordinal)
+    assert noOverride[0].Contains("The .NET member `")
 }
 
 // ── object's protected surface, and the one member of it that is not callable ───────────────

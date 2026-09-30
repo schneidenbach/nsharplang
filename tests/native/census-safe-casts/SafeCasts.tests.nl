@@ -112,6 +112,20 @@ func CastSameFindings(oneProject: List<CompilerError>, twoProjects: List<Compile
     return string.Join("\n", CastFindings(oneProject, code)) == string.Join("\n", CastFindings(twoProjects, code))
 }
 
+func CastFindingsWithoutMetadataContext(errors: List<CompilerError>, code: string): List<string> {
+    findings := CastFindings(errors, code)
+    index := 0
+    while index < findings.Count {
+        contextStart := findings[index].IndexOf(". The .NET member `", StringComparison.Ordinal)
+        if contextStart >= 0 {
+            findings[index] = findings[index].Substring(0, contextStart)
+        }
+        index = index + 1
+    }
+
+    return findings
+}
+
 test "dereferencing an unchecked safe cast is NL905, in one project and in two" {
     body := "    static func Local(value: object): int {\n        node := value as Node\n        return node.Name.Length\n    }\n\n    static func Direct(value: object): int {\n        return (value as Node).Name.Length\n    }\n\n    static func Text(value: object): int {\n        text := value as string\n        return text.Length\n    }\n"
     oneProject := new List<CompilerError>()
@@ -136,7 +150,10 @@ test "passing or returning an unchecked safe cast as not-null is NL202, in one p
     single := CastFindings(oneProject, "NL202")
     assert single.Count == 3, CastText(oneProject)
     assert string.Join("\n", single).Contains("Cannot pass `Node?` as argument for parameter `node` of type `Node`"), CastText(oneProject)
-    assert CastSameFindings(oneProject, twoProjects, "NL202"), "two projects:\n" + CastText(twoProjects) + "---- one project:\n" + CastText(oneProject)
+    assert string.Join("\n", CastFindingsWithoutMetadataContext(oneProject, "NL202")) == string.Join("\n", CastFindingsWithoutMetadataContext(twoProjects, "NL202")), "two projects:\n" + CastText(twoProjects) + "---- one project:\n" + CastText(oneProject)
+    split := CastFindings(twoProjects, "NL202")
+    assert split[0].Contains("The .NET member `Census.Nullability.Holder.Take`"), CastText(twoProjects)
+    assert split[1].Contains("The .NET member `Census.Nullability.Holder.Take`"), CastText(twoProjects)
 }
 
 test "a narrowed or guarded safe cast, and an upcast, report nothing" {

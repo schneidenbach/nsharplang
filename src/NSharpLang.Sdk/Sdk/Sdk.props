@@ -77,9 +77,8 @@
 
        That key is read the way `outputType` is above - by regex, at evaluation time - because only
        `nlc restore` writes obj/project.g.props and pack must be correct on a clean checkout.
-       ProjectFileParser ignores unmatched project.yml properties, so the key is inert in the real
-       parser until symbol emission exists to honor it; anything but the five recognized values
-       keeps the truthful `none`. -->
+       ProjectFileParser recognizes and validates the key's five values. The emitter still writes no
+       PDB, so the default `none` remains the truthful current output until a symbol writer exists. -->
   <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(DebugType)' == '' And '$(DebugSymbols)' == ''">
     <_NSharpDeclaredDebugType Condition="Exists('$(NSharpProjectFile)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText($(NSharpProjectFile))), '(?m)^debugType[ \t]*:[ \t]*[&quot;%27]?(none|portable|embedded|full|pdbonly)[&quot;%27]?(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$').Groups.get_Item(1).Value)</_NSharpDeclaredDebugType>
     <DebugType Condition="'$(_NSharpDeclaredDebugType)' != ''">$(_NSharpDeclaredDebugType)</DebugType>

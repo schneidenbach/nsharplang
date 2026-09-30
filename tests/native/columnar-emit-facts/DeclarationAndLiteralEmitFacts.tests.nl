@@ -419,7 +419,7 @@ test "the ordinary body driver claims both void shapes on free functions members
 test "the identifier bodies the driver refuses still run on the host path" {
     passthrough := DriverNullablePassthrough(5)
     assert passthrough != null
-    unwrapped := must passthrough
+    unwrapped := passthrough
     assert unwrapped == 5
 }
 

@@ -1495,12 +1495,10 @@ class AnalyzerConstruction {
         span := spansValue.GetExpressionDiagnosticSpan(property.Value)
         message := elementLabel + " is '" + TypeText(valueType) + "', but the target " + state.PendingTargetKind + " expects '" + TypeText(expectedElementType) + "'"
         suggestion: string? = null
-        if declarationContextValue.EnforceReferencedNullability {
-            metadataContext := NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
-            if metadataContext != null {
-                message = message + ". " + metadataContext
-                suggestion = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(property.Value)
-            }
+        metadataContext := NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
+        if metadataContext != null {
+            message = message + ". " + metadataContext
+            suggestion = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(property.Value)
         }
         diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, suggestion, span.Length)
     }
@@ -1522,12 +1520,10 @@ class AnalyzerConstruction {
         message := "'" + property.Name + "' is typed as '" + memberText + "', but the value is '" + valueText + "'"
         metadataContext: string? = null
         metadataHint: string? = null
-        if declarationContextValue.EnforceReferencedNullability {
-            metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
-            if metadataContext != null {
-                metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(property.Value)
-                message = message + ". " + metadataContext
-            }
+        metadataContext = NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
+        if metadataContext != null {
+            metadataHint = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(property.Value)
+            message = message + ". " + metadataContext
         }
         if sourceSnippet != null && currentFilePath != null {
             diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, valueText, memberText, message, metadataContext, metadataHint))
@@ -1674,12 +1670,10 @@ class AnalyzerConstruction {
         span := spansValue.GetExpressionDiagnosticSpan(property.Value)
         message := "'" + property.Name + "' is typed as '" + TypeText(memberType) + "', but the value is '" + TypeText(valueType) + "'"
         suggestion: string? = null
-        if declarationContextValue.EnforceReferencedNullability {
-            metadataContext := NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
-            if metadataContext != null {
-                message = message + ". " + metadataContext
-                suggestion = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(property.Value)
-            }
+        metadataContext := NullabilityMetadataCore.ReferencedNullabilityContext(valueType)
+        if metadataContext != null {
+            message = message + ". " + metadataContext
+            suggestion = AnalyzerDiagnosticSpanFacts.ReferencedNullabilityHint(property.Value)
         }
         diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, suggestion, span.Length)
     }

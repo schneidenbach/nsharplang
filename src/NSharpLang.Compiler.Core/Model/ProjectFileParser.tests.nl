@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import YamlDotNet.Core
 
 // CONTRACTS FOR `project.yml` — THE FILE EVERY N# PROJECT IS BUILT FROM (020 slice 15).
 //
@@ -48,6 +49,11 @@ func PfpParseOutcome(path: string): string {
         missing := ex as FileNotFoundException
         if missing != null {
             return "FileNotFoundException|" + ex.Message
+        }
+
+        yamlError := ex as YamlException
+        if yamlError != null {
+            return "YamlException|" + ex.Message
         }
 
         return "<unexpected exception type>|" + ex.Message
@@ -184,6 +190,18 @@ test "the backend is `il`, whether it is written down or left out" {
 
     omitted := ProjectFileParser.Parse(PfpWrite(directory, "name: IlProject\n"))
     assert omitted.Backend == "il"
+    assert omitted.DebugType == "none"
+
+    debugType := ProjectFileParser.Parse(PfpWrite(directory, "name: DebugTypeProject\ndebugType: portable\n"))
+    assert debugType.DebugType == "portable"
+
+    Directory.Delete(directory, true)
+}
+
+test "the SDK test exclusion setting is read from the project file" {
+    directory := PfpTempDirectory("exclude-tests")
+    config := ProjectFileParser.Parse(PfpWrite(directory, "name: ProductProject\nexcludeTests: true\n"))
+    assert config.ExcludeTests
 
     Directory.Delete(directory, true)
 }
@@ -200,10 +218,11 @@ test "the async default type and the pooled-async flag are read from the languag
 
     unset := ProjectFileParser.Parse(PfpWrite(directory, "name: DefaultProject\n"))
     assert unset.Language.PooledAsync == false
-    assert unset.Language.EnforceReferencedNullability == false
 
-    temporaryRollout := ProjectFileParser.Parse(PfpWrite(directory, "name: ReferencedNullability\nlanguage:\n  enforceReferencedNullability: true\n"))
-    assert temporaryRollout.Language.EnforceReferencedNullability
+    removedNullabilitySwitch := PfpOutcomeOf(directory, "name: ReferencedNullability\nlanguage:\n  enforceReferencedNullability: true\n")
+    assert removedNullabilitySwitch.StartsWith("YamlException|", StringComparison.Ordinal), removedNullabilitySwitch
+    assert removedNullabilitySwitch.Contains("enforceReferencedNullability"), removedNullabilitySwitch
+    assert removedNullabilitySwitch.Contains("not found on type"), removedNullabilitySwitch
 
     Directory.Delete(directory, true)
 }

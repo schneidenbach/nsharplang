@@ -82,6 +82,8 @@ test "a bare ProjectConfig carries every default the compiler reads off it" {
     assert config.Backend == "il"
     assert config.OutputType == "exe"
     assert config.TargetFramework == "net10.0"
+    assert config.ExcludeTests == false
+    assert config.DebugType == "none"
     assert config.Sdk == "Microsoft.NET.Sdk"
     assert config.Name == null
     assert config.Version == null
@@ -91,7 +93,6 @@ test "a bare ProjectConfig carries every default the compiler reads off it" {
     assert config.TestDependencies.Count == 0
     assert config.Exclude.Count == 0
     assert config.Defines.Count == 0
-    assert config.Language.EnforceReferencedNullability == false
 }
 
 test "the collection properties MATERIALIZE on first read, so a caller can add to them" {
@@ -120,7 +121,6 @@ test "the language and systems sections carry their own defaults" {
     assert language.Profile == "default"
     assert language.AsyncDefaultType == "ValueTask"
     assert language.PooledAsync == false
-    assert language.EnforceReferencedNullability == false
     assert language.Systems.Mode == "strict"
     assert language.Systems.UnknownExternalCalls == "warn"
     assert language.Systems.AotTarget == "nativeaot"
@@ -128,9 +128,6 @@ test "the language and systems sections carry their own defaults" {
     assert language.Systems.AllowHotSidecars == false
     assert language.Systems.Warmup.Count == 0
     assert language.Systems.HotSummaryFiles.Count == 0
-
-    language.EnforceReferencedNullability = true
-    assert language.EnforceReferencedNullability
 
     // The stack budget's default is answered by a SEPARATE assigned-flag, so writing the default
     // value down explicitly is not the same state as leaving it out — and writing 0 is a state the
