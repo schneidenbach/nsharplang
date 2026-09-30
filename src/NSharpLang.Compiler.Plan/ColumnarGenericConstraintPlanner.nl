@@ -892,6 +892,22 @@ class ColumnarGenericConstraintPlanner {
         return bits
     }
 
+    // The inverse for a synthesized type that restates a declared parameter. Only the attribute words
+    // this language can produce round trip; variance and `allows ref struct` are refused rather than
+    // silently dropped.
+    static func TrySpecialFor(attributeBits: int, out special: int): bool {
+        special = 0
+        if (attributeBits & ReferenceTypeConstraintBit()) != 0 {
+            special = special | 1
+        }
+        if (attributeBits & NotNullableValueTypeConstraintBit()) != 0 {
+            special = special | 2
+        } else if (attributeBits & DefaultConstructorConstraintBit()) != 0 {
+            special = special | 4
+        }
+        return AttributeBitsFor(special) == attributeBits
+    }
+
     // Whether a resolved constraint type is admissible as a BASE-TYPE constraint.
     //
     // The caller answers the four CLR questions (it holds the `Type`); this holds the rule. A type

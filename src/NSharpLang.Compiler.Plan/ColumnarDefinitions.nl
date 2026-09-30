@@ -509,6 +509,12 @@ class ColumnarStructDef {
     Fields: Dictionary<string, FieldBuilder>
     NullableFields: HashSet<string>
     GenericParameters: Dictionary<string, Type>?
+    // The declaring type's generic signature in source order. Synthesized nested types (such as static
+    // generator machines) restate these constraints because metadata checks the nested instantiation
+    // against the owner type's requirements.
+    GenericParameterNames: string[]
+    GenericParameterSpecialConstraints: int[]
+    GenericParameterTypeConstraints: string[][]
     IsReference: bool
     IsClosureDisplay: bool
     // THE SCOPE A CLOSURE DISPLAY WAS MADE FOR, and the reason a nested lambda can reach past its own
@@ -596,6 +602,9 @@ class ColumnarStructDef {
         FieldOrder = fieldOrder
         Fields = fields
         NullableFields = new HashSet<string>(StringComparer.Ordinal)
+        GenericParameterNames = new string[](0)
+        GenericParameterSpecialConstraints = new int[](0)
+        GenericParameterTypeConstraints = new string[][](0)
         IsReference = isReference
         IsClosureDisplay = isClosureDisplay
         ClosureEnclosingDef = null

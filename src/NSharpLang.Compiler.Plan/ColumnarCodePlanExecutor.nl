@@ -1976,6 +1976,13 @@ class ColumnarCodePlanExecutor {
             if address.ValueKind == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress() {
                 state.MarkPlanLocalAssigned(localIndex)
             }
+        } else if opCodeValue == ColumnarCodePlanContract.Ldobj() {
+            targetType := plan.Types[operandIndex]
+            address := state.Pop()
+            if !targetType.IsValueType || targetType.IsGenericTypeDefinition || !address.IsAddress || address.ValueKind != ColumnarCodePlanStackValueKind.Exact() || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(targetType, address.ValueType) {
+                throw new InvalidOperationException(schemaName + " ldobj requires an exact managed address to its value type.")
+            }
+            state.Push(targetType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.Br() {
             return
         } else if opCodeValue == ColumnarCodePlanContract.Brfalse() {

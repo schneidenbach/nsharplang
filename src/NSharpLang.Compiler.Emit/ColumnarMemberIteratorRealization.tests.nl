@@ -683,7 +683,14 @@ test "member iterator takes the first source row and disposes before field and o
         false
     )
     positiveState.RepairRows.Add(first)
-    positiveState.RepairFieldCanonicals = EmitFixtureOneString("int")
+    // The camelCase `lower` is published like any other field the definition holds, so its canonical
+    // is read; `Absent` is not in the definition, so the repaired row stops short of it and would
+    // throw if it were read.
+    repairedCanonicals := new string[](3)
+    repairedCanonicals[0] = "int"
+    repairedCanonicals[1] = "int"
+    repairedCanonicals[2] = "int"
+    positiveState.RepairFieldCanonicals = repairedCanonicals
     positiveRows := MemberIteratorControlsWrapReadOnlyList(
         "MemberIteratorFirstRows",
         typeof(ColumnarStructInput),
@@ -796,9 +803,10 @@ test "member iterator takes the first source row and disposes before field and o
     assert throwingState.DisposeCount == 1
 }
 
-// An exhausted method source is disposed before AnalyzeShape. The normal twin reaches its shape
-// decline and advances the instance-shape ordinal exactly once without obtaining the factory IL.
-test "member iterator disposes method enumeration before its shape phase" {
+// METHOD SIGNATURES ARE NOT ITERATOR SHAPE INPUT. The method list is hostile: enumerating it
+// would throw during disposal. The invalid body still reaches the ordinary shape refusal, so this
+// row proves that the removed enclosing-method projection is not part of the realization path.
+test "member iterator does not enumerate enclosing methods before its shape phase" {
     source := "func* Bad(): IEnumerable<int> { Absent = 3\n yield 1 }"
     probe := new EmitFixtureIteratorShapeProbe(
         source,
@@ -821,65 +829,28 @@ test "member iterator disposes method enumeration before its shape phase" {
         EmitFixtureOneString("Value"),
         EmitFixtureOneString("int")
     )
-    throwingMethodsState := new MemberIteratorControlsRowsState(
+    methodsState := new MemberIteratorControlsRowsState(
         MemberIteratorControlsNoRows(),
         true
     )
-    throwingMethods := MemberIteratorControlsWrapReadOnlyList(
+    methods := MemberIteratorControlsWrapReadOnlyList(
         "MemberIteratorThrowingMethods",
         typeof(ColumnarFunctionInput),
-        throwingMethodsState
+        methodsState
     )
+    MemberIteratorControlsSetMethods(input, methods)
     program := MemberIteratorControlsEmptyProgram(source)
-    MemberIteratorControlsSetMethods(input, throwingMethods)
-    structs := new List<ColumnarStructInput>()
-    structs.Add(input)
-    structsObject: object = structs
-    MemberIteratorControlsSetStructs(program, structsObject)
+    inputs := new List<ColumnarStructInput>()
+    inputs.Add(input)
+    inputsObject: object = inputs
+    MemberIteratorControlsSetStructs(program, inputsObject)
     owner := IteratorRealizationControlPersistedHost("MemberIteratorMethodsHost")
     definition := MemberIteratorControlsDefinition(owner, "Methods", true)
-    throwingTypes := new List<TypeBuilder>()
-    throwingOrdinal := new int[](1)
-    throwingOrdinal[0] = 30
-    throwingCaught := false
-    try {
-        MemberIteratorControlsCall(
-            null,
-            definition,
-            function,
-            null,
-            false,
-            program,
-            null,
-            source,
-            throwingTypes,
-            throwingOrdinal,
-            null
-        )
-    } catch error: InvalidOperationException {
-        throwingCaught = error.Message == "member iterator fixture disposal failed"
-    }
-    assert throwingCaught
-    assert throwingTypes.Count == 0
-    assert throwingOrdinal[0] == 30
-    assert throwingMethodsState.MoveCount == 0
-    assert throwingMethodsState.CurrentCount == 0
-    assert throwingMethodsState.DisposeCount == 1
+    types := new List<TypeBuilder>()
+    ordinal := new int[](1)
+    ordinal[0] = 31
 
-    normalMethodsState := new MemberIteratorControlsRowsState(
-        MemberIteratorControlsNoRows(),
-        false
-    )
-    normalMethods := MemberIteratorControlsWrapReadOnlyList(
-        "MemberIteratorNormalMethods",
-        typeof(ColumnarFunctionInput),
-        normalMethodsState
-    )
-    MemberIteratorControlsSetMethods(input, normalMethods)
-    normalTypes := new List<TypeBuilder>()
-    normalOrdinal := new int[](1)
-    normalOrdinal[0] = 31
-    normalResult: ColumnarIteratorRealizationResult = MemberIteratorControlsCall(
+    result: ColumnarIteratorRealizationResult = MemberIteratorControlsCall(
         null,
         definition,
         function,
@@ -888,320 +859,94 @@ test "member iterator disposes method enumeration before its shape phase" {
         program,
         null,
         source,
-        normalTypes,
-        normalOrdinal,
+        types,
+        ordinal,
         null
     )
-    assert !normalResult.Succeeded
-    assert normalResult.DeclineSite == "emit.iterator.unsupported-shape"
-    assert normalResult.DeclineMember == "MemberIteratorMethodsHost.Bad"
-    assert normalTypes.Count == 0
-    assert normalOrdinal[0] == 32
-    assert normalMethodsState.MoveCount == 0
-    assert normalMethodsState.CurrentCount == 0
-    assert normalMethodsState.DisposeCount == 1
+    assert !result.Succeeded
+    assert result.DeclineSite == "emit.iterator.unsupported-shape"
+    assert result.DeclineMember == "MemberIteratorMethodsHost.Bad"
+    assert types.Count == 0
+    assert ordinal[0] == 32
+    assert methodsState.MoveCount == 0
+    assert methodsState.CurrentCount == 0
+    assert methodsState.DisposeCount == 0
 }
 
-// The driver deliberately rereads the live method name for the exact Methods and MethodOverloads
-// lookups. A comparer mutates Original to Changed during the first lookup; Changed's two overloads
-// then reject the candidate. A normal twin proves Original would otherwise realize successfully.
-test "member iterator preserves live repeated method-name reads and overload admission" {
-    positiveSource := "func* Gen(other: MethodPositive): IEnumerable<int> { for value in other.Original() { yield value } }"
-    positiveProbe := new EmitFixtureIteratorShapeProbe(
-        positiveSource,
-        "IEnumerable<int>",
-        EmitFixtureOneString("other"),
-        EmitFixtureOneString("MethodPositive"),
-        EmitFixtureNoStrings(),
-        false
-    )
-
-    positiveCandidate := IteratorRealizationControlFunction(
-        positiveProbe,
-        "Original",
-        "IEnumerable<int>",
-        EmitFixtureNoStrings(),
-        false,
-        805
-    )
-    positiveInput := MemberIteratorControlsInput(
-        "MethodPositive",
-        EmitFixtureNoStrings(),
-        EmitFixtureNoStrings()
-    )
-    positiveMethods := new List<ColumnarFunctionInput>()
-    positiveMethods.Add(positiveCandidate)
-    positiveProgram := MemberIteratorControlsEmptyProgram(positiveSource)
-    positiveMethodsObject: object = positiveMethods
-    MemberIteratorControlsSetMethods(positiveInput, positiveMethodsObject)
-    positiveStructs := new List<ColumnarStructInput>()
-    positiveStructs.Add(positiveInput)
-    positiveStructsObject: object = positiveStructs
-    MemberIteratorControlsSetStructs(positiveProgram, positiveStructsObject)
-    positiveOwner := IteratorRealizationControlPersistedHost("MemberIteratorMethodPositiveHost")
-    positiveDefinition := MemberIteratorControlsDefinition(
-        positiveOwner,
-        "MethodPositive",
-        false
-    )
-    noTypes := new Type[](0)
-    EmitFixturePublicInstance(positiveDefinition, "Original", noTypes, typeof(IEnumerable<int>))
-    positiveFactoryParameters := new Type[](1)
-    positiveOwnerType: Type = positiveOwner
-    positiveFactoryParameters[0] = positiveOwnerType
-    positiveFactory := MemberIteratorControlsInstanceFactory(
-        positiveOwner,
-        "Gen",
-        positiveFactoryParameters
-    )
-    positiveTypes := new List<TypeBuilder>()
-    positiveOrdinal := new int[](1)
-    positiveOrdinal[0] = 40
-    positiveBodyResolution := MemberIteratorControlsEnclosingResolution(
-        positiveSource,
-        "MethodPositive",
-        EmitFixtureNoStrings(),
-        EmitFixtureNoStrings(),
-        positiveDefinition
-    )
-    positiveResult: ColumnarIteratorRealizationResult = MemberIteratorControlsCall(
-        IteratorRealizationControlPersistedModule(positiveOwner),
-        positiveDefinition,
-        IteratorRealizationControlFunctionWithSignature(
-            positiveProbe,
-            "Gen",
-            "IEnumerable<int>",
-            EmitFixtureOneString("other"),
-            EmitFixtureOneString("MethodPositive"),
-            EmitFixtureNoStrings(),
-            false,
-            805
-        ),
-        positiveFactory,
-        false,
-        positiveProgram,
-        positiveBodyResolution,
-        positiveSource,
-        positiveTypes,
-        positiveOrdinal,
-        MemberIteratorControlsBodyFacts(positiveDefinition, positiveBodyResolution)
-    )
-    if !positiveResult.Succeeded {
-        throw new InvalidOperationException("Member iterator realization declined at " + positiveResult.DeclineSite + ": " + positiveResult.DeclineMessage)
-    }
-    assert positiveTypes.Count == 1
-    assert positiveOrdinal[0] == 41
-
-    // A live matching overload key whose value is null reaches the concrete List dereference inside
-    // the method walk, with disposal during unwinding before the caller observes the exception. This
-    // is intentionally an internal malformed fact: it pins the existing null-dereference phase
-    // rather than adding a prevalidation policy.
-    nullSource := "func* Gen(): IEnumerable<int> { yield 1 }"
-    nullProbe := new EmitFixtureIteratorShapeProbe(
-        nullSource,
+// A successful member generator makes the same promise as the declining one: the input's method
+// list is irrelevant to field discovery, shape planning and realization. The nested machine is
+// built from the body and its fields; no enclosing method-name table is needed.
+test "member iterator realizes a body without enumerating enclosing method rows" {
+    source := "func* Gen(): IEnumerable<int> { yield 1 }"
+    probe := new EmitFixtureIteratorShapeProbe(
+        source,
         "IEnumerable<int>",
         EmitFixtureNoStrings(),
         EmitFixtureNoStrings(),
         EmitFixtureNoStrings(),
         false
     )
-    nullIterator := IteratorRealizationControlFunction(
-        nullProbe,
+    function := IteratorRealizationControlFunction(
+        probe,
         "Gen",
         "IEnumerable<int>",
         EmitFixtureNoStrings(),
         false,
         807
     )
-    nullCandidate := IteratorRealizationControlFunction(
-        nullProbe,
-        "Original",
-        "IEnumerable<int>",
-        EmitFixtureNoStrings(),
-        false,
-        807
-    )
-    nullInput := MemberIteratorControlsInput(
-        "NullOverloads",
+    input := MemberIteratorControlsInput(
+        "MethodFactsHost",
         EmitFixtureNoStrings(),
         EmitFixtureNoStrings()
     )
-    nullMethodsState := new MemberIteratorControlsRowsState(
-        MemberIteratorControlsOneRow(nullCandidate),
-        false
+    methodsState := new MemberIteratorControlsRowsState(
+        MemberIteratorControlsNoRows(),
+        true
     )
-    nullMethods := MemberIteratorControlsWrapReadOnlyList(
-        "MemberIteratorNullOverloadsMethods",
+    methods := MemberIteratorControlsWrapReadOnlyList(
+        "MemberIteratorSuccessfulThrowingMethods",
         typeof(ColumnarFunctionInput),
-        nullMethodsState
+        methodsState
     )
-    nullProgram := MemberIteratorControlsEmptyProgram(nullSource)
-    MemberIteratorControlsSetMethods(nullInput, nullMethods)
-    nullStructs := new List<ColumnarStructInput>()
-    nullStructs.Add(nullInput)
-    nullStructsObject: object = nullStructs
-    MemberIteratorControlsSetStructs(nullProgram, nullStructsObject)
-    nullOwner := IteratorRealizationControlPersistedHost("MemberIteratorNullOverloadsHost")
-    nullDefinition := MemberIteratorControlsDefinition(
-        nullOwner,
-        "NullOverloads",
-        false
+    MemberIteratorControlsSetMethods(input, methods)
+    program := MemberIteratorControlsEmptyProgram(source)
+    inputs := new List<ColumnarStructInput>()
+    inputs.Add(input)
+    inputsObject: object = inputs
+    MemberIteratorControlsSetStructs(program, inputsObject)
+    owner := IteratorRealizationControlPersistedHost("MemberIteratorMethodFactsHost")
+    definition := MemberIteratorControlsDefinition(owner, "MethodFactsHost", false)
+    factory := MemberIteratorControlsInstanceFactory(owner, "Gen", System.Type.EmptyTypes)
+    resolution := MemberIteratorControlsEnclosingResolution(
+        source,
+        "MethodFactsHost",
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
+        definition
     )
-    EmitFixturePublicInstance(nullDefinition, "Original", noTypes, typeof(IEnumerable<int>))
-    missingOverloads: List<ColumnarInstanceMethodDef> = null
-    nullDefinition.MethodOverloads["Original"] = missingOverloads
-    nullTypes := new List<TypeBuilder>()
-    nullOrdinal := new int[](1)
-    nullOrdinal[0] = 41
-    expectedNull := new NullReferenceException()
-    expectedNullMessage := expectedNull.Message
-    nullCaught := false
-    try {
-        MemberIteratorControlsCall(
-            null,
-            nullDefinition,
-            nullIterator,
-            null,
-            false,
-            nullProgram,
-            null,
-            nullSource,
-            nullTypes,
-            nullOrdinal,
-            null
-        )
-    } catch error: NullReferenceException {
-        nullCaught = error.Message == expectedNullMessage
-    }
-    assert nullCaught
-    assert nullTypes.Count == 0
-    assert nullOrdinal[0] == 41
-    assert nullMethodsState.MoveCount == 1
-    assert nullMethodsState.CurrentCount == 1
-    assert nullMethodsState.DisposeCount == 1
+    types := new List<TypeBuilder>()
+    ordinal := new int[](1)
+    ordinal[0] = 40
 
-    mutatingSource := "func* Gen(other: MethodMutating): IEnumerable<int> { for value in other.Original() { yield value } }"
-    mutatingProbe := new EmitFixtureIteratorShapeProbe(
-        mutatingSource,
-        "IEnumerable<int>",
-        EmitFixtureOneString("other"),
-        EmitFixtureOneString("MethodMutating"),
-        EmitFixtureNoStrings(),
-        false
-    )
-    candidate := IteratorRealizationControlFunction(
-        mutatingProbe,
-        "Original",
-        "IEnumerable<int>",
-        EmitFixtureNoStrings(),
+    result: ColumnarIteratorRealizationResult = MemberIteratorControlsCall(
+        IteratorRealizationControlPersistedModule(owner),
+        definition,
+        function,
+        factory,
         false,
-        806
-    )
-    mutatingInput := MemberIteratorControlsInput(
-        "MethodMutating",
-        EmitFixtureNoStrings(),
-        EmitFixtureNoStrings()
-    )
-    mutatingMethodsState := new MemberIteratorControlsRowsState(
-        MemberIteratorControlsOneRow(candidate),
-        false
-    )
-    mutatingMethods := MemberIteratorControlsWrapReadOnlyList(
-        "MemberIteratorMutatingMethods",
-        typeof(ColumnarFunctionInput),
-        mutatingMethodsState
-    )
-    mutatingProgram := MemberIteratorControlsEmptyProgram(mutatingSource)
-    MemberIteratorControlsSetMethods(mutatingInput, mutatingMethods)
-    mutatingStructs := new List<ColumnarStructInput>()
-    mutatingStructs.Add(mutatingInput)
-    mutatingStructsObject: object = mutatingStructs
-    MemberIteratorControlsSetStructs(mutatingProgram, mutatingStructsObject)
-    mutatingOwner := IteratorRealizationControlPersistedHost("MemberIteratorMethodMutatingHost")
-    mutatingDefinition := MemberIteratorControlsDefinition(
-        mutatingOwner,
-        "MethodMutating",
-        false
-    )
-    memberBuilder := mutatingOwner.DefineMethod(
-        "Original",
-        (MethodAttributes)6,
-        typeof(IEnumerable<int>),
-        noTypes
-    )
-    memberDefinition := new ColumnarInstanceMethodDef(memberBuilder, noTypes, typeof(IEnumerable<int>))
-    mutatingComparer := new MemberIteratorControlsMutatingMethodsComparer()
-    mutatingMethodsMap := new Dictionary<string, ColumnarInstanceMethodDef>(mutatingComparer)
-    mutatingMethodsMap["Original"] = memberDefinition
-    mutatingDefinition.Methods = mutatingMethodsMap
-    tracingComparer := new MemberIteratorControlsTracingOverloadsComparer()
-    changedOverloads := new List<ColumnarInstanceMethodDef>()
-    changedOverloads.Add(memberDefinition)
-    changedOverloads.Add(memberDefinition)
-    overloadMap := new Dictionary<string, List<ColumnarInstanceMethodDef>>(tracingComparer)
-    overloadMap["Changed"] = changedOverloads
-    mutatingDefinition.MethodOverloads = overloadMap
-    mutatingComparer.Candidate = candidate
-    mutatingComparer.Armed = true
-    tracingComparer.Armed = true
-
-    mutatingTypes := new List<TypeBuilder>()
-    mutatingOrdinal := new int[](1)
-    mutatingOrdinal[0] = 42
-    // The shape is admitted now, so realization reaches the factory's IL before it declines the body —
-    // a real module and factory builder are what let this case pin the METHOD WALK rather than an
-    // argument-null crash.
-    mutatingFactoryParameters := new Type[](1)
-    mutatingOwnerType: Type = mutatingOwner
-    mutatingFactoryParameters[0] = mutatingOwnerType
-    mutatingFactory := MemberIteratorControlsInstanceFactory(
-        mutatingOwner,
-        "Gen",
-        mutatingFactoryParameters
-    )
-    mutatingResult: ColumnarIteratorRealizationResult = MemberIteratorControlsCall(
-        IteratorRealizationControlPersistedModule(mutatingOwner),
-        mutatingDefinition,
-        IteratorRealizationControlFunctionWithSignature(
-            mutatingProbe,
-            "Gen",
-            "IEnumerable<int>",
-            EmitFixtureOneString("other"),
-            EmitFixtureOneString("MethodMutating"),
-            EmitFixtureNoStrings(),
-            false,
-            806
-        ),
-        mutatingFactory,
-        false,
-        mutatingProgram,
-        MemberIteratorControlsEnclosingResolution(
-            mutatingSource,
-            "MethodMutating",
-            EmitFixtureNoStrings(),
-            EmitFixtureNoStrings(),
-            mutatingDefinition
-        ),
-        mutatingSource,
-        mutatingTypes,
-        mutatingOrdinal,
+        program,
+        resolution,
+        source,
+        types,
+        ordinal,
         null
     )
-    // The `for..in` source is an ordinary expression now, so the shape is ADMITTED and the decline
-    // comes from the body: with no program facts routed, the one expression owner cannot resolve
-    // `other.Original()`. Same site, later phase — which is what lets the method-walk assertions below
-    // still pin exactly what they pinned.
-    assert !mutatingResult.Succeeded
-    assert mutatingResult.DeclineSite == "emit.iterator.for-in-unsupported"
-    assert mutatingResult.DeclineMember == "MemberIteratorMethodMutatingHost.Gen"
-    assert candidate.Name == "Changed"
-    assert tracingComparer.Lookups.Count == 1
-    assert tracingComparer.Lookups[0] == "Changed"
-    assert mutatingMethodsState.MoveCount == 1
-    assert mutatingMethodsState.CurrentCount == 1
-    assert mutatingMethodsState.DisposeCount == 1
-    assert mutatingTypes.Count == 0
-    assert mutatingOrdinal[0] == 43
+    assert result.Succeeded
+    assert types.Count == 1
+    assert ordinal[0] == 41
+    assert methodsState.MoveCount == 0
+    assert methodsState.CurrentCount == 0
+    assert methodsState.DisposeCount == 0
 }
 
 // The planner's declaration walk over the hostile constructor list above: a disposal failure after

@@ -176,8 +176,8 @@ func IteratorOrderingResolution(program: object, sourceFileId: int): object {
 
 func IteratorOrderingShape(function: object, source: string): object {
     planner := IteratorOrderingBootstrapType("ColumnarIteratorPlanner")
-    analyze := IteratorOrderingMethod(planner, "AnalyzeShape", (BindingFlags)24, 16)
-    values := new object?[](16)
+    analyze := IteratorOrderingMethod(planner, "AnalyzeShape", (BindingFlags)24, 14)
+    values := new object?[](14)
     bodyNodes := IteratorOrderingRequiredMember(function, "BodyNodes")
     IteratorOrderingPut(values, 0, bodyNodes)
     IteratorOrderingPut(values, 1, source)
@@ -199,9 +199,7 @@ func IteratorOrderingShape(function: object, source: string): object {
     IteratorOrderingPut(values, 10, "")
     IteratorOrderingPut(values, 11, new string[](0))
     IteratorOrderingPut(values, 12, new string[](0))
-    IteratorOrderingPut(values, 13, new string[](0))
-    IteratorOrderingPut(values, 14, new string[](0))
-    IteratorOrderingPut(values, 15, false)
+    IteratorOrderingPut(values, 13, false)
     shape := analyze.Invoke(null, values)
     if shape == null {
         throw new InvalidOperationException("Iterator planner returned null")
@@ -457,8 +455,8 @@ func IteratorOrderingRun(mutation: string): IteratorOrderingOutcome {
 
     module := IteratorOrderingNewModule(mutation)
     factoryIl := IteratorOrderingFactoryIl(module, mutation)
-    emitter := ColumnarIlEmitterPrivateMethod("TryEmitIteratorStateMachine", 17)
-    values := new object?[](17)
+    emitter := ColumnarIlEmitterPrivateMethod("TryEmitIteratorStateMachine", 15)
+    values := new object?[](15)
     IteratorOrderingPut(values, 0, module)
     IteratorOrderingPut(values, 1, parsed.Function)
     IteratorOrderingPut(values, 2, 0)
@@ -474,11 +472,9 @@ func IteratorOrderingRun(mutation: string): IteratorOrderingOutcome {
     IteratorOrderingPut(values, 11, null)
     IteratorOrderingPut(values, 12, null)
     IteratorOrderingPut(values, 13, null)
-    IteratorOrderingPut(values, 14, null)
-    IteratorOrderingPut(values, 15, null)
     // The body facts a program's own declarations would route; this control emits a literal `yield`
     // body that names none of them.
-    IteratorOrderingPut(values, 16, null)
+    IteratorOrderingPut(values, 14, null)
     IteratorOrderingResetTrace()
     outcome := "false"
     try {

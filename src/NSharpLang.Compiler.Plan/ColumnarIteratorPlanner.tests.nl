@@ -163,8 +163,6 @@ class ColumnarAsyncProbeMachine {
             null,
             null,
             null,
-            null,
-            null,
             (MethodInfo)coreBox
         )
         PlanningContext = context
@@ -634,8 +632,6 @@ class ColumnarIteratorShapeProbe {
             typeParamNames,
             isInstance,
             "",
-            new string[](0),
-            new string[](0),
             new string[](0),
             new string[](0),
             isAsync
@@ -2308,8 +2304,6 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
         "HostProbe",
         memberNames,
         memberCanonicals,
-        IteratorNoStrings(),
-        IteratorNoStrings(),
         false
     )
 
@@ -2343,9 +2337,7 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
         hostType,
         memberNames,
         hostFields,
-        memberCanonicals,
-        IteratorNoStrings(),
-        new MethodInfo[](0)
+        memberCanonicals
     )
 
     moveNext := MakeIteratorDynamicMethod("InstanceMoveNext", typeof(bool), smType)
@@ -2415,8 +2407,6 @@ test "iterator planner factory copies a struct receiver into the machine" {
         "ValueHostProbe",
         memberNames,
         memberCanonicals,
-        IteratorNoStrings(),
-        IteratorNoStrings(),
         false
     )
     assert shape.Supported
@@ -2450,9 +2440,7 @@ test "iterator planner factory copies a struct receiver into the machine" {
         hostType,
         memberNames,
         hostFields,
-        memberCanonicals,
-        IteratorNoStrings(),
-        new MethodInfo[](0)
+        memberCanonicals
     )
 
     factoryPlan := ColumnarIteratorBodyPlanner.BuildFactoryPlan(context)
@@ -2506,8 +2494,6 @@ test "iterator planner plans enclosing member writes and refuses unbound ones" {
         "HostProbe",
         IteratorOne("Value"),
         IteratorOne("int"),
-        IteratorNoStrings(),
-        IteratorNoStrings(),
         false
     )
 
@@ -2537,8 +2523,6 @@ test "iterator planner plans enclosing member writes and refuses unbound ones" {
         "HostProbe",
         IteratorOne("Value"),
         IteratorOne("int"),
-        IteratorNoStrings(),
-        IteratorNoStrings(),
         false
     )
 
@@ -2570,8 +2554,6 @@ test "iterator planner classifies member-call for..in sources" {
         "TreeNode",
         IteratorTwo("Value", "Children"),
         IteratorTwo("int", "List<TreeNode>"),
-        IteratorOne("Walk"),
-        IteratorOne("IEnumerable<int>"),
         false
     )
 

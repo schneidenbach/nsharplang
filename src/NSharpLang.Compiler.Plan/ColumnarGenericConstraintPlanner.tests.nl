@@ -34,6 +34,26 @@ test "`class` and `new()` combine, which is the documented `Service<T>` header" 
     assert ColumnarGenericConstraintPlanner.AttributeBitsFor(5) == 20
 }
 
+test "every word the attribute rule produces reads back to a special that reproduces it" {
+    special := 0
+    for kind in [0, 1, 2, 4, 5] {
+        word := ColumnarGenericConstraintPlanner.AttributeBitsFor(kind)
+        assert ColumnarGenericConstraintPlanner.TrySpecialFor(word, out special)
+        assert ColumnarGenericConstraintPlanner.AttributeBitsFor(special) == word
+    }
+    assert ColumnarGenericConstraintPlanner.TrySpecialFor(24, out special)
+    assert special == 2
+    assert ColumnarGenericConstraintPlanner.TrySpecialFor(20, out special)
+    assert special == 5
+}
+
+test "a word the language does not model is refused rather than silently narrowed" {
+    special := 0
+    assert !ColumnarGenericConstraintPlanner.TrySpecialFor(1, out special)
+    assert !ColumnarGenericConstraintPlanner.TrySpecialFor(8, out special)
+    assert !ColumnarGenericConstraintPlanner.TrySpecialFor(36, out special)
+}
+
 // ── Base-constraint admissibility ───────────────────────────────────────────────────────────────
 test "a type PARAMETER is always an admissible base constraint, whatever else is asked" {
     // `where T: U` is a real constraint. The caller must answer this arm BEFORE touching `IsSZArray`,

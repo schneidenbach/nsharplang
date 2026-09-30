@@ -38,6 +38,8 @@ class ColumnarFragmentBindings {
     // `EnclosingTypeDefinition` is the type a bare `Label()` is then asked of. Null everywhere else:
     // an ordinary member body's receiver IS argument 0 (`CurrentInstance`).
     CapturedReceiverField: FieldInfo?
+    ReceiverMembers: Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>
+    ThisIsCapturedReceiver: bool
     CurrentInstance: ColumnarCurrentInstanceFacts?
     // Exact live handles for every method/type generic parameter visible to this body. Method
     // parameters are installed first; an enclosing type parameter with the same name must never
@@ -95,6 +97,8 @@ class ColumnarFragmentBindings {
         BoxedCaptures = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
         CapturedInstanceFields = new Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>(StringComparer.Ordinal)
         CapturedReceiverField = null
+        ReceiverMembers = new Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>(StringComparer.Ordinal)
+        ThisIsCapturedReceiver = false
         CurrentInstance = null
         typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
         SourceTypeDefinitions = new List<ColumnarStructDef>()

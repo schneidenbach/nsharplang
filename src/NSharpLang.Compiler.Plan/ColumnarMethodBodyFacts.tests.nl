@@ -1056,17 +1056,17 @@ test "the expression door partitions its whole kind ledger with no hole and no o
         i = i + 1
     }
 
-    // FIFTEEN claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites
+    // SIXTEEN claimed kinds: the four scalar-literal kinds, bool, identifier, the two composites
     // 015-B6 took, the direct CALL (015-B7), the primitive BINARY (015-B9), the TERNARY (015-B12), the
-    // CHECKED CONTEXT (015-B13), the MEMBER-ACCESS root (015-B14) and, in 015-B16, the PARENTHESIS
-    // root and the TYPEOF root. The count is pinned so a widening cannot arrive without a block that
-    // says what it claims — this assertion is the reason none of `015-B12`'s, `015-B13`'s, `015-B14`'s
-    // or `015-B16`'s widenings could land silently, and it has been REWRITTEN by each of them
-    // (10 -> 11 -> 12 -> 13 -> 15) rather than relaxed. Each slice's first run of this block FAILED
+    // CHECKED CONTEXT (015-B13), the MEMBER-ACCESS root (015-B14), in 015-B16 the PARENTHESIS root
+    // and the TYPEOF root, and the bare `this` root. The count is pinned so a widening cannot arrive
+    // without a block that says what it claims — this assertion is the reason none of `015-B12`'s,
+    // `015-B13`'s, `015-B14`'s or `015-B16`'s widenings could land silently, and it has been REWRITTEN
+    // by each of them (10 -> 11 -> 12 -> 13 -> 15 -> 16) rather than relaxed. Each slice's first run of this block FAILED
     // before it was updated, which is the block working — `015-B16`'s census of parenthesis pins found
     // SEVEN and this block found the EIGHTH, which is exactly the hole a census over source text
     // cannot see.
-    assert claimed == 15
+    assert claimed == 16
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression)
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression)
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression)
@@ -1082,6 +1082,7 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression)
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression)
     assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TypeOfExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.ThisExpression)
 
     // The composites that remain declined are declined one by one. Their gates are open now; what
     // holds them back is the emitter's ELEVEN-ARM root cascade, which a claim must enter arm by arm.
@@ -1102,6 +1103,7 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CastExpression)
     assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression)
     assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.TypeOfExpression)
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ThisExpression)
 
     // And a DECLINED kind declines at the door without touching the plan, which is what lets the
     // driver reuse one plan object across a decline.

@@ -574,11 +574,16 @@ else
     # measured counts; none of the eleven project ceilings increased. The write-position analysis
     # routes nullable request nodes through one position-aware helper, avoiding three duplicate
     # NL202s that the earlier split call sites added to Core's front door.
+    # 2026-09-29, the external generic receiver binding cleanup: Model 0, Syntax 0, Core 355, Plan 0,
+    # Emit 0, CodeIntel 0, Tooling 0, Driver 0, Compiler 5, Playground 0 and Build.Tasks 0. Against
+    # the untouched Core source, the identity diff is zero additions and three removed NL202s in
+    # AnalyzerCallAnalysis: the receiver and constrained receiver are carried in a typed non-null
+    # local after the guard. The Core ceiling drops with the source.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        358
+        355
         0
         0
         0

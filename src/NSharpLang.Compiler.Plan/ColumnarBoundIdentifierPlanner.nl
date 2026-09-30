@@ -294,7 +294,7 @@ class ColumnarBoundIdentifierPlanner {
             argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, selection.CurrentInstanceIsAddress)
 
             plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
-            fieldIndex := plan.AddField(RequiredField(selection.FirstField, "Current-field selection has no exact field handle."))
+            fieldIndex := AddSelectedField(plan, selection, "Current-field selection has no exact field handle.")
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.CurrentProperty {
@@ -320,7 +320,7 @@ class ColumnarBoundIdentifierPlanner {
             argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
 
             plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
-            fieldIndex := plan.AddField(RequiredField(selection.FirstField, "Base-field selection has no exact field handle."))
+            fieldIndex := AddSelectedField(plan, selection, "Base-field selection has no exact field handle.")
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.BaseProperty {
@@ -429,19 +429,19 @@ class ColumnarBoundIdentifierPlanner {
     // with no storage and answers no.
     static func TryGetEnclosingStaticFieldType(bindings: ColumnarFragmentBindings, name: string, out fieldType: Type?): bool {
         fieldType = null
-        fieldOwner: ColumnarStructDef? = null
-        field: FieldBuilder? = null
-        if !TryFindEnclosingStaticField(bindings, name, out fieldOwner, out field) || field == null {
+        field: FieldInfo? = null
+        boundType := typeof(object)
+        if !TryFindEnclosingStaticField(bindings, name, out field, out boundType) || field == null {
             return false
         }
 
-        fieldType = field.FieldType
+        fieldType = boundType
         return true
     }
 
-    static func TryFindEnclosingStaticField(bindings: ColumnarFragmentBindings, name: string, out fieldOwner: ColumnarStructDef?, out field: FieldBuilder?): bool {
-        fieldOwner = null
+    static func TryFindEnclosingStaticField(bindings: ColumnarFragmentBindings, name: string, out field: FieldInfo?, out fieldType: Type): bool {
         field = null
+        fieldType = typeof(object)
         if bindings == null || name == null || name.Length == 0 {
             return false
         }
@@ -451,20 +451,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        selectedOwner: ColumnarStructDef? = null
-        selectedField: FieldBuilder? = null
-        if !ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(enclosing, name, out selectedOwner, out selectedField) || selectedField == null {
-            return false
-        }
-
-        literalValue := 0
-        if selectedOwner != null && selectedOwner.StaticIntConstants.TryGetValue(name, out literalValue) {
-            return false
-        }
-
-        fieldOwner = selectedOwner
-        field = selectedField
-        return true
+        return ColumnarSourceStaticMemberPlanner.TryBindStorageStaticField(enclosing, name, out field, out fieldType)
     }
 
     // Member planning needs the semantic receiver type before it chooses a field/getter and,
@@ -741,13 +728,12 @@ class ColumnarBoundIdentifierPlanner {
         // rather than inside it. An explicit `this.` spelling never names a static, so it is
         // excluded here exactly as it is for the local and parameter arms above.
         if !explicitThis {
-            staticFieldOwner: ColumnarStructDef? = null
-            staticField: FieldBuilder? = null
-            if TryFindEnclosingStaticField(bindings, name, out staticFieldOwner, out staticField) && staticField != null {
-                staticFieldType := staticField.FieldType
+            staticField: FieldInfo? = null
+            staticFieldType := typeof(object)
+            if TryFindEnclosingStaticField(bindings, name, out staticField, out staticFieldType) && staticField != null {
                 RequireStorableValueType(staticFieldType, "A by-reference static field must have a storable type.")
 
-                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), ColumnarSourceStaticMemberPlanner.AddStaticField(plan, staticFieldOwner, staticField))
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), ColumnarSourceStaticMemberPlanner.AddStaticField(plan, staticField, staticFieldType))
 
                 elementType = staticFieldType
                 return true
@@ -796,6 +782,18 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         if ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node) {
+            // Inside an instance iterator `this` is the receiver the machine captured, never the
+            // machine: its fields are the body's own bindings, and a binding that hides a member's bare
+            // name does not hide `this.member`.
+            if bindings.ThisIsCapturedReceiver {
+                if !bindings.ReceiverMembers.ContainsKey(name) {
+                    return false
+                }
+                receiverMember := bindings.ReceiverMembers[name]
+                selection = CapturedInstanceFieldSelection(receiverMember.Item1, receiverMember.Item2)
+                return true
+            }
+
             // Written `this.Member` names the LEXICAL owner's member, which inside a display is the
             // captured receiver's — the same answer the bare name gets, by the same two hops.
             return TryResolveCurrentInstance(name, bindings, out selection) || TryResolveCapturedEnclosingInstance(name, bindings, out selection)
@@ -842,23 +840,7 @@ class ColumnarBoundIdentifierPlanner {
             }
 
             captured := bindings.CapturedInstanceFields[name]
-            receiverField := captured.Item1
-            memberField := captured.Item2
-            if receiverField == null || memberField == null {
-                throw new InvalidOperationException("Captured-instance-field facts cannot be null.")
-            }
-
-            displayType := receiverField.DeclaringType
-            if displayType == null || displayType.IsValueType || receiverField.IsStatic || memberField.IsStatic {
-                throw new InvalidOperationException("Captured-instance-field facts do not identify an exact instance receiver and member.")
-            }
-
-            memberType := memberField.FieldType
-            RequireStorableValueType(memberType, "Captured-instance-field facts must identify a readable member value.")
-
-            capturedReceiverChain := new FieldInfo[](1)
-            capturedReceiverChain[0] = receiverField
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, memberType, -1, -1, null, receiverField, memberField, null, null, displayType, false, capturedReceiverChain)
+            selection = CapturedInstanceFieldSelection(captured.Item1, captured.Item2)
 
             return true
         }
@@ -992,6 +974,26 @@ class ColumnarBoundIdentifierPlanner {
         return TryResolveCurrentInstance(name, bindings, out selection) || TryResolveCapturedEnclosingInstance(name, bindings, out selection)
     }
 
+    // A member read through the receiver field argument 0 holds: `ldarg.0; ldfld <receiver>; ldfld
+    // <member>`.
+    static func CapturedInstanceFieldSelection(receiverField: FieldInfo, memberField: FieldInfo): ColumnarBoundIdentifierSelection {
+        if receiverField == null || memberField == null {
+            throw new InvalidOperationException("Captured-instance-field facts cannot be null.")
+        }
+
+        displayType := receiverField.DeclaringType
+        if displayType == null || displayType.IsValueType || receiverField.IsStatic || memberField.IsStatic {
+            throw new InvalidOperationException("Captured-instance-field facts do not identify an exact instance receiver and member.")
+        }
+
+        memberType := memberField.FieldType
+        RequireStorableValueType(memberType, "Captured-instance-field facts must identify a readable member value.")
+
+        capturedReceiverChain := new FieldInfo[](1)
+        capturedReceiverChain[0] = receiverField
+        return new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, memberType, -1, -1, null, receiverField, memberField, null, null, displayType, false, capturedReceiverChain)
+    }
+
     // `base.Name` AS A VALUE — the field or property the BASE declares.
     //
     // The current-instance walk above starts at the type being compiled, which is the right answer
@@ -1019,7 +1021,6 @@ class ColumnarBoundIdentifierPlanner {
             baseDefinition := sourceBase
             baseType := RequiredType(exactBaseType, "A source base declaration has no exact base type.")
 
-            openBaseType: Type = baseDefinition.Builder
             baseFacts := ColumnarCurrentInstanceFacts.FromSourceDefinition(baseDefinition)
             field: FieldInfo? = null
             declaringType := typeof(object)
@@ -1030,12 +1031,14 @@ class ColumnarBoundIdentifierPlanner {
 
                 selectedField := field
                 selectedDeclaringType := declaringType
-                if baseType != declaringType && declaringType == openBaseType {
-                    selectedField = RebindField(baseType, field)
-                    selectedDeclaringType = baseType
+                fieldType := field.FieldType
+                inheritedOwner := ColumnarInheritedOwner.ConstructedOwnerOf(baseDefinition, baseType, declaringType)
+                if inheritedOwner != null {
+                    selectedField = RebindField(inheritedOwner, field)
+                    selectedDeclaringType = inheritedOwner
+                    fieldType = ColumnarInheritedExternalBase.Substitute(field.FieldType, inheritedOwner.GetGenericArguments())
                 }
 
-                fieldType := selectedField.FieldType
                 RequireStorableValueType(fieldType, "Base-instance field facts must identify a storable value type.")
 
                 selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BaseField, fieldType, 0, -1, null, selectedField, null, null, selectedDeclaringType, receiverType, false)
@@ -1058,12 +1061,16 @@ class ColumnarBoundIdentifierPlanner {
 
                 selectedGetter := getter
                 selectedDeclaringType := declaringType
-                if baseType != declaringType && declaringType == openBaseType {
-                    selectedGetter = RebindMethod(baseType, getter)
-                    selectedDeclaringType = baseType
+                selectedPropertyType := propertyType
+                inheritedOwner := ColumnarInheritedOwner.ConstructedOwnerOf(baseDefinition, baseType, declaringType)
+                if inheritedOwner != null {
+                    selectedGetter = RebindMethod(inheritedOwner, getter)
+                    selectedDeclaringType = inheritedOwner
+                    selectedPropertyType = ColumnarInheritedExternalBase.Substitute(propertyType, inheritedOwner.GetGenericArguments())
+                    RequireStorableValueType(selectedPropertyType, "Base-instance property facts must identify a storable value type.")
                 }
 
-                selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BaseProperty, propertyType, 0, -1, null, null, null, selectedGetter, selectedDeclaringType, receiverType, false)
+                selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BaseProperty, selectedPropertyType, 0, -1, null, null, null, selectedGetter, selectedDeclaringType, receiverType, false)
 
                 return true
             }
@@ -1298,12 +1305,22 @@ class ColumnarBoundIdentifierPlanner {
 
             selectedField := field
             selectedDeclaringType := declaringType
+            fieldType := field.FieldType
             if receiverType != rootType && declaringType == rootType {
                 selectedField = RebindField(receiverType, field)
                 selectedDeclaringType = receiverType
+                fieldType = selectedField.FieldType
+            } else if declaringType != rootType && root.SourceDefinition != null {
+                // A field a CONSTRUCTED source base declares — `class IntHolder: Holder<int>` reading
+                // `stored` — is `Holder<int>::stored`, typed over the base's arguments.
+                inheritedOwner := ColumnarInheritedOwner.ConstructedOwnerOf(root.SourceDefinition, rootType, declaringType)
+                if inheritedOwner != null {
+                    selectedField = RebindField(inheritedOwner, field)
+                    selectedDeclaringType = inheritedOwner
+                    fieldType = ColumnarInheritedExternalBase.Substitute(field.FieldType, inheritedOwner.GetGenericArguments())
+                }
             }
 
-            fieldType := selectedField.FieldType
             RequireStorableValueType(fieldType, "Current-instance field facts must identify a storable value type.")
 
             selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentField, fieldType, 0, -1, null, selectedField, null, null, selectedDeclaringType, receiverType, !root.IsReference)
@@ -1322,12 +1339,23 @@ class ColumnarBoundIdentifierPlanner {
 
             selectedGetter := getter
             selectedDeclaringType := declaringType
+            selectedPropertyType := propertyType
             if receiverType != rootType && declaringType == rootType {
                 selectedGetter = RebindMethod(receiverType, getter)
                 selectedDeclaringType = receiverType
+            } else if declaringType != rootType && root.SourceDefinition != null {
+                // The property twin of the field arm: an inherited `Value` of `Holder<T>` read inside
+                // `IntHolder` is `Holder<int>::get_Value`, and it answers `int`, not `T`.
+                inheritedOwner := ColumnarInheritedOwner.ConstructedOwnerOf(root.SourceDefinition, rootType, declaringType)
+                if inheritedOwner != null {
+                    selectedGetter = RebindMethod(inheritedOwner, getter)
+                    selectedDeclaringType = inheritedOwner
+                    selectedPropertyType = ColumnarInheritedExternalBase.Substitute(propertyType, inheritedOwner.GetGenericArguments())
+                    RequireStorableValueType(selectedPropertyType, "Current-instance property facts must identify a storable value type.")
+                }
             }
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentProperty, propertyType, 0, -1, null, null, null, selectedGetter, selectedDeclaringType, receiverType, !root.IsReference)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentProperty, selectedPropertyType, 0, -1, null, null, null, selectedGetter, selectedDeclaringType, receiverType, !root.IsReference)
 
             return true
         }
@@ -1439,6 +1467,19 @@ class ColumnarBoundIdentifierPlanner {
 
         typeIndex := plan.AddType(valueType)
         return plan.AddArgument(ordinal, typeIndex, isAddress)
+    }
+
+    // A field handle rebound onto a CONSTRUCTED owner reports the open definition's field type
+    // (`Holder<int>::stored` still says `T`), so the plan carries the selection's closed declaring and
+    // value types beside it. A field of a non-generic owner is its own signature.
+    static func AddSelectedField(plan: ColumnarCodePlan, selection: ColumnarBoundIdentifierSelection, message: string): int {
+        field := RequiredField(selection.FirstField, message)
+        declaringType := selection.DeclaringType
+        if declaringType == null || !declaringType.IsGenericType || declaringType.IsGenericTypeDefinition {
+            return plan.AddField(field)
+        }
+
+        return plan.AddFieldWithSignature(field, declaringType, selection.ResultType, false)
     }
 
     static func RequiredLocal(value: LocalBuilder?, message: string): LocalBuilder {

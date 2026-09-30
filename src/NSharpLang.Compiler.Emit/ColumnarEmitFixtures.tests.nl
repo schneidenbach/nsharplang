@@ -482,8 +482,6 @@ class EmitFixtureIteratorShapeProbe {
             "",
             new string[](0),
             new string[](0),
-            new string[](0),
-            new string[](0),
             isAsync
         )
     }

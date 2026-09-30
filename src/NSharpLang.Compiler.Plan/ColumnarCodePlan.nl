@@ -1375,7 +1375,7 @@ class ColumnarCodePlan {
 
     func AppendTypeInstruction(opCodeValue: short, typeIndex: int) {
         EnsureV2Building()
-        if (opCodeValue != ColumnarCodePlanContract.Ldelem() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldtoken() && opCodeValue != ColumnarCodePlanContract.Box() && opCodeValue != ColumnarCodePlanContract.Castclass() && opCodeValue != ColumnarCodePlanContract.Initobj() && opCodeValue != ColumnarCodePlanContract.Newarr() && opCodeValue != ColumnarCodePlanContract.Stelem())) && !(IsMethodBodySchema() && (opCodeValue == ColumnarCodePlanContract.Isinst() || opCodeValue == ColumnarCodePlanContract.UnboxAny() || opCodeValue == ColumnarCodePlanContract.Constrained() || opCodeValue == ColumnarCodePlanContract.Ldobj()))) || typeIndex < 0 || typeIndex >= TypeCount {
+        if (opCodeValue != ColumnarCodePlanContract.Ldelem() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldtoken() && opCodeValue != ColumnarCodePlanContract.Box() && opCodeValue != ColumnarCodePlanContract.Castclass() && opCodeValue != ColumnarCodePlanContract.Initobj() && opCodeValue != ColumnarCodePlanContract.Ldobj() && opCodeValue != ColumnarCodePlanContract.Newarr() && opCodeValue != ColumnarCodePlanContract.Stelem())) && !(IsMethodBodySchema() && (opCodeValue == ColumnarCodePlanContract.Isinst() || opCodeValue == ColumnarCodePlanContract.UnboxAny() || opCodeValue == ColumnarCodePlanContract.Constrained() || opCodeValue == ColumnarCodePlanContract.Ldobj()))) || typeIndex < 0 || typeIndex >= TypeCount {
             throw new InvalidOperationException("The opcode does not use this type pool entry.")
         }
         AppendV2Row(ColumnarCodePlanContract.EmitInstructionOperation(), opCodeValue, ColumnarCodePlanContract.TypeOperand(), typeIndex)
@@ -2089,7 +2089,7 @@ class ColumnarCodePlan {
         if opCodeValue == ColumnarCodePlanContract.Br() || opCodeValue == ColumnarCodePlanContract.Brfalse() || opCodeValue == ColumnarCodePlanContract.Brtrue() {
             return operandKind == ColumnarCodePlanContract.LabelOperand() && operandIndex >= 0 && operandIndex < LabelCount
         }
-        if opCodeValue == ColumnarCodePlanContract.Ldelem() || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() && (opCodeValue == ColumnarCodePlanContract.Ldtoken() || opCodeValue == ColumnarCodePlanContract.Box() || opCodeValue == ColumnarCodePlanContract.Castclass() || opCodeValue == ColumnarCodePlanContract.Initobj() || opCodeValue == ColumnarCodePlanContract.Newarr() || opCodeValue == ColumnarCodePlanContract.Stelem())) {
+        if opCodeValue == ColumnarCodePlanContract.Ldelem() || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() && (opCodeValue == ColumnarCodePlanContract.Ldtoken() || opCodeValue == ColumnarCodePlanContract.Box() || opCodeValue == ColumnarCodePlanContract.Castclass() || opCodeValue == ColumnarCodePlanContract.Initobj() || opCodeValue == ColumnarCodePlanContract.Ldobj() || opCodeValue == ColumnarCodePlanContract.Newarr() || opCodeValue == ColumnarCodePlanContract.Stelem())) {
             return operandKind == ColumnarCodePlanContract.TypeOperand() && operandIndex >= 0 && operandIndex < TypeCount
         }
         return false

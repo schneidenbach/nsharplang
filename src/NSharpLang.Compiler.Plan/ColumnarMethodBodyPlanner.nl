@@ -893,6 +893,13 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return ColumnarTypeOfPlanner.TryAppendRoot(nodes, source, node, bindings, plan, out resultType)
         }
+        // 82 This — a bare `this`. `ColumnarThisExpressionPlanner` is the one owner the cascade and every
+        // nested value position reach, and it reads the instance's shape from the bindings'
+        // current-instance facts — reference or value type, closure display, captured receiver — which
+        // this driver routes exactly as the cascade does. So the root sequence is the owner's own.
+        if kind == ColumnarExpressionNodeKind.ThisExpression {
+            return ColumnarThisExpressionPlanner.TryAppendRoot(nodes, source, node, bindings, plan, out resultType)
+        }
         // 7 Parenthesized — `(<expr>)` (015-B16), and THE SECOND CLAIMED KIND WITH NO PLANNER OF ITS
         // OWN. Like kind 57 it is the HOST's own arm transcribed, and the host's arm is one line:
         // `case 7: return EmitExpression(Child(idx, 0), out type);`. So the arm is a child-count guard
@@ -1075,7 +1082,7 @@ class ColumnarMethodBodyPlanner {
     // `TryAppendValue`'s arm, where the emitter's own cascade makes it. Duplicating the operator test
     // here would be a second copy of that judgement, and the two copies could disagree.
     static func IsClaimedExpressionKind(kind: int): bool {
-        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression || kind == ColumnarExpressionNodeKind.IdentifierExpression || kind == ColumnarExpressionNodeKind.UnaryExpression || kind == ColumnarExpressionNodeKind.NameOfExpression || kind == ColumnarExpressionNodeKind.CallExpression || kind == ColumnarExpressionNodeKind.BinaryExpression || kind == ColumnarExpressionNodeKind.TernaryExpression || kind == ColumnarExpressionNodeKind.CheckedContextExpression || kind == ColumnarExpressionNodeKind.MemberAccessExpression || kind == ColumnarExpressionNodeKind.ParenthesizedExpression || kind == ColumnarExpressionNodeKind.TypeOfExpression
+        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression || kind == ColumnarExpressionNodeKind.IdentifierExpression || kind == ColumnarExpressionNodeKind.UnaryExpression || kind == ColumnarExpressionNodeKind.NameOfExpression || kind == ColumnarExpressionNodeKind.CallExpression || kind == ColumnarExpressionNodeKind.BinaryExpression || kind == ColumnarExpressionNodeKind.TernaryExpression || kind == ColumnarExpressionNodeKind.CheckedContextExpression || kind == ColumnarExpressionNodeKind.MemberAccessExpression || kind == ColumnarExpressionNodeKind.ParenthesizedExpression || kind == ColumnarExpressionNodeKind.TypeOfExpression || kind == ColumnarExpressionNodeKind.ThisExpression
     }
 
     // The kinds the door refuses, named one by one rather than left to a fall-through. The reason is
@@ -1134,15 +1141,12 @@ class ColumnarMethodBodyPlanner {
         // 79 ON-SUBSCRIPTION is declined for the same reason 39 Lambda is: its handler is a lambda site,
         // and the rows a lambda needs — a synthesized method, a display class, a capture set — are the
         // host emitter's, not this door's.
-        // 82 `this` is declined because the instance's own type is the HOST's fact: argument zero is the
-        // instance for a reference type and a managed pointer to it for a value type, and which of those
-        // two the body is in is decided by the enclosing declaration this door never sees.
         // 83 THROW-IN-VALUE-POSITION is declined because it is not a value at all: it leaves NOTHING
         // on the stack and ends its path, so the three positions that may contain one — the fallback
         // of a `??`, a conditional arm, an expression body — each lower it themselves, in the host
         // emitter, where the branch structure the throw sits inside is already being written. A door
         // that claimed it would have to promise a result type it can never produce.
-        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64 || kind == ColumnarExpressionNodeKind.DefaultExpression || kind == ColumnarExpressionNodeKind.NullGuardExpression || kind == ColumnarExpressionNodeKind.OnSubscriptionExpression || kind == ColumnarExpressionNodeKind.ThisExpression || kind == ColumnarExpressionNodeKind.ThrowExpression
+        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64 || kind == ColumnarExpressionNodeKind.DefaultExpression || kind == ColumnarExpressionNodeKind.NullGuardExpression || kind == ColumnarExpressionNodeKind.OnSubscriptionExpression || kind == ColumnarExpressionNodeKind.ThrowExpression
     }
 
     // THE LEDGER THE DOOR PARTITIONS — every node kind the parser can produce in a return-VALUE

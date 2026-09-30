@@ -174,14 +174,12 @@ class ColumnarIteratorWalkState {
     ParamNames: string[]
     ParamCanonicals: string[]
     TypeParamNames: string[]
-    // Enclosing-type member facts (instance iterators only; empty otherwise): readable public fields
-    // and callable public methods of the receiver's type.
+    // Enclosing-type member facts (instance iterators only; empty otherwise): every instance field the
+    // body can name and the callable public methods of the receiver's type.
     MemberFieldNames: string[]
     MemberFieldCanonicals: string[]
-    MemberMethodNames: string[]
-    MemberMethodReturnCanonicals: string[]
 
-    constructor(capacity: int, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], memberFieldNames: string[], memberFieldCanonicals: string[], memberMethodNames: string[], memberMethodReturnCanonicals: string[], isAsync: bool) {
+    constructor(capacity: int, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], memberFieldNames: string[], memberFieldCanonicals: string[], isAsync: bool) {
         YieldReturnCount = 0
         AwaitCount = 0
         ResumeCount = 0
@@ -211,8 +209,6 @@ class ColumnarIteratorWalkState {
         TypeParamNames = typeParamNames
         MemberFieldNames = memberFieldNames
         MemberFieldCanonicals = memberFieldCanonicals
-        MemberMethodNames = memberMethodNames
-        MemberMethodReturnCanonicals = memberMethodReturnCanonicals
     }
 
     func Decline(site: string, message: string) {
@@ -249,18 +245,6 @@ class ColumnarIteratorWalkState {
         while i < MemberFieldNames.Length {
             if MemberFieldNames[i] == name {
                 return MemberFieldCanonicals[i]
-            }
-            i = i + 1
-        }
-        return ""
-    }
-
-    // The return canonical of an enclosing-type METHOD (instance mode); "" when unknown.
-    func LookupMemberMethodReturnCanonical(name: string): string {
-        i := 0
-        while i < MemberMethodNames.Length {
-            if MemberMethodNames[i] == name {
-                return MemberMethodReturnCanonicals[i]
             }
             i = i + 1
         }
@@ -410,9 +394,9 @@ class ColumnarIteratorPlanner {
 
     // Analyze a func* and produce its state-machine shape facts, or a precise decline. An INSTANCE
     // method supplies its receiver canonical plus the enclosing type's readable field and callable
-    // method facts (public members only — the host filters); the receiver hoists as a `<>__this`
-    // captured field so the factory (the method body) stores `ldarg.0` and the clone copies it.
-    static func AnalyzeShape(nodes: ColumnarNodeTable, source: string, bodyRoot: int, funcName: string, funcOrdinal: int, returnCanonical: string, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], isInstance: bool, receiverCanonical: string = "", enclosingFieldNames: string[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethodReturnCanonicals: string[]? = null, isAsync: bool = false): ColumnarIteratorShape {
+    // method facts (the host decides which members a member body reaches); the receiver hoists as a
+    // `<>__this` captured field so the factory (the method body) stores `ldarg.0` and the clone copies it.
+    static func AnalyzeShape(nodes: ColumnarNodeTable, source: string, bodyRoot: int, funcName: string, funcOrdinal: int, returnCanonical: string, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], isInstance: bool, receiverCanonical: string = "", enclosingFieldNames: string[]? = null, enclosingFieldCanonicals: string[]? = null, isAsync: bool = false): ColumnarIteratorShape {
         if isInstance && receiverCanonical == "" {
             return Declined("emit.iterator.instance-unsupported", "iterator methods with an instance receiver are not yet lowered")
         }
@@ -446,7 +430,7 @@ class ColumnarIteratorPlanner {
         }
 
         capacity := nodes.Kinds.Length + 1
-        state := new ColumnarIteratorWalkState(capacity, paramNames, paramCanonicals, typeParamNames, enclosingFieldNames ?? new string[](0), enclosingFieldCanonicals ?? new string[](0), enclosingMethodNames ?? new string[](0), enclosingMethodReturnCanonicals ?? new string[](0), isAsync)
+        state := new ColumnarIteratorWalkState(capacity, paramNames, paramCanonicals, typeParamNames, enclosingFieldNames ?? new string[](0), enclosingFieldCanonicals ?? new string[](0), isAsync)
         WalkStatement(nodes, source, bodyRoot, state)
         if state.Declined {
             return Declined(state.DeclineSite, state.DeclineMessage)
@@ -1458,7 +1442,9 @@ class ColumnarIteratorPlanner {
             return
         }
         name := nodes.Text(source, target)
-        canonical := state.LookupCanonical(name)
+        // A binding or an enclosing member: which of the two the name means where it is written is
+        // the emission's question, and both are int-stepped the same way.
+        canonical := state.LookupReadCanonical(name)
         if canonical == "" {
             state.Decline("emit.iterator.unsupported-shape", "postfix step of an unbound or read-only identifier '" + name + "' in an iterator body")
             return
@@ -1759,8 +1745,6 @@ class ColumnarIteratorEmitContext {
     EnclosingFieldNames: string[]
     EnclosingFields: FieldInfo[]
     EnclosingFieldCanonicals: string[]
-    EnclosingMethodNames: string[]
-    EnclosingMethods: MethodInfo[]
     // Async-machine extra: the MoveNextCore handle MoveNextAsync's plan drives (null for sync machines).
     CoreMethod: MethodInfo?
     // The machine's own MoveNext, published once the realization has defined it. `Dispose` drives it
@@ -1785,7 +1769,7 @@ class ColumnarIteratorEmitContext {
     DeclineSite: string
     DeclineMessage: string
 
-    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, coreMethod: MethodInfo? = null, bodyFacts: ColumnarIteratorBodyFacts? = null, builder: TypeBuilder? = null, genericMemberType: Type? = null, typeParameters: Dictionary<string, Type>? = null, definitionFields: FieldInfo[]? = null, synthesizedTypes: List<TypeBuilder>? = null, sourceFileId: int = 0, genericSpecialConstraints: int[]? = null, genericBaseConstraints: Type?[]? = null, genericInterfaceConstraints: Type[][]? = null, genericParameters: Type[]? = null) {
+    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, coreMethod: MethodInfo? = null, bodyFacts: ColumnarIteratorBodyFacts? = null, builder: TypeBuilder? = null, genericMemberType: Type? = null, typeParameters: Dictionary<string, Type>? = null, definitionFields: FieldInfo[]? = null, synthesizedTypes: List<TypeBuilder>? = null, sourceFileId: int = 0, genericSpecialConstraints: int[]? = null, genericBaseConstraints: Type?[]? = null, genericInterfaceConstraints: Type[][]? = null, genericParameters: Type[]? = null) {
         Nodes = nodes
         Source = source
         BodyRoot = bodyRoot
@@ -1801,8 +1785,6 @@ class ColumnarIteratorEmitContext {
         EnclosingFieldNames = enclosingFieldNames ?? new string[](0)
         EnclosingFields = enclosingFields ?? new FieldInfo[](0)
         EnclosingFieldCanonicals = enclosingFieldCanonicals ?? new string[](0)
-        EnclosingMethodNames = enclosingMethodNames ?? new string[](0)
-        EnclosingMethods = enclosingMethods ?? new MethodInfo[](0)
         CoreMethod = coreMethod
         MoveNextMethod = null
         Builder = builder
@@ -1843,9 +1825,28 @@ class ColumnarIteratorEmitContext {
             }
         }
         if bodyScope.HasField("<>__this") {
+            // A parameter is in scope for the whole body, so it hides a member of its spelling from
+            // the first statement on.
+            parameter := 0
+            while parameter < FieldNames.Length {
+                if Shape.FieldRoles[parameter] == ColumnarIteratorPlanner.CapturedParameterFieldRole() && FieldNames[parameter] != "<>__this" {
+                    bodyScope.HideEnclosingMember(FieldNames[parameter])
+                }
+                parameter = parameter + 1
+            }
             bodyScope.PublishEnclosingReceiver(bodyScope.FieldHandle("<>__this"), EnclosingFieldNames, EnclosingFields)
         }
         Scope = bodyScope
+    }
+
+    // Whether `name` written at `node` means a member of the enclosing type rather than a body binding:
+    // written `this.name` — which never means a binding, member or not — or a bare name no binding of
+    // that spelling hides there.
+    func NamesEnclosingMember(node: int, name: string): bool {
+        if ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(Nodes, Source, node) {
+            return true
+        }
+        return EnclosingFieldIndex(name) >= 0 && RequiredScope().IsEnclosingMemberVisible(name)
     }
 
     Declined: bool => DeclineMessage.Length > 0
@@ -2030,17 +2031,6 @@ class ColumnarIteratorEmitContext {
             i = i + 1
         }
         return 0 - 1
-    }
-
-    func EnclosingMethodForName(name: string): MethodInfo {
-        i := 0
-        while i < EnclosingMethodNames.Length {
-            if EnclosingMethodNames[i] == name {
-                return EnclosingMethods[i]
-            }
-            i = i + 1
-        }
-        throw new InvalidOperationException("Iterator emit context has no enclosing method named '" + name + "'.")
     }
 
     func FieldForName(name: string): FieldInfo {
@@ -3120,12 +3110,21 @@ class ColumnarIteratorBodyPlanner {
         // rewrite rather than an expression the value owner can plan: `i++` reads a field, steps it and
         // stores it back. Its VALUE is the pre-step field value, which is what `yield i++` produces.
         if emit.Context.Nodes.Kind(node) == ColumnarExpressionNodeKind.PostfixUnary {
-            name := emit.Context.Nodes.Text(emit.Context.Source, emit.Context.Nodes.Child(node, 0))
-            if !emit.Context.HasHoistedField(name) {
+            operand := emit.Context.Nodes.Child(node, 0)
+            name := emit.Context.Nodes.Text(emit.Context.Source, operand)
+            if emit.Context.NamesEnclosingMember(operand, name) {
+                memberIndex := emit.Context.EnclosingFieldIndex(name)
+                if memberIndex < 0 {
+                    emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step of 'this." + name + "' is not a field step in an iterator body")
+                    return false
+                }
+                resultType = emit.Context.EnclosingFields[memberIndex].FieldType
+            } else if emit.Context.HasHoistedField(name) {
+                resultType = emit.Context.FieldForName(name).FieldType
+            } else {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step of '" + name + "' is not a hoisted binding in an iterator body")
                 return false
             }
-            resultType = emit.Context.FieldForName(name).FieldType
             EmitPostfixStep(emit, node, true)
             return !emit.Context.Declined
         }
@@ -3619,12 +3618,17 @@ class ColumnarIteratorBodyPlanner {
             context.Decline("emit.iterator.lambda-unsupported", "a per-iteration lambda requires the state-machine builder and synthesized-type ledger")
             return false
         }
-        moduleObject: object? = (builder as Type).Module
-        module := (ModuleBuilder)moduleObject
-        display := module.DefineType(
-            context.Shape.TypeName + "<>c__Display" + emit.NextLambda.ToString(),
-            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
-        )
+        displayName := context.Shape.TypeName + "<>c__Display" + emit.NextLambda.ToString()
+        // A MEMBER machine is nested in its declaring type, and its display nests in the machine: the
+        // lambda's body is still that member's body, reaching every member the type holds.
+        display: TypeBuilder = null
+        if (builder as Type).IsNested {
+            display = builder.DefineNestedType(displayName, TypeAttributes.NestedAssembly | TypeAttributes.Class | TypeAttributes.Sealed)
+        } else {
+            moduleObject: object? = (builder as Type).Module
+            module := (ModuleBuilder)moduleObject
+            display = module.DefineType(displayName, TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed)
+        }
         smParameters := context.GenericParameters
         displayParameters := System.Type.EmptyTypes
         displayTypeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
@@ -3928,6 +3932,7 @@ class ColumnarIteratorBodyPlanner {
                 capture = capture + 1
             }
             if scope.HasField("<>__this") {
+                HideLambdaBindings(context, scope, parameterOrdinals)
                 scope.PublishEnclosingReceiver(scope.FieldHandle("<>__this"), context.EnclosingFieldNames, context.EnclosingFields)
             }
             return scope
@@ -3948,7 +3953,7 @@ class ColumnarIteratorBodyPlanner {
                 if display.TypeParameters.Count > 0 {
                     machineField = TypeBuilder.GetField(display.MachineField.FieldType, definitionField)
                 }
-                scope.PublishEnclosingMember(context.FieldNames[index], display.MachineField, machineField)
+                scope.PublishDisplayedMachineField(context.FieldNames[index], display.MachineField, machineField)
             }
             index = index + 1
         }
@@ -3959,9 +3964,19 @@ class ColumnarIteratorBodyPlanner {
             capture = capture + 1
         }
         if display.EnclosingReceiverField != null {
+            HideLambdaBindings(context, scope, parameterOrdinals)
             scope.PublishEnclosingReceiver(display.EnclosingReceiverField, context.EnclosingFieldNames, context.EnclosingFields)
         }
         return scope
+    }
+
+    // A lambda's body sees a member exactly where the lambda was written sees it, less the names its own
+    // parameters take for the whole lambda.
+    static func HideLambdaBindings(context: ColumnarIteratorEmitContext, scope: ColumnarIteratorBodyScope, parameterOrdinals: Dictionary<string, int>) {
+        scope.HideAsIn(context.RequiredScope())
+        for parameterName in parameterOrdinals.Keys {
+            scope.HideEnclosingMember(parameterName)
+        }
     }
 
     static func AppendLambdaBody(emit: ColumnarMoveNextEmit, bodyNode: int, lambdaMethod: MethodBuilder, scope: ColumnarIteratorBodyScope, bodyReturnType: Type, methodReturnType: Type, isAsync: bool): bool {
@@ -4183,6 +4198,7 @@ class ColumnarIteratorBodyPlanner {
         source := context.Source
         kind := nodes.Kind(statement)
         if kind == ColumnarStatementNodeKind.BlockStatement {
+            blockMark := scope.EnterBindingScope()
             inner := 0
             while inner < nodes.ChildCount(statement) {
                 if !AppendLambdaBlockStatement(emit, scope, nodes.Child(statement, inner), plan, returnType, isLast && inner == nodes.ChildCount(statement) - 1, isAsync) {
@@ -4190,6 +4206,7 @@ class ColumnarIteratorBodyPlanner {
                 }
                 inner = inner + 1
             }
+            scope.ExitBindingScope(blockMark)
             return true
         }
         if kind == ColumnarStatementNodeKind.ReturnStatement {
@@ -4220,12 +4237,15 @@ class ColumnarIteratorBodyPlanner {
                 local := plan.DeclarePlanLocal(plan.AddType(localType))
                 plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
                 scope.Bindings.DeclarePlanLocal(name, local, localType)
+                scope.HideEnclosingMember(name)
                 return true
             }
             if !ColumnarMethodBodyPlanner.TryAppendLocalDeclaration(nodes, source, statement, scope.Bindings, plan) {
                 context.Decline("emit.iterator.lambda-unsupported", "a local declaration inside a block-bodied lambda in an iterator body could not be lowered")
                 return false
             }
+            declaredName := kind == ColumnarStatementNodeKind.VariableDeclarationStatement ? nodes.Text(source, statement) : nodes.Text(source, nodes.Child(statement, 0))
+            scope.HideEnclosingMember(declaredName)
             return true
         }
         if kind != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(statement) != 1 {
@@ -4264,7 +4284,10 @@ class ColumnarIteratorBodyPlanner {
         value := nodes.Child(assignment, 1)
         if nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression {
             name := nodes.Text(source, target)
-            if scope.Bindings.BoxedCaptures.ContainsKey(name) {
+            // Written `this.member`, the target is the member whatever binding hides its bare name.
+            explicitMember := ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, target) && scope.Bindings.ThisIsCapturedReceiver
+            capturedMembers := explicitMember ? scope.Bindings.ReceiverMembers : scope.Bindings.CapturedInstanceFields
+            if !explicitMember && scope.Bindings.BoxedCaptures.ContainsKey(name) {
                 boxed := scope.Bindings.BoxedCaptures[name]
                 boxField := boxed.Item1
                 valueType := boxed.Item2
@@ -4278,8 +4301,8 @@ class ColumnarIteratorBodyPlanner {
                 plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddFieldWithSignature(valueField, boxField.FieldType, valueType, false))
                 return true
             }
-            if scope.Bindings.CapturedInstanceFields.ContainsKey(name) {
-                captured := scope.Bindings.CapturedInstanceFields[name]
+            if capturedMembers.ContainsKey(name) {
+                captured := capturedMembers[name]
                 receiverField := captured.Item1
                 memberField := captured.Item2
                 plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, scope.StateMachineType, false))
@@ -4291,7 +4314,7 @@ class ColumnarIteratorBodyPlanner {
                 plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(memberField))
                 return true
             }
-            if !scope.HasField(name) {
+            if explicitMember || !scope.HasField(name) {
                 context.Decline("emit.iterator.lambda-unsupported", "'" + name + "' is not a binding a lambda inside an iterator body can assign to")
                 return false
             }
@@ -4366,32 +4389,40 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         kind := nodes.Kind(node)
+        // A block, a `using` statement and a counted `for` are LEXICAL SCOPES: a binding one of them
+        // declares hides a member of its spelling only until the scope closes.
+        scope := emit.Context.RequiredScope()
         if kind == ColumnarStatementNodeKind.BlockStatement {
-            return EmitBlockChildrenFrom(emit, node, 0)
+            blockMark := scope.EnterBindingScope()
+            blockFalls := EmitBlockChildrenFrom(emit, node, 0)
+            scope.ExitBindingScope(blockMark)
+            return blockFalls
         }
         if kind == ColumnarStatementNodeKind.UsingStatement || kind == ColumnarStatementNodeKind.AwaitUsingStatement {
-            return EmitUsingStatement(emit, node)
+            usingMark := scope.EnterBindingScope()
+            usingFalls := EmitUsingStatement(emit, node)
+            scope.ExitBindingScope(usingMark)
+            return usingFalls
         }
         if kind == ColumnarStatementNodeKind.TypedLocalDeclaration {
             // typed local declaration: value span = type, child 0 = name, child 1 = init. The field's
             // type came from the WRITTEN canonical, so it is already defined; a declaration without an
             // initializer leaves the field at its default — nothing to store.
+            typedName := nodes.Text(source, nodes.Child(node, 0))
             if nodes.ChildCount(node) >= 2 {
-                name := nodes.Text(source, nodes.Child(node, 0))
-                fieldType := emit.Context.FieldForName(name).FieldType
-                if emit.Context.IsLoopCaptured(name) {
-                    if !AppendFreshLoopCaptureBox(emit, name, nodes.Child(node, 1), fieldType, true) {
+                fieldType := emit.Context.FieldForName(typedName).FieldType
+                if emit.Context.IsLoopCaptured(typedName) {
+                    if !AppendFreshLoopCaptureBox(emit, typedName, nodes.Child(node, 1), fieldType, true) {
                         return false
                     }
-                } else if !AppendBoundFieldStore(emit, nodes.Child(node, 1), FieldPool(emit, name), fieldType) {
+                } else if !AppendBoundFieldStore(emit, nodes.Child(node, 1), FieldPool(emit, typedName), fieldType) {
                     return false
                 }
-            } else {
-                name := nodes.Text(source, nodes.Child(node, 0))
-                if emit.Context.IsLoopCaptured(name) && !AppendFreshLoopCaptureBox(emit, name, 0, emit.Context.FieldForName(name).FieldType, false) {
-                    return false
-                }
+            } else if emit.Context.IsLoopCaptured(typedName) && !AppendFreshLoopCaptureBox(emit, typedName, 0, emit.Context.FieldForName(typedName).FieldType, false) {
+                return false
             }
+            // In scope from the NEXT statement: its own initializer still read the member.
+            scope.HideEnclosingMember(typedName)
             return true
         }
         if kind == ColumnarStatementNodeKind.VariableDeclarationStatement {
@@ -4416,6 +4447,7 @@ class ColumnarIteratorBodyPlanner {
             } else if !AppendBoundFieldStore(emit, nodes.Child(node, 0), FieldPool(emit, name), initializerType) {
                 return false
             }
+            scope.HideEnclosingMember(name)
             return true
         }
         if kind == ColumnarStatementNodeKind.ExpressionStatement {
@@ -4506,6 +4538,7 @@ class ColumnarIteratorBodyPlanner {
             // For [init, cond, incr, body]: `init` runs once (its local is a hoisted field), then the
             // while discipline with a trailing increment — the back edge (and the increment before it)
             // only exists when the body can complete.
+            forMark := scope.EnterBindingScope()
             EmitStatement(emit, nodes.Child(node, 0))
             if emit.Context.Declined {
                 return false
@@ -4538,6 +4571,7 @@ class ColumnarIteratorBodyPlanner {
                 return false
             }
             emit.Plan.AppendMarkLabel(afterLabel)
+            scope.ExitBindingScope(forMark)
             return true
         }
         if kind == ColumnarStatementNodeKind.ForeachStatement {
@@ -4584,6 +4618,16 @@ class ColumnarIteratorBodyPlanner {
         }
         emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
+    }
+
+    // A `for..in` variable is in scope for the loop body alone.
+    static func EmitLoopVariableBody(emit: ColumnarMoveNextEmit, bodyNode: int, varName: string): bool {
+        scope := emit.Context.RequiredScope()
+        mark := scope.EnterBindingScope()
+        scope.HideEnclosingMember(varName)
+        falls := EmitStatement(emit, bodyNode)
+        scope.ExitBindingScope(mark)
+        return falls
     }
 
     // `break` / `continue` INSIDE A GENERATOR BODY. Neither was lowered at all: `func*` plus a loop
@@ -5183,7 +5227,12 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(field))
 
         emit.CatchHandlerDepth = emit.CatchHandlerDepth + 1
+        // The clause's variable is in scope for its handler alone.
+        scope := emit.Context.RequiredScope()
+        handlerMark := scope.EnterBindingScope()
+        scope.HideEnclosingMember(name)
         fell := EmitStatement(emit, nodes.Child(clause, nodes.ChildCount(clause) - 1))
+        scope.ExitBindingScope(handlerMark)
         emit.CatchHandlerDepth = emit.CatchHandlerDepth - 1
         if emit.Context.Declined {
             return false
@@ -5206,7 +5255,7 @@ class ColumnarIteratorBodyPlanner {
             return EmitStoreTargetAssignment(emit, node, target)
         }
         name := nodes.Text(source, target)
-        if !emit.Context.HasHoistedField(name) {
+        if !emit.Context.HasHoistedField(name) || emit.Context.NamesEnclosingMember(target, name) {
             return EmitEnclosingMemberAssignment(emit, node, name)
         }
         fieldType := emit.Context.FieldForName(name).FieldType
@@ -5357,7 +5406,7 @@ class ColumnarIteratorBodyPlanner {
             return EmitEnumerableForIn(emit, sourceNode, bodyNode, varName)
         }
         sourceName := nodes.Text(emit.Context.Source, sourceNode)
-        if !emit.Context.HasHoistedField(sourceName) {
+        if !emit.Context.HasHoistedField(sourceName) || emit.Context.NamesEnclosingMember(sourceNode, sourceName) {
             return EmitEnumerableForIn(emit, sourceNode, bodyNode, varName)
         }
         // THE SAME TEST THE WALK MADE. Classification hoists an `<>__index{k}` slot only for an
@@ -5455,7 +5504,7 @@ class ColumnarIteratorBodyPlanner {
         // A `continue` targets the index step, so the next element is read rather than the same one.
         stepLabel := emit.Plan.DefineLabel()
         emit.PushLoop(stepLabel, afterLabel, true)
-        bodyFalls := EmitStatement(emit, bodyNode)
+        bodyFalls := EmitLoopVariableBody(emit, bodyNode, varName)
         continued := emit.PopLoop()
         if bodyFalls || continued {
             // index = index + 1
@@ -5583,7 +5632,7 @@ class ColumnarIteratorBodyPlanner {
         // declines by name rather than silently retargeting the NEXT loop out, which is a different
         // program.
         emit.PushLoop(condLabel, afterLabel, false)
-        bodyFalls := EmitStatement(emit, bodyNode)
+        bodyFalls := EmitLoopVariableBody(emit, bodyNode, varName)
         emit.PopLoop()
         if bodyFalls {
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
@@ -5692,7 +5741,7 @@ class ColumnarIteratorBodyPlanner {
         // There is no step to run, so `continue` targets the MoveNext condition. `break` targets the
         // label the enumerator is disposed at, which is what makes an early exit release it.
         emit.PushLoop(condLabel, afterLabel, true)
-        bodyFalls := EmitStatement(emit, bodyNode)
+        bodyFalls := EmitLoopVariableBody(emit, bodyNode, varName)
         emit.PopLoop()
         if bodyFalls {
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
@@ -6352,6 +6401,14 @@ class ColumnarIteratorBodyPlanner {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
         name := nodes.Text(source, nodes.Child(node, 0))
+        if emit.Context.NamesEnclosingMember(nodes.Child(node, 0), name) {
+            EmitEnclosingMemberPostfixStep(emit, node, name, keepValue)
+            return
+        }
+        if !emit.Context.HasHoistedField(name) {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step of '" + name + "' is not a hoisted binding in an iterator body")
+            return
+        }
         fieldType := emit.Context.FieldForName(name).FieldType
         if fieldType != typeof(int) {
             emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step over '" + name + "' of type '" + fieldType.Name + "' is not yet lowered in an iterator body")
@@ -6394,5 +6451,41 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Sub())
         }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+    }
+
+    // `member++` / `member--` FROM AN INSTANCE GENERATOR: the same read-step-store the hoisted form
+    // performs, through the captured receiver — `ldarg.0; ldfld <>__this` in front of each field access.
+    static func EmitEnclosingMemberPostfixStep(emit: ColumnarMoveNextEmit, node: int, name: string, keepValue: bool) {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        memberIndex := emit.Context.EnclosingFieldIndex(name)
+        if memberIndex < 0 || !emit.Context.HasHoistedField("<>__this") {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step of 'this." + name + "' is not a field step in an iterator body")
+            return
+        }
+        memberField := emit.Context.EnclosingFields[memberIndex]
+        if memberField.FieldType != typeof(int) {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step over '" + name + "' of type '" + memberField.FieldType.Name + "' is not yet lowered in an iterator body")
+            return
+        }
+        if memberField.IsInitOnly || memberField.IsLiteral {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "'" + name + "' is read-only and cannot be assigned")
+            return
+        }
+        receiverPool := FieldPool(emit, "<>__this")
+        memberPool := emit.Plan.AddField(memberField)
+        if keepValue {
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverPool)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), memberPool)
+        }
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverPool)
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverPool)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), memberPool)
+        EmitInt(emit, 1)
+        emit.Plan.AppendInstructionWithoutOperand((short)(nodes.Text(source, node) == "++" ? ColumnarCodePlanContract.Add() : ColumnarCodePlanContract.Sub()))
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), memberPool)
     }
 }
