@@ -1,0 +1,181 @@
+namespace NSharpLang.CensusFlowRules.Tests
+
+import System
+
+test "a reference arm and a bare null arm answer in both orders" {
+    assert PickReference(true, "a") == "a"
+    assert PickReference(false, "a") == null
+    assert PickReferenceNullFirst(false, "a") == "a"
+    assert PickReferenceNullFirst(true, "a") == null
+}
+
+test "a VALUE arm lifts to the target's nullable, which is what the join could not do" {
+    assert PickValue(true, 3) == 3
+    assert PickValue(false, 3) == null
+    assert PickValueNullFirst(false, 3) == 3
+    assert PickValueNullFirst(true, 3) == null
+    assert PickDefaultArm(true, 3) == 3
+    assert PickDefaultArm(false, 3) == null
+}
+
+test "nested typeless arms use the outer target through parentheses" {
+    assert PickNestedDefault(true, true, 7) == null
+    assert PickNestedDefault(true, false, 7) == 1
+    assert PickNestedDefault(false, true, 7) == 7
+    assert PickNestedNull(true, true, 8) == null
+    assert PickNestedNull(true, false, 8) == 1
+    assert PickNestedNull(false, true, 8) == 8
+}
+
+test "nested default, null and throw arms work on both sides and through depth three" {
+    assert PickNestedDefaultElse(true, true, 11) == 11
+    assert PickNestedDefaultElse(false, true, 11) == 1
+    assert PickNestedDefaultElse(false, false, 11) == null
+    assert PickNestedNullElse(true, true, 12) == 12
+    assert PickNestedNullElse(false, true, 12) == 1
+    assert PickNestedNullElse(false, false, 12) == null
+
+    assert PickDepthThree(true, true, true, 13) == null
+    assert PickDepthThree(true, true, false, 13) == 3
+    assert PickDepthThreeUnparenthesized(true, true, true, 13) == 3
+    assert PickDepthThreeUnparenthesized(true, true, false, 13) == null
+
+    failure := new InvalidOperationException("nested")
+    assert PickNestedThrowThen(true, false, 14, failure) == 2
+    assert PickNestedThrowElse(false, true, 15, failure) == 2
+
+    thenRaised := false
+    try {
+        _ignored := PickNestedThrowThen(true, true, 14, failure)
+    } catch caught: InvalidOperationException {
+        thenRaised = caught.Message == "nested"
+    }
+    elseRaised := false
+    try {
+        _ignored := PickNestedThrowElse(false, false, 15, failure)
+    } catch caught: InvalidOperationException {
+        elseRaised = caught.Message == "nested"
+    }
+    assert thenRaised && elseRaised
+}
+
+test "nested target typing covers block returns, locals and same-assembly arguments" {
+    assert BlockNestedReturn(true, true, 3) == null
+    assert BlockNestedReturn(true, false, 3) == 8
+    assert BlockNestedReturn(false, true, 3) == 3
+    assert DeclaredNestedLocal(true, true, 3) == -1
+    assert DeclaredNestedLocal(true, false, 3) == 6
+    assert AssignedNestedLocal(true, true, 3) == 7
+    assert AssignedNestedLocal(true, false, 3) == -1
+    assert AssignedNestedLocal(false, true, 3) == 3
+    assert NestedArgument(true, true, 3) == -1
+    assert NestedArgument(true, false, 3) == 9
+    assert NestedArgument(false, true, 3) == 3
+    assert NestedArgumentNullElse(false, true, 3) == 10
+    assert NestedArgumentNullElse(false, false, 3) == -1
+}
+
+test "nested null, default and throw arms target reference-type returns and framework arguments" {
+    assert PickNestedString(true, true, "value", "fallback") == null
+    assert PickNestedString(true, false, "value", "fallback") == "value"
+    assert PickNestedString(false, true, "value", "fallback") == "fallback"
+    assert PickNestedStringNull(true, true, "value", "fallback") == "value"
+    assert PickNestedStringNull(true, false, "value", "fallback") == null
+    assert PickNestedStringThrow(true, false, "value", "fallback", new InvalidOperationException("string")) == "value"
+
+    assert NestedFrameworkNull(true, true, "text", "fallback")
+    assert !NestedFrameworkNull(true, false, "text", "fallback")
+    assert !NestedFrameworkNull(false, true, "text", "fallback")
+    failure := new InvalidOperationException("framework")
+    raised := false
+    try {
+        _ignored := NestedFrameworkThrow(true, true, "text", "fallback", failure)
+    } catch caught: InvalidOperationException {
+        raised = caught.Message == "framework"
+    }
+    assert raised
+}
+
+test "a throwing arm against a bare null takes the target's type and still raises" {
+    failure := new InvalidOperationException("not ready")
+    assert NullOrThrowReference(true, failure) == null
+    assert NullOrThrowValue(true, failure) == null
+    assert ValueOrThrow(false, 7, failure) == 7
+
+    raised := false
+    try {
+        ignored := NullOrThrowValue(false, failure)
+        assert ignored == null
+    } catch caught: InvalidOperationException {
+        raised = caught.Message == "not ready"
+    }
+
+    assert raised
+}
+
+test "the other three target positions decide the same way" {
+    assert DeclaredLocal(true, 4) == 4
+    assert DeclaredLocal(false, 4) == -1
+    assert AssignedLocal(true, 5) == 5
+    assert AssignedLocal(false, 5) == -1
+    assert ArgumentPosition(true, 9) == 9
+    assert ArgumentPosition(false, 9) == -1
+}
+
+test "a wider element and an enum element take the same lifted route" {
+    twelve: long? = 12
+    assert PickLong(true, 12) == twelve
+    assert PickLong(false, 12) == null
+    assert ShadeOrDefault(PickShade(true, Shade.Dark)) == Shade.Dark
+    assert PickShade(false, Shade.Dark) == null
+    assert ShadeOrDefault(PickShade(false, Shade.Dark)) == Shade.Light
+}
+
+test "a typeless arm reaches a method the emitter binds by its arguments, in both arm orders" {
+    assert StaticNullFirst(true, "a") == "none:1"
+    assert StaticNullFirst(false, "a") == "a:1"
+    assert StaticNullSecond(true, "b") == "b:2"
+    assert StaticNullSecond(false, "b") == "none:2"
+    assert FrameworkStatic(true, "x")
+    assert !FrameworkStatic(false, "x")
+    assert !FrameworkStaticNullSecond(true, "x")
+    assert FrameworkStaticNullSecond(false, "x")
+}
+
+test "a derived arm reaches a base parameter, a value arm a lifted one, and an instance method takes it too" {
+    assert DerivedArm(true, new Circle("c")) == "<none>"
+    assert DerivedArm(false, new Circle("c")) == "c"
+    assert LiftedArm(true, 3) == -1
+    assert LiftedArm(false, 3) == 3
+    describer := new Describer("p")
+    assert InstanceArgument(true, describer, "!") == "p"
+    assert InstanceArgument(false, describer, "!") == "p!"
+}
+
+test "a typeless arm takes the type of the overload its other arm chooses" {
+    assert MeasureDefaultFirst(true, 3) == -1
+    assert MeasureDefaultFirst(false, 3) == 3
+    assert MeasureDefaultSecond(true, "four") == 4
+    assert MeasureDefaultSecond(false, "four") == -2
+    assert MeasureNullFirst(true, 3) == -1
+    assert MeasureNullFirst(false, 3) == 3
+    assert MeasureNullSecond(true, "four") == 4
+    assert MeasureNullSecond(false, "four") == -2
+}
+
+test "a default arm is null or zero as the chosen parameter says, static and instance alike" {
+    assert PlainDefault(true, 5) == 100
+    assert PlainDefault(false, 5) == 105
+    meter := new Meter(10)
+    assert ShiftDefault(true, meter, 5) == 9
+    assert ShiftDefault(false, meter, 5) == 15
+    assert ShiftNull(true, meter, "ab") == -5
+    assert ShiftNull(false, meter, "ab") == 12
+}
+
+test "a default arm reaches a framework method, as a reference and as a value" {
+    assert FrameworkStaticDefault(true, "x")
+    assert !FrameworkStaticDefault(false, "x")
+    assert FrameworkValueDefault(true, 8) == 0
+    assert FrameworkValueDefault(false, 8) == 8
+}

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "ref struct zero-copy reader",
+  "expected": {
+    "refStruct": "FrameReader",
+    "failure": "BadReader stores a ref-like field outside ref struct"
+  }
+}

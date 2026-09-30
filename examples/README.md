@@ -38,8 +38,8 @@ Async streams and asynchronous iteration.
 ### [09. LINQ and Collections](./09-linq-and-collections/)
 Collection expressions, iterators, ranges, and indexes.
 
-### [10. C# Interop](./10-interop/)
-Attributes, ref/out parameters, and calling C# code.
+### [10. .NET Interop](./10-interop/)
+Attributes, ref/out parameters, and CLR library calls.
 
 ### [11. Advanced Features](./11-advanced-features/)
 Standalone projects for operator overloading, conversions, locks, file-scoped types, preprocessor directives, and more.

@@ -1,6 +1,5 @@
 import System
 import Microsoft.AspNetCore.Builder
-import Microsoft.AspNetCore.Http
 import Microsoft.Extensions.Hosting
 
 func main(args: string[]) {

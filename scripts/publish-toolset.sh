@@ -86,6 +86,24 @@ if [[ "$SKIP_ARCHIVE" -eq 0 ]]; then
         tar -czf "$ARCHIVE_PATH" "$(basename "$OUTPUT_DIR")"
     )
     echo "Archive: $ARCHIVE_PATH"
+
+    # SHA256SUMS ships as a release asset next to the archive; scripts/install.sh refuses
+    # unverified URL downloads, so every release MUST publish this file (append the VSIX
+    # entry before uploading — see docs/PUBLISHING.md).
+    nsharp_log "Writing SHA256SUMS"
+    SUMS_PATH="$(dirname "$ARCHIVE_PATH")/SHA256SUMS"
+    (
+        cd "$(dirname "$ARCHIVE_PATH")"
+        if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$(basename "$ARCHIVE_PATH")" > SHA256SUMS
+        elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "$(basename "$ARCHIVE_PATH")" > SHA256SUMS
+        else
+            echo "ERROR: required command not found: sha256sum or shasum" >&2
+            exit 1
+        fi
+    )
+    echo "Checksums: $SUMS_PATH"
 fi
 
 echo

@@ -1,0 +1,4 @@
+name: NSharpLang.SdkPackSymbolContract.Tests
+backend: il
+outputType: library
+targetFramework: net10.0

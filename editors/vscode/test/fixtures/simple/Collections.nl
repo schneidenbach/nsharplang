@@ -3,10 +3,10 @@ namespace SimpleTest
 // List operations with type inference
 func TestListOperations() {
     numbers := [1, 2, 3, 4, 5]
-    print $"Count: {numbers.Count}"
+    print $"Count: {numbers.Length}"
 
     names := ["Alice", "Bob", "Charlie"]
-    print $"Names count: {names.Count}"
+    print $"Names count: {names.Length}"
     for name in names {
         print $"  - {name}"
     }
@@ -29,9 +29,9 @@ func TestCollectionInit() {
     strings := ["hello", "world", "foo", "bar"]
     bools := [true, false, true]
 
-    print $"Numbers: {numbers.Count}"
-    print $"Strings: {strings.Count}"
-    print $"Bools: {bools.Count}"
+    print $"Numbers: {numbers.Length}"
+    print $"Strings: {strings.Length}"
+    print $"Bools: {bools.Length}"
 }
 
 // String operations on collections

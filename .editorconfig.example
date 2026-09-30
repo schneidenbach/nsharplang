@@ -32,11 +32,6 @@ dotnet_diagnostic.NL004.severity = warning
 # NL005: Use pattern matching (future)
 dotnet_diagnostic.NL005.severity = info
 
-# C# files
-[*.cs]
-indent_style = space
-indent_size = 4
-
 # YAML files
 [*.{yml,yaml}]
 indent_style = space

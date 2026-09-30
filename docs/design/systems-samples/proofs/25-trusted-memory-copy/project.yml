@@ -1,0 +1,10 @@
+name: SystemsProof25TrustedMemoryCopy
+version: 0.1.0
+targetFramework: net10.0
+outputType: exe
+entry: Program.nl
+language:
+  profile: systems
+  systems:
+    mode: strict
+    aotTarget: nativeaot

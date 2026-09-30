@@ -1,0 +1,31 @@
+name: LanguageServer
+version: 1.0.0
+backend: il
+outputType: exe
+targetFramework: net10.0
+
+dependencies:
+  - project: ../NSharpLang.Compiler/project.yml
+  - nuget: OmniSharp.Extensions.LanguageServer
+    version: 0.19.9
+  - nuget: Serilog.Extensions.Logging.File
+    version: 3.0.0
+
+# The friend the csproj's `<InternalsVisibleTo Include="Tests" />` named, carried over verbatim so
+# `tests/native/census-internals-visible-to` (whose project is called `Tests`) still reaches this
+# assembly's unexported members.
+internalsVisibleTo:
+  - Tests
+
+package:
+  id: NSharpLang.LanguageServer
+  author: N# Team
+  description: N# Language Server Protocol (LSP) server - Provides IntelliSense for N# in any LSP-compatible editor
+  repository: https://github.com/schneidenbach/nsharplang
+  license: MIT
+  tags:
+    - nsharp
+    - dotnet
+    - lsp
+    - language-server
+    - intellisense

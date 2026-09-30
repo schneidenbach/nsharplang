@@ -1,6 +1,8 @@
 // Example demonstrating params arrays feature
 
 // Basic params array - accepts variable number of arguments
+namespace Examples.ParamsArrays
+
 func Sum(params numbers: int[]): int {
     total := 0
     for num in numbers {

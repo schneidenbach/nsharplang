@@ -1,0 +1,9 @@
+name: NSharpLang.Compiler.Tooling
+backend: il
+outputType: library
+targetFramework: net10.0
+# Tooling carries its own estate (`*.tests.nl`); every build of it that does not pass
+# `-p:NSharpExcludeTests=false` is product-only, which is what the projects above it reference.
+excludeTests: true
+dependencies:
+  - project: ../NSharpLang.Compiler.CodeIntel/project.yml

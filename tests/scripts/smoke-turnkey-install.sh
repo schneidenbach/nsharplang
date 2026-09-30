@@ -99,6 +99,7 @@ import xml.etree.ElementTree as ET
 feed = os.environ['FEED']
 p = Path('NuGet.config')
 s = p.read_text()
+s = s.replace('%NSHARP_INSTALL_DIR%/packages', feed)
 s = s.replace('%HOME%/.nsharp/packages', feed)
 s = s.replace('$HOME/.nsharp/packages', feed)
 p.write_text(s)

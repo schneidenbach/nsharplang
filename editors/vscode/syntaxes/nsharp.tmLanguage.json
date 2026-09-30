@@ -139,7 +139,7 @@
         },
         {
           "name": "keyword.other.nsharp",
-          "match": "\\b(func|class|struct|record|interface|enum|union|namespace|package|import|using|new|this|base|static|virtual|override|abstract|sealed|partial|readonly|const|file|duck|constructor|get|set)\\b"
+          "match": "\\b(func|class|struct|record|interface|enum|union|namespace|package|import|using|new|this|base|static|virtual|override|abstract|sealed|partial|readonly|const|duck|constructor|get|set)\\b"
         },
         {
           "name": "keyword.other.special.nsharp",
@@ -151,7 +151,7 @@
         },
         {
           "name": "storage.type.nsharp",
-          "match": "\\b(let|const|type|out|ref|params)\\b"
+          "match": "\\b(let|const|out|ref|params)\\b"
         },
         {
           "name": "constant.language.nsharp",

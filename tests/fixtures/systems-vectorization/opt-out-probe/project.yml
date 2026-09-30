@@ -1,0 +1,5 @@
+name: NSharpLang.VectorizationOptOutProbe
+version: 1.0.0
+backend: il
+outputType: exe
+targetFramework: net10.0

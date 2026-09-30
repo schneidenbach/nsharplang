@@ -1,0 +1,554 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
+import System.Text
+import NSharpLang.Compiler
+
+
+// THE IDENTITY OF A FREE FUNCTION, FOR THE EMITTER.
+//
+// A top-level `func` is not identified by its bare name. Two files may both declare `func Helper()`
+// as long as they sit in different namespaces, exactly as two files may both declare `class Widget`
+// there — so the emitter's identity for a free function is (NAMESPACE, NAME), and the CLR shape has
+// to be able to hold both at once.
+//
+// THE CLR SHAPE. Every namespace that declares free functions gets ONE holder type named `Program`
+// inside it: `func Helper()` in `namespace X` is `X.Program.Helper`, the same function in
+// `namespace Y` is `Y.Program.Helper`, and a file with no namespace declaration puts its functions
+// on the global `Program`. That is the shape the type machinery already gives every other
+// declaration (`ExactTypeNameForFile`), it keeps reflection and cross-language interop honest — a C#
+// consumer writes `X.Program.Helper()` and means it — and it is the only shape in which two
+// same-named functions can coexist, since one type cannot declare the same signature twice.
+//
+// A USER TYPE NAMED `Program` KEEPS ITS NAME. `class Program` beside free functions is ordinary in
+// this language's own examples, so the holder YIELDS: when the namespace already declares a type of
+// that name the holder is spelled `<Program>` instead, which no N# source can spell and which is
+// therefore always available. Nothing is rejected and the source type's CLR name is unchanged.
+// Before free functions were keyed by namespace this shape wrote TWO type rows of one name into the
+// assembly whenever both were in the GLOBAL namespace (measured on 33b777917: `Assembly.GetTypes()`
+// returned `Program` twice, and the program still ran) — so the fallback fixes that too.
+//
+// THE RESOLUTION. A bare call is visible in the same order used by the analyzer's
+// `AnalyzerIdentifierResolution.TryResolveVisibleProjectFunction`, which is `SimpleNamePrecedence`:
+//
+//   0. a function declared in the CALLER'S OWN FILE wins outright, whatever its casing — that is the
+//      lexical scope the analyzer consults before project discovery ever runs;
+//   1. a file pulled in whole by `import "./other.nl"`, in import order — a file import binds the
+//      imported file's exported declarations into THIS file's scope, which is the same tier, so it
+//      is nearer than any namespace (two file imports supplying one name is NL702);
+//   2. the file's own namespace, then each ENCLOSING namespace outward, ending at the global one;
+//   3. the file's explicit namespace imports, in import order.
+//
+// EXPORT IS REQUIRED ONLY ACROSS NAMESPACES, and `SimpleNamePrecedence.RequiresExport` is the one
+// owner of that half of the rule. A camelCase top-level function is NAMESPACE-private, not
+// file-private: every file of `X` reaches `X`'s camelCase functions with no import and no export,
+// while every other namespace — an ENCLOSING one included — needs the declaration exported. Exported
+// itself is the analyzer's rule (`VisibilityConventions`): the casing UNLESS a visibility word
+// overrides it, which is why `public func buildExplicit()` is exported and `internal func Helper()`
+// is not, and why `ColumnarFunctionInput` carries that word in its own column.
+//
+// Tiers 2 and 3 ask REFERENCED assemblies too: a namespace's free functions are its members wherever
+// they were compiled, so a referenced holder's public static methods (`ColumnarExternalFreeFunctions`)
+// enter the view at their namespace's rank, below a source function of the same rank.
+//
+// There is deliberately no project-wide auto-discovery tier for functions — the analyzer has none,
+// and an emitter that resolved a name the analyzer rejected would be inventing a program.
+class ColumnarFreeFunctionScope {
+    program: ColumnarProgramInput
+    rootTypeName: string
+    definitions: List<ColumnarSiblingMethodDefinition>
+    names: List<string>
+    namespaceNames: List<string>
+    sourceFileIds: List<int>
+    sourceDeclarationLines: List<int>
+    sourceDeclarationColumns: List<int>
+    exportedFlags: List<bool>
+    returnLabeledCanonicals: List<string>
+    viewsByFile: Dictionary<int, Dictionary<string, ColumnarSiblingMethodDefinition>>
+    overloadsByFile: Dictionary<int, Dictionary<string, List<ColumnarSiblingMethodDefinition>>>
+    labeledViewsByFile: Dictionary<int, Dictionary<string, string>>
+    // Every (namespace, name, source parameter signature) declared so far. A second name joins its
+    // overload group; only a repeated signature is refused.
+    declaredSignatures: HashSet<string>
+    externalDefinitionsByHolder: Dictionary<Type, List<ColumnarSiblingMethodDefinition>>
+
+    constructor(programInput: ColumnarProgramInput, rootHolderTypeName: string) {
+        program = programInput
+        rootTypeName = rootHolderTypeName
+        definitions = new List<ColumnarSiblingMethodDefinition>()
+        names = new List<string>()
+        namespaceNames = new List<string>()
+        sourceFileIds = new List<int>()
+        sourceDeclarationLines = new List<int>()
+        sourceDeclarationColumns = new List<int>()
+        exportedFlags = new List<bool>()
+        returnLabeledCanonicals = new List<string>()
+        viewsByFile = new Dictionary<int, Dictionary<string, ColumnarSiblingMethodDefinition>>()
+        overloadsByFile = new Dictionary<int, Dictionary<string, List<ColumnarSiblingMethodDefinition>>>()
+        labeledViewsByFile = new Dictionary<int, Dictionary<string, string>>()
+        declaredSignatures = new HashSet<string>(StringComparer.Ordinal)
+        externalDefinitionsByHolder = new Dictionary<Type, List<ColumnarSiblingMethodDefinition>>()
+    }
+
+    // The CLR name of the holder type a namespace's free functions are declared on. The global
+    // namespace keeps the bare root name, so a single-file script is unchanged.
+    static func HolderTypeName(namespaceName: string, rootHolderTypeName: string): string {
+        if namespaceName == null || namespaceName.Length == 0 {
+            return rootHolderTypeName
+        }
+
+        return namespaceName + "." + rootHolderTypeName
+    }
+
+    // THE SPELLING THE HOLDER FALLS BACK TO when the namespace already declares a type of the
+    // ordinary name. `<`and `>` cannot appear in an N# identifier, so this name is unclaimable by
+    // source and the fallback can never need a fallback of its own. It is the same device the
+    // synthesized lambda and display-class names use.
+    static func ReservedHolderTypeName(rootHolderTypeName: string): string {
+        return "<" + rootHolderTypeName + ">"
+    }
+
+    func HolderTypeNameForFile(sourceFileId: int): string {
+        return HolderTypeName(program.NamespaceNameForFile(sourceFileId), rootTypeName)
+    }
+
+    // One declared top-level function. Declaration order is retained inside a visible overload group,
+    // while the analyzer's selected source declaration decides every overloaded call site.
+    func Declare(function: ColumnarFunctionInput, definition: ColumnarSiblingMethodDefinition): bool {
+        namespaceName := program.NamespaceNameForFile(function.SourceFileId)
+        if !declaredSignatures.Add(DeclarationSignatureIdentity(namespaceName, function)) {
+            return false
+        }
+
+        definitions.Add(definition)
+        names.Add(function.Name)
+        namespaceNames.Add(namespaceName)
+        sourceFileIds.Add(function.SourceFileId)
+        sourceFile := program.SourceFileForFileId(function.SourceFileId)
+        if sourceFile != null {
+            position := ColumnarEmissionPlanner.PositionAt(sourceFile, function.SourceDeclarationStart)
+            sourceDeclarationLines.Add(position.Line)
+            sourceDeclarationColumns.Add(position.Column)
+        } else {
+            sourceDeclarationLines.Add(0)
+            sourceDeclarationColumns.Add(0)
+        }
+        exportedFlags.Add(VisibilityConventions.IsExportedIdentifierWithFlags(function.Name, function.VisibilityModifierFlags))
+        returnLabeledCanonicals.Add(function.ReturnLabeledCanonical ?? "")
+        return true
+    }
+
+    static func DeclarationSignatureIdentity(namespaceName: string, function: ColumnarFunctionInput): string {
+        builder := new StringBuilder()
+        builder.Append(namespaceName.Length.ToString())
+        builder.Append(":")
+        builder.Append(namespaceName)
+        builder.Append("\n")
+        builder.Append(function.Name.Length.ToString())
+        builder.Append(":")
+        builder.Append(function.Name)
+        builder.Append("\n")
+        builder.Append(function.TypeParamNames.Length.ToString())
+        builder.Append("\n")
+        index := 0
+        while index < function.ParamCanonicals.Length {
+            modifier := 0
+            if index < function.ParamModifierKinds.Length {
+                modifier = function.ParamModifierKinds[index]
+            }
+            canonical := function.ParamCanonicals[index] ?? ""
+            builder.Append(modifier.ToString())
+            builder.Append(":")
+            builder.Append(canonical.Length.ToString())
+            builder.Append(":")
+            builder.Append(canonical)
+            builder.Append("\n")
+            index = index + 1
+        }
+        return builder.ToString()
+    }
+
+    // Whether a candidate declared in `candidateNamespace` has to be exported to be reachable from a
+    // caller in `callerNamespace`. Delegated, never re-spelled — see the class comment.
+    static func RequiresExport(callerNamespace: string, candidateNamespace: string): bool {
+        return SimpleNamePrecedence.RequiresExport(callerNamespace, candidateNamespace)
+    }
+
+    // THE SIBLING MAP AS ONE FILE SEES IT. Every body emitted out of `sourceFileId` reads this, so a
+    // bare `Helper()` in `X` and a bare `Helper()` in `Y` reach different methods.
+    func ViewFor(sourceFileId: int): Dictionary<string, ColumnarSiblingMethodDefinition> {
+        BuildViews(sourceFileId)
+        return viewsByFile[sourceFileId]
+    }
+
+    // Every visible free-function candidate for this file, grouped by the bare name it supplies.
+    // `ViewFor` remains the primary-definition view used by name-presence and hiding checks; call
+    // emission reads this group and the analyzer's bound declaration when a name has overloads.
+    func OverloadsFor(sourceFileId: int): Dictionary<string, List<ColumnarSiblingMethodDefinition>> {
+        BuildViews(sourceFileId)
+        return overloadsByFile[sourceFileId]
+    }
+
+    // Resolve the exact free-function declaration the analyzer selected for a call or a method-group
+    // value. The semantic model stores its FunctionTypeInfo at the callee's line and column; the
+    // declaration identity then maps directly to the MethodBuilder registered above.
+    func TryGetBoundDefinition(sourceFileId: int, sourceOffset: int, out definition: ColumnarSiblingMethodDefinition?): bool {
+        definition = null
+        selectedIndex := -1
+        if !TryGetBoundDefinitionIndex(sourceFileId, sourceOffset, out selectedIndex) {
+            return false
+        }
+
+        definition = definitions[selectedIndex]
+        return true
+    }
+
+    func TryGetBoundReturnLabeledCanonical(sourceFileId: int, sourceOffset: int, out labeledCanonical: string?): bool {
+        labeledCanonical = null
+        selectedIndex := -1
+        if !TryGetBoundDefinitionIndex(sourceFileId, sourceOffset, out selectedIndex) {
+            return false
+        }
+
+        value := returnLabeledCanonicals[selectedIndex]
+        if value.Length == 0 {
+            return false
+        }
+
+        labeledCanonical = value
+        return true
+    }
+
+    private func TryGetBoundDefinitionIndex(sourceFileId: int, sourceOffset: int, out selectedIndex: int): bool {
+        selectedIndex = -1
+        file := program.SourceFileForFileId(sourceFileId)
+        if file == null {
+            return false
+        }
+
+        semanticModel := program.SemanticModelForFileId(sourceFileId)
+        if semanticModel == null {
+            return false
+        }
+
+        position := ColumnarEmissionPlanner.PositionAt(file, sourceOffset)
+        selected: TypeInfo = null
+        if !semanticModel.ExpressionTypes.TryGetValue((Line: position.Line, Column: position.Column), out selected) {
+            return false
+        }
+
+        function := selected as FunctionTypeInfo
+        if function == null || function.SourceName == null || function.SourceContainingType != null || function.SourceLine <= 0 || function.SourceColumn <= 0 {
+            return false
+        }
+
+        selectedPath := function.SourceFilePath
+        if selectedPath == null {
+            return false
+        }
+        index := 0
+        while index < definitions.Count {
+            declarationFile := program.SourceFileForFileId(sourceFileIds[index])
+            if declarationFile != null && string.Equals(declarationFile.FileName, selectedPath, StringComparison.OrdinalIgnoreCase) && sourceDeclarationLines[index] == function.SourceLine && sourceDeclarationColumns[index] == function.SourceColumn {
+                selectedIndex = index
+                return true
+            }
+            index = index + 1
+        }
+        return false
+    }
+
+    // The return tuple element labels of the same functions, keyed the same way, because `t := mk()`
+    // derives its element names from whichever `mk` the call actually reached.
+    func ReturnLabeledCanonicalsFor(sourceFileId: int): Dictionary<string, string> {
+        BuildViews(sourceFileId)
+        return labeledViewsByFile[sourceFileId]
+    }
+
+    func BuildViews(sourceFileId: int) {
+        cachedView: Dictionary<string, ColumnarSiblingMethodDefinition>? = null
+        if viewsByFile.TryGetValue(sourceFileId, out cachedView) {
+            return
+        }
+
+        view := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
+        overloads := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
+        labeled := new Dictionary<string, string>(StringComparer.Ordinal)
+        callerNamespace := program.NamespaceNameForFile(sourceFileId)
+        ranks := NamespaceRanks(sourceFileId)
+        fileRanks := FileImportRanks(sourceFileId)
+        bestRanks := new Dictionary<string, int>(StringComparer.Ordinal)
+        index := 0
+        while index < names.Count {
+            rank := OwnFileRank()
+            considered := true
+            if sourceFileIds[index] != sourceFileId {
+                candidateRank := 0
+                fileImportRank := 0
+                if string.Equals(namespaceNames[index], callerNamespace, StringComparison.Ordinal) {
+                    // Same-namespace declarations complete a local free-function overload group.
+                    // The analyzer augments its own-file symbol with these candidates before binding.
+                    rank = OwnFileRank()
+                } else if fileRanks.TryGetValue(sourceFileIds[index], out fileImportRank) {
+                    // A FILE IMPORT carries only what the imported file EXPORTS, whatever namespace
+                    // that file is in, so this tier always asks.
+                    if exportedFlags[index] {
+                        rank = fileImportRank
+                    } else {
+                        considered = false
+                    }
+                } else if !ranks.TryGetValue(namespaceNames[index], out candidateRank) {
+                    considered = false
+                } else if RequiresExport(callerNamespace, namespaceNames[index]) && !exportedFlags[index] {
+                    considered = false
+                } else {
+                    rank = candidateRank
+                }
+            }
+            if considered {
+                name := names[index]
+                existingRank := 0
+                if !bestRanks.TryGetValue(name, out existingRank) || rank < existingRank {
+                    bestRanks[name] = rank
+                    view[name] = definitions[index]
+                    candidates := new List<ColumnarSiblingMethodDefinition>()
+                    candidates.Add(definitions[index])
+                    overloads[name] = candidates
+                    labeledCanonical := returnLabeledCanonicals[index]
+                    if labeledCanonical.Length > 0 {
+                        labeled[name] = labeledCanonical
+                    } else {
+                        labeled.Remove(name)
+                    }
+                } else if rank == existingRank {
+                    overloads[name].Add(definitions[index])
+                }
+            }
+            index = index + 1
+        }
+
+        // REFERENCED FREE-FUNCTION HOLDERS TAKE THE SAME WALK. One holder can contribute an overload
+        // group. Two referenced assemblies contributing the same name at one namespace are ambiguous
+        // and leave that name out, rather than binding whichever reference was listed first.
+        for rankedNamespace in ranks {
+            rank := rankedNamespace.Value
+            offered := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
+            ambiguous := new HashSet<string>(StringComparer.Ordinal)
+            for holder in program.ExternalFreeFunctionHolders(rankedNamespace.Key, rootTypeName) {
+                holderGroups := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
+                for external in ExternalDefinitionsFor(holder) {
+                    externalName := external.Method.Name
+                    candidates: List<ColumnarSiblingMethodDefinition> = null
+                    if !holderGroups.TryGetValue(externalName, out candidates) {
+                        candidates = new List<ColumnarSiblingMethodDefinition>()
+                        holderGroups[externalName] = candidates
+                    }
+                    candidates.Add(external)
+                }
+
+                for holderGroup in holderGroups {
+                    if offered.ContainsKey(holderGroup.Key) {
+                        ambiguous.Add(holderGroup.Key)
+                    } else {
+                        offered[holderGroup.Key] = holderGroup.Value
+                    }
+                }
+            }
+
+            for entry in offered {
+                existingRank := 0
+                if bestRanks.TryGetValue(entry.Key, out existingRank) && existingRank <= rank {
+                    continue
+                }
+                bestRanks[entry.Key] = rank
+                labeled.Remove(entry.Key)
+                if ambiguous.Contains(entry.Key) {
+                    view.Remove(entry.Key)
+                    overloads.Remove(entry.Key)
+                } else {
+                    candidates := entry.Value
+                    if candidates.Count > 0 {
+                        view[entry.Key] = candidates[0]
+                        overloads[entry.Key] = candidates
+                    }
+                }
+            }
+        }
+
+        viewsByFile[sourceFileId] = view
+        overloadsByFile[sourceFileId] = overloads
+        labeledViewsByFile[sourceFileId] = labeled
+    }
+
+    // A holder's definitions are read once per compilation, however many files reach it.
+    func ExternalDefinitionsFor(holder: Type): List<ColumnarSiblingMethodDefinition> {
+        cached: List<ColumnarSiblingMethodDefinition>? = null
+        if externalDefinitionsByHolder.TryGetValue(holder, out cached) {
+            return cached
+        }
+
+        definitions := ColumnarExternalFreeFunctions.Definitions(holder)
+        externalDefinitionsByHolder[holder] = definitions
+        return definitions
+    }
+
+    // The caller's own file is nearer than every import and every namespace, so its rank sits below
+    // the file-import band, which sits below the namespace band (which starts at 0).
+    static func OwnFileRank(): int {
+        return -1000000
+    }
+
+    static func FileImportRankBase(): int {
+        return -1000
+    }
+
+    // The files this one imported WHOLE, ranked in import order, all of them nearer than any
+    // namespace. A file that is imported twice keeps its first position.
+    func FileImportRanks(sourceFileId: int): Dictionary<int, int> {
+        fileRanks := new Dictionary<int, int>()
+        imported := program.FileImportSourceFileIdsForFile(sourceFileId)
+        index := 0
+        while index < imported.Count {
+            importedFileId := imported[index]
+            if importedFileId != sourceFileId && !fileRanks.ContainsKey(importedFileId) {
+                fileRanks[importedFileId] = FileImportRankBase() + index
+            }
+            index = index + 1
+        }
+        return fileRanks
+    }
+
+    // The candidate namespaces this file can reach a free function through, ranked nearest-first.
+    // `SimpleNamePrecedence` is the one owner of that order; the global namespace rides as `""` here
+    // because that is the spelling the emitter's binding scope holds a namespace in.
+    func NamespaceRanks(sourceFileId: int): Dictionary<string, int> {
+        ranks := new Dictionary<string, int>(StringComparer.Ordinal)
+        currentNamespace := program.NamespaceNameForFile(sourceFileId)
+        lookupNamespace: string? = null
+        if currentNamespace.Length > 0 {
+            lookupNamespace = currentNamespace
+        }
+        candidates := SimpleNamePrecedence.CandidateNamespaces(lookupNamespace, program.NamespaceImportsForFile(sourceFileId))
+        index := 0
+        while index < candidates.Count {
+            candidate := candidates[index]
+            key := candidate == null ? "" : candidate
+            if !ranks.ContainsKey(key) {
+                ranks[key] = index
+            }
+            index = index + 1
+        }
+        return ranks
+    }
+}
+
+// THE HOLDER TYPES, CREATED ON DEMAND.
+//
+// A namespace gets its `Program` only once something is actually placed in it — a free function
+// declared there, or a synthesized method (a lambda, a capture-free local function) lifted out of a
+// body in one of its files. A project whose every file says `namespace App` therefore emits
+// `App.Program` and nothing else, rather than an `App.Program` beside an empty global `Program`.
+//
+// ON DEMAND MEANS `ColumnarFreeFunctionHolderSlot`, NOT `For`. Every body the emitter runs is handed
+// a SLOT, because most bodies never place anything on a holder: a lambda written inside a type lands
+// on that type, a display class and an anonymous object type are module-level, and a body with no
+// lambda at all asks for nothing. Resolving the `TypeBuilder` up front instead — merely to have one
+// ready in case the body lifted something — gave EVERY namespace that declared so much as one method
+// an empty public `Program`, which a C# consumer referencing two such assemblies then saw as CS0433
+// (measured on the tip compiler at `f369e5d22`: 11 of them in `NSharpLang.Compiler.Core` and 2 in
+// `Compiler`, and `dotnet build src/NSharpLang.Cli` could not name `Program` at all).
+class ColumnarFreeFunctionHolders {
+    module: ModuleBuilder
+    rootTypeName: string
+    program: ColumnarProgramInput
+    buildersByNamespace: Dictionary<string, TypeBuilder>
+    ordered: List<TypeBuilder>
+
+    constructor(moduleBuilder: ModuleBuilder, rootHolderTypeName: string, programInput: ColumnarProgramInput) {
+        module = moduleBuilder
+        rootTypeName = rootHolderTypeName
+        program = programInput
+        buildersByNamespace = new Dictionary<string, TypeBuilder>(StringComparer.Ordinal)
+        ordered = new List<TypeBuilder>()
+    }
+
+    // The holder a body emitted out of this file places its free functions and its synthesized
+    // methods on. Every caller has a source file id, so nobody has to spell a namespace.
+    //
+    // CALLING THIS CREATES THE TYPE. Ask for it only where a member is about to be declared on it;
+    // a body that MIGHT lift something takes a `ColumnarFreeFunctionHolderSlot` instead.
+    func ForFile(sourceFileId: int): TypeBuilder {
+        return For(program.NamespaceNameForFile(sourceFileId))
+    }
+
+    // The module every synthesized type this program defines goes into — a display class, an
+    // anonymous object type. Reaching it through the holder used to mean CREATING the holder.
+    func Module(): ModuleBuilder {
+        return module
+    }
+
+    func For(namespaceName: string): TypeBuilder {
+        existing: TypeBuilder? = null
+        if buildersByNamespace.TryGetValue(namespaceName, out existing) {
+            return existing
+        }
+
+        created := module.DefineType(
+            HolderNameFor(namespaceName),
+            TypeAttributes.Public | TypeAttributes.Class
+        )
+        buildersByNamespace[namespaceName] = created
+        ordered.Add(created)
+        return created
+    }
+
+    // The ordinary name unless this namespace's source already declares a type of it, in which case
+    // the reserved spelling — see `ColumnarFreeFunctionScope`'s comment for why the holder yields.
+    func HolderNameFor(namespaceName: string): string {
+        ordinary := ColumnarFreeFunctionScope.HolderTypeName(namespaceName, rootTypeName)
+        if !program.DeclaresSourceTypeNamed(ordinary) {
+            return ordinary
+        }
+
+        return ColumnarFreeFunctionScope.HolderTypeName(namespaceName, ColumnarFreeFunctionScope.ReservedHolderTypeName(rootTypeName))
+    }
+
+    // Every holder that was actually needed, in creation order, for the final `CreateType` pass.
+    func Created(): List<TypeBuilder> {
+        return ordered
+    }
+}
+
+// ONE BODY'S HOLDER, BEFORE IT EXISTS.
+//
+// The emitter carries this instead of a `TypeBuilder`, so that asking WHERE a file's free functions
+// and lifted methods would go is not the same act as CREATING the type they would go on. Only
+// `Builder()` creates it, and only three placements ever call it: a file-level lambda, a file-level
+// capture-free local function, and the free functions themselves. Everything else a body needs from
+// the holder — the module a display class or an anonymous object type is defined in — is available
+// without one.
+class ColumnarFreeFunctionHolderSlot {
+    holders: ColumnarFreeFunctionHolders
+    sourceFileId: int
+
+    constructor(freeFunctionHolders: ColumnarFreeFunctionHolders, holderSourceFileId: int) {
+        if freeFunctionHolders == null {
+            throw new InvalidOperationException("A free-function holder slot requires the program's holder table.")
+        }
+        holders = freeFunctionHolders
+        sourceFileId = holderSourceFileId
+    }
+
+    // CREATES the holder if this is the first member placed on it. Call it at the point of
+    // declaration, never to have one in hand.
+    func Builder(): TypeBuilder {
+        return holders.ForFile(sourceFileId)
+    }
+
+    func Module(): ModuleBuilder {
+        return holders.Module()
+    }
+}

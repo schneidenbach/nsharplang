@@ -1,5 +1,3 @@
-// Program.nl — App entry point. Compare this to a C# Startup.cs.
-
 namespace IssueTracker
 
 import Microsoft.AspNetCore.Builder

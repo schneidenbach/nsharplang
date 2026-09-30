@@ -1,0 +1,268 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Reflection
+
+
+// Target-typed null and Nullable<T> construction are argument-lowering concerns, not overload
+// selection side effects. This helper keeps those rules pure until a selected parameter type is
+// known, then appends one callback-free schema-v3 sequence to the caller's open fragment.
+class ColumnarNullableArgumentLowering {
+    static func CanAdoptNull(targetType: Type): bool {
+        ValidateType(targetType, "targetType")
+        element := typeof(int)
+        return (!targetType.IsValueType && !targetType.IsGenericParameter) || TryGetSupportedNullableElement(targetType, out element)
+    }
+
+    static func CanLiftValue(actualType: Type, targetType: Type): bool {
+        ValidateType(actualType, "actualType")
+        ValidateType(targetType, "targetType")
+
+        element := typeof(int)
+        if !TryGetSupportedNullableElement(targetType, out element) {
+            return false
+        }
+
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatches(actualType, targetType) || RuntimeTypeShapeFacts.ExactTypeShapeMatches(actualType, element) {
+            return true
+        }
+
+        return CanAppendNumericConversion(actualType, element)
+    }
+
+    static func TryGetSupportedNullableElement(targetType: Type, out elementType: Type): bool {
+        ValidateType(targetType, "targetType")
+        elementType = typeof(int)
+        nullableDefinition := ColumnarTypeEquivalenceFacts.RequiredNullableDefinition()
+        if !targetType.IsGenericType || targetType.IsGenericTypeDefinition || targetType.GetGenericTypeDefinition() != nullableDefinition {
+            return false
+        }
+
+        arguments := targetType.GetGenericArguments()
+        if arguments.Length != 1 || !IsLiftableNullableElement(arguments[0]) {
+            return false
+        }
+
+        elementType = arguments[0]
+        return true
+    }
+
+    // Emits either ldnull for a reference target or the exact default(T?) sequence
+    // ldloca/initobj/ldloc. The helper owns the argument fragment so its semantic result type
+    // refines the verifier's raw null category before a call consumes it.
+    static func TryAppendNullArgument(plan: ColumnarCodePlan, parentFragment: int, fragmentKind: int, sourceNode: int, targetType: Type): bool {
+        ValidatePlan(plan)
+        ValidateType(targetType, "targetType")
+        if fragmentKind < 0 || sourceNode < 0 {
+            throw new ArgumentOutOfRangeException("fragmentKind")
+        }
+
+        if !CanAdoptNull(targetType) {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            fragment := plan.BeginFragment(parentFragment, fragmentKind, sourceNode)
+            nullableElement := typeof(int)
+            if TryGetSupportedNullableElement(targetType, out nullableElement) {
+                targetTypeIndex := plan.AddType(targetType)
+                defaultLocal := plan.DeclarePlanLocal(targetTypeIndex)
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), defaultLocal)
+
+                plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), targetTypeIndex)
+
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), defaultLocal)
+            } else {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+            }
+
+            plan.CompleteFragment(fragment, targetType)
+            return true
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+    }
+
+    // The caller has already appended one value of actualType. Identity T? passes through;
+    // T and the admitted implicit numeric T -> U flows construct Nullable<U>(U).
+    static func TryAppendValueLift(plan: ColumnarCodePlan, actualType: Type, targetType: Type): bool {
+        ValidatePlan(plan)
+        ValidateType(actualType, "actualType")
+        ValidateType(targetType, "targetType")
+
+        element := typeof(int)
+        if !TryGetSupportedNullableElement(targetType, out element) {
+            return false
+        }
+
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatches(actualType, targetType) {
+            return true
+        }
+
+        conversionMethod: MethodInfo? = null
+        conversionSource := actualType
+        requiresConversion := !RuntimeTypeShapeFacts.ExactTypeShapeMatches(actualType, element)
+        if requiresConversion && !TryGetNumericConversion(actualType, element, out conversionSource, out conversionMethod) {
+            return false
+        }
+
+        constructorParameters := new Type[](1)
+        constructorParameters[0] = element
+        constructorInfo: ConstructorInfo? = null
+        if !TryGetNullableConstructor(targetType, out constructorInfo) {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            if requiresConversion {
+                AppendNumericConversion(plan, actualType, element, conversionSource, conversionMethod)
+            }
+
+            constructorIndex := plan.AddConstructorWithSignature(constructorInfo, targetType, constructorParameters)
+
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+
+            return true
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+    }
+
+    static func CanAppendNumericConversion(actualType: Type, targetType: Type): bool {
+        conversionSource := actualType
+        conversionMethod: MethodInfo? = null
+        return TryGetNumericConversion(actualType, targetType, out conversionSource, out conversionMethod)
+    }
+
+    // `Nullable<T>.ctor(T)` ON THE CLOSED TYPE. Asking the closed type directly answers nothing when
+    // `T` is an argument this compilation is still emitting, so the construction planner's ordinary
+    // closed-generic constructor selection is what resolves it — in whichever reflection universe the
+    // argument lives.
+    static func TryGetNullableConstructor(targetType: Type, out constructorInfo: ConstructorInfo): bool {
+        constructorInfo = null
+        nullableArguments := targetType.GetGenericArguments()
+        if nullableArguments.Length != 1 {
+            return false
+        }
+
+        argumentTypes := new Type[](1)
+        argumentTypes[0] = nullableArguments[0]
+        selected: ConstructorInfo? = null
+        selectedParameters := new Type[](0)
+        selectedElementType: Type? = null
+        if !ColumnarConstructionPlanner.TrySelectClosedRuntimeConstructor(targetType, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(1), out selected, out selectedParameters, out selectedElementType) || selected == null || selectedElementType != null {
+            return false
+        }
+
+        constructorInfo = selected
+        return true
+    }
+
+    static func TryGetNumericConversion(actualType: Type, targetType: Type, out conversionSource: Type, out conversionMethod: MethodInfo?): bool {
+        conversionSource = actualType
+        conversionMethod = null
+
+        if targetType == typeof(int) {
+            return ColumnarNumericFacts.IsIntPromotable(actualType) && actualType != typeof(int)
+        }
+
+        if targetType == typeof(long) {
+            return ColumnarNumericFacts.IsIntPromotable(actualType)
+        }
+
+        if targetType == typeof(float) {
+            return ColumnarNumericFacts.IsIntPromotable(actualType) || actualType == typeof(long)
+        }
+
+        if targetType == typeof(double) {
+            return ColumnarNumericFacts.IsIntPromotable(actualType) || actualType == typeof(long) || actualType == typeof(float)
+        }
+
+        if targetType != typeof(decimal) || (!ColumnarNumericFacts.IsIntPromotable(actualType) && actualType != typeof(long)) {
+            return false
+        }
+
+        if actualType == typeof(byte) || actualType == typeof(sbyte) || actualType == typeof(short) || actualType == typeof(ushort) || actualType == typeof(char) {
+            conversionSource = typeof(int)
+        }
+
+        parameters := new Type[](1)
+        parameters[0] = conversionSource
+        candidate := typeof(decimal).GetMethod("op_Implicit", parameters)
+        if candidate == null || !candidate.IsStatic || candidate.IsGenericMethod || candidate.ReturnType != typeof(decimal) {
+            return false
+        }
+
+        conversionMethod = candidate
+        return true
+    }
+
+    static func AppendNumericConversion(plan: ColumnarCodePlan, actualType: Type, targetType: Type, conversionSource: Type, conversionMethod: MethodInfo?) {
+        if targetType == typeof(int) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
+            return
+        }
+
+        if targetType == typeof(long) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI8())
+            return
+        }
+
+        if targetType == typeof(float) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvR4())
+            return
+        }
+
+        if targetType == typeof(double) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvR8())
+            return
+        }
+
+        if conversionSource != actualType {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
+        }
+
+        if conversionMethod == null {
+            throw new InvalidOperationException("A nullable decimal conversion requires its exact runtime method.")
+        }
+
+        parameters := new Type[](1)
+        parameters[0] = conversionSource
+        methodIndex := plan.AddMethodWithSignature(conversionMethod, typeof(decimal), parameters, typeof(decimal), true, false)
+
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+    }
+
+    // ONE OWNER ANSWERS WHAT A `Nullable<T>`'s ARGUMENT MAY BE. This was a third copy of the same
+    // list, and three copies of a list are three chances to disagree about a type.
+    static func IsLiftableNullableElement(valueType: Type): bool {
+        return ColumnarTypeOfPlanner.IsLiftableNullableElement(valueType)
+    }
+
+    static func ValidatePlan(plan: ColumnarCodePlan) {
+        if plan == null {
+            throw new ArgumentNullException("plan")
+        }
+
+        // 015-B6: a schema-v4 METHOD BODY is admitted alongside v3. This gate threw — a hard crash out
+        // of the compiler, not a decline — on every method-body plan, and ALL NINE owners that carried
+        // it were widened in ONE move because the value surface routes by operand kind: admitting a
+        // subset would mean pre-scanning operands to predict which owner they reach, which is a second
+        // copy of the dispatcher's own decision.
+        // It wraps an already-appended argument, so it is reached only from an admitted
+        // composite.
+        if (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && plan.SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || plan.Status != ColumnarFragmentPlanStatus.NotOwned || plan.Lifecycle != ColumnarCodePlanLifecycle.Building {
+            throw new InvalidOperationException("Nullable argument lowering requires a building schema-v3 or method-body plan.")
+        }
+    }
+
+    static func ValidateType(valueType: Type, name: string) {
+        if valueType == null {
+            throw new ArgumentNullException(name)
+        }
+    }
+}

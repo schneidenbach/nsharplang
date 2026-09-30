@@ -1,3 +1,5 @@
+namespace Examples.NestedSimpleTest
+
 class Address {
     City: string
 }

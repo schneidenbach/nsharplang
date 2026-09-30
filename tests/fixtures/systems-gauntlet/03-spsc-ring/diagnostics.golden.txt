@@ -1,0 +1,1 @@
+PASS: Volatile, Interlocked, and Thread.MemoryBarrier are covered by the BCL HotSummary pack.
