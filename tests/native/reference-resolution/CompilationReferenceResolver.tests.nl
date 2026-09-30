@@ -4,13 +4,37 @@ import System
 import System.IO
 import System.Text.Json
 
-func ResolverJsonErrorMessageContains(stdout: string, fragment: string): bool {
+func ResolverJsonWorkspaceErrorContains(stdout: string, fragment: string): bool {
     document := JsonDocument.Parse(stdout)
     found := false
     try {
-        error := document.RootElement.GetProperty("error")
-        message := error.GetProperty("message").GetString() ?? ""
-        found = message.Contains(fragment, StringComparison.Ordinal)
+        projects := document.RootElement.GetProperty("projects")
+        for project in projects.EnumerateArray() {
+            errorMessage := new JsonElement()
+            if project.TryGetProperty("error", out errorMessage) && (errorMessage.GetString() ?? "").Contains(fragment, StringComparison.Ordinal) {
+                found = true
+            }
+        }
+    } finally {
+        document.Dispose()
+    }
+    return found
+}
+
+func ResolverJsonWorkspaceDiagnosticContains(stdout: string, code: string, fragment: string): bool {
+    document := JsonDocument.Parse(stdout)
+    found := false
+    try {
+        projects := document.RootElement.GetProperty("projects")
+        for project in projects.EnumerateArray() {
+            for diagnostic in project.GetProperty("results").EnumerateArray() {
+                diagnosticCode := diagnostic.GetProperty("code").GetString() ?? ""
+                diagnosticMessage := diagnostic.GetProperty("message").GetString() ?? ""
+                if diagnosticCode == code && diagnosticMessage.Contains(fragment, StringComparison.Ordinal) {
+                    found = true
+                }
+            }
+        }
     } finally {
         document.Dispose()
     }
@@ -132,10 +156,14 @@ test "build and check retain the exact child AOT diagnostic and produce no child
         check := ResolverRunCli("check --project " + ResolverQuote(checkRoot) + " --aot", checkRoot)
         assert check.ExitCode == 1
         document := JsonDocument.Parse(check.Stdout)
+        assert document.RootElement.GetProperty("schemaVersion").GetInt32() == 2
         assert !document.RootElement.GetProperty("ok").GetBoolean()
+        assert document.RootElement.GetProperty("summary").GetProperty("projectFailures").GetInt32() == 1
         document.Dispose()
-        assert ResolverJsonErrorMessageContains(check.Stdout, "AOT builds require successful N# columnar emission")
-        assert ResolverJsonErrorMessageContains(check.Stdout, "emit.iterator.async-unsupported: generic async iterator methods are not yet lowered")
+        assert ResolverJsonWorkspaceErrorContains(check.Stdout, "AOT builds require successful N# columnar emission")
+        assert ResolverJsonWorkspaceErrorContains(check.Stdout, "emit.iterator.async-unsupported: generic async iterator methods are not yet lowered")
+        assert ResolverJsonWorkspaceDiagnosticContains(check.Stdout, "NL103", "emit.iterator.async-unsupported: generic async iterator methods are not yet lowered")
+        assert !File.Exists(Path.Combine(Path.Combine(Path.Combine(Path.Combine(checkRoot, "Shared"), "bin"), "Debug/net10.0"), "SharedLib.dll"))
     } finally {
         Directory.Delete(scratch, true)
     }

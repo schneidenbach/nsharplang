@@ -29,9 +29,37 @@ class CodeIntelligenceService {
         return Snapshot(projectRoot, compiler)
     }
 
+    // Workspace planning assigns every source to its nearest project root before analysis. The
+    // explicit-list overload preserves that ownership boundary instead of rediscovering a parent's
+    // nested members as part of the same program.
+    func LoadWorkspaceProjectIncludingTests(projectRoot: string, config: ProjectConfig?, sourceFiles: IEnumerable<string>): ProjectSnapshot {
+        compiler := new MultiFileCompiler(sourceFiles, projectRoot, config, null)
+        return Snapshot(projectRoot, compiler)
+    }
+
+    // `nlc check` needs the analysis snapshot and backend verification for each project. Running
+    // `CompileForAnalysis` and then creating a second compiler for IL verification parsed and
+    // analyzed every clean member twice. Compile once, then expose that compiler's completed
+    // analysis and emission diagnostics through the same snapshot used by code intelligence.
+    func LoadWorkspaceProjectIncludingTestsForCheck(
+        projectRoot: string,
+        config: ProjectConfig,
+        sourceFiles: IEnumerable<string>,
+        assemblyName: string,
+        outputPath: string,
+        aotMode: bool
+    ): ProjectSnapshot {
+        compiler := new MultiFileCompiler(sourceFiles, projectRoot, config, null) { AotMode: aotMode }
+        compiler.CompileToIlAssembly(assemblyName, outputPath, false, true)
+        return SnapshotAfterCompilation(projectRoot, compiler)
+    }
+
     private func Snapshot(projectRoot: string, compiler: MultiFileCompiler): ProjectSnapshot {
         compiler.CompileForAnalysis()
+        return SnapshotAfterCompilation(projectRoot, compiler)
+    }
 
+    private func SnapshotAfterCompilation(projectRoot: string, compiler: MultiFileCompiler): ProjectSnapshot {
         return new ProjectSnapshot(
             projectRoot,
             compiler.CompilationUnits,

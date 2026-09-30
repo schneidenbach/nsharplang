@@ -1438,8 +1438,35 @@ test "nlc check AOT project references report the referenced source decline" {
         assert run.Stderr.Length == 0
         document := JsonDocument.Parse(run.Stdout)
         root := document.RootElement
+        assert root.GetProperty("schemaVersion").GetInt32() == 2
         assert !root.GetProperty("ok").GetBoolean()
-        assert TextOf(root.GetProperty("error").GetProperty("message")).Contains("AOT builds require successful N# columnar emission")
+        appRoot := NormalizedFullPath(directory)
+        sharedRoot := NormalizedFullPath(sharedDirectory)
+        appFailureFound := false
+        sharedProjectFound := false
+        sharedDeclineFound := false
+        for project in root.GetProperty("projects").EnumerateArray() {
+            projectRoot := TextOf(project.GetProperty("projectRoot"))
+            if EquivalentProcessPath(projectRoot, appRoot) {
+                appFailureFound = true
+                errorMessage := new JsonElement()
+                assert project.TryGetProperty("error", out errorMessage)
+                assert TextOf(errorMessage).Contains("AOT builds require successful N# columnar emission")
+                assert TextOf(errorMessage).Contains("emit.iterator.async-unsupported: generic async iterator methods are not yet lowered")
+            }
+            if EquivalentProcessPath(projectRoot, sharedRoot) {
+                sharedProjectFound = true
+                for diagnostic in project.GetProperty("results").EnumerateArray() {
+                    if TextOf(diagnostic.GetProperty("code")) == "NL103" {
+                        sharedDeclineFound = true
+                        assert TextOf(diagnostic.GetProperty("message")).Contains("Columnar AOT emission is required")
+                    }
+                }
+            }
+        }
+        assert appFailureFound
+        assert sharedProjectFound
+        assert sharedDeclineFound
         document.Dispose()
     } finally {
         Directory.Delete(directory, true)

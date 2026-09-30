@@ -3,6 +3,7 @@ namespace NSharpLang.Cli
 import System
 import System.Collections.Generic
 import System.IO
+import System.Threading
 import NSharpLang.Compiler
 
 class ReferenceResolutionOptions {
@@ -13,6 +14,8 @@ class ReferenceResolutionOptions {
     aotModeValue: bool
     useBuiltProjectReferencesValue: bool
     packagesFolderValue: string?
+    testSourcesPresentValue: bool?
+    workspaceContextValue: ResolutionContext?
 
     constructor() {
         configurationValue = "Debug"
@@ -95,6 +98,28 @@ class ReferenceResolutionOptions {
         }
         set {
             packagesFolderValue = value
+        }
+    }
+
+    // Workspace checks pass the owning member's already-filtered test-file fact so reference
+    // resolution does not walk a parent's child projects a second time.
+    TestSourcesPresent: bool? {
+        get {
+            return testSourcesPresentValue
+        }
+        set {
+            testSourcesPresentValue = value
+        }
+    }
+
+    // Workspace checks assign one shared resolver context to each member's options. Ordinary
+    // single-project checks leave this empty and get a fresh context for their own resolution.
+    WorkspaceContext: ResolutionContext? {
+        get {
+            return workspaceContextValue
+        }
+        set {
+            workspaceContextValue = value
         }
     }
 
@@ -270,9 +295,12 @@ class ReferenceResolutionResult {
 
 class ResolutionContext {
     packagesRootValue: string
+    private readonly resolutionGateValue: SemaphoreSlim
     packageAssetsValue: Dictionary<string, NuGetPackageAssets>?
     projectOutputsValue: Dictionary<string, ResolvedProjectReference>?
+    projectFailuresValue: Dictionary<string, string>?
     activeProjectRootsValue: Stack<string>?
+    cacheProjectFailuresValue: bool
 
     // ONE RESOLUTION READS ONE PACKAGES FOLDER, decided when it begins. It used to be re-read from
     // `NUGET_PACKAGES` at every package the walk touched, so the only way to point a resolution at a
@@ -283,6 +311,7 @@ class ResolutionContext {
     // resolution, so it lives here with the rest of it, and a project reference built inside this
     // resolution reads the same cache as the project that references it.
     constructor() {
+        resolutionGateValue = new SemaphoreSlim(1, 1)
         packagesRootValue = CompilationReferenceResolverKernels.GetGlobalPackagesFolder(
             Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
@@ -292,6 +321,7 @@ class ResolutionContext {
     // A named folder wins; null or blank falls back to NuGet's own rule, exactly as the parameterless
     // constructor decides it.
     constructor(packagesFolder: string?) {
+        resolutionGateValue = new SemaphoreSlim(1, 1)
         configuredPackagesFolder := packagesFolder
         if string.IsNullOrWhiteSpace(configuredPackagesFolder ?? "") {
             configuredPackagesFolder = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
@@ -308,6 +338,10 @@ class ResolutionContext {
             return packagesRootValue
         }
     }
+
+    // Workspace checks share the package-asset and project-output caches through one context. The
+    // resolver holds this gate while mutating them; analysis of each member remains parallel.
+    ResolutionGate: SemaphoreSlim => resolutionGateValue
 
     PackageAssets: Dictionary<string, NuGetPackageAssets> {
         get {
@@ -326,6 +360,25 @@ class ResolutionContext {
             }
 
             return projectOutputsValue
+        }
+    }
+
+    ProjectFailures: Dictionary<string, string> {
+        get {
+            if projectFailuresValue == null {
+                projectFailuresValue = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            }
+
+            return projectFailuresValue
+        }
+    }
+
+    CacheProjectFailures: bool {
+        get {
+            return cacheProjectFailuresValue
+        }
+        set {
+            cacheProjectFailuresValue = value
         }
     }
 

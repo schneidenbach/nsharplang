@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import System.Text
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
 import NSharpLang.Compiler.Columnar
@@ -772,6 +773,21 @@ test "both suppression spellings are accepted — a space and a colon before the
     // named by the deleted row, which used only the first.
     assert !LntHas(LntLintWithSource("func Main() {\n    value := 42 // nlc:ignore NL001\n}"), "NL001", "'value'")
     assert !LntHas(LntLintWithSource("func Main() {\n    value := 42 // nlc:ignore:NL001\n}"), "NL001", "'value'")
+}
+
+test "a next-line suppression skips a long comment-only prefix and uses original line numbers" {
+    sourceBuilder := new StringBuilder()
+    sourceBuilder.AppendLine("// nlc:ignore NL001")
+    for index := 0; index < 10000; index++ {
+        sourceBuilder.AppendLine("// an ordinary comment")
+    }
+    sourceBuilder.AppendLine("")
+    sourceBuilder.AppendLine("unused := 1")
+
+    suppressions := LinterSuppressionParser.BuildSuppressions("Suppression.nl", sourceBuilder.ToString())
+
+    assert suppressions.IsSuppressed(10003, "NL001")
+    assert !suppressions.IsSuppressed(10002, "NL001")
 }
 
 // ── the resolved spans ────────────────────────────────────────────────────────────────────────

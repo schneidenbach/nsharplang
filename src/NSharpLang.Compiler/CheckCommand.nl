@@ -4,9 +4,11 @@ import System
 import System.Collections.Generic
 import System.Diagnostics
 import System.IO
+import System.Threading.Tasks
 import NSharpLang.Cli
 import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
+import NSharpLang.Compiler.Performance
 
 // The check command owns the complete analysis-to-output route. It deliberately shares the
 // compiler-service facade and output formatter with query/daemon callers so a command invocation
@@ -16,9 +18,9 @@ import NSharpLang.Compiler.CodeIntelligence
 // files with the rest of the project, so a `check` that skipped them answered about a DIFFERENT
 // program than the one that gets built: a project made entirely of test files reported
 // `checkedFiles: 0` and `ok: true` while `nlc test` failed on the first lint error in it. Both the
-// analysis snapshot and the IL verification below therefore take the `nlc test` file list. No schema
-// field moves for this: the test files are counted in the existing `checkedFiles` and their
-// diagnostics arrive in the existing `results`, so `schemaVersion` stays 1.
+// analysis snapshot and the IL verification below therefore take the `nlc test` file list. A
+// single-project check keeps schema 1 because tests use its existing `checkedFiles` and `results`;
+// the separate workspace envelope groups each member under schema 2.
 class CheckCommand {
     static func Execute(args: string[]): int {
         arguments := CheckCommandKernels.GetArgumentSummary(args)
@@ -44,6 +46,20 @@ class CheckCommand {
         sw := Stopwatch.StartNew()
 
         try {
+            nestedProjectRoots := new ProjectConfig().DiscoverNestedProjectRoots(projectDir)
+            if nestedProjectRoots.Count > 0 {
+                if outputMode == -1 {
+                    return EmitError(useText, CheckCommandKernels.GetSystemsReportTextUnavailableMessage(), projectDir)
+                }
+
+                workspace := CheckWorkspacePlanner.Discover(projectDir)
+                if workspace.ConflictMessage != null {
+                    return EmitError(useText, workspace.ConflictMessage ?? "", projectDir)
+                }
+
+                return ExecuteWorkspace(workspace, projectDir, arguments, outputMode, aot, sw)
+            }
+
             projectConfig := ProjectFileParser.ParseFromDirectory(projectDir)
             if projectConfig != null {
                 referenceOptions := new ReferenceResolutionOptions("Debug", true, true, false, aot)
@@ -61,7 +77,7 @@ class CheckCommand {
             sourceFileCount := snapshot.SourceFiles.Count
             hasProjectFile := File.Exists(projectYmlPath)
             if CheckCommandKernels.ShouldVerifyIlOutput(summary.Errors, sourceFileCount, hasProjectFile) {
-                verificationDiagnostics := VerifyIlOutput(projectDir, projectConfig, aot)
+                verificationDiagnostics := VerifyIlOutput(projectDir, projectConfig, aot, null)
                 if verificationDiagnostics.Count > 0 {
                     diagnostics.AddRange(verificationDiagnostics)
                     diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics)
@@ -110,7 +126,181 @@ class CheckCommand {
         }
     }
 
-    private static func VerifyIlOutput(projectDir: string, config: ProjectConfig?, aotMode: bool): List<DiagnosticResult> {
+    private static func ExecuteWorkspace(
+        workspace: CheckWorkspacePlan,
+        projectDir: string,
+        arguments: CheckArgumentSummary,
+        outputMode: int,
+        aotMode: bool,
+        elapsed: Stopwatch
+    ): int {
+        let projectCount: int = workspace.Projects.Count
+        if projectCount == 0 {
+            return EmitError(false, "No N# project roots or loose source files were found under " + projectDir + ".", projectDir)
+        }
+
+        results := new List<CheckWorkspaceProjectResult>()
+        sharedReferences := new ResolutionContext(null)
+        sharedReferences.CacheProjectFailures = true
+        maxConcurrency := CheckCommandKernels.GetWorkspaceMaxConcurrency(Environment.ProcessorCount)
+        batchStart := 0
+        while batchStart < projectCount {
+            batchCount := Math.Min(maxConcurrency, projectCount - batchStart)
+            tasks := new Task<CheckWorkspaceProjectResult>[batchCount]
+            for offset := 0; offset < batchCount; offset++ {
+                project := workspace.Projects[batchStart + offset]
+                tasks[offset] = CheckWorkspaceProjectAsync(project, arguments, outputMode, aotMode, sharedReferences)
+            }
+            for offset := 0; offset < batchCount; offset++ {
+                results.Add(tasks[offset].GetAwaiter().GetResult())
+            }
+            batchStart += batchCount
+        }
+
+        orderedResults := new List<CheckWorkspaceProjectResult>(results)
+        orderedResults.Sort((left, right) => String.Compare(left.ProjectRoot, right.ProjectRoot, StringComparison.OrdinalIgnoreCase))
+        hasErrors := false
+        for result in orderedResults {
+            if !result.Succeeded {
+                hasErrors = true
+            }
+        }
+
+        if outputMode == 2 {
+            WriteWorkspaceText(orderedResults, elapsed)
+        } else {
+            Console.Write(OutputFormatter.CheckWorkspaceToJson(projectDir, orderedResults, outputMode == 3))
+        }
+
+        if hasErrors {
+            return 1
+        }
+        return 0
+    }
+
+    private static async func CheckWorkspaceProjectAsync(
+        project: CheckWorkspaceProject,
+        arguments: CheckArgumentSummary,
+        outputMode: int,
+        aotMode: bool,
+        sharedReferences: ResolutionContext
+    ): Task<CheckWorkspaceProjectResult> {
+        await Task.Yield()
+        return CheckWorkspaceProject(project, arguments, outputMode, aotMode, sharedReferences)
+    }
+
+    static func CheckWorkspaceProject(
+        project: CheckWorkspaceProject,
+        arguments: CheckArgumentSummary,
+        outputMode: int,
+        aotMode: bool,
+        sharedReferences: ResolutionContext
+    ): CheckWorkspaceProjectResult {
+        emptyDiagnostics := new List<DiagnosticResult>()
+        if project.ConfigError != null {
+            return new CheckWorkspaceProjectResult(
+                project.ProjectRoot,
+                project.SourceFiles.Length,
+                emptyDiagnostics,
+                OutputFormatter.SummarizeDiagnostics(emptyDiagnostics),
+                CheckCommandKernels.GetProjectConfigurationFailedMessage(project.ConfigError ?? ""),
+                null
+            )
+        }
+
+        try {
+            config := project.Config
+            CompilationBackendSelectionKernels.Validate(arguments.BackendOption, config)
+            if config != null {
+                referenceOptions := new ReferenceResolutionOptions("Debug", true, true, false, aotMode)
+                referenceOptions.UseBuiltProjectReferences = arguments.UseBuiltReferences
+                referenceOptions.TestSourcesPresent = CheckCommandKernels.HasTestSourceFiles(project.SourceFiles)
+                referenceOptions.WorkspaceContext = sharedReferences
+                CompilationReferenceResolver.AddResolvedDllReferences(
+                    project.ProjectRoot,
+                    config,
+                    referenceOptions
+                )
+            }
+
+            service := new CodeIntelligenceService()
+            snapshot := LoadWorkspaceProjectForCheck(service, project, config, aotMode)
+            diagnostics := OutputFormatter.DeduplicateAndSortDiagnostics(service.GetDiagnostics(snapshot, null))
+            summary := OutputFormatter.SummarizeDiagnostics(diagnostics)
+
+            systemsReport: SystemsReport? = null
+            if outputMode == 3 {
+                systemsReport = snapshot.SystemsReport
+            }
+            return new CheckWorkspaceProjectResult(
+                project.ProjectRoot,
+                snapshot.SourceFiles.Count,
+                diagnostics,
+                summary,
+                null,
+                systemsReport
+            )
+        } catch ex: Exception {
+            return new CheckWorkspaceProjectResult(
+                project.ProjectRoot,
+                project.SourceFiles.Length,
+                emptyDiagnostics,
+                OutputFormatter.SummarizeDiagnostics(emptyDiagnostics),
+                CheckCommandKernels.GetFailedMessage(ex.Message),
+                null
+            )
+        }
+    }
+
+    private static func LoadWorkspaceProjectForCheck(
+        service: CodeIntelligenceService,
+        project: CheckWorkspaceProject,
+        config: ProjectConfig?,
+        aotMode: bool
+    ): ProjectSnapshot {
+        if config == null || project.SourceFiles.Length == 0 || !File.Exists(CheckCommandKernels.GetProjectYmlPath(project.ProjectRoot)) {
+            return service.LoadWorkspaceProjectIncludingTests(project.ProjectRoot, config, project.SourceFiles)
+        }
+
+        tempDir := CheckCommandKernels.GetVerificationTempDirectory(Path.GetTempPath(), Guid.NewGuid().ToString("N"))
+        try {
+            Directory.CreateDirectory(tempDir)
+            assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(project.ProjectRoot, config)
+            outputPath := CheckCommandKernels.GetVerificationOutputPath(tempDir, assemblyName)
+            return service.LoadWorkspaceProjectIncludingTestsForCheck(
+                project.ProjectRoot,
+                config,
+                project.SourceFiles,
+                assemblyName,
+                outputPath,
+                aotMode
+            )
+        } finally {
+            CleanupVerificationDirectory(tempDir)
+        }
+    }
+
+    private static func WriteWorkspaceText(results: IReadOnlyList<CheckWorkspaceProjectResult>, elapsed: Stopwatch): void {
+        for result in results {
+            Console.Error.WriteLine("Project: " + result.ProjectRoot)
+            if result.ErrorMessage != null {
+                Console.Error.WriteLine("  Error: " + (result.ErrorMessage ?? ""))
+            } else if result.Summary.Errors == 0 && result.Summary.Warnings == 0 {
+                Console.Error.WriteLine(CheckCommandKernels.GetNoErrorsMessage(
+                    result.CheckedFiles,
+                    ProgramCommandKernels.FormatElapsedMilliseconds(elapsed.ElapsedMilliseconds)
+                ))
+            } else {
+                Console.Error.Write(OutputFormatter.DiagnosticsToText(result.Diagnostics))
+                Console.Error.WriteLine(CheckCommandKernels.GetCheckedInMessage(
+                    ProgramCommandKernels.FormatElapsedMilliseconds(elapsed.ElapsedMilliseconds)
+                ))
+            }
+        }
+        Console.Error.WriteLine("  Checked " + results.Count.ToString() + " projects in " + ProgramCommandKernels.FormatElapsedMilliseconds(elapsed.ElapsedMilliseconds) + ".")
+    }
+
+    private static func VerifyIlOutput(projectDir: string, config: ProjectConfig?, aotMode: bool, sourceFiles: IReadOnlyList<string>? = null): List<DiagnosticResult> {
         results := new List<DiagnosticResult>()
         effectiveConfig := config
         if effectiveConfig == null {
@@ -126,6 +316,9 @@ class CheckCommand {
             assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(projectDir, effectiveConfig)
             outputPath := CheckCommandKernels.GetVerificationOutputPath(tempDir, assemblyName)
             compiler := new MultiFileCompiler(projectDir, effectiveConfig, null, true) { AotMode: aotMode }
+            if sourceFiles != null {
+                compiler = new MultiFileCompiler(sourceFiles, projectDir, effectiveConfig, null) { AotMode: aotMode }
+            }
             compileResult := compiler.CompileToIlAssembly(assemblyName, outputPath, false, true)
 
             if !compileResult.Success {

@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
-import NSharpLang.Compiler.CodeIntelligence
 
 class LinterSuppressionSet {
     lines: List<int>
@@ -56,12 +55,14 @@ class LinterSuppressionParser {
         }
 
         sourceValue := source ?? ""
-        lineCount := GetSourceLineCount(sourceValue)
+        lines := SplitSourceLines(sourceValue)
+        lineCount := lines.Count
+        nextCodeLines := BuildNextCodeLineIndex(lines)
         pendingCodes := new List<string>()
 
         lineNumber := 1
         while lineNumber <= lineCount {
-            line := GetSourceLine(sourceValue, lineNumber)
+            line := lines[lineNumber - 1]
             trimmed := line.Trim()
             codes := ParseSuppressionCodes(line)
             if codes.Count == 0 {
@@ -83,7 +84,7 @@ class LinterSuppressionParser {
             }
 
             CopyCodes(pendingCodes, codes)
-            nextLine := FindNextCodeLine(sourceValue, lineNumber + 1, lineCount)
+            nextLine := nextCodeLines[lineNumber - 1]
             if nextLine > 0 {
                 AddSuppression(suppressions, nextLine, pendingCodes)
             }
@@ -95,42 +96,44 @@ class LinterSuppressionParser {
         return suppressions
     }
 
-    static func FindNextCodeLine(sourceText: string, startLine: int, lineCount: int): int {
-        lineNumber := startLine
-        while lineNumber <= lineCount {
-            trimmed := GetSourceLine(sourceText, lineNumber).Trim()
-            if string.IsNullOrWhiteSpace(trimmed) {
-                lineNumber = lineNumber + 1
-                continue
+    // Source-position lookup by line number restarts at the beginning of the buffer. Repeatedly
+    // asking for every line therefore made suppression parsing quadratic in source lines. Split the
+    // buffer in one pass, then use the following reverse index to find a comment's next code line.
+    static func SplitSourceLines(sourceText: string): List<string> {
+        lines := new List<string>()
+        start := 0
+        while start <= sourceText.Length {
+            position := start
+            while position < sourceText.Length && sourceText[position] != '\n' {
+                position = position + 1
             }
 
-            if trimmed.StartsWith("//", StringComparison.Ordinal) {
-                lineNumber = lineNumber + 1
-                continue
+            lines.Add(sourceText.Substring(start, position - start))
+            if position >= sourceText.Length {
+                break
             }
 
-            return lineNumber
+            start = position + 1
         }
 
-        return -1
+        return lines
     }
 
-    static func GetSourceLine(sourceText: string, oneBasedLine: int): string {
-        line := CodeIntelligenceTextUtilities.GetSourceLine(sourceText, oneBasedLine)
-        if line == null {
-            return ""
+    static func BuildNextCodeLineIndex(lines: IReadOnlyList<string>): int[] {
+        nextCodeLines := new int[lines.Count]
+        nextCodeLine := -1
+        index := lines.Count - 1
+        while index >= 0 {
+            nextCodeLines[index] = nextCodeLine
+            trimmed := lines[index].Trim()
+            if !string.IsNullOrWhiteSpace(trimmed) && !trimmed.StartsWith("//", StringComparison.Ordinal) {
+                nextCodeLine = index + 1
+            }
+
+            index = index - 1
         }
 
-        return line
-    }
-
-    static func GetSourceLineCount(sourceText: string): int {
-        line := 1
-        while CodeIntelligenceTextUtilities.GetSourceLine(sourceText, line) != null {
-            line = line + 1
-        }
-
-        return line - 1
+        return nextCodeLines
     }
 
     static func ParseSuppressionCodes(line: string): List<string> {

@@ -401,9 +401,22 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 
 ### Type Check
 
+`nlc check` accepts a project root or a workspace root. At a workspace root it discovers nested
+`project.yml` members, checks each member as its own program, and also checks any sources owned by
+the root project. Each source belongs to its nearest project root, which supplies that member's
+configuration, references and `exclude` rules. Discovery skips `bin/`, `obj/`, `.git/`, nested Git
+worktrees, `node_modules/` and `bootstrap/`. Member checks use bounded parallelism and share resolved
+reference metadata. Text output groups diagnostics by project. Workspace JSON uses `schemaVersion: 2`
+with a top-level `projects` array; each member contains `projectRoot`, `checkedFiles`, `ok`, `results`
+and `summary`, plus `error` on project failure and `systemsReport` when requested. Top-level file
+counts and diagnostic totals aggregate all projects; `summary.projectFailures` counts project-level
+failures that returned an `error` instead of diagnostics, such as invalid configuration or an
+unresolved reference. Single-project checks keep the existing version-1 shape. A source claimed by
+two projects is reported as a configuration conflict.
+
 | Feature | Go | Rust | N# Score | Notes |
 |---------|----|------|----------|-------|
-| Fast check | `go vet` | `cargo check` | `5` | `nlc check` is project-aware and fast |
+| Fast check | `go vet ./...` | `cargo check --workspace` | `5` | `nlc check` analyzes every workspace member and root-owned source in one invocation |
 | JSON output | n/a | n/a | `5` | Default structured envelope |
 | Human output | default | default | `5` | `nlc check --text` |
 | Single file | `go vet file.go` | n/a | `4` | `nlc check --project` is strong; single-file check is still less direct |

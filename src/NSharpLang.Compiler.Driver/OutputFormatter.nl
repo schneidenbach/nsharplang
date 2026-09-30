@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
 import System.Collections.Generic
+import NSharpLang.Cli
 import NSharpLang.Compiler.Performance
 
 // Public formatting entry points. Versioned JSON and human-readable text are owned by Core.
@@ -47,6 +48,14 @@ static class OutputFormatter {
             return OutputFormatterJsonKernels.CheckToJson(results, null, checkedFiles)
         }
         return OutputFormatterJsonKernels.CheckToJson(results, projectRoot, checkedFiles)
+    }
+
+    static func CheckWorkspaceToJson(
+        projectRoot: string,
+        projects: IReadOnlyList<CheckWorkspaceProjectResult>,
+        includeSystemsReport: bool
+    ): string {
+        return OutputFormatterJsonKernels.CheckWorkspaceToJson(projectRoot, projects, includeSystemsReport)
     }
 
     static func LintToJson(results: List<DiagnosticResult>, projectRoot: string?, lintedFiles: int): string {

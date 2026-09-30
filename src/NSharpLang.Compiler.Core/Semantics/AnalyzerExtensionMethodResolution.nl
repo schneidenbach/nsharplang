@@ -35,6 +35,7 @@ class AnalyzerExtensionMethodResolution {
     extensionMethods: List<FunctionDeclaration>
     usingNamespaces: List<string>
     assemblies: List<Assembly>
+    assemblyTypes: Dictionary<Assembly, Type[]>
     importUsageCredit: AnalyzerImportUsageCredit?
     genericCallBinder: AnalyzerSyntheticCallBinder?
 
@@ -52,6 +53,7 @@ class AnalyzerExtensionMethodResolution {
         extensionMethods = declaredExtensions
         usingNamespaces = importedNamespaces
         assemblies = referenceAssemblies
+        assemblyTypes = new Dictionary<Assembly, Type[]>()
         friendGrants = null
         genericCallBinder = null
     }
@@ -267,7 +269,7 @@ class AnalyzerExtensionMethodResolution {
         methods := new List<MethodInfo>()
 
         for assembly in assemblies {
-            assemblyTypes := AnalyzerReflectionMemberProbe.TypesOrEmpty(assembly)
+            assemblyTypes := AssemblyTypesOrEmpty(assembly)
             typeIndex := 0
             while typeIndex < assemblyTypes.Length {
                 hostType := assemblyTypes[typeIndex]
@@ -281,6 +283,22 @@ class AnalyzerExtensionMethodResolution {
         }
 
         return methods
+    }
+
+    // The same analyzer instance handles every source file in one project. Cache each immutable
+    // assembly type list for that lifetime: extension lookup can ask for a different method name at
+    // every member access, but `Assembly.GetTypes()` answers the same metadata each time. Keeping the
+    // cache on the project analyzer bounds its lifetime and avoids retaining every member project's
+    // unique reference graph for the lifetime of a CLI or language-server process.
+    private func AssemblyTypesOrEmpty(assembly: Assembly): Type[] {
+        let cached: Type[]? = null
+        if assemblyTypes.TryGetValue(assembly, out cached) && cached != null {
+            return cached
+        }
+
+        loaded := AnalyzerReflectionMemberProbe.TypesOrEmpty(assembly)
+        assemblyTypes[assembly] = loaded
+        return loaded
     }
 
     func IsNameableHost(hostType: Type): bool {

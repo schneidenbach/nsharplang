@@ -196,6 +196,19 @@ Undefined identifier 'unknownVar'
   `nlc lint` and the LSP are unchanged and still read sources only. **No schema change:** the test
   files are counted in the existing `checkedFiles` and their diagnostics arrive in the existing
   `results`, so `schemaVersion` stays 1.
+- **A root containing nested project roots checks them as a workspace.** `nlc check` discovers every
+  nested `project.yml`, assigns each `.nl` file to its nearest project root, applies that project's
+  `exclude` rules, and checks every member as its own program. Files owned by the requested root are
+  checked as the root program too. Discovery and source walking skip `bin/`, `obj/`, `.git/`, nested
+  Git worktrees, `node_modules/` and `bootstrap/`. Member checks use bounded concurrency and share
+  resolved reference metadata. Text output groups diagnostics by project. JSON workspace output uses
+  `schemaVersion: 2`: the top-level `projects` array contains each project's `projectRoot`,
+  `checkedFiles`, `ok`, `results` and `summary`, with an optional `error` for a failed project and an
+  optional `systemsReport` when requested; top-level `checkedFiles` and `summary` aggregate the
+  members, and `summary.projectFailures` counts project-level failures that returned an `error`
+  instead of diagnostics (for example, invalid project configuration or an unresolved reference).
+  A source claimed by multiple projects is a configuration conflict and returns the normal version-1
+  error envelope. Single project checks retain their existing `schemaVersion: 1` shape.
 - Exit code 0 = clean, 1 = errors
 - Near-zero-warnings policy: correctness/safety/hygiene diagnostics are build-blocking errors, so a clean `nlc check` (`ok: true`, exit 0) is a strong guarantee rather than "clean modulo warnings." `summary.warnings` is reported but is expected to stay at 0 for well-formed code; pure style is handled by `nlc format`, not surfaced here.
 - JSON by default, `--text` for Elm-style diagnostics

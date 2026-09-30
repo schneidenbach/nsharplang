@@ -322,3 +322,14 @@ test "an installed version directory names its own version" {
     assert CompilationReferenceResolverKernels.GetInstalledNuGetPackageVersion("/c/yamldotnet/16.3.0") == "16.3.0"
     assert CompilationReferenceResolverKernels.GetInstalledNuGetPackageVersion("/c/omnisharp.extensions.languageserver/0.19.9") == "0.19.9"
 }
+
+test "workspace NuGet asset cache keys include target framework and selected package closure" {
+    legacyKey := CompilationReferenceResolverKernels.GetNuGetPackageAssetsCacheKey("YamlDotNet", "16.3.0")
+    net10 := CompilationReferenceResolverKernels.GetNuGetPackageAssetsCacheKey("YamlDotNet", "16.3.0", "net10.0", "yaml@16.3.0")
+    net8 := CompilationReferenceResolverKernels.GetNuGetPackageAssetsCacheKey("YamlDotNet", "16.3.0", "net8.0", "yaml@16.3.0")
+    otherClosure := CompilationReferenceResolverKernels.GetNuGetPackageAssetsCacheKey("YamlDotNet", "16.3.0", "net10.0", "yaml@16.3.0;json@8.0.0")
+
+    assert net10.StartsWith(legacyKey)
+    assert net10 != net8
+    assert net10 != otherClosure
+}

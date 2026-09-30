@@ -264,13 +264,14 @@ func ResolverFrameworkAssembly(name: string): string {
 // nearest-wins pass. The rule itself is pinned by `ShouldSelectNuGetPackageCandidate`'s kernel rows
 // and end to end by `tests/native/nuget-resolution-fidelity`.
 func ResolverPackageAssets(packageName: string, version: string?, targetFramework: string, context: ResolutionContext): NuGetPackageAssets {
-    method := ResolverPrivateMethod("ResolveNuGetPackage", 5)
-    arguments := new object?[](5)
+    method := ResolverPrivateMethod("ResolveNuGetPackage", 6)
+    arguments := new object?[](6)
     ResolverSetObject(arguments, 0, packageName)
     ResolverSetObject(arguments, 1, version)
     ResolverSetObject(arguments, 2, targetFramework)
     ResolverSetObject(arguments, 3, context)
     ResolverSetObject(arguments, 4, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
+    ResolverSetObject(arguments, 5, "")
     result := ResolverInvoke(method, arguments) as NuGetPackageAssets
     if result == null {
         throw new InvalidOperationException("ResolveNuGetPackage returned no assets.")

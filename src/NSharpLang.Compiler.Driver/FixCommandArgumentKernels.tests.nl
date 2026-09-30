@@ -114,14 +114,27 @@ test "the check help text names the command, its usage and its failure exit cond
     assert helpText.Contains("N# Type Check")
     assert helpText.Contains("Usage: nlc check [options] [project-dir]")
     assert helpText.Contains("One or more errors detected")
+    assert helpText.Contains("every project in a workspace root")
+    assert helpText.Contains("groups results by project")
 }
 
 test "the check command's sentences singularise on one file and pluralise on more" {
     assert CheckCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing-check-project") == "Directory not found: /tmp/missing-check-project"
+    assert CheckCommandKernels.GetWorkspaceProjectConflictMessage("/tmp/workspace/member/Shared.nl", "/tmp/workspace/member", "/tmp/workspace/other") == "Workspace configuration assigns source file /tmp/workspace/member/Shared.nl to both /tmp/workspace/member and /tmp/workspace/other. Adjust the project boundaries or exclude rules so each source file belongs to one project."
+    assert CheckCommandKernels.GetProjectConfigurationFailedMessage("bad YAML") == "Failed to read project configuration: bad YAML"
     assert CheckCommandKernels.GetSystemsReportTextUnavailableMessage() == "--systems-report is only available as JSON output."
     assert CheckCommandKernels.GetNoErrorsMessage(1, "0.1s") == "  Checked 1 file — no errors. [0.1s]"
     assert CheckCommandKernels.GetNoErrorsMessage(2, "0.2s") == "  Checked 2 files — no errors. [0.2s]"
     assert CheckCommandKernels.GetCheckedInMessage("0.3s") == "  Checked in 0.3s"
     assert CheckCommandKernels.GetFailedElapsedMessage("0.4s") == "  Check failed in 0.4s"
     assert CheckCommandKernels.GetFailedMessage("backend exploded") == "Check failed: backend exploded"
+}
+
+test "workspace checking bounds concurrent projects and passes each member's test-file fact to reference loading" {
+    assert CheckCommandKernels.GetWorkspaceMaxConcurrency(0) == 1
+    assert CheckCommandKernels.GetWorkspaceMaxConcurrency(1) == 1
+    assert CheckCommandKernels.GetWorkspaceMaxConcurrency(2) == 2
+    assert CheckCommandKernels.GetWorkspaceMaxConcurrency(64) == 2
+    assert CheckCommandKernels.HasTestSourceFiles(["Program.nl", "Program.tests.nl"])
+    assert !CheckCommandKernels.HasTestSourceFiles(["Program.nl", "Checks.nl"])
 }

@@ -10,7 +10,7 @@ import System.IO
 // this type: two `EffectiveName` shapes, the `TestFramework` default, and two `GetSourceFiles`
 // walks over a hand-built temp tree.
 //
-// THE SKIP LIST IS THE POINT AND IT WAS SAMPLED. `ShouldSkipSourceDirectory` names TWELVE
+// THE SKIP LIST IS THE POINT AND IT WAS SAMPLED. `ShouldSkipSourceDirectory` names THIRTEEN
 // directories, and the deleted file's tree exercised exactly two of them (`.worktrees` and `bin`)
 // while proving that `server` and `docs` are NOT skipped. A row silently deleted from that list
 // makes `nlc build` start compiling `obj/`, `node_modules/` or a nested `.git` worktree — every one
@@ -249,4 +249,69 @@ test "the walk answers FULL paths, and it recurses to any depth" {
     assert files[0].EndsWith("Deep.nl")
 
     Directory.Delete(directory, true)
+}
+
+test "nested project detection follows the parent's included source set" {
+    directory := PcmTempDirectory("nested-project")
+    try {
+        testOnlyRoot := Path.Combine(directory, "test-member")
+        sourceRoot := Path.Combine(directory, "source-member")
+        PcmWriteSource(directory, "project.yml", "name: Parent\n")
+        PcmWriteSource(directory, "Program.nl", "func Main() {}\n")
+        PcmWriteSource(directory, Path.Combine("test-member", "project.yml"), "name: TestMember\n")
+        PcmWriteSource(directory, Path.Combine("test-member", "TestMember.tests.nl"), "test \"member\" { }\n")
+        PcmWriteSource(directory, Path.Combine("source-member", "project.yml"), "name: SourceMember\n")
+        PcmWriteSource(directory, Path.Combine("source-member", "Member.nl"), "class Member {}\n")
+
+        config := new ProjectConfig()
+        nonTestRoots := config.GetNestedProjectRoots(directory, false)
+        assert nonTestRoots.Count == 1
+        assert nonTestRoots.Contains(Path.GetFullPath(sourceRoot))
+
+        allRoots := config.GetNestedProjectRoots(directory, true)
+        assert allRoots.Count == 2
+        assert allRoots.Contains(Path.GetFullPath(testOnlyRoot))
+        assert allRoots.Contains(Path.GetFullPath(sourceRoot))
+
+        // An explicit parent exclusion removes the member's only source from the parent project, so it
+        // no longer creates a compile overlap. The member's own project remains on disk.
+        config.Exclude.Add("test-member/*.tests.nl")
+        config.Exclude.Add("source-member/*.nl")
+        assert config.GetNestedProjectRoots(directory, true).Count == 0
+        assert File.Exists(Path.Combine(testOnlyRoot, "project.yml"))
+        assert File.Exists(Path.Combine(sourceRoot, "project.yml"))
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "workspace project discovery and source enumeration skip generated trees and nested git worktrees" {
+    directory := PcmTempDirectory("workspace-ignore")
+    try {
+        PcmWriteSource(directory, "Program.nl", "func Main() {}\n")
+        PcmWriteSource(directory, Path.Combine("member", "project.yml"), "name: Member\n")
+        PcmWriteSource(directory, Path.Combine("member", "Member.nl"), "class Member {}\n")
+
+        PcmWriteSource(directory, Path.Combine("bootstrap", "project.yml"), "name: Seed\n")
+        PcmWriteSource(directory, Path.Combine("bootstrap", "Seed.nl"), "class Seed {}\n")
+        PcmWriteSource(directory, Path.Combine("bin", "project.yml"), "name: BinaryOutput\n")
+        PcmWriteSource(directory, Path.Combine("bin", "BinaryOutput.nl"), "class BinaryOutput {}\n")
+        PcmWriteSource(directory, Path.Combine("obj", "Generated.nl"), "class Generated {}\n")
+        PcmWriteSource(directory, Path.Combine("node_modules", "pkg", "project.yml"), "name: Package\n")
+        PcmWriteSource(directory, Path.Combine("node_modules", "pkg", "Package.nl"), "class Package {}\n")
+        PcmWriteSource(directory, Path.Combine("worktree", ".git"), "gitdir: /tmp/other-worktree/.git/worktrees/child\n")
+        PcmWriteSource(directory, Path.Combine("worktree", "project.yml"), "name: Worktree\n")
+        PcmWriteSource(directory, Path.Combine("worktree", "Worktree.nl"), "class Worktree {}\n")
+
+        roots := new ProjectConfig().DiscoverNestedProjectRoots(directory)
+        assert roots.Count == 1
+        assert roots[0] == Path.GetFullPath(Path.Combine(directory, "member"))
+
+        config := new ProjectConfig()
+        files := config.GetSourceFiles(directory, true)
+        assert files.Length == 2
+        assert PcmNamesOf(files) == "Member.nl;Program.nl;"
+    } finally {
+        Directory.Delete(directory, true)
+    }
 }

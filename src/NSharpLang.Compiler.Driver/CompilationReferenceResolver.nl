@@ -6,6 +6,7 @@ import System.IO
 import System.IO.Compression
 import System.Net.Http
 import System.Runtime.InteropServices
+import System.Text
 import System.Text.Json
 import System.Xml.Linq
 import NSharpLang.Compiler
@@ -28,9 +29,14 @@ sealed class CompilationReferenceResolver {
         options: ReferenceResolutionOptions? = null
     ): ReferenceResolutionResult {
         resolvedOptions := options ?? new ReferenceResolutionOptions()
-        context := new ResolutionContext(resolvedOptions.PackagesFolder)
+        context := resolvedOptions.WorkspaceContext ?? new ResolutionContext(resolvedOptions.PackagesFolder)
         projectRoot := CompilationReferenceResolverKernels.GetProjectRoot(projectDir)
-        return ResolveProjectReferences(projectRoot, config, resolvedOptions, context)
+        context.ResolutionGate.Wait()
+        try {
+            return ResolveProjectReferences(projectRoot, config, resolvedOptions, context)
+        } finally {
+            context.ResolutionGate.Release()
+        }
     }
 
     static func GetProjectAssemblyName(projectRoot: string, config: ProjectConfig): string {
@@ -81,6 +87,7 @@ sealed class CompilationReferenceResolver {
         // order of the `nuget:` list decide the answer; NuGet's rule is nearest-wins, so the
         // selection is a level-order pass of its own and the asset walk below reads its result.
         selectedVersions := SelectNuGetPackageVersions(packageReferences, config.TargetFramework, context.PackagesRoot)
+        selectedVersionsKey := SelectedNuGetVersionsCacheKey(selectedVersions)
 
         for packageReference in packageReferences {
             // A NuGet reference always names its package (`Reference.Type` answers NuGet only for a
@@ -95,7 +102,8 @@ sealed class CompilationReferenceResolver {
                 packageReference.Version,
                 config.TargetFramework,
                 context,
-                selectedVersions
+                selectedVersions,
+                selectedVersionsKey
             )
 
             for assemblyPath in packageAssets.CompileAssemblies {
@@ -184,6 +192,13 @@ sealed class CompilationReferenceResolver {
             return cachedOutput
         }
 
+        if context.CacheProjectFailures {
+            let cachedFailure: string? = null
+            if context.ProjectFailures.TryGetValue(projectRoot, out cachedFailure) && cachedFailure != null {
+                throw new InvalidOperationException(cachedFailure)
+            }
+        }
+
         if context.ActiveProjectRoots.Contains(projectRoot) {
             activeRoots := context.ActiveProjectRoots
             chainRoots := new string[](activeRoots.Count + 1)
@@ -254,6 +269,14 @@ sealed class CompilationReferenceResolver {
                 references
             )
             context.ProjectOutputs[projectRoot] = resolvedOutput
+        } catch ex: Exception {
+            // Workspace members can share a failing transitive project reference. Remember the
+            // failure for this resolution context so every dependent receives the same result
+            // without rebuilding the same project graph (and producing the same diagnostics) again.
+            if context.CacheProjectFailures {
+                context.ProjectFailures[projectRoot] = ex.Message
+            }
+            throw
         } finally {
             context.ActiveProjectRoots.Pop()
         }
@@ -332,12 +355,15 @@ sealed class CompilationReferenceResolver {
         options: ReferenceResolutionOptions
     ): void {
         hasTests := false
-        if Directory.Exists(projectRoot) {
-            hasTests = Directory.GetFiles(
-                projectRoot,
-                "*.tests.nl",
-                SearchOption.AllDirectories
-            ).Length > 0
+        if options.TestSourcesPresent != null {
+            hasTests = options.TestSourcesPresent ?? false
+        } else if options.IncludeTests && Directory.Exists(projectRoot) {
+            for sourceFile in config.GetSourceFiles(projectRoot, true) {
+                if sourceFile.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase) {
+                    hasTests = true
+                    break
+                }
+            }
         }
 
         packageReferences := CompilationReferenceResolverKernels.FilterReferencesByType(
@@ -472,7 +498,8 @@ sealed class CompilationReferenceResolver {
         version: string?,
         targetFramework: string,
         context: ResolutionContext,
-        selectedVersions: Dictionary<string, string>
+        selectedVersions: Dictionary<string, string>,
+        selectedVersionsKey: string
     ): NuGetPackageAssets {
         resolvedVersion := version
         let selectedVersion: string = ""
@@ -493,7 +520,9 @@ sealed class CompilationReferenceResolver {
         )
         key := CompilationReferenceResolverKernels.GetNuGetPackageAssetsCacheKey(
             packageIdentity.Id,
-            packageIdentity.Version
+            packageIdentity.Version,
+            targetFramework,
+            selectedVersionsKey
         )
 
         let cached: NuGetPackageAssets? = null
@@ -511,7 +540,8 @@ sealed class CompilationReferenceResolver {
                 dependency.Version,
                 targetFramework,
                 context,
-                selectedVersions
+                selectedVersions,
+                selectedVersionsKey
             )
             assets.Add(dependencyAssets)
         }
@@ -539,6 +569,28 @@ sealed class CompilationReferenceResolver {
         }
 
         return assets
+    }
+
+    private static func SelectedNuGetVersionsCacheKey(selectedVersions: Dictionary<string, string>): string {
+        names := new string[selectedVersions.Count]
+        index := 0
+        for entry in selectedVersions {
+            names[index] = entry.Key
+            index = index + 1
+        }
+        Array.Sort(names, 0, names.Length, StringComparer.OrdinalIgnoreCase)
+
+        builder := new StringBuilder()
+        for name in names {
+            let selectedVersion: string = ""
+            if selectedVersions.TryGetValue(name, out selectedVersion) {
+                builder.Append(name.ToLowerInvariant())
+                builder.Append('@')
+                builder.Append(selectedVersion)
+                builder.Append(';')
+            }
+        }
+        return builder.ToString()
     }
 
     private static func EnsurePackageAvailable(packagesRoot: string, packageName: string, version: string?): string {

@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System.Collections.Generic
 import System.Text.Json
+import NSharpLang.Cli
 import NSharpLang.Compiler.Performance
 
 class OutputFormatterJsonKernels {
@@ -488,6 +489,58 @@ class OutputFormatterJsonKernels {
         envelope["ok"] = summary.Errors == 0
         envelope["results"] = BuildDiagnosticResults(results)
         envelope["summary"] = BuildDiagnosticSummary(summary)
+        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+    }
+
+    // Workspace checks have a different, versioned shape: each program owns its diagnostic group,
+    // while the top-level summary aggregates every member. Single-project check remains schema 1.
+    static func CheckWorkspaceToJson(
+        projectRoot: string,
+        projects: IReadOnlyList<CheckWorkspaceProjectResult>,
+        includeSystemsReport: bool
+    ): string {
+        projectPayloads := new List<Dictionary<string, object>>()
+        allDiagnostics := new List<DiagnosticResult>()
+        checkedFiles := 0
+        projectFailures := 0
+
+        for project in projects {
+            normalizedMemberRoot := OutputFormatterNormalizationKernels.NormalizePath(project.ProjectRoot)
+            member := new Dictionary<string, object>()
+            member["projectRoot"] = normalizedMemberRoot ?? ""
+            member["checkedFiles"] = project.CheckedFiles
+            member["ok"] = project.Succeeded
+            member["results"] = BuildDiagnosticResults(project.Diagnostics)
+            member["summary"] = BuildDiagnosticSummary(project.Summary)
+            if project.ErrorMessage != null {
+                member["error"] = project.ErrorMessage ?? ""
+            }
+            if includeSystemsReport && project.SystemsReport != null {
+                member["systemsReport"] = BuildSystemsReport(
+                    OutputFormatterNormalizationKernels.NormalizeSystemsReport(project.SystemsReport)
+                )
+            }
+            projectPayloads.Add(member)
+
+            checkedFiles = checkedFiles + project.CheckedFiles
+            allDiagnostics.AddRange(project.Diagnostics)
+            if project.ErrorMessage != null {
+                projectFailures = projectFailures + 1
+            }
+        }
+
+        summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(allDiagnostics)
+        aggregateSummary := BuildDiagnosticSummary(summary)
+        aggregateSummary["projectFailures"] = projectFailures
+
+        envelope := new Dictionary<string, object>()
+        envelope["schemaVersion"] = 2
+        envelope["command"] = "check"
+        envelope["projectRoot"] = OutputFormatterNormalizationKernels.NormalizePath(projectRoot) ?? ""
+        envelope["ok"] = summary.Errors == 0 && projectFailures == 0
+        envelope["checkedFiles"] = checkedFiles
+        envelope["projects"] = projectPayloads
+        envelope["summary"] = aggregateSummary
         return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
     }
 

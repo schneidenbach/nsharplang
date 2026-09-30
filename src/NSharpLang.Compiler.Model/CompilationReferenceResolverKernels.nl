@@ -206,6 +206,18 @@ class CompilationReferenceResolverKernels {
         return (packageId ?? "") + "@" + (packageVersion ?? "")
     }
 
+    // A shared workspace cache must distinguish target-framework asset selection and the complete
+    // nearest-wins package-version map. The same package can have different transitive assets when
+    // two member projects resolve different dependency closures.
+    static func GetNuGetPackageAssetsCacheKey(
+        packageId: string?,
+        packageVersion: string?,
+        targetFramework: string,
+        selectedVersionsKey: string
+    ): string {
+        return GetNuGetPackageAssetsCacheKey(packageId, packageVersion) + "|" + targetFramework.ToLowerInvariant() + "|" + selectedVersionsKey
+    }
+
     static func ShouldProbeInstalledNuGetVersions(requestedVersion: string?, packageDirectoryExists: bool): bool {
         return requestedVersion == null && packageDirectoryExists
     }

@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 import System.Text.Json
+import NSharpLang.Cli
 import NSharpLang.Compiler.Performance
 
 
@@ -478,6 +479,45 @@ test "the check envelope root keys are exactly schemaVersion, command, projectRo
     json := OutputFormatterJsonKernels.CheckToJson(OfjkCheckDiagnosticsFixture(), "/project", 3)
 
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,projectRoot,checkedFiles,ok,results,summary"
+}
+
+test "the workspace check envelope groups member diagnostics under schema version two" {
+    diagnostics := OfjkCheckDiagnosticsFixture()
+    member := new CheckWorkspaceProjectResult(
+        "/project/member",
+        3,
+        diagnostics,
+        OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(diagnostics),
+        null,
+        null
+    )
+    projects := new List<CheckWorkspaceProjectResult>()
+    projects.Add(member)
+
+    json := OutputFormatterJsonKernels.CheckWorkspaceToJson("/project", projects, false)
+
+    assert OfjkInt1(json, "schemaVersion") == 2
+    assert OfjkString1(json, "command") == "check"
+    assert OfjkString1(json, "projectRoot") == "/project"
+    assert OfjkInt1(json, "checkedFiles") == 3
+    assert !OfjkBool1(json, "ok")
+    assert OfjkInt2(json, "summary", "errors") == 1
+    assert OfjkInt2(json, "summary", "projectFailures") == 0
+    assert OfjkArrayLength1(json, "projects") == 1
+
+    document := JsonDocument.Parse(json)
+    memberJson := document.RootElement.GetProperty("projects")[0]
+    assert memberJson.GetProperty("projectRoot").GetString() == "/project/member"
+    assert memberJson.GetProperty("results").GetArrayLength() == 1
+    assert memberJson.GetProperty("summary").GetProperty("errors").GetInt32() == 1
+    document.Dispose()
+}
+
+test "the workspace check envelope has an explicit stable version two root shape" {
+    projects := new List<CheckWorkspaceProjectResult>()
+    json := OutputFormatterJsonKernels.CheckWorkspaceToJson("/project", projects, false)
+
+    assert OfjkRootKeysValidated(json) == "schemaVersion,command,projectRoot,ok,checkedFiles,projects,summary"
 }
 
 test "the check-systems-report envelope root keys add diagnostics and systemsReport" {

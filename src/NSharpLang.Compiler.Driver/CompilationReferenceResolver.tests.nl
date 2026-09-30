@@ -69,8 +69,8 @@ test "CompilationReferenceResolver has exactly the two cross assembly entries an
         }
         privateMethodIndex = privateMethodIndex + 1
     }
-    assert privateMethodCount == 23
-    expectedPrivateMethods := new string[](23)
+    assert privateMethodCount == 24
+    expectedPrivateMethods := new string[](24)
     // Declaration order. `SelectNuGetPackageVersions` is the level-order pass that decides one
     // version per package id before `ResolveNuGetPackage` takes a single asset.
     expectedPrivateMethods[0] = "CreateHttpClient"
@@ -84,18 +84,19 @@ test "CompilationReferenceResolver has exactly the two cross assembly entries an
     expectedPrivateMethods[8] = "ResolveFrameworkReferenceDirectories"
     expectedPrivateMethods[9] = "SelectNuGetPackageVersions"
     expectedPrivateMethods[10] = "ResolveNuGetPackage"
-    expectedPrivateMethods[11] = "EnsurePackageAvailable"
-    expectedPrivateMethods[12] = "GetLatestPackageVersion"
-    expectedPrivateMethods[13] = "ReadNuGetVersionStrings"
-    expectedPrivateMethods[14] = "DownloadPackage"
-    expectedPrivateMethods[15] = "TryDeleteDirectoryRecursively"
-    expectedPrivateMethods[16] = "ReadPackageIdentity"
-    expectedPrivateMethods[17] = "FindFirstElementByLocalName"
-    expectedPrivateMethods[18] = "CollectElementsByLocalName"
-    expectedPrivateMethods[19] = "ReadPackageDependencies"
-    expectedPrivateMethods[20] = "SelectBestAssetAssemblies"
-    expectedPrivateMethods[21] = "AddDllReference"
-    expectedPrivateMethods[22] = "FindSharedFrameworkDirectory"
+    expectedPrivateMethods[11] = "SelectedNuGetVersionsCacheKey"
+    expectedPrivateMethods[12] = "EnsurePackageAvailable"
+    expectedPrivateMethods[13] = "GetLatestPackageVersion"
+    expectedPrivateMethods[14] = "ReadNuGetVersionStrings"
+    expectedPrivateMethods[15] = "DownloadPackage"
+    expectedPrivateMethods[16] = "TryDeleteDirectoryRecursively"
+    expectedPrivateMethods[17] = "ReadPackageIdentity"
+    expectedPrivateMethods[18] = "FindFirstElementByLocalName"
+    expectedPrivateMethods[19] = "CollectElementsByLocalName"
+    expectedPrivateMethods[20] = "ReadPackageDependencies"
+    expectedPrivateMethods[21] = "SelectBestAssetAssemblies"
+    expectedPrivateMethods[22] = "AddDllReference"
+    expectedPrivateMethods[23] = "FindSharedFrameworkDirectory"
     expectedPrivateIndex := 0
     while expectedPrivateIndex < expectedPrivateMethods.Length {
         expectedPrivateMethod := owner.GetMethod(
@@ -266,11 +267,11 @@ test "package recursion caches before descent preserves identity and keeps aggre
             keyIndex = keyIndex + 1
         }
         assert keys.Length == 4
-        assert keys[0] == "Root.Pkg@1.0.0"
-        assert keys[1] == "Left.Pkg@1.0.0"
-        assert keys[2] == "Shared.Pkg@1.0.0"
-        assert keys[3] == "Right.Pkg@1.0.0"
-        assert !context.PackageAssets.ContainsKey("Ignored.Pkg@1.0.0")
+        assert keys[0] == "Root.Pkg@1.0.0|net10.0|"
+        assert keys[1] == "Left.Pkg@1.0.0|net10.0|"
+        assert keys[2] == "Shared.Pkg@1.0.0|net10.0|"
+        assert keys[3] == "Right.Pkg@1.0.0|net10.0|"
+        assert !context.PackageAssets.ContainsKey("Ignored.Pkg@1.0.0|net10.0|")
 
         rootRefPath := Path.Combine(Path.Combine(Path.Combine(Path.Combine(packagesRoot, "root.pkg/1.0.0"), "ref"), "net10.0"), Path.GetFileName(rootRef))
         rootRuntimePath := Path.Combine(Path.Combine(Path.Combine(Path.Combine(packagesRoot, "root.pkg/1.0.0"), "lib"), "net10.0"), Path.GetFileName(rootRuntime))

@@ -253,6 +253,38 @@ class ProjectConfig {
         return ProjectSourceFileFilter.Filter(allFiles, projectRoot, Exclude.ToArray(), includeTests)
     }
 
+    // The distinct nested `project.yml` roots that own included source files. Keep this query on the
+    // same filtered file set as the compiler so excluded files and test-file policy cannot invent a
+    // project boundary. Each file is attributed to its nearest nested project root.
+    func GetNestedProjectRoots(projectRoot: string, includeTests: bool = false): List<string> {
+        fullRoot := Path.GetFullPath(projectRoot)
+        rootBoundary := fullRoot
+        if !rootBoundary.EndsWith(Path.DirectorySeparatorChar.ToString()) {
+            rootBoundary = rootBoundary + Path.DirectorySeparatorChar.ToString()
+        }
+
+        nestedRoots := new List<string>()
+        seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        for sourceFile in GetSourceFiles(projectRoot, includeTests) {
+            directory := Path.GetDirectoryName(Path.GetFullPath(sourceFile))
+            while directory != null && !string.Equals(directory, fullRoot, StringComparison.OrdinalIgnoreCase) {
+                if !directory.StartsWith(rootBoundary, StringComparison.OrdinalIgnoreCase) {
+                    break
+                }
+                if File.Exists(Path.Combine(directory, "project.yml")) {
+                    if seen.Add(directory) {
+                        nestedRoots.Add(directory)
+                    }
+                    break
+                }
+
+                directory = Path.GetDirectoryName(directory)
+            }
+        }
+
+        return nestedRoots
+    }
+
     static func EnumerateSourceFiles(projectRoot: string): IEnumerable<string> {
         return EnumerateSourceFileArray(projectRoot)
     }
@@ -265,6 +297,47 @@ class ProjectConfig {
         files := new List<string>()
         EnumerateSourceFilesRecursive(Path.GetFullPath(projectRoot), files)
         return files.ToArray()
+    }
+
+    // The CLI workspace front door checks every nested project.yml as its own program. This walk
+    // shares the source walk's ignore rules, but discovers project boundaries directly so a
+    // parent project's exclude patterns cannot hide a member project from the workspace.
+    func DiscoverNestedProjectRoots(projectRoot: string): List<string> {
+        roots := new List<string>()
+        if !Directory.Exists(projectRoot) {
+            return roots
+        }
+
+        DiscoverNestedProjectRootsRecursive(Path.GetFullPath(projectRoot), roots)
+        roots.Sort(StringComparer.OrdinalIgnoreCase)
+        return roots
+    }
+
+    private static func DiscoverNestedProjectRootsRecursive(directory: string, roots: List<string>): void {
+        subdirectories := new string[](0)
+        try {
+            subdirectories = Directory.GetDirectories(directory, "*", SearchOption.TopDirectoryOnly)
+        } catch {
+            return
+        }
+
+        for subdirectory in subdirectories {
+            directoryName := Path.GetFileName(subdirectory) ?? ""
+            if ShouldSkipSourceDirectory(directoryName) || IsNestedGitWorktree(subdirectory) {
+                continue
+            }
+
+            if File.Exists(Path.Combine(subdirectory, "project.yml")) {
+                roots.Add(Path.GetFullPath(subdirectory))
+            }
+
+            DiscoverNestedProjectRootsRecursive(subdirectory, roots)
+        }
+    }
+
+    private static func IsNestedGitWorktree(directory: string): bool {
+        marker := Path.Combine(directory, ".git")
+        return File.Exists(marker) || Directory.Exists(marker)
     }
 
     static func EnumerateSourceFilesRecursive(directory: string, files: List<string>) {
@@ -288,7 +361,7 @@ class ProjectConfig {
 
         for subdirectory in subdirectories {
             directoryName := Path.GetFileName(subdirectory) ?? ""
-            if !ShouldSkipSourceDirectory(directoryName) {
+            if !ShouldSkipSourceDirectory(directoryName) && !IsNestedGitWorktree(subdirectory) {
                 EnumerateSourceFilesRecursive(subdirectory, files)
             }
         }
@@ -317,6 +390,9 @@ class ProjectConfig {
             return true
         }
         if String.Compare(name, "bin", StringComparison.OrdinalIgnoreCase) == 0 {
+            return true
+        }
+        if String.Compare(name, "bootstrap", StringComparison.OrdinalIgnoreCase) == 0 {
             return true
         }
         if String.Compare(name, "node_modules", StringComparison.OrdinalIgnoreCase) == 0 {

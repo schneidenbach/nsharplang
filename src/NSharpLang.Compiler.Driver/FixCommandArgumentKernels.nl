@@ -1,5 +1,7 @@
 namespace NSharpLang.Cli.Commands
 
+import System
+import System.Collections.Generic
 import System.IO
 
 class FixArgumentSummary {
@@ -257,11 +259,35 @@ class CheckCommandKernels {
     }
 
     static func GetHelpText(): string {
-        return "N# Type Check\n" + "\n" + "Usage: nlc check [options] [project-dir]\n" + "\n" + "Verifies your N# project compiles without errors. Runs semantic analysis,\n" + "linting, and IL backend verification.\n" + "\n" + "Options:\n" + "  --backend <mode>  Compilation backend: il\n" + "  --json        Output as JSON (default)\n" + "  --text        Output as human-readable diagnostics\n" + "  --aot         Report Native AOT blockers as errors\n" + "  --systems-report\n" + "                Output the versioned Systems N# effect/policy report as JSON\n" + "  --use-built-references\n" + "                Check against each project: dependency's built assembly\n" + "                (bin/Debug/<framework>, what nlc build or dotnet build wrote)\n" + "                instead of compiling it from source; a missing or\n" + "                out-of-date one is an error\n" + "  --project     Project root directory (default: current directory)\n" + "  --help, -h    Show this help text\n" + "\n" + "Examples:\n" + "  nlc check\n" + "  nlc check --backend il\n" + "  nlc check --text\n" + "  nlc check --aot\n" + "  nlc check --project examples/16-task-cli\n" + "  nlc check --use-built-references --project src/App\n" + "\n" + "Exit codes:\n" + "  0  No errors found\n" + "  1  One or more errors detected"
+        return "N# Type Check\n" + "\n" + "Usage: nlc check [options] [project-dir]\n" + "\n" + "Checks one N# program or every project in a workspace root. Each project\n" + "uses its own project.yml and source files; loose root sources are checked\n" + "as the root program. Workspace JSON groups results by project.\n" + "\n" + "Options:\n" + "  --backend <mode>  Compilation backend: il\n" + "  --json        Output as JSON (default)\n" + "  --text        Output as human-readable diagnostics\n" + "  --aot         Report Native AOT blockers as errors\n" + "  --systems-report\n" + "                Output the versioned Systems N# effect/policy report as JSON\n" + "  --use-built-references\n" + "                Check against each project: dependency's built assembly\n" + "                (bin/Debug/<framework>, what nlc build or dotnet build wrote)\n" + "                instead of compiling it from source; a missing or\n" + "                out-of-date one is an error\n" + "  --project     Project root directory (default: current directory)\n" + "  --help, -h    Show this help text\n" + "\n" + "Examples:\n" + "  nlc check\n" + "  nlc check --backend il\n" + "  nlc check --text\n" + "  nlc check --aot\n" + "  nlc check --project examples/16-task-cli\n" + "  nlc check --use-built-references --project src/App\n" + "\n" + "Exit codes:\n" + "  0  No errors found\n" + "  1  One or more errors detected"
     }
 
     static func GetProjectDirectoryNotFoundMessage(projectDir: string): string {
         return "Directory not found: " + projectDir
+    }
+
+    static func GetWorkspaceProjectConflictMessage(sourceFile: string, firstProject: string, secondProject: string): string {
+        return "Workspace configuration assigns source file " + sourceFile + " to both " + firstProject + " and " + secondProject + ". Adjust the project boundaries or exclude rules so each source file belongs to one project."
+    }
+
+    static func GetProjectConfigurationFailedMessage(message: string): string {
+        return "Failed to read project configuration: " + message
+    }
+
+    static func GetWorkspaceMaxConcurrency(processorCount: int): int {
+        if processorCount <= 1 {
+            return 1
+        }
+        return 2
+    }
+
+    static func HasTestSourceFiles(sourceFiles: IReadOnlyList<string>): bool {
+        for sourceFile in sourceFiles {
+            if sourceFile.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+        }
+        return false
     }
 
     static func GetSystemsReportTextUnavailableMessage(): string {
