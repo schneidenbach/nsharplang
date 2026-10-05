@@ -32,8 +32,16 @@ class CodeIntelligenceService {
     // Workspace planning assigns every source to its nearest project root before analysis. The
     // explicit-list overload preserves that ownership boundary instead of rediscovering a parent's
     // nested members as part of the same program.
+    //
+    // A WORKSPACE MEMBER IS ANALYSED ON ONE WORKER. `nlc check` already runs the members of a
+    // workspace concurrently (`CheckCommandKernels.GetWorkspaceMaxConcurrency`), so fanning each
+    // member's analysis out again would nest one pool inside the other: every extra worker re-opens the
+    // member's whole reference closure in its own load context, and the machine is already busy with
+    // the other members. Measured on the repository root (225 members, load ~7 on 10 cores): 36.4 s
+    // with per-member fan-out against 35.5 s without, for 548 more reference images opened. A
+    // single-project check or build keeps `CompilerParallelism`'s fan-out.
     func LoadWorkspaceProjectIncludingTests(projectRoot: string, config: ProjectConfig?, sourceFiles: IEnumerable<string>): ProjectSnapshot {
-        compiler := new MultiFileCompiler(sourceFiles, projectRoot, config, null)
+        compiler := new MultiFileCompiler(sourceFiles, projectRoot, config, null) { Workers: 1 }
         return Snapshot(projectRoot, compiler)
     }
 
@@ -49,7 +57,8 @@ class CodeIntelligenceService {
         outputPath: string,
         aotMode: bool
     ): ProjectSnapshot {
-        compiler := new MultiFileCompiler(sourceFiles, projectRoot, config, null) { AotMode: aotMode }
+        // One worker: see `LoadWorkspaceProjectIncludingTests`.
+        compiler := new MultiFileCompiler(sourceFiles, projectRoot, config, null) { AotMode: aotMode, Workers: 1 }
         compiler.CompileToIlAssembly(assemblyName, outputPath, false, true)
         return SnapshotAfterCompilation(projectRoot, compiler)
     }

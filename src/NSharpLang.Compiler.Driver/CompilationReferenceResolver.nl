@@ -236,6 +236,9 @@ sealed class CompilationReferenceResolver {
             )
             compiler := new MultiFileCompiler(projectRoot, config)
             compiler.AotMode = options.AotMode
+            if context.CompilesConcurrently {
+                compiler.Workers = 1
+            }
             // A referenced project's output lives in its own stable directory, so an unchanged
             // reference is answered from its up-to-date stamp instead of being rebuilt.
             compiler.IncrementalBuild = true

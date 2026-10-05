@@ -301,6 +301,7 @@ class ResolutionContext {
     projectFailuresValue: Dictionary<string, string>?
     activeProjectRootsValue: Stack<string>?
     cacheProjectFailuresValue: bool
+    compilesConcurrentlyValue: bool
 
     // ONE RESOLUTION READS ONE PACKAGES FOLDER, decided when it begins. It used to be re-read from
     // `NUGET_PACKAGES` at every package the walk touched, so the only way to point a resolution at a
@@ -379,6 +380,19 @@ class ResolutionContext {
         }
         set {
             cacheProjectFailuresValue = value
+        }
+    }
+
+    // WHETHER THE CALLER ALREADY RUNS ITS COMPILATIONS CONCURRENTLY (a workspace `nlc check`). A
+    // project reference built inside such a resolution analyses on one worker, as the workspace's own
+    // members do (`CodeIntelligenceService.LoadWorkspaceProjectIncludingTests`): one pool is not nested
+    // inside the other.
+    CompilesConcurrently: bool {
+        get {
+            return compilesConcurrentlyValue
+        }
+        set {
+            compilesConcurrentlyValue = value
         }
     }
 

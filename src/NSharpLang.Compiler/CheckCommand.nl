@@ -154,6 +154,7 @@ class CheckCommand {
         results := new List<CheckWorkspaceProjectResult>()
         sharedReferences := new ResolutionContext(null)
         sharedReferences.CacheProjectFailures = true
+        sharedReferences.CompilesConcurrently = true
         maxConcurrency := CheckCommandKernels.GetWorkspaceMaxConcurrency(Environment.ProcessorCount)
         batchStart := 0
         while batchStart < projectCount {
