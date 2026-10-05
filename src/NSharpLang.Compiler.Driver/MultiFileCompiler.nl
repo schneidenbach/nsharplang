@@ -56,16 +56,19 @@ class MultiFileCompiler {
         Units: List<CompilationUnit>
         Outcomes: MultiFileCompilerFileAnalysis[]
         Queue: ConcurrentQueue<int>
+        // The project's namespace set, computed once by the shared analyzer over the same snapshot.
+        ProjectNamespaces: HashSet<string>
         // Set when the worker could not even build its analyzer; its share of the queue is then
         // left to the others.
         Failure: Exception?
 
-        constructor(analyzer: Analyzer?, files: List<string>, units: List<CompilationUnit>, outcomes: MultiFileCompilerFileAnalysis[], queue: ConcurrentQueue<int>) {
+        constructor(analyzer: Analyzer?, files: List<string>, units: List<CompilationUnit>, outcomes: MultiFileCompilerFileAnalysis[], queue: ConcurrentQueue<int>, projectNamespaces: HashSet<string>) {
             Analyzer = analyzer
             Files = files
             Units = units
             Outcomes = outcomes
             Queue = queue
+            ProjectNamespaces = projectNamespaces
             Failure = null
         }
     }
@@ -254,6 +257,9 @@ class MultiFileCompiler {
         if _declaresOneProgram {
             analyzer.DeclareOneProgram()
         }
+        // One compilation reads one directory tree; the analyzer may keep its view of it from one
+        // file's analysis to the next.
+        analyzer.HoldProjectDiskView()
         return analyzer
     }
 
@@ -565,6 +571,12 @@ class MultiFileCompiler {
             index = index + 1
         }
 
+        // The shared analyzer takes the snapshot here, on this thread, and computes the project's
+        // namespace set once; every other worker is seeded with it rather than parsing the files
+        // outside the snapshot again.
+        _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
+        projectNamespaces := _sharedAnalyzer.ProjectNamespacesFor(_projectRoot)
+
         threads := new List<Thread>(workerCount)
         states := new List<MultiFileCompilerAnalysisWorker>(workerCount)
         worker := 0
@@ -573,7 +585,7 @@ class MultiFileCompiler {
             if worker == 0 {
                 workerAnalyzer = _sharedAnalyzer
             }
-            state := new MultiFileCompiler.MultiFileCompilerAnalysisWorker(workerAnalyzer, files, units, outcomes, queue)
+            state := new MultiFileCompiler.MultiFileCompilerAnalysisWorker(workerAnalyzer, files, units, outcomes, queue, projectNamespaces)
             states.Add(state)
             work: ThreadStart = () => RunAnalysisWorker(state)
             thread := new Thread(work, 64 * 1024 * 1024)
@@ -614,9 +626,11 @@ class MultiFileCompiler {
         analyzer: Analyzer? = state.Analyzer
         try {
             if analyzer == null {
-                analyzer = CreateAnalyzer()
+                created := CreateAnalyzer()
+                created.SetProjectSourceTexts(_sourceTexts)
+                created.SeedProjectNamespaces(_projectRoot, state.ProjectNamespaces)
+                analyzer = created
             }
-            analyzer.SetProjectSourceTexts(_sourceTexts)
         } catch ex: Exception {
             state.Failure = ex
             return

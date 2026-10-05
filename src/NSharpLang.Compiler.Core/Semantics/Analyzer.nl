@@ -775,6 +775,24 @@ class Analyzer: IDisposable {
         ProjectSources.DeclareOneProgram()
     }
 
+    // A batch driver's word that the project's files on disk do not change while this analyzer lives:
+    // the namespace caches then survive from one file's analysis to the next. See
+    // `AnalyzerProjectSourceProvider.HoldDiskViewAcrossAnalyses`.
+    func HoldProjectDiskView() {
+        ProjectSources.HoldDiskViewAcrossAnalyses()
+    }
+
+    // Every namespace the project's files under this root declare, as the analysis would compute it
+    // against the current snapshot; and the same set handed to another analyzer over the same snapshot.
+    func ProjectNamespacesFor(projectRoot: string): HashSet<string> {
+        ProjectSources.BeginAnalysis(projectRoot)
+        return new HashSet<string>(ProjectSources.ProjectNamespaces(projectRoot), StringComparer.Ordinal)
+    }
+
+    func SeedProjectNamespaces(projectRoot: string, namespaces: HashSet<string>) {
+        ProjectSources.SeedProjectNamespaces(projectRoot, namespaces)
+    }
+
     // THE ASSEMBLY LOADS THIS UNIT'S IMPORTS WOULD MAKE, WITHOUT ANALYSING IT.
     //
     // The loaded-assembly list only grows, and it grows as each analysed file's imports are walked
