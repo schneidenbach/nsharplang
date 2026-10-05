@@ -6,6 +6,14 @@ import System.IO
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.Columnar
 
+func ProjectRequiredDeclaration(declaration: SymbolDeclaration?, typeName: string): SymbolDeclaration {
+    if declaration == null {
+        throw new InvalidOperationException("Project type '" + typeName + "' was resolved without its source declaration.")
+    }
+
+    return declaration
+}
+
 // Native contracts for project discovery — the source/unit provider and the discovery walk over it.
 //
 // Every member behind these contracts was `private` in Analyzer.cs, so no test named any of them:
@@ -602,7 +610,7 @@ test "the visible-namespace order decides between two namespaces that both decla
         out declaration,
         out inaccessible
     )
-    assert Path.GetFileName(declaration.File) == "mine.nl"
+    assert Path.GetFileName(ProjectRequiredDeclaration(declaration, "Both").File) == "mine.nl"
 
     // From a namespace that declares nothing, the import answers.
     assert discovery.ResolveVisibleProjectType(
@@ -613,7 +621,7 @@ test "the visible-namespace order decides between two namespaces that both decla
         out declaration,
         out inaccessible
     )
-    assert Path.GetFileName(declaration.File) == "imported.nl"
+    assert Path.GetFileName(ProjectRequiredDeclaration(declaration, "Both").File) == "imported.nl"
 }
 
 test "one namespace at a time: the current namespace does not require export and others do" {
@@ -687,8 +695,9 @@ test "a resolved declaration points at the NAME's column, not the declaration's 
         out declaration,
         out inaccessible
     )
-    assert declaration.Line == 3
-    assert declaration.Column == 14
+    locatedDeclaration := ProjectRequiredDeclaration(declaration, "Located")
+    assert locatedDeclaration.Line == 3
+    assert locatedDeclaration.Column == 14
 }
 
 // The kind of the FIRST declaration in a source, and whether the owner calls it a type.
@@ -907,7 +916,7 @@ test "a file that does not parse is skipped by every walk rather than failing it
         out declaration,
         out inaccessible
     )
-    assert Path.GetFileName(declaration.File) == "good.nl"
+    assert Path.GetFileName(ProjectRequiredDeclaration(declaration, "Good").File) == "good.nl"
 }
 
 test "the declaring file of every resolved type is recorded for the project index" {
@@ -1071,7 +1080,7 @@ test "the project-wide fallback does not claim a name an imported CLR namespace 
         out declaration,
         out inaccessible
     )
-    assert Path.GetFileName(declaration.File) == "imported.nl"
+    assert Path.GetFileName(ProjectRequiredDeclaration(declaration, "Version").File) == "imported.nl"
 }
 
 test "two imports that supply one name are ambiguous, and a closer declaration is not" {
@@ -1153,7 +1162,7 @@ test "an enclosing namespace wins outright over an import that supplies the same
         out declaration,
         out inaccessible
     )
-    assert Path.GetFileName(declaration.File) == "outer.nl"
+    assert Path.GetFileName(ProjectRequiredDeclaration(declaration, "Version").File) == "outer.nl"
 
     first := ""
     second := ""
@@ -1238,7 +1247,7 @@ test "a global-namespace declaration is the outermost lexical step, ahead of an 
         out declaration,
         out inaccessible
     )
-    assert Path.GetFileName(declaration.File) == "global.nl"
+    assert Path.GetFileName(ProjectRequiredDeclaration(declaration, "Version").File) == "global.nl"
 
     first := ""
     second := ""
