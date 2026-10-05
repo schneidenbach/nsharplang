@@ -14,8 +14,10 @@ import System
 //     parsed view of the project) that a small project cannot amortise -- a project under that size
 //     is analysed serially, exactly as before parallelism existed;
 //   * by the machine: `Environment.ProcessorCount`;
-//   * by `MaxWorkers`, so a many-core build server does not multiply the per-worker memory without
-//     bound.
+//   * by `MaxWorkers` (4), because each extra worker's warm-up is a fixed cost that more workers only
+//     multiply, and because a developer machine is usually shared -- by an editor, a language server,
+//     other builds and other agents. Measured on Compiler.Core at load 7-9 on 10 cores: 2 and 4
+//     workers beat serial, 8 was slower than 4.
 //
 // `NSHARP_COMPILER_WORKERS=<n>` overrides the heuristic (still capped by the number of items): `1`
 // forces the serial path, which is what the serial-versus-parallel differential runs against, and a
@@ -26,8 +28,8 @@ import System
 // output identical to its serial run -- the same diagnostics in the same order, the same IL bytes --
 // whatever worker count this returns.
 class CompilerParallelism {
-    static CharactersPerWorker: long => 400000
-    static MaxWorkers: int => 8
+    static CharactersPerWorker: long => 500000
+    static MaxWorkers: int => 4
     static WorkerOverrideVariable: string => "NSHARP_COMPILER_WORKERS"
 
     static func WorkerCount(workItems: int, totalSourceCharacters: long): int {
