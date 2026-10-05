@@ -17,8 +17,15 @@ static class DaemonCommand {
             return 0
         }
 
-        projectDir := DaemonCommandKernels.ResolveProjectDirectory(options.ProjectOption, Directory.GetCurrentDirectory())
+        requestedDir := DaemonCommandKernels.ResolveProjectDirectory(options.ProjectOption, Directory.GetCurrentDirectory())
         subcommandKind := options.SubcommandKind
+
+        // `daemon run` serves exactly the root it was handed (the client already resolved it); the
+        // user-facing subcommands act on the workspace server that `check`/`build`/`test` reach.
+        projectDir := requestedDir
+        if subcommandKind != DaemonSubcommandKind.Run {
+            projectDir = DaemonWorkspace.Resolve(requestedDir)
+        }
 
         if subcommandKind == DaemonSubcommandKind.Start {
             return StartCommand(projectDir)
@@ -34,6 +41,7 @@ static class DaemonCommand {
 
         if subcommandKind == DaemonSubcommandKind.Run {
             server := new DaemonServer(projectDir)
+            server.SetBackground(options.Background)
             server.Run()
             return 0
         }

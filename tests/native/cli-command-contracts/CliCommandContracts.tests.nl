@@ -226,7 +226,7 @@ test "nlc daemon --help exits 0, writes its usage to stdout, and says nothing on
     assert run.ExitCode == 0
     assert run.Stderr.Trim().Length == 0
     assert run.Stdout.Contains("Usage: nlc daemon <command> [options]")
-    assert run.Stdout.Contains("N# Analysis Daemon")
+    assert run.Stdout.Contains("N# Workspace Server")
 }
 
 // ═══ THE `nlc tree` ENVELOPE ══════════════════════════════════════════════════════════════════

@@ -32,6 +32,29 @@ class DaemonParameterValidation {
     }
 }
 
+// What `daemon/status` adds for a server that runs commands.
+class DaemonStatusExecFacts {
+    Version: string
+    Identity: string
+    ActiveRequests: int
+    ServedRequests: int
+    WorkingSetMegabytes: long
+    MemoryCapMegabytes: long
+    WarmState: string[]
+    Warm: bool
+
+    constructor(version: string, identity: string, activeRequests: int, servedRequests: int, workingSetMegabytes: long, memoryCapMegabytes: long, warmState: string[], warm: bool) {
+        Version = version
+        Identity = identity
+        ActiveRequests = activeRequests
+        ServedRequests = servedRequests
+        WorkingSetMegabytes = workingSetMegabytes
+        MemoryCapMegabytes = memoryCapMegabytes
+        WarmState = warmState
+        Warm = warm
+    }
+}
+
 class DaemonProtocolKernels {
     static func GetSocketDir(): string {
         return ".nlc"
@@ -71,6 +94,15 @@ class DaemonProtocolKernels {
 
     static func GetInternalErrorCode(): int {
         return -32603
+    }
+
+    // In JSON-RPC's server-defined range: the client is a different nlc build than the server.
+    static func GetIdentityMismatchErrorCode(): int {
+        return -32001
+    }
+
+    static func GetIdentityMismatchMessage(): string {
+        return "This daemon is a different nlc build than the client."
     }
 
     static func GetPingMethod(): string {
@@ -192,13 +224,66 @@ class DaemonProtocolKernels {
     }
 
     static func StatusResultJson(pid: int, uptime: string, projectRoot: string, cachedFiles: int, idleTimeout: string): string {
+        return StatusResultJson(pid, uptime, projectRoot, cachedFiles, idleTimeout, null)
+    }
+
+    // The status of a workspace server: the five members above, then — when the server can run
+    // commands — the build it is, how busy it is and how much memory it holds against its cap.
+    static func StatusResultJson(pid: int, uptime: string, projectRoot: string, cachedFiles: int, idleTimeout: string, exec: DaemonStatusExecFacts?): string {
         payload := new Dictionary<string, object>()
         payload[GetStatusPidField()] = pid
         payload[GetStatusUptimeField()] = uptime
         payload[GetStatusProjectRootField()] = projectRoot
         payload[GetStatusCachedFilesField()] = cachedFiles
         payload[GetStatusIdleTimeoutField()] = idleTimeout
+        if exec != null {
+            facts := exec ?? new DaemonStatusExecFacts("", "", 0, 0, 0L, 0L, new string[](0), false)
+            payload[GetStatusVersionField()] = facts.Version
+            payload[GetStatusIdentityField()] = facts.Identity
+            payload[GetStatusActiveRequestsField()] = facts.ActiveRequests
+            payload[GetStatusServedRequestsField()] = facts.ServedRequests
+            payload[GetStatusWorkingSetField()] = facts.WorkingSetMegabytes
+            payload[GetStatusMemoryCapField()] = facts.MemoryCapMegabytes
+            payload[GetStatusWarmStateField()] = facts.WarmState
+            payload[GetStatusWarmField()] = facts.Warm
+        }
+
         return JsonSerializer.Serialize(payload, CreateCompactJsonOptions())
+    }
+
+    static func GetStatusVersionField(): string {
+        return "version"
+    }
+
+    static func GetStatusIdentityField(): string {
+        return "identity"
+    }
+
+    static func GetStatusActiveRequestsField(): string {
+        return "activeRequests"
+    }
+
+    static func GetStatusServedRequestsField(): string {
+        return "servedRequests"
+    }
+
+    static func GetStatusWorkingSetField(): string {
+        return "workingSetMb"
+    }
+
+    static func GetStatusMemoryCapField(): string {
+        return "memoryCapMb"
+    }
+
+    // True once the server's warm-up compile has finished (or was skipped): `nlc daemon start` returns
+    // only then, so the first command after it is answered warm.
+    static func GetStatusWarmField(): string {
+        return "warm"
+    }
+
+    // One `name: description` line per cache registered with `WarmStateRegistry`.
+    static func GetStatusWarmStateField(): string {
+        return "warmState"
     }
 
     static func ErrorResponseJson(id: int, code: int, message: string): string {
@@ -234,9 +319,13 @@ class DaemonProtocolKernels {
             return projectLocalPath
         }
 
+        // Owner-only directories: on a system whose temp directory is shared between users, another
+        // user can neither list nor reach this server (the socket itself is owner-only as well).
+        ownerOnly := UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
         runtimeRoot := Path.Combine(tempPath, "nlc-daemon")
         runtimeDir := Path.Combine(runtimeRoot, hashPrefix)
-        Directory.CreateDirectory(runtimeDir)
+        Directory.CreateDirectory(runtimeRoot, ownerOnly)
+        Directory.CreateDirectory(runtimeDir, ownerOnly)
         return Path.Combine(runtimeDir, socketName)
     }
 

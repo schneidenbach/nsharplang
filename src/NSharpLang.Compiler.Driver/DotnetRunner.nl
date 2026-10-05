@@ -24,7 +24,14 @@ class DotnetRunner {
         return RunProcessCore("dotnet", arguments, workingDirectory, captureOutput, timeout)
     }
 
+    // A program that inherits the console runs where the console IS: when a workspace server is
+    // executing this command, the client process owns the user's terminal, so the client starts it.
     static func RunPassthrough(arguments: string, workingDirectory: string? = null): int {
+        remoteExitCode := 0
+        if CliInvocationContext.TryLaunchPassthrough(arguments, workingDirectory, out remoteExitCode) {
+            return remoteExitCode
+        }
+
         psi := BuildPsi("dotnet", arguments, workingDirectory)
         psi.RedirectStandardOutput = false
         psi.RedirectStandardError = false

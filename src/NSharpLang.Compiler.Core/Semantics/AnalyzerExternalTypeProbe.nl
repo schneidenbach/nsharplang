@@ -137,6 +137,12 @@ class AnalyzerExternalTypeProbe {
         }
 
         for assemblyItem in assemblies {
+            // A reference whose metadata tables cannot answer this name is skipped without asking
+            // the load context, whose miss builds and discards an exception (`ExternalTypeNameIndex`).
+            if !ExternalTypeNameIndex.MayDeclare(ExternalTypeNameIndex.TopLevelNamesOf(assemblyItem), fullName) {
+                continue
+            }
+
             candidate := assemblyItem.GetType(fullName)
             if candidate == null {
                 continue
@@ -370,8 +376,12 @@ class AnalyzerExternalTypeProbe {
         }
         holders := new List<Type>()
         for assemblyItem in assemblies {
-            candidate := assemblyItem.GetType(prefix + "<Program>")
-            if candidate == null {
+            declared := ExternalTypeNameIndex.TopLevelNamesOf(assemblyItem)
+            candidate: Type? = null
+            if ExternalTypeNameIndex.MayDeclare(declared, prefix + "<Program>") {
+                candidate = assemblyItem.GetType(prefix + "<Program>")
+            }
+            if candidate == null && ExternalTypeNameIndex.MayDeclare(declared, prefix + "Program") {
                 ordinary := assemblyItem.GetType(prefix + "Program")
                 if ordinary != null && ordinary.IsClass {
                     candidate = ordinary

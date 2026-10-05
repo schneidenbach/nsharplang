@@ -6,11 +6,13 @@ import System.Diagnostics
 import System.IO
 import System.Linq
 import System.Net.Sockets
+import System.Runtime.InteropServices
 import System.Text
 import System.Text.Json
 import System.Threading
 import NSharpLang.Cli
 import NSharpLang.Cli.Commands
+import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 
 // The error the query dispatch throws to answer with a JSON-RPC code rather than a message alone.
@@ -78,7 +80,7 @@ class DaemonServer {
     socketPath: string
     service: CodeIntelligenceService
     completionEngine: CompletionEngine
-    snapshot: ProjectSnapshot?
+    snapshots: Dictionary<string, ProjectSnapshot>
     lastActivity: DateTime
     fileWatcher: FileSystemWatcher?
     cacheInvalid: bool
@@ -89,8 +91,22 @@ class DaemonServer {
     diagnosticLines: List<string>
     startupSignal: ManualResetEventSlim
     startupSucceeded: bool
+    logWriter: TextWriter
+    workGate: object
+    activeRequests: int
+    servedRequests: int
+    background: bool
+    maxMemoryMegabytes: long
+    lockStream: FileStream?
+    referenceGuard: DaemonLoadedReferenceGuard
+    warm: bool
 
-    constructor(root: string): this(root, TimeSpan.FromMinutes(DaemonConstants.IdleTimeoutMinutes), TimeSpan.FromMinutes(1)) {
+    constructor(root: string): this(root, TimeSpan.FromMilliseconds(
+        (double)DaemonExecKernels.ParseIdleTimeoutMilliseconds(
+            Environment.GetEnvironmentVariable(DaemonExecKernels.GetIdleTimeoutEnvironmentVariable()),
+            (long)DaemonConstants.IdleTimeoutMinutes * 60000L
+        )
+    ), TimeSpan.FromMilliseconds((double)DaemonExecKernels.GetLivenessCheckMilliseconds())) {
     }
 
     constructor(root: string, timeout: TimeSpan, checkInterval: TimeSpan) {
@@ -98,7 +114,7 @@ class DaemonServer {
         socketPath = DaemonConstants.GetSocketPath(root)
         service = new CodeIntelligenceService()
         completionEngine = new CompletionEngine()
-        snapshot = null
+        snapshots = new Dictionary<string, ProjectSnapshot>(StringComparer.Ordinal)
         lastActivity = DateTime.UtcNow
         fileWatcher = null
         cacheInvalid = true
@@ -109,6 +125,107 @@ class DaemonServer {
         diagnosticLines = new List<string>()
         startupSignal = new ManualResetEventSlim()
         startupSucceeded = false
+        logWriter = Console.Error
+        workGate = new object()
+        activeRequests = 0
+        servedRequests = 0
+        background = false
+        maxMemoryMegabytes = DaemonExecKernels.ParseMaxMemoryMegabytes(Environment.GetEnvironmentVariable(DaemonExecKernels.GetMaxMemoryEnvironmentVariable()))
+        lockStream = null
+        referenceGuard = new DaemonLoadedReferenceGuard()
+        warm = false
+    }
+
+    func ReferenceGuard(): DaemonLoadedReferenceGuard {
+        return referenceGuard
+    }
+
+    // `daemon run --background`: started by a client that does not wait, so every line goes to the
+    // log from the first one.
+    func SetBackground(value: bool) {
+        background = value
+    }
+
+    func WorkGate(): object {
+        return workGate
+    }
+
+    func BeginRequest() {
+        Interlocked.Increment(ref activeRequests)
+        lastActivity = DateTime.UtcNow
+    }
+
+    func EndRequest() {
+        Interlocked.Decrement(ref activeRequests)
+        Interlocked.Increment(ref servedRequests)
+        lastActivity = DateTime.UtcNow
+    }
+
+    // After every command: a server whose working set outgrew its cap retires once it is idle, and the
+    // next command starts a fresh one. A leak in a long-lived compiler costs one restart, never the
+    // machine.
+    func CheckResourceCaps() {
+        workingSetMegabytes := Environment.WorkingSet / 1048576L
+        if workingSetMegabytes <= maxMemoryMegabytes {
+            return
+        }
+
+        // Over the cap: first let every registered cache shed what it can rebuild, and only retire
+        // if that was not enough.
+        if Monitor.TryEnter(workGate, 1000) {
+            try {
+                WarmStateRegistry.TrimAll()
+                snapshots.Clear()
+                GC.Collect()
+                GC.WaitForPendingFinalizers()
+            } finally {
+                Monitor.Exit(workGate)
+            }
+        }
+
+        workingSetMegabytes = Environment.WorkingSet / 1048576L
+        if workingSetMegabytes > maxMemoryMegabytes {
+            WriteDiagnostic(DaemonExecKernels.GetMemoryCapMessage(workingSetMegabytes, maxMemoryMegabytes))
+            RequestStop()
+        }
+    }
+
+    // Ends the accept loop from any thread: clears `running` and connects to the socket once so a
+    // blocked `Accept` returns.
+    func RequestStop() {
+        Volatile.Write(ref running, false)
+        try {
+            using kick := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
+            kick.Connect(new UnixDomainSocketEndPoint(socketPath))
+            kick.Close()
+        } catch kickFailure: Exception {
+            // No socket file to connect through (the workspace was deleted): the accept loop polls,
+            // so it sees `running` cleared within one poll interval anyway.
+            return
+        }
+    }
+
+    // A cancelled command gets `GetCancelGraceMilliseconds` to unwind. One that is still running after
+    // that (a runaway loop the client gave up on) cannot be stopped from outside its thread, so the
+    // server retires: the socket goes first, so no client is routed to it while it exits.
+    func RetireIfStillRunning(session: DaemonExecSession) {
+        body: ThreadStart = () => {
+            Thread.Sleep(DaemonExecKernels.GetCancelGraceMilliseconds())
+            if !session.IsFinished() {
+                WriteDiagnostic(DaemonExecKernels.GetRetiringAfterCancelMessage(DaemonExecKernels.GetCancelGraceMilliseconds()))
+                try {
+                    File.Delete(socketPath)
+                    File.Delete(DaemonProtocolKernels.GetPidFilePath(socketPath))
+                } catch retireFailure: Exception {
+                    WriteDiagnostic(DaemonServerKernels.GetServerErrorMessage(retireFailure.Message))
+                }
+
+                Environment.Exit(3)
+            }
+        }
+        watcher := new Thread(body)
+        watcher.IsBackground = true
+        watcher.Start()
     }
 
     func WaitForStartup(timeoutMilliseconds: int): bool {
@@ -147,7 +264,13 @@ class DaemonServer {
             }
         }
 
-        Console.Error.WriteLine(message)
+        // The writer captured at start (or the log), never `Console.Error`: while a command runs,
+        // `Console.Error` is that command's client.
+        try {
+            logWriter.WriteLine(message)
+        } catch logFailure: Exception {
+            return
+        }
     }
 
     func GetDiagnosticTail(): string {
@@ -168,195 +291,419 @@ class DaemonServer {
     // Start the daemon server. Blocks until shutdown.
     func Run() {
         pidPath := DaemonProtocolKernels.GetPidFilePath(socketPath)
-        ownsSocket := false
+        socketDirectory := Path.GetDirectoryName(socketPath) ?? projectRoot
         diagnosticWriter: StreamWriter? = null
+        startupLogPath := Environment.GetEnvironmentVariable(DaemonClientKernels.GetStartupOutputLogEnvironmentVariableName())
 
-        if File.Exists(socketPath) {
-            if DaemonClient.IsRunning(projectRoot) {
-                throw new InvalidOperationException(DaemonProtocolKernels.GetAlreadyRunningMessage(projectRoot))
-            }
-
-            File.Delete(socketPath)
+        // A background server's standard streams are pipes nobody reads once the client that spawned
+        // it returns, so its log is the only place anything it says can go.
+        if background && startupLogPath != null && startupLogPath != "" {
+            writer := new StreamWriter(startupLogPath ?? "", true)
+            writer.AutoFlush = true
+            synchronized := TextWriter.Synchronized(writer)
+            logWriter = synchronized
+            Console.SetOut(synchronized)
+            Console.SetError(synchronized)
+            diagnosticWriter = writer
         }
 
-        // A PID file is the cross-process readiness marker and is written after Listen succeeds.
-        // Remove any prior marker before Bind so a refused connect during the bind/listen window
-        // cannot be mistaken for a stale socket by another client.
-        if File.Exists(pidPath) {
-            File.Delete(pidPath)
+        // SIGNALS. SIGTERM (`kill`, a logout, a container stop) is a request to stop: the accept loop
+        // winds down, requests in flight finish, the socket and PID file are removed.
+        //
+        // DETACHED. A server some `nlc` LAUNCHED (automatically, or by `nlc daemon start`; both hand it
+        // its log path) must outlive that command the way a `setsid` daemon does. Its three standard
+        // streams are fresh pipes, never the caller's (every other descriptor is close-on-exec), so a
+        // caller reading `nlc`'s output to end-of-file is never held open by the server; and the
+        // Ctrl-C or hang-up of the terminal whose process group launched it does not reach it. Only a
+        // `nlc daemon run` typed by hand keeps the default and stops on Ctrl-C like any program.
+        detached := background || (startupLogPath != null && startupLogPath != "")
+        terminate := PosixSignalRegistration.Create(PosixSignal.SIGTERM, context => {
+            context.Cancel = true
+            RequestStop()
+        })
+        interrupt: PosixSignalRegistration? = null
+        hangUp: PosixSignalRegistration? = null
+        if detached {
+            interrupt = PosixSignalRegistration.Create(PosixSignal.SIGINT, context => {
+                context.Cancel = true
+            })
+            hangUp = PosixSignalRegistration.Create(PosixSignal.SIGHUP, context => {
+                context.Cancel = true
+            })
         }
-
-        using listener := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
 
         try {
-            listener.Bind(new UnixDomainSocketEndPoint(socketPath))
-            ownsSocket = true
-            listener.Listen(5)
+            RunWithSignals(pidPath, socketDirectory, diagnosticWriter, startupLogPath)
+        } finally {
+            terminate.Dispose()
+            interrupt?.Dispose()
+            hangUp?.Dispose()
+        }
+    }
 
-            Volatile.Write(ref running, true)
+    func RunWithSignals(pidPath: string, socketDirectory: string, startupWriter: StreamWriter?, startupLogPath: string?) {
+        ownsSocket := false
+        diagnosticWriter := startupWriter
 
-            // Start file watcher only after this process owns the socket.
-            StartFileWatcher()
+        // ONE SERVER PER WORKSPACE. The lock is held for the server's whole life and released by the
+        // kernel when the process dies, however it dies, so it never needs cleaning up.
+        if !AcquireServerLock(socketDirectory) {
+            WriteDiagnostic(DaemonExecKernels.GetAnotherServerOwnsLockMessage(Path.Combine(socketDirectory, DaemonExecKernels.GetLockFileName())))
+            SignalStartupFinished()
+            diagnosticWriter?.Dispose()
+            return
+        }
 
-            // Write PID file only after bind/listen succeeds.
-            File.WriteAllText(pidPath, Environment.ProcessId.ToString())
-            SignalStartupReady()
+        try {
+            if File.Exists(socketPath) {
+                // Holding the lock, a socket that still answers belongs to a server from before the
+                // lock existed — an older build that a mismatched client has just asked to stop.
+                if !WaitForUnlockedServerToExit() {
+                    throw new InvalidOperationException(DaemonProtocolKernels.GetAlreadyRunningMessage(projectRoot))
+                }
 
-            WriteDiagnostic(DaemonServerKernels.GetListeningMessage(socketPath, Environment.ProcessId))
-            WriteDiagnostic(DaemonServerKernels.GetProjectMessage(projectRoot))
-            WriteDiagnostic(DaemonServerKernels.GetIdleTimeoutMessage(
-                DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(idleTimeout.TotalMilliseconds))
-            ))
-
-            // `nlc daemon start` drains stderr while waiting for this server's ping response. Move
-            // later server output to a project-local log before accepting requests; otherwise the
-            // detached daemon could outlive its reader and fill the startup pipe. The launching
-            // client supplies this path, while an explicitly-run `daemon run` keeps stderr attached.
-            startupLogPath := Environment.GetEnvironmentVariable(DaemonClientKernels.GetStartupOutputLogEnvironmentVariableName())
-            if startupLogPath != null && startupLogPath != "" {
-                writer := new StreamWriter(startupLogPath ?? "", true)
-                writer.AutoFlush = true
-                previousError := Console.Error
-                Console.SetError(TextWriter.Synchronized(writer))
-                previousError.Dispose()
-                diagnosticWriter = writer
+                File.Delete(socketPath)
             }
 
-            // Startup time is not idle time. Set the initial activity after the listener and its
-            // watchers are ready so a small configured/test timeout cannot expire during a loaded
-            // machine's startup window.
-            lastActivity = DateTime.UtcNow
+            // A PID file is the cross-process readiness marker and is written after Listen succeeds.
+            // Remove any prior marker before Bind so a refused connect during the bind/listen window
+            // cannot be mistaken for a stale socket by another client.
+            if File.Exists(pidPath) {
+                File.Delete(pidPath)
+            }
 
-            // Idle timeout thread. The body is bound to a `ThreadStart` local first: a lambda handed
-            // straight to `new Thread(...)` declines at emit (logged in
-            // census-briefs/CLI2-COMPILER-BLOCKERS.md), and the typed local is the same delegate.
-            idleBody: ThreadStart = () => {
-                while Volatile.Read(ref running) {
-                    Thread.Sleep(idleCheckInterval)
-                    idle := DateTime.UtcNow - lastActivity
-                    if idle >= idleTimeout {
-                        WriteDiagnostic(DaemonServerKernels.GetIdleTimeoutShutdownMessage(
-                            DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(idleTimeout.TotalMilliseconds))
-                        ))
-                        Volatile.Write(ref running, false)
-                        // Connect to self to unblock Accept()
-                        try {
-                            using kick := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
-                            kick.Connect(new UnixDomainSocketEndPoint(socketPath))
-                            kick.Close()
-                        } catch kickFailure: Exception {
-                            WriteDiagnostic(DaemonServerKernels.GetServerErrorMessage(kickFailure.Message))
+            using listener := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
+
+            try {
+                listener.Bind(new UnixDomainSocketEndPoint(socketPath))
+                ownsSocket = true
+                // Owner-only: connecting to a Unix socket needs write permission on it, so no other
+                // user can reach this server, whatever the directory's own mode.
+                File.SetUnixFileMode(socketPath, UnixFileMode.UserRead | UnixFileMode.UserWrite)
+                listener.Listen(16)
+
+                Volatile.Write(ref running, true)
+
+                // Start file watcher only after this process owns the socket.
+                StartFileWatcher()
+                DaemonExecHost.CaptureBaselineEnvironment()
+
+                // Write PID file only after bind/listen succeeds.
+                File.WriteAllText(pidPath, Environment.ProcessId.ToString())
+                SignalStartupReady()
+
+                WriteDiagnostic(DaemonServerKernels.GetListeningMessage(socketPath, Environment.ProcessId))
+                WriteDiagnostic(DaemonServerKernels.GetProjectMessage(projectRoot))
+                WriteDiagnostic(DaemonServerKernels.GetIdleTimeoutMessage(
+                    DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(idleTimeout.TotalMilliseconds))
+                ))
+
+                // `nlc daemon start` drains stderr while waiting for this server's ping response. Move
+                // later server output to a project-local log before accepting requests; otherwise the
+                // detached daemon could outlive its reader and fill the startup pipe. The launching
+                // client supplies this path, while an explicitly-run `daemon run` keeps stderr attached.
+                if !background && startupLogPath != null && startupLogPath != "" {
+                    writer := new StreamWriter(startupLogPath ?? "", true)
+                    writer.AutoFlush = true
+                    previousError := Console.Error
+                    synchronized := TextWriter.Synchronized(writer)
+                    Console.SetOut(synchronized)
+                    Console.SetError(synchronized)
+                    logWriter = synchronized
+                    previousError.Dispose()
+                    diagnosticWriter = writer
+                }
+
+                // Startup time is not idle time. Set the initial activity after the listener and its
+                // watchers are ready so a small configured/test timeout cannot expire during a loaded
+                // machine's startup window.
+                lastActivity = DateTime.UtcNow
+
+                // Idle and liveness thread. The body is bound to a `ThreadStart` local first: a lambda
+                // handed straight to `new Thread(...)` declines at emit (logged in
+                // census-briefs/CLI2-COMPILER-BLOCKERS.md), and the typed local is the same delegate.
+                idleBody: ThreadStart = () => {
+                    while Volatile.Read(ref running) {
+                        Thread.Sleep(idleCheckInterval)
+                        if !Volatile.Read(ref running) {
+                            break
+                        }
+
+                        // A workspace deleted (or a socket replaced) under this server leaves nobody
+                        // able to reach it: retire now rather than idle out.
+                        if !File.Exists(socketPath) {
+                            WriteDiagnostic(DaemonExecKernels.GetSocketGoneMessage())
+                            RequestStop()
+                            break
+                        }
+
+                        idle := DateTime.UtcNow - lastActivity
+                        if Volatile.Read(ref activeRequests) == 0 && idle >= idleTimeout {
+                            WriteDiagnostic(DaemonServerKernels.GetIdleTimeoutShutdownMessage(
+                                DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(idleTimeout.TotalMilliseconds))
+                            ))
+                            RequestStop()
+                            break
                         }
                     }
                 }
-            }
-            idleThread := new Thread(idleBody)
-            idleThread.IsBackground = true
-            idleThread.Start()
+                idleThread := new Thread(idleBody)
+                idleThread.IsBackground = true
+                idleThread.Start()
 
-            while Volatile.Read(ref running) {
-                try {
-                    using client := listener.Accept()
-                    lastActivity = DateTime.UtcNow
+                StartWarmup()
 
-                    if !Volatile.Read(ref running) {
-                        break
+                // The loop POLLS rather than blocking in `Accept`: on macOS closing a listener does not
+                // wake a thread blocked in accept(2), so a server whose socket file was deleted could
+                // never be woken to exit. Half a second of poll is invisible next to a command.
+                while Volatile.Read(ref running) {
+                    try {
+                        if !listener.Poll(500000, SelectMode.SelectRead) {
+                            continue
+                        }
+
+                        client := listener.Accept()
+                        lastActivity = DateTime.UtcNow
+
+                        if !Volatile.Read(ref running) {
+                            client.Dispose()
+                            break
+                        }
+
+                        StartConnection(client)
+                    } catch ex: Exception {
+                        // One `catch` with the socket test first, because the C# clause
+                        // `catch (SocketException) when (!_running)` is an exception FILTER and N# has
+                        // none: a socket failure during shutdown still ends the loop silently, and
+                        // every other failure is still reported on the same stream.
+                        if !Volatile.Read(ref running) {
+                            break
+                        }
+
+                        WriteDiagnostic(DaemonServerKernels.GetServerErrorMessage(ex.Message))
                     }
+                }
 
-                    HandleClient(client)
-                } catch ex: Exception {
-                    // One `catch` with the socket test first, because the C# clause
-                    // `catch (SocketException) when (!_running)` is an exception FILTER and N# has
-                    // none: a socket failure during shutdown still ends the loop silently, and
-                    // every other failure is still reported on the same stream.
-                    socketFailure := ex as SocketException
-                    if socketFailure != null && !Volatile.Read(ref running) {
-                        break
-                    }
-
-                    WriteDiagnostic(DaemonServerKernels.GetServerErrorMessage(ex.Message))
+                WaitForActiveRequests()
+            } finally {
+                Volatile.Write(ref running, false)
+                if ownsSocket {
+                    Cleanup(pidPath)
+                } else {
+                    fileWatcher?.Dispose()
                 }
             }
         } finally {
-            Volatile.Write(ref running, false)
-            if ownsSocket {
-                Cleanup(pidPath)
-            } else {
-                fileWatcher?.Dispose()
-            }
-
+            ReleaseServerLock()
             diagnosticWriter?.Dispose()
         }
     }
 
-    func HandleClient(client: Socket) {
-        try {
-            // Read request. CLI clients half-close after sending; direct clients may not,
-            // so also stop after a short quiet period once at least one chunk arrived.
-            using requestStream := new MemoryStream()
-            buffer := new byte[](8192)
-            client.ReceiveTimeout = 500
+    func AcquireServerLock(directory: string): bool {
+        lockPath := Path.Combine(directory, DaemonExecKernels.GetLockFileName())
+        clock := Stopwatch.StartNew()
+        while clock.ElapsedMilliseconds < 30000L {
+            try {
+                lockStream = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
+                return true
+            } catch lockFailure: Exception {
+                // Held by a live server. If it is this same build and answering, it is doing the job:
+                // leave. A server of another build is on its way out (a mismatched client asked it to
+                // stop); wait for it.
+                if DaemonClient.IsRunning(projectRoot) && DaemonClient.GetStatusIdentity(projectRoot) == DaemonExecHost.GetIdentity() {
+                    return false
+                }
+            }
 
-            while true {
-                received := 0
-                try {
-                    received = client.Receive(buffer)
-                } catch receiveFailure: Exception {
-                    socketFailure := receiveFailure as SocketException
-                    if socketFailure != null && socketFailure.SocketErrorCode == SocketError.TimedOut && requestStream.Length > 0 {
+            Thread.Sleep(100)
+        }
+
+        return false
+    }
+
+    func ReleaseServerLock() {
+        held := lockStream
+        lockStream = null
+        if held != null {
+            held.Dispose()
+        }
+    }
+
+    func WaitForUnlockedServerToExit(): bool {
+        clock := Stopwatch.StartNew()
+        while clock.ElapsedMilliseconds < 10000L {
+            if !DaemonClient.IsRunning(projectRoot) {
+                return true
+            }
+
+            Thread.Sleep(100)
+        }
+
+        return !DaemonClient.IsRunning(projectRoot)
+    }
+
+    // Requests in flight finish before the server exits (a `daemon stop` while an agent's build runs
+    // does not cut that build off).
+    func WaitForActiveRequests() {
+        clock := Stopwatch.StartNew()
+        while Volatile.Read(ref activeRequests) > 0 && clock.ElapsedMilliseconds < 600000L {
+            Thread.Sleep(50)
+        }
+    }
+
+    func StartConnection(client: Socket) {
+        body: ThreadStart = () => HandleConnection(client)
+        worker := new Thread(body)
+        worker.IsBackground = true
+        worker.Name = "nlc-daemon-connection"
+        worker.Start()
+    }
+
+    // An exec client opens with the four magic bytes; a JSON-RPC client opens with `{`. Whatever was
+    // read to tell them apart is handed to the JSON reader as the start of its request.
+    func HandleConnection(client: Socket) {
+        try {
+            magic := DaemonExecKernels.GetExecMagic()
+            prefix := new byte[](magic.Length)
+            prefixCount := 0
+            client.ReceiveTimeout = 500
+            try {
+                while prefixCount < prefix.Length {
+                    received := client.Receive(prefix, prefixCount, prefix.Length - prefixCount, SocketFlags.None)
+                    if received <= 0 {
                         break
                     }
 
+                    prefixCount = prefixCount + received
+                    if prefix[0] != magic[0] {
+                        break
+                    }
+                }
+            } catch prefixFailure: Exception {
+                socketFailure := prefixFailure as SocketException
+                if socketFailure == null || socketFailure.SocketErrorCode != SocketError.TimedOut {
                     throw
                 }
+            }
 
-                if received == 0 {
+            if prefixCount == magic.Length && prefix[0] == magic[0] && prefix[1] == magic[1] && prefix[2] == magic[2] && prefix[3] == magic[3] {
+                DaemonExecHost.Serve(this, client)
+                return
+            }
+
+            HandleClient(client, prefix, prefixCount)
+        } catch ex: Exception {
+            WriteDiagnostic(DaemonServerKernels.GetClientErrorMessage(ex.Message))
+        } finally {
+            client.Dispose()
+        }
+    }
+
+    // THE WARM-UP. The first command a fresh server runs pays for JIT and for loading the reference
+    // assemblies' metadata. A fresh server has nothing else to do, so it pays that now, on a two-file project of its own in the temp directory, before any client is waiting.
+    // It holds the work lock like any command, so a client that arrives meanwhile is never routed
+    // into a half-warm process, and it writes nothing anywhere a client can see.
+    func StartWarmup() {
+        if !DaemonExecHost.IsConfigured() || !DaemonExecKernels.IsWarmupEnabled(Environment.GetEnvironmentVariable(DaemonExecKernels.GetWarmupEnvironmentVariable())) {
+            Volatile.Write(ref warm, true)
+            return
+        }
+
+        body: ThreadStart = () => RunWarmup()
+        warmup := new Thread(body)
+        warmup.IsBackground = true
+        warmup.Name = "nlc-daemon-warmup"
+        warmup.Start()
+    }
+
+    func RunWarmup() {
+        lock workGate {
+            stopwatch := Stopwatch.StartNew()
+            try {
+                directory := DaemonWarmup.PrepareProject(DaemonExecHost.GetIdentity())
+                DaemonWarmup.Run(directory)
+                DaemonExecHost.RunWarmupHooks()
+                referenceGuard.Record()
+                WriteDiagnostic(DaemonWarmup.GetCompletedMessage(stopwatch.ElapsedMilliseconds))
+            } catch warmupFailure: Exception {
+                WriteDiagnostic(DaemonWarmup.GetFailedMessage(warmupFailure.Message))
+            }
+
+            Volatile.Write(ref warm, true)
+        }
+    }
+
+    func HandleClient(client: Socket, prefix: byte[], prefixCount: int) {
+        // Read request. CLI clients half-close after sending; direct clients may not,
+        // so also stop after a short quiet period once at least one chunk arrived.
+        using requestStream := new MemoryStream()
+        requestStream.Write(prefix, 0, prefixCount)
+        buffer := new byte[](8192)
+        client.ReceiveTimeout = 500
+
+        while true {
+            received := 0
+            try {
+                received = client.Receive(buffer)
+            } catch receiveFailure: Exception {
+                socketFailure := receiveFailure as SocketException
+                if socketFailure != null && socketFailure.SocketErrorCode == SocketError.TimedOut && requestStream.Length > 0 {
                     break
                 }
 
-                requestStream.Write(buffer, 0, received)
+                throw
             }
 
-            if requestStream.Length == 0 {
-                return
+            if received == 0 {
+                break
             }
 
-            request: DaemonRequest? = null
-            try {
-                requestJson := Encoding.UTF8.GetString(requestStream.ToArray())
-                request = JsonSerializer.Deserialize<DaemonRequest>(requestJson, DaemonJsonOptions)
-            } catch parseFailure: Exception {
-                jsonFailure := parseFailure as JsonException
-                if jsonFailure == null {
-                    throw
-                }
+            requestStream.Write(buffer, 0, received)
+        }
 
-                SendResponse(client, Error(
-                    0,
-                    DaemonConstants.ErrorParse,
-                    DaemonProtocolKernels.GetMalformedRequestJsonMessage(),
-                    new DaemonParseErrorData(jsonFailure.Path, jsonFailure.LineNumber, jsonFailure.BytePositionInLine)
-                ))
-                return
+        if requestStream.Length == 0 {
+            return
+        }
+
+        request: DaemonRequest? = null
+        try {
+            requestJson := Encoding.UTF8.GetString(requestStream.ToArray())
+            request = JsonSerializer.Deserialize<DaemonRequest>(requestJson, DaemonJsonOptions)
+        } catch parseFailure: Exception {
+            jsonFailure := parseFailure as JsonException
+            if jsonFailure == null {
+                throw
             }
 
-            if request == null || string.IsNullOrWhiteSpace(request.Method) {
-                requestId := 0
-                if request != null {
-                    requestId = request.Id
-                }
+            SendResponse(client, Error(
+                0,
+                DaemonConstants.ErrorParse,
+                DaemonProtocolKernels.GetMalformedRequestJsonMessage(),
+                new DaemonParseErrorData(jsonFailure.Path, jsonFailure.LineNumber, jsonFailure.BytePositionInLine)
+            ))
+            return
+        }
 
-                SendResponse(client, Error(requestId, DaemonConstants.ErrorInvalidRequest, DaemonProtocolKernels.GetMissingMethodMessage()))
-                return
+        if request == null || string.IsNullOrWhiteSpace(request.Method) {
+            requestId := 0
+            if request != null {
+                requestId = request.Id
             }
 
-            // Process request
-            response := ProcessRequest(request)
+            SendResponse(client, Error(requestId, DaemonConstants.ErrorInvalidRequest, DaemonProtocolKernels.GetMissingMethodMessage()))
+            return
+        }
 
-            // Send response
-            SendResponse(client, response)
-        } catch ex: Exception {
-            WriteDiagnostic(DaemonServerKernels.GetClientErrorMessage(ex.Message))
+        // Process request
+        response := ProcessRequest(request)
+
+        // Send response
+        SendResponse(client, response)
+
+        // `daemon/shutdown` cleared `running`; the accept loop is still blocked in `Accept`, and only
+        // now — with the answer on its way — is it woken to wind down.
+        if !Volatile.Read(ref running) {
+            RequestStop()
         }
     }
 
@@ -376,20 +723,24 @@ class DaemonServer {
 
             if methodKind == DaemonMethodKind.Status {
                 uptime := DateTime.UtcNow - CurrentProcessStartTimeUtc()
-                cachedFiles := 0
-                statusSnapshot := snapshot
-                if statusSnapshot != null {
-                    cachedFiles = statusSnapshot.CompilationUnits.Count
-                }
-
                 return Ok(
                     request.Id,
                     DaemonProtocolKernels.StatusResultJson(
                         Environment.ProcessId,
                         DaemonProtocolKernels.FormatUptime(uptime.Hours, uptime.Minutes, uptime.Seconds),
                         projectRoot,
-                        cachedFiles,
-                        DaemonProtocolKernels.FormatIdleTimeoutMinutes(DaemonConstants.IdleTimeoutMinutes)
+                        CachedFileCount(),
+                        DaemonServerKernels.FormatDurationMilliseconds((long)Math.Round(idleTimeout.TotalMilliseconds)),
+                        new DaemonStatusExecFacts(
+                            DaemonExecHost.GetVersion(),
+                            DaemonExecHost.GetIdentity(),
+                            Volatile.Read(ref activeRequests),
+                            Volatile.Read(ref servedRequests),
+                            Environment.WorkingSet / 1048576L,
+                            maxMemoryMegabytes,
+                            WarmStateRegistry.Describe(),
+                            Volatile.Read(ref warm)
+                        )
                     )
                 )
             }
@@ -398,10 +749,56 @@ class DaemonServer {
                 return Error(request.Id, DaemonConstants.ErrorMethodNotFound, DaemonServerKernels.GetUnknownMethodMessage(request.Method))
             }
 
-            // Ensure snapshot is loaded
-            EnsureSnapshot()
+            // A query from a client of another build would be answered by this build's compiler. The
+            // client says which build it is, and is told to answer in-process instead.
+            requestIdentity := GetParam<string>(request.Params, "identity")
+            if requestIdentity != null && requestIdentity != DaemonExecHost.GetIdentity() {
+                return Error(request.Id, DaemonProtocolKernels.GetIdentityMismatchErrorCode(), DaemonProtocolKernels.GetIdentityMismatchMessage())
+            }
 
-            loaded := snapshot
+            // Queries share the compiler with exec requests; one thing runs at a time.
+            Monitor.Enter(workGate)
+            try {
+                return ProcessQuery(request, methodKind)
+            } finally {
+                Monitor.Exit(workGate)
+            }
+        } catch ex: Exception {
+            protocolFailure := ex as DaemonProtocolException
+            if protocolFailure != null {
+                return Error(request.Id, protocolFailure.Code, protocolFailure.Message)
+            }
+
+            return Error(request.Id, DaemonConstants.ErrorInternal, ex.Message)
+        }
+    }
+
+    // Read without the work lock (status must answer while a command runs), so it reads a copy.
+    func CachedFileCount(): int {
+        count := 0
+        try {
+            loadedSnapshots := new List<ProjectSnapshot>(snapshots.Values)
+            for loaded in loadedSnapshots {
+                count = count + loaded.CompilationUnits.Count
+            }
+        } catch concurrentChange: Exception {
+            return count
+        }
+
+        return count
+    }
+
+    func ProcessQuery(request: DaemonRequest, methodKind: DaemonMethodKind): DaemonResponse {
+        try {
+            // ONE SERVER, MANY PROJECTS. A query names the project it is about; a client from before
+            // that parameter existed means the server's own root.
+            queryRoot := projectRoot
+            requestedRoot := GetParam<string>(request.Params, "projectRoot")
+            if requestedRoot != null {
+                queryRoot = Path.GetFullPath(requestedRoot ?? projectRoot)
+            }
+
+            loaded := EnsureSnapshot(queryRoot)
             if loaded == null {
                 return Error(request.Id, DaemonConstants.ErrorInternal, DaemonServerKernels.GetFailedLoadProjectMessage())
             }
@@ -412,7 +809,7 @@ class DaemonServer {
                     return Ok(request.Id, OutputFormatter.ErrorToJson(
                         "batch",
                         DaemonServerKernels.GetEmptyBatchPayloadMessage(),
-                        projectRoot,
+                        queryRoot,
                         "emptyBatch",
                         null
                     ))
@@ -420,7 +817,7 @@ class DaemonServer {
 
                 execution := BatchQueryRunner.Execute(
                     requests,
-                    projectRoot,
+                    queryRoot,
                     () => loaded,
                     service,
                     completionEngine
@@ -663,25 +1060,33 @@ class DaemonServer {
 
     // ── Snapshot Management ─────────────────────────────────────────────
 
-    func EnsureSnapshot() {
-        if snapshot != null && !Volatile.Read(ref cacheInvalid) {
-            return
+    // The project's snapshot, loaded on first use and kept until a watched file changes (any change
+    // under the workspace drops every project's snapshot: a project's analysis reads its references'
+    // sources too). Callers hold the work lock.
+    func EnsureSnapshot(root: string): ProjectSnapshot? {
+        if Volatile.Read(ref cacheInvalid) {
+            Volatile.Write(ref cacheInvalid, false)
+            snapshots.Clear()
+        }
+
+        if snapshots.ContainsKey(root) {
+            return snapshots[root]
         }
 
         WriteDiagnostic(DaemonServerKernels.GetLoadingProjectMessage())
         sw := Stopwatch.StartNew()
 
         try {
-            loaded := service.LoadProject(projectRoot)
-            snapshot = loaded
-            Volatile.Write(ref cacheInvalid, false)
+            loaded := service.LoadProject(root)
+            snapshots[root] = loaded
             sw.Stop()
             elapsedMilliseconds := sw.ElapsedMilliseconds
             fileCount := loaded.CompilationUnits.Count
             WriteDiagnostic(DaemonServerKernels.GetProjectLoadedMessage(elapsedMilliseconds, fileCount))
+            return loaded
         } catch ex: Exception {
             WriteDiagnostic(DaemonServerKernels.GetProjectLoadFailedTraceMessage(ex.Message))
-            snapshot = null
+            return null
         }
     }
 
@@ -722,6 +1127,7 @@ class DaemonServer {
         fileName := DaemonServerKernels.GetChangedFileName(fullPath)
         WriteDiagnostic(DaemonServerKernels.GetFileChangedMessage(fileName))
         Volatile.Write(ref cacheInvalid, true)
+        WarmStateRegistry.NotifyPathChanged(fullPath)
     }
 
     // ── Cleanup ─────────────────────────────────────────────────────────

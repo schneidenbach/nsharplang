@@ -32,7 +32,7 @@ Updated: 2026-06-01
 | `nlc check` | Fast parse + analyze without building | `--project`, `--text`, `--json`, `--use-built-references` | `nlc check --text` |
 | `nlc fix` | Auto-apply code fixes | `--project`, `--file`, `--dry-run`, `--text`, `--json` | `nlc fix --dry-run` |
 | `nlc query <subcommand>` | Code intelligence for humans and tools | global `--project`, `--file`, `--pos`, `--text`, `--json`, `--no-daemon` | `nlc query def --file Program.nl --pos 12:4` |
-| `nlc daemon <subcommand>` | Manage the background analysis daemon | `--project` | `nlc daemon status` |
+| `nlc daemon <subcommand>` | Manage the warm workspace server that `check`/`build`/`test`/`run`/`format`/`lint`/`fix` use automatically | `--project` | `nlc daemon status` |
 | `nlc add <package>` | Add a NuGet dependency to `project.yml` | package spec | `nlc add Serilog@3.1.0` |
 | `nlc tidy` | Identify and remove unused dependencies | `--project` | `nlc tidy` |
 | `nlc remove <package>` | Remove a dependency from `project.yml` | package name | `nlc remove Serilog` |
@@ -46,33 +46,75 @@ Updated: 2026-06-01
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
 
-## Daemon Commands
+## The Workspace Server (daemon-first CLI)
+
+`nlc check`, `build`, `test`, `run`, `format`, `lint` and `fix` are executed by a **warm server per
+workspace** whenever one is available. Nothing has to be started by hand: the first such command in
+a workspace runs in-process as usual and starts the server in the background; every later command
+finds it warm (compiler JIT-compiled, reference metadata indexed) and is typically 3-5x faster.
 
 ```bash
-nlc daemon start
-nlc daemon status
-nlc daemon stop
+nlc check            # first command: in-process, starts the server in the background
+nlc check            # every later command: answered by the warm server
+nlc daemon status    # pid, uptime, build identity, requests served, memory
+nlc daemon stop      # stop it (it also stops on its own when idle)
 ```
 
-`nlc daemon start` waits for the spawned daemon to answer `daemon/ping` on its socket. It returns
-as soon as the daemon is responsive, with a 120-second overall deadline for genuinely stuck
-starts. If the child exits first, the command fails immediately and reports its exit code. A
-deadline failure reports how long it waited, the socket path, whether the child was alive, and the
-last daemon output (up to 20 captured stderr lines and, when available, the last 20 from the daemon
-log). The messages begin `Startup failed after <milliseconds> ms: child process
-exited with code <exit-code> before daemon/ping was accepted...` for an early exit, and `Startup
-timed out after <milliseconds> ms waiting for daemon/ping to be accepted at <socket>...` when the
-deadline expires.
+**Output is identical either way.** A routed command produces byte-for-byte the same stdout and
+stderr, the same exit code and the same versioned JSON as the in-process command. The server runs it
+in the client's working directory, with the client's environment variables (all of them, exactly —
+a variable the client does not have is removed for that command), culture, arguments and terminal
+state (`--color=auto` still sees whether *your* stderr is a terminal). Commands that read stdin
+(`nlc format --stdin`) read the client's stdin, and `nlc run` starts your program in the client
+process, on your terminal, so it behaves exactly as before. Ctrl-C ends the command the same way.
 
-For normal project-local sockets, the CLI creates `.nlc/daemon.log` when starting the daemon and
-truncates any previous log at the beginning of each start. The daemon's initial startup messages
-remain on captured stderr; after readiness, subsequent daemon output is appended to this log. If a
-long project path requires the temporary socket fallback, the log is placed beside that socket in
-`{TMPDIR}/nlc-daemon/{sha256-16}/daemon.log`. `.nlc/` contains runtime state and should not be
-committed. All shipped `dotnet new` templates ignore `.nlc/`.
+**The workspace** is the nearest directory above the command's `--project` (or, without one, the
+current directory) that contains `.git`, otherwise the nearest containing `project.yml`. One server serves every project under it. Outside any workspace
+commands simply run in-process and nothing is created.
 
-Startup diagnostics are plain stderr text. The daemon JSON-RPC schema and versioned CLI output are
-unchanged.
+**Build identity.** A server is only ever used by the exact `nlc` build that started it: the
+identity covers the CLI version (with its commit), the install directory, the size and timestamp of
+every assembly in it, the .NET runtime version, and every `DOTNET_*`/`COMPlus_*` variable. A client
+that finds a server of another build stops it, runs the command in-process, and starts a fresh one.
+
+**Tests run isolated.** `nlc test` builds in the server but runs your tests in a separate,
+single-use test-worker process (started ahead of time, so it is already warm). A test that calls
+`Environment.Exit`, overflows its stack or never finishes cannot affect the server: the command ends
+with the same exit code an in-process run would have, and the server keeps serving. While tests run
+— in-process or not — `NLC_DAEMON_CHILD=1` is set, so any `nlc` a test starts runs in-process.
+
+**Rebuilt references.** If a library the server has loaded (a `project:` dependency's output, a
+package) changes on disk, the server declines the next command — it runs in-process — and retires,
+so the following command gets a fresh server. A compiled-against-stale result is never possible.
+
+**Fallback.** If the server is busy with another client for more than 250 ms, the command runs
+in-process instead (two agents never queue behind each other's long test runs). If the server dies
+or stops responding mid-command, the client prints one line to stderr —
+`nlc: the workspace server stopped responding; running in-process instead (...)` — and reruns the
+command in-process; stdout still carries exactly one result.
+
+| Switch | Effect |
+|--------|--------|
+| `--no-daemon` | Run this command in-process (accepted by every routed command) |
+| `NLC_NO_DAEMON=1` | Run every command in-process |
+| `CI=true` / `CI=1` | Server off by default on CI; `NLC_DAEMON=1` turns it back on |
+| `NLC_DAEMON_IDLE_TIMEOUT` | Idle shutdown, e.g. `10m`, `90s` (default `30m`) |
+| `NLC_DAEMON_MAX_MEMORY_MB` | Working-set cap; over it the server sheds caches and retires (default `4096`) |
+| `NLC_DAEMON_WARMUP=0` | Skip the warm-up compile a new server does before taking work |
+| `NLC_DAEMON_TRACE=1` | Print one `[nlc-daemon] route=...` timing line to stderr per routed command |
+
+The server stops when idle, when its working set passes the cap, when its workspace directory is
+deleted, on `nlc daemon stop`, and on SIGTERM (requests in flight finish first). It ignores the
+Ctrl-C and hang-up of the terminal it was started from. Its socket is `{workspace}/.nlc/daemon.sock`
+(or `{TMPDIR}/nlc-daemon/{sha256-16}/daemon.sock` when that path would exceed 100 bytes), created
+owner-only (`0600`, in an owner-only directory for the fallback), so no other user can reach it. Its
+log is `.nlc/daemon.log`, restarted with each server. `.nlc/` is runtime state and should not be
+committed; all shipped `dotnet new` templates ignore it.
+
+`nlc daemon start` starts the server explicitly and waits until it answers and has finished its
+warm-up compile, so the next command is answered warm (120-second deadline; an early exit or a timeout reports the elapsed time, the socket path, whether the child was
+alive and the last daemon output). JSON `nlc query` commands reuse a running server of the same build
+for any project in its workspace.
 
 ## Query Commands
 
@@ -199,6 +241,9 @@ message.
 | `fix` | Success | Failure, or `--dry-run` found pending fixes |
 | `query` | Query succeeded | Invalid request, missing symbol, or analysis failure |
 | `daemon` | Command succeeded | Daemon operation failed |
+
+A routed command exits with exactly the code the in-process command would have; see
+[The Workspace Server](#the-workspace-server-daemon-first-cli).
 | `tree` | Dependency tree emitted | Missing project root/config or dependency resolver failure |
 | `doctor` | Required install checks passed | One or more required checks failed |
 

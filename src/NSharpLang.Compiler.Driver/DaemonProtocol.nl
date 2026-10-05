@@ -182,10 +182,18 @@ class DaemonConstants {
     static ErrorInvalidParams: int => DaemonProtocolKernels.GetInvalidParamsErrorCode()
     static ErrorInternal: int => DaemonProtocolKernels.GetInternalErrorCode()
 
-    // One socket per project root, named by the first 16 hex digits of the canonical root's
-    // SHA-256 — the path budget is small and the whole hash does not fit.
+    // One socket per project root: `{root}/.nlc/daemon.sock`, or — when that path is too long for a
+    // Unix socket — a runtime directory named by the first 16 hex digits of the canonical root's
+    // SHA-256 (the path budget is small and the whole hash does not fit). The hash is computed only
+    // for that fallback: every routed `nlc` command asks for this path, and the common case should
+    // not pay for cryptography start-up.
     static func GetSocketPath(projectRoot: string): string {
         canonicalRoot := DaemonProtocolKernels.GetCanonicalProjectRoot(projectRoot)
+        projectLocalPath := Path.Combine(Path.Combine(canonicalRoot, DaemonProtocolKernels.GetSocketDir()), DaemonProtocolKernels.GetSocketName())
+        if DaemonProtocolKernels.ShouldUseProjectLocalSocket(projectLocalPath) {
+            return DaemonProtocolKernels.GetSocketPath(canonicalRoot, DaemonProtocolKernels.GetSocketDir(), DaemonProtocolKernels.GetSocketName(), Path.GetTempPath(), "", true)
+        }
+
         using digest := SHA256.Create()
         rootBytes := Encoding.UTF8.GetBytes(canonicalRoot)
         hash := digest.ComputeHash(rootBytes, 0, rootBytes.Length)

@@ -40,7 +40,7 @@ class CommandRegistry {
         commands[11] = new CliCommandSpec("check", "Fast type-check")
         commands[12] = new CliCommandSpec("fix", "Auto-apply compiler suggestions")
         commands[13] = new CliCommandSpec("query", "Code intelligence for LLMs and terminals")
-        commands[14] = new CliCommandSpec("daemon", "Background analysis daemon")
+        commands[14] = new CliCommandSpec("daemon", "Warm workspace server")
         commands[15] = new CliCommandSpec("add", "Add a NuGet dependency to project.yml")
         commands[16] = new CliCommandSpec("tidy", "Identify and remove unused dependencies")
         commands[17] = new CliCommandSpec("remove", "Remove a dependency from project.yml")

@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Diagnostics
 import System.IO
 import System.Net.Sockets
+import System.Reflection
 import System.Text
 import System.Text.Json
 import System.Threading
@@ -241,17 +242,30 @@ class DaemonClient {
             return false
         }
 
-        cliDir: string? = null
-        if DaemonClientKernels.ShouldProbeCliProject(exePath) {
-            cliDir = FindCliProject()
+        // The server is THIS binary — never `dotnet run` over whatever a checkout holds — so it is the
+        // same build the client is, which is what `DaemonExecKernels.GetServerLaunchCommand` encodes.
+        entryAssembly := Assembly.GetEntryAssembly()
+        entryPath: string? = null
+        if entryAssembly != null {
+            entryPath = entryAssembly.Location
         }
 
-        startPlan := DaemonClientKernels.GetStartPlan(exePath, projectRoot, cliDir)
+        command := DaemonExecKernels.GetServerLaunchCommand(exePath ?? "", entryPath, projectRoot, false)
         startInfo := new ProcessStartInfo()
-        startInfo.FileName = startPlan.FileName
-        startInfo.Arguments = startPlan.Arguments
+        startInfo.FileName = command[0]
+        argumentIndex := 1
+        while argumentIndex < command.Length {
+            startInfo.ArgumentList.Add(command[argumentIndex])
+            argumentIndex = argumentIndex + 1
+        }
+
+        // All three streams are fresh pipes: a server that inherited the caller's stdout would hold
+        // it open for its whole life, and `nlc daemon start | cat` would not finish until the server
+        // idled out. Startup lines arrive on stderr and are echoed below; the server sends anything
+        // later to its log.
         startInfo.UseShellExecute = false
-        startInfo.RedirectStandardOutput = false
+        startInfo.RedirectStandardInput = true
+        startInfo.RedirectStandardOutput = true
         startInfo.RedirectStandardError = true
         startInfo.CreateNoWindow = true
         startInfo.WorkingDirectory = projectRoot
@@ -287,7 +301,7 @@ class DaemonClient {
             // A listening socket that answers ping is the readiness signal. The generous deadline
             // catches a genuinely stuck startup; process exit is reported on the first poll.
             wait := DaemonStartupWait.WaitUntilReady(
-                () => File.Exists(pidPath) && File.Exists(socketPath) && IsRunning(projectRoot),
+                () => File.Exists(pidPath) && File.Exists(socketPath) && IsRunning(projectRoot) && IsWarm(projectRoot),
                 () => process.HasExited,
                 () => process.ExitCode,
                 () => DaemonStartupOutputTail(output, outputLogPath),
@@ -324,9 +338,20 @@ class DaemonClient {
     }
 
     // Shut down the daemon gracefully.
+    // Stopped means GONE: the answer waits (up to ten seconds) until the server no longer answers,
+    // so a caller that starts a replacement next never races the old one for the socket.
     static func StopDaemon(projectRoot: string): bool {
         result := Query(projectRoot, DaemonConstants.MethodShutdown, null)
-        return result != null
+        if result == null {
+            return false
+        }
+
+        clock := Stopwatch.StartNew()
+        while clock.ElapsedMilliseconds < 10000L && IsRunning(projectRoot) {
+            Thread.Sleep(50)
+        }
+
+        return true
     }
 
     // Get daemon status information.
@@ -334,17 +359,43 @@ class DaemonClient {
         return Query(projectRoot, DaemonConstants.MethodStatus, null)
     }
 
-    // Walk up from the current directory to find Cli.csproj.
-    static func FindCliProject(): string? {
-        dir: string? = Directory.GetCurrentDirectory()
-        while dir != null {
-            cliProj := DaemonClientKernels.GetCliProjectPath(dir)
-            if File.Exists(cliProj) {
-                return DaemonClientKernels.GetCliProjectDirectory(cliProj)
-            }
+    // Whether the running server has finished its warm-up. A server from before the field existed is
+    // warm by definition: it never ran one.
+    static func IsWarm(projectRoot: string): bool {
+        status := GetStatus(projectRoot)
+        if status == null {
+            return false
+        }
 
-            parent := Directory.GetParent(dir)
-            dir = parent?.FullName
+        try {
+            using document := JsonDocument.Parse(status ?? "")
+            warmValue: JsonElement = default
+            if document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty(DaemonProtocolKernels.GetStatusWarmField(), out warmValue) {
+                return warmValue.ValueKind == JsonValueKind.True
+            }
+        } catch parseFailure: Exception {
+            return false
+        }
+
+        return true
+    }
+
+    // The build identity the running server reports, or null when none answers (or it is a build
+    // from before servers reported one).
+    static func GetStatusIdentity(projectRoot: string): string? {
+        status := GetStatus(projectRoot)
+        if status == null {
+            return null
+        }
+
+        try {
+            using document := JsonDocument.Parse(status ?? "")
+            identity: JsonElement = default
+            if document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty(DaemonProtocolKernels.GetStatusIdentityField(), out identity) {
+                return identity.GetString()
+            }
+        } catch parseFailure: Exception {
+            return null
         }
 
         return null

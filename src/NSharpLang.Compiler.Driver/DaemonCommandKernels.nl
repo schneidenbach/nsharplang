@@ -15,11 +15,20 @@ class DaemonOptionSummary {
     SubcommandKind: DaemonSubcommandKind
     ProjectOption: string?
     ShowHelp: bool
+    Background: bool
 
     constructor(subcommandKind: DaemonSubcommandKind, projectOption: string?, showHelp: bool) {
         SubcommandKind = subcommandKind
         ProjectOption = projectOption
         ShowHelp = showHelp
+        Background = false
+    }
+
+    constructor(subcommandKind: DaemonSubcommandKind, projectOption: string?, showHelp: bool, background: bool) {
+        SubcommandKind = subcommandKind
+        ProjectOption = projectOption
+        ShowHelp = showHelp
+        Background = background
     }
 }
 
@@ -36,6 +45,7 @@ class DaemonCommandKernels {
         subcommandKind := DaemonSubcommandKind.Unknown
         projectOption: string? = null
         showHelp := false
+        background := false
 
         if args.Length == 0 {
             return new DaemonOptionSummary(subcommandKind, projectOption, true)
@@ -61,6 +71,10 @@ class DaemonCommandKernels {
                 showHelp = true
             }
 
+            if arg == "--background" {
+                background = true
+            }
+
             if arg == "--project" {
                 if projectOption == null && i + 1 < args.Length {
                     projectOption = args[i + 1]
@@ -70,11 +84,11 @@ class DaemonCommandKernels {
             i = i + 1
         }
 
-        return new DaemonOptionSummary(subcommandKind, projectOption, showHelp)
+        return new DaemonOptionSummary(subcommandKind, projectOption, showHelp, background)
     }
 
     static func GetHelpText(): string {
-        return "N# Analysis Daemon\n" + "\n" + "Usage: nlc daemon <command> [options]\n" + "\n" + "Commands:\n" + "  start     Start the daemon for the current project\n" + "  stop      Stop the running daemon\n" + "  status    Show daemon status (PID, uptime, cached files)\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "\n" + "The daemon caches project analysis and can serve JSON `nlc query` requests\n" + "via Unix domain socket for faster repeated response times.\n" + "\n" + "- `nlc query` reuses the daemon only when one is already running\n" + "- Auto-exits after 30 minutes of inactivity\n" + "- Watches .nl, project.yml, and .editorconfig for changes and invalidates cache\n" + "- Socket: {projectRoot}/.nlc/daemon.sock\n" + "\n" + "Exit codes:\n" + "  0  Command succeeded\n" + "  1  Command failed (e.g., daemon failed to start or stop)"
+        return "N# Workspace Server\n" + "\n" + "Usage: nlc daemon <command> [options]\n" + "\n" + "Commands:\n" + "  start     Start the server for the current workspace\n" + "  stop      Stop the running server\n" + "  status    Show server status (PID, uptime, build identity, requests, memory)\n" + "\n" + "Options:\n" + "  --project <dir>   Directory inside the workspace (default: current directory)\n" + "\n" + "One warm server per workspace (the nearest directory above holding .git, else\n" + "project.yml) keeps the compiler JIT-compiled and its reference metadata loaded.\n" + "\n" + "- `nlc check`, `build`, `test`, `run`, `format`, `lint` and `fix` use it\n" + "  automatically and start it in the background on first use; output, exit\n" + "  codes, working directory and environment are exactly those of an\n" + "  in-process run\n" + "- `--no-daemon` or NLC_NO_DAEMON=1 runs a command in-process; on CI (CI=true)\n" + "  the server is off unless NLC_DAEMON=1\n" + "- A server of a different nlc build is replaced, never reused\n" + "- JSON `nlc query` commands reuse a running server\n" + "- Auto-exits after 30 minutes idle (NLC_DAEMON_IDLE_TIMEOUT), when its working\n" + "  set passes NLC_DAEMON_MAX_MEMORY_MB (default 4096), or when its workspace is deleted\n" + "- Socket: {workspace}/.nlc/daemon.sock (owner-only); log: {workspace}/.nlc/daemon.log\n" + "\n" + "Exit codes:\n" + "  0  Command succeeded\n" + "  1  Command failed (e.g., daemon failed to start or stop)"
     }
 
     static func GetAlreadyRunningMessage(): string {

@@ -405,3 +405,20 @@ test "the socket path is project-local until its own byte budget refuses, then i
     assert DaemonProtocolKernels.Utf8ByteCount("é") == 2
     assert DaemonProtocolKernels.Utf8ByteCount("abc") == 3
 }
+
+test "a workspace server's status appends its build, load and memory after the five members" {
+    facts := new DaemonStatusExecFacts("0.1.0+abc", "0123456789abcdef", 1, 41, 212L, 4096L, ["parse-cache: 12 files"], true)
+    payload := DaemonProtocolKernels.StatusResultJson(7, "0h 0m 1s", "/w", 0, "30m", facts)
+
+    assert payload == "{\"pid\":7,\"uptime\":\"0h 0m 1s\",\"projectRoot\":\"/w\",\"cachedFiles\":0,\"idleTimeout\":\"30m\",\"version\":\"0.1.0\\u002Babc\",\"identity\":\"0123456789abcdef\",\"activeRequests\":1,\"servedRequests\":41,\"workingSetMb\":212,\"memoryCapMb\":4096,\"warmState\":[\"parse-cache: 12 files\"],\"warm\":true}"
+    assert DpkString(payload, DaemonProtocolKernels.GetStatusIdentityField()) == "0123456789abcdef"
+    assert DpkInt(payload, DaemonProtocolKernels.GetStatusServedRequestsField()) == 41
+
+    // Without exec facts the payload is exactly the five-member one.
+    assert DaemonProtocolKernels.StatusResultJson(7, "0h 0m 1s", "/w", 0, "30m", null) == DaemonProtocolKernels.StatusResultJson(7, "0h 0m 1s", "/w", 0, "30m")
+}
+
+test "a query from another nlc build is refused with its own server-defined error code" {
+    assert DaemonProtocolKernels.GetIdentityMismatchErrorCode() == -32001
+    assert DaemonProtocolKernels.GetIdentityMismatchMessage().Contains("different nlc build")
+}
