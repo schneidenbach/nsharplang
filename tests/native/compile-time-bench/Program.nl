@@ -18,6 +18,7 @@ import System.Text
 //     --scope corpus|bootstrap|all   which projects to sweep (default all)
 //     --only <substring>         restrict to projects whose repository-relative path contains it
 //     --help                     print this list
+//     --agent-loop               run the agent-loop latency benchmark instead (AgentLoopProgram.nl)
 //
 // It writes `runs.csv` (one row per run), `compile-time.csv` (one row per project x command) and
 // `compile-time.md` (the readable report), and prints the aggregate table to stdout.
@@ -185,6 +186,11 @@ func BenchMatchesOnly(project: string, only: string): bool {
 
 func main(): void {
     repositoryRoot := BenchRepositoryRoot()
+    if AgentLoopRequested(Environment.GetCommandLineArgs()) {
+        AgentLoopMain(Environment.GetCommandLineArgs(), repositoryRoot)
+        return
+    }
+
     options := BenchParseOptions(Environment.GetCommandLineArgs(), repositoryRoot)
 
     if options.ShowHelp {
