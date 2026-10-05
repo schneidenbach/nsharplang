@@ -577,7 +577,15 @@ class AnalyzerImports {
                 importedSource = File.ReadAllText(resolvedPath)
             }
 
-            parseResult := ColumnarParserRecovery.ParseFileAst(importedSource, resolvedPath)
+            // The provider has usually parsed this exact text already (an imported file is almost
+            // always a project file); a parse that threw there is repeated here, so it is reported.
+            cachedParse: FileParseAst? = null
+            parseResult: FileParseAst = null
+            if projectSources.TryGetProjectParse(resolvedPath, out cachedParse) && cachedParse != null {
+                parseResult = cachedParse
+            } else {
+                parseResult = ColumnarParserRecovery.ParseFileAst(importedSource, resolvedPath)
+            }
             importedUnit = parseResult.CompilationUnit
 
             parseErrors := parseResult.Errors

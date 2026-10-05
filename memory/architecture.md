@@ -568,6 +568,22 @@ no republish there. Gap 4's `lastDeclaredName` local is an EMITTER route-around 
 - Output: managed PE assembly
 - Process: the N# columnar backend emits metadata and IL directly.
 
+### Incrementality (within a project)
+Two layers, both owned by `MultiFileCompiler` in Driver
+(`memory/components/cli-toolchain.md`, "Incremental builds" and "Incremental analysis"):
+- **The up-to-date stamp** (`IncrementalBuildStamp`, `IncrementalBuildInputCapture`): an unchanged
+  compilation — same compiler identity, options, configuration, sources and every other file it
+  consulted, by content — is answered from `obj/nlc/` without parsing, analysing or emitting. Opted
+  into by the CLI's project and reference builds (`MultiFileCompiler.IncrementalBuild`).
+- **Per-file analysis reuse** (`IncrementalCompilationState`, `IncrementalCompilationPlan`,
+  `IncrementalFileSummary`, `IncrementalProjectSession`): a warm caller keeps the analyzer and each
+  file's analysis; a file is re-analysed only when its text, or the surface of a file in its
+  name-based dependency closure, changed. Parsing, import cycles, the systems policy, lint and
+  emission still run whole-project. Cold processes rebuild everything after an edit, because the
+  systems policy and the emitter consume every file's semantic model.
+- **Observing it:** `MultiFileCompiler.WasUpToDate`, `IncrementalCompilationState.LastFilesAnalyzed`
+  / `LastFilesReused`; the work counters themselves belong to `CompilerWorkCounters` (`--stats`).
+
 ## Current Compiler Debt
 
 If code search finds old parser, binder, analyzer, semantic-model, diagnostics, IL-lowering, codegen,

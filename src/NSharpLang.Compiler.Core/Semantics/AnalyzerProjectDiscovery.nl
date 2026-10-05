@@ -72,6 +72,9 @@ class AnalyzerProjectSourceProvider {
     sourceTextOrder: List<string>
     // file full path -> parsed unit, or null when the file could not be parsed.
     unitCache: Dictionary<string, CompilationUnit?>
+    // file full path -> the whole parse (unit AND syntax errors), for every path whose parse
+    // returned; a path whose parse threw has a null unit above and no entry here.
+    parseCache: Dictionary<string, FileParseAst>
     // project root -> the set of namespaces its files declare.
     namespaceCache: Dictionary<string, HashSet<string>>
     // file full path -> the namespace that file declares, or null.
@@ -94,6 +97,7 @@ class AnalyzerProjectSourceProvider {
         sourceTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         sourceTextOrder = new List<string>()
         unitCache = new Dictionary<string, CompilationUnit?>(StringComparer.OrdinalIgnoreCase)
+        parseCache = new Dictionary<string, FileParseAst>(StringComparer.OrdinalIgnoreCase)
         namespaceCache = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
         fileNamespaceCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         sourceTypeCandidatesByArity = new Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>(StringComparer.Ordinal)
@@ -122,6 +126,7 @@ class AnalyzerProjectSourceProvider {
         sourceTexts.Clear()
         sourceTextOrder.Clear()
         unitCache.Clear()
+        parseCache.Clear()
         sourceSnapshotVersionValue = sourceSnapshotVersionValue + 1
     }
 
@@ -326,6 +331,7 @@ class AnalyzerProjectSourceProvider {
             parseResult := ColumnarParserRecovery.ParseFileAst(ProjectSourceText(fullPath), fullPath)
             unit := parseResult.CompilationUnit
             unitCache[fullPath] = unit
+            parseCache[fullPath] = parseResult
             return unit
         } catch {
             // A bare `null` through a dictionary indexer is off the columnar surface; the typed
@@ -334,6 +340,22 @@ class AnalyzerProjectSourceProvider {
             unitCache[fullPath] = missingUnit
             return null
         }
+    }
+
+    // THE SAME PARSE, WITH ITS SYNTAX ERRORS, for a caller that reports them — a file import, which
+    // reads exactly the text this cache parses (snapshot first, then disk) and so would otherwise
+    // parse every imported file a second time. False when the parse threw: the caller parses it
+    // itself, so the failure is reported the way it always was.
+    func TryGetProjectParse(filePath: string, out parse: FileParseAst?): bool {
+        GetProjectCompilationUnit(filePath)
+        cached: FileParseAst = null
+        if parseCache.TryGetValue(Path.GetFullPath(filePath), out cached) {
+            parse = cached
+            return true
+        }
+
+        parse = null
+        return false
     }
 
     // Hands every parseable project file to the declaration context, in enumeration order — which is

@@ -59,6 +59,12 @@ class CodeIntelligenceService {
         return SnapshotAfterCompilation(projectRoot, compiler)
     }
 
+    // The snapshot of a compilation the caller ran itself — `nlc check`, which keeps the compiler so
+    // it can emit from the same analysis afterwards.
+    func SnapshotOfCompilation(projectRoot: string, compiler: MultiFileCompiler): ProjectSnapshot {
+        return SnapshotAfterCompilation(projectRoot, compiler)
+    }
+
     private func SnapshotAfterCompilation(projectRoot: string, compiler: MultiFileCompiler): ProjectSnapshot {
         return new ProjectSnapshot(
             projectRoot,

@@ -68,8 +68,13 @@ class CheckCommand {
             }
 
             CompilationBackendSelectionKernels.Validate(arguments.BackendOption, projectConfig)
+            // ONE COMPILATION PER CHECK. The same compiler that analysed the project emits it below
+            // when the analysis is clean, instead of a second compiler parsing, analysing and loading
+            // the reference closure all over again.
             service := new CodeIntelligenceService()
-            snapshot := service.LoadProjectIncludingTests(projectDir, projectConfig, null)
+            compiler := new MultiFileCompiler(projectDir, projectConfig, null, true) { AotMode: aot }
+            compiler.CompileForAnalysis()
+            snapshot := service.SnapshotOfCompilation(projectDir, compiler)
             diagnostics := service.GetDiagnostics(snapshot, null)
             diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics)
             summary := OutputFormatter.SummarizeDiagnostics(diagnostics)
@@ -77,7 +82,7 @@ class CheckCommand {
             sourceFileCount := snapshot.SourceFiles.Count
             hasProjectFile := File.Exists(projectYmlPath)
             if CheckCommandKernels.ShouldVerifyIlOutput(summary.Errors, sourceFileCount, hasProjectFile) {
-                verificationDiagnostics := VerifyIlOutput(projectDir, projectConfig, aot, null)
+                verificationDiagnostics := VerifyIlOutput(compiler, projectDir, projectConfig)
                 if verificationDiagnostics.Count > 0 {
                     diagnostics.AddRange(verificationDiagnostics)
                     diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics)
@@ -300,26 +305,16 @@ class CheckCommand {
         Console.Error.WriteLine("  Checked " + results.Count.ToString() + " projects in " + ProgramCommandKernels.FormatElapsedMilliseconds(elapsed.ElapsedMilliseconds) + ".")
     }
 
-    private static func VerifyIlOutput(projectDir: string, config: ProjectConfig?, aotMode: bool, sourceFiles: IReadOnlyList<string>? = null): List<DiagnosticResult> {
+    // Emits the analysed program into a scratch directory and reports any error the emission adds.
+    private static func VerifyIlOutput(compiler: MultiFileCompiler, projectDir: string, config: ProjectConfig?): List<DiagnosticResult> {
         results := new List<DiagnosticResult>()
-        effectiveConfig := config
-        if effectiveConfig == null {
-            effectiveConfig = ProjectFileParser.ParseFromDirectory(projectDir)
-            if effectiveConfig == null {
-                effectiveConfig = ProjectFileParser.CreateDefault(null)
-            }
-        }
-
+        effectiveConfig := config ?? ProjectFileParser.CreateDefault(null)
         tempDir := CheckCommandKernels.GetVerificationTempDirectory(Path.GetTempPath(), Guid.NewGuid().ToString("N"))
         try {
             Directory.CreateDirectory(tempDir)
             assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(projectDir, effectiveConfig)
             outputPath := CheckCommandKernels.GetVerificationOutputPath(tempDir, assemblyName)
-            compiler := new MultiFileCompiler(projectDir, effectiveConfig, null, true) { AotMode: aotMode }
-            if sourceFiles != null {
-                compiler = new MultiFileCompiler(sourceFiles, projectDir, effectiveConfig, null) { AotMode: aotMode }
-            }
-            compileResult := compiler.CompileToIlAssembly(assemblyName, outputPath, false, true)
+            compileResult := compiler.EmitAnalyzedAssembly(assemblyName, outputPath)
 
             if !compileResult.Success {
                 errors := CompilerErrorSeverityFilter.Filter(compileResult.Errors, ErrorSeverity.Error)
