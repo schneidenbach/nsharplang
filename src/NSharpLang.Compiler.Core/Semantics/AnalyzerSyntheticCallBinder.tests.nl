@@ -196,7 +196,7 @@ func SyntheticTypeName(candidate: TypeInfo?): string {
     }
 
     candidateObject := candidate as object
-    return candidateObject.ToString()
+    return candidateObject.ToString() ?? "<null>"
 }
 
 func SyntheticTypeList(first: TypeInfo): List<TypeInfo> {

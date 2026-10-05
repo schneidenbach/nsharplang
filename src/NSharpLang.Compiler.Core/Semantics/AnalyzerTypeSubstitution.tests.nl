@@ -74,7 +74,7 @@ func SubstitutionText(candidate: TypeInfo?): string {
     }
 
     boxed: object = candidate
-    return boxed.ToString()
+    return boxed.ToString() ?? "<null>"
 }
 
 func SubstitutionOf(name: string, bound: TypeInfo): Dictionary<string, TypeInfo> {

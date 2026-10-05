@@ -420,7 +420,7 @@ func PatternTypeName(candidate: TypeInfo?): string {
     }
 
     asObject := candidate as object
-    return asObject.ToString()
+    return asObject.ToString() ?? "<null>"
 }
 
 // ---------------------------------------------------------------------------------------------

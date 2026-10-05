@@ -145,7 +145,7 @@ func FactoryRequiredCount(signature: FunctionTypeInfo): string {
         return "<null>"
     }
 
-    return boxed.ToString()
+    return boxed.ToString() ?? "<null>"
 }
 
 func FactoryTypeName(typeInfo: TypeInfo?): string {

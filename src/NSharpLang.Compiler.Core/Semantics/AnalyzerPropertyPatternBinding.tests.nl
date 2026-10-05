@@ -311,7 +311,7 @@ func PropertyPatternTypeName(candidate: TypeInfo?): string {
     }
 
     asObject := candidate as object
-    return asObject.ToString()
+    return asObject.ToString() ?? "<null>"
 }
 
 // Pulls the walk the way the driver pulls it and renders the request sequence as one string, so a

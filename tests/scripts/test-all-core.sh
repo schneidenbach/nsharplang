@@ -601,11 +601,13 @@ else
     # Core 243, Compiler 0. The identity diff has no additions; only those 30 NL202 findings were removed.
     # 2026-10-05, read and narrow the trusted attribute once in SystemsAnalyzer: Core 239, Compiler 0.
     # The identity diff has no additions; only those four NL202 findings were removed.
+    # 2026-10-05, handle nullable ToString results at type-rendering boundaries: Core 227, Compiler 0.
+    # The identity diff has no additions; only those 12 NL202 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        239
+        227
         0
         0
         0

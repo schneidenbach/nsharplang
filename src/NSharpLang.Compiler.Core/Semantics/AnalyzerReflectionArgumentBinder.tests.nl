@@ -400,7 +400,7 @@ func BinderTypeName(typeInfo: TypeInfo?): string {
     }
 
     typeObject := typeInfo as object
-    return typeObject.ToString()
+    return typeObject.ToString() ?? "<null>"
 }
 
 // ------------------------------------------------------------------ the walk

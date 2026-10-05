@@ -139,7 +139,7 @@ class AnalyzerStructuralAssignability {
     // hierarchy rather than by the hierarchy itself.
     static func TypeDisplayText(resolved: TypeInfo): string {
         boxed: object = resolved
-        return boxed.ToString()
+        return boxed.ToString() ?? "<unknown type>"
     }
 
     // A declared member's return type, with an ABSENT one meaning `void`.

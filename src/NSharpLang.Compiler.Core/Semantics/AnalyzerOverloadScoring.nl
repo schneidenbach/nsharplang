@@ -842,7 +842,7 @@ class AnalyzerOverloadFacts {
         } else {
             if resolvedTypes != null && index < resolvedTypes.Count {
                 resolvedTypeObject := resolvedTypes[index] as object
-                typeName = resolvedTypeObject.ToString()
+                typeName = resolvedTypeObject.ToString() ?? "<unknown>"
             }
         }
 

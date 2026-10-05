@@ -214,7 +214,7 @@ func WalkBindingText(bindings: Dictionary<string, TypeInfo>?, name: string): str
         bound: TypeInfo = BuiltInTypes.Unknown
         if bindings.TryGetValue(name, out bound) {
             boundObject := bound as object
-            return boundObject.ToString()
+            return boundObject.ToString() ?? "<null>"
         }
 
         return "<unbound>"

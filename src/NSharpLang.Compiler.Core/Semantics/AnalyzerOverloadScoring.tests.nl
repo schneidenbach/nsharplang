@@ -124,7 +124,7 @@ func OverloadTypeName(typeInfo: TypeInfo?): string {
     }
 
     typeObject := typeInfo as object
-    return typeObject.ToString()
+    return typeObject.ToString() ?? "<null>"
 }
 
 func OverloadSignature(parameterTypes: List<TypeInfo>): FunctionTypeInfo {

@@ -121,7 +121,7 @@ class AnalyzerOverloadSignatureFacts {
         }
 
         typeObject := typeRef as object
-        return typeObject.ToString()
+        return typeObject.ToString() ?? "<unknown type reference>"
     }
 
     static func AppendTypeReferenceList(builder: StringBuilder, types: List<TypeReference>, separator: string) {

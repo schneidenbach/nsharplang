@@ -118,7 +118,7 @@ func PatternShapesName(candidate: TypeInfo?): string {
     }
 
     asObject := candidate as object
-    return asObject.ToString()
+    return asObject.ToString() ?? "<null>"
 }
 
 // An alias the harness's context OWNS, so `ResolveDeclaredAlias` is transparent through it. An
