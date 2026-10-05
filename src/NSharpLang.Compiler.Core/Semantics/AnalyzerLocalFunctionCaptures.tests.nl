@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
@@ -54,6 +55,15 @@ func CaptureSink(errors: List<CompilerError>): AnalyzerDiagnosticSink {
     return new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
 }
 
+func CaptureCollected(inner: DefiniteAssignmentState): HashSet<string> {
+    collected := inner.Collected
+    if collected == null {
+        throw new InvalidOperationException("A local-function read state must start with a collected-read set.")
+    }
+
+    return collected
+}
+
 test "A CALL TO A NAME THAT IS NOT A LOCAL FUNCTION IS NOT THIS RULE'S BUSINESS" {
     state := CaptureState("total", null)
 
@@ -92,7 +102,7 @@ test "THE SUB-WALK CARRIES THE CALLER'S ASSIGNED SET AND A COPY OF ITS CANDIDATE
 
     assert inner.Candidates.Contains("total")
     assert inner.Assigned.Contains("other")
-    assert inner.Collected != null
+    assert CaptureCollected(inner).Count == 0
 
     // The candidate set is COPIED, so a local the callee declares for itself never joins the
     // caller's tracking; `LocalFunctions` and `Active` are SHARED, because the cycle guard has to
@@ -107,7 +117,7 @@ test "A COLLECTED READ THE CALLER IS NOT TRACKING SAYS NOTHING" {
     errors := CaptureErrors()
     state := CaptureState("total", null)
     inner := AnalyzerLocalFunctionCaptures.BeginRead(state)
-    inner.Collected.Add("somethingElse")
+    CaptureCollected(inner).Add("somethingElse")
 
     AnalyzerLocalFunctionCaptures.ReportUnassignedReads(CaptureSink(errors), inner, "readIt", new IdentifierExpression("readIt", 9, 10), state)
 
@@ -120,7 +130,7 @@ test "A COLLECTED READ THE CALLER HAS ALREADY ASSIGNED SAYS NOTHING" {
     errors := CaptureErrors()
     state := CaptureState("total", "total")
     inner := AnalyzerLocalFunctionCaptures.BeginRead(state)
-    inner.Collected.Add("total")
+    CaptureCollected(inner).Add("total")
 
     AnalyzerLocalFunctionCaptures.ReportUnassignedReads(CaptureSink(errors), inner, "readIt", new IdentifierExpression("readIt", 9, 10), state)
 
@@ -131,7 +141,7 @@ test "AN UNASSIGNED READ IS NL304 AT THE CALL, NAMING THE VARIABLE AND THE FUNCT
     errors := CaptureErrors()
     state := CaptureState("total", null)
     inner := AnalyzerLocalFunctionCaptures.BeginRead(state)
-    inner.Collected.Add("total")
+    CaptureCollected(inner).Add("total")
 
     AnalyzerLocalFunctionCaptures.ReportUnassignedReads(CaptureSink(errors), inner, "readIt", new IdentifierExpression("readIt", 9, 10), state)
 
@@ -150,8 +160,8 @@ test "TWO UNASSIGNED READS ARE REPORTED IN SORTED ORDER, NOT IN READ ORDER" {
     state.Candidates.Add("zeta")
     state.Candidates.Add("alpha")
     inner := AnalyzerLocalFunctionCaptures.BeginRead(state)
-    inner.Collected.Add("zeta")
-    inner.Collected.Add("alpha")
+    CaptureCollected(inner).Add("zeta")
+    CaptureCollected(inner).Add("alpha")
 
     AnalyzerLocalFunctionCaptures.ReportUnassignedReads(CaptureSink(errors), inner, "readIt", new IdentifierExpression("readIt", 9, 10), state)
 
@@ -166,10 +176,10 @@ test "THE SAME CALL REPORTS THE SAME VARIABLE ONCE" {
     callee := new IdentifierExpression("readIt", 9, 10)
 
     first := AnalyzerLocalFunctionCaptures.BeginRead(state)
-    first.Collected.Add("total")
+    CaptureCollected(first).Add("total")
     AnalyzerLocalFunctionCaptures.ReportUnassignedReads(CaptureSink(errors), first, "readIt", callee, state)
     second := AnalyzerLocalFunctionCaptures.BeginRead(state)
-    second.Collected.Add("total")
+    CaptureCollected(second).Add("total")
     AnalyzerLocalFunctionCaptures.ReportUnassignedReads(CaptureSink(errors), second, "readIt", callee, state)
 
     assert errors.Count == 1
@@ -180,7 +190,7 @@ test "A CALL REACHED WHILE ALREADY COLLECTING REPORTS NOTHING AND CONTRIBUTES EV
     outer := CaptureState("total", null)
     collecting := AnalyzerLocalFunctionCaptures.BeginRead(outer)
     inner := AnalyzerLocalFunctionCaptures.BeginRead(collecting)
-    inner.Collected.Add("total")
+    CaptureCollected(inner).Add("total")
 
     AnalyzerLocalFunctionCaptures.ReportUnassignedReads(CaptureSink(errors), inner, "inner", new IdentifierExpression("inner", 5, 16), collecting)
 
@@ -188,5 +198,5 @@ test "A CALL REACHED WHILE ALREADY COLLECTING REPORTS NOTHING AND CONTRIBUTES EV
     // `outer` — the squiggle belongs on that call, not on the one written inside a body that is
     // merely being inspected.
     assert errors.Count == 0
-    assert collecting.Collected.Contains("total")
+    assert CaptureCollected(collecting).Contains("total")
 }

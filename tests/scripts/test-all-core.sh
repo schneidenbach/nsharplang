@@ -621,11 +621,13 @@ else
     # The identity diff has no additions; only those 26 NL905 findings were removed.
     # 2026-10-05, guard test assertions that require a compiler suggestion: Core 74, Compiler 0.
     # The identity diff has no additions; only those eight NL905 findings were removed.
+    # 2026-10-05, require the collected-read set created by local-function sub-walks: Core 65, Compiler 0.
+    # The identity diff has no additions; only those nine NL905 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        74
+        65
         0
         0
         0
