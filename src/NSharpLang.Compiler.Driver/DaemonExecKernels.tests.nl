@@ -11,7 +11,6 @@ import System.IO
 // cheaply (every switch combination, the hash's exact bytes, a truncated frame).
 
 // ── Routing ─────────────────────────────────────────────────────────────────────────────────────
-
 test "exactly the seven compiler-bound commands route, case-insensitively, and nothing else does" {
     for name in ["check", "build", "test", "run", "format", "lint", "fix", "CHECK", "Build"] {
         assert DaemonExecKernels.IsRoutedCommandName(name)
@@ -62,7 +61,7 @@ test "--no-daemon counts only before a -- separator and is stripped only there" 
 
 func DekMarkers(markers: string[]): Func<string, bool> {
     set := new HashSet<string>(markers)
-    return (directory) => set.Contains(directory)
+    return directory => set.Contains(directory)
 }
 
 test "the workspace is the nearest .git above, even past a nearer project.yml" {

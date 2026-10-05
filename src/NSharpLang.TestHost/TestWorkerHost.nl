@@ -243,7 +243,7 @@ class TestWorkerHost {
     static func Run(): int {
         // A Ctrl-C in the terminal the server was started from reaches its whole process group; the
         // server decides when a worker stops, so the worker ignores it.
-        interrupt := PosixSignalRegistration.Create(PosixSignal.SIGINT, (context) => {
+        interrupt := PosixSignalRegistration.Create(PosixSignal.SIGINT, context => {
             context.Cancel = true
         })
         try {

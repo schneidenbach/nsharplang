@@ -1150,6 +1150,7 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.Driver/DaemonExecClient.nl` | The client half: route, connect, stream frames, stdin pump, `run` launch, fallback, auto-start (N#-owned) |
 | `src/NSharpLang.Compiler.Driver/DaemonExecHost.nl` | The server half: one command per request in the client's cwd/env/culture/console (N#-owned) |
 | `src/NSharpLang.Compiler.Driver/DaemonExecWire.nl` | The exec wire: frames and the binary request encoding (N#-owned) |
+| `src/NSharpLang.Compiler.Driver/DaemonLoadedReferenceGuard.nl` | Retires a server whose loaded references changed on disk (N#-owned) |
 | `src/NSharpLang.Compiler.Driver/DaemonWorkspace.nl`, `DaemonWarmup.nl` | Workspace resolution + build identity; the warm-up project (N#-owned) |
 | `src/NSharpLang.TestHost/TestWorkerHost.nl` | Isolated single-use test workers for server-run `nlc test` (N#-owned) |
 | `src/NSharpLang.Compiler.Model/CliInvocationContext.nl` | The remote-invocation scope: client command line, stderr-is-terminal, `run` launcher, cancellation, termination (N#-owned) |
@@ -1244,6 +1245,7 @@ nlc daemon stop
 | Cancellation | Client SIGINT/SIGTERM: commit buffered output, send `Cancel`, then die by the signal exactly as in-process (`-2`/`-15`). Server kills registered children (test workers) and, if the command is still running after 10 s, removes its socket and exits | `DaemonClientSession.OnInterrupt`, `DaemonServer.RetireIfStillRunning` |
 | Server loss | Keep-alive every 1 s; no frame for 15 s = frozen (the client kills that PID). EOF/freeze before `Done` → one stderr line `nlc: the workspace server stopped responding; running in-process instead (…)` and an in-process rerun. Output is held for the first 1.5 s / 64 KB, so an early loss prints only the rerun's output. After `nlc run` launched the program, its exit code stands (the program is never run twice) | `DaemonClientSession.Lose` |
 | Lifecycle | Idle timeout (default 30 m, `NLC_DAEMON_IDLE_TIMEOUT`; never while a request runs), liveness (socket file gone → exit within 2 s), memory cap (default 4096 MB, `NLC_DAEMON_MAX_MEMORY_MB`: trim warm state, GC, retire if still over), SIGTERM graceful (in-flight requests finish), background servers ignore SIGINT/SIGHUP. The accept loop POLLS (500 ms): on macOS `close()` does not wake a thread blocked in `accept(2)` | `DaemonServer` |
+| Stale references | The compiler loads executable handles for references (packages, `project:` outputs) into non-collectible contexts. MEASURED: rebuild a referenced library with a new member and a long-lived compiler's emitter still sees the old one. So the server records every loaded assembly file outside the runtime and CLI directories, checks them before each command, and on any change declines (client runs in-process) and retires; the next command starts a fresh server. A project's OWN output changing does not trigger it | `DaemonLoadedReferenceGuard` |
 | Warm-up | A new server compiles a small built-in project (`check` + `build`, output discarded) under the work lock before taking work, then pre-spawns a test worker (`NLC_DAEMON_WARMUP=0` skips) | `DaemonWarmup`, `DaemonExecHost.RunWarmupHooks` |
 | Warm state | Kept across commands: JIT, `ExternalTypeNameIndex` (each reference's top-level type/forwarder names per file version — lets the analyzer and `ExternalQualifiedTypeResolver` skip MLC misses, which build and discard a localized `TypeLoadException`), query snapshots per project. Any cache can join via `WarmStateRegistry.Register(name, onPathChanged, onTrim, describe)`; the server feeds it file-watcher changes, trims it before a memory retirement and lists it in `warmState` | `WarmStateRegistry` |
 | Queries | `nlc query` reaches the WORKSPACE server, passes `projectRoot` and its `identity`; a different build answers `-32001` and the query runs in-process. The server keeps one snapshot per project, dropped on any watched change | `QueryCommand.TryExecuteViaDaemon`, `DaemonServer.EnsureSnapshot` |
@@ -1274,11 +1276,11 @@ single-analysis `check`.
 
 ### Native rows
 
-`tests/native/daemon-exec` (19 rows, real processes against a real server): routing and auto-start,
+`tests/native/daemon-exec` (20 rows, real processes against a real server): routing and auto-start,
 switches (`--no-daemon`, `NLC_NO_DAEMON`, `CI`), no-workspace, parity over success/error/JSON/text/
 `--color=always`/failing tests/`--verbose`/`--filter`/`format --stdin`/`run` with stdin and exit code,
 per-request env and cwd, `Environment.Exit` and stack-overflow isolation, server killed mid-command,
-build-identity replacement (a `DOTNET_` variable makes the other build), two clients at once,
+build-identity replacement (a `DOTNET_` variable makes the other build), a `project:` dependency rebuilt under a running server, two clients at once,
 SIGTERM cancellation of a hung test, status/stop, idle timeout, workspace deletion, memory cap,
 owner-only socket. Kernel and wire contracts: `DaemonExecKernels.tests.nl`,
 `DaemonServerAndClientKernels.tests.nl`, `DaemonCommandKernels.tests.nl` (Driver);

@@ -470,6 +470,17 @@ class DaemonExecHost {
             return
         }
 
+        // A reference this process loaded has changed on disk: it can no longer answer as a fresh
+        // process would (`DaemonLoadedReferenceGuard`). Decline, and retire once the lock is free.
+        changedReference := server.ReferenceGuard().FindChanged()
+        if changedReference != null {
+            Monitor.Exit(server.WorkGate())
+            server.WriteDiagnostic(DaemonExecKernels.GetStaleReferenceMessage(changedReference ?? ""))
+            session.Send(DaemonExecKernels.FrameBusy(), new byte[](0), 0)
+            server.RequestStop()
+            return
+        }
+
         try {
             server.BeginRequest()
             pidBytes := DaemonExecWire.EncodeInt32(Environment.ProcessId)
@@ -479,6 +490,7 @@ class DaemonExecHost {
             stopwatch := Stopwatch.StartNew()
             exitCode := Execute(server, session, request)
             stopwatch.Stop()
+            server.ReferenceGuard().Record()
             if !session.IsCancelled() {
                 exitBytes := DaemonExecWire.EncodeInt32(exitCode)
                 session.Send(DaemonExecKernels.FrameDone(), exitBytes, exitBytes.Length)

@@ -98,11 +98,14 @@ class DaemonServer {
     background: bool
     maxMemoryMegabytes: long
     lockStream: FileStream?
+    referenceGuard: DaemonLoadedReferenceGuard
 
-    constructor(root: string): this(root, TimeSpan.FromMilliseconds((double)DaemonExecKernels.ParseIdleTimeoutMilliseconds(
-        Environment.GetEnvironmentVariable(DaemonExecKernels.GetIdleTimeoutEnvironmentVariable()),
-        (long)DaemonConstants.IdleTimeoutMinutes * 60000L
-    )), TimeSpan.FromMilliseconds((double)DaemonExecKernels.GetLivenessCheckMilliseconds())) {
+    constructor(root: string): this(root, TimeSpan.FromMilliseconds(
+        (double)DaemonExecKernels.ParseIdleTimeoutMilliseconds(
+            Environment.GetEnvironmentVariable(DaemonExecKernels.GetIdleTimeoutEnvironmentVariable()),
+            (long)DaemonConstants.IdleTimeoutMinutes * 60000L
+        )
+    ), TimeSpan.FromMilliseconds((double)DaemonExecKernels.GetLivenessCheckMilliseconds())) {
     }
 
     constructor(root: string, timeout: TimeSpan, checkInterval: TimeSpan) {
@@ -128,6 +131,11 @@ class DaemonServer {
         background = false
         maxMemoryMegabytes = DaemonExecKernels.ParseMaxMemoryMegabytes(Environment.GetEnvironmentVariable(DaemonExecKernels.GetMaxMemoryEnvironmentVariable()))
         lockStream = null
+        referenceGuard = new DaemonLoadedReferenceGuard()
+    }
+
+    func ReferenceGuard(): DaemonLoadedReferenceGuard {
+        return referenceGuard
     }
 
     // `daemon run --background`: started by a client that does not wait, so every line goes to the
@@ -302,17 +310,17 @@ class DaemonServer {
         // server was started from inside some command's process group, so a Ctrl-C or hang-up meant
         // for that terminal must not reach it; a foreground `nlc daemon run` keeps the default and
         // stops on Ctrl-C like any other program.
-        terminate := PosixSignalRegistration.Create(PosixSignal.SIGTERM, (context) => {
+        terminate := PosixSignalRegistration.Create(PosixSignal.SIGTERM, context => {
             context.Cancel = true
             RequestStop()
         })
         interrupt: PosixSignalRegistration? = null
         hangUp: PosixSignalRegistration? = null
         if background {
-            interrupt = PosixSignalRegistration.Create(PosixSignal.SIGINT, (context) => {
+            interrupt = PosixSignalRegistration.Create(PosixSignal.SIGINT, context => {
                 context.Cancel = true
             })
-            hangUp = PosixSignalRegistration.Create(PosixSignal.SIGHUP, (context) => {
+            hangUp = PosixSignalRegistration.Create(PosixSignal.SIGHUP, context => {
                 context.Cancel = true
             })
         }
@@ -607,6 +615,7 @@ class DaemonServer {
                 directory := DaemonWarmup.PrepareProject(DaemonExecHost.GetIdentity())
                 DaemonWarmup.Run(directory)
                 DaemonExecHost.RunWarmupHooks()
+                referenceGuard.Record()
                 WriteDiagnostic(DaemonWarmup.GetCompletedMessage(stopwatch.ElapsedMilliseconds))
             } catch warmupFailure: Exception {
                 WriteDiagnostic(DaemonWarmup.GetFailedMessage(warmupFailure.Message))

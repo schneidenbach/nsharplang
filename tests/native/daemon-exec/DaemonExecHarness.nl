@@ -23,7 +23,6 @@ import System.Threading
 // THE ENVIRONMENT. These rows run inside `nlc test`, which sets `NLC_DAEMON_CHILD` for its tests so a
 // test's `nlc` never starts a server. These rows WANT a server, so every child here has that marker
 // (and `NLC_NO_DAEMON`, `CI`, `NLC_DAEMON`) removed, and whatever a row asks for set explicitly.
-
 class ProcessRun {
     ExitCode: int
     Stdout: string

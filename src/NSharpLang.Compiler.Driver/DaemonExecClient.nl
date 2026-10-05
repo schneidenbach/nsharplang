@@ -188,7 +188,7 @@ class DaemonClientSession {
     func Run(request: DaemonExecRequest, trace: DaemonClientTrace, out exitCode: int): DaemonExecOutcome {
         exitCode = 0
         cancelSubscription := on Console.CancelKeyPress (sender, eventArgs) => OnInterrupt()
-        terminateRegistration := PosixSignalRegistration.Create(PosixSignal.SIGTERM, (context) => OnInterrupt())
+        terminateRegistration := PosixSignalRegistration.Create(PosixSignal.SIGTERM, context => OnInterrupt())
         try {
             return Converse(request, trace, out exitCode)
         } finally {
@@ -438,6 +438,7 @@ class DaemonClientSession {
 
 // Starting a server for next time, and stopping one that froze.
 class DaemonAutoStart {
+
     // Starts `daemon run --background` for the workspace and returns at once: the command that
     // asked runs in-process, and the NEXT command finds a warm server. A recent attempt (the spawn
     // marker) suppresses another, so a server that cannot start does not cost a process per command;

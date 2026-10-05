@@ -7,13 +7,14 @@ import System.IO
 // Which directory's server a command talks to. The rule is `DaemonExecKernels.ResolveWorkspaceRoot`;
 // this owner only answers the two filesystem questions it asks.
 class DaemonWorkspace {
+
     // The workspace the router sends a command to, or null when the directory belongs to no
     // workspace (no `.git`, no `project.yml` above it) and the command should simply run in-process.
     static func ResolveForRouting(startDirectory: string): string? {
         return DaemonExecKernels.ResolveWorkspaceRoot(
             Path.GetFullPath(startDirectory),
-            (directory) => HasGitMarker(directory),
-            (directory) => HasProjectFile(directory),
+            directory => HasGitMarker(directory),
+            directory => HasProjectFile(directory),
             true
         )
     }
@@ -23,8 +24,8 @@ class DaemonWorkspace {
     static func Resolve(startDirectory: string): string {
         resolved := DaemonExecKernels.ResolveWorkspaceRoot(
             Path.GetFullPath(startDirectory),
-            (directory) => HasGitMarker(directory),
-            (directory) => HasProjectFile(directory),
+            directory => HasGitMarker(directory),
+            directory => HasProjectFile(directory),
             false
         )
         return resolved ?? Path.GetFullPath(startDirectory)

@@ -4,7 +4,6 @@ import System
 import System.IO
 
 // The reference type-name index: one read per file version, "maybe" whenever the tables cannot speak.
-
 test "the core library's table answers its top-level types and refuses names it does not declare" {
     declared := ExternalTypeNameIndex.TopLevelNames(typeof(object).Assembly.Location)
     assert declared != null

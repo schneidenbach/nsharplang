@@ -509,6 +509,10 @@ class DaemonExecKernels {
         return "[daemon] Working set " + workingSetMegabytes.ToString() + " MB exceeds the " + capMegabytes.ToString() + " MB cap. Retiring this server."
     }
 
+    static func GetStaleReferenceMessage(path: string): string {
+        return "[daemon] " + path + " changed since this server loaded it. Declining and retiring."
+    }
+
     static func GetSocketGoneMessage(): string {
         return "[daemon] Socket file removed (workspace deleted or replaced). Shutting down."
     }

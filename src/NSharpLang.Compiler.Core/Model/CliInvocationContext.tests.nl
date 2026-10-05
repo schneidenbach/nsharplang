@@ -7,7 +7,6 @@ import System
 //
 // The scope is process-wide, so every row that opens it closes it in a `finally` and asserts the
 // closed state again afterwards.
-
 test "with no scope open every reading is the process's own and nothing launches remotely" {
     assert !CliInvocationContext.IsRemoteInvocation()
     assert String.Join("|", CliInvocationContext.GetCommandLineArgs()) == String.Join("|", Environment.GetCommandLineArgs())

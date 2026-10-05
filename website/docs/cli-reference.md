@@ -83,6 +83,10 @@ single-use test-worker process (started ahead of time, so it is already warm). A
 with the same exit code an in-process run would have, and the server keeps serving. While tests run
 — in-process or not — `NLC_DAEMON_CHILD=1` is set, so any `nlc` a test starts runs in-process.
 
+**Rebuilt references.** If a library the server has loaded (a `project:` dependency's output, a
+package) changes on disk, the server declines the next command — it runs in-process — and retires,
+so the following command gets a fresh server. A compiled-against-stale result is never possible.
+
 **Fallback.** If the server is busy with another client for more than 250 ms, the command runs
 in-process instead (two agents never queue behind each other's long test runs). If the server dies
 or stops responding mid-command, the client prints one line to stderr —

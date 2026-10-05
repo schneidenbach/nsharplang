@@ -7,7 +7,6 @@ import System.IO
 import System.Threading
 
 // ═══ SOURCES THE ROWS COMPILE ═════════════════════════════════════════════════════════════════
-
 func CleanProgram(): string {
     return "namespace DaemonExecProbe\n\nimport System\n\nfunc Twice(x: int): int => x * 2\n\nfunc main() {\n    print $\"twice: {Twice(21)}\"\n    line := Console.ReadLine()\n    print $\"read: {line}\"\n    Console.Error.WriteLine(\"to stderr\")\n    Environment.Exit(3)\n}\n"
 }
@@ -381,6 +380,51 @@ test "cancelling a client stops its test run and leaves the server serving" {
         assert WaitUntil(() => RoutedThroughServer(NlcWith(["check"], workspace, Traced(), null).Stderr), 30000)
     } finally {
         DeleteWorkspace(workspace)
+    }
+}
+
+test "a referenced project rebuilt under a running server is never compiled against the stale build" {
+    workspace := Path.Combine("/tmp", "nlc-" + Guid.NewGuid().ToString("N").Substring(0, 12))
+    library := Path.Combine(workspace, "lib")
+    application := Path.Combine(workspace, "app")
+    Directory.CreateDirectory(Path.Combine(workspace, ".git"))
+    Directory.CreateDirectory(library)
+    Directory.CreateDirectory(application)
+    try {
+        File.WriteAllText(Path.Combine(library, "project.yml"), "name: Lib\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(Path.Combine(library, "Lib.nl"), "namespace Lib\n\nclass Greeter {\n    static func Hello(): string => \"hello\"\n}\n")
+        File.WriteAllText(Path.Combine(application, "project.yml"), "name: App\nversion: 1.0.0\nentry: Program.nl\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - project: ../lib/project.yml\n")
+        File.WriteAllText(Path.Combine(application, "Program.nl"), "namespace App\n\nimport Lib\n\nfunc main() {\n    print Greeter.Hello()\n}\n")
+
+        Nlc(["build"], application)
+        logPath := Path.Combine(Path.Combine(workspace, ".nlc"), "daemon.log")
+        assert WaitUntil(() => File.Exists(logPath) && File.ReadAllText(logPath).Contains("Warm-up"), 90000)
+        first := NlcWith(["run"], application, Traced(), null)
+        assert RoutedThroughServer(first.Stderr)
+        assert first.Stdout.Contains("hello")
+
+        // The library gains a member and the application calls it.
+        File.WriteAllText(Path.Combine(library, "Lib.nl"), "namespace Lib\n\nclass Greeter {\n    static func Hello(): string => \"hello\"\n    static func Bye(): string => \"bye\"\n}\n")
+        File.WriteAllText(Path.Combine(application, "Program.nl"), "namespace App\n\nimport Lib\n\nfunc main() {\n    print Greeter.Hello()\n    print Greeter.Bye()\n}\n")
+        expected := NlcWith(["run"], application, InProcess(), null)
+        assert expected.ExitCode == 0
+        assert expected.Stdout.Contains("bye")
+
+        after := NlcWith(["run"], application, Traced(), null)
+        assert after.ExitCode == 0
+        assert Normalized(after.Stdout) == Normalized(expected.Stdout)
+
+        // The stale server retired; a fresh one takes over and answers correctly.
+        assert WaitUntil(
+            () => {
+                run := NlcWith(["run"], application, Traced(), null)
+                return RoutedThroughServer(run.Stderr) && run.Stdout.Contains("bye")
+            },
+            120000
+        )
+    } finally {
+        StopServer(workspace)
+        Directory.Delete(workspace, true)
     }
 }
 

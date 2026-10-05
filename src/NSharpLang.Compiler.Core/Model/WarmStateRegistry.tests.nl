@@ -4,15 +4,29 @@ import System
 
 // The warm-state seam: a cache registers three delegates and the host drives them. The registry is
 // process-wide, so each row registers under a name of its own.
+func WsrIgnore(path: string) {
+    if path.Length < 0 {
+        throw new InvalidOperationException("unreachable")
+    }
+}
+
+func WsrNothing() {
+    WsrIgnore("")
+}
 
 test "a registered cache hears changed paths and trims, and describes itself" {
     heard := ""
     trims := 0
-    WarmStateRegistry.Register("warm-state-row-1", (path) => {
-        heard = path
-    }, () => {
-        trims = trims + 1
-    }, () => "3 entries")
+    WarmStateRegistry.Register(
+        "warm-state-row-1",
+        path => {
+            heard = path
+        },
+        () => {
+            trims = trims + 1
+        },
+        () => "3 entries"
+    )
 
     WarmStateRegistry.NotifyPathChanged("/w/Program.nl")
     WarmStateRegistry.TrimAll()
@@ -30,9 +44,9 @@ test "a registered cache hears changed paths and trims, and describes itself" {
 }
 
 test "registering a name again replaces it instead of adding a second entry" {
-    WarmStateRegistry.Register("warm-state-row-2", (path) => {}, () => {}, () => "first")
+    WarmStateRegistry.Register("warm-state-row-2", path => WsrIgnore(path), () => WsrNothing(), () => "first")
     before := WarmStateRegistry.Count()
-    WarmStateRegistry.Register("warm-state-row-2", (path) => {}, () => {}, () => "second")
+    WarmStateRegistry.Register("warm-state-row-2", path => WsrIgnore(path), () => WsrNothing(), () => "second")
     assert WarmStateRegistry.Count() == before
 
     seen := 0
@@ -48,16 +62,21 @@ test "registering a name again replaces it instead of adding a second entry" {
 
 test "a cache that throws neither stops the others nor breaks the status line" {
     reached := false
-    WarmStateRegistry.Register("warm-state-row-3", (path) => {
+    WarmStateRegistry.Register("warm-state-row-3", path => {
         throw new InvalidOperationException("boom")
     }, () => {
         throw new InvalidOperationException("boom")
     }, () => {
         throw new InvalidOperationException("no description")
     })
-    WarmStateRegistry.Register("warm-state-row-4", (path) => {
-        reached = true
-    }, () => {}, () => "fine")
+    WarmStateRegistry.Register(
+        "warm-state-row-4",
+        path => {
+            reached = true
+        },
+        () => WsrNothing(),
+        () => "fine"
+    )
 
     WarmStateRegistry.NotifyPathChanged("/w/a.nl")
     WarmStateRegistry.TrimAll()

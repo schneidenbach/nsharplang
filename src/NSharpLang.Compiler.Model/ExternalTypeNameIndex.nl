@@ -136,7 +136,8 @@ class ExternalTypeNameIndex {
         ExternalTypeNameIndex.registered = true
         WarmStateRegistry.Register(
             "reference-type-names",
-            (path) => {},
+            path => {
+            },
             () => ExternalTypeNameIndex.Clear(),
             () => ExternalTypeNameIndex.Count().ToString() + " reference assemblies indexed"
         )

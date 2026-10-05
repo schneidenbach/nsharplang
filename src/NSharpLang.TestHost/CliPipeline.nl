@@ -24,6 +24,7 @@ import NSharpLang.Compiler
 // (`CliStatsKernels.Extract`), the command runs exactly as it would without it, and the stats line
 // is written after it returns.
 static class CliPipeline {
+
     // DAEMON FIRST. A routed command (`check`, `build`, `test`, `run`, `format`, `lint`, `fix`) is
     // offered to the workspace server before it runs here; the server answers with the exit code of
     // the same dispatch below, run on this process's behalf, or declines and the command runs here
@@ -159,7 +160,7 @@ static class CliPipeline {
             return QueryCommand.Execute(commandArgs)
         }
         if commandKind == 16 {
-            DaemonExecHost.Configure(version, (serverArgs) => CliPipeline.ExecuteLocal(serverArgs, version))
+            DaemonExecHost.Configure(version, serverArgs => CliPipeline.ExecuteLocal(serverArgs, version))
             DaemonExecHost.AddWarmupHook(() => TestWorkerHost.Replenish())
             return DaemonCommand.Execute(commandArgs)
         }
