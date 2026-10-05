@@ -58,6 +58,17 @@ class AnalyzerExtensionMethodResolution {
     extensionHosts: List<AnalyzerExtensionHostCandidate>
     extensionHostAssemblies: int
     extensionHostLastAssembly: Assembly?
+    // Bumped every time the host list changes, so the answers below can tell.
+    extensionHostVersion: int
+    // THE SCAN'S ANSWERS, per (method name, receiver CLR type), for as long as the imported namespaces,
+    // the host list and the friend grants they were computed under are unchanged -- a file asks the
+    // same few names of the same few receivers over and over (`.Add`, `.Count`, `.Select`), and each
+    // ask was a walk of every host. The inputs are compared on every ask (the import list element by
+    // element), so a new file's imports, a newly loaded assembly or a changed grant starts afresh.
+    extensionScanMemo: Dictionary<(Name: string, Receiver: Type), List<MethodInfo>>
+    extensionScanMemoNamespaces: List<string>
+    extensionScanMemoHosts: int
+    extensionScanMemoGrantName: string
     importUsageCredit: AnalyzerImportUsageCredit?
     genericCallBinder: AnalyzerSyntheticCallBinder?
 
@@ -79,6 +90,11 @@ class AnalyzerExtensionMethodResolution {
         extensionHosts = new List<AnalyzerExtensionHostCandidate>()
         extensionHostAssemblies = 0
         extensionHostLastAssembly = null
+        extensionHostVersion = 0
+        extensionScanMemo = new Dictionary<(Name: string, Receiver: Type), List<MethodInfo>>()
+        extensionScanMemoNamespaces = new List<string>()
+        extensionScanMemoHosts = -1
+        extensionScanMemoGrantName = ""
         friendGrants = null
         genericCallBinder = null
     }
@@ -291,9 +307,15 @@ class AnalyzerExtensionMethodResolution {
     // offered every reference's internal hosts to everybody, which is the same unsoundness the
     // metadata type probe had. `IsNameableType` is the one rule both ask.
     func ScanExternalExtensionMethods(targetClrType: Type, methodName: string): List<MethodInfo> {
-        methods := new List<MethodInfo>()
-
         EnsureExtensionHosts()
+        ValidateExtensionScanMemo()
+        memoKey := (Name: methodName, Receiver: targetClrType)
+        remembered: List<MethodInfo>? = null
+        if extensionScanMemo.TryGetValue(memoKey, out remembered) && remembered != null {
+            return new List<MethodInfo>(remembered)
+        }
+
+        methods := new List<MethodInfo>()
         for candidate in extensionHosts {
             hostType := candidate.HostType
             if usingNamespaces.Contains(candidate.Namespace) && IsNameableHost(hostType) {
@@ -301,7 +323,36 @@ class AnalyzerExtensionMethodResolution {
             }
         }
 
+        extensionScanMemo[memoKey] = new List<MethodInfo>(methods)
         return methods
+    }
+
+    // Clears the scan's answers when any input they were computed under has changed (see
+    // `extensionScanMemo`).
+    private func ValidateExtensionScanMemo() {
+        grantName := ""
+        grants := friendGrants
+        if grants != null {
+            grantName = grants.CompilingAssemblyName
+        }
+
+        unchanged := extensionScanMemoHosts == extensionHostVersion && string.Equals(extensionScanMemoGrantName, grantName, StringComparison.Ordinal) && extensionScanMemoNamespaces.Count == usingNamespaces.Count
+        index := 0
+        while unchanged && index < usingNamespaces.Count {
+            if !string.Equals(extensionScanMemoNamespaces[index], usingNamespaces[index], StringComparison.Ordinal) {
+                unchanged = false
+            }
+            index = index + 1
+        }
+        if unchanged {
+            return
+        }
+
+        extensionScanMemo.Clear()
+        extensionScanMemoNamespaces.Clear()
+        extensionScanMemoNamespaces.AddRange(usingNamespaces)
+        extensionScanMemoHosts = extensionHostVersion
+        extensionScanMemoGrantName = grantName
     }
 
     // Brings `extensionHosts` up to the live assembly list: a static class is `sealed abstract` in
@@ -313,6 +364,7 @@ class AnalyzerExtensionMethodResolution {
             extensionHosts.Clear()
             extensionHostAssemblies = 0
             extensionHostLastAssembly = null
+            extensionHostVersion = extensionHostVersion + 1
         }
 
         while extensionHostAssemblies < assemblies.Count {
@@ -329,6 +381,7 @@ class AnalyzerExtensionMethodResolution {
             }
             extensionHostAssemblies = extensionHostAssemblies + 1
             extensionHostLastAssembly = assembly
+            extensionHostVersion = extensionHostVersion + 1
         }
     }
 
