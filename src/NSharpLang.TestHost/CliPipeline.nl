@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli
 
 import System
+import System.Runtime.CompilerServices
 import NSharpLang.Cli.Commands
 
 // THE `nlc` DISPATCH PIPELINE.
@@ -16,6 +17,17 @@ import NSharpLang.Cli.Commands
 // sentences that print it.
 static class CliPipeline {
     static func Execute(args: string[], version: string): int {
+        // A NativeAOT `nlc` is only the front door (see `FrontDoor`). This test is a compile-time
+        // constant there, and it stands ALONE so the AOT compiler can fold it and trim the compiler
+        // out of the native image; folded into one condition with the force switch it would not.
+        if !RuntimeFeature.IsDynamicCodeSupported {
+            return FrontDoor.Execute(args, version)
+        }
+
+        if FrontDoor.IsForced() {
+            return FrontDoor.Execute(args, version)
+        }
+
         commandKind := ProgramCommandKernels.GetCommandKind(args)
 
         if commandKind == 29 {
