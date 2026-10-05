@@ -329,3 +329,29 @@ test "the installed language server launcher is on PATH and executable" {
     command := ToolchainBash("command -v nsharp-lsp && test -x /root/.nsharp/bin/nsharp-lsp")
     ToolchainAssertSuccess(command, "nsharp-lsp launcher")
 }
+
+// THE FRONT DOOR'S LINUX HAND-OFF. A per-RID toolset's NativeAOT `nlc` replaces itself with the
+// compiler host through glibc's `execve`; NativeAOT cannot be cross-compiled into this container, so
+// the row takes the same code path in the installed JIT host (`NSHARP_FRONT_DOOR=1`) and requires the
+// hand-off to be invisible: the same version line, and a run whose output and exit code are the
+// program's.
+[DockerFact]
+test "the front door hands commands to the compiler host through execve on Linux" {
+    directory := ToolchainUniqueDir("front-door")
+    ToolchainInstallTemplates()
+    ToolchainInstallCli()
+    ToolchainBash("dotnet new nsharp-console -o " + directory)
+
+    direct := ToolchainBash("nlc --version")
+    front := ToolchainBash("NSHARP_FRONT_DOOR=1 nlc --version")
+    ToolchainAssertSuccess(front, "NSHARP_FRONT_DOOR=1 nlc --version")
+    assert front.Stdout == direct.Stdout, front.Stdout + " vs " + direct.Stdout
+
+    run := ToolchainBash("cd " + directory + " && NSHARP_FRONT_DOOR=1 nlc run")
+    ToolchainAssertSuccess(run, "NSHARP_FRONT_DOOR=1 nlc run (console)")
+    assert run.Stdout.Contains("Hello, N#!"), run.Stdout
+
+    unknown := ToolchainBash("cd " + directory + " && NSHARP_FRONT_DOOR=1 nlc no-such-command")
+    assert unknown.ExitCode == 1, unknown.Report("NSHARP_FRONT_DOOR=1 nlc no-such-command")
+    assert unknown.Stderr.Contains("Unknown command: no-such-command"), unknown.Stderr
+}
