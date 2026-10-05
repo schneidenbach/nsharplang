@@ -86,6 +86,9 @@ class MultiFileCompiler {
     private readonly _sourceTexts: Dictionary<string, string>
     private readonly _projectBindings: BindingMap
     private readonly _projectTypeDeclarationFiles: Dictionary<string, string>
+    // The parsed units an analyzer's own parse of the snapshot would reproduce exactly (full path ->
+    // unit): files no conditional-compilation directive changed, listed under their full path.
+    private readonly _reusableUnits: Dictionary<string, CompilationUnit>
     private readonly _reportedImportCycles: HashSet<string>
     private readonly _filesInReportedImportCycles: HashSet<string>
     private readonly _resolvedFileImportDiagnosticKeys: HashSet<string>
@@ -214,6 +217,7 @@ class MultiFileCompiler {
         _sourceTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         _projectBindings = new BindingMap()
         _projectTypeDeclarationFiles = new Dictionary<string, string>(StringComparer.Ordinal)
+        _reusableUnits = new Dictionary<string, CompilationUnit>(StringComparer.OrdinalIgnoreCase)
         _reportedImportCycles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         _filesInReportedImportCycles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         _resolvedFileImportDiagnosticKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -369,6 +373,12 @@ class MultiFileCompiler {
                 // Store compilation unit (even if null, for consistency)
                 if (parseResult.CompilationUnit != null) {
                     _compilationUnits[sourceFile] = parseResult.CompilationUnit
+                    // The analyzer parses the RAW snapshot text under the FULL path; this unit is that
+                    // parse exactly when preprocessing changed nothing and the path is already full.
+                    fullSourcePath := Path.GetFullPath(sourceFile)
+                    if string.Equals(live, source, StringComparison.Ordinal) && string.Equals(fullSourcePath, sourceFile, StringComparison.Ordinal) {
+                        _reusableUnits[fullSourcePath] = parseResult.CompilationUnit
+                    }
                 }
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Done parsing {Path.GetFileName(sourceFile)}")
             }
@@ -488,6 +498,7 @@ class MultiFileCompiler {
         }
         if workerCount <= 1 {
             _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
+            _sharedAnalyzer.SeedProjectCompilationUnits(_reusableUnits)
             index := 0
             while index < files.Count {
                 outcomes[index] = AnalyzeOneFile(_sharedAnalyzer, files[index], units[index])
@@ -575,6 +586,7 @@ class MultiFileCompiler {
         // namespace set once; every other worker is seeded with it rather than parsing the files
         // outside the snapshot again.
         _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
+        _sharedAnalyzer.SeedProjectCompilationUnits(_reusableUnits)
         projectNamespaces := _sharedAnalyzer.ProjectNamespacesFor(_projectRoot)
 
         threads := new List<Thread>(workerCount)
@@ -628,6 +640,7 @@ class MultiFileCompiler {
             if analyzer == null {
                 created := CreateAnalyzer()
                 created.SetProjectSourceTexts(_sourceTexts)
+                created.SeedProjectCompilationUnits(_reusableUnits)
                 created.SeedProjectNamespaces(_projectRoot, state.ProjectNamespaces)
                 analyzer = created
             }

@@ -789,6 +789,12 @@ class Analyzer: IDisposable {
         return new HashSet<string>(ProjectSources.ProjectNamespaces(projectRoot), StringComparer.Ordinal)
     }
 
+    // Parsed units of project files, keyed by full path, that this analyzer's own parse of the same
+    // snapshot would reproduce exactly. See `AnalyzerProjectSourceProvider.SeedCompilationUnits`.
+    func SeedProjectCompilationUnits(units: IReadOnlyDictionary<string, CompilationUnit>) {
+        ProjectSources.SeedCompilationUnits(units)
+    }
+
     func SeedProjectNamespaces(projectRoot: string, namespaces: HashSet<string>) {
         ProjectSources.SeedProjectNamespaces(projectRoot, namespaces)
     }

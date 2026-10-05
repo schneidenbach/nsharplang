@@ -126,6 +126,27 @@ class AnalyzerProjectSourceProvider {
         holdDiskViewValue = true
     }
 
+    // UNITS THE DRIVER ALREADY PARSED, handed over instead of parsed again. The driver parses every
+    // file of the compilation before analysis; when a file's parse is exactly the one this provider
+    // would make -- the same snapshot text (no conditional-compilation directive changed it) under
+    // the same full path -- the driver's unit IS this provider's unit, and parsing it a second time
+    // was a whole extra parse of the project per analyzer (per worker, under parallel analysis).
+    // Only paths in the current snapshot are taken; a later snapshot discards them with the rest of
+    // the unit cache.
+    //
+    // A SHARED UNIT IS READ, NOT WRITTEN. The analysis of one file writes three facts onto AST nodes
+    // -- `CompilationUnit.ImportUsage`, `CallExpression.IsResultFactory`, `MatchExpression.IsExhaustive`
+    // -- and only onto the unit it is analysing; it reads other files' units for their declarations
+    // and never reads those three facts. So a unit seen by several analyses (and, under parallel
+    // analysis, by several threads) answers every one of them the same.
+    func SeedCompilationUnits(units: IReadOnlyDictionary<string, CompilationUnit>) {
+        for entry in units {
+            if sourceTexts.ContainsKey(entry.Key) {
+                unitCache[entry.Key] = entry.Value
+            }
+        }
+    }
+
     // THE PROJECT'S NAMESPACE SET COMPUTED ELSEWHERE, for a held disk view: a parallel analysis
     // worker is handed the set the shared analyzer computed over the same snapshot and the same tree,
     // instead of parsing every file outside the snapshot again. It holds until the snapshot or the
