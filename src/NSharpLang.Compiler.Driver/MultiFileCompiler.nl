@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Linq
 import System.Threading
@@ -258,6 +259,7 @@ class MultiFileCompiler {
 
     /// <summary>Pass 1: Parse all source files into ASTs</summary>
     private func ParseAllFiles(): void {
+        parseClock := Stopwatch.StartNew()
         for sourceFile in _sourceFiles {
             {
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Parsing {Path.GetFileName(sourceFile)}")
@@ -283,6 +285,8 @@ class MultiFileCompiler {
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Done parsing {Path.GetFileName(sourceFile)}")
             }
         }
+        CompilerStats.AddFilesParsed(_sourceFiles.Count)
+        CompilerStats.AddParseTicks(parseClock.ElapsedTicks)
     }
 
     /// <summary>Detect circular file-import graphs before semantic analysis so project checks
@@ -350,6 +354,7 @@ class MultiFileCompiler {
     /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
     /// This prevents the performance issue of reloading assemblies for each file.</summary>
     private func AnalyzeAllFiles(): void {
+        analyzeClock := Stopwatch.StartNew()
         _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
 
         // Analyze each file using the shared analyzer instance
@@ -395,7 +400,9 @@ class MultiFileCompiler {
             }
         }
 
+        CompilerStats.AddFilesAnalyzed(_compilationUnits.Count)
         AnalyzeSystemsPolicy()
+        CompilerStats.AddAnalyzeTicks(analyzeClock.ElapsedTicks)
     }
 
     private func AnalyzeSystemsPolicy(): void {
@@ -413,6 +420,8 @@ class MultiFileCompiler {
     // has no binding facts worth judging its imports against, and the diagnostic it already has is the
     // one its author needs.
     private func AddStrictLintDiagnosticsFromParsedSources(): void {
+        lintClock := Stopwatch.StartNew()
+        lintedFiles := 0
         filesWithParseErrors := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         for existingError in _allErrors {
             if existingError.Severity == ErrorSeverity.Error {
@@ -437,6 +446,7 @@ class MultiFileCompiler {
             source := _sourceTexts.TryGetValue(fullPath, out cachedSource) ? cachedSource : ReadSourceText(sourceFile)
             fileDir := Path.GetDirectoryName(fullPath) ?? _projectRoot
             linter := new Linter(LinterConfig.FromEditorConfig(fileDir))
+            lintedFiles = lintedFiles + 1
             diagnostics := linter.Lint(compilationUnit, fullPath, source)
             for diagnostic in diagnostics {
                 if diagnostic.Severity != DiagnosticSeverity.Error {
@@ -454,6 +464,8 @@ class MultiFileCompiler {
                 ))
             }
         }
+        CompilerStats.AddFilesLinted(lintedFiles)
+        CompilerStats.AddLintTicks(lintClock.ElapsedTicks)
     }
 
     /// <summary>Parse and analyze all files without exporting or emitting IL.
@@ -462,6 +474,7 @@ class MultiFileCompiler {
     /// All files with a non-null CompilationUnit are analyzed, even if they had parse errors,
     /// so we can report both syntax and semantic diagnostics in a single pass.</summary>
     func CompileForAnalysis(): void {
+        CompilerStats.AddCompilationRun()
         let columnarDiscard0: bool = false
         RunLegacyValidationPipeline(false, out columnarDiscard0)
     }
@@ -514,6 +527,7 @@ class MultiFileCompiler {
 
     func CompileToIlAssembly(assemblyName: string, outputPath: string, validateStrictLint: bool = false, validateWithLegacyAnalysis: bool = true): MultiFileCompilationResult {
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] CompileToIlAssembly START")
+        CompilerStats.AddCompilationRun()
 
         runLegacyValidation := validateWithLegacyAnalysis || validateStrictLint
         if (!runLegacyValidation) {
@@ -676,6 +690,8 @@ class MultiFileCompiler {
             return false
         }
         File.WriteAllBytes(outputPath, assembly)
+        CompilerStats.AddFilesPlanned(_sourceFiles.Count)
+        CompilerStats.AddAssemblyEmitted()
         return TryEmitReferenceAssembly(outputPath, referenceAssemblyPaths)
     }
 
@@ -717,6 +733,7 @@ class MultiFileCompiler {
     // emission runs on a dedicated 64 MB wide-stack thread. ColumnarDeclineTrace is [ThreadStatic], so the
     // decline diagnostic must also be built on that thread, while its recorded declines are still visible.
     private func EmitOnWideStackThread(assemblyName: string, outputPath: string, out decline: ColumnarDeclineDiagnostic): bool {
+        emitClock := Stopwatch.StartNew()
         state := new MultiFileCompiler.MultiFileCompilerEmissionThreadState()
         work: ThreadStart = () => RunColumnarEmissionOnCurrentThread(state, assemblyName, outputPath)
         thread := new Thread(work, 64 * 1024 * 1024)
@@ -724,6 +741,7 @@ class MultiFileCompiler {
         thread.Name = "nsharp-columnar-emit"
         thread.Start()
         thread.Join()
+        CompilerStats.AddEmitTicks(emitClock.ElapsedTicks)
         decline = state.Diagnostic ?? ColumnarDeclineDiagnostic.Empty
         return state.Emitted
     }
