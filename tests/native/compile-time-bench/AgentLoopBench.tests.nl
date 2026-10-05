@@ -285,6 +285,18 @@ test "agent-loop bench: a baseline with no rows, an unknown schema or unmeasured
     assert AgentLoopBaselineRefusal(unmeasured).Contains("no measured counters")
 }
 
+test "agent-loop bench: a baseline is never written from a failed row or from counters that varied between samples" {
+    assert AgentLoopUnbaselinableRows(AgentLoopTestObserved(40, 1000)).Count == 0
+
+    failed := AgentLoopTestObserved(40, 1000)
+    failed[0].ExitCode = 1
+    assert AgentLoopUnbaselinableRows(failed)[0].Contains("exited 1")
+
+    unstable := AgentLoopTestObserved(40, 1000)
+    unstable[0].CountersStable = false
+    assert AgentLoopUnbaselinableRows(unstable)[0].Contains("different between identical samples")
+}
+
 test "agent-loop bench: equal counters pass, fewer must be ratcheted in, more are a regression" {
     baseline := AgentLoopTestBaseline(true)
     assert AgentLoopCounterFailures(baseline, AgentLoopTestObserved(40, 5000)).Count == 0

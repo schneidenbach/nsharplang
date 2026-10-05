@@ -2,6 +2,7 @@ namespace NSharpLang.CompileTimeBench
 
 import System
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Text
 import System.Text.Json
@@ -618,8 +619,47 @@ func AgentLoopCliSupportsStats(cliDll: string): bool {
     return run.ExitCode == 0 && run.Stdout.IndexOf("--stats", StringComparison.Ordinal) >= 0
 }
 
+// THE DAEMON IS STARTED THROUGH THE APPHOST beside `Cli.dll` when there is one. Measured on
+// 2026-10-05: `dotnet Cli.dll daemon start` for a project OUTSIDE the repository fails ("Could not
+// execute because the specified command or file was not found"), because a CLI whose process is
+// `dotnet` looks for `src/NSharpLang.Cli` above the PROJECT to `dotnet run`, finds none under the temp
+// directory, and falls back to `dotnet daemon run`. The apphost's process path is the CLI itself, so
+// its start plan is `<Cli> daemon run`, which works anywhere.
+//
+// AND ITS OUTPUT GOES TO A FILE, NOT A PIPE. The started daemon inherits `daemon start`'s stdout, so a
+// caller reading that stdout to end waits for the DAEMON to exit - measured: the first `--daemon`
+// sample hung for ten minutes. `/bin/sh` redirects the command into a log file instead, which the
+// daemon may keep open as long as it likes. (Paths are single-quoted: the harness's own temp
+// directories never contain a quote.)
 func AgentLoopDaemonCommand(cliDll: string, verb: string, projectDirectory: string): BenchProcessRun {
-    return BenchRunProcess("dotnet", BenchQuote(cliDll) + " daemon " + verb + " --project " + BenchQuote(projectDirectory), Path.GetTempPath())
+    arguments := " daemon " + verb + " --project '" + projectDirectory + "'"
+    command := "dotnet '" + cliDll + "'" + arguments
+    apphost := cliDll.Substring(0, cliDll.Length - ".dll".Length)
+    if cliDll.EndsWith(".dll", StringComparison.Ordinal) && File.Exists(apphost) {
+        command = "'" + apphost + "'" + arguments
+    }
+
+    log := Path.Combine(Path.GetTempPath(), "nsharp-agent-loop-daemon-" + BenchLongText(DateTime.UtcNow.Ticks) + ".log")
+    startInfo := new ProcessStartInfo { FileName: "/bin/sh" }
+    startInfo.ArgumentList.Add("-c")
+    startInfo.ArgumentList.Add(command + " > '" + log + "' 2>&1")
+    startInfo.WorkingDirectory = Path.GetTempPath()
+    startInfo.UseShellExecute = false
+    process := new Process { StartInfo: startInfo }
+    startTicks := DateTime.UtcNow.Ticks
+    process.Start()
+    process.WaitForExit()
+    exitCode := process.ExitCode
+    process.Dispose()
+    wallMs := (DateTime.UtcNow.Ticks - startTicks) / 10000
+
+    output := ""
+    if File.Exists(log) {
+        output = File.ReadAllText(log)
+        File.Delete(log)
+    }
+
+    return new BenchProcessRun(exitCode, output, output, wallMs)
 }
 
 // ─── ONE SCENARIO, N SAMPLES ──────────────────────────────────────────────────────────────────
@@ -1031,6 +1071,26 @@ func AgentLoopBaselineRefusal(baseline: AgentLoopBaseline): string {
     }
 
     return ""
+}
+
+// The rows a baseline may NOT be written from: a failed run, or counters that differed between
+// identical samples. A budget taken from either would gate a number nobody can reproduce.
+func AgentLoopUnbaselinableRows(rows: List<AgentLoopRow>): List<string> {
+    refusals := new List<string>()
+    i := 0
+    while i < rows.Count {
+        row := rows[i]
+        key := AgentLoopRowKey(row.Size, row.Scenario, row.Mode)
+        if row.ExitCode != 0 || row.Failure != "" {
+            refusals.Add(key + ": exited " + BenchIntText(row.ExitCode) + " - " + row.Failure)
+        } else if !row.CountersStable || row.Counters == null {
+            refusals.Add(key + ": counters missing or different between identical samples")
+        }
+
+        i = i + 1
+    }
+
+    return refusals
 }
 
 // ─── THE VERDICT ──────────────────────────────────────────────────────────────────────────────

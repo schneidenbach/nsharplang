@@ -227,6 +227,11 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
     print table
 
     if options.WriteBaseline != "" {
+        unbaselinable := AgentLoopUnbaselinableRows(rows)
+        if unbaselinable.Count > 0 {
+            BenchFailHarness("No baseline written; these rows cannot be a budget: " + String.Join(" | ", unbaselinable))
+        }
+
         written := new AgentLoopBaseline()
         written.SchemaVersion = 1
         written.MeasuredAt = BenchLocalDateStamp()
