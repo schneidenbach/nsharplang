@@ -11,6 +11,7 @@ PACKAGE_DIR="${NSHARP_LOCAL_FEED:-$NSHARP_REPO_ROOT/artifacts/nuget}"
 ARCHIVE_PATH="${NSHARP_TOOLSET_ARCHIVE:-$NSHARP_REPO_ROOT/artifacts/toolset/nsharp-toolset.tar.gz}"
 SKIP_PACKAGES=0
 SKIP_ARCHIVE=0
+TOOLSET_RID=""
 
 usage() {
     cat <<EOF
@@ -22,7 +23,12 @@ Publishes the package-manager-ready N# toolset:
   - N# launchers that resolve .NET without dotnet global-tool apphosts
   - NSharpLang SDK/template/compiler packages used by generated projects
 
+Without --rid the payloads are portable IL and run on every platform. With --rid they are
+ReadyToRun-compiled for that RID, and on a build host of that RID bin/nlc is the NativeAOT
+front door that execs the compiler host (no launcher script, no JIT for --version/help).
+
 Options:
+  --rid RID          Publish for one RID (osx-arm64, linux-x64, ...); 'host' means this machine's
   --output DIR       Toolset directory (default: artifacts/toolset/nsharp)
   --packages DIR     NuGet package directory to bundle (default: artifacts/nuget)
   --archive FILE     tar.gz artifact path (default: artifacts/toolset/nsharp-toolset.tar.gz)
@@ -34,6 +40,10 @@ EOF
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --rid)
+            TOOLSET_RID="$2"
+            shift
+            ;;
         --output)
             OUTPUT_DIR="$2"
             shift
@@ -67,6 +77,10 @@ done
 
 nsharp_require_command dotnet
 
+if [[ "$TOOLSET_RID" == "host" ]]; then
+    TOOLSET_RID="$(nsharp_host_rid)"
+fi
+
 mkdir -p "$PACKAGE_DIR"
 
 if [[ "$SKIP_PACKAGES" -eq 0 ]]; then
@@ -75,7 +89,7 @@ if [[ "$SKIP_PACKAGES" -eq 0 ]]; then
 fi
 
 nsharp_log "Publishing N# toolset"
-nsharp_publish_toolset "$OUTPUT_DIR" "$PACKAGE_DIR"
+nsharp_publish_toolset "$OUTPUT_DIR" "$PACKAGE_DIR" "$TOOLSET_RID"
 
 if [[ "$SKIP_ARCHIVE" -eq 0 ]]; then
     nsharp_log "Creating toolset archive"
