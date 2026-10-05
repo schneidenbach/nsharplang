@@ -32,7 +32,7 @@ func ClrTypeName(candidate: Type?): string {
         return "<null>"
     }
 
-    return candidate.get_FullName()
+    return candidate.get_FullName() ?? "<no full name>"
 }
 
 // A constructed generic printed as definition + arguments, so a contract can name the shape it

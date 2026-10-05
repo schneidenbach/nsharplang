@@ -605,11 +605,13 @@ else
     # The identity diff has no additions; only those 12 NL202 findings were removed.
     # 2026-10-05, use guarded type text in both generic-constraint diagnostic paths: Core 215, Compiler 0.
     # The identity diff has no additions; only those 12 NL202 findings were removed.
+    # 2026-10-05, give reflection test renderers a marker when Type.FullName is absent: Core 211, Compiler 0.
+    # The identity diff has no additions; only those four NL202 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        215
+        211
         0
         0
         0

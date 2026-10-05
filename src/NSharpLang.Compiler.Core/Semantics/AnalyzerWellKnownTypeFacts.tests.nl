@@ -22,7 +22,7 @@ func WellKnownTypeName(candidate: Type?): string {
         return "<null>"
     }
 
-    return candidate.get_FullName()
+    return candidate.get_FullName() ?? "<no full name>"
 }
 
 test "the fact bag resolves every required core type into the load context, not the runtime" {

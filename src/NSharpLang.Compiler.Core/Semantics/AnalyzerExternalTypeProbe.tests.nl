@@ -36,14 +36,14 @@ func ProbeTypeName(candidate: TypeInfo?): string {
     }
 
     resolved := reflection.Type
-    return resolved.get_FullName()
+    return resolved.get_FullName() ?? "<no full name>"
 }
 
 func ProbeExactName(candidate: Type?): string {
     if candidate == null {
         return "<null>"
     }
-    return candidate.get_FullName()
+    return candidate.get_FullName() ?? "<no full name>"
 }
 
 func ProbeArityText(arities: List<int>): string {
