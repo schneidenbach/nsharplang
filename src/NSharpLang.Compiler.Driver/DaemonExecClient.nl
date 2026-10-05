@@ -464,6 +464,10 @@ class DaemonAutoStart {
             }
 
             File.WriteAllText(markerPath, Environment.ProcessId.ToString())
+            // Each server starts its log afresh, as `nlc daemon start` does, so the log never grows
+            // past one server's life.
+            logPath := Path.Combine(socketDirectory, DaemonExecKernels.GetLogFileName())
+            File.WriteAllText(logPath, "")
             entryAssembly := Assembly.GetEntryAssembly()
             entryPath: string? = null
             if entryAssembly != null {
@@ -488,7 +492,7 @@ class DaemonAutoStart {
             psi.CreateNoWindow = true
             psi.WorkingDirectory = workspaceRoot
             psi.Environment.Remove(DaemonExecKernels.GetDaemonChildEnvironmentVariable())
-            psi.Environment[DaemonClientKernels.GetStartupOutputLogEnvironmentVariableName()] = Path.Combine(socketDirectory, DaemonExecKernels.GetLogFileName())
+            psi.Environment[DaemonClientKernels.GetStartupOutputLogEnvironmentVariableName()] = logPath
             process := Process.Start(psi)
             if process == null {
                 return false

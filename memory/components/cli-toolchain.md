@@ -77,7 +77,7 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 
 ### Code Intelligence (`nlc query`)
 
-All query commands output **JSON by default** with a versioned envelope (`schemaVersion: 1`). Add `--text` for human-readable output. When a daemon is already running, JSON query commands reuse it automatically; add `--no-daemon` to force in-process analysis.
+All query commands output **JSON by default** with a versioned envelope (`schemaVersion: 1`). Add `--text` for human-readable output. When a workspace server of the same `nlc` build is already running (one starts automatically on the first `check`/`build`/`test`/...; see [Workspace Server](#workspace-server-daemon-first-cli)), JSON query commands reuse it for any project in its workspace; add `--no-daemon` to force in-process analysis.
 
 | Command | Purpose | Example |
 |---------|---------|---------|
@@ -152,9 +152,9 @@ At a position on a member that METADATA declares and the project does not — `l
 | `nlc doc` | Generate project API documentation | `nlc doc` |
 | `nlc doc --json` | Emit a structured doc-generation result | `nlc doc --json` |
 | `nlc completion <shell>` | Generate shell completions | `nlc completion zsh` |
-| `nlc daemon start` | Start background analysis daemon | `nlc daemon start` |
-| `nlc daemon stop` | Stop daemon | `nlc daemon stop` |
-| `nlc daemon status` | Show daemon info | `nlc daemon status` |
+| `nlc daemon start` | Start the workspace server explicitly (routed commands start it on first use anyway) | `nlc daemon start` |
+| `nlc daemon stop` | Stop the workspace server | `nlc daemon stop` |
+| `nlc daemon status` | Show pid, uptime, build identity, requests, memory, warm state | `nlc daemon status` |
 | `nlc tree` | Show direct dependency tree from `project.yml`; include transitive NuGet packages when MSBuild can resolve the package graph | `nlc tree --json` |
 
 ### Public Browser Playground
@@ -1142,10 +1142,19 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler/PackCommand.nl` | `nlc pack`: metadata, build, nuspec and archive (N#-owned) |
 | `src/NSharpLang.Compiler/CheckCommand.nl`, `FixCommand.nl`, `LintCommand.nl`, `DocCommand.nl` | `nlc check` / `fix` / `lint` / `doc` (N#-owned) |
 | `src/NSharpLang.Cli/Commands/QueryCommand.cs` | All `nlc query` subcommands |
-| `src/NSharpLang.Cli/Commands/DaemonCommand.cs` | `nlc daemon` commands |
-| `src/NSharpLang.Compiler/DaemonProtocol.nl` | The JSON-RPC 2.0 wire types and the constants reader `DaemonConstants` (N#-owned) |
-| `src/NSharpLang.Cli/Daemon/DaemonServer.cs` | Background daemon (Unix socket) |
-| `src/NSharpLang.Cli/Daemon/DaemonClient.cs` | Daemon client for QueryCommand |
+| `src/NSharpLang.Compiler.Driver/DaemonCommand.nl`, `DaemonCommandKernels.nl` | `nlc daemon start/stop/status/run` (N#-owned) |
+| `src/NSharpLang.Compiler.Driver/DaemonProtocol.nl` | The JSON-RPC 2.0 wire types and the constants reader `DaemonConstants` (N#-owned) |
+| `src/NSharpLang.Compiler.Driver/DaemonServer.nl` | The workspace server: singleton lock, accept loop, query snapshots, idle/liveness/caps, warm-up (N#-owned) |
+| `src/NSharpLang.Compiler.Driver/DaemonClient.nl` | JSON-RPC client: ping/status/shutdown, `nlc daemon start`, queries (N#-owned) |
+| `src/NSharpLang.Compiler.Driver/DaemonExecKernels.nl` | Every daemon-first decision as a pure function: routed commands, switches, workspace rule, build identity, launch command, wire constants, timings (N#-owned; pinned by `DaemonExecKernels.tests.nl`) |
+| `src/NSharpLang.Compiler.Driver/DaemonExecClient.nl` | The client half: route, connect, stream frames, stdin pump, `run` launch, fallback, auto-start (N#-owned) |
+| `src/NSharpLang.Compiler.Driver/DaemonExecHost.nl` | The server half: one command per request in the client's cwd/env/culture/console (N#-owned) |
+| `src/NSharpLang.Compiler.Driver/DaemonExecWire.nl` | The exec wire: frames and the binary request encoding (N#-owned) |
+| `src/NSharpLang.Compiler.Driver/DaemonWorkspace.nl`, `DaemonWarmup.nl` | Workspace resolution + build identity; the warm-up project (N#-owned) |
+| `src/NSharpLang.TestHost/TestWorkerHost.nl` | Isolated single-use test workers for server-run `nlc test` (N#-owned) |
+| `src/NSharpLang.Compiler.Model/CliInvocationContext.nl` | The remote-invocation scope: client command line, stderr-is-terminal, `run` launcher, cancellation, termination (N#-owned) |
+| `src/NSharpLang.Compiler.Model/WarmStateRegistry.nl` | The seam caches use to live in a long-lived host: change/trim/describe hooks (N#-owned) |
+| `src/NSharpLang.Compiler.Model/ExternalTypeNameIndex.nl` | Reference assemblies' top-level type names, read once per file version; lets type probes skip impossible MLC lookups (N#-owned) |
 | `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` | Shared analysis engine |
 | `src/NSharpLang.Compiler/CodeIntelligence/CompletionEngine.nl` | LLM-optimized completions (snapshot plumbing; policy lives in `NSharpLang.Compiler.CodeIntel/CompletionEngineKernels.nl`) |
 | `src/NSharpLang.Compiler/CodeIntelligence/SignatureHelpEngine.nl` | Overload signatures for a call being typed (snapshot plumbing; policy lives in `NSharpLang.Compiler.CodeIntel/SignatureHelpOverloadFacts.nl`). It resolves through the PROJECT SNAPSHOT, the same program completion asks, so an external instance or static method, a whole overload set and a type declared in another file all answer — the current document's own declaration table, which is all `textDocument/signatureHelp` used to read, could answer none of them |
@@ -1198,24 +1207,89 @@ nlc query <cmd>
 
 ---
 
-## Daemon Mode
+## Workspace Server (daemon-first CLI)
 
-The daemon caches project analysis and serves queries via Unix domain socket. JSON `nlc query` commands reuse it only when one is already running; the CLI does not auto-start it. The daemon auto-exits after 30 minutes idle.
+**Every compiler-bound command is answered by a warm per-workspace server when one is available.**
+`nlc check`, `build`, `test`, `run`, `format`, `lint` and `fix` ask the server first
+(`CliPipeline.Execute` → `DaemonExecClient.TryExecute`) and run in-process only when it declines.
+The first such command in a workspace runs in-process and starts the server in the background
+(`nlc daemon run --project <workspace> --background`); every later command finds it warm. Before
+2026-10-05 only `nlc query` used the daemon, and only when it had been started by hand.
 
 ```bash
-nlc daemon start     # explicit start
-nlc daemon stop      # explicit stop
-nlc daemon status    # show pid, uptime, cached files
-
-# Queries auto-connect to daemon when running:
-nlc query symbols    # fast response from cache
-nlc query refs --file Program.nl --pos 5:4
-nlc query inspect --file Program.nl --pos 5:4
+nlc check            # first: in-process; starts the server in the background
+nlc check            # later: the warm server answers
+nlc daemon status    # {"pid":…,"identity":"…","servedRequests":…,"workingSetMb":…,"warmState":[…]}
+nlc daemon stop
 ```
 
-Socket: `{projectRoot}/.nlc/daemon.sock` (falls back to `{TMPDIR}/nlc-daemon/{sha256-16}/daemon.sock` when the project-local path would exceed **100 UTF-8 bytes**, because a Unix domain socket path is capped near 104 bytes by the kernel)
-PID file: `{projectRoot}/.nlc/daemon.pid`
-Protocol: JSON-RPC 2.0 over Unix socket
+### Design
+
+| Concern | Decision | Owner |
+|---|---|---|
+| Which commands route | `check`, `build`, `test`, `run`, `format`, `lint`, `fix` (case-insensitive); `query` keeps its own JSON-RPC route; `watch`, `new`, `daemon`, … never route | `DaemonExecKernels.IsRoutedCommandName` |
+| Switches | `--no-daemon` (stripped before the command sees it); `NLC_NO_DAEMON` (any value but empty/`0`); `NLC_DAEMON_CHILD` (set for everything the server runs and for every test run); `CI=true\|1` unless `NLC_DAEMON=1` | `DaemonExecKernels.ShouldRoute` |
+| Workspace | Nearest ancestor with `.git` (dir or worktree file), else nearest `project.yml`; neither → in-process, no `.nlc/` created. `nlc daemon start/stop/status` fall back to the directory itself | `DaemonExecKernels.ResolveWorkspaceRoot` |
+| Identity | FNV-1a 64 over: exec protocol version, informational version (commit), `AppContext.BaseDirectory`, name+size+mtime of every `*.dll` there, runtime version, every `DOTNET_*`/`COMPlus_*` variable. Mismatch → client stops the old server, runs in-process, spawns a new one | `DaemonExecKernels.ComposeIdentitySource`, `DaemonBuildIdentity` |
+| Launch | The SAME binary: `dotnet <entry Cli.dll> …` under the muxer, the apphost/native image itself otherwise (the old `dotnet run --project src/NSharpLang.Cli` plan is gone). Fresh pipes for all three streams so a caller reading our stdout to EOF never waits on the server | `DaemonExecKernels.GetServerLaunchCommand`, `DaemonAutoStart.Spawn` |
+| Singleton | `.nlc/daemon.lock` held with `FileShare.None` (flock) for the server's life; a second server of the same build exits, a newer build waits ≤30 s for the old one to stop | `DaemonServer.AcquireServerLock` |
+| Spawn storm guard | `.nlc/daemon.spawn` marker: no second spawn within 10 s unless the last spawned server came up (PID file newer) and has since died | `DaemonAutoStart.Spawn` |
+| Execution | ONE command at a time per server (cwd, environment and console are process-wide). The request carries args, the full `GetCommandLineArgs()`, cwd, the complete environment (applied exactly — extra server variables are removed — and restored afterwards), culture/UI culture, and whether stdout/stderr/stdin are redirected. The command runs through the same `CliPipeline.ExecuteLocal` dispatch inside `InternalErrorBoundary` | `DaemonExecHost.Execute` |
+| Busy | A request that cannot take the work lock within 250 ms is answered `Busy` and the client runs in-process (two agents never queue behind a long test run) | `GetBusyWaitMilliseconds` |
+| Process facts a command reads | `--color=` from the CLIENT's command line and the CLIENT's stderr-is-terminal (`DiagnosticColorPolicy`), `nlc run`'s program started by the client (`DotnetRunner.RunPassthrough`) | `CliInvocationContext` |
+| Output | Every `Console.Out`/`Console.Error` write is one frame, both streams through one send lock, so cross-stream order is preserved; one stateful UTF-8 encoder per stream (`DaemonFrameWriter` derives from `StringWriter` because the seed cannot yet emit an override of `TextWriter.Encoding`, an abstract property) | `DaemonFrameWriter` |
+| Stdin | Pulled lazily: nothing is read from the user's terminal/pipe until the command reads `Console.In` (`format --stdin`) | `DaemonStdinReader`, `StartStdinPump` |
+| Tests | Built in the server, RUN in a single-use test worker (`nlc __test-worker`, a hidden dispatch of the same binary), pre-spawned so it is warm. The worker adopts the request's cwd/env/culture, runs `TestCommandHost.RunRunnerInProcess`, writes results to a temp file (atomic rename + end marker). A worker that dies without results ends the request with ITS exit code (`CliInvocationContext.Terminate`), which is what that death does to an in-process `nlc test`; the server is untouched | `TestWorkerHost` |
+| Test environment | `NLC_DAEMON_CHILD=1` during every test run on BOTH routes, so a test that runs `nlc` never starts or queues on a server and observes the same environment either way | `TestCommandHost.RunRunnerInProcess` |
+| Cancellation | Client SIGINT/SIGTERM: commit buffered output, send `Cancel`, then die by the signal exactly as in-process (`-2`/`-15`). Server kills registered children (test workers) and, if the command is still running after 10 s, removes its socket and exits | `DaemonClientSession.OnInterrupt`, `DaemonServer.RetireIfStillRunning` |
+| Server loss | Keep-alive every 1 s; no frame for 15 s = frozen (the client kills that PID). EOF/freeze before `Done` → one stderr line `nlc: the workspace server stopped responding; running in-process instead (…)` and an in-process rerun. Output is held for the first 1.5 s / 64 KB, so an early loss prints only the rerun's output. After `nlc run` launched the program, its exit code stands (the program is never run twice) | `DaemonClientSession.Lose` |
+| Lifecycle | Idle timeout (default 30 m, `NLC_DAEMON_IDLE_TIMEOUT`; never while a request runs), liveness (socket file gone → exit within 2 s), memory cap (default 4096 MB, `NLC_DAEMON_MAX_MEMORY_MB`: trim warm state, GC, retire if still over), SIGTERM graceful (in-flight requests finish), background servers ignore SIGINT/SIGHUP. The accept loop POLLS (500 ms): on macOS `close()` does not wake a thread blocked in `accept(2)` | `DaemonServer` |
+| Warm-up | A new server compiles a small built-in project (`check` + `build`, output discarded) under the work lock before taking work, then pre-spawns a test worker (`NLC_DAEMON_WARMUP=0` skips) | `DaemonWarmup`, `DaemonExecHost.RunWarmupHooks` |
+| Warm state | Kept across commands: JIT, `ExternalTypeNameIndex` (each reference's top-level type/forwarder names per file version — lets the analyzer and `ExternalQualifiedTypeResolver` skip MLC misses, which build and discard a localized `TypeLoadException`), query snapshots per project. Any cache can join via `WarmStateRegistry.Register(name, onPathChanged, onTrim, describe)`; the server feeds it file-watcher changes, trims it before a memory retirement and lists it in `warmState` | `WarmStateRegistry` |
+| Queries | `nlc query` reaches the WORKSPACE server, passes `projectRoot` and its `identity`; a different build answers `-32001` and the query runs in-process. The server keeps one snapshot per project, dropped on any watched change | `QueryCommand.TryExecuteViaDaemon`, `DaemonServer.EnsureSnapshot` |
+| Security | Socket `0600` after bind (connect needs write permission); fallback runtime dirs created `0700`; nothing listens on TCP | `DaemonServer.RunWithSignals`, `DaemonProtocolKernels.GetSocketPath` |
+| Scripts | `scripts/dev.sh` and `tests/scripts/test-all-core.sh` default `NLC_NO_DAEMON=1` for their own commands (parallel batches gain nothing; the in-process path is the reference). `NLC_NO_DAEMON=0 ./scripts/dev.sh …` exercises the server | — |
+| Tracing | `NLC_DAEMON_TRACE=1` → one `[nlc-daemon] route=<daemon\|in-process> resolve= identity= connect= send= accepted= done= client-ms= process-ms=` line on stderr | `DaemonClientTrace` |
+
+**Measured (2026-10-05, paired alternating runs, 10 each, `bench.py` in the session scratchpad;
+machine under load — 1-min load average 12-15 on 10 cores — so absolute numbers are inflated, the
+ratio is the signal).** 534-line `tests/fixtures/issue-tracker` (ASP.NET framework reference, ~180
+reference assemblies):
+
+| Command | in-process median | daemon median | speedup |
+|---|---|---|---|
+| `check` | 2.60 s | 0.63 s | 4.1x |
+| `build` | 2.68 s | 0.50 s | 5.4x |
+| `test` | 2.47 s | 0.62 s | 4.0x |
+| `lint` | 1.04 s | 0.26 s | 3.9x |
+| `format --check` | 0.13 s | 0.08 s | 1.5x |
+
+`nlc run` of a small exe through the server: ~0.17 s client wall time including the program.
+Client-side overhead per routed command ≈ 40 ms runtime start + ≈ 35 ms routing (resolve, identity,
+connect, request); the rest is server-side compiler work. Where a warm `check` still spends its time
+(stack sampling): the analyzer runs TWICE (`LoadProjectIncludingTests` and again inside
+`VerifyIlOutput` → `CompileToIlAssembly`), plus emit — throughput work, not daemon work. Reaching
+≲0.2 s needs the incremental parse/declaration cache (it plugs into `WarmStateRegistry`) and a
+single-analysis `check`.
+
+### Native rows
+
+`tests/native/daemon-exec` (19 rows, real processes against a real server): routing and auto-start,
+switches (`--no-daemon`, `NLC_NO_DAEMON`, `CI`), no-workspace, parity over success/error/JSON/text/
+`--color=always`/failing tests/`--verbose`/`--filter`/`format --stdin`/`run` with stdin and exit code,
+per-request env and cwd, `Environment.Exit` and stack-overflow isolation, server killed mid-command,
+build-identity replacement (a `DOTNET_` variable makes the other build), two clients at once,
+SIGTERM cancellation of a hung test, status/stop, idle timeout, workspace deletion, memory cap,
+owner-only socket. Kernel and wire contracts: `DaemonExecKernels.tests.nl`,
+`DaemonServerAndClientKernels.tests.nl`, `DaemonCommandKernels.tests.nl` (Driver);
+`CliInvocationContext.tests.nl`, `WarmStateRegistry.tests.nl`, `ExternalTypeNameIndex.tests.nl`
+(Core/Model).
+
+### Daemon start, socket and log
+
+Socket: `{workspace}/.nlc/daemon.sock` (falls back to `{TMPDIR}/nlc-daemon/{sha256-16}/daemon.sock` when the project-local path would exceed **100 UTF-8 bytes**, because a Unix domain socket path is capped near 104 bytes by the kernel; the hash is computed only for that fallback)
+PID file: `{workspace}/.nlc/daemon.pid`; lock: `.nlc/daemon.lock`; spawn marker: `.nlc/daemon.spawn`
+Protocols: the exec wire (below) and JSON-RPC 2.0, on the same socket, told apart by the first byte
 
 `nlc daemon start` waits up to **120 seconds** for the spawned process to answer `daemon/ping` on
 its socket. The wait polls every 100 ms and returns as soon as the daemon responds; it does not
@@ -1228,17 +1302,32 @@ accepted at <socket>. Child process alive: <true|false>.`; early exit begins `St
 <milliseconds> ms: child process exited with code <exit-code> before daemon/ping was accepted.
 Child process alive: false.`
 
-For a project-local socket, startup creates `.nlc/daemon.log` before launching the child and
-truncates it on each start. The daemon writes its initial startup diagnostics to the launching
-process's captured stderr; after readiness, later daemon output is appended to `daemon.log`. When
-the project's socket path is too long and falls back to `{TMPDIR}/nlc-daemon/{sha256-16}/`, the
-log is stored beside that temporary socket instead. `.nlc/` is runtime state and should not be
-committed. All shipped templates include `.nlc/` in their `.gitignore`.
+Every server start (explicit or automatic) truncates `.nlc/daemon.log`. An explicit start's initial
+diagnostics go to the launching process's captured stderr and later output to the log; an automatic
+(`--background`) server writes everything to the log from its first line. When the socket falls back
+to `{TMPDIR}/nlc-daemon/{sha256-16}/`, the log sits beside it. `.nlc/` is runtime state and should not
+be committed. All shipped templates include `.nlc/` in their `.gitignore`.
 
-Startup diagnostics are plain stderr text. The daemon JSON-RPC schema and versioned CLI output
-did not change.
+### The exec wire
 
-### The wire contract
+An exec connection opens with the four bytes `NLX1`; then frames `[kind: 1 byte][length: int32 LE][payload]`
+(payload ≤ 16 MiB). Strings in the request are `BinaryWriter` strings (7-bit length + UTF-8): no JSON on
+the client's cold path. Protocol version `1` is part of the build identity.
+
+| Direction | Frame | Payload |
+|---|---|---|
+| client → server | `R` request | protocol, identity, args, command line, cwd, env names/values, culture, UI culture, stdout/stderr/stdin redirected, client pid |
+| | `I` stdin data / `Z` stdin end | bytes / — |
+| | `X` cancel | — |
+| | `C` child exit | int32 exit code of the program `nlc run` launched |
+| server → client | `A` accepted / `B` busy / `M` mismatch | server pid / — / server identity |
+| | `O` stdout / `W` stderr | bytes, in write order |
+| | `Q` stdin wanted | — |
+| | `P` launch | `dotnet` arguments + working directory (for `nlc run`) |
+| | `K` keep-alive | — (every 1 s while a command runs) |
+| | `D` done | int32 exit code |
+
+### The JSON-RPC wire contract (queries and control)
 
 Every request and response is one JSON-RPC 2.0 message, sent and then half-closed. The envelope's own
 member names — `jsonrpc`, `id`, `method`, `params`, `result`, `error`, `code`, `message`, `data` — are
@@ -1258,7 +1347,8 @@ fix is owned by
 | the twelve methods | `GetPingMethod()` … `GetInspectMethod()` | `daemon/ping`, `daemon/shutdown`, `daemon/status`; `query/symbols`, `query/batch`, `query/outline`, `query/diagnostics`, `query/type`, `query/definition`, `query/references`, `query/completions`, `query/inspect` |
 | method dispatch | `GetMethodKind()` | exact match — no prefix, no case folding; anything else is `Unknown` |
 | the five error codes | `GetParseErrorCode()` … `GetInternalErrorCode()` | `-32700`, `-32600`, `-32601`, `-32602`, `-32603` |
-| the `daemon/status` payload | `StatusResultJson()` | `pid`, `uptime`, `projectRoot`, `cachedFiles`, `idleTimeout`, in that order — each name spelled once, by its own field kernel |
+| the `daemon/status` payload | `StatusResultJson()` | `pid`, `uptime`, `projectRoot`, `cachedFiles`, `idleTimeout`, in that order — each name spelled once, by its own field kernel — then, for a workspace server, `version`, `identity`, `activeRequests`, `servedRequests`, `workingSetMb`, `memoryCapMb`, `warmState` |
+| build-identity mismatch | `GetIdentityMismatchErrorCode()` | `-32001` (server-defined range): a query carrying another build's `identity` |
 | the two control results | `GetPongResultJson()`, `GetShutdownResultJson()` | `"pong"`, `"shutting down"` |
 | socket and pid names | `GetSocketDir()`, `GetSocketName()`, `GetPidFileName()` | `.nlc`, `daemon.sock`, `daemon.pid` |
 | timeouts | `GetIdleTimeoutMinutes()`, `GetConnectionTimeoutMilliseconds()`, `GetPingTimeoutMilliseconds()` | 30 minutes, 5000 ms, 2000 ms |
