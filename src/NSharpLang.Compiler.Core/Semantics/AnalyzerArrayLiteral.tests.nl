@@ -130,11 +130,20 @@ func ArrayOneArgument(argument: TypeInfo): List<TypeInfo> {
     return arguments
 }
 
+func RequiredArrayRuntimeType(typeName: string): Type {
+    runtimeType := Type.GetType(typeName)
+    if runtimeType == null {
+        throw new InvalidOperationException("Required runtime type '" + typeName + "' was not found.")
+    }
+
+    return runtimeType
+}
+
 func ArrayClosedOf(definitionName: string, argument: Type): Type {
     // Several closed generics the collection-target rule is about are not on the columnar `typeof`
     // surface (`Queue<>` and the `System.Linq` interfaces above all), so they are built BY NAME — the
     // compiler's own route-around, yielding the identical runtime type.
-    definition := Type.GetType(definitionName)
+    definition := RequiredArrayRuntimeType(definitionName)
     typeArguments := new Type[](1)
     typeArguments[0] = argument
     return definition.MakeGenericType(typeArguments)
@@ -143,7 +152,7 @@ func ArrayClosedOf(definitionName: string, argument: Type): Type {
 func ArrayClosedQueryable(): Type {
     // `typeof(IQueryable<int>)` is not on the columnar `typeof` surface, so the closed type is built
     // by name — the compiler's own route-around, and the identical runtime type.
-    definition := Type.GetType("System.Linq.IQueryable`1, System.Linq.Expressions")
+    definition := RequiredArrayRuntimeType("System.Linq.IQueryable`1, System.Linq.Expressions")
     typeArguments := new Type[](1)
     typeArguments[0] = typeof(int)
     return definition.MakeGenericType(typeArguments)

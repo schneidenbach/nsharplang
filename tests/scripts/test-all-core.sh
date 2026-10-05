@@ -615,11 +615,13 @@ else
     # The identity diff has no additions; only those 87 NL202 findings were removed.
     # 2026-10-05, reuse guarded function parameter-list snapshots: Core 115, Compiler 0.
     # The identity diff has no additions; only those four NL905 findings were removed.
+    # 2026-10-05, check nullable runtime metadata before constructing reflection test fixtures: Core 108, Compiler 0.
+    # The identity diff has no additions; only those seven NL905 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        115
+        108
         0
         0
         0

@@ -273,7 +273,11 @@ test "the reflection reader finds the parameter a NotNullIfNotNull return names"
     method := typeof(System.IO.Path).GetMethod("GetFileName", AnalyzerNullabilityPostconditionsStringArgument())
     assert method != null
     assert NullabilityFlowAttributeReflection.NotNullIfNotNull(method.get_ReturnParameter().GetCustomAttributesData()) == "path"
-    assert NullabilityFlowAttributeReflection.NotNullIfNotNull(typeof(string).GetMethod("IsNullOrEmpty").get_ReturnParameter().GetCustomAttributesData()) == null
+    isNullOrEmpty := typeof(string).GetMethod("IsNullOrEmpty")
+    if isNullOrEmpty == null {
+        throw new InvalidOperationException("System.String.IsNullOrEmpty must be present for its nullability reflection contract.")
+    }
+    assert NullabilityFlowAttributeReflection.NotNullIfNotNull(isNullOrEmpty.get_ReturnParameter().GetCustomAttributesData()) == null
 }
 
 func AnalyzerNullabilityPostconditionsStringArgument(): Type[] {

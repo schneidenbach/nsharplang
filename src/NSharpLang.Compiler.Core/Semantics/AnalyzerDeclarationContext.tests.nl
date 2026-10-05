@@ -1408,8 +1408,11 @@ test "runtime interface method resolution includes inherited IDisposable members
         assert metadataGroup != null
         assert metadataGroup.Methods.Length == 1
         assert metadataGroup.Methods[0].get_Name() == "Dispose"
-        assert metadataGroup.Methods[0].get_DeclaringType() != null
-        assert metadataGroup.Methods[0].get_DeclaringType().FullName == "System.IDisposable"
+        declaringType := metadataGroup.Methods[0].get_DeclaringType()
+        if declaringType == null {
+            throw new InvalidOperationException("The reflected IDisposable.Dispose method must retain its declaring type.")
+        }
+        assert declaringType.FullName == "System.IDisposable"
     } finally {
         scan.Dispose()
     }

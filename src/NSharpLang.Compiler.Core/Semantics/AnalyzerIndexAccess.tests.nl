@@ -167,6 +167,15 @@ func IndexOneType(argument: Type): Type[] {
     return typeArguments
 }
 
+func RequiredIndexRuntimeType(typeName: string): Type {
+    runtimeType := Type.GetType(typeName)
+    if runtimeType == null {
+        throw new InvalidOperationException("Required index-test runtime type '" + typeName + "' was not found.")
+    }
+
+    return runtimeType
+}
+
 class IndexDriveTrace {
     Kinds: string
     ExpectedAtStep: string
@@ -419,7 +428,7 @@ test "a REFLECTED array answers its element and its range answers the array" {
 
 test "a reflected type's INDEXER answers its property type" {
     harness := IndexArmOf()
-    receiver: TypeInfo = new ReflectionTypeInfo(Type.GetType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(string))))
+    receiver: TypeInfo = new ReflectionTypeInfo(RequiredIndexRuntimeType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(string))))
     trace := IndexDrive(harness, IndexAccessOf("items", IndexIntLiteral("0"), false), receiver, BuiltInTypes.Int, false)
 
     // `ConvertReflectionType` maps a built-in CLR type back to its BUILT-IN model type, so the
@@ -431,7 +440,7 @@ test "the indexer lookup finds exactly what GetDefaultMembers found" {
     // The substitution's whole claim: the first public property with index parameters IS the default
     // member. These four cover an interface, a class, a struct with two overloads and a type with no
     // indexer at all.
-    listIndexer := AnalyzerMemberResolution.FindReflectedIndexerProperty(Type.GetType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(int))))
+    listIndexer := AnalyzerMemberResolution.FindReflectedIndexerProperty(RequiredIndexRuntimeType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(int))))
     assert listIndexer != null
     assert listIndexer.get_PropertyType() == typeof(int)
 
@@ -629,7 +638,7 @@ test "the int-expected rule covers a table, both array shapes and a string, and 
     assert harness.Arm.ShouldUseIntExpectedTypeForIndex(BuiltInTypes.String)
 
     assert !harness.Arm.ShouldUseIntExpectedTypeForIndex(BuiltInTypes.Int)
-    assert !harness.Arm.ShouldUseIntExpectedTypeForIndex(new ReflectionTypeInfo(Type.GetType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(int)))))
+    assert !harness.Arm.ShouldUseIntExpectedTypeForIndex(new ReflectionTypeInfo(RequiredIndexRuntimeType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(int)))))
 }
 
 // ---- a constructed external generic's indexer, end to end -----------------------------------------
