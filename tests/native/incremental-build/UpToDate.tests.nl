@@ -271,3 +271,24 @@ test "the stamp carries every settable member of CompilerError" {
     actual.Sort(StringComparer.Ordinal)
     assert string.Join(",", actual) == string.Join(",", expected), string.Join(",", actual)
 }
+
+test "an output outside the project writes no stamp and leaves the source tree untouched" {
+    scratch := IncrementalScratch("outside")
+    elsewhere := IncrementalScratch("outside-output")
+    try {
+        IncrementalWriteProject(scratch)
+        config := ProjectFileParser.Parse(Path.Combine(scratch, "project.yml"))
+        outputPath := Path.Combine(elsewhere, "Lib.dll")
+        first := new MultiFileCompiler(config.GetSourceFiles(scratch, false), scratch, config)
+        first.IncrementalBuild = true
+        assert first.CompileToIlAssembly("Lib", outputPath, true).Success
+        assert !Directory.Exists(Path.Combine(scratch, "obj"))
+        second := new MultiFileCompiler(config.GetSourceFiles(scratch, false), scratch, config)
+        second.IncrementalBuild = true
+        assert second.CompileToIlAssembly("Lib", outputPath, true).Success
+        assert !second.WasUpToDate
+    } finally {
+        IncrementalCleanup(scratch)
+        IncrementalCleanup(elsewhere)
+    }
+}

@@ -39,6 +39,13 @@ class MultiFileCompiler {
     private readonly _declaredOneProgram: bool
     private _incrementalBuild: bool
     private _wasUpToDate: bool
+    private _incrementalState: IncrementalCompilationState?
+    private _incrementalPlan: IncrementalCompilationPlan?
+    private readonly _pendingRecords: Dictionary<string, IncrementalFileRecord>
+    // The texts the incremental plan was made from: every later read of a source in the same
+    // compilation sees these, so a file edited mid-compilation cannot pair one text's plan with
+    // another text's parse.
+    private readonly _plannedTexts: Dictionary<string, string>
     private readonly _debugLoggingEnabled: bool
     private readonly _sourceTextOverrides: IReadOnlyDictionary<string, string>
     private readonly _preprocessorSymbols: IReadOnlySet<string>
@@ -130,6 +137,21 @@ class MultiFileCompiler {
     // (a perf report, a query) leaves `IncrementalBuild` off.
     WasUpToDate: bool => _wasUpToDate
 
+    // THE STATE A PREVIOUS COMPILATION OF THIS PROJECT LEFT (`IncrementalCompilationState`), held by
+    // a caller that compiles the same project repeatedly in one process. When it is set, the analyzer
+    // it carries is reused, every file whose analysis is still valid is not re-analysed (its unit,
+    // diagnostics and semantic model are taken from the state), and the state is replaced with this
+    // compilation's when analysis finishes. Every pass after analysis — import cycles, the systems
+    // policy, the lint, emission — still runs over the whole project.
+    IncrementalState: IncrementalCompilationState? {
+        get {
+            return _incrementalState
+        }
+        set {
+            _incrementalState = value
+        }
+    }
+
     // WHERE THE COLUMNAR DECLINE TRACE GOES, or null for nowhere. Decided ONCE, when the compiler is
     // built: stderr when `NSHARP_COLUMNAR_DECLINE_LOG` is on, else nothing. A caller that wants the
     // trace names its own writer here instead of setting the variable and swapping `Console.Error`,
@@ -199,6 +221,10 @@ class MultiFileCompiler {
         _declaredOneProgram = config != null
         _incrementalBuild = false
         _wasUpToDate = false
+        _incrementalState = null
+        _incrementalPlan = null
+        _pendingRecords = new Dictionary<string, IncrementalFileRecord>(StringComparer.OrdinalIgnoreCase)
+        _plannedTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     }
 
     // One analyzer instance owns the complete repeated-call lifetime, created the first time a pass
@@ -207,6 +233,15 @@ class MultiFileCompiler {
         existing := _sharedAnalyzerValue
         if existing != null {
             return existing
+        }
+
+        state := _incrementalState
+        if state != null {
+            retained := state.RetainedAnalyzer
+            if retained != null {
+                _sharedAnalyzerValue = retained
+                return retained
+            }
         }
 
         analyzer := new Analyzer()
@@ -220,6 +255,9 @@ class MultiFileCompiler {
             analyzer.DeclareOneProgram()
         }
         _sharedAnalyzerValue = analyzer
+        if state != null {
+            state.RetainedAnalyzer = analyzer
+        }
         return analyzer
     }
 
@@ -283,7 +321,14 @@ class MultiFileCompiler {
     private func ReadSourceText(sourceFile: string): string {
         fullPath := Path.GetFullPath(sourceFile)
         let text: string? = null
-        return _sourceTextOverrides.TryGetValue(fullPath, out text) ? text : File.ReadAllText(fullPath)
+        if _sourceTextOverrides.TryGetValue(fullPath, out text) {
+            return text
+        }
+        let planned: string? = null
+        if _plannedTexts.TryGetValue(fullPath, out planned) {
+            return planned
+        }
+        return File.ReadAllText(fullPath)
     }
 
     private func ReadAllSourceTexts(): void {
@@ -298,33 +343,78 @@ class MultiFileCompiler {
     /// <summary>Pass 1: Parse all source files into ASTs</summary>
     private func ParseAllFiles(): void {
         parseClock := Stopwatch.StartNew()
+        parsedFiles := 0
         for sourceFile in _sourceFiles {
-            {
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Parsing {Path.GetFileName(sourceFile)}")
-                source := ReadSourceText(sourceFile)
-                _sourceTexts[Path.GetFullPath(sourceFile)] = source
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Read file ({source.Length} bytes)")
-                // Resolve conditional-compilation directives (#if/#elif/#else/#endif) so the
-                // parser and all downstream stages only see the live branch. The SOURCE-level
-                // overload (the one the columnar emit path already uses) blanks dead branches in
-                // place, so every surviving line and column is unchanged.
-                live := Preprocessor.ProcessSource(source, _preprocessorSymbols, sourceFile, _allErrors)
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Preprocessed ({live.Length} bytes)")
-                parseResult := ColumnarParserRecovery.ParseFileAst(live, sourceFile)
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Parsed compilation unit")
-
-                // Add parse errors to our error list
-                _allErrors.AddRange(parseResult.Errors)
-
-                // Store compilation unit (even if null, for consistency)
-                if (parseResult.CompilationUnit != null) {
-                    _compilationUnits[sourceFile] = parseResult.CompilationUnit
-                }
-                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Done parsing {Path.GetFileName(sourceFile)}")
+            if TryReuseParsedFile(sourceFile) {
+                continue
             }
+
+            errorsBefore := _allErrors.Count
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Parsing {Path.GetFileName(sourceFile)}")
+            source := ReadSourceText(sourceFile)
+            _sourceTexts[Path.GetFullPath(sourceFile)] = source
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Read file ({source.Length} bytes)")
+            // Resolve conditional-compilation directives (#if/#elif/#else/#endif) so the
+            // parser and all downstream stages only see the live branch. The SOURCE-level
+            // overload (the one the columnar emit path already uses) blanks dead branches in
+            // place, so every surviving line and column is unchanged.
+            live := Preprocessor.ProcessSource(source, _preprocessorSymbols, sourceFile, _allErrors)
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Preprocessed ({live.Length} bytes)")
+            parseResult := ColumnarParserRecovery.ParseFileAst(live, sourceFile)
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Parsed compilation unit")
+
+            // Add parse errors to our error list
+            _allErrors.AddRange(parseResult.Errors)
+
+            // Store compilation unit (even if null, for consistency)
+            if (parseResult.CompilationUnit != null) {
+                _compilationUnits[sourceFile] = parseResult.CompilationUnit
+            }
+            parsedFiles = parsedFiles + 1
+            RecordParsedFile(sourceFile, parseResult.CompilationUnit, errorsBefore)
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Done parsing {Path.GetFileName(sourceFile)}")
         }
-        CompilerStats.AddFilesParsed(_sourceFiles.Count)
+        CompilerStats.AddFilesParsed(parsedFiles)
         CompilerStats.AddParseTicks(parseClock.ElapsedTicks)
+    }
+
+    // A file whose analysis the plan reuses keeps the unit that analysis ran over — the analyzer
+    // stamped its import-usage facts on it, and the lint reads them — and replays its parse
+    // diagnostics in the same position a fresh parse would have reported them.
+    private func TryReuseParsedFile(sourceFile: string): bool {
+        plan := _incrementalPlan
+        state := _incrementalState
+        if plan == null || state == null {
+            return false
+        }
+
+        fullPath := Path.GetFullPath(sourceFile)
+        if !plan.ReusedFiles.Contains(fullPath) {
+            return false
+        }
+
+        fileRecord := state.Files[fullPath]
+        _sourceTexts[fullPath] = ReadSourceText(sourceFile)
+        _allErrors.AddRange(fileRecord.ParseErrors)
+        unit := fileRecord.Unit
+        if unit != null {
+            _compilationUnits[sourceFile] = unit
+        }
+        _pendingRecords[fullPath] = fileRecord
+        return true
+    }
+
+    private func RecordParsedFile(sourceFile: string, unit: CompilationUnit?, errorsBefore: int): void {
+        plan := _incrementalPlan
+        if plan == null {
+            return
+        }
+
+        fullPath := Path.GetFullPath(sourceFile)
+        fileRecord := new IncrementalFileRecord(fullPath, plan.Summaries[fullPath])
+        fileRecord.Unit = unit
+        fileRecord.ParseErrors.AddRange(_allErrors.GetRange(errorsBefore, _allErrors.Count - errorsBefore))
+        _pendingRecords[fullPath] = fileRecord
     }
 
     /// <summary>Detect circular file-import graphs before semantic analysis so project checks
@@ -398,24 +488,53 @@ class MultiFileCompiler {
 
         // Analyze each file using the shared analyzer instance
         // The Analyzer's import system handles cross-file references via proper import statements
+        analyzedFiles := 0
+        reusedFiles := 0
         for kvp in _compilationUnits {
             sourceFile := kvp.Key
             compilationUnit := kvp.Value
 
             {
-                // Use the shared analyzer (assemblies already loaded in constructor)
-                result := sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile))
+                fullPath := Path.GetFullPath(sourceFile)
+                semanticModel: SemanticModel? = null
+                bindings: BindingMap? = null
+                analysisErrors: List<CompilerError> = null
+                typeDeclarationFiles: Dictionary<string, string> = null
+                reused := false
+                plan := _incrementalPlan
+                if plan != null {
+                    reused = plan.ReusedFiles.Contains(fullPath)
+                }
+                if reused {
+                    fileRecord := _pendingRecords[fullPath]
+                    semanticModel = fileRecord.SemanticModel
+                    bindings = fileRecord.Bindings
+                    analysisErrors = fileRecord.AnalysisErrors
+                    typeDeclarationFiles = fileRecord.TypeDeclarationFiles
+                    reusedFiles = reusedFiles + 1
+                } else {
+                    // Use the shared analyzer (assemblies already loaded in constructor)
+                    result := sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile))
+                    semanticModel = result.SemanticModel
+                    bindings = result.Bindings
+                    analysisErrors = result.Errors
+                    typeDeclarationFiles = sharedAnalyzer.GetTypeDeclarationFiles()
+                    analyzedFiles = analyzedFiles + 1
+                    RecordAnalyzedFile(fullPath, compilationUnit, semanticModel, bindings, analysisErrors, typeDeclarationFiles)
+                }
 
                 // Save semantic model for project-wide analysis and emission.
-                _semanticModels[sourceFile] = result.SemanticModel
+                if semanticModel != null {
+                    _semanticModels[sourceFile] = semanticModel
+                }
 
                 // Merge binding map for cross-file semantic references
-                if (result.Bindings != null) {
-                    _projectBindings.Merge(result.Bindings)
+                if (bindings != null) {
+                    _projectBindings.Merge(bindings)
                 }
 
                 // Merge type-declaration-to-file mapping into the project index
-                for columnarKeyValuePair2 in sharedAnalyzer.GetTypeDeclarationFiles() {
+                for columnarKeyValuePair2 in typeDeclarationFiles {
                     typeName := columnarKeyValuePair2.Key
                     filePath := columnarKeyValuePair2.Value
 
@@ -425,7 +544,7 @@ class MultiFileCompiler {
                 // Collect errors. Project-level import graph resolution reports complete cycle paths
                 // before analysis; suppress the analyzer's older shallow NL703 duplicates and
                 // stale NL701 import-not-found errors for case-only/open-buffer imports already in the graph.
-                for error in result.Errors {
+                for error in analysisErrors {
                     if (ImportGraphDiagnosticSuppressor.ShouldSuppressAnalyzerDiagnostic(
                         error,
                         _filesInReportedImportCycles,
@@ -439,7 +558,9 @@ class MultiFileCompiler {
             }
         }
 
-        CompilerStats.AddFilesAnalyzed(_compilationUnits.Count)
+        CompilerStats.AddFilesAnalyzed(analyzedFiles)
+        CompilerStats.AddFilesAnalysisReused(reusedFiles)
+        CommitIncrementalState(analyzedFiles, reusedFiles)
         AnalyzeSystemsPolicy()
         CompilerStats.AddAnalyzeTicks(analyzeClock.ElapsedTicks)
     }
@@ -533,6 +654,7 @@ class MultiFileCompiler {
     // pass itself, which is the same rule it already applied to a file with parse errors.
     private func RunLegacyValidationPipeline(validateStrictLint: bool, out strictLintFailed: bool): void {
         strictLintFailed = false
+        PrepareIncrementalPlan()
         ParseAllFiles()
         DetectCircularFileImports()
         AnalyzeAllFiles()
@@ -616,7 +738,7 @@ class MultiFileCompiler {
         stampPath: string? = null
         stampKey := ""
         capture: IncrementalBuildInputCapture? = null
-        if CanUseIncrementalStamp() {
+        if CanUseIncrementalStamp(outputPath) {
             upToDateClock := Stopwatch.StartNew()
             stampKey = ComputeIncrementalKey(assemblyName, outputPath, validateStrictLint, validateWithLegacyAnalysis)
             stampPath = IncrementalBuildStamp.PathFor(_projectRoot, assemblyName, outputPath)
@@ -706,8 +828,118 @@ class MultiFileCompiler {
         )
     }
 
-    private func CanUseIncrementalStamp(): bool {
+    // ---- the in-memory incremental state ---------------------------------------------------------
+
+    // Decides, before anything is parsed, which files' analyses the state lets this compilation
+    // reuse. A different environment (or metadata that moved on disk) resets the state first.
+    private func PrepareIncrementalPlan(): void {
+        state := _incrementalState
+        if state == null {
+            return
+        }
+
+        paths := new List<string>()
+        texts := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        for sourceFile in _sourceFiles {
+            fullPath := Path.GetFullPath(sourceFile)
+            if !texts.ContainsKey(fullPath) {
+                paths.Add(fullPath)
+                texts[fullPath] = ReadSourceText(sourceFile)
+            }
+        }
+        for planned in texts {
+            _plannedTexts[planned.Key] = planned.Value
+        }
+
+        environmentKey := ComputeIncrementalEnvironmentKey()
+        if environmentKey != state.EnvironmentKey || !state.MetadataIsCurrent() {
+            state.Reset(environmentKey)
+        }
+
+        _incrementalPlan = IncrementalCompilationPlan.Create(state, paths, texts)
+    }
+
+    // What every per-file analysis in the state was computed under, other than the sources
+    // themselves: the compiler, the configuration, the defines, the options analysis reads, and the
+    // content of every non-source input the analyzer loads (references, the restore output, the
+    // project file, the test-source switch).
+    private func ComputeIncrementalEnvironmentKey(): string {
+        key := new IncrementalKeyBuilder()
+        key.Add("format", IncrementalFileSummary.FormatVersion.ToString())
+        key.Add("compiler", IncrementalCompilerIdentity.Current())
+        key.Add("project-root", Path.GetFullPath(_projectRoot))
+        key.AddBool("aot", _aotMode)
+        key.AddBool("soa", _soaEnabled)
+        key.AddBool("one-program", _declaredOneProgram)
+        key.Add("config", IncrementalConfigFingerprint.Describe(_config))
+        symbols := new List<string>(_preprocessorSymbols)
+        symbols.Sort(StringComparer.Ordinal)
+        key.Add("defines", string.Join(",", symbols))
+        key.Add("nuget-packages", Environment.GetEnvironmentVariable("NUGET_PACKAGES"))
+        key.Add("user-profile", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
+        key.Add("current-directory", Environment.CurrentDirectory)
+        capture := new IncrementalBuildInputCapture()
+        capture.CaptureEnvironment(_projectRoot, _config)
+        for entry in capture.Entries {
+            key.Add(entry.Kind.ToString() + "|" + entry.Path, entry.Value)
+        }
+        return key.Build()
+    }
+
+    private func RecordAnalyzedFile(fullPath: string, unit: CompilationUnit, semanticModel: SemanticModel?, bindings: BindingMap?, analysisErrors: List<CompilerError>, typeDeclarationFiles: Dictionary<string, string>): void {
+        plan := _incrementalPlan
+        if plan == null {
+            return
+        }
+
+        fileRecord: IncrementalFileRecord = null
+        if !_pendingRecords.TryGetValue(fullPath, out fileRecord) {
+            return
+        }
+
+        fileRecord.Analyzed = true
+        fileRecord.SemanticModel = semanticModel
+        fileRecord.Bindings = bindings
+        fileRecord.AnalysisErrors = new List<CompilerError>(analysisErrors)
+        fileRecord.TypeDeclarationFiles = typeDeclarationFiles
+        fileRecord.Dependencies = plan.DependenciesOf(fullPath)
+        for importPath in IncrementalBuildInputCapture.FileImportCandidates(_projectRoot, fullPath, unit) {
+            fileRecord.ImportedFileHashes[importPath] = ContentHash.OfFileOrMissing(importPath)
+        }
+    }
+
+    // The state becomes this compilation's: the records of every file it parsed or reused, and
+    // nothing for a file that left the project.
+    private func CommitIncrementalState(analyzedFiles: int, reusedFiles: int): void {
+        state := _incrementalState
+        plan := _incrementalPlan
+        if state == null || plan == null {
+            return
+        }
+
+        analyzerWasNew := state.MetadataEntries.Count == 0
+        state.Files.Clear()
+        for pending in _pendingRecords {
+            state.Files[pending.Key] = pending.Value
+        }
+        state.LastFilesAnalyzed = analyzedFiles
+        state.LastFilesReused = reusedFiles
+        state.LastWasFull = reusedFiles == 0
+        analyzer := _sharedAnalyzerValue
+        if analyzer != null && analyzerWasNew {
+            capture := new IncrementalBuildInputCapture()
+            capture.CaptureMetadataInputs(analyzer.MetadataInputAssemblyPaths(), analyzer.MetadataSearchDirectories())
+            state.MetadataEntries.AddRange(capture.Entries)
+        }
+    }
+
+    private func CanUseIncrementalStamp(outputPath: string): bool {
         if !_incrementalBuild {
+            return false
+        }
+        // The stamp lives in the project's own `obj/`, so it is kept only for an output inside the
+        // project: a build sent elsewhere (`nlc build -o /tmp/x`) leaves the source tree untouched.
+        if !IncrementalBuildStamp.IsInsideProject(_projectRoot, outputPath) {
             return false
         }
         // An editor's unsaved buffers are not files the stamp could compare later.

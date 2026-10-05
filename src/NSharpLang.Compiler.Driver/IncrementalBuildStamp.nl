@@ -3,13 +3,12 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
-import System.Security.Cryptography
 import System.Text
 
 // THE UP-TO-DATE STAMP: what one successful compilation read, what it wrote, and what it reported.
 //
 // One file per (project, output) under `<projectRoot>/obj/nlc/`. Its layout is a payload followed by
-// the payload's own SHA-256, so a stamp that was truncated by a crash, half-written by a killed
+// the payload's own SHA-256 (`IncrementalCacheFile`), so a stamp that was truncated by a crash, half-written by a killed
 // process, or edited by hand fails the checksum and is a MISS — never a wrong answer. The payload
 // opens with a magic string and `FormatVersion`; a stamp written by any other format is a miss, and
 // so is one whose key (which carries the compiler's identity) differs. Writes go to a unique temp
@@ -17,8 +16,8 @@ import System.Text
 //
 // THE DIAGNOSTICS ARE PART OF THE RESULT. A build that succeeded with warnings prints the same
 // warnings when it is answered from the stamp, so every field of `CompilerError` is carried. A new
-// field on `CompilerError` must be added to `WriteError`/`ReadError` — the estate row beside this
-// file compares the serialised field set against the record's own members and fails until it is.
+// field on `CompilerError` must be added to `WriteError`/`ReadError` — `tests/native/incremental-build`
+// compares the serialised field set against the record's own members and fails until it is.
 class IncrementalBuildStamp {
     static FormatVersion: int => 1
 
@@ -46,6 +45,15 @@ class IncrementalBuildStamp {
         outputHash := ContentHash.OfText(fullOutput).Substring(0, 16)
         directory := Path.Combine(Path.GetFullPath(projectRoot), "obj", "nlc")
         return Path.Combine(directory, assemblyName + "." + outputHash + ".stamp")
+    }
+
+    static func IsInsideProject(projectRoot: string, outputPath: string): bool {
+        root := Path.GetFullPath(projectRoot)
+        if !root.EndsWith(Path.DirectorySeparatorChar.ToString()) {
+            root = root + Path.DirectorySeparatorChar.ToString()
+        }
+
+        return Path.GetFullPath(outputPath).StartsWith(root, StringComparison.Ordinal)
     }
 
     // Every recorded input and every output still has the value this stamp recorded for it.
@@ -81,34 +89,13 @@ class IncrementalBuildStamp {
     // The stamp at `path` if it exists, is intact, is this format and carries `expectedKey`; null for
     // every other case. Nothing here throws: an unusable stamp is simply not used.
     static func TryRead(path: string, expectedKey: string): IncrementalBuildStamp? {
+        payload := IncrementalCacheFile.ReadPayload(path)
+        if payload == null {
+            return null
+        }
+
         try {
-            if !File.Exists(path) {
-                return null
-            }
-
-            bytes := File.ReadAllBytes(path)
-            if bytes.Length <= 32 {
-                return null
-            }
-
-            payloadLength := bytes.Length - 32
-            algorithm := SHA256.Create()
-            computed: byte[] = null
-            try {
-                computed = algorithm.ComputeHash(bytes, 0, payloadLength)
-            } finally {
-                algorithm.Dispose()
-            }
-
-            index := 0
-            while index < 32 {
-                if computed[index] != bytes[payloadLength + index] {
-                    return null
-                }
-                index = index + 1
-            }
-
-            stream := new MemoryStream(bytes, 0, payloadLength, false)
+            stream := new MemoryStream(payload)
             reader := new BinaryReader(stream, Encoding.UTF8)
             try {
                 if reader.ReadString() != IncrementalBuildStamp.Magic() {
@@ -148,7 +135,7 @@ class IncrementalBuildStamp {
                     diagnosticIndex = diagnosticIndex + 1
                 }
 
-                if stream.Position != payloadLength {
+                if stream.Position != stream.Length {
                     return null
                 }
 
@@ -165,13 +152,7 @@ class IncrementalBuildStamp {
 
     // Best effort: a stamp that cannot be written costs the next build its shortcut and nothing else.
     func TryWrite(path: string): bool {
-        tempPath := path + "." + Guid.NewGuid().ToString("N") + ".tmp"
         try {
-            directory := Path.GetDirectoryName(path)
-            if directory != null {
-                Directory.CreateDirectory(directory)
-            }
-
             stream := new MemoryStream()
             writer := new BinaryWriter(stream, Encoding.UTF8)
             writer.Write(IncrementalBuildStamp.Magic())
@@ -195,40 +176,9 @@ class IncrementalBuildStamp {
                 IncrementalBuildStamp.WriteError(writer, diagnostic)
             }
             writer.Flush()
-
             payload := stream.ToArray()
             writer.Dispose()
-            algorithm := SHA256.Create()
-            checksum: byte[] = null
-            try {
-                checksum = algorithm.ComputeHash(payload)
-            } finally {
-                algorithm.Dispose()
-            }
-
-            file := new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
-            try {
-                file.Write(payload, 0, payload.Length)
-                file.Write(checksum, 0, checksum.Length)
-            } finally {
-                file.Dispose()
-            }
-
-            File.Move(tempPath, path, true)
-            return true
-        } catch {
-            IncrementalBuildStamp.TryDeleteTemporary(tempPath)
-            return false
-        }
-    }
-
-    // A temp file left by a failed write is litter, not a stamp: no reader ever opens a `.tmp`.
-    private static func TryDeleteTemporary(tempPath: string): bool {
-        try {
-            if File.Exists(tempPath) {
-                File.Delete(tempPath)
-            }
-            return true
+            return IncrementalCacheFile.WritePayload(path, payload)
         } catch {
             return false
         }

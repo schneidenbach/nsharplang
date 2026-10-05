@@ -40,17 +40,11 @@ class IncrementalBuildInputCapture {
         }
 
         // The analyzer's project walk (`AnalyzerProjectSourceProvider.ProjectNamespaces`) reads every
-        // `.nl` file under the root, whether or not this compilation compiles it, and the reference
-        // orchestration asks whether any `*.tests.nl` exists (`HasTestSources`).
+        // `.nl` file under the root, whether or not this compilation compiles it.
         Add(IncrementalInputEntry.ProjectSourceEnumeration, fullRoot)
         for enumerated in ProjectConfig.EnumerateSourceFileArray(fullRoot) {
             AddFile(Path.GetFullPath(enumerated))
         }
-        Add(IncrementalInputEntry.TestSourcePresence, fullRoot)
-
-        // The project file itself, byte for byte: the parsed configuration is in the key, and this
-        // row makes ANY edit to `project.yml` invalidate, including one the parser ignores today.
-        AddFile(Path.Combine(fullRoot, "project.yml"))
 
         // The strict linter's configuration (`LinterConfig.FromEditorConfig`): every `.editorconfig`
         // from each source directory up to the filesystem root. Absence is recorded too, so adding
@@ -63,6 +57,21 @@ class IncrementalBuildInputCapture {
                 directory = Path.GetDirectoryName(directory)
             }
         }
+
+        CaptureEnvironment(fullRoot, config)
+    }
+
+    // EVERYTHING BUT THE SOURCES: what the analyzer loads and reads besides the project's `.nl`
+    // files. The in-memory incremental state keys its analyzer on exactly this set.
+    func CaptureEnvironment(projectRoot: string, config: ProjectConfig) {
+        fullRoot := Path.GetFullPath(projectRoot)
+
+        // The reference orchestration asks whether any `*.tests.nl` exists (`HasTestSources`).
+        Add(IncrementalInputEntry.TestSourcePresence, fullRoot)
+
+        // The project file itself, byte for byte: the parsed configuration is in the key, and this
+        // row makes ANY edit to `project.yml` invalidate, including one the parser ignores today.
+        AddFile(Path.Combine(fullRoot, "project.yml"))
 
         // The restore output the reference orchestration pins package versions from.
         AddFile(AnalyzerMetadataLoadPolicy.RestoredPackageAssetsPath(fullRoot))
@@ -126,21 +135,29 @@ class IncrementalBuildInputCapture {
     // resolver tries, so a file appearing at an earlier candidate is seen.
     func CaptureFileImports(projectRoot: string, units: IReadOnlyDictionary<string, CompilationUnit>) {
         for pair in units {
-            sourceFile := Path.GetFullPath(pair.Key)
             unit := pair.Value
             if unit == null {
                 continue
             }
 
-            resolver := new FileResolver(projectRoot, sourceFile)
-            directory := Path.GetDirectoryName(sourceFile) ?? projectRoot
-            for fileImport in unit.FileImports.OfType<FileImport>() {
-                importPath := fileImport.Path
-                AddFile(Path.GetFullPath(resolver.ResolveFilePath(importPath)))
-                AddFile(Path.GetFullPath(Path.Combine(directory, importPath)))
-                AddFile(Path.GetFullPath(Path.Combine(directory, importPath + ".nl")))
+            for candidate in IncrementalBuildInputCapture.FileImportCandidates(projectRoot, Path.GetFullPath(pair.Key), unit) {
+                AddFile(candidate)
             }
         }
+    }
+
+    // Every path a resolver tries for each of a unit's file imports.
+    static func FileImportCandidates(projectRoot: string, sourceFile: string, unit: CompilationUnit): List<string> {
+        candidates := new List<string>()
+        resolver := new FileResolver(projectRoot, sourceFile)
+        directory := Path.GetDirectoryName(sourceFile) ?? projectRoot
+        for fileImport in unit.FileImports.OfType<FileImport>() {
+            importPath := fileImport.Path
+            candidates.Add(Path.GetFullPath(resolver.ResolveFilePath(importPath)))
+            candidates.Add(Path.GetFullPath(Path.Combine(directory, importPath)))
+            candidates.Add(Path.GetFullPath(Path.Combine(directory, importPath + ".nl")))
+        }
+        return candidates
     }
 
     // The metadata the analyzer's load context read, including assemblies its resolver loaded lazily,
