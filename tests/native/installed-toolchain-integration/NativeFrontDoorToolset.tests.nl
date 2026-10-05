@@ -98,8 +98,8 @@ test "a host-RID toolset ships nlc as the NativeAOT front door over a ReadyToRun
 
     host := Path.Combine(Path.Combine(Path.Combine(toolset, "lib"), "nlc"), "Cli.dll")
     assert IsReadyToRun(host), host + " is not ReadyToRun-compiled"
-    // The language server ships ReadyToRun as well; it keeps its launcher script.
-    assert IsReadyToRun(Path.Combine(Path.Combine(Path.Combine(toolset, "lib"), "nsharp-lsp"), "LanguageServer.dll"))
+    // The language server is deliberately left portable IL behind its launcher script.
+    assert !IsReadyToRun(Path.Combine(Path.Combine(Path.Combine(toolset, "lib"), "nsharp-lsp"), "LanguageServer.dll"))
 }
 
 test "the native front door reports the host's version and drives check, build, run and test" {

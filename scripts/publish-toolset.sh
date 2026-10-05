@@ -23,9 +23,10 @@ Publishes the package-manager-ready N# toolset:
   - N# launchers that resolve .NET without dotnet global-tool apphosts
   - NSharpLang SDK/template/compiler packages used by generated projects
 
-Without --rid the payloads are portable IL and run on every platform. With --rid they are
-ReadyToRun-compiled for that RID, and on a build host of that RID bin/nlc is the NativeAOT
-front door that execs the compiler host (no launcher script, no JIT for --version/help).
+Without --rid the payloads are portable IL and run on every platform. With --rid the nlc
+compiler host is ReadyToRun-compiled for that RID, and on a build host of that RID bin/nlc is
+the NativeAOT front door that execs it (no launcher script, no JIT for --version/help). The
+language server stays portable IL in both shapes.
 
 Options:
   --rid RID          Publish for one RID (osx-arm64, linux-x64, ...); 'host' means this machine's

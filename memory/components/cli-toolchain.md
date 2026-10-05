@@ -1077,7 +1077,7 @@ For a CLI-only reinstall while debugging packaging, use `./install-local.sh --sk
 | Shape | How | `bin/nlc` | `lib/nlc/Cli.dll` (compiler host) |
 |---|---|---|---|
 | portable (default; release archive, Docker rows) | `publish-toolset.sh` | bash/PowerShell launcher script | IL, JIT-compiled |
-| per-RID | `publish-toolset.sh --rid <rid>` or `--rid host` | NativeAOT front door (on a build host of that RID; otherwise the script) | ReadyToRun for that RID |
+| per-RID | `publish-toolset.sh --rid <rid>` or `--rid host` | NativeAOT front door (on a build host of that RID; otherwise the script) | ReadyToRun for that RID (`nsharp-lsp` stays IL) |
 
 `scripts/setup-local.sh` publishes for the host RID (`NSHARP_TOOLSET_RID=portable` opts out). The
 toolset's `VERSION` records `rid=` and `nlc=native|script`.
@@ -1094,7 +1094,10 @@ standard install locations), exports `DOTNET_ROOT` the way the script did, and `
 has no `exec`; there it starts the host on the same console and returns its exit code.
 `NSHARP_FRONT_DOOR=1` forces the front-door path inside a JIT process; the host never sees it.
 `tests/native/cli-command-contracts/FrontDoorContracts.tests.nl` proves the hand-off is
-indistinguishable from a direct run (version, help, unknown command, check, run, test).
+indistinguishable from a direct run (version, help, unknown command, check, run, test), and
+`tests/native/installed-toolchain-integration/NativeFrontDoorToolset.tests.nl` publishes a real
+`--rid host` toolset and drives a project through its native `bin/nlc`. The language server stays
+portable IL in both shapes (a ReadyToRun server is an IDE change and needs VS Code verification).
 
 **Why the compiler is not itself NativeAOT.** The emitter binds RUNTIME types:
 `PersistedAssemblyBuilder` is created over `typeof(object).Assembly`, the plan/emit slices spell

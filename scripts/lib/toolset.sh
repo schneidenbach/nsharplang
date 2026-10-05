@@ -311,9 +311,9 @@ nsharp_publish_native_front_door() {
 }
 
 # Without a RID: the portable, framework-dependent IL toolset that runs on every platform (the
-# release archive and the Docker integration rows use it). With a RID: the compiler host and the
-# language server are ReadyToRun-compiled for that RID, and on a host of that RID `nlc` is the
-# NativeAOT front door; elsewhere it keeps the launcher script.
+# release archive and the Docker integration rows use it). With a RID: the compiler host is
+# ReadyToRun-compiled for that RID, and on a host of that RID `nlc` is the NativeAOT front door;
+# elsewhere it keeps the launcher script.
 nsharp_publish_toolset() {
     local output_dir="$1"
     local package_source_dir="$2"
@@ -329,7 +329,9 @@ nsharp_publish_toolset() {
     mkdir -p "$output_dir/lib/nlc" "$output_dir/lib/nsharp-lsp" "$output_dir/bin" "$output_dir/packages"
 
     nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet publish src/NSharpLang.Cli/Cli.csproj -c Release -o "$output_dir/lib/nlc" --self-contained false -p:UseAppHost=false ${rid_args[@]+"${rid_args[@]}"} -v q
-    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet publish src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o "$output_dir/lib/nsharp-lsp" --self-contained false -p:UseAppHost=false ${rid_args[@]+"${rid_args[@]}"} -v q
+    # The language server stays portable IL in every shape: a ReadyToRun server is an IDE change and
+    # ships only with the VS Code verification that requires.
+    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet publish src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o "$output_dir/lib/nsharp-lsp" --self-contained false -p:UseAppHost=false -v q
 
     if compgen -G "$package_source_dir/NSharpLang.*.nupkg" >/dev/null; then
         cp -f "$package_source_dir"/NSharpLang.*.nupkg "$output_dir/packages/"
