@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Concurrent
 import System.Collections.Generic
 import System.IO
 import System.Linq
@@ -27,6 +28,48 @@ class MultiFileCompiler {
         }
     }
 
+    // One file's analysis outcome, the exception its analysis threw, or -- until a worker reaches
+    // the file -- pending.
+    private class MultiFileCompilerFileAnalysis {
+        SemanticModel: SemanticModel?
+        Bindings: BindingMap?
+        Errors: List<CompilerError>
+        TypeDeclarationFiles: Dictionary<string, string>
+        Failure: Exception?
+        IsPending: bool
+
+        constructor(semanticModel: SemanticModel?, bindings: BindingMap?, errors: List<CompilerError>, typeDeclarationFiles: Dictionary<string, string>, failure: Exception?, isPending: bool) {
+            SemanticModel = semanticModel
+            Bindings = bindings
+            Errors = errors
+            TypeDeclarationFiles = typeDeclarationFiles
+            Failure = failure
+            IsPending = isPending
+        }
+    }
+
+    // What one parallel analysis worker reads and writes. `Analyzer` is the shared analyzer for
+    // worker 0 and null for the others, which build their own on their own thread.
+    private class MultiFileCompilerAnalysisWorker {
+        Analyzer: Analyzer?
+        Files: List<string>
+        Units: List<CompilationUnit>
+        Outcomes: MultiFileCompilerFileAnalysis[]
+        Queue: ConcurrentQueue<int>
+        // Set when the worker could not even build its analyzer; its share of the queue is then
+        // left to the others.
+        Failure: Exception?
+
+        constructor(analyzer: Analyzer?, files: List<string>, units: List<CompilationUnit>, outcomes: MultiFileCompilerFileAnalysis[], queue: ConcurrentQueue<int>) {
+            Analyzer = analyzer
+            Files = files
+            Units = units
+            Outcomes = outcomes
+            Queue = queue
+            Failure = null
+        }
+    }
+
     private readonly _projectRoot: string
     private readonly _config: ProjectConfig?
     private readonly _sourceFiles: List<string>
@@ -50,6 +93,8 @@ class MultiFileCompiler {
     private _soaEnabled: bool
     private _columnarDeclineLog: TextWriter?
     private readonly _phaseProject: string
+    private readonly _declaresOneProgram: bool
+    private _analysisWorkers: int
 
     CompilationUnits: IReadOnlyDictionary<string, CompilationUnit> => _compilationUnits
     SemanticModels: IReadOnlyDictionary<string, SemanticModel> => _semanticModels
@@ -103,6 +148,20 @@ class MultiFileCompiler {
             _soaEnabled = value
             analyzer := _sharedAnalyzer
             analyzer.SoaEnabled = value
+        }
+    }
+
+    // HOW MANY WORKERS THE ANALYSIS PASS USES: 0 (the default) lets `CompilerParallelism` decide
+    // from the project's size and the machine; a positive count is used as given, capped by the
+    // number of files. A caller that must exercise one path or the other -- the serial-versus-
+    // parallel differential, an estate row -- says so here rather than through
+    // `NSHARP_COMPILER_WORKERS`, which every compilation in the process would see.
+    AnalysisWorkers: int {
+        get {
+            return _analysisWorkers
+        }
+        set {
+            _analysisWorkers = value
         }
     }
 
@@ -172,20 +231,30 @@ class MultiFileCompiler {
         }
         _phaseProject = PhaseProjectName(_config, projectRoot)
 
-        // One analyzer instance owns the complete repeated-call lifetime.
-        loadMark := CompilerPhaseTimings.Begin(_phaseProject, "load-references")
-        analyzer := new Analyzer()
-        analyzer.SoaEnabled = _soaEnabled
-        _sharedAnalyzer = analyzer
-        _sharedAnalyzer.LoadSystemAssemblies()
-        _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot)
-        CompilerPhaseTimings.End(loadMark)
         // A caller that hands over a project configuration compiles these files into ONE assembly —
         // a parsed `project.yml`, or a virtual project like the playground's. A caller with none (a
         // folder of standalone scripts checked as a directory) leaves the analyzer to ask the root.
-        if config != null {
-            _sharedAnalyzer.DeclareOneProgram()
+        _declaresOneProgram = config != null
+        _analysisWorkers = 0
+
+        // One analyzer instance owns the complete repeated-call lifetime.
+        loadMark := CompilerPhaseTimings.Begin(_phaseProject, "load-references")
+        _sharedAnalyzer = CreateAnalyzer()
+        CompilerPhaseTimings.End(loadMark)
+    }
+
+    // An analyzer for this compilation, built the one way: the shared analyzer and every parallel
+    // analysis worker's come from here, so they cannot disagree about the assemblies, the project
+    // references, the SoA gate or the one-program rule they analyse under.
+    private func CreateAnalyzer(): Analyzer {
+        analyzer := new Analyzer()
+        analyzer.SoaEnabled = _soaEnabled
+        analyzer.LoadSystemAssemblies()
+        analyzer.LoadFromProjectConfig(_config, _projectRoot)
+        if _declaresOneProgram {
+            analyzer.DeclareOneProgram()
         }
+        return analyzer
     }
 
     // The label `CompilerPhaseTimings` files this compilation's phases under: the project's name, else
@@ -361,60 +430,213 @@ class MultiFileCompiler {
         return CodeIntelligenceTextUtilities.GetSourceLine(ReadSourceText(filePath), line)
     }
 
-    /// <summary>Pass 2: Analyze all files with complete symbol table.
-    /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
-    /// This prevents the performance issue of reloading assemblies for each file.</summary>
+    // PASS 2: SEMANTIC ANALYSIS, ONE FILE AT A TIME, ON ONE OR MORE WORKERS.
+    //
+    // Each file is analysed against the complete project (every file's declarations) by an `Analyzer`
+    // initialised once with the system assemblies and the project's references. A large project fans
+    // the files out to `CompilerParallelism.WorkerCount` workers; a small one, or
+    // `NSHARP_COMPILER_WORKERS=1`, analyses them on the calling thread exactly as before.
+    //
+    // THE THREADING MODEL. Worker 0 is `_sharedAnalyzer`; every other worker builds its own `Analyzer`
+    // the way the constructor built that one, so no analyzer, metadata load context, parsed project
+    // view or cache is ever touched by two threads. The workers share only immutable inputs (the
+    // parsed units, which only the worker analysing a file writes to, and `_sourceTexts`) and a FIFO
+    // queue of file indices; each writes its file's outcome into that file's own slot. Nothing is
+    // merged into this compiler's state until every worker has finished, and then in FILE ORDER,
+    // through the same merge the serial loop performs.
+    //
+    // WHY THE ANSWERS ARE THE SERIAL ONES. The one fact an analysis inherits from the files analysed
+    // before it is the loaded-assembly list, which grows as each file's imports are walked. The queue
+    // hands indices out in increasing order, so before analysing file `i` a worker replays the import
+    // loads of every earlier file it did not analyse (`Analyzer.PreloadImportedAssemblies`), in file
+    // order -- the list it analyses `i` against is the list a serial run would have. The merge is in
+    // file order, so diagnostics, semantic models, bindings and the type-declaration index come out
+    // in serial order whichever worker finished first. The differential that proves it compiles the
+    // repository's corpus at one worker and at many and compares diagnostics and IL bytes.
+    //
+    // A file whose analysis THROWS ends the pass as the serial loop's exception did: the outcomes of
+    // the files before it are merged and the earliest failure is rethrown.
     private func AnalyzeAllFiles(): void {
         analysisMark := CompilerPhaseTimings.Begin(_phaseProject, "analysis")
-        _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
-
-        // Analyze each file using the shared analyzer instance
-        // The Analyzer's import system handles cross-file references via proper import statements
+        files := new List<string>(_compilationUnits.Count)
+        units := new List<CompilationUnit>(_compilationUnits.Count)
+        totalCharacters := 0L
         for kvp in _compilationUnits {
-            sourceFile := kvp.Key
-            compilationUnit := kvp.Value
-
-            {
-                // Use the shared analyzer (assemblies already loaded in constructor)
-                result := _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile))
-
-                // Save semantic model for project-wide analysis and emission.
-                _semanticModels[sourceFile] = result.SemanticModel
-
-                // Merge binding map for cross-file semantic references
-                if (result.Bindings != null) {
-                    _projectBindings.Merge(result.Bindings)
-                }
-
-                // Merge type-declaration-to-file mapping into the project index
-                for columnarKeyValuePair2 in _sharedAnalyzer.GetTypeDeclarationFiles() {
-                    typeName := columnarKeyValuePair2.Key
-                    filePath := columnarKeyValuePair2.Value
-
-                    _projectTypeDeclarationFiles[typeName] = filePath
-                }
-
-                // Collect errors. Project-level import graph resolution reports complete cycle paths
-                // before analysis; suppress the analyzer's older shallow NL703 duplicates and
-                // stale NL701 import-not-found errors for case-only/open-buffer imports already in the graph.
-                for error in result.Errors {
-                    if (ImportGraphDiagnosticSuppressor.ShouldSuppressAnalyzerDiagnostic(
-                        error,
-                        _filesInReportedImportCycles,
-                        _resolvedFileImportDiagnosticKeys
-                    )) {
-                        continue
-                    }
-
-                    _allErrors.Add(error)
-                }
+            files.Add(kvp.Key)
+            units.Add(kvp.Value)
+            text: string? = null
+            if _sourceTexts.TryGetValue(Path.GetFullPath(kvp.Key), out text) && text != null {
+                totalCharacters = totalCharacters + text.Length
             }
+        }
+
+        outcomes := new MultiFileCompilerFileAnalysis[files.Count]
+        pendingIndex := 0
+        while pendingIndex < outcomes.Length {
+            outcomes[pendingIndex] = new MultiFileCompiler.MultiFileCompilerFileAnalysis(null, null, new List<CompilerError>(), new Dictionary<string, string>(), null, true)
+            pendingIndex = pendingIndex + 1
+        }
+        workerCount := CompilerParallelism.WorkerCount(files.Count, totalCharacters)
+        if _analysisWorkers > 0 {
+            workerCount = Math.Min(_analysisWorkers, Math.Max(files.Count, 1))
+        }
+        if workerCount <= 1 {
+            _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
+            index := 0
+            while index < files.Count {
+                outcomes[index] = AnalyzeOneFile(_sharedAnalyzer, files[index], units[index])
+                index = index + 1
+            }
+        } else {
+            AnalyzeFilesInParallel(files, units, outcomes, workerCount)
+        }
+
+        mergeIndex := 0
+        while mergeIndex < files.Count {
+            outcome := outcomes[mergeIndex]
+            failure := outcome.Failure
+            if failure != null {
+                CompilerPhaseTimings.End(analysisMark)
+                throw failure
+            }
+            MergeFileAnalysis(files[mergeIndex], outcome)
+            mergeIndex = mergeIndex + 1
         }
         CompilerPhaseTimings.End(analysisMark)
 
         systemsMark := CompilerPhaseTimings.Begin(_phaseProject, "systems-policy")
         AnalyzeSystemsPolicy()
         CompilerPhaseTimings.End(systemsMark)
+    }
+
+    // One file's analysis, captured whole: the analyzer reuses its error list and its type-declaration
+    // index for the next file, so both are copied before the next `Analyze` can clear them.
+    private func AnalyzeOneFile(analyzer: Analyzer, sourceFile: string, compilationUnit: CompilationUnit): MultiFileCompilerFileAnalysis {
+        result := analyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile))
+        return new MultiFileCompiler.MultiFileCompilerFileAnalysis(
+            result.SemanticModel,
+            result.Bindings,
+            new List<CompilerError>(result.Errors),
+            analyzer.GetTypeDeclarationFiles(),
+            null,
+            false
+        )
+    }
+
+    private func MergeFileAnalysis(sourceFile: string, outcome: MultiFileCompilerFileAnalysis): void {
+        // Save semantic model for project-wide analysis and emission.
+        semanticModel := outcome.SemanticModel
+        if semanticModel != null {
+            _semanticModels[sourceFile] = semanticModel
+        }
+
+        // Merge binding map for cross-file semantic references
+        bindings := outcome.Bindings
+        if bindings != null {
+            _projectBindings.Merge(bindings)
+        }
+
+        // Merge type-declaration-to-file mapping into the project index
+        for declarationFile in outcome.TypeDeclarationFiles {
+            _projectTypeDeclarationFiles[declarationFile.Key] = declarationFile.Value
+        }
+
+        // Collect errors. Project-level import graph resolution reports complete cycle paths
+        // before analysis; suppress the analyzer's older shallow NL703 duplicates and
+        // stale NL701 import-not-found errors for case-only/open-buffer imports already in the graph.
+        for error in outcome.Errors {
+            if (ImportGraphDiagnosticSuppressor.ShouldSuppressAnalyzerDiagnostic(
+                error,
+                _filesInReportedImportCycles,
+                _resolvedFileImportDiagnosticKeys
+            )) {
+                continue
+            }
+
+            _allErrors.Add(error)
+        }
+    }
+
+    private func AnalyzeFilesInParallel(files: List<string>, units: List<CompilationUnit>, outcomes: MultiFileCompilerFileAnalysis[], workerCount: int): void {
+        queue := new ConcurrentQueue<int>()
+        index := 0
+        while index < files.Count {
+            queue.Enqueue(index)
+            index = index + 1
+        }
+
+        threads := new List<Thread>(workerCount)
+        states := new List<MultiFileCompilerAnalysisWorker>(workerCount)
+        worker := 0
+        while worker < workerCount {
+            workerAnalyzer: Analyzer? = null
+            if worker == 0 {
+                workerAnalyzer = _sharedAnalyzer
+            }
+            state := new MultiFileCompiler.MultiFileCompilerAnalysisWorker(workerAnalyzer, files, units, outcomes, queue)
+            states.Add(state)
+            work: ThreadStart = () => RunAnalysisWorker(state)
+            thread := new Thread(work, 64 * 1024 * 1024)
+            thread.IsBackground = true
+            thread.Name = "nsharp-analysis-" + worker.ToString()
+            threads.Add(thread)
+            worker = worker + 1
+        }
+
+        for started in threads {
+            started.Start()
+        }
+        for joined in threads {
+            joined.Join()
+        }
+
+        // Every worker that could not build its analyzer left its files to the others; if they ALL
+        // failed, a file has no outcome and the failure is the answer.
+        slot := 0
+        while slot < outcomes.Length {
+            if outcomes[slot].IsPending {
+                for failedState in states {
+                    workerFailure := failedState.Failure
+                    if workerFailure != null {
+                        throw workerFailure
+                    }
+                }
+                throw new InvalidOperationException("Parallel analysis produced no outcome for '" + files[slot] + "'.")
+            }
+            slot = slot + 1
+        }
+    }
+
+    // One worker: its own analyzer (built on this thread, so the warm-up runs in parallel too), then
+    // file indices from the queue in increasing order, replaying the import loads of every earlier
+    // file it skipped before analysing the next. See `AnalyzeAllFiles` for why.
+    private func RunAnalysisWorker(state: MultiFileCompilerAnalysisWorker): void {
+        analyzer: Analyzer? = state.Analyzer
+        try {
+            if analyzer == null {
+                analyzer = CreateAnalyzer()
+            }
+            analyzer.SetProjectSourceTexts(_sourceTexts)
+        } catch ex: Exception {
+            state.Failure = ex
+            return
+        }
+
+        preloaded := 0
+        next := 0
+        while state.Queue.TryDequeue(out next) {
+            while preloaded < next {
+                analyzer.PreloadImportedAssemblies(state.Units[preloaded])
+                preloaded = preloaded + 1
+            }
+
+            try {
+                state.Outcomes[next] = AnalyzeOneFile(analyzer, state.Files[next], state.Units[next])
+            } catch ex: Exception {
+                state.Outcomes[next] = new MultiFileCompiler.MultiFileCompilerFileAnalysis(null, null, new List<CompilerError>(), new Dictionary<string, string>(), ex, false)
+            }
+            preloaded = next + 1
+        }
     }
 
     private func AnalyzeSystemsPolicy(): void {
