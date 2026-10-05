@@ -1379,6 +1379,22 @@ func BenchSawBuildFailedBanner(stdout: string): bool {
     return stdout.IndexOf(BenchBuildFailedBanner(), StringComparison.Ordinal) >= 0
 }
 
+func BenchExpectedBuildOutcomeFailure(expectedExitCode: int, observedExitCode: int, sawFailureBanner: bool): string {
+    if observedExitCode != expectedExitCode {
+        return "Core build exited " + BenchIntText(observedExitCode) + " instead of the baselined " + BenchIntText(expectedExitCode)
+    }
+
+    if expectedExitCode == 0 && sawFailureBanner {
+        return "successful Core build carried the CLI's build-failure banner"
+    }
+
+    if expectedExitCode != 0 && !sawFailureBanner {
+        return "failed Core build exited " + BenchIntText(expectedExitCode) + " without the CLI's own build-failure banner"
+    }
+
+    return ""
+}
+
 func BenchRelativeToleranceThousandths(): long {
     return 1200
 }

@@ -493,7 +493,7 @@ func CliRootCheckWriteGateRecord(repositoryRoot: string, line: string): bool {
     }
 }
 
-test "nlc check checks each repository project once and pins workspace work while load judges wall time" {
+test "nlc check checks each repository project once, keeps Core clean, and pins workspace work while load judges wall time" {
     repositoryRoot := CliRepositoryRoot()
     load := CliRootCheckReadMachineLoad()
     statsPath := Path.Combine(Path.GetTempPath(), "nsharp-check-workspace-stats-" + Guid.NewGuid().ToString("N") + ".json")
@@ -559,7 +559,7 @@ test "nlc check checks each repository project once and pins workspace work whil
     memberInfo := 0
     observedRoots := new List<string>()
     expectedCoreRoot := NormalizedFullPath(Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.Compiler.Core"))
-    foundCoreDiagnostics := false
+    foundCoreProject := false
     for member in projects.EnumerateArray() {
         memberRoot := TextOf(member.GetProperty("projectRoot"))
         expectedMemberIndex := CliRootCheckFindProjectIndex(expectedRoots, memberRoot)
@@ -579,14 +579,14 @@ test "nlc check checks each repository project once and pins workspace work whil
         assert member.GetProperty("results").GetArrayLength() == summary.GetProperty("errors").GetInt32() + summary.GetProperty("warnings").GetInt32() + summary.GetProperty("info").GetInt32(), "member diagnostic rows disagree with its summary: " + memberRoot
 
         if EquivalentProcessPath(memberRoot, expectedCoreRoot) {
-            foundCoreDiagnostics = true
-            assert member.GetProperty("results").GetArrayLength() > 0, stdout
-            assert summary.GetProperty("errors").GetInt32() > 0, stdout
+            foundCoreProject = true
+            assert member.GetProperty("results").GetArrayLength() == 0, stdout
+            assert summary.GetProperty("errors").GetInt32() == 0, stdout
         }
     }
 
     assert observedRoots.Count == expectedRoots.Count, "not every discovered project root had exactly one result"
-    assert foundCoreDiagnostics, "the workspace omitted Compiler.Core's diagnostics"
+    assert foundCoreProject, "the workspace omitted Compiler.Core's result"
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"

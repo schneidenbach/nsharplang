@@ -1149,10 +1149,11 @@ N#; the shell gate only carries artifacts out of its isolated tree.
 
 **Structural behavior is the primary gate.** `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json`
 pins the stage, phase diagnostic contract, expected exit and `--stats` `CompilerWorkCounters` for
-Core analysis and a deterministic Core-scale project that reaches IL emission. The Core source
-project itself currently fails during analysis before emit; the generated 80,960-line/160-file
-project covers the emit path. Counter checks are exact and machine-independent. A decrease must be
-reviewed and ratcheted; an increase is a regression to fix.
+the current Core build and a deterministic Core-scale project that reaches IL emission. The current
+head builds Core through emit; its base predecessor can still stop before emit when Core has
+diagnostics. Core's stage and counters are checked on the head build. The generated
+80,960-line/160-file project covers the emit path. Counter checks are exact and machine-independent.
+A decrease must be reviewed and ratcheted; an increase is a regression to fix.
 
 **Exact structural behavior is always gated; timing runs only when product inputs changed.** Both
 relative gates run `git diff base..head` and time only if it touches a compiler/runtime/CLI product
@@ -1188,6 +1189,12 @@ verdict. The absolute floor prevents a short command's large percentage from fai
 milliseconds. Agent-loop rows under 100 ms use CPU time only when the timed child reports a median
 base CPU of at least 30 ms and CPU's paired-ratio median absolute deviation is lower than wall's;
 otherwise they use wall time. Both measures are retained in the paired artifact for review.
+The through-emit head Core build can have a different stage and exit code from its base predecessor;
+never divide those Core build times. Core stage, diagnostics, exit and counters are checked on head.
+The paired ratio uses a separate identical generated 80,960-line project, which both base and head
+must build through emit with exit 0. The diagnostic phase canary is another two-file fixture and is
+checked against the same current phase contract for each CLI. A missing or failing timed pair is a
+gate failure, never a skipped comparison.
 
 Base selection is deterministic: if `HEAD` is ahead of `origin/systems-language`, use
 `git merge-base HEAD origin/systems-language`; when `HEAD` is at the origin tip, use `HEAD~1` (or

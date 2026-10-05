@@ -2,8 +2,8 @@
   "schemaVersion": 3,
   "project": "src/NSharpLang.Compiler.Core",
   "command": "build",
-  "stage": "Core phase/counter contract plus a deterministic Core-scale build through IL emission",
-  "expectedExitCode": 1,
+  "stage": "parse, analysis and emit",
+  "expectedExitCode": 0,
   "phaseContract": "analysis-before-strict-lint/v1",
   "phaseDiagnosticMultiset": "NL011 \u00d71, NL202 \u00d71",
   "coreCounters": {

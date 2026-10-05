@@ -46,12 +46,12 @@ func BenchTestBaselinePath(): string {
 }
 
 func BenchTestStageText(): string {
-    return "Core phase/counter contract plus a deterministic Core-scale build through IL emission"
+    return "parse, analysis and emit"
 }
 
 func BenchTestPlaceholderBaselineJson(): string {
     counters := "\"filesParsed\":1,\"emitParses\":1,\"filesAnalyzed\":1,\"assembliesEmitted\":1,\"referenceAssembliesLoaded\":1,\"processesSpawned\":0"
-    return "{\"schemaVersion\":3,\"project\":\"src/NSharpLang.Compiler.Core\",\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1,\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\",\"files\":1,\"lines\":1,\"coreCounters\":{" + counters + "},\"emitCounters\":{" + counters + "}}"
+    return "{\"schemaVersion\":3,\"project\":\"src/NSharpLang.Compiler.Core\",\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":0,\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\",\"coreCounters\":{" + counters + "},\"emitCounters\":{" + counters + "}}"
 }
 
 func BenchTestMeasuredBaselineJson(): string {
@@ -294,11 +294,12 @@ test "compile-time bench: only `\\n`-terminated lines are counted, so a trailing
 
 // ─── THE STRUCTURAL BASELINE AND RELATIVE VERDICT ─────────────────────────────────────────────
 
-test "compile-time baseline: schema three retains stage and exact CompilerWorkCounters without absolute timing fields" {
+test "compile-time baseline: schema three retains the successful Core stage and exact CompilerWorkCounters without absolute timing fields" {
     baseline := BenchParseBaseline(File.ReadAllText(BenchTestBaselinePath()))
     assert baseline.SchemaVersion == 3
     assert baseline.Project == "src/NSharpLang.Compiler.Core"
-    assert baseline.Stage.Contains("Core phase/counter contract")
+    assert baseline.Stage == "parse, analysis and emit"
+    assert baseline.ExpectedExitCode == 0
     assert baseline.PhaseContract == BenchCurrentPhaseContract()
     assert baseline.PhaseDiagnosticMultiset == BenchCurrentPhaseDiagnosticMultiset()
     assert baseline.CoreCounters != null
@@ -325,7 +326,7 @@ test "compile-time baseline: missing stage, phase contract or CompilerWorkCounte
 
 test "compile-time baseline: the checked-in Core phase contract keeps the exact exit and diagnostic census" {
     baseline := BenchParseBaseline(File.ReadAllText(BenchTestBaselinePath()))
-    assert baseline.ExpectedExitCode == 1
+    assert baseline.ExpectedExitCode == 0
     assert baseline.PhaseContract == "analysis-before-strict-lint/v1"
     assert baseline.PhaseDiagnosticMultiset == "NL011 ×1, NL202 ×1"
 }
@@ -363,6 +364,15 @@ test "compile-time relative gate: the deliberate 500 ms and 1,500 ms head delays
     assert failure1500.Contains("median slowdown 1500 ms >= 30 ms"), failure1500
     assert failure500.Contains("95% exact sign interval lower bound")
     assert failure500.Contains("1.2x")
+}
+
+test "compile-time gate: the Core stage baseline accepts a clean success and requires a failure banner for expected errors" {
+    assert BenchExpectedBuildOutcomeFailure(0, 0, false) == ""
+    assert BenchExpectedBuildOutcomeFailure(0, 1, true).Contains("instead of the baselined 0")
+    assert BenchExpectedBuildOutcomeFailure(0, 0, true).Contains("failure banner")
+    assert BenchExpectedBuildOutcomeFailure(1, 1, true) == ""
+    assert BenchExpectedBuildOutcomeFailure(1, 1, false).Contains("without the CLI's own build-failure banner")
+    assert BenchExpectedBuildOutcomeFailure(1, 0, false).Contains("instead of the baselined 1")
 }
 
 test "compile-time relative gate: missing or invalid pair measurements fail closed" {
@@ -843,9 +853,9 @@ test "compile-time gate: exact Core counters and phase contract accompany change
 
     facts := BenchReadEnvironmentFacts(gitRoot)
     // A clean source copy fixes CompilerWorkCounters at the first-build values. Reusing the checkout
-    // makes this failed Core build incremental: the first run parses 468 files, the second 452 and
-    // the third 0, even though the inputs are unchanged. Copying source (including uncommitted edits)
-    // but excluding bin/obj/.nlc makes the structural phase contract deterministic on every gate run.
+    // makes the Core build incremental: the first run parses 468 files, the second 452 and the third
+    // 0, even though the inputs are unchanged. Copying source (including uncommitted edits) but
+    // excluding bin/obj/.nlc makes the structural contract deterministic on every gate run.
     coreCopyRoot := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-" + BenchLongText(DateTime.UtcNow.Ticks))
     coreSource := Path.Combine(repositoryRoot, "src")
     copiedSource := Path.Combine(coreCopyRoot, "src")
@@ -856,13 +866,15 @@ test "compile-time gate: exact Core counters and phase contract accompany change
         coreStatsPath := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-stats-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
         coreBuild := BenchMeasureOnce(headCli, coreProject, "build", 1, coreStatsPath)
         coreCounterFailure := BenchCoreCounterFailure("src/NSharpLang.Compiler.Core", baseline.CoreCounters, coreBuild.Counters)
-        assert coreBuild.ExitCode == baseline.ExpectedExitCode, "compile-time gate: Core phase exit changed from " + BenchIntText(baseline.ExpectedExitCode) + " to " + BenchIntText(coreBuild.ExitCode)
-        assert coreBuild.SawBuildFailedBanner, "compile-time gate: Core's expected analysis failure did not carry the CLI's Build failed in banner"
+        outcomeFailure := BenchExpectedBuildOutcomeFailure(baseline.ExpectedExitCode, coreBuild.ExitCode, coreBuild.SawBuildFailedBanner)
+        assert outcomeFailure == "", "compile-time gate: " + outcomeFailure
         assert coreCounterFailure == "", "compile-time gate: " + coreCounterFailure
     } finally {
         BenchDeleteDirectory(coreCopyRoot)
     }
 
+    // The base Core project may end at analysis while head reaches emit. Keep that stage transition
+    // out of the timing ratio: both compilers run this identical generated project and must emit it.
     scaleDirectory := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-scale-" + BenchLongText(DateTime.UtcNow.Ticks))
     Directory.CreateDirectory(scaleDirectory)
     try {
