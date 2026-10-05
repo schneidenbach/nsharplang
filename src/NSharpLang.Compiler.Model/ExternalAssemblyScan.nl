@@ -243,6 +243,11 @@ class ExternalAssemblyScan {
             return compilerBound
         }
 
+        alreadyOwned := OwnedAssemblyLoadedFrom(path, identity)
+        if alreadyOwned != null {
+            return alreadyOwned
+        }
+
         try {
             owned := ExactIdentityLoadContext().LoadFromAssemblyPath(Path.GetFullPath(path))
             if RuntimeAssemblyHasIdentity(owned, identity) {
@@ -251,6 +256,27 @@ class ExternalAssemblyScan {
         } catch {
             // An image that will not load at all has no executable handle; stay metadata-only.
             return null
+        }
+
+        return null
+    }
+
+    // THE OWNED CONTEXT IS PROCESS-WIDE, so the second request for a file it already holds is a
+    // lookup: the assembly it loaded from this exact path with this exact identity, which is what
+    // `LoadFromAssemblyPath` would hand back anyway. Every emission walks the whole reference set
+    // through `TryLoadExactIdentityAssembly`, so a process that compiles more than once (a server,
+    // a check that builds its project references, the route-handler resolver mid-emission) would
+    // otherwise re-open every reference each time. A same-identity image from a DIFFERENT path is
+    // not this one and still goes to the context, which refuses it exactly as before.
+    static func OwnedAssemblyLoadedFrom(path: string, identity: string): Assembly? {
+        fullPath := Path.GetFullPath(path)
+        for loaded in ExactIdentityLoadContext().Assemblies {
+            if loaded.IsDynamic {
+                continue
+            }
+            if string.Equals(loaded.Location, fullPath, StringComparison.Ordinal) && RuntimeAssemblyHasIdentity(loaded, identity) {
+                return loaded
+            }
         }
 
         return null

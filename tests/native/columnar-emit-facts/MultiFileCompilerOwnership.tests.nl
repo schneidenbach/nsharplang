@@ -348,7 +348,17 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
         }
         declaredMethodIndex = declaredMethodIndex + 1
     }
-    assert declaredMethodCount == 2
+    // THE THIRD IS `EmitAnalyzedAssembly`: emission from an analysis `CompileForAnalysis` already
+    // ran, so `nlc check` proves its program emits without a second compiler analysing it again.
+    assert declaredMethodCount == 3
+    emitAnalyzedTypes := new Type[](2)
+    emitAnalyzedTypes[0] = typeof(string)
+    emitAnalyzedTypes[1] = typeof(string)
+    emitAnalyzed := MultiFileOwnerRequiredMethod(
+        owner.GetMethod("EmitAnalyzedAssembly", emitAnalyzedTypes),
+        "EmitAnalyzedAssembly"
+    )
+    assert emitAnalyzed.get_ReturnType() == emit.get_ReturnType()
 
     // The path the reference assembly is written to is the compiler's answer, not the build task's
     // guess: one static reading of an output path, so the SDK task copies a file it did not choose

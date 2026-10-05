@@ -45,6 +45,9 @@ class MultiFileCompiler {
     // compilation sees these, so a file edited mid-compilation cannot pair one text's plan with
     // another text's parse.
     private readonly _plannedTexts: Dictionary<string, string>
+    // Set once `CompileForAnalysis` has run, so `EmitAnalyzedAssembly` can refuse to emit a program
+    // nothing analysed.
+    private _analysisCompleted: bool
     private readonly _debugLoggingEnabled: bool
     private readonly _sourceTextOverrides: IReadOnlyDictionary<string, string>
     private readonly _preprocessorSymbols: IReadOnlySet<string>
@@ -224,6 +227,7 @@ class MultiFileCompiler {
         _incrementalPlan = null
         _pendingRecords = new Dictionary<string, IncrementalFileRecord>(StringComparer.OrdinalIgnoreCase)
         _plannedTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        _analysisCompleted = false
     }
 
     // The configuration this compiler was built with; the constructor already replaced a missing one
@@ -627,6 +631,21 @@ class MultiFileCompiler {
     func CompileForAnalysis(): void {
         let columnarDiscard0: bool = false
         RunLegacyValidationPipeline(false, out columnarDiscard0)
+        _analysisCompleted = true
+    }
+
+    // EMIT WHAT `CompileForAnalysis` ALREADY ANALYSED. `nlc check` reports the analysis's diagnostics
+    // and then, when they are clean, proves the program also EMITS; asking a second compiler for the
+    // second half parsed, analysed and loaded the reference closure all over again. This emits from
+    // this compiler's own units and semantic models — exactly what `CompileToIlAssembly` would have
+    // emitted after the same analysis — and reports the same way: no emission while an analysis
+    // error stands, and an emission decline appended to `AllErrors`.
+    func EmitAnalyzedAssembly(assemblyName: string, outputPath: string): MultiFileCompilationResult {
+        if !_analysisCompleted {
+            throw new InvalidOperationException("EmitAnalyzedAssembly needs CompileForAnalysis to have run on this compiler first.")
+        }
+
+        return EmitAfterValidation(assemblyName, outputPath, null, "", null)
     }
 
     // Shared N# validation pipeline used by analysis and emission.
@@ -752,6 +771,12 @@ class MultiFileCompiler {
             )
         }
 
+        return EmitAfterValidation(assemblyName, outputPath, stampPath, stampKey, capture)
+    }
+
+    // The emission half of a compilation whose validation has run: refuse on any error, emit,
+    // report a decline, and record the up-to-date stamp when one was asked for.
+    private func EmitAfterValidation(assemblyName: string, outputPath: string, stampPath: string?, stampKey: string, capture: IncrementalBuildInputCapture?): MultiFileCompilationResult {
         hasValidationErrors := false
         for validationError in _allErrors {
             if validationError.Severity == ErrorSeverity.Error {
