@@ -55,6 +55,15 @@ func NmcSimpleName(typeInfo: TypeInfo?): string {
     return simple.Name
 }
 
+func NmcRequiredClrFullName(clrType: Type): string {
+    fullName := clrType.FullName
+    if fullName == null {
+        throw new InvalidOperationException("Expected a concrete CLR type to have a full name.")
+    }
+
+    return fullName
+}
+
 // One row of the shared sixteen-row table, read through BOTH maps and required to agree.
 func NmcCrossedBuiltIn(clrShortName: string, clrFullName: string): string {
     converted := NmcSimpleName(NullabilityMetadataCore.ConvertBuiltInType(clrFullName))
@@ -70,21 +79,21 @@ func NmcCrossedBuiltIn(clrShortName: string, clrFullName: string): string {
 
 test "the CLR built-in map and the CLR display map are one sixteen row table read two ways" {
     // Fifteen rows reached through the real CLR type, so a renamed framework type breaks the row.
-    assert NmcCrossedBuiltIn("Boolean", typeof(bool).FullName) == "bool"
-    assert NmcCrossedBuiltIn("Byte", typeof(byte).FullName) == "byte"
-    assert NmcCrossedBuiltIn("SByte", typeof(sbyte).FullName) == "sbyte"
-    assert NmcCrossedBuiltIn("Int16", typeof(short).FullName) == "short"
-    assert NmcCrossedBuiltIn("UInt16", typeof(ushort).FullName) == "ushort"
-    assert NmcCrossedBuiltIn("Int32", typeof(int).FullName) == "int"
-    assert NmcCrossedBuiltIn("UInt32", typeof(uint).FullName) == "uint"
-    assert NmcCrossedBuiltIn("Int64", typeof(long).FullName) == "long"
-    assert NmcCrossedBuiltIn("UInt64", typeof(ulong).FullName) == "ulong"
-    assert NmcCrossedBuiltIn("Single", typeof(float).FullName) == "float"
-    assert NmcCrossedBuiltIn("Double", typeof(double).FullName) == "double"
-    assert NmcCrossedBuiltIn("Decimal", typeof(decimal).FullName) == "decimal"
-    assert NmcCrossedBuiltIn("Char", typeof(char).FullName) == "char"
-    assert NmcCrossedBuiltIn("String", typeof(string).FullName) == "string"
-    assert NmcCrossedBuiltIn("Object", typeof(object).FullName) == "object"
+    assert NmcCrossedBuiltIn("Boolean", NmcRequiredClrFullName(typeof(bool))) == "bool"
+    assert NmcCrossedBuiltIn("Byte", NmcRequiredClrFullName(typeof(byte))) == "byte"
+    assert NmcCrossedBuiltIn("SByte", NmcRequiredClrFullName(typeof(sbyte))) == "sbyte"
+    assert NmcCrossedBuiltIn("Int16", NmcRequiredClrFullName(typeof(short))) == "short"
+    assert NmcCrossedBuiltIn("UInt16", NmcRequiredClrFullName(typeof(ushort))) == "ushort"
+    assert NmcCrossedBuiltIn("Int32", NmcRequiredClrFullName(typeof(int))) == "int"
+    assert NmcCrossedBuiltIn("UInt32", NmcRequiredClrFullName(typeof(uint))) == "uint"
+    assert NmcCrossedBuiltIn("Int64", NmcRequiredClrFullName(typeof(long))) == "long"
+    assert NmcCrossedBuiltIn("UInt64", NmcRequiredClrFullName(typeof(ulong))) == "ulong"
+    assert NmcCrossedBuiltIn("Single", NmcRequiredClrFullName(typeof(float))) == "float"
+    assert NmcCrossedBuiltIn("Double", NmcRequiredClrFullName(typeof(double))) == "double"
+    assert NmcCrossedBuiltIn("Decimal", NmcRequiredClrFullName(typeof(decimal))) == "decimal"
+    assert NmcCrossedBuiltIn("Char", NmcRequiredClrFullName(typeof(char))) == "char"
+    assert NmcCrossedBuiltIn("String", NmcRequiredClrFullName(typeof(string))) == "string"
+    assert NmcCrossedBuiltIn("Object", NmcRequiredClrFullName(typeof(object))) == "object"
 
     // `typeof(void)` is off the columnar typeof surface, so this row names the CLR type by text.
     assert NmcCrossedBuiltIn("Void", "System.Void") == "void"
@@ -360,22 +369,22 @@ test "exactly two of the sixteen CLR built-ins can carry reference nullability, 
 // order the map declares them.
 func NmcEligibleBuiltIns(): string {
     names := new string[](16)
-    names[0] = typeof(int).FullName
-    names[1] = typeof(long).FullName
-    names[2] = typeof(float).FullName
-    names[3] = typeof(double).FullName
-    names[4] = typeof(decimal).FullName
-    names[5] = typeof(byte).FullName
-    names[6] = typeof(sbyte).FullName
-    names[7] = typeof(short).FullName
-    names[8] = typeof(ushort).FullName
-    names[9] = typeof(uint).FullName
-    names[10] = typeof(ulong).FullName
-    names[11] = typeof(char).FullName
-    names[12] = typeof(bool).FullName
-    names[13] = typeof(string).FullName
+    names[0] = NmcRequiredClrFullName(typeof(int))
+    names[1] = NmcRequiredClrFullName(typeof(long))
+    names[2] = NmcRequiredClrFullName(typeof(float))
+    names[3] = NmcRequiredClrFullName(typeof(double))
+    names[4] = NmcRequiredClrFullName(typeof(decimal))
+    names[5] = NmcRequiredClrFullName(typeof(byte))
+    names[6] = NmcRequiredClrFullName(typeof(sbyte))
+    names[7] = NmcRequiredClrFullName(typeof(short))
+    names[8] = NmcRequiredClrFullName(typeof(ushort))
+    names[9] = NmcRequiredClrFullName(typeof(uint))
+    names[10] = NmcRequiredClrFullName(typeof(ulong))
+    names[11] = NmcRequiredClrFullName(typeof(char))
+    names[12] = NmcRequiredClrFullName(typeof(bool))
+    names[13] = NmcRequiredClrFullName(typeof(string))
     names[14] = "System.Void"
-    names[15] = typeof(object).FullName
+    names[15] = NmcRequiredClrFullName(typeof(object))
 
     admitted := ""
     index := 0
