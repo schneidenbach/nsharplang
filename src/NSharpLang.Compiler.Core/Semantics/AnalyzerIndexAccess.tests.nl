@@ -50,7 +50,7 @@ class IndexAccessHarness {
     }
 }
 
-func IndexArmOf(inAssignmentTarget: bool): IndexAccessHarness {
+func IndexArmOf(): IndexAccessHarness {
     return IndexArmFor(null)
 }
 
@@ -223,7 +223,7 @@ func IndexDrive(harness: IndexAccessHarness, node: Expression, receiverAnswer: T
 // ---- the walk protocol ---------------------------------------------------------------------------
 
 test "the arm takes TWO steps of ONE kind" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     trace := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), false), new ArrayTypeInfo(BuiltInTypes.Int), BuiltInTypes.Int, false)
 
     assert trace.Kinds == "11"
@@ -232,7 +232,7 @@ test "the arm takes TWO steps of ONE kind" {
 }
 
 test "a node that is not an index access finishes at Begin and asks for nothing" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     state := harness.Arm.Begin(new IdentifierExpression("xs", 1, 1))
 
     assert harness.Arm.NextStep(state) == null
@@ -242,7 +242,7 @@ test "a node that is not an index access finishes at Begin and asks for nothing"
 // ---- the expected-type bracket -------------------------------------------------------------------
 
 test "an ARRAY receiver brackets the index step with `int`, and the bracket is CLOSED afterwards" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     trace := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), false), new ArrayTypeInfo(BuiltInTypes.Int), BuiltInTypes.Int, false)
 
     // The receiver walks with the slot untouched; the index walks under `int`.
@@ -251,7 +251,7 @@ test "an ARRAY receiver brackets the index step with `int`, and the bracket is C
 }
 
 test "a DICTIONARY receiver leaves the slot alone, because its index is a KEY" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     arguments := new List<TypeInfo>()
     arguments.Add(BuiltInTypes.String)
     arguments.Add(BuiltInTypes.Int)
@@ -263,7 +263,7 @@ test "a DICTIONARY receiver leaves the slot alone, because its index is a KEY" {
 }
 
 test "the bracket RESTORES whatever the slot already held" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     saved := harness.Ambient.EnterExpectedType(BuiltInTypes.String)
     trace := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), false), new ArrayTypeInfo(BuiltInTypes.Int), BuiltInTypes.Int, false)
 
@@ -273,7 +273,7 @@ test "the bracket RESTORES whatever the slot already held" {
 }
 
 test "a STRING receiver brackets with int and answers char" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     trace := IndexDrive(harness, IndexAccessOf("text", IndexIntLiteral("0"), false), BuiltInTypes.String, BuiltInTypes.Int, false)
 
     assert trace.ExpectedAtStep == "<null>,simple:int"
@@ -283,18 +283,18 @@ test "a STRING receiver brackets with int and answers char" {
 // ---- the element type ----------------------------------------------------------------------------
 
 test "an array element access answers the ELEMENT and a range access answers the ARRAY" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     element := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), false), new ArrayTypeInfo(BuiltInTypes.Int), BuiltInTypes.Int, false)
     assert element.Answer == "simple:int"
 
-    ranged := IndexArmOf(false)
+    ranged := IndexArmOf()
     rangeNode: Expression = new RangeExpression(null, null, 4, 8)
     rangeTrace := IndexDrive(ranged, IndexAccessOf("xs", rangeNode, false), new ArrayTypeInfo(BuiltInTypes.Int), BuiltInTypes.Int, false)
     assert rangeTrace.Answer == "array(simple:int)"
 }
 
 test "a string range slice answers string, not char" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     rangeNode: Expression = new RangeExpression(null, null, 4, 8)
     trace := IndexDrive(harness, IndexAccessOf("text", rangeNode, false), BuiltInTypes.String, BuiltInTypes.Int, false)
 
@@ -302,14 +302,14 @@ test "a string range slice answers string, not char" {
 }
 
 test "a named generic sequence answers by NAME SUFFIX, and a dictionary answers its VALUE" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     listArguments := new List<TypeInfo>()
     listArguments.Add(BuiltInTypes.String)
     listReceiver: TypeInfo = new GenericTypeInfo("List", listArguments)
     listTrace := IndexDrive(harness, IndexAccessOf("items", IndexIntLiteral("0"), false), listReceiver, BuiltInTypes.Int, false)
     assert listTrace.Answer == "simple:string"
 
-    mapHarness := IndexArmOf(false)
+    mapHarness := IndexArmOf()
     mapArguments := new List<TypeInfo>()
     mapArguments.Add(BuiltInTypes.String)
     mapArguments.Add(BuiltInTypes.Bool)
@@ -319,7 +319,7 @@ test "a named generic sequence answers by NAME SUFFIX, and a dictionary answers 
 }
 
 test "a generic that is neither a recognised sequence NOR a reflected definition answers unknown" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     arguments := new List<TypeInfo>()
     arguments.Add(BuiltInTypes.Int)
     receiver: TypeInfo = new GenericTypeInfo("Box", arguments)
@@ -373,7 +373,7 @@ test "a constructed EXTERNAL generic answers its definition's indexer, substitut
 }
 
 test "a generic source declaration answers its indexer under nullable type arguments" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     typeParameters := new TypeParameter[](1)
     typeParameters[0] = new TypeParameter("T")
     indexerTypes := new TypeReference[](1)
@@ -404,12 +404,12 @@ test "a constructed external generic with NO indexer, or read as a RANGE, still 
 }
 
 test "a REFLECTED array answers its element and its range answers the array" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     receiver: TypeInfo = new ReflectionTypeInfo(typeof(int[]))
     trace := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), false), receiver, BuiltInTypes.Int, false)
     assert trace.Answer == "simple:int"
 
-    ranged := IndexArmOf(false)
+    ranged := IndexArmOf()
     rangeNode: Expression = new RangeExpression(null, null, 4, 8)
     rangeTrace := IndexDrive(ranged, IndexAccessOf("xs", rangeNode, false), receiver, BuiltInTypes.Int, false)
     assert rangeTrace.Answer == "array(simple:int)"
@@ -418,7 +418,7 @@ test "a REFLECTED array answers its element and its range answers the array" {
 // ---- the reflected indexer -----------------------------------------------------------------------
 
 test "a reflected type's INDEXER answers its property type" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     receiver: TypeInfo = new ReflectionTypeInfo(Type.GetType("System.Collections.Generic.List`1").MakeGenericType(IndexOneType(typeof(string))))
     trace := IndexDrive(harness, IndexAccessOf("items", IndexIntLiteral("0"), false), receiver, BuiltInTypes.Int, false)
 
@@ -451,7 +451,7 @@ test "the indexer lookup finds exactly what GetDefaultMembers found" {
 }
 
 test "a reflected type with NO indexer answers unknown" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     receiver: TypeInfo = new ReflectionTypeInfo(typeof(int))
     trace := IndexDrive(harness, IndexAccessOf("value", IndexIntLiteral("0"), false), receiver, BuiltInTypes.Int, false)
 
@@ -461,7 +461,7 @@ test "a reflected type with NO indexer answers unknown" {
 // ---- the built-in index validation ---------------------------------------------------------------
 
 test "an array indexed by a STRING is refused, and the walk ends" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     trace := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), false), new ArrayTypeInfo(BuiltInTypes.Int), BuiltInTypes.String, false)
 
     assert trace.Reports == 1
@@ -471,7 +471,7 @@ test "an array indexed by a STRING is refused, and the walk ends" {
 }
 
 test "a string indexed by a bool names STRING in the report" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     trace := IndexDrive(harness, IndexAccessOf("text", IndexIntLiteral("0"), false), BuiltInTypes.String, BuiltInTypes.Bool, false)
 
     assert harness.Errors[0].Message.Contains("String indexes must be int")
@@ -479,27 +479,27 @@ test "a string indexed by a bool names STRING in the report" {
 }
 
 test "an UNKNOWN index is never accused" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     trace := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), false), new ArrayTypeInfo(BuiltInTypes.Int), BuiltInTypes.Unknown, false)
 
     assert trace.Reports == 0
 }
 
 test "a `System.Index` is a valid array index and a RANGE bypasses the check entirely" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     systemIndex: TypeInfo = new SimpleTypeInfo("System.Index")
     trace := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), false), new ArrayTypeInfo(BuiltInTypes.Int), systemIndex, false)
     assert trace.Reports == 0
     assert trace.Answer == "simple:int"
 
-    ranged := IndexArmOf(false)
+    ranged := IndexArmOf()
     rangeNode: Expression = new RangeExpression(null, null, 4, 8)
     rangeTrace := IndexDrive(ranged, IndexAccessOf("xs", rangeNode, false), new ArrayTypeInfo(BuiltInTypes.Int), BuiltInTypes.String, false)
     assert rangeTrace.Reports == 0
 }
 
 test "a NON built-in receiver is left to its own indexer and never validated" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     arguments := new List<TypeInfo>()
     arguments.Add(BuiltInTypes.String)
     arguments.Add(BuiltInTypes.Int)
@@ -526,14 +526,14 @@ test "`System.Range` and `System.Index` are recognised under BOTH spellings" {
 // ---- the null-conditional result -----------------------------------------------------------------
 
 test "`a?[i]` wraps its element in a nullable" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     trace := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), true), new ArrayTypeInfo(BuiltInTypes.Int), BuiltInTypes.Int, false)
 
     assert trace.Answer == "nullable(simple:int)"
 }
 
 test "a null-conditional index on an unknown element stays unknown rather than nullable-unknown" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     arguments := new List<TypeInfo>()
     arguments.Add(BuiltInTypes.Int)
     receiver: TypeInfo = new GenericTypeInfo("Box", arguments)
@@ -545,7 +545,7 @@ test "a null-conditional index on an unknown element stays unknown rather than n
 // ---- the receiver unwraps ------------------------------------------------------------------------
 
 test "a NULLABLE receiver is unwrapped before its shape is judged" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     receiver: TypeInfo = new NullableTypeInfo(new ArrayTypeInfo(BuiltInTypes.Int))
     trace := IndexDrive(harness, IndexAccessOf("xs", IndexIntLiteral("0"), false), receiver, BuiltInTypes.Int, false)
 
@@ -557,7 +557,7 @@ test "a NULLABLE receiver is unwrapped before its shape is judged" {
 // ---- the negative constant row index -------------------------------------------------------------
 
 test "the negative-row rule is about SIGNED integers and CONSTANTS" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     negative: Expression = new UnaryExpression(UnaryOperator.Negate, IndexIntLiteral("1"), 4, 8)
 
     assert harness.Arm.ReportNegativeSoaRowIndexIfNeeded(negative, BuiltInTypes.Int, "table row")
@@ -573,7 +573,7 @@ test "the negative-row rule is about SIGNED integers and CONSTANTS" {
 }
 
 test "the negative-row report names the CONTEXT it was asked about" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     negative: Expression = new UnaryExpression(UnaryOperator.Negate, IndexIntLiteral("2"), 4, 8)
 
     assert harness.Arm.ReportNegativeSoaRowIndexIfNeeded(negative, BuiltInTypes.Short, "column row")
@@ -583,7 +583,7 @@ test "the negative-row report names the CONTEXT it was asked about" {
 // ---- the table row index -------------------------------------------------------------------------
 
 test "a table row id is an int and NOTHING else" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
 
     assert harness.Arm.IsValidSoaRowIndex(BuiltInTypes.Int, false)
     assert harness.Arm.IsValidSoaRowIndex(BuiltInTypes.Unknown, false)
@@ -595,7 +595,7 @@ test "a table row id is an int and NOTHING else" {
 }
 
 test "the invalid-row report distinguishes a range, a System.Index and an ordinary type" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     node := IndexIntLiteral("0")
 
     harness.Arm.ReportInvalidSoaRowIndex(node, BuiltInTypes.Int, true)
@@ -611,7 +611,7 @@ test "the invalid-row report distinguishes a range, a System.Index and an ordina
 // ---- the column slice ----------------------------------------------------------------------------
 
 test "the column-slice report is NL103 and names the allocation" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
     node := IndexAccessOf("column", IndexIntLiteral("0"), false)
 
     harness.Arm.ReportSoaColumnSliceHiddenAllocation(node)
@@ -622,7 +622,7 @@ test "the column-slice report is NL103 and names the allocation" {
 // ---- the int-expected-type rule ------------------------------------------------------------------
 
 test "the int-expected rule covers a table, both array shapes and a string, and nothing else" {
-    harness := IndexArmOf(false)
+    harness := IndexArmOf()
 
     assert harness.Arm.ShouldUseIntExpectedTypeForIndex(new ArrayTypeInfo(BuiltInTypes.Int))
     assert harness.Arm.ShouldUseIntExpectedTypeForIndex(new ReflectionTypeInfo(typeof(int[])))

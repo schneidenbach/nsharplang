@@ -1215,7 +1215,7 @@ class AnalyzerTypeDeclarations {
                         continue
                     }
 
-                    ValidateOverrideAccessibility(state, declaredBase, function.Name, Convert.ToInt32(function.Modifiers), 0, spansValue.GetFunctionNameDiagnosticSpan(function))
+                    ValidateOverrideAccessibility(declaredBase, function.Name, Convert.ToInt32(function.Modifiers), 0, spansValue.GetFunctionNameDiagnosticSpan(function))
                 }
 
                 continue
@@ -1243,7 +1243,7 @@ class AnalyzerTypeDeclarations {
                         continue
                     }
 
-                    ValidateOverrideAccessibility(state, declaredBase, property.Name, Convert.ToInt32(property.Modifiers), 1, spansValue.GetPropertyNameDiagnosticSpan(property))
+                    ValidateOverrideAccessibility(declaredBase, property.Name, Convert.ToInt32(property.Modifiers), 1, spansValue.GetPropertyNameDiagnosticSpan(property))
                 }
 
                 continue
@@ -1568,7 +1568,7 @@ class AnalyzerTypeDeclarations {
         }
 
         if !IsAbstractClassDeclaration(state) {
-            ReportAbstractMemberModifierFault(name, "but '" + TypeName(state) + "' is not an abstract class", AbstractOwnerSuggestion(state, name, kindWord), span)
+            ReportAbstractMemberModifierFault(name, "but '" + TypeName(state) + "' is not an abstract class", AbstractOwnerSuggestion(state, name), span)
             return true
         }
 
@@ -1578,7 +1578,7 @@ class AnalyzerTypeDeclarations {
     // THE WAY OUT DEPENDS ON WHAT THE MEMBER IS WRITTEN IN. A plain class can simply become abstract; a
     // struct or a record struct is sealed by the CLR and can never carry a slot, so the only move is to
     // a class or an interface.
-    func AbstractOwnerSuggestion(state: TypeDeclarationState, name: string, kindWord: string): string {
+    func AbstractOwnerSuggestion(state: TypeDeclarationState, name: string): string {
         if state.Form == 0 {
             return "Write 'abstract class " + TypeName(state) + "' so the slot has somewhere to live, or give '" + name + "' a body and drop 'abstract'."
         }
@@ -1620,7 +1620,7 @@ class AnalyzerTypeDeclarations {
     //
     // ONLY NARROWING IS REPORTED. Widening an override loads and runs, so reporting it would refuse a
     // program the runtime accepts; the arbiter here is the CLR, not C#'s stricter `CS0507`.
-    func ValidateOverrideAccessibility(state: TypeDeclarationState, declaredBase: TypeInfo?, name: string, modifierBits: int, memberKind: int, span: DiagnosticSpan) {
+    func ValidateOverrideAccessibility(declaredBase: TypeInfo?, name: string, modifierBits: int, memberKind: int, span: DiagnosticSpan) {
         slotLevel := OverrideSlotAccessibility(declaredBase, name, memberKind, 0)
         if slotLevel < 0 {
             return

@@ -132,7 +132,7 @@ class AnalyzerAssignability {
     // they are the only ones whose answer depends on the VALUE rather than on the two types. Everything
     // below this point is the ordinary type-to-type question and is unchanged.
     func IsAssignableWithConstant(target: TypeInfo, source: TypeInfo, constant: ConstantOperandFacts): bool {
-        if constant.HasIntegerLiteral && IsConstantConvertible(target, source, constant) {
+        if constant.HasIntegerLiteral && IsConstantConvertible(target, constant) {
             return true
         }
 
@@ -145,7 +145,7 @@ class AnalyzerAssignability {
     // §10.2.11 — an in-range integer constant converts to the narrower integral target. The source must
     // be the unsuffixed `int` a bare literal types as; a suffixed literal has its own fixed type and
     // `ConstantConversionFacts` refuses it.
-    func IsConstantConvertible(target: TypeInfo, source: TypeInfo, constant: ConstantOperandFacts): bool {
+    func IsConstantConvertible(target: TypeInfo, constant: ConstantOperandFacts): bool {
         resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
         clrTarget := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget)
         return ConstantConversionFacts.AcceptsIntegerConstant(clrTarget, constant.LiteralText, constant.IsNegative)

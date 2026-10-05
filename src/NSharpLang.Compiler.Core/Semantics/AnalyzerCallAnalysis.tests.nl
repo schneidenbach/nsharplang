@@ -317,7 +317,7 @@ func CallWalkTypeText(resolved: TypeInfo?): string {
 // KIND 4 CARRIES ITS EXPECTED TYPE AND KIND 15 CARRIES ITS TREE FLAG, because those are exactly what
 // distinguishes the reflected bind's argument pre-pass (`4(<null>)`) from an ordinary argument, and
 // an expression-tree lambda (`15(tree)`) from a plain one.
-func CallWalkStepText(step: CallAnalysisRequest, call: CallExpression): string {
+func CallWalkStepText(step: CallAnalysisRequest): string {
     kind := step.Kind
     if kind == 4 {
         return "4(" + CallWalkTypeText(step.CarriedType) + ")"
@@ -358,7 +358,6 @@ func CallWalkRun(
     lambdaAnswer: TypeInfo?,
     firedGate: int
 ): string {
-    call := state.Call
     transcript := ""
     step := owner.NextCallStep(state)
     while step != null {
@@ -367,7 +366,7 @@ func CallWalkRun(
             transcript = transcript + " "
         }
 
-        transcript = transcript + CallWalkStepText(step, call)
+        transcript = transcript + CallWalkStepText(step)
         answer: TypeInfo? = null
         handled := false
         if kind == 4 {

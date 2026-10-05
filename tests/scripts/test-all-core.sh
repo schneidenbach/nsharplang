@@ -591,11 +591,13 @@ else
     # 3 NL010 findings are gone; all other diagnostic codes remain unchanged through the same CLI.
     # The upstream speed integration measured Core at 354 before this import cleanup; the lower
     # branch measurement is kept as the stricter ceiling while the final rebased tree is remeasured.
+    # 2026-10-05, remove the six unused NL012 parameters and their dead call plumbing: Core 283,
+    # Compiler 2. The identity diff has no additions; only those six NL012 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        289
+        283
         0
         0
         0
