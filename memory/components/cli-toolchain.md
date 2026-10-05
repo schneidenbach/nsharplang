@@ -54,6 +54,7 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 | `nlc build --backend il` | Compile with the direct IL backend | `nlc build --backend il` |
 | `nlc build --release` | Build with Release configuration/output layout | `nlc build --release` |
 | `nlc build --verbose` | Build with detailed native resolver/test output | `nlc build --verbose` |
+| `nlc build --timings` | Print, to stderr, the `Build timings:` block (resolve, emit, total) and then a `Phase timings:` block: one row per compiled project (project references included) and phase -- `load-references`, `parse`, `import-graph`, `analysis`, `systems-policy`, `lint`, `emit.parse`, `emit.codegen`, `emit.write` -- with wall ms, process CPU ms (all threads, so CPU above wall is that phase's parallelism) and process allocation MB. Owner: `CompilerPhaseTimings` (Compiler.Model); printed on failed builds too | `nlc build --timings` |
 | `nlc build --perf-report` | Emit a versioned JSON perf report (allocations, dispatch, AOT blockers) | `nlc build --perf-report` |
 | `nlc build --aot` | Native AOT safety analysis; AOT blockers (reflection/dynamic code/runtime generics/expression trees) become build errors | `nlc build --aot` |
 | `nlc run` | Compile and run project through the IL backend | `nlc run` |

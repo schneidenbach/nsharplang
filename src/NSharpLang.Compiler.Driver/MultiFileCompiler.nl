@@ -49,6 +49,7 @@ class MultiFileCompiler {
     private _emitReferenceAssembly: bool
     private _soaEnabled: bool
     private _columnarDeclineLog: TextWriter?
+    private readonly _phaseProject: string
 
     CompilationUnits: IReadOnlyDictionary<string, CompilationUnit> => _compilationUnits
     SemanticModels: IReadOnlyDictionary<string, SemanticModel> => _semanticModels
@@ -169,19 +170,33 @@ class MultiFileCompiler {
         if IsColumnarDeclineLoggingEnabled() {
             _columnarDeclineLog = Console.Error
         }
+        _phaseProject = PhaseProjectName(_config, projectRoot)
 
         // One analyzer instance owns the complete repeated-call lifetime.
+        loadMark := CompilerPhaseTimings.Begin(_phaseProject, "load-references")
         analyzer := new Analyzer()
         analyzer.SoaEnabled = _soaEnabled
         _sharedAnalyzer = analyzer
         _sharedAnalyzer.LoadSystemAssemblies()
         _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot)
+        CompilerPhaseTimings.End(loadMark)
         // A caller that hands over a project configuration compiles these files into ONE assembly —
         // a parsed `project.yml`, or a virtual project like the playground's. A caller with none (a
         // folder of standalone scripts checked as a directory) leaves the analyzer to ask the root.
         if config != null {
             _sharedAnalyzer.DeclareOneProgram()
         }
+    }
+
+    // The label `CompilerPhaseTimings` files this compilation's phases under: the project's name, else
+    // its directory's.
+    private static func PhaseProjectName(config: ProjectConfig, projectRoot: string): string {
+        configName := config.Name
+        if configName != null && configName.Length > 0 {
+            return configName
+        }
+
+        return Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectRoot)))
     }
 
     private static func BuildProjectInputs(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?, includeTests: bool): MultiFileCompilerInputs {
@@ -350,6 +365,7 @@ class MultiFileCompiler {
     /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
     /// This prevents the performance issue of reloading assemblies for each file.</summary>
     private func AnalyzeAllFiles(): void {
+        analysisMark := CompilerPhaseTimings.Begin(_phaseProject, "analysis")
         _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
 
         // Analyze each file using the shared analyzer instance
@@ -394,8 +410,11 @@ class MultiFileCompiler {
                 }
             }
         }
+        CompilerPhaseTimings.End(analysisMark)
 
+        systemsMark := CompilerPhaseTimings.Begin(_phaseProject, "systems-policy")
         AnalyzeSystemsPolicy()
+        CompilerPhaseTimings.End(systemsMark)
     }
 
     private func AnalyzeSystemsPolicy(): void {
@@ -481,8 +500,12 @@ class MultiFileCompiler {
     // pass itself, which is the same rule it already applied to a file with parse errors.
     private func RunLegacyValidationPipeline(validateStrictLint: bool, out strictLintFailed: bool): void {
         strictLintFailed = false
+        parseMark := CompilerPhaseTimings.Begin(_phaseProject, "parse")
         ParseAllFiles()
+        CompilerPhaseTimings.End(parseMark)
+        importsMark := CompilerPhaseTimings.Begin(_phaseProject, "import-graph")
         DetectCircularFileImports()
+        CompilerPhaseTimings.End(importsMark)
         AnalyzeAllFiles()
 
         errorsBeforeLint := 0
@@ -492,7 +515,9 @@ class MultiFileCompiler {
             }
         }
         if (validateStrictLint) {
+            lintMark := CompilerPhaseTimings.Begin(_phaseProject, "lint")
             AddStrictLintDiagnosticsFromParsedSources()
+            CompilerPhaseTimings.End(lintMark)
             hasStrictLintErrors := false
             skippedErrors := 0
             for errorAfterLint in _allErrors {
@@ -625,6 +650,7 @@ class MultiFileCompiler {
         if (_sourceFiles.Count == 0) {
             return false
         }
+        emitParseMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.parse")
         sources := new List<string>(_sourceFiles.Count)
         for sourceFile in _sourceFiles {
             let source: string? = null
@@ -643,8 +669,10 @@ class MultiFileCompiler {
         ColumnarDeclineTrace.Reset()
         let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput = null
         if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out program)) {
+            CompilerPhaseTimings.End(emitParseMark)
             return false
         }
+        CompilerPhaseTimings.End(emitParseMark)
         // Call-site overload selection belongs to the analyzer's BindNSharpCall walk. Carry each
         // analyzed file's semantic model into emission so a free-function call can target the exact
         // declaration BindNSharpCall selected instead of re-ranking the group's CLR signatures.
@@ -672,11 +700,17 @@ class MultiFileCompiler {
         }
         referenceAssemblyPaths := ExternalAssemblyScan.ResolveReferencePaths(_projectRoot, dependencies)
         let assembly: byte[] = null
+        codegenMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.codegen")
         if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths)) {
+            CompilerPhaseTimings.End(codegenMark)
             return false
         }
+        CompilerPhaseTimings.End(codegenMark)
+        writeMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.write")
         File.WriteAllBytes(outputPath, assembly)
-        return TryEmitReferenceAssembly(outputPath, referenceAssemblyPaths)
+        written := TryEmitReferenceAssembly(outputPath, referenceAssemblyPaths)
+        CompilerPhaseTimings.End(writeMark)
+        return written
     }
 
     // The surface of what was just emitted, written only when a caller asked for one.
