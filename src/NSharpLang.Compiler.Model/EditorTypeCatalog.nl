@@ -154,7 +154,7 @@ class EditorTypeCatalog {
     func ResolveByFullName(fullName: string): Type? {
         for assembly in assemblies {
             try {
-                found := assembly.GetType(fullName)
+                found := AssemblyTypeNameIndex.GetTypeOrNull(assembly, fullName)
                 // `Assembly.GetType` answers for internal types too; only a nameable one is a type
                 // the editing project could have written.
                 if found != null && IsNameable(found) {

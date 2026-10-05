@@ -1455,6 +1455,123 @@ in the launch environment instead, and the step reader understands both `#7 [4/5
 `Step 4/5 : RUN …`.
 
 
+### 10. Compiler Throughput: Phase Profile, Fixes and Parallelism (2026-10-05)
+
+Measured on `speed/compile-throughput` (base `50816f3c8`), Apple M4, 10 cores, private
+`NUGET_PACKAGES`, the worktree-built Debug CLI. The machine was shared with four other agents, so
+every claim below is a PAIRED A/B (before and after CLIs alternated) and quotes instructions retired
+and process CPU beside wall clock; wall numbers name their one-minute load.
+
+**How to measure.**
+
+- `nlc build --timings` prints, after `Build timings:`, a `Phase timings:` block: one row per compiled
+  project (project references included) and phase -- `load-references`, `parse`, `import-graph`,
+  `analysis`, `systems-policy`, `lint`, `emit.parse`, `emit.codegen`, `emit.write` -- with wall ms,
+  process CPU ms (all threads: CPU above wall is that phase's parallelism) and allocation MB
+  (`CompilerPhaseTimings`, Compiler.Model).
+- The synthetic user project: `dotnet tests/native/compile-time-bench/bin/Debug/net10.0/NSharpLang.CompileTimeBench.dll --synthetic <dir>`
+  (default shape `10x10x6`: 80,009 lines, 101 files, no diagnostics; byte-identical on every machine).
+- `NSHARP_COMPILER_WORKERS=1` forces the serial path; `/usr/bin/time -l` gives instructions retired,
+  which is far less load-sensitive than wall or CPU time.
+- **EventPipe's sample profiler is biased** toward GC-poll sites (it suspends threads at safepoints),
+  so its exclusive attribution pointed at innocent loops (`CandidateNamespaces`, `IsSafeSzArrayType`)
+  and hid the two largest hotspots. Unbiased CPU: run the build with
+  `DOTNET_EnableEventPipe=1 DOTNET_EventPipeConfig='Microsoft-Windows-DotNETRuntime:0x18:5'` (JIT and
+  loader method-load events only), sample it natively with `/usr/bin/sample <pid> <secs> 1 -mayDie`,
+  and map the `???  [0x…]` frames to methods through the `MethodLoadVerbose`/rundown address ranges.
+  EventPipe's `GCAllocationTick` (keyword `0x1`, verbose) is unbiased and reliable for allocation.
+
+**Phase profile (serial, `NSHARP_COMPILER_WORKERS=1` for the "after" column; wall / CPU ms / alloc MB).**
+
+| Core build phase | before (`4bad0247f`: base + timings, load 4.6) | after (`be9f86fa0`, load 7.5) |
+|---|---:|---:|
+| Model analysis | 3,257 / 3,515 / 948 | 918 / 923 / 336 |
+| Model emit.parse + codegen | 1,712 / 1,737 / 1,172 | 1,509 / 1,522 / 1,114 |
+| Syntax analysis | 2,351 / 3,285 / 1,050 | 1,350 / 1,874 / 452 |
+| Syntax emit.parse + codegen | 1,726 / 2,187 / 1,264 | 1,643 / 2,025 / 1,185 |
+| Core parse | 618 / 761 / 151 | 487 / 513 / 151 |
+| Core analysis | 8,908 / 11,082 / 3,731 | 3,926 / 4,757 / 1,373 |
+| Core lint + systems policy | 188 / 236 / 85 | 144 / 144 / 85 |
+| process total | 19.2 s wall, 22.7 s user, 256 G instr | 10.5 s wall, 12.0 s user, 83.5 G instr |
+
+| synthetic 80k phase | before (load 8.1) | after (load 8.0) |
+|---|---:|---:|
+| parse | 487 / 569 / 132 | 323 / 412 / 132 |
+| analysis | 83,300 / 86,207 / 3,871 | 2,731 / 3,639 / 986 |
+| lint + systems policy | 213 / 213 / 103 | 236 / 224 / 103 |
+| emit.parse | 1,324 / 1,779 / 2,512 | 841 / 1,121 / 2,509 |
+| emit.codegen | 8,349 / 11,772 / 4,191 | 4,105 / 4,961 / 1,334 |
+| process total | 93.9 s wall, 99.1 s user, 494 G instr | 8.4 s wall, 10.3 s user, 87.4 G instr |
+
+Reference loading (`load-references`) is 5-40 ms and `emit.write` under 1 ms in every case; the CLI's
+own start, JIT and project-reference resolution are the ~0.5-1 s outside the phase rows.
+
+**Throughput.** Paired default-policy runs at load 2.7-4.9: the Core build 16.8 / 20.6 / 21.3 s
+before against 5.7 / 6.6 / 6.8 s after (median 20.6 -> 6.6 s: Core's 82,749 lines at 4,000 -> 12,500
+lines/s, 3.1x; all 141,700 lines it compiles, Model and Syntax included, 6,900 -> 21,500 lines/s);
+the synthetic 80k project 71.0 / 79.0 s against 6.6 / 7.8 s (1,070 -> 11,100 lines/s, 10x -- its
+"before" was dominated by a quadratic). Instructions retired: Core 265 -> 97 G, synthetic 498 -> 111 G.
+
+**What was fixed** (each its own commit, with its paired numbers in the message):
+
+1. Metadata type-name misses (`AssemblyTypeNameIndex`): `Assembly.GetType` misses on a
+   `MetadataLoadContext` build and discard a `TypeLoadException` under the context's lock; the
+   analyzer's probes missed for every candidate namespace of every spelling. A per-assembly index of
+   the definition and exported-type tables answers a proven miss. Synthetic analysis 30-42 -> 8 s CPU.
+2. `BindingMap` keyed by `BindingPositionKey` instead of a string spelling (1.17 GB of strings), and
+   its fuzzy reference-bucket fallback indexed per (line, column) instead of a scan of every bucket
+   (quadratic); `FilesMatch` memoised per pair.
+3. The project's disk view held across one compilation's analyses (`HoldProjectDiskView`), the
+   driver's parsed units handed to every analyzer (`SeedProjectCompilationUnits`) instead of a second
+   parse of the project per analyzer.
+4. `CodeIntelligenceTextUtilities.TryGetSourceLineRange` walked the source from its start for every
+   recorded name span (16% of Core's CPU): line starts are indexed once per large source.
+5. The external extension-method scan walked every type of every reference per member-name fallback
+   (22%): only static hosts are kept, and answers are memoised per (name, receiver) while the file's
+   imports hold.
+6. Emit: `getcwd` per binding view; constant `Type.GetType` names parsed once
+   (`RequiredRuntimeTypes`); exported source names indexed by unqualified spelling (1.7 GB of
+   substrings); sibling call facts and overload groups built once per sibling view instead of per
+   body; implicit-conversion source definitions found by index instead of a registry scan per
+   argument per overload.
+7. The analyzer's exported-name scan indexed (built once per assembly list) and each type's methods read once per binding flags (`ReflectedMethodCache`).
+8. Tiered PGO off for the CLI (`Cli.csproj`): its instrumented tier cost 15-25% of a build's CPU.
+
+**Parallelism and its threading model.** Two phases fan out per file, bounded by
+`CompilerParallelism.WorkerCount` (one worker per 500,000 characters, at most `min(cores, 4)`;
+`NSHARP_COMPILER_WORKERS` or `MultiFileCompiler.Workers` override):
+
+- *Analysis.* Worker 0 is the shared analyzer; every other worker builds its own `Analyzer` the one
+  way (`CreateAnalyzer`), so no analyzer, metadata load context or cache is shared. Workers take file
+  indices from a FIFO queue in increasing order and, before each file, replay the import-triggered
+  assembly loads of every earlier file they skipped (`Analyzer.PreloadImportedAssemblies`), so each
+  file is analysed against the serial run's loaded-assembly list. The driver's parsed units are shared
+  READ-ONLY: an analysis writes only its own unit (`ImportUsage`, `IsResultFactory`, `IsExhaustive`) and
+  no analysis reads those facts. Outcomes are merged in FILE ORDER through the serial merge; a throwing
+  file rethrows after the files before it merge.
+- *The IL back end's per-file parse* (`ColumnarProgramInputBuilder.TryBuildMultiFile`). Workers on
+  64 MB stacks; each resets the thread-local decline trace per file and keeps that file's records; the
+  emission thread appends them in file order and stops at the first decline -- the serial trace.
+- Process-wide caches touched by workers are thread-safe by construction: `ConditionalWeakTable` /
+  `ConcurrentDictionary` (`AssemblyTypeNameIndex`, `ReflectedMethodCache`, `RequiredRuntimeTypes`,
+  `SourceLineIndex`, `FilesMatch`, `CompilerPhaseTimings`).
+
+Determinism evidence: Driver estate rows (`MultiFileCompilerParallelAnalysis.tests.nl`) compile a
+10-file project at 1/2/3/4/8 workers and compare diagnostics and IL bytes, and make a late file refuse
+columnar emission and compare the NL103 (a mutation that drops the trace replay fails it); serial vs 8
+workers over Compiler.Core (64 diagnostics, Model.dll and Syntax.dll) and the synthetic project is
+byte-identical, and every optimisation commit compared its before/after DLLs byte for byte.
+
+**Next hotspots** (native-stack profile of the "after" build): IL codegen is now the largest serial
+phase (Model 1.1 s, Syntax 1.3 s, synthetic 4.1 s) -- its remaining linear registry scans by builder
+identity (`ColumnarSourceDefinitionResolver.TryFindByBuilderIdentity`,
+`ColumnarSourceDirectCallResolver.TryClassifySourceType`, `ColumnarInstanceMemberPlanner.TrySelect`,
+`IsKnownEnumType`) and `IsBuilderBound`'s `Assembly.IsDynamic` read per type comparison; `emit.parse`
+re-tokenises every file (`CollectSourceNames`) with 3x-length scratch arrays (0.8 GB per 30k lines);
+GC is ~25% of samples (allocation still ~5 GB per Core build); a parallel worker's warm-up (its own
+reference load and lazily built caches, ~0.5-1 s) caps analysis parallelism; and the Core build
+rebuilds Model and Syntax from source every time (the incremental-compile stream's job).
+
 ## Test Categories
 
 ### Lexer Tests

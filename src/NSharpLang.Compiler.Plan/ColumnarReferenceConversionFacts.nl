@@ -584,7 +584,7 @@ class ColumnarReferenceConversionFacts {
             return false
         }
 
-        runtimeComparer := Type.GetType("System.Collections.Generic.ReferenceEqualityComparer, System.Private.CoreLib")
+        runtimeComparer := RequiredRuntimeTypes.Find("System.Collections.Generic.ReferenceEqualityComparer, System.Private.CoreLib")
         if runtimeComparer == null {
             throw new InvalidOperationException("System.Collections.Generic.ReferenceEqualityComparer was not found.")
         }

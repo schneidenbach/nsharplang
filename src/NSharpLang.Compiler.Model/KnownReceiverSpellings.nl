@@ -47,10 +47,10 @@ class KnownReceiverSpellings {
             return typeof(object)
         }
         if name == "Console" || name == "System.Console" {
-            return Type.GetType("System.Console, System.Console")
+            return RequiredRuntimeTypes.Find("System.Console, System.Console")
         }
         if name == "Math" || name == "System.Math" {
-            return Type.GetType("System.Math")
+            return RequiredRuntimeTypes.Find("System.Math")
         }
         if name == "DateTime" || name == "System.DateTime" {
             return typeof(DateTime)
@@ -72,49 +72,49 @@ class KnownReceiverSpellings {
     // forwarded to it EXCEPT `Stack`, which is in `System.Collections` and so carries its assembly.
     static func KnownReceiverGenericDefinition(name: string): Type? {
         if name == "List" || name == "System.Collections.Generic.List" {
-            return Type.GetType("System.Collections.Generic.List`1")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.List`1")
         }
         if name == "IEnumerable" || name == "System.Collections.Generic.IEnumerable" {
-            return Type.GetType("System.Collections.Generic.IEnumerable`1")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.IEnumerable`1")
         }
         if name == "ICollection" || name == "System.Collections.Generic.ICollection" {
-            return Type.GetType("System.Collections.Generic.ICollection`1")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.ICollection`1")
         }
         if name == "IList" || name == "System.Collections.Generic.IList" {
-            return Type.GetType("System.Collections.Generic.IList`1")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.IList`1")
         }
         if name == "IReadOnlyCollection" || name == "System.Collections.Generic.IReadOnlyCollection" {
-            return Type.GetType("System.Collections.Generic.IReadOnlyCollection`1")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.IReadOnlyCollection`1")
         }
         if name == "IReadOnlyList" || name == "System.Collections.Generic.IReadOnlyList" {
-            return Type.GetType("System.Collections.Generic.IReadOnlyList`1")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.IReadOnlyList`1")
         }
         if name == "Dictionary" || name == "System.Collections.Generic.Dictionary" {
-            return Type.GetType("System.Collections.Generic.Dictionary`2")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.Dictionary`2")
         }
         if name == "IDictionary" || name == "System.Collections.Generic.IDictionary" {
-            return Type.GetType("System.Collections.Generic.IDictionary`2")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.IDictionary`2")
         }
         if name == "IReadOnlyDictionary" || name == "System.Collections.Generic.IReadOnlyDictionary" {
-            return Type.GetType("System.Collections.Generic.IReadOnlyDictionary`2")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.IReadOnlyDictionary`2")
         }
         if name == "HashSet" || name == "System.Collections.Generic.HashSet" {
-            return Type.GetType("System.Collections.Generic.HashSet`1")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.HashSet`1")
         }
         if name == "Queue" || name == "System.Collections.Generic.Queue" {
-            return Type.GetType("System.Collections.Generic.Queue`1")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.Queue`1")
         }
         if name == "Stack" || name == "System.Collections.Generic.Stack" {
-            return Type.GetType("System.Collections.Generic.Stack`1, System.Collections")
+            return RequiredRuntimeTypes.Find("System.Collections.Generic.Stack`1, System.Collections")
         }
         if name == "Nullable" || name == "System.Nullable" {
-            return Type.GetType("System.Nullable`1")
+            return RequiredRuntimeTypes.Find("System.Nullable`1")
         }
         if name == "Task" || name == "System.Threading.Tasks.Task" {
-            return Type.GetType("System.Threading.Tasks.Task`1")
+            return RequiredRuntimeTypes.Find("System.Threading.Tasks.Task`1")
         }
         if name == "ValueTask" || name == "System.Threading.Tasks.ValueTask" {
-            return Type.GetType("System.Threading.Tasks.ValueTask`1")
+            return RequiredRuntimeTypes.Find("System.Threading.Tasks.ValueTask`1")
         }
 
         return null

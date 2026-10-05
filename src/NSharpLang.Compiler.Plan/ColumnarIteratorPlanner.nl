@@ -2936,15 +2936,11 @@ class ColumnarIteratorBodyPlanner {
 
     // N# has no `typeof(void)`; resolve the void marker through the runtime type system.
     static func VoidReturnType(): Type {
-        voidType := Type.GetType("System.Void")
-        if voidType == null {
-            throw new InvalidOperationException("System.Void was not found.")
-        }
-        return voidType
+        return RequiredRuntimeTypes.Get("System.Void", "System.Void was not found.")
     }
 
     static func EnumeratorInterfaceTypeOf(elementType: Type): Type {
-        definition := Type.GetType("System.Collections.Generic.IEnumerator`1")
+        definition := RequiredRuntimeTypes.Find("System.Collections.Generic.IEnumerator`1")
         if definition == null {
             throw new InvalidOperationException("System.Collections.Generic.IEnumerator`1 was not found.")
         }
@@ -2954,7 +2950,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func EnumerableInterfaceTypeOf(elementType: Type): Type {
-        definition := Type.GetType("System.Collections.Generic.IEnumerable`1")
+        definition := RequiredRuntimeTypes.Find("System.Collections.Generic.IEnumerable`1")
         if definition == null {
             throw new InvalidOperationException("System.Collections.Generic.IEnumerable`1 was not found.")
         }
@@ -2964,11 +2960,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func NonGenericEnumeratorType(): Type {
-        enumeratorType := Type.GetType("System.Collections.IEnumerator")
-        if enumeratorType == null {
-            throw new InvalidOperationException("System.Collections.IEnumerator was not found.")
-        }
-        return enumeratorType
+        return RequiredRuntimeTypes.Get("System.Collections.IEnumerator", "System.Collections.IEnumerator was not found.")
     }
 
     static func LoadThis(emit: ColumnarMoveNextEmit) {
@@ -5961,7 +5953,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func DisposableDisposeMethod(): MethodInfo {
-        disposableType := Type.GetType("System.IDisposable")
+        disposableType := RequiredRuntimeTypes.Find("System.IDisposable")
         if disposableType == null {
             throw new InvalidOperationException("System.IDisposable was not found.")
         }

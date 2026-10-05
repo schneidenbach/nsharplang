@@ -128,13 +128,7 @@ sealed class ColumnarEmitContext {
     func WithSiblings(siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, returnLabeledCanonicals: IReadOnlyDictionary<string, string>?): ColumnarEmitContext {
         clone := Copy()
         clone.Siblings = siblings
-        overloads := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
-        for entry in siblings {
-            group := new List<ColumnarSiblingMethodDefinition>()
-            group.Add(entry.Value)
-            overloads[entry.Key] = group
-        }
-        clone.SiblingOverloads = overloads
+        clone.SiblingOverloads = ColumnarSiblingViewProjections.SingleOverloadsFor(siblings)
         clone.SiblingReturnLabeledCanonicals = returnLabeledCanonicals
         return clone
     }

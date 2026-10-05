@@ -277,12 +277,16 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     // `SoaEnabled` (`NSHARP_EXPERIMENTAL_SOA`) and `ColumnarDeclineLog` (`NSHARP_COLUMNAR_DECLINE_LOG`,
     // which meant stderr). Each is read from its variable ONCE, when the compiler is built, and a
     // caller that wants the other answer sets the property instead of rewriting the process.
-    // THE FOURTEENTH TO SIXTEENTH ARE INCREMENTALITY: `IncrementalBuild` lets a caller that keeps
+    // THE FOURTEENTH IS THE SAME KIND OF DOOR FOR `NSHARP_COMPILER_WORKERS`: `Workers`, the worker
+    // count of the fan-out phases (0 lets `CompilerParallelism` decide), so the
+    // serial-versus-parallel differential and the estate rows pick a path without touching the
+    // process environment.
+    // THE FIFTEENTH TO SEVENTEENTH ARE INCREMENTALITY: `IncrementalBuild` lets a caller that keeps
     // its output have an unchanged compilation answered from its `obj/` stamp, `WasUpToDate` says
     // that happened, and `IncrementalState` carries the per-file analyses a warm caller keeps
     // between compilations of the same project. Both instructions default off.
-    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 16
-    propertyNames := new string[](16)
+    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 17
+    propertyNames := new string[](17)
     propertyNames[0] = "CompilationUnits"
     propertyNames[1] = "SemanticModels"
     propertyNames[2] = "AllErrors"
@@ -296,9 +300,10 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     propertyNames[10] = "EmitReferenceAssembly"
     propertyNames[11] = "SoaEnabled"
     propertyNames[12] = "ColumnarDeclineLog"
-    propertyNames[13] = "IncrementalBuild"
-    propertyNames[14] = "WasUpToDate"
-    propertyNames[15] = "IncrementalState"
+    propertyNames[13] = "Workers"
+    propertyNames[14] = "IncrementalBuild"
+    propertyNames[15] = "WasUpToDate"
+    propertyNames[16] = "IncrementalState"
     propertyIndex := 0
     while propertyIndex < propertyNames.Length {
         property := MultiFileOwnerRequiredProperty(
@@ -306,7 +311,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
             propertyNames[propertyIndex]
         )
         assert property.get_CanRead(), propertyNames[propertyIndex]
-        if propertyNames[propertyIndex] == "AotMode" || propertyNames[propertyIndex] == "EmitReferenceAssembly" || propertyNames[propertyIndex] == "SoaEnabled" || propertyNames[propertyIndex] == "ColumnarDeclineLog" || propertyNames[propertyIndex] == "IncrementalBuild" || propertyNames[propertyIndex] == "IncrementalState" {
+        if propertyNames[propertyIndex] == "AotMode" || propertyNames[propertyIndex] == "EmitReferenceAssembly" || propertyNames[propertyIndex] == "SoaEnabled" || propertyNames[propertyIndex] == "ColumnarDeclineLog" || propertyNames[propertyIndex] == "Workers" || propertyNames[propertyIndex] == "IncrementalBuild" || propertyNames[propertyIndex] == "IncrementalState" {
             assert property.get_CanWrite()
         } else {
             assert !property.get_CanWrite(), propertyNames[propertyIndex]
@@ -316,6 +321,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
 
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("SoaEnabled"), "SoaEnabled").get_PropertyType() == typeof(bool)
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("ColumnarDeclineLog"), "ColumnarDeclineLog").get_PropertyType() == typeof(TextWriter)
+    assert MultiFileOwnerRequiredProperty(owner.GetProperty("Workers"), "Workers").get_PropertyType() == typeof(int)
 
     analysisTypes := new Type[](0)
     analysis := MultiFileOwnerRequiredMethod(

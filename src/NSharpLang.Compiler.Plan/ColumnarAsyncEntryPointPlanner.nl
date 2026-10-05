@@ -97,10 +97,6 @@ class ColumnarAsyncEntryPointPlanner {
     // N# has no `typeof(void)`; the void marker is resolved through the runtime type system, the same
     // idiom the iterator and construction planners use.
     static func RequiredVoidType(): Type {
-        voidType := Type.GetType("System.Void")
-        if voidType == null {
-            throw new InvalidOperationException("System.Void was not found.")
-        }
-        return voidType
+        return RequiredRuntimeTypes.Get("System.Void", "System.Void was not found.")
     }
 }

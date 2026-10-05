@@ -801,9 +801,13 @@ test "a plain type name names its top-level type, and every other spelling names
     assert ExternalAssemblyScan.PlainTopLevelTypeName("System.Environment+SpecialFolder") == "System.Environment"
     assert ExternalAssemblyScan.PlainTopLevelTypeName("A.B+C+D2") == "A.B"
     assert ExternalAssemblyScan.PlainTopLevelTypeName("_Private.Name_1") == "_Private.Name_1"
+    // Angle brackets are plain characters to the type-name grammar: they spell the compiler-reserved
+    // names `<Module>` and an N# namespace's `<Program>` free-function holder.
+    assert ExternalAssemblyScan.PlainTopLevelTypeName("<Module>") == "<Module>"
+    assert ExternalAssemblyScan.PlainTopLevelTypeName("App.Tools.<Program>") == "App.Tools.<Program>"
 
     // Anything a type-name parser reads as more than a dotted path is not reduced.
-    for spelling in ["", "A.", ".A", "A..B", "A+", "A+B.C", "1A", "A.1B", "`1", "List`1[System.Int32]", "System.String, System.Private.CoreLib", "A&", "A*", "A[]", "<Module>", "A\\+B", "A B", "Ä.B"] {
+    for spelling in ["", "A.", ".A", "A..B", "A+", "A+B.C", "1A", "A.1B", "`1", "List`1[System.Int32]", "System.String, System.Private.CoreLib", "A&", "A*", "A[]", "A\\+B", "A B", "Ä.B"] {
         assert ExternalAssemblyScan.PlainTopLevelTypeName(spelling) == "", spelling
     }
 }
@@ -887,6 +891,44 @@ test "the name index never says not-here for a type an entry defines or forwards
         assert nested.Status == ExternalAssemblyTypeLookupStatus.Found
         assert nested.RuntimeType.FullName == "System.Environment+SpecialFolder"
         assert ExternalAssemblyScan.FindExactType(scan, "NSharpLang.NoSuchNamespace.NoSuchType").Status == ExternalAssemblyTypeLookupStatus.Missing
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// `AssemblyTypeNameIndex.GetTypeOrNull` is `Assembly.GetType` with the proven misses skipped. Every
+// spelling below is asked of every inspectable metadata assembly both ways, and the answers must be
+// the same type or both null: definitions, forwarders, nested names, reserved angle-bracket names,
+// misses, and spellings the index cannot reduce.
+test "the shared type-name index answers exactly what Assembly.GetType answers" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        spellings := ["System.String", "System.Uri", "System.Environment+SpecialFolder", "System.Collections.Generic.List`1", "<Module>", "System.<Program>", "System.Program", "NSharpLang.NoSuchNamespace.NoSuchType", "List`1[System.Int32]", "System.String, System.Private.CoreLib", "String"]
+        compared := 0
+        for entry in scan.Entries {
+            metadataAssembly := entry.MetadataAssembly
+            if !entry.IsInspectable || metadataAssembly == null {
+                continue
+            }
+
+            for spelling in spellings {
+                expected: Type? = null
+                try {
+                    expected = metadataAssembly.GetType(spelling)
+                } catch {
+                    expected = null
+                }
+                actual: Type? = null
+                try {
+                    actual = AssemblyTypeNameIndex.GetTypeOrNull(metadataAssembly, spelling)
+                } catch {
+                    actual = null
+                }
+                assert Object.ReferenceEquals(expected, actual), entry.Identity + ": " + spelling
+                compared = compared + 1
+            }
+        }
+        assert compared > 100, compared.ToString()
     } finally {
         scan.Dispose()
     }

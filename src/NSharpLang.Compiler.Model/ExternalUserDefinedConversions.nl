@@ -315,8 +315,10 @@ class ExternalUserDefinedConversions {
             return null
         }
 
+        // Read through `ReflectedMethodCache` (the type is complete here): the array is SHARED, and
+        // both callers only read it.
         try {
-            return owner.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            return ReflectedMethodCache.GetMethods(owner, BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
         } catch {
             return null
         }

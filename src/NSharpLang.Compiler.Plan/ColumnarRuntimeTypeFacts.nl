@@ -51,12 +51,12 @@ class ColumnarRuntimeTypeFacts {
             return true
         }
 
-        fileStreamType := Type.GetType("System.IO.FileStream")
+        fileStreamType := RequiredRuntimeTypes.Find("System.IO.FileStream")
         if fileStreamType != null && clrType == fileStreamType {
             return true
         }
 
-        directoryInfoType := Type.GetType("System.IO.DirectoryInfo")
+        directoryInfoType := RequiredRuntimeTypes.Find("System.IO.DirectoryInfo")
         return directoryInfoType != null && clrType == directoryInfoType
     }
 

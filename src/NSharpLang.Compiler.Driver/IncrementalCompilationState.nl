@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // ONE FILE'S PART OF A COMPILATION, KEPT FOR THE NEXT ONE.
 //
@@ -17,6 +18,9 @@ class IncrementalFileRecord {
     Path: string
     Summary: IncrementalFileSummary
     Unit: CompilationUnit?
+    // The parse itself when it is the one the analyzer would make (no preprocessor change, full
+    // path), so a compilation that reuses this record can seed its analyzers with it too.
+    ReusableParse: FileParseAst?
     ParseErrors: List<CompilerError>
     Analyzed: bool
     SemanticModel: SemanticModel?
@@ -30,6 +34,7 @@ class IncrementalFileRecord {
         Path = path
         Summary = summary
         Unit = null
+        ReusableParse = null
         ParseErrors = new List<CompilerError>()
         Analyzed = false
         SemanticModel = null

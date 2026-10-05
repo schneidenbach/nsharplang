@@ -38,8 +38,6 @@ class ExternalAssemblyCatalogEntry {
     MetadataAssembly: Assembly?
     RuntimeAssembly: Assembly?
     IsInspectable: bool
-    private topLevelTypeNames: HashSet<string>?
-    private topLevelTypeNamesRead: bool
 
     constructor(identityName: AssemblyName?, identity: string, metadataPath: string, runtimeAssembly: Assembly?, isInspectable: bool) {
         IdentityName = identityName
@@ -48,8 +46,6 @@ class ExternalAssemblyCatalogEntry {
         MetadataAssembly = null
         RuntimeAssembly = runtimeAssembly
         IsInspectable = isInspectable
-        topLevelTypeNames = null
-        topLevelTypeNamesRead = false
     }
 
     func AttachRuntimeAssembly(runtimeAssembly: Assembly?) {
@@ -58,15 +54,11 @@ class ExternalAssemblyCatalogEntry {
 
     func AttachMetadataAssembly(metadataAssembly: Assembly) {
         MetadataAssembly = metadataAssembly
-        topLevelTypeNames = null
-        topLevelTypeNamesRead = false
     }
 
     func MarkUninspectable() {
         IsInspectable = false
         MetadataAssembly = null
-        topLevelTypeNames = null
-        topLevelTypeNamesRead = false
     }
 
     // WHETHER THIS ENTRY'S METADATA CAN ANSWER A LOOKUP OF THE TOP-LEVEL TYPE `namespace.Name`.
@@ -81,18 +73,12 @@ class ExternalAssemblyCatalogEntry {
     // here" for a hash probe. An entry whose tables cannot be read answers "maybe", which keeps the
     // lookup exactly what it was.
     func MayDeclareTopLevelType(qualifiedName: string): bool {
-        if !topLevelTypeNamesRead {
-            metadataAssembly := MetadataAssembly
-            location := ""
-            if metadataAssembly != null {
-                location = metadataAssembly.Location
-            }
-            topLevelTypeNames = ExternalTypeNameIndex.TopLevelNames(location)
-            topLevelTypeNamesRead = true
+        metadataAssembly := MetadataAssembly
+        if metadataAssembly == null {
+            return true
         }
 
-        names := topLevelTypeNames
-        return names == null || names.Contains(qualifiedName)
+        return AssemblyTypeNameIndex.MayDeclareTopLevelType(metadataAssembly, qualifiedName)
     }
 }
 
@@ -1385,8 +1371,9 @@ class ExternalAssemblyScan {
         return MissingResolution()
     }
 
-    // The top-level type a PLAIN type name names -- `A.B.C` is `A.B.C`, `A.B.C+D+E` is `A.B.C` -- or
-    // "" for any other spelling (generic arguments, assembly qualification, escapes, pointers, an
+    // The top-level type a PLAIN type name names -- `A.B.C` is `A.B.C`, `A.B.C+D+E` is `A.B.C`, and
+    // the angle brackets of a compiler-reserved name such as `<Program>` are plain characters to the
+    // type-name grammar -- or "" for any other spelling (generic arguments, assembly qualification, escapes, pointers, an
     // empty segment), which `FindExactType` then asks every entry about exactly as before. Only for a
     // plain name is "neither defined nor forwarded here" the same answer as a `GetType` miss.
     static func PlainTopLevelTypeName(fullName: string): string {
@@ -1406,7 +1393,7 @@ class ExternalAssemblyScan {
                     return ""
                 }
                 segmentLength = 0
-            } else if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_' || (segmentLength > 0 && ((character >= '0' && character <= '9') || character == '`')) {
+            } else if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_' || character == '<' || character == '>' || (segmentLength > 0 && ((character >= '0' && character <= '9') || character == '`')) {
                 segmentLength = segmentLength + 1
             } else {
                 return ""

@@ -88,6 +88,11 @@ class AnalyzerProjectSourceProvider {
     sourceSnapshotVersionValue: int
     // Whether the DRIVER said these files compile into one assembly. See `CompilesAsOneProgram`.
     declaredOneProgramValue: bool
+    // Whether the driver holds the DISK still for this analyzer's lifetime (`HoldDiskViewAcrossAnalyses`),
+    // and the snapshot version and root the two namespace caches were filled for.
+    holdDiskViewValue: bool
+    diskViewVersion: int
+    diskViewRoot: string?
 
     // The project root of the analysis in progress, or null when there is none.
     ProjectRoot: string? => projectRootValue
@@ -108,6 +113,61 @@ class AnalyzerProjectSourceProvider {
         projectRootValue = null
         sourceSnapshotVersionValue = 0
         declaredOneProgramValue = false
+        holdDiskViewValue = false
+        diskViewVersion = -1
+        diskViewRoot = null
+    }
+
+    // THE DRIVER'S WORD THAT THE DISK DOES NOT MOVE UNDER THIS ANALYZER. A batch compiler analyses
+    // every file of one project against one snapshot and one directory tree, so the two namespace
+    // caches -- which enumerate the project's files on disk and parse the ones outside the snapshot
+    // (its `.tests.nl` files, in a product build) -- are the same answer for every file. Rebuilding
+    // them per analysis was a directory walk per file and, for Compiler.Core, a namespace scan over
+    // 308 files for each of its 141. Held, they are rebuilt only when the snapshot or the project root
+    // changes. A long-lived analyzer (the language server's) never sets this, so a file created on
+    // disk between two of its analyses is still seen.
+    func HoldDiskViewAcrossAnalyses() {
+        holdDiskViewValue = true
+    }
+
+    // PARSES THE DRIVER ALREADY MADE, handed over instead of made again. The driver parses every
+    // file of the compilation before analysis; when a file's parse is exactly the one this provider
+    // would make -- the same snapshot text (no conditional-compilation directive changed it) under
+    // the same full path -- the driver's parse IS this provider's parse, and parsing it a second time
+    // was a whole extra parse of the project per analyzer (per worker, under parallel analysis). The
+    // parse goes into BOTH caches: the unit cache every declaration walk reads, and the parse cache a
+    // file import reads with its syntax errors (`TryGetProjectParse`), so one parse per file serves
+    // the driver, every analyzer and every import of it. Only paths in the current snapshot are taken;
+    // a later snapshot discards them with the rest of the caches.
+    //
+    // A SHARED UNIT IS READ, NOT WRITTEN. The analysis of one file writes three facts onto AST nodes
+    // -- `CompilationUnit.ImportUsage`, `CallExpression.IsResultFactory`, `MatchExpression.IsExhaustive`
+    // -- and only onto the unit it is analysing; it reads other files' units for their declarations
+    // and never reads those three facts. So a unit seen by several analyses (and, under parallel
+    // analysis, by several threads) answers every one of them the same.
+    func SeedParses(parses: IReadOnlyDictionary<string, FileParseAst>) {
+        for entry in parses {
+            if sourceTexts.ContainsKey(entry.Key) {
+                unitCache[entry.Key] = entry.Value.CompilationUnit
+                parseCache[entry.Key] = entry.Value
+            }
+        }
+    }
+
+    // THE PROJECT'S NAMESPACE SET COMPUTED ELSEWHERE, for a held disk view: a parallel analysis
+    // worker is handed the set the shared analyzer computed over the same snapshot and the same tree,
+    // instead of parsing every file outside the snapshot again. It holds until the snapshot or the
+    // root changes, exactly as a set this provider computed would.
+    func SeedProjectNamespaces(projectRoot: string, namespaces: HashSet<string>) {
+        if !holdDiskViewValue {
+            return
+        }
+
+        namespaceCache.Clear()
+        fileNamespaceCache.Clear()
+        namespaceCache[projectRoot] = new HashSet<string>(namespaces, StringComparer.Ordinal)
+        diskViewVersion = sourceSnapshotVersionValue
+        diskViewRoot = projectRoot
     }
 
     // THE DRIVER'S WORD THAT ITS FILES ARE ONE PROGRAM. A compiler handed a project configuration
@@ -143,11 +203,19 @@ class AnalyzerProjectSourceProvider {
     }
 
     // Called at the start of every analysis: the project root changes and the two namespace caches
-    // are per-analysis. The source snapshot and the parsed units deliberately survive.
+    // are per-analysis -- unless the driver holds the disk still (`HoldDiskViewAcrossAnalyses`), when
+    // they last until the snapshot or the root changes. The source snapshot and the parsed units
+    // deliberately survive.
     func BeginAnalysis(projectRoot: string?) {
         projectRootValue = projectRoot
+        if holdDiskViewValue && diskViewVersion == sourceSnapshotVersionValue && string.Equals(diskViewRoot, projectRoot, StringComparison.Ordinal) {
+            return
+        }
+
         namespaceCache.Clear()
         fileNamespaceCache.Clear()
+        diskViewVersion = sourceSnapshotVersionValue
+        diskViewRoot = projectRoot
     }
 
     // WHETHER THE FILES UNDER THIS ROOT COMPILE INTO ONE ASSEMBLY. A `project.yml` is what says so:

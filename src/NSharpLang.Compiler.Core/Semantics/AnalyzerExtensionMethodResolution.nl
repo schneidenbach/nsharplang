@@ -26,6 +26,18 @@ import NSharpLang.Compiler.Ast
 // would search whichever namespace set existed when the copy was taken. The containing type name is
 // the opposite case and must NOT be held: `_currentTypeName` is a plain mutable field that changes
 // every time the walk enters or leaves a type, so it crosses as a PARAMETER, read at the call.
+// A STATIC CLASS OF A REFERENCED ASSEMBLY AND ITS NAMESPACE: the only types the external extension
+// scan can take a method from. See `AnalyzerExtensionMethodResolution.EnsureExtensionHosts`.
+class AnalyzerExtensionHostCandidate {
+    HostType: Type
+    Namespace: string
+
+    constructor(hostType: Type, hostNamespace: string) {
+        HostType = hostType
+        Namespace = hostNamespace
+    }
+}
+
 class AnalyzerExtensionMethodResolution {
     typeResolver: AnalyzerTypeResolver
     assignability: AnalyzerAssignability
@@ -36,6 +48,27 @@ class AnalyzerExtensionMethodResolution {
     usingNamespaces: List<string>
     assemblies: List<Assembly>
     assemblyTypes: Dictionary<Assembly, Type[]>
+    // THE SCAN'S CANDIDATE HOSTS, in assembly then type order: every static (`sealed abstract`) type
+    // with a namespace, of every loaded assembly. The scan used to walk EVERY type of EVERY reference
+    // -- reading each one's namespace -- for every member name that fell through to an extension
+    // lookup, which was over a fifth of a Compiler.Core build's CPU; the static types are a few
+    // hundred of those tens of thousands. Both facts read here are fixed for a type, so the list only
+    // grows with the assembly list (and is rebuilt if that list shrinks or is replaced); the
+    // per-query tests -- the imported namespace, the friend rule -- still run per query, in order.
+    extensionHosts: List<AnalyzerExtensionHostCandidate>
+    extensionHostAssemblies: int
+    extensionHostLastAssembly: Assembly?
+    // Bumped every time the host list changes, so the answers below can tell.
+    extensionHostVersion: int
+    // THE SCAN'S ANSWERS, per (method name, receiver CLR type), for as long as the imported namespaces,
+    // the host list and the friend grants they were computed under are unchanged -- a file asks the
+    // same few names of the same few receivers over and over (`.Add`, `.Count`, `.Select`), and each
+    // ask was a walk of every host. The inputs are compared on every ask (the import list element by
+    // element), so a new file's imports, a newly loaded assembly or a changed grant starts afresh.
+    extensionScanMemo: Dictionary<(Name: string, Receiver: Type), List<MethodInfo>>
+    extensionScanMemoNamespaces: List<string>
+    extensionScanMemoHosts: int
+    extensionScanMemoGrantName: string
     importUsageCredit: AnalyzerImportUsageCredit?
     genericCallBinder: AnalyzerSyntheticCallBinder?
 
@@ -54,6 +87,14 @@ class AnalyzerExtensionMethodResolution {
         usingNamespaces = importedNamespaces
         assemblies = referenceAssemblies
         assemblyTypes = new Dictionary<Assembly, Type[]>()
+        extensionHosts = new List<AnalyzerExtensionHostCandidate>()
+        extensionHostAssemblies = 0
+        extensionHostLastAssembly = null
+        extensionHostVersion = 0
+        extensionScanMemo = new Dictionary<(Name: string, Receiver: Type), List<MethodInfo>>()
+        extensionScanMemoNamespaces = new List<string>()
+        extensionScanMemoHosts = -1
+        extensionScanMemoGrantName = ""
         friendGrants = null
         genericCallBinder = null
     }
@@ -266,23 +307,82 @@ class AnalyzerExtensionMethodResolution {
     // offered every reference's internal hosts to everybody, which is the same unsoundness the
     // metadata type probe had. `IsNameableType` is the one rule both ask.
     func ScanExternalExtensionMethods(targetClrType: Type, methodName: string): List<MethodInfo> {
-        methods := new List<MethodInfo>()
+        EnsureExtensionHosts()
+        ValidateExtensionScanMemo()
+        memoKey := (Name: methodName, Receiver: targetClrType)
+        remembered: List<MethodInfo>? = null
+        if extensionScanMemo.TryGetValue(memoKey, out remembered) && remembered != null {
+            return new List<MethodInfo>(remembered)
+        }
 
-        for assembly in assemblies {
+        methods := new List<MethodInfo>()
+        for candidate in extensionHosts {
+            hostType := candidate.HostType
+            if usingNamespaces.Contains(candidate.Namespace) && IsNameableHost(hostType) {
+                CollectExtensionMethods(hostType, HostMemberFlags(hostType), methodName, targetClrType, methods, friendGrants)
+            }
+        }
+
+        extensionScanMemo[memoKey] = new List<MethodInfo>(methods)
+        return methods
+    }
+
+    // Clears the scan's answers when any input they were computed under has changed (see
+    // `extensionScanMemo`).
+    private func ValidateExtensionScanMemo() {
+        grantName := ""
+        grants := friendGrants
+        if grants != null {
+            grantName = grants.CompilingAssemblyName
+        }
+
+        unchanged := extensionScanMemoHosts == extensionHostVersion && string.Equals(extensionScanMemoGrantName, grantName, StringComparison.Ordinal) && extensionScanMemoNamespaces.Count == usingNamespaces.Count
+        index := 0
+        while unchanged && index < usingNamespaces.Count {
+            if !string.Equals(extensionScanMemoNamespaces[index], usingNamespaces[index], StringComparison.Ordinal) {
+                unchanged = false
+            }
+            index = index + 1
+        }
+        if unchanged {
+            return
+        }
+
+        extensionScanMemo.Clear()
+        extensionScanMemoNamespaces.Clear()
+        extensionScanMemoNamespaces.AddRange(usingNamespaces)
+        extensionScanMemoHosts = extensionHostVersion
+        extensionScanMemoGrantName = grantName
+    }
+
+    // Brings `extensionHosts` up to the live assembly list: a static class is `sealed abstract` in
+    // metadata, nothing else may declare an extension method, and a host with no namespace cannot be
+    // imported -- so only those are kept, in the order the full scan visited them.
+    private func EnsureExtensionHosts() {
+        listChanged := extensionHostAssemblies > assemblies.Count || (extensionHostAssemblies > 0 && !Object.ReferenceEquals(assemblies[extensionHostAssemblies - 1], extensionHostLastAssembly))
+        if listChanged {
+            extensionHosts.Clear()
+            extensionHostAssemblies = 0
+            extensionHostLastAssembly = null
+            extensionHostVersion = extensionHostVersion + 1
+        }
+
+        while extensionHostAssemblies < assemblies.Count {
+            assembly := assemblies[extensionHostAssemblies]
             assemblyTypes := AssemblyTypesOrEmpty(assembly)
             typeIndex := 0
             while typeIndex < assemblyTypes.Length {
                 hostType := assemblyTypes[typeIndex]
                 hostNamespace := AnalyzerReflectionMemberProbe.NamespaceOrNull(hostType)
-                // A static class is `sealed abstract` in metadata; nothing else may declare one.
-                if hostNamespace != null && usingNamespaces.Contains(hostNamespace) && AnalyzerReflectionMemberProbe.IsStaticHostType(hostType) && IsNameableHost(hostType) {
-                    CollectExtensionMethods(hostType, HostMemberFlags(hostType), methodName, targetClrType, methods, friendGrants)
+                if hostNamespace != null && AnalyzerReflectionMemberProbe.IsStaticHostType(hostType) {
+                    extensionHosts.Add(new AnalyzerExtensionHostCandidate(hostType, hostNamespace))
                 }
                 typeIndex = typeIndex + 1
             }
+            extensionHostAssemblies = extensionHostAssemblies + 1
+            extensionHostLastAssembly = assembly
+            extensionHostVersion = extensionHostVersion + 1
         }
-
-        return methods
     }
 
     // The same analyzer instance handles every source file in one project. Cache each immutable

@@ -394,7 +394,7 @@ class AnalyzerArrayLiteral {
         // closed list that carries `List<>` and `HashSet<>` but not `Queue<>`. The spelling is the
         // compiler's own — an assembly-qualified open definition — and it yields the identical runtime
         // definition, so the three checks stay one rule.
-        queueDefinition := Type.GetType("System.Collections.Generic.Queue`1, System.Collections")
+        queueDefinition := RequiredRuntimeTypes.Find("System.Collections.Generic.Queue`1, System.Collections")
         return IsSupportedCollectionExpressionInterfaceTarget(targetType) || IsAssignableFromConstructed(targetType, typeof(List<int>).GetGenericTypeDefinition(), elementType) || IsAssignableFromConstructed(targetType, typeof(HashSet<int>).GetGenericTypeDefinition(), elementType) || (queueDefinition != null && IsAssignableFromConstructed(targetType, queueDefinition, elementType))
     }
 

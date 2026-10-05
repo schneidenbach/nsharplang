@@ -1664,7 +1664,7 @@ class AnalyzerMemberAccess {
             return true
         }
 
-        consoleType := Type.GetType("System.Console, System.Console")
+        consoleType := RequiredRuntimeTypes.Find("System.Console, System.Console")
         if consoleType != null {
             consoleAssembly: object = consoleType.Assembly
             if Object.ReferenceEquals(assembly, consoleAssembly) {
@@ -1672,7 +1672,7 @@ class AnalyzerMemberAccess {
             }
         }
 
-        linqType := Type.GetType("System.Linq.Enumerable, System.Linq")
+        linqType := RequiredRuntimeTypes.Find("System.Linq.Enumerable, System.Linq")
         if linqType != null {
             linqAssembly: object = linqType.Assembly
             if Object.ReferenceEquals(assembly, linqAssembly) {

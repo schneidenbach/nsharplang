@@ -31,14 +31,8 @@ class ExternalQualifiedTypeResolver {
         while searchEnd > 0 {
             index := 0
             while index < assemblies.Count {
-                // Skip what the reference's metadata tables cannot declare (`ExternalTypeNameIndex`).
-                if !ExternalTypeNameIndex.MayDeclare(ExternalTypeNameIndex.TopLevelNamesOf(assemblies[index]), candidate) {
-                    index = index + 1
-                    continue
-                }
-
                 try {
-                    resolved := assemblies[index].GetType(candidate)
+                    resolved := AssemblyTypeNameIndex.GetTypeOrNull(assemblies[index], candidate)
                     if resolved != null && IsNameable(resolved, grants) {
                         runtimeType = resolved
                         return true

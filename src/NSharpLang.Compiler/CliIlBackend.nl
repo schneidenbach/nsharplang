@@ -30,6 +30,9 @@ class CliIlBackend {
         totalSw := Stopwatch.StartNew()
         resolveSw := new Stopwatch()
         compileSw := new Stopwatch()
+        if timings {
+            CompilerPhaseTimings.Enable()
+        }
 
         try {
             Console.WriteLine(BuildCommandKernels.GetProjectStartMessage(projectRoot))
@@ -61,6 +64,9 @@ class CliIlBackend {
             compileSw.Stop()
             if outputPath == null {
                 Console.WriteLine(BuildCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)))
+                if timings {
+                    Console.Error.WriteLine(CompilerPhaseTimings.Format())
+                }
                 return BuildCommandResult.Failure(1, perfFacts)
             }
 
@@ -73,6 +79,7 @@ class CliIlBackend {
                     ProgramCommandKernels.FormatElapsedMilliseconds(compileSw.ElapsedMilliseconds),
                     ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)
                 ))
+                Console.Error.WriteLine(CompilerPhaseTimings.Format())
             }
 
             return new BuildCommandResult(0, perfFacts)

@@ -944,7 +944,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedResultReceiver(valueType: Type): bool {
-        resultDefinition := Type.GetType("NSharpLang.Runtime.Result`2, NSharpLang.Runtime")
+        resultDefinition := RequiredRuntimeTypes.Find("NSharpLang.Runtime.Result`2, NSharpLang.Runtime")
         if resultDefinition == null || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != resultDefinition {
             return false
         }
@@ -1294,7 +1294,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedAnonymousUnionType(valueType: Type): bool {
-        unionDefinition := Type.GetType("NSharpLang.Runtime.Union`2, NSharpLang.Runtime")
+        unionDefinition := RequiredRuntimeTypes.Find("NSharpLang.Runtime.Union`2, NSharpLang.Runtime")
         if unionDefinition == null || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != unionDefinition {
             return false
         }

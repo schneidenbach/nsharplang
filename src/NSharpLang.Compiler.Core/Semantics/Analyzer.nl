@@ -775,6 +775,67 @@ class Analyzer: IDisposable {
         ProjectSources.DeclareOneProgram()
     }
 
+    // A batch driver's word that the project's files on disk do not change while this analyzer lives:
+    // the namespace caches then survive from one file's analysis to the next. See
+    // `AnalyzerProjectSourceProvider.HoldDiskViewAcrossAnalyses`.
+    func HoldProjectDiskView() {
+        ProjectSources.HoldDiskViewAcrossAnalyses()
+    }
+
+    // Every namespace the project's files under this root declare, as the analysis would compute it
+    // against the current snapshot; and the same set handed to another analyzer over the same snapshot.
+    func ProjectNamespacesFor(projectRoot: string): HashSet<string> {
+        ProjectSources.BeginAnalysis(projectRoot)
+        return new HashSet<string>(ProjectSources.ProjectNamespaces(projectRoot), StringComparer.Ordinal)
+    }
+
+    // Parses of project files, keyed by full path, that this analyzer's own parse of the same snapshot
+    // would reproduce exactly. See `AnalyzerProjectSourceProvider.SeedParses`.
+    func SeedProjectParses(parses: IReadOnlyDictionary<string, FileParseAst>) {
+        ProjectSources.SeedParses(parses)
+    }
+
+    func SeedProjectNamespaces(projectRoot: string, namespaces: HashSet<string>) {
+        ProjectSources.SeedProjectNamespaces(projectRoot, namespaces)
+    }
+
+    // THE ASSEMBLY LOADS THIS UNIT'S IMPORTS WOULD MAKE, WITHOUT ANALYSING IT.
+    //
+    // The loaded-assembly list only grows, and it grows as each analysed file's imports are walked
+    // (`DriveImports`), in import order. What a later file can resolve therefore depends on the
+    // imports of every file analysed before it. A parallel analysis worker that picks up file `i`
+    // without having analysed files `0..i-1` replays exactly those loads, in file order and in each
+    // file's import order, so its list is the one a serial run would have at file `i` -- which is
+    // what keeps a parallel analysis's answers identical to the serial one's. A namespace with no
+    // assembly mapping loads nothing, exactly as its import walk does.
+    func PreloadImportedAssemblies(unit: CompilationUnit) {
+        for importDirective in unit.Imports {
+            LoadImportMappedAssemblies(importDirective.Namespace)
+        }
+
+        if unit.FileImports.Count == 0 {
+            return
+        }
+
+        for statement in unit.FileImports {
+            namespaceImport := statement as NamespaceImport
+            if namespaceImport != null {
+                LoadImportMappedAssemblies(namespaceImport.Namespace)
+            }
+        }
+    }
+
+    private func LoadImportMappedAssemblies(namespaceName: string) {
+        names := Imports.MappedAssemblies(namespaceName)
+        if names == null {
+            return
+        }
+
+        for assemblyName in names {
+            MetadataLoadSurface.LoadByName(assemblyName)
+        }
+    }
+
     func GetTypeDeclarationFiles(): Dictionary<string, string> {
         source: IDictionary<string, string> = TypeDeclarationFiles
         return new Dictionary<string, string>(source)

@@ -54,6 +54,7 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 | `nlc build --backend il` | Compile with the direct IL backend | `nlc build --backend il` |
 | `nlc build --release` | Build with Release configuration/output layout | `nlc build --release` |
 | `nlc build --verbose` | Build with detailed native resolver/test output | `nlc build --verbose` |
+| `nlc build --timings` | Print, to stderr, the `Build timings:` block (resolve, emit, total) and then a `Phase timings:` block: one row per compiled project (project references included) and phase -- `load-references`, `parse`, `import-graph`, `analysis`, `systems-policy`, `lint`, `emit.parse`, `emit.codegen`, `emit.write` -- with wall ms, process CPU ms (all threads, so CPU above wall is that phase's parallelism) and process allocation MB. Owner: `CompilerPhaseTimings` (Compiler.Model); printed on failed builds too | `nlc build --timings` |
 | `nlc build --perf-report` | Emit a versioned JSON perf report (allocations, dispatch, AOT blockers) | `nlc build --perf-report` |
 | `nlc build\|check\|test --stats[=<path>]` | One `nsharp.cli-stats` v1 JSON line: wall/CPU time and the structural work counters (files parsed and analyzed, assemblies emitted, reference images loaded, processes spawned) — see [`--stats`](#--stats--what-one-command-cost) | `nlc check --stats` |
 | `nlc build --aot` | Native AOT safety analysis; AOT blockers (reflection/dynamic code/runtime generics/expression trees) become build errors | `nlc build --aot` |
@@ -879,6 +880,11 @@ nlc build --release --verbose
 - `--verbose` enables detailed native resolver/build output
 - Set `NSHARP_COLUMNAR_DECLINE_LOG=1` while debugging an `NL103` columnar-emission decline to print every decline trace
   record to stderr. `NSHARP_DEBUG_LOG=1` also mirrors the trace into `compile-debug.log`.
+- In-project parallelism: a large project's semantic analysis and the IL back end's per-file parse fan
+  its files out to several workers (`CompilerParallelism`: one worker per ~500,000 characters of
+  source, at most `min(cores, 4)`; smaller projects stay serial). The output is identical to a serial build -- same diagnostics in the same
+  order, same IL bytes. `NSHARP_COMPILER_WORKERS=<n>` overrides the count (`1` forces the serial path);
+  every `build`, `check`, `test` and `run` that compiles through `MultiFileCompiler` honours it.
 
 ### Incremental builds — the up-to-date stamp
 

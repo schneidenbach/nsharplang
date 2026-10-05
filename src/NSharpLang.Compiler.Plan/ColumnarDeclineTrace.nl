@@ -70,6 +70,24 @@ class ColumnarDeclineTrace {
         }
     }
 
+    // Records another thread made, appended to this thread's trace in their order -- how a phase that
+    // fans out (the per-file parse) hands its workers' declines back to the emission thread, file by
+    // file, so the trace reads exactly as a serial walk would have left it.
+    static func Append(records: IReadOnlyList<ColumnarDeclineReason>) {
+        if records.Count == 0 {
+            return
+        }
+
+        existing := ColumnarDeclineTrace.Records
+        if existing == null {
+            existing = new List<ColumnarDeclineReason>()
+            ColumnarDeclineTrace.Records = existing
+        }
+        for reason in records {
+            existing.Add(reason)
+        }
+    }
+
     static func Snapshot(): IReadOnlyList<ColumnarDeclineReason> {
         records := ColumnarDeclineTrace.Records
         if records == null {

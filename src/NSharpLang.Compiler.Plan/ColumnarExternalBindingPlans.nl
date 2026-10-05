@@ -260,7 +260,7 @@ class ColumnarExternalBindingPlans {
     }
 
     static func ClosedListFullName(elementFullName: string): string {
-        definition := Type.GetType("System.Collections.Generic.IList`1, System.Private.CoreLib")
+        definition := RequiredRuntimeTypes.Find("System.Collections.Generic.IList`1, System.Private.CoreLib")
         if definition == null {
             throw new InvalidOperationException("Required runtime generic type 'System.Collections.Generic.IList`1' was not found.")
         }
