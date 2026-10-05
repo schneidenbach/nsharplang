@@ -599,11 +599,13 @@ else
     # The identity diff has no additions; only those two NL001 findings were removed.
     # 2026-10-05, guard concrete CLR type names before passing them to the nullability metadata tests:
     # Core 243, Compiler 0. The identity diff has no additions; only those 30 NL202 findings were removed.
+    # 2026-10-05, read and narrow the trusted attribute once in SystemsAnalyzer: Core 239, Compiler 0.
+    # The identity diff has no additions; only those four NL202 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        243
+        239
         0
         0
         0

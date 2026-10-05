@@ -327,8 +327,8 @@ sealed class SystemsAnalyzer {
             Functions.Add(functionSummary)
         }
 
-        if attributes.Has("trusted") {
-            trusted := attributes.Get("trusted")
+        trusted := attributes.Get("trusted")
+        if trusted != null {
             reason := SystemsAttributeSet.AttributeString(trusted, "reason")
             owner := SystemsAttributeSet.AttributeString(trusted, "owner")
             review := SystemsAttributeSet.AttributeString(trusted, "review")
