@@ -277,8 +277,12 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     // `SoaEnabled` (`NSHARP_EXPERIMENTAL_SOA`) and `ColumnarDeclineLog` (`NSHARP_COLUMNAR_DECLINE_LOG`,
     // which meant stderr). Each is read from its variable ONCE, when the compiler is built, and a
     // caller that wants the other answer sets the property instead of rewriting the process.
-    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 13
-    propertyNames := new string[](13)
+    // THE FOURTEENTH IS THE SAME KIND OF DOOR FOR `NSHARP_COMPILER_WORKERS`: `AnalysisWorkers`, the
+    // worker count of the analysis pass (0 lets `CompilerParallelism` decide), so the
+    // serial-versus-parallel differential and the estate rows pick a path without touching the
+    // process environment.
+    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 14
+    propertyNames := new string[](14)
     propertyNames[0] = "CompilationUnits"
     propertyNames[1] = "SemanticModels"
     propertyNames[2] = "AllErrors"
@@ -292,6 +296,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     propertyNames[10] = "EmitReferenceAssembly"
     propertyNames[11] = "SoaEnabled"
     propertyNames[12] = "ColumnarDeclineLog"
+    propertyNames[13] = "AnalysisWorkers"
     propertyIndex := 0
     while propertyIndex < propertyNames.Length {
         property := MultiFileOwnerRequiredProperty(
@@ -299,7 +304,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
             propertyNames[propertyIndex]
         )
         assert property.get_CanRead(), propertyNames[propertyIndex]
-        if propertyNames[propertyIndex] == "AotMode" || propertyNames[propertyIndex] == "EmitReferenceAssembly" || propertyNames[propertyIndex] == "SoaEnabled" || propertyNames[propertyIndex] == "ColumnarDeclineLog" {
+        if propertyNames[propertyIndex] == "AotMode" || propertyNames[propertyIndex] == "EmitReferenceAssembly" || propertyNames[propertyIndex] == "SoaEnabled" || propertyNames[propertyIndex] == "ColumnarDeclineLog" || propertyNames[propertyIndex] == "AnalysisWorkers" {
             assert property.get_CanWrite()
         } else {
             assert !property.get_CanWrite(), propertyNames[propertyIndex]
@@ -309,6 +314,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
 
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("SoaEnabled"), "SoaEnabled").get_PropertyType() == typeof(bool)
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("ColumnarDeclineLog"), "ColumnarDeclineLog").get_PropertyType() == typeof(TextWriter)
+    assert MultiFileOwnerRequiredProperty(owner.GetProperty("AnalysisWorkers"), "AnalysisWorkers").get_PropertyType() == typeof(int)
 
     analysisTypes := new Type[](0)
     analysis := MultiFileOwnerRequiredMethod(
