@@ -5,6 +5,15 @@ import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler.Ast
 
+func ResolverTestRequiredSuggestion(error: CompilerError): string {
+    suggestion := error.Suggestion
+    if suggestion == null {
+        throw new InvalidOperationException("The type-resolver contract expected this compiler error to include a suggestion.")
+    }
+
+    return suggestion
+}
+
 // Native contracts for the diagnostic sink and the type-reference resolution walk.
 //
 // Every member behind these contracts was `private` in Analyzer.cs, so no test named any of them:
@@ -493,12 +502,12 @@ test "the did-you-mean suggestion is built from the names actually in scope" {
     scopes.DeclareNestedTypeIfAbsent("Customer", new SimpleTypeInfo("Customer"))
 
     resolver.ResolveDeclaredType(new SimpleTypeReference("Custmer", 3, 5))
-    assert errors[0].Suggestion.Contains("Did you mean 'Customer'?")
+    assert ResolverTestRequiredSuggestion(errors[0]).Contains("Did you mean 'Customer'?")
 
     // A name nothing is near falls back to the generic advice.
     resolver.ResolveDeclaredType(new SimpleTypeReference("Zqxwvut", 4, 5))
-    assert errors[1].Suggestion.Contains("Check the spelling")
-    assert !errors[1].Suggestion.Contains("Did you mean")
+    assert ResolverTestRequiredSuggestion(errors[1]).Contains("Check the spelling")
+    assert !ResolverTestRequiredSuggestion(errors[1]).Contains("Did you mean")
 }
 
 test "`var` is refused as a type at a position, and is silently unknown without one" {
@@ -849,7 +858,7 @@ test "a `.Row` reference is refused only when the feature is on AND the prefix n
     assert errors.Count == 1
     assert errors[0].Code == ErrorCode.InvalidSyntax
     assert errors[0].Message == "SoA row type 'NodeTable.Row' is not part of this lowering"
-    assert errors[0].Suggestion.Contains("Pass the 'NodeTable' table and an int row index instead")
+    assert ResolverTestRequiredSuggestion(errors[0]).Contains("Pass the 'NodeTable' table and an int row index instead")
     assert errors[0].Length == 13
 
     // The answer stays TRUE at the same position — the reference is still refused — but its own

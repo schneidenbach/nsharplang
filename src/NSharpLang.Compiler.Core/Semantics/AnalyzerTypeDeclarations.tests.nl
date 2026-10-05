@@ -6,6 +6,14 @@ import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
+func TypeDeclarationTestRequiredSuggestion(error: CompilerError): string {
+    suggestion := error.Suggestion
+    if suggestion == null {
+        throw new InvalidOperationException("The type-declaration contract expected a compiler suggestion.")
+    }
+
+    return suggestion
+}
 
 // Native contracts for WHAT A TYPE DECLARATION MEANS.
 //
@@ -1037,7 +1045,7 @@ test "A READONLY RECORD STRUCT IS HELD TO THE SAME RULE, AND A READONLY REFERENC
     TypeDeclRun(valueHarness, valueHarness.Declarations.BeginRecord(valueRecord, valueHarness.Assignability), null)
     assert valueHarness.Errors.Count == 1
     assert valueHarness.Errors[0].Code == ErrorCode.MutableFieldInReadonlyStruct
-    assert valueHarness.Errors[0].Suggestion.Contains("readonly record struct Pair")
+    assert TypeDeclarationTestRequiredSuggestion(valueHarness.Errors[0]).Contains("readonly record struct Pair")
 
     referenceMembers := new List<Declaration>()
     referenceMembers.Add(TypeDeclField("Left", TypeDeclInt(), null, Modifiers.None))
@@ -1055,7 +1063,7 @@ test "A READONLY REF STRUCT NAMES ITSELF `ref struct` IN THE SUGGESTION" {
     TypeDeclRun(harness, harness.Declarations.BeginStruct(declaration, harness.Assignability), null)
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Suggestion.Contains("readonly ref struct Window")
+    assert TypeDeclarationTestRequiredSuggestion(harness.Errors[0]).Contains("readonly ref struct Window")
 }
 
 test "EVERY MUTABLE INSTANCE FIELD OF A READONLY STRUCT IS REPORTED, NOT ONLY THE FIRST" {

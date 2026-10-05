@@ -619,11 +619,13 @@ else
     # The identity diff has no additions; only those seven NL905 findings were removed.
     # 2026-10-05, guard nullable function signatures and completed lambda test results: Core 82, Compiler 0.
     # The identity diff has no additions; only those 26 NL905 findings were removed.
+    # 2026-10-05, guard test assertions that require a compiler suggestion: Core 74, Compiler 0.
+    # The identity diff has no additions; only those eight NL905 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        82
+        74
         0
         0
         0

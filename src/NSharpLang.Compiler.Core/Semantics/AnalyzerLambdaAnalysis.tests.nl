@@ -146,6 +146,15 @@ func RequiredLambdaAnalysisTestParameters(state: LambdaAnalysisState): List<Type
     return parameters
 }
 
+func LambdaTestRequiredSuggestion(error: CompilerError): string {
+    suggestion := error.Suggestion
+    if suggestion == null {
+        throw new InvalidOperationException("The lambda contract expected this compiler error to include a suggestion.")
+    }
+
+    return suggestion
+}
+
 // ── AST shapes ────────────────────────────────────────────────────────────────
 
 func LambdaParams(): List<Parameter> {
@@ -1137,8 +1146,8 @@ test "an async handler in an `on` position is told the idiom, not to change the 
     assert harness.Errors[0].Code == ErrorCode.AsyncLambdaTargetNotTaskLike
     assert harness.Errors[0].Message == "An 'async' lambda produces a task, but this event's handler returns 'void'"
     // The ordinary fix — change the target — is not one the reader owns here, so it is not offered.
-    assert !harness.Errors[0].Suggestion.Contains("Change the target")
-    assert harness.Errors[0].Suggestion.Contains("_ = RunAsync()")
+    assert !LambdaTestRequiredSuggestion(harness.Errors[0]).Contains("Change the target")
+    assert LambdaTestRequiredSuggestion(harness.Errors[0]).Contains("_ = RunAsync()")
 }
 
 test "an async lambda with no target at all names the missing delegate type, not the parameters" {
