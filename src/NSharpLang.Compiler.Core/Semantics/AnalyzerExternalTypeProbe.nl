@@ -87,6 +87,19 @@ class AnalyzerExternalTypeProbe {
     holdersByNamespace: Dictionary<string, List<Type>>
     holderCountsByNamespace: Dictionary<string, int>
 
+    // THE EXPORTED-NAME SCAN AS AN INDEX. `ResolveExternalType`'s last step asks every loaded
+    // assembly's exported (or, for a granting friend, all) types for the first nameable one whose
+    // simple or full name is the spelling. Each call read every assembly's type array afresh --
+    // `GetExportedTypes` builds a new one per call -- and a spelling no assembly exports (most of
+    // what reaches this step) paid for all of them. The index holds, for every simple and full name,
+    // the first nameable type in exactly that order (assembly load order, then the assembly's own
+    // order), extended as assemblies are loaded and rebuilt if the friend grants' compiling name
+    // changes, so it gives the scan's answer with one probe.
+    scanIndex: Dictionary<string, Type>
+    scanIndexedAssemblies: int
+    scanIndexLastAssembly: Assembly?
+    scanIndexGrantName: string
+
     // A PROBE WITH NO PROJECT BEHIND IT IS THE FRIEND OF NOTHING. The analyzer hands in its own
     // grants; a caller that builds a probe over a bare assembly list has no assembly identity to be
     // named by an `InternalsVisibleTo`, so it gets an unnamed instance and sees exactly the visible
@@ -104,6 +117,10 @@ class AnalyzerExternalTypeProbe {
         currentNamespace = null
         holdersByNamespace = new Dictionary<string, List<Type>>(StringComparer.Ordinal)
         holderCountsByNamespace = new Dictionary<string, int>(StringComparer.Ordinal)
+        scanIndex = new Dictionary<string, Type>(StringComparer.Ordinal)
+        scanIndexedAssemblies = 0
+        scanIndexLastAssembly = null
+        scanIndexGrantName = ""
     }
 
     // One call per analysis: the file's namespace is the start of the lexical chain every bare
@@ -245,26 +262,79 @@ class AnalyzerExternalTypeProbe {
             return new ReflectionTypeInfo(cachedType)
         }
 
-        for assembly in assemblies {
-            // THE SCAN'S SURFACE IS THE NAMEABLE SURFACE. `GetExportedTypes()` is the public one and
-            // stays the answer for an ordinary reference; a reference that made this compilation a
-            // friend also offers its internals, and `GetTypes()` is the only reader that returns them.
-            // The wider read is paid for ONLY by a granting assembly, so an ordinary project's scan
-            // costs exactly what it did before.
-            scanned := assembly.GetExportedTypes()
-            if grants.GrantsAccess(assembly) {
-                scanned = assembly.GetTypes()
+        // An assembly whose types cannot be read stops the index where the scan would have thrown: a
+        // spelling an EARLIER assembly answers is still answered, and any other rethrows, as the
+        // scan's walk did.
+        failure := EnsureScanIndex()
+        scanned := typeof(object)
+        if scanIndex.TryGetValue(name, out scanned) {
+            scanCache[name] = scanned
+            return new ReflectionTypeInfo(scanned)
+        }
+        if failure != null {
+            throw failure
+        }
+
+        return null
+    }
+
+    // Brings the scan index up to the current assembly list (see `scanIndex`), in load order. An
+    // assembly is committed to the index whole or not at all; the first one that throws is left
+    // unindexed (and is asked again next time) and its exception is returned.
+    private func EnsureScanIndex(): Exception? {
+        // The list is the analyzer's and only grows; one that SHRANK or was replaced under the index
+        // (its last indexed slot no longer holds the assembly indexed there) is indexed afresh, so
+        // the index always answers for the live list, exactly as the scan did.
+        grantName := grants.CompilingAssemblyName
+        listChanged := scanIndexedAssemblies > assemblies.Count || (scanIndexedAssemblies > 0 && !Object.ReferenceEquals(assemblies[scanIndexedAssemblies - 1], scanIndexLastAssembly))
+        if listChanged || !string.Equals(grantName, scanIndexGrantName, StringComparison.Ordinal) {
+            scanIndex.Clear()
+            scanIndexedAssemblies = 0
+            scanIndexLastAssembly = null
+            scanIndexGrantName = grantName
+        }
+
+        while scanIndexedAssemblies < assemblies.Count {
+            assembly := assemblies[scanIndexedAssemblies]
+            names := new List<string>()
+            types := new List<Type>()
+            try {
+                // THE SCAN'S SURFACE IS THE NAMEABLE SURFACE. `GetExportedTypes()` is the public one
+                // and stays the answer for an ordinary reference; a reference that made this
+                // compilation a friend also offers its internals, and `GetTypes()` is the only reader
+                // that returns them. The wider read is paid for ONLY by a granting assembly.
+                scanned := assembly.GetExportedTypes()
+                if grants.GrantsAccess(assembly) {
+                    scanned = assembly.GetTypes()
+                }
+
+                exportedIndex := 0
+                while exportedIndex < scanned.Length {
+                    candidate := scanned[exportedIndex]
+                    if grants.IsNameableType(candidate) {
+                        names.Add(candidate.Name)
+                        types.Add(candidate)
+                        fullName := candidate.FullName
+                        if fullName != null {
+                            names.Add(fullName)
+                            types.Add(candidate)
+                        }
+                    }
+                    exportedIndex = exportedIndex + 1
+                }
+            } catch ex: Exception {
+                return ex
             }
 
-            exportedIndex := 0
-            while exportedIndex < scanned.Length {
-                candidate := scanned[exportedIndex]
-                if (candidate.Name == name || candidate.FullName == name) && grants.IsNameableType(candidate) {
-                    scanCache[name] = candidate
-                    return new ReflectionTypeInfo(candidate)
+            entry := 0
+            while entry < names.Count {
+                if !scanIndex.ContainsKey(names[entry]) {
+                    scanIndex[names[entry]] = types[entry]
                 }
-                exportedIndex = exportedIndex + 1
+                entry = entry + 1
             }
+            scanIndexedAssemblies = scanIndexedAssemblies + 1
+            scanIndexLastAssembly = assembly
         }
 
         return null
