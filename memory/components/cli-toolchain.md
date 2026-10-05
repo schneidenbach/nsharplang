@@ -847,6 +847,63 @@ the compilation printed them. A no-op `nlc build` of the 973-line `examples/16-t
   machinery off; a touched-but-identical source stays up to date; and the stamp's `CompilerError`
   field list is compared with the record's own members.
 
+### Incremental analysis in a warm process — `IncrementalProjectSession`
+
+A process that compiles the same project repeatedly (the daemon, an editor host, a watch loop)
+holds an `IncrementalProjectSession` (`src/NSharpLang.Compiler.Driver/IncrementalProjectSession.nl`)
+per project and gets per-FILE reuse: a body-only edit re-analyses only the edited file, a signature
+edit re-analyses only the files that depend on it.
+
+```text
+session := IncrementalProjectSession.Open(projectRoot, assemblyName)   // seeds summaries from obj/nlc/<assembly>.summaries
+result := session.Compile(config, sourceFiles, outputPath, options, sourceTextOverrides)   // MultiFileCompilationResult
+compiler := session.Analyze(config, sourceFiles, sourceTextOverrides)  // no emission: queries, check
+snapshot := session.Snapshot()                                         // ProjectSnapshot of the last compilation
+session.Save()                                                         // persist per-file summaries
+session.State.LastFilesAnalyzed / LastFilesReused                      // what the last run did
+```
+
+- **What is kept** (`IncrementalCompilationState`, handed to `MultiFileCompiler.IncrementalState`):
+  the analyzer (its metadata load context and caches) and, per file, the unit as analysis left it,
+  its parse diagnostics, semantic model, bindings, type-declaration rows and raw analyzer
+  diagnostics. An ENVIRONMENT KEY (compiler identity, configuration, defines, options, and the
+  content of every non-source input: references, restore output, `project.yml`, the test-source
+  switch) plus the metadata files the analyzer actually read guard all of it; any change drops the
+  analyzer and every record.
+- **When a file's analysis is reused** (`IncrementalCompilationPlan`): its text is unchanged; no file
+  in its dependency closure changed SURFACE, appeared or vanished — checked against both the closure
+  recorded when it was analysed and the closure computed now; no namespace it mentions appeared or
+  vanished; every file it imports by path kept its content.
+- **The per-file summary** (`IncrementalFileSummary`, content-hashed, computed from the unpreprocessed
+  text the analyzer's project walk reads): the SURFACE HASH covers every token outside function,
+  constructor, accessor and test bodies with its position (analysis results carry declaration
+  positions, so a declaration that moves is a surface change); DECLARED names, REFERENCED names and
+  BASE-LIST names come from a reflective walk of the declaration AST (new declaration kinds are
+  covered without being listed); MENTIONS are the names the file's own analysis can ask for (every
+  word in its bodies, string literals included, its references, its top-level names, its namespace
+  and imports). A file that does not parse cleanly is OPAQUE: it depends on and is depended on by
+  everything.
+- **The dependency closure** of a file: every file declaring a name it mentions (or that name plus
+  `Attribute`), every file whose types list such a name as a base, every opaque file, and
+  transitively the same for the names those files' surfaces refer to. The premise — a file reaches
+  another only through names, and learns only its surface — is what the differential test holds.
+- **What still runs whole-project every time:** parsing (cheap), import-cycle detection, the systems
+  policy (interprocedural over bodies), the strict lint and IL emission (one assembly).
+- **Cold processes do not reuse per-file analyses.** The systems policy pass reads the full semantic
+  model of every file (`ExpressionTypes`, `TypesByIdentity`, `TypeReferenceTypes` — `TypeInfo` graphs
+  tied to the analyzer's `MetadataLoadContext`) and the emitter reads every file's model for
+  free-function call targets, so a cold build after any edit re-analyses everything; its shortcut is
+  the up-to-date stamp. The persisted summaries only spare a cold-opened session the summary pass.
+- **Pinned by** `tests/native/incremental-build/Differential.tests.nl`: a warm session through seeded
+  edits (body literals, inserted lines, renamed identifiers, retyped signatures, files added,
+  duplicated, removed, restored) over five multi-file projects — `examples/16-task-cli`, the
+  ASP.NET `examples/17-issue-tracker/backend`, `examples/12-multi-file-projects/{imports,WeatherDemo}`
+  and the embedded `geo` corpus (`IncrementalGeoCorpus.nl`: cross-file interface implementations,
+  base classes, `[Tag]` for `TagAttribute`, unions, overloads, generics, interpolation-only calls) —
+  must produce diagnostics and IL bytes identical to a from-scratch compilation. Eight edits per
+  project by default; `NSHARP_INCREMENTAL_DIFFERENTIAL_STEPS=60` ran 310 comparisons (171 successful
+  builds byte-compared, 139 failing builds diagnostic-compared), 0 mismatches, 987 analyses reused.
+
 ### Compiler work counters (`NSHARP_STATS=1`)
 
 Any `nlc` command run with `NSHARP_STATS=1` prints one JSON line on stderr after its own output:

@@ -72,3 +72,33 @@ test "a signature edit re-analyses the files that depend on it and no others" {
         IncrementalCleanup(scratch)
     }
 }
+
+test "a session opened cold loads the persisted summaries, and a corrupt summary file loads nothing" {
+    scratch := IncrementalScratch("summaries")
+    try {
+        project := DifferentialCorpus()[0]
+        root := scratch + "/geo"
+        originals := DifferentialCopy(project, root)
+        first := new IncrementalProjectSession(root, "Geo")
+        report := new DifferentialReport()
+        DifferentialCompare(first, root, "initial", report)
+        assert first.Save()
+        storePath := first.SummaryStorePath()
+        assert System.IO.File.Exists(storePath)
+
+        reopened := IncrementalProjectSession.Open(root, "Geo")
+        assert reopened.State.SummaryCache.Count == originals.Count
+
+        bytes := System.IO.File.ReadAllBytes(storePath)
+        bytes[bytes.Length / 3] = (byte)(bytes[bytes.Length / 3] ^ 1)
+        System.IO.File.WriteAllBytes(storePath, bytes)
+        corrupted := IncrementalProjectSession.Open(root, "Geo")
+        assert corrupted.State.SummaryCache.Count == 0
+
+        // A cold-opened session still compiles exactly what a clean build does.
+        DifferentialCompare(reopened, root, "reopened", report)
+        assert report.Mismatches.Count == 0, report.Summary()
+    } finally {
+        IncrementalCleanup(scratch)
+    }
+}
