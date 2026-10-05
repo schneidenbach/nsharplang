@@ -809,8 +809,10 @@ nlc build --release --verbose
 `nlc build`, `run`, `test`, `publish`, `pack` and every `project:` reference they build answer an
 UNCHANGED compilation from a stamp instead of compiling it: nothing is parsed, analysed, linted or
 emitted, the previous output is kept, and its diagnostics (warnings included) are printed exactly as
-the compilation printed them. A no-op `nlc build` of the 973-line `examples/16-task-cli` drops from
-0.88 s to 0.08 s of CPU, and a no-op `nlc test` from 1.88 s to 0.26 s (the tests still run).
+the compilation printed them. On a loaded machine (paired runs, 2026-10-05) a no-op `nlc build` of
+`examples/16-task-cli` (11 files) dropped from 2.19 s to 0.22 s of CPU and of
+`tests/native/census-flow-rules` (27 files) from 2.71 s to 0.17 s; a no-op `nlc test` from 2.61 s
+to 0.34 s and 5.87 s to 0.46 s (the tests still run).
 
 - **Content, never time.** The stamp (`<projectRoot>/obj/nlc/<assembly>.<output hash>.stamp`,
   `IncrementalBuildStamp.nl`) records a KEY — every non-file input hashed together: the compiler's
@@ -912,16 +914,14 @@ session.State.LastFilesAnalyzed / LastFilesReused                      // what t
   project by default; `NSHARP_INCREMENTAL_DIFFERENTIAL_STEPS=60` ran 310 comparisons (171 successful
   builds byte-compared, 139 failing builds diagnostic-compared), 0 mismatches, 987 analyses reused.
 
-### Compiler work counters (`NSHARP_STATS=1`)
+### Observing incremental work
 
-Any `nlc` command run with `NSHARP_STATS=1` prints one JSON line on stderr after its own output:
-`{"schemaVersion":1,"kind":"nsharp.compiler-stats","filesParsed":…,"filesAnalyzed":…,
-"filesAnalysisReused":…,"filesLinted":…,"filesPlanned":…,"assembliesEmitted":…,"compilationsRun":…,
-"compilationsUpToDate":…,"cacheHits":…,"cacheMisses":…,"cacheWrites":…,"parseMs":…,"analyzeMs":…,
-"lintMs":…,"emitMs":…,"upToDateCheckMs":…}`. The counters are exact and are the right evidence on a
-loaded machine; the `*Ms` phase times are wall clock. The one owner is `CompilerStats`
-(`src/NSharpLang.Compiler.Model/CompilerStats.nl`, the lowest slice so every pass can count into it);
-a harness in the same process reads `CompilerStats.ToJson()` and windows it with `Reset()`.
+The structural work counters (files parsed, analysed, assemblies emitted) have one owner,
+`CompilerWorkCounters` with `nlc build|check|test --stats` (the agent-loop benchmark's); an
+up-to-date build reports zero of each, and a warm session's re-analysis counts only the files it
+re-analysed. The incremental layers add their own direct readings:
+`MultiFileCompiler.WasUpToDate` (the stamp answered) and
+`IncrementalCompilationState.LastFilesAnalyzed` / `LastFilesReused` (what the last warm run did).
 
 ### `nlc publish` — Framework-Dependent Deployment Artifacts
 

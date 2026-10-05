@@ -224,7 +224,7 @@ static class IncrementalCompilerIdentity {
 
     static func Describe(): string {
         key := new IncrementalKeyBuilder()
-        AddAssembly(key, typeof(CompilerStats).Assembly)
+        AddAssembly(key, typeof(CompilerError).Assembly)
         AddAssembly(key, typeof(ColumnarParserRecovery).Assembly)
         AddAssembly(key, typeof(Analyzer).Assembly)
         AddAssembly(key, typeof(ColumnarEmissionPlanner).Assembly)

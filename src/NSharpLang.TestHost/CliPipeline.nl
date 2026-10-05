@@ -2,7 +2,6 @@ namespace NSharpLang.Cli
 
 import System
 import NSharpLang.Cli.Commands
-import NSharpLang.Compiler
 
 // THE `nlc` DISPATCH PIPELINE.
 //
@@ -17,16 +16,6 @@ import NSharpLang.Compiler
 // sentences that print it.
 static class CliPipeline {
     static func Execute(args: string[], version: string): int {
-        exitCode := ExecuteCommand(args, version)
-        // `NSHARP_STATS=1`: the structural counters of everything this command compiled, one JSON
-        // line on stderr, after the command's own output so it never interleaves with it.
-        if CompilerStats.IsReportRequested() {
-            Console.Error.WriteLine(CompilerStats.ToJson())
-        }
-        return exitCode
-    }
-
-    private static func ExecuteCommand(args: string[], version: string): int {
         commandKind := ProgramCommandKernels.GetCommandKind(args)
 
         if commandKind == 29 {

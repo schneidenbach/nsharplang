@@ -581,8 +581,8 @@ Two layers, both owned by `MultiFileCompiler` in Driver
   name-based dependency closure, changed. Parsing, import cycles, the systems policy, lint and
   emission still run whole-project. Cold processes rebuild everything after an edit, because the
   systems policy and the emitter consume every file's semantic model.
-- **Counters:** `CompilerStats` (Model) counts files parsed/analysed/reused/linted/planned, stamps
-  hit/missed/written and phase time; `NSHARP_STATS=1` prints them.
+- **Observing it:** `MultiFileCompiler.WasUpToDate`, `IncrementalCompilationState.LastFilesAnalyzed`
+  / `LastFilesReused`; the work counters themselves belong to `CompilerWorkCounters` (`--stats`).
 
 ## Current Compiler Debt
 
