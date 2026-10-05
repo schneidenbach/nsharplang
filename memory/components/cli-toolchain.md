@@ -834,8 +834,16 @@ the compilation printed them. A no-op `nlc build` of the 973-line `examples/16-t
   format version; a corrupt, truncated, foreign or old stamp is a miss. An unreadable input never
   matches. Stamps are written atomically (unique temp file, then rename) and only after a successful
   compilation, so a failed build is always re-run.
+- **One known extra rebuild.** A project with `nuget:` dependencies building into the default
+  `bin/Debug/<tfm>/` is compiled TWICE before its stamp settles: the first build's analyzer read the
+  package from the cache, the CLI then copies the package beside the output, and that copy is the
+  "locally built" candidate the analyzer prefers next time — a genuinely changed input. The third
+  build onward is a no-op. (Seen on four `tests/fixtures` projects when every example is built
+  twice; every other example's second build is answered by its stamp with identical bytes.)
 - **Who opts in.** `MultiFileCompiler.IncrementalBuild` is off by default; the CLI's project builds
-  and reference builds turn it on. `nlc check`'s temporary verification build, editor buffers
+  and reference builds turn it on. A stamp is kept only for an output INSIDE the project root, so
+  `nlc build -o /elsewhere` (the compile-time bench) leaves the source tree untouched and always
+  compiles. `nlc check`'s temporary verification build, editor buffers
   (source overrides), single-file builds, `--perf-report` (which needs the systems analysis) and runs
   with `NSHARP_COLUMNAR_DECLINE_LOG`/`NSHARP_DEBUG_LOG` set always compile. `NSHARP_INCREMENTAL=0`
   turns every shortcut off for the process. `nlc test --no-cache` deletes the test output, which
