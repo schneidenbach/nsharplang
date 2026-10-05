@@ -87,7 +87,7 @@ class ExternalAssemblyCatalogEntry {
             if metadataAssembly != null {
                 location = metadataAssembly.Location
             }
-            topLevelTypeNames = ExternalAssemblyScan.ReadTopLevelTypeNames(location)
+            topLevelTypeNames = ExternalTypeNameIndex.TopLevelNames(location)
             topLevelTypeNamesRead = true
         }
 
