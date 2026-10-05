@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Runtime.CompilerServices
 
 // WHICH TOP-LEVEL TYPE NAMES A REFERENCE ASSEMBLY CAN ANSWER, read once per FILE VERSION.
 //
@@ -20,20 +21,42 @@ import System.Reflection
 // A name the tables cannot speak for (a constructed generic, an assembly-qualified name, a pointer or
 // by-ref spelling), or a file that cannot be read, answers "maybe", which leaves the lookup exactly
 // what it was without the index.
+// A table (or the absence of one) held for one assembly object.
+class ExternalTypeNameBox {
+    Names: HashSet<string>?
+
+    constructor(names: HashSet<string>?) {
+        Names = names
+    }
+}
+
 class ExternalTypeNameIndex {
     private static gate: object = new object()
     private static paths: Dictionary<string, string> = new Dictionary<string, string>(StringComparer.Ordinal)
     private static names: Dictionary<string, HashSet<string>?> = new Dictionary<string, HashSet<string>?>(StringComparer.Ordinal)
     private static registered: bool = false
+    private static byAssembly: ConditionalWeakTable<Assembly, ExternalTypeNameBox> = new ConditionalWeakTable<Assembly, ExternalTypeNameBox>()
 
-    // The table for an assembly's file, or null when it has none or it cannot be read. Callers that
-    // ask about the same assembly repeatedly keep the answer: this checks the file's version on disk.
+    // The table for an assembly's file, or null when it has none or it cannot be read. Remembered per
+    // ASSEMBLY OBJECT (weakly, so it dies with the load context that made the assembly): a resolver
+    // asks about the same handful of assemblies many thousands of times per analysis, and even a
+    // `stat` per question would cost more than the misses it saves.
     static func TopLevelNamesOf(assembly: Assembly): HashSet<string>? {
-        try {
-            return TopLevelNames(assembly.Location)
-        } catch locationFailure: Exception {
-            return null
+        box: ExternalTypeNameBox? = null
+        if ExternalTypeNameIndex.byAssembly.TryGetValue(assembly, out box) && box != null {
+            return (box ?? new ExternalTypeNameBox(null)).Names
         }
+
+        location := ""
+        try {
+            location = assembly.Location
+        } catch locationFailure: Exception {
+            location = ""
+        }
+
+        names := TopLevelNames(location)
+        ExternalTypeNameIndex.byAssembly.AddOrUpdate(assembly, new ExternalTypeNameBox(names))
+        return names
     }
 
     // Whether a table (null: no table) can declare `fullName`.

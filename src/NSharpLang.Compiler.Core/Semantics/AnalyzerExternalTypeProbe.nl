@@ -87,10 +87,6 @@ class AnalyzerExternalTypeProbe {
     holdersByNamespace: Dictionary<string, List<Type>>
     holderCountsByNamespace: Dictionary<string, int>
 
-    // Each assembly's declared top-level type names, parallel to `assemblies` (`DeclaredTopLevelNames`).
-    declaredNames: List<HashSet<string>?>
-    declaredNamesRead: List<bool>
-
     // A PROBE WITH NO PROJECT BEHIND IT IS THE FRIEND OF NOTHING. The analyzer hands in its own
     // grants; a caller that builds a probe over a bare assembly list has no assembly identity to be
     // named by an `InternalsVisibleTo`, so it gets an unnamed instance and sees exactly the visible
@@ -108,8 +104,6 @@ class AnalyzerExternalTypeProbe {
         currentNamespace = null
         holdersByNamespace = new Dictionary<string, List<Type>>(StringComparer.Ordinal)
         holderCountsByNamespace = new Dictionary<string, int>(StringComparer.Ordinal)
-        declaredNames = new List<HashSet<string>?>()
-        declaredNamesRead = new List<bool>()
     }
 
     // One call per analysis: the file's namespace is the start of the lexical chain every bare
@@ -128,22 +122,6 @@ class AnalyzerExternalTypeProbe {
         }
     }
 
-    // The top-level names the assembly at `index` declares or forwards, read once per probe: the
-    // assembly list only grows, so the tables run parallel to it and are filled as indices are reached.
-    func DeclaredTopLevelNames(index: int, assembly: Assembly): HashSet<string>? {
-        while declaredNamesRead.Count <= index {
-            declaredNames.Add(null)
-            declaredNamesRead.Add(false)
-        }
-
-        if !declaredNamesRead[index] {
-            declaredNames[index] = ExternalTypeNameIndex.TopLevelNamesOf(assembly)
-            declaredNamesRead[index] = true
-        }
-
-        return declaredNames[index]
-    }
-
     // THE ONE SWEEP EVERY QUESTION BELOW IS MADE OF: does any loaded assembly declare this exact full
     // name? A hit is cached under the full name and a miss under the assembly count, so the three
     // callers share one memo and cannot disagree about what the metadata says.
@@ -158,12 +136,10 @@ class AnalyzerExternalTypeProbe {
             return false
         }
 
-        assemblyIndex := -1
         for assemblyItem in assemblies {
-            assemblyIndex = assemblyIndex + 1
             // A reference whose metadata tables cannot answer this name is skipped without asking
             // the load context, whose miss builds and discards an exception (`ExternalTypeNameIndex`).
-            if !ExternalTypeNameIndex.MayDeclare(DeclaredTopLevelNames(assemblyIndex, assemblyItem), fullName) {
+            if !ExternalTypeNameIndex.MayDeclare(ExternalTypeNameIndex.TopLevelNamesOf(assemblyItem), fullName) {
                 continue
             }
 
@@ -400,8 +376,12 @@ class AnalyzerExternalTypeProbe {
         }
         holders := new List<Type>()
         for assemblyItem in assemblies {
-            candidate := assemblyItem.GetType(prefix + "<Program>")
-            if candidate == null {
+            declared := ExternalTypeNameIndex.TopLevelNamesOf(assemblyItem)
+            candidate: Type? = null
+            if ExternalTypeNameIndex.MayDeclare(declared, prefix + "<Program>") {
+                candidate = assemblyItem.GetType(prefix + "<Program>")
+            }
+            if candidate == null && ExternalTypeNameIndex.MayDeclare(declared, prefix + "Program") {
                 ordinary := assemblyItem.GetType(prefix + "Program")
                 if ordinary != null && ordinary.IsClass {
                     candidate = ordinary
