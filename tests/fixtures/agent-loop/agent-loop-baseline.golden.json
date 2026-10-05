@@ -20,7 +20,7 @@
       "medianWallMs": 3060,
       "medianCpuMs": 3360,
       "medianPeakRssBytes": 319471616,
-      "counters": {"filesParsed": 16, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -31,7 +31,7 @@
       "medianWallMs": 3076,
       "medianCpuMs": 3340,
       "medianPeakRssBytes": 322125824,
-      "counters": {"filesParsed": 16, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -86,7 +86,7 @@
       "medianWallMs": 3839,
       "medianCpuMs": 4030,
       "medianPeakRssBytes": 322568192,
-      "counters": {"filesParsed": 16, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -97,7 +97,7 @@
       "medianWallMs": 4375,
       "medianCpuMs": 3840,
       "medianPeakRssBytes": 319406080,
-      "counters": {"filesParsed": 16, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -108,7 +108,7 @@
       "medianWallMs": 2664,
       "medianCpuMs": 2590,
       "medianPeakRssBytes": 258473984,
-      "counters": {"filesParsed": 15, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 493, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 493, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -130,7 +130,7 @@
       "medianWallMs": 4612,
       "medianCpuMs": 3440,
       "medianPeakRssBytes": 254033920,
-      "counters": {"filesParsed": 16, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -152,7 +152,7 @@
       "medianWallMs": 4330,
       "medianCpuMs": 4290,
       "medianPeakRssBytes": 297943040,
-      "counters": {"filesParsed": 16, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -163,7 +163,7 @@
       "medianWallMs": 4090,
       "medianCpuMs": 4190,
       "medianPeakRssBytes": 301105152,
-      "counters": {"filesParsed": 16, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -174,7 +174,7 @@
       "medianWallMs": 3015,
       "medianCpuMs": 2860,
       "medianPeakRssBytes": 259424256,
-      "counters": {"filesParsed": 15, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 493, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 493, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -196,7 +196,7 @@
       "medianWallMs": 3838,
       "medianCpuMs": 3980,
       "medianPeakRssBytes": 324141056,
-      "counters": {"filesParsed": 18, "emitParses": 9, "filesAnalyzed": 9, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
+      "counters": {"filesParsed": 9, "emitParses": 9, "filesAnalyzed": 9, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -207,7 +207,7 @@
       "medianWallMs": 2722,
       "medianCpuMs": 2860,
       "medianPeakRssBytes": 327057408,
-      "counters": {"filesParsed": 18, "emitParses": 9, "filesAnalyzed": 9, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
+      "counters": {"filesParsed": 9, "emitParses": 9, "filesAnalyzed": 9, "assembliesEmitted": 1, "referenceAssembliesLoaded": 501, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -218,7 +218,7 @@
       "medianWallMs": 2326,
       "medianCpuMs": 2210,
       "medianPeakRssBytes": 257867776,
-      "counters": {"filesParsed": 17, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 493, "processesSpawned": 0}
+      "counters": {"filesParsed": 9, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 493, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -240,7 +240,7 @@
       "medianWallMs": 4044,
       "medianCpuMs": 5040,
       "medianPeakRssBytes": 304463872,
-      "counters": {"filesParsed": 82, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -251,7 +251,7 @@
       "medianWallMs": 3952,
       "medianCpuMs": 4980,
       "medianPeakRssBytes": 305872896,
-      "counters": {"filesParsed": 82, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -306,7 +306,7 @@
       "medianWallMs": 4831,
       "medianCpuMs": 6080,
       "medianPeakRssBytes": 306102272,
-      "counters": {"filesParsed": 82, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -317,7 +317,7 @@
       "medianWallMs": 5620,
       "medianCpuMs": 6870,
       "medianPeakRssBytes": 305594368,
-      "counters": {"filesParsed": 82, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -328,7 +328,7 @@
       "medianWallMs": 3273,
       "medianCpuMs": 3970,
       "medianPeakRssBytes": 210976768,
-      "counters": {"filesParsed": 81, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 69, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 69, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -350,7 +350,7 @@
       "medianWallMs": 3272,
       "medianCpuMs": 3890,
       "medianPeakRssBytes": 227950592,
-      "counters": {"filesParsed": 82, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -372,7 +372,7 @@
       "medianWallMs": 3397,
       "medianCpuMs": 4150,
       "medianPeakRssBytes": 304824320,
-      "counters": {"filesParsed": 82, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -383,7 +383,7 @@
       "medianWallMs": 3965,
       "medianCpuMs": 4960,
       "medianPeakRssBytes": 305266688,
-      "counters": {"filesParsed": 82, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -394,7 +394,7 @@
       "medianWallMs": 2449,
       "medianCpuMs": 2840,
       "medianPeakRssBytes": 209862656,
-      "counters": {"filesParsed": 81, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 69, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 69, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -416,7 +416,7 @@
       "medianWallMs": 3774,
       "medianCpuMs": 4530,
       "medianPeakRssBytes": 303316992,
-      "counters": {"filesParsed": 84, "emitParses": 42, "filesAnalyzed": 42, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 42, "emitParses": 42, "filesAnalyzed": 42, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -427,7 +427,7 @@
       "medianWallMs": 3922,
       "medianCpuMs": 4830,
       "medianPeakRssBytes": 303480832,
-      "counters": {"filesParsed": 84, "emitParses": 42, "filesAnalyzed": 42, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 42, "emitParses": 42, "filesAnalyzed": 42, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -438,7 +438,7 @@
       "medianWallMs": 2677,
       "medianCpuMs": 3110,
       "medianPeakRssBytes": 210665472,
-      "counters": {"filesParsed": 83, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 69, "processesSpawned": 0}
+      "counters": {"filesParsed": 42, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 69, "processesSpawned": 0}
     },
     {
       "size": "medium",
