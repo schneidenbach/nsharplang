@@ -40,14 +40,16 @@ class DaemonStatusExecFacts {
     ServedRequests: int
     WorkingSetMegabytes: long
     MemoryCapMegabytes: long
+    WarmState: string[]
 
-    constructor(version: string, identity: string, activeRequests: int, servedRequests: int, workingSetMegabytes: long, memoryCapMegabytes: long) {
+    constructor(version: string, identity: string, activeRequests: int, servedRequests: int, workingSetMegabytes: long, memoryCapMegabytes: long, warmState: string[]) {
         Version = version
         Identity = identity
         ActiveRequests = activeRequests
         ServedRequests = servedRequests
         WorkingSetMegabytes = workingSetMegabytes
         MemoryCapMegabytes = memoryCapMegabytes
+        WarmState = warmState
     }
 }
 
@@ -233,13 +235,14 @@ class DaemonProtocolKernels {
         payload[GetStatusCachedFilesField()] = cachedFiles
         payload[GetStatusIdleTimeoutField()] = idleTimeout
         if exec != null {
-            facts := exec ?? new DaemonStatusExecFacts("", "", 0, 0, 0L, 0L)
+            facts := exec ?? new DaemonStatusExecFacts("", "", 0, 0, 0L, 0L, new string[](0))
             payload[GetStatusVersionField()] = facts.Version
             payload[GetStatusIdentityField()] = facts.Identity
             payload[GetStatusActiveRequestsField()] = facts.ActiveRequests
             payload[GetStatusServedRequestsField()] = facts.ServedRequests
             payload[GetStatusWorkingSetField()] = facts.WorkingSetMegabytes
             payload[GetStatusMemoryCapField()] = facts.MemoryCapMegabytes
+            payload[GetStatusWarmStateField()] = facts.WarmState
         }
 
         return JsonSerializer.Serialize(payload, CreateCompactJsonOptions())
@@ -267,6 +270,11 @@ class DaemonProtocolKernels {
 
     static func GetStatusMemoryCapField(): string {
         return "memoryCapMb"
+    }
+
+    // One `name: description` line per cache registered with `WarmStateRegistry`.
+    static func GetStatusWarmStateField(): string {
+        return "warmState"
     }
 
     static func ErrorResponseJson(id: int, code: int, message: string): string {

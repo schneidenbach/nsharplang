@@ -12,6 +12,7 @@ import System.Text.Json
 import System.Threading
 import NSharpLang.Cli
 import NSharpLang.Cli.Commands
+import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 
 // The error the query dispatch throws to answer with a JSON-RPC code rather than a message alone.
@@ -155,6 +156,24 @@ class DaemonServer {
     // machine.
     func CheckResourceCaps() {
         workingSetMegabytes := Environment.WorkingSet / 1048576L
+        if workingSetMegabytes <= maxMemoryMegabytes {
+            return
+        }
+
+        // Over the cap: first let every registered cache shed what it can rebuild, and only retire
+        // if that was not enough.
+        if Monitor.TryEnter(workGate, 1000) {
+            try {
+                WarmStateRegistry.TrimAll()
+                snapshots.Clear()
+                GC.Collect()
+                GC.WaitForPendingFinalizers()
+            } finally {
+                Monitor.Exit(workGate)
+            }
+        }
+
+        workingSetMegabytes = Environment.WorkingSet / 1048576L
         if workingSetMegabytes > maxMemoryMegabytes {
             WriteDiagnostic(DaemonExecKernels.GetMemoryCapMessage(workingSetMegabytes, maxMemoryMegabytes))
             RequestStop()
@@ -699,7 +718,8 @@ class DaemonServer {
                             Volatile.Read(ref activeRequests),
                             Volatile.Read(ref servedRequests),
                             Environment.WorkingSet / 1048576L,
-                            maxMemoryMegabytes
+                            maxMemoryMegabytes,
+                            WarmStateRegistry.Describe()
                         )
                     )
                 )
@@ -1087,6 +1107,7 @@ class DaemonServer {
         fileName := DaemonServerKernels.GetChangedFileName(fullPath)
         WriteDiagnostic(DaemonServerKernels.GetFileChangedMessage(fileName))
         Volatile.Write(ref cacheInvalid, true)
+        WarmStateRegistry.NotifyPathChanged(fullPath)
     }
 
     // ── Cleanup ─────────────────────────────────────────────────────────
