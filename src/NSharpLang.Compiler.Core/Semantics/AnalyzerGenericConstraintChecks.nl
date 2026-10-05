@@ -158,6 +158,11 @@ class AnalyzerGenericConstraintChecks {
         return "Implement `" + closedText + "` on `" + boundText + "`, or relax the constraint on `" + ownerName + "`."
     }
 
+    static func TypeDisplayText(typeInfo: TypeInfo): string {
+        typeObject: object = typeInfo
+        return typeObject.ToString() ?? "<unknown type>"
+    }
+
     // ── The TYPE-ARGUMENT reporter ──────────────────────────────────────────────────────────────
     //
     // `new Box<string>()` under `class Box<T> where T : struct` was accepted in SILENCE: NL208 existed
@@ -211,8 +216,7 @@ class AnalyzerGenericConstraintChecks {
                 continue
             }
 
-            boundObject := boundType as object
-            boundText := boundObject.ToString()
+            boundText := TypeDisplayText(boundType)
             specialKind := SpecialViolationKind(Convert.ToInt32(constraint.SpecialConstraints), boundType)
             if specialKind != ViolationNone() {
                 diagnostics.Report(ErrorCode.GenericConstraintViolation, SpecialViolationMessage(specialKind, boundText, constraint.TypeParameter, ownerName), line, column, TypeArgumentSuggestion(specialKind, boundText, constraint.TypeParameter, ownerName), length)
@@ -229,8 +233,7 @@ class AnalyzerGenericConstraintChecks {
                 }
 
                 if !assignability.IsSubtypeOf(boundType, closed) && !assignability.IsAssignable(closed, boundType) {
-                    closedObject := closed as object
-                    closedText := closedObject.ToString()
+                    closedText := TypeDisplayText(closed)
                     diagnostics.Report(ErrorCode.GenericConstraintViolation, TypeConstraintMessage(boundText, closedText, constraint.TypeParameter, ownerName), line, column, TypeArgumentTypeConstraintSuggestion(boundText, closedText, ownerName), length)
                 }
             }

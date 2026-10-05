@@ -697,8 +697,7 @@ class AnalyzerSyntheticCallValidator {
             }
 
             span := walk.GetGenericConstraintDiagnosticSpan(functionType, call, constraint.TypeParameter, functionName)
-            boundObject := boundType as object
-            boundText := boundObject.ToString()
+            boundText := AnalyzerGenericConstraintChecks.TypeDisplayText(boundType)
             specialValue := Convert.ToInt32(constraint.SpecialConstraints)
 
             // The predicates and the sentence are `AnalyzerGenericConstraintChecks`, shared with the
@@ -738,8 +737,7 @@ class AnalyzerSyntheticCallValidator {
                 // Either direction satisfies: the bound type may BE a subtype of the constraint, or
                 // be assignable to it through a conversion the constraint admits.
                 if !assignability.IsSubtypeOf(boundType, closedConstraintType) && !assignability.IsAssignable(closedConstraintType, boundType) {
-                    closedObject := closedConstraintType as object
-                    closedText := closedObject.ToString()
+                    closedText := AnalyzerGenericConstraintChecks.TypeDisplayText(closedConstraintType)
                     diagnostics.Report(ErrorCode.GenericConstraintViolation, AnalyzerGenericConstraintChecks.TypeConstraintMessage(boundText, closedText, constraint.TypeParameter, functionName), span.Line, span.Column, AnalyzerGenericConstraintChecks.CallTypeConstraintSuggestion(boundText, closedText, functionName), span.Length)
                 }
             }
