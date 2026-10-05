@@ -77,6 +77,16 @@ jobs:
         NSHARP_RUN_DOCKER_INTEGRATION: '1'
       run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll test --project tests/native/installed-toolchain-integration --no-cache
 
+    # The per-RID toolset: a ReadyToRun compiler host behind the NativeAOT `nlc` front door. The
+    # publish fails on any trim/AOT warning, and the smoke run proves the native front door answers
+    # --version itself and hands a real check to the host.
+    - name: Native toolset (NativeAOT front door, this runner's RID)
+      run: |
+        ./scripts/publish-toolset.sh --rid host --output artifacts/toolset-native/nsharp --skip-packages --skip-archive
+        grep -qx 'nlc=native' artifacts/toolset-native/nsharp/VERSION
+        artifacts/toolset-native/nsharp/bin/nlc --version
+        (cd tests/fixtures/issue-tracker && ../../../artifacts/toolset-native/nsharp/bin/nlc check --text)
+
     - name: Setup Node.js for extension packaging
       uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
       with:
