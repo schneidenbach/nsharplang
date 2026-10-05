@@ -227,6 +227,12 @@ class MultiFileCompiler {
         _plannedTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     }
 
+    // The configuration this compiler was built with; the constructor already replaced a missing one
+    // with the default, so this never constructs anything.
+    private func EffectiveConfig(): ProjectConfig {
+        return _config ?? ProjectFileParser.CreateDefault(null)
+    }
+
     // One analyzer instance owns the complete repeated-call lifetime, created the first time a pass
     // needs it.
     private func SharedAnalyzer(): Analyzer {
@@ -247,7 +253,7 @@ class MultiFileCompiler {
         analyzer := new Analyzer()
         analyzer.SoaEnabled = _soaEnabled
         analyzer.LoadSystemAssemblies()
-        analyzer.LoadFromProjectConfig(_config, _projectRoot)
+        analyzer.LoadFromProjectConfig(EffectiveConfig(), _projectRoot)
         // A caller that hands over a project configuration compiles these files into ONE assembly —
         // a parsed `project.yml`, or a virtual project like the playground's. A caller with none (a
         // folder of standalone scripts checked as a directory) leaves the analyzer to ask the root.
@@ -754,7 +760,7 @@ class MultiFileCompiler {
 
             CompilerStats.AddCacheMiss()
             newCapture := new IncrementalBuildInputCapture()
-            newCapture.CaptureBeforeCompile(_projectRoot, _config, _sourceFiles)
+            newCapture.CaptureBeforeCompile(_projectRoot, EffectiveConfig(), _sourceFiles)
             capture = newCapture
             CompilerStats.AddUpToDateTicks(upToDateClock.ElapsedTicks)
         }
@@ -879,7 +885,7 @@ class MultiFileCompiler {
         key.Add("user-profile", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
         key.Add("current-directory", Environment.CurrentDirectory)
         capture := new IncrementalBuildInputCapture()
-        capture.CaptureEnvironment(_projectRoot, _config)
+        capture.CaptureEnvironment(_projectRoot, EffectiveConfig())
         for entry in capture.Entries {
             key.Add(entry.Kind.ToString() + "|" + entry.Path, entry.Value)
         }

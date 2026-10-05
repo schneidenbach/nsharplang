@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.IO
 import NSharpLang.Compiler.Ast
 
 // ONE FILE'S PART OF A COMPILATION, KEPT FOR THE NEXT ONE.
