@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import System.Runtime.CompilerServices
 
 class ColumnarEnumDef {
     enumTypeValue: Type
@@ -226,6 +227,91 @@ class ColumnarStaticMethodDef {
 // param-modifier and generic-arity facts here, because a MethodBuilder does not expose
 // GetParameters()/ReturnType before its owner is baked. N# alone decides which siblings a direct
 // call may plan; the host only routes these facts.
+// ONE PROJECTION OF A SIBLING VIEW, SHARED BY EVERY BODY THAT SEES IT.
+//
+// Every function body's emitter projected its sibling view -- the free functions its file can call,
+// which `ColumnarFreeFunctionScope.ViewFor` builds once per file and hands to every body in it -- into
+// `ColumnarSiblingCallFacts` for the body planners, and every member body's context grouped the same
+// view into single-entry overload lists (`ColumnarEmitContext.WithSiblings`). Both are pure functions
+// of the view, so both were rebuilt per body over the whole view: quadratic in a file's size, 0.85 GB
+// of an 80,000-line program's allocation. They are now built once per view and kept against it.
+//
+// The view is never written after `ViewFor` builds it and the projections are only read, so a
+// projection stays valid for the view's lifetime; the entry also records the view's count and is
+// rebuilt if it ever differs. The table holds views weakly, so nothing outlives its compilation.
+class ColumnarSiblingViewProjections {
+    SiblingCount: int
+    CallFacts: Dictionary<string, ColumnarSiblingCallFacts>?
+    Overloads: Dictionary<string, List<ColumnarSiblingMethodDefinition>>?
+
+    private static readonly byView: ConditionalWeakTable<object, ColumnarSiblingViewProjections> = new ConditionalWeakTable<object, ColumnarSiblingViewProjections>()
+
+    constructor(siblingCount: int) {
+        SiblingCount = siblingCount
+        CallFacts = null
+        Overloads = null
+    }
+
+    static func For(siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>): ColumnarSiblingViewProjections {
+        viewKey: object = siblings
+        cached: ColumnarSiblingViewProjections? = null
+        if ColumnarSiblingViewProjections.byView.TryGetValue(viewKey, out cached) && cached != null && cached.SiblingCount == siblings.Count {
+            return cached
+        }
+
+        created := new ColumnarSiblingViewProjections(siblings.Count)
+        ColumnarSiblingViewProjections.byView.AddOrUpdate(viewKey, created)
+        return created
+    }
+
+    // The planners' call facts for every sibling in the view.
+    static func CallFactsFor(siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>): Dictionary<string, ColumnarSiblingCallFacts> {
+        projections := ColumnarSiblingViewProjections.For(siblings)
+        existing := projections.CallFacts
+        if existing != null {
+            return existing
+        }
+
+        facts := new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal)
+        for entry in siblings {
+            sibling := entry.Value
+            facts[entry.Key] = new ColumnarSiblingCallFacts(
+                sibling.Method,
+                sibling.ParamTypes,
+                sibling.ParamModifierKinds,
+                sibling.ReturnType,
+                sibling.TypeParams.Length,
+                sibling.ParamNames,
+                sibling.ParamDefaultKinds,
+                sibling.ParamDefaultTexts,
+                sibling.SpecialConstraints,
+                sibling.BaseConstraints,
+                sibling.InterfaceConstraints
+            )
+        }
+        projections.CallFacts = facts
+        return facts
+    }
+
+    // The view grouped as one-entry overload lists, the shape a member body's context reads.
+    static func SingleOverloadsFor(siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>): Dictionary<string, List<ColumnarSiblingMethodDefinition>> {
+        projections := ColumnarSiblingViewProjections.For(siblings)
+        existing := projections.Overloads
+        if existing != null {
+            return existing
+        }
+
+        overloads := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
+        for entry in siblings {
+            group := new List<ColumnarSiblingMethodDefinition>()
+            group.Add(entry.Value)
+            overloads[entry.Key] = group
+        }
+        projections.Overloads = overloads
+        return overloads
+    }
+}
+
 class ColumnarSiblingCallFacts {
     Method: MethodInfo
     ParameterTypes: Type[]

@@ -492,8 +492,63 @@ class ColumnarExternalTypeCatalog {
 // Immutable program binding facts stamped onto every body node table. They are intentionally
 // reusable across expression planners: C# never computes a shadowing boolean or reconstructs
 // source/import/type scope inside an emitter.
+// THE EXPORTED SOURCE NAMES BY THEIR UNQUALIFIED SPELLING, for `TryFindUniqueExportedSourceName`.
+//
+// That question -- "which exported project declarations are spelled `name` once the namespace is
+// dropped" -- was a scan of every exported type and alias name, cutting each one's namespace off
+// with a fresh substring, for every bare type spelling the emit walk resolves: quadratic in the size
+// of the project, and 1.7 GB of substrings in an 80,000-line one. The index answers it with one hash
+// probe. Both name sets only ever GROW, so it is rebuilt exactly when either count has changed since
+// it was built; the per-file views share the parent's sets and therefore share this index too.
+class ColumnarExportedSourceNameIndex {
+    ByUnqualifiedName: Dictionary<string, List<string>>
+    BuiltTypeCount: int
+    BuiltAliasCount: int
+
+    constructor() {
+        ByUnqualifiedName = new Dictionary<string, List<string>>(StringComparer.Ordinal)
+        BuiltTypeCount = -1
+        BuiltAliasCount = -1
+    }
+
+    // The distinct exported names spelled `name` once unqualified, types first, each set in its own
+    // (insertion) order -- the order the scan visited them.
+    func Matching(name: string, typeNames: HashSet<string>, aliasNames: HashSet<string>): List<string>? {
+        if BuiltTypeCount != typeNames.Count || BuiltAliasCount != aliasNames.Count {
+            ByUnqualifiedName.Clear()
+            for typeName in typeNames {
+                Add(typeName)
+            }
+            for aliasName in aliasNames {
+                Add(aliasName)
+            }
+            BuiltTypeCount = typeNames.Count
+            BuiltAliasCount = aliasNames.Count
+        }
+
+        matches: List<string>? = null
+        if ByUnqualifiedName.TryGetValue(name, out matches) {
+            return matches
+        }
+        return null
+    }
+
+    private func Add(exactName: string) {
+        unqualified := ColumnarTypeCanonicalizer.UnqualifiedTypeName(exactName)
+        matches: List<string>? = null
+        if !ByUnqualifiedName.TryGetValue(unqualified, out matches) || matches == null {
+            matches = new List<string>()
+            ByUnqualifiedName[unqualified] = matches
+        }
+        if !matches.Contains(exactName) {
+            matches.Add(exactName)
+        }
+    }
+}
+
 class ColumnarBindingScopeFacts: ColumnarBindingScope {
     projectRoot: string
+    exportedSourceNameIndex: ColumnarExportedSourceNameIndex
     sourceTypeNames: HashSet<string>
     exportedSourceTypeNames: HashSet<string>
     ambiguousSourceTypeNames: HashSet<string>
@@ -542,6 +597,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
     // emit walk asks for, 7-14% of a large program's emit, for a value always overwritten.
     constructor() {
         projectRoot = ""
+        exportedSourceNameIndex = new ColumnarExportedSourceNameIndex()
         sourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
         exportedSourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
         ambiguousSourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
@@ -702,6 +758,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
     func ForSourceFile(sourceFileId: int): ColumnarBindingScopeFacts {
         view := new ColumnarBindingScopeFacts()
         view.projectRoot = projectRoot
+        view.exportedSourceNameIndex = exportedSourceNameIndex
         view.sourceTypeNames = sourceTypeNames
         view.exportedSourceTypeNames = exportedSourceTypeNames
         view.ambiguousSourceTypeNames = ambiguousSourceTypeNames
@@ -1250,30 +1307,20 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
         return TrySelectExactSourceDeclarationName(selectedName, true, activeAliases, depth + 1, out exactName)
     }
 
+    // The one exported type or alias name spelled `name` once unqualified. `claimed` says whether any
+    // is; two distinct ones are no answer (`false`, claimed). Answered from the shared index
+    // (`ColumnarExportedSourceNameIndex`) rather than a scan of every exported name.
     func TryFindUniqueExportedSourceName(name: string, out selectedName: string, out claimed: bool): bool {
         selectedName = ""
         claimed = false
-        for candidate in exportedSourceTypeNames {
-            if ColumnarTypeCanonicalizer.UnqualifiedTypeName(candidate) != name {
-                continue
-            }
-            claimed = true
-            if selectedName.Length > 0 && selectedName != candidate {
-                return false
-            }
-            selectedName = candidate
+        matches := exportedSourceNameIndex.Matching(name, exportedSourceTypeNames, exportedSourceTypeAliasNames)
+        if matches == null || matches.Count == 0 {
+            return false
         }
-        for candidate in exportedSourceTypeAliasNames {
-            if ColumnarTypeCanonicalizer.UnqualifiedTypeName(candidate) != name {
-                continue
-            }
-            claimed = true
-            if selectedName.Length > 0 && selectedName != candidate {
-                return false
-            }
-            selectedName = candidate
-        }
-        if selectedName.Length == 0 {
+
+        claimed = true
+        selectedName = matches[0]
+        if matches.Count > 1 || selectedName.Length == 0 {
             return false
         }
         return true

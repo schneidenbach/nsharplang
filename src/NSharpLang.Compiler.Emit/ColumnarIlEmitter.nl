@@ -13448,23 +13448,7 @@ sealed class ColumnarIlEmitter {
         if (_siblingCallFacts != null) {
             return _siblingCallFacts
         }
-        facts := new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal)
-        for entry in _siblings {
-            sibling := entry.Value
-            facts[entry.Key] = new ColumnarSiblingCallFacts(
-                sibling.Method,
-                sibling.ParamTypes,
-                sibling.ParamModifierKinds,
-                sibling.ReturnType,
-                sibling.TypeParams.Length,
-                sibling.ParamNames,
-                sibling.ParamDefaultKinds,
-                sibling.ParamDefaultTexts,
-                sibling.SpecialConstraints,
-                sibling.BaseConstraints,
-                sibling.InterfaceConstraints
-            )
-        }
+        facts := ColumnarSiblingViewProjections.CallFactsFor(_siblings)
         _siblingCallFacts = facts
         return facts
     }
