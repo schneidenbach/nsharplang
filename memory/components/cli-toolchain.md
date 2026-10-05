@@ -804,9 +804,9 @@ nlc build --release --verbose
 - `--verbose` enables detailed native resolver/build output
 - Set `NSHARP_COLUMNAR_DECLINE_LOG=1` while debugging an `NL103` columnar-emission decline to print every decline trace
   record to stderr. `NSHARP_DEBUG_LOG=1` also mirrors the trace into `compile-debug.log`.
-- In-project parallelism: a large project's semantic analysis fans its files out to several workers
-  (`CompilerParallelism`: one worker per ~400,000 characters of source, at most `min(cores, 8)`; smaller
-  projects stay serial). The output is identical to a serial build -- same diagnostics in the same
+- In-project parallelism: a large project's semantic analysis and the IL back end's per-file parse fan
+  its files out to several workers (`CompilerParallelism`: one worker per ~400,000 characters of
+  source, at most `min(cores, 8)`; smaller projects stay serial). The output is identical to a serial build -- same diagnostics in the same
   order, same IL bytes. `NSHARP_COMPILER_WORKERS=<n>` overrides the count (`1` forces the serial path);
   every `build`, `check`, `test` and `run` that compiles through `MultiFileCompiler` honours it.
 

@@ -1,12 +1,49 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Concurrent
 import System.Collections.Generic
+import System.Threading
 
 
 // Materializes the parser kernels' flat output columns into the durable program-input model used by
 // the columnar emitter. The kernels own syntax decisions; this owner preserves declaration order,
 // partial failure state, source-file attribution, and the retained node-table shape.
+// ONE FILE'S COLUMNAR PARSE, AS A PARALLEL WORKER LEAVES IT: the program it built (or null), the
+// decline records its parse made, and the exception it threw, if any.
+class ColumnarFileBuildOutcome {
+    Built: bool
+    Program: ColumnarProgramInput?
+    Declines: IReadOnlyList<ColumnarDeclineReason>
+    Failure: Exception?
+    // Until a worker reaches the file.
+    Pending: bool
+
+    constructor(built: bool, program: ColumnarProgramInput?, declines: IReadOnlyList<ColumnarDeclineReason>, failure: Exception?, pending: bool) {
+        Built = built
+        Program = program
+        Declines = declines
+        Failure = failure
+        Pending = pending
+    }
+}
+
+// What the per-file parse workers share: the inputs, a FIFO queue of file indices and one outcome
+// slot per file.
+class ColumnarFileBuildWork {
+    Sources: IReadOnlyList<string>
+    SourceFiles: ColumnarSourceFile[]
+    Outcomes: ColumnarFileBuildOutcome[]
+    Queue: ConcurrentQueue<int>
+
+    constructor(sources: IReadOnlyList<string>, sourceFiles: ColumnarSourceFile[], outcomes: ColumnarFileBuildOutcome[], queue: ConcurrentQueue<int>) {
+        Sources = sources
+        SourceFiles = sourceFiles
+        Outcomes = outcomes
+        Queue = queue
+    }
+}
+
 sealed class ColumnarProgramInputBuilder {
     private constructor() {
     }
@@ -302,9 +339,30 @@ sealed class ColumnarProgramInputBuilder {
     }
 
     static func TryBuildMultiFile(sources: IReadOnlyList<string>, fileNames: IReadOnlyList<string>, projectRoot: string, out program: ColumnarProgramInput): bool {
+        return TryBuildMultiFile(sources, fileNames, projectRoot, out program, 0)
+    }
+
+    // `workersOverride` (0 = `CompilerParallelism` decides) is the driver's `MultiFileCompiler.Workers`.
+    static func TryBuildMultiFile(sources: IReadOnlyList<string>, fileNames: IReadOnlyList<string>, projectRoot: string, out program: ColumnarProgramInput, workersOverride: int): bool {
         program = null
         sourceFiles := ColumnarEmissionPlanner.BuildSourceFilesFromLists(sources, fileNames)
         programs := new ColumnarProgramInput[](sources.Count)
+        totalCharacters := 0L
+        for counted in sources {
+            totalCharacters = totalCharacters + counted.Length
+        }
+        workers := CompilerParallelism.WorkerCount(sources.Count, totalCharacters)
+        if workersOverride > 0 {
+            workers = Math.Min(workersOverride, Math.Max(sources.Count, 1))
+        }
+        if workers > 1 {
+            if !TryBuildFilesInParallel(sources, sourceFiles, programs, workers) {
+                return false
+            }
+            program = ColumnarProgramInput.MergeSourceFilesAtProjectRoot(sourceFiles, programs, projectRoot)
+            return true
+        }
+
         i := 0
         while i < sources.Count {
             sourceFileId := sourceFiles[i].FileId
@@ -324,6 +382,92 @@ sealed class ColumnarProgramInputBuilder {
 
         program = ColumnarProgramInput.MergeSourceFilesAtProjectRoot(sourceFiles, programs, projectRoot)
         return true
+    }
+
+    // THE PER-FILE PARSE, FANNED OUT. Each file's `TryBuild` reads only its own source and writes only
+    // its own program, so the files are parsed by `workers` threads taking indices from a FIFO queue.
+    // The decline trace is thread-local, so each worker resets it per file and keeps that file's
+    // records with its outcome. Then, IN FILE ORDER, each file's records are appended to this
+    // (the emission) thread's trace and its program taken, stopping at the first file that declined or
+    // threw -- exactly where the serial loop would have stopped, with exactly the trace it would have
+    // left. The workers run on wide stacks for the same reason the emission thread does.
+    private static func TryBuildFilesInParallel(sources: IReadOnlyList<string>, sourceFiles: ColumnarSourceFile[], programs: ColumnarProgramInput[], workers: int): bool {
+        queue := new ConcurrentQueue<int>()
+        index := 0
+        while index < sources.Count {
+            queue.Enqueue(index)
+            index = index + 1
+        }
+
+        outcomes := new ColumnarFileBuildOutcome[](sources.Count)
+        noDeclines: IReadOnlyList<ColumnarDeclineReason> = System.Array.Empty<ColumnarDeclineReason>()
+        pendingIndex := 0
+        while pendingIndex < outcomes.Length {
+            outcomes[pendingIndex] = new ColumnarFileBuildOutcome(false, null, noDeclines, null, true)
+            pendingIndex = pendingIndex + 1
+        }
+        work := new ColumnarFileBuildWork(sources, sourceFiles, outcomes, queue)
+        threads := new List<Thread>(workers)
+        worker := 0
+        while worker < workers {
+            start: ThreadStart = () => RunFileBuildWorker(work)
+            thread := new Thread(start, 64 * 1024 * 1024)
+            thread.IsBackground = true
+            thread.Name = "nsharp-columnar-parse-" + worker.ToString()
+            threads.Add(thread)
+            worker = worker + 1
+        }
+        for started in threads {
+            started.Start()
+        }
+        for joined in threads {
+            joined.Join()
+        }
+
+        file := 0
+        while file < outcomes.Length {
+            outcome := outcomes[file]
+            if outcome.Pending {
+                throw new InvalidOperationException("Parallel columnar parse produced no outcome for file " + file.ToString() + ".")
+            }
+            ColumnarDeclineTrace.Append(outcome.Declines)
+            failure := outcome.Failure
+            if failure != null {
+                throw failure
+            }
+            built := outcome.Program
+            if !outcome.Built || built == null {
+                return false
+            }
+            programs[file] = built
+            file = file + 1
+        }
+
+        return true
+    }
+
+    // Not private: the thread-start closure that calls it is emitted outside this class.
+    static func RunFileBuildWorker(work: ColumnarFileBuildWork): void {
+        next := 0
+        while work.Queue.TryDequeue(out next) {
+            ColumnarDeclineTrace.Reset()
+            sourceFileId := work.SourceFiles[next].FileId
+            ColumnarDeclineTrace.SetSourceFileId(sourceFileId)
+            try {
+                fileProgram: ColumnarProgramInput = null
+                if TryBuild(work.Sources[next], out fileProgram) {
+                    ColumnarProgramInput.AssignSourceFileId(fileProgram, sourceFileId)
+                    work.Outcomes[next] = new ColumnarFileBuildOutcome(true, fileProgram, ColumnarDeclineTrace.Snapshot(), null, false)
+                } else {
+                    work.Outcomes[next] = new ColumnarFileBuildOutcome(false, null, ColumnarDeclineTrace.Snapshot(), null, false)
+                }
+            } catch ex: Exception {
+                work.Outcomes[next] = new ColumnarFileBuildOutcome(false, null, ColumnarDeclineTrace.Snapshot(), ex, false)
+            } finally {
+                ColumnarDeclineTrace.ClearSourceFileId()
+            }
+        }
+        ColumnarDeclineTrace.Reset()
     }
 
     // A newtype is represented by the same readonly record-struct shape the emitter already owns:

@@ -100,7 +100,7 @@ class MultiFileCompiler {
     private _columnarDeclineLog: TextWriter?
     private readonly _phaseProject: string
     private readonly _declaresOneProgram: bool
-    private _analysisWorkers: int
+    private _workers: int
 
     CompilationUnits: IReadOnlyDictionary<string, CompilationUnit> => _compilationUnits
     SemanticModels: IReadOnlyDictionary<string, SemanticModel> => _semanticModels
@@ -157,17 +157,18 @@ class MultiFileCompiler {
         }
     }
 
-    // HOW MANY WORKERS THE ANALYSIS PASS USES: 0 (the default) lets `CompilerParallelism` decide
-    // from the project's size and the machine; a positive count is used as given, capped by the
-    // number of files. A caller that must exercise one path or the other -- the serial-versus-
-    // parallel differential, an estate row -- says so here rather than through
-    // `NSHARP_COMPILER_WORKERS`, which every compilation in the process would see.
-    AnalysisWorkers: int {
+    // HOW MANY WORKERS EACH FAN-OUT PHASE USES -- the analysis pass and the columnar back end's
+    // per-file parse: 0 (the default) lets `CompilerParallelism` decide from the project's size and
+    // the machine; a positive count is used as given, capped by the number of files. A caller that
+    // must exercise one path or the other -- the serial-versus-parallel differential, an estate row --
+    // says so here rather than through `NSHARP_COMPILER_WORKERS`, which every compilation in the
+    // process would see.
+    Workers: int {
         get {
-            return _analysisWorkers
+            return _workers
         }
         set {
-            _analysisWorkers = value
+            _workers = value
         }
     }
 
@@ -242,7 +243,7 @@ class MultiFileCompiler {
         // a parsed `project.yml`, or a virtual project like the playground's. A caller with none (a
         // folder of standalone scripts checked as a directory) leaves the analyzer to ask the root.
         _declaresOneProgram = config != null
-        _analysisWorkers = 0
+        _workers = 0
 
         // One analyzer instance owns the complete repeated-call lifetime.
         loadMark := CompilerPhaseTimings.Begin(_phaseProject, "load-references")
@@ -493,8 +494,8 @@ class MultiFileCompiler {
             pendingIndex = pendingIndex + 1
         }
         workerCount := CompilerParallelism.WorkerCount(files.Count, totalCharacters)
-        if _analysisWorkers > 0 {
-            workerCount = Math.Min(_analysisWorkers, Math.Max(files.Count, 1))
+        if _workers > 0 {
+            workerCount = Math.Min(_workers, Math.Max(files.Count, 1))
         }
         if workerCount <= 1 {
             _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
@@ -917,7 +918,7 @@ class MultiFileCompiler {
         isExecutable := ColumnarEmissionPlanner.IsExecutableOutput(outputType)
         ColumnarDeclineTrace.Reset()
         let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput = null
-        if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out program)) {
+        if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out program, _workers)) {
             CompilerPhaseTimings.End(emitParseMark)
             return false
         }

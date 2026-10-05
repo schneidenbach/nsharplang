@@ -5,10 +5,11 @@ import System.Collections.Generic
 import System.IO
 
 
-// PARALLEL ANALYSIS IS INVISIBLE IN THE OUTPUT. `MultiFileCompiler.AnalysisWorkers` fans the analysis
-// pass out to several analyzers; whatever the worker count, the diagnostics must come back in the same
-// order with the same text and the emitted assembly must be byte-for-byte the serial one. These rows
-// compile the same projects at one worker and at several and compare everything a caller can read.
+// PARALLELISM IS INVISIBLE IN THE OUTPUT. `MultiFileCompiler.Workers` fans the analysis pass and the
+// columnar back end's per-file parse out to several threads; whatever the worker count, the
+// diagnostics must come back in the same order with the same text and the emitted assembly must be
+// byte-for-byte the serial one. These rows compile the same projects at one worker and at several and
+// compare everything a caller can read.
 //
 // The fixtures are shaped to reach the two places a parallel analysis could drift: a namespace import
 // that LOADS an assembly the analyzer does not load up front (`System.IO.Compression`), in the first
@@ -68,7 +69,7 @@ func PanCompile(root: string, workers: int, outputPath: string): MultiFileCompil
     config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
     compiler := new MultiFileCompiler(root, config)
     compiler.AotMode = false
-    compiler.AnalysisWorkers = workers
+    compiler.Workers = workers
     return compiler.CompileToIlAssembly("PanApp", outputPath, false, true)
 }
 
@@ -106,6 +107,31 @@ test "parallel analysis reports the serial diagnostics in the serial order" {
         serialText := PanDescribe(serial.Errors)
         assert serialText.Split('\n').Length >= 7, serialText
         for workers in [2, 3, 4, 8] {
+            parallel := PanCompile(root, workers, Path.Combine(root, "out-" + workers.ToString(), "PanApp.dll"))
+            assert !parallel.Success
+            parallelText := PanDescribe(parallel.Errors)
+            assert parallelText == serialText, "workers=" + workers.ToString() + "\n" + parallelText
+        }
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+// THE PARSE'S DECLINE TRACE IS THE SERIAL ONE. A later file uses a shape the columnar back end does not
+// model, so emission is refused with an NL103 that names the site and the file; with the per-file
+// parse fanned out, that file is parsed on a worker whose thread-local trace must be handed back in
+// file order -- the refusal has to read exactly as the serial one, and the earlier files' clean
+// parses must add nothing to it.
+test "parallel columnar parse reports the serial emission refusal" {
+    root := PanRoot()
+    try {
+        PanWriteProject(root, false)
+        PanWrite(root, "B/Late.nl", "namespace Pan.B\n\nunion LateResult {\n    Ok { value: int }\n    Failed { reason: string }\n}\n\nfunc ScoreLate(result: LateResult): int {\n    return match result {\n        LateResult.Ok ok => ok.value,\n        _ => 0\n    }\n}\n")
+        serial := PanCompile(root, 1, Path.Combine(root, "out-serial", "PanApp.dll"))
+        assert !serial.Success
+        serialText := PanDescribe(serial.Errors)
+        assert serialText.Contains("NL103"), serialText
+        for workers in [2, 4, 8] {
             parallel := PanCompile(root, workers, Path.Combine(root, "out-" + workers.ToString(), "PanApp.dll"))
             assert !parallel.Success
             parallelText := PanDescribe(parallel.Errors)
