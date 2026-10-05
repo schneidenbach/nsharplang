@@ -609,11 +609,13 @@ else
     # The identity diff has no additions; only those four NL202 findings were removed.
     # 2026-10-05, assert non-null invariants before using optional test results: Core 207, Compiler 0.
     # The identity diff has no additions; only those four NL202 findings were removed.
+    # 2026-10-05, narrow nullable tuple elements before recursive compatibility checks: Core 206, Compiler 0.
+    # The identity diff has no additions; only that one NL202 finding was removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        207
+        206
         0
         0
         0

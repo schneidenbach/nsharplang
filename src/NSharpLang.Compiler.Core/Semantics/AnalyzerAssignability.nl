@@ -201,11 +201,11 @@ class AnalyzerAssignability {
 
         targetInner := ReferenceNullableInnerType(resolvedTarget)
         sourceInner := ReferenceNullableInnerType(resolvedSource)
-        if targetInner == null && sourceInner == null {
-            return false
-        }
-
         if targetInner == null {
+            if sourceInner == null {
+                return false
+            }
+
             return IsTupleElementCompatible(resolvedTarget, sourceInner)
         }
 
