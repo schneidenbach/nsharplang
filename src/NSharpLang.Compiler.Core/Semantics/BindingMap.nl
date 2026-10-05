@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System.Collections.Concurrent
 import System.Collections.Generic
 
 class SymbolDeclaration {
@@ -561,6 +562,12 @@ class BindingMap {
         return left.File == right.File && left.Line == right.Line && left.Col == right.Col
     }
 
+    // WHETHER TWO RECORDED FILE SPELLINGS NAME THE SAME FILE: equal, either one absent, equal once
+    // separators are normalised, or one a path suffix of the other. Answered once per pair of
+    // spellings: the reference-bucket fallback asks it of every bucket at a new declaration's line and
+    // column, and the suffix tests build two strings and make two culture-aware comparisons per pair,
+    // which was 0.5 GB of an 80,000-line program's allocation. The answer is a pure function of the
+    // two strings; the memo is bounded and safe under parallel analysis.
     static func FilesMatch(left: string?, right: string?): bool {
         if left == right {
             return true
@@ -570,6 +577,23 @@ class BindingMap {
             return true
         }
 
+        known := false
+        if BindingMap.filesMatchMemo.TryGetValue((Left: left, Right: right), out known) {
+            return known
+        }
+
+        answer := FilesMatchUncached(left, right)
+        if BindingMap.filesMatchMemo.Count < BindingMap.FilesMatchMemoLimit {
+            BindingMap.filesMatchMemo.TryAdd((Left: left, Right: right), answer)
+        }
+        return answer
+    }
+
+    static FilesMatchMemoLimit: int => 1000000
+
+    private static readonly filesMatchMemo: ConcurrentDictionary<(Left: string, Right: string), bool> = new ConcurrentDictionary<(Left: string, Right: string), bool>()
+
+    static func FilesMatchUncached(left: string, right: string): bool {
         leftText := left.Replace('\\', '/')
         rightText := right.Replace('\\', '/')
 
