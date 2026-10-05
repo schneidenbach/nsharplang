@@ -2936,11 +2936,7 @@ class ColumnarIteratorBodyPlanner {
 
     // N# has no `typeof(void)`; resolve the void marker through the runtime type system.
     static func VoidReturnType(): Type {
-        voidType := Type.GetType("System.Void")
-        if voidType == null {
-            throw new InvalidOperationException("System.Void was not found.")
-        }
-        return voidType
+        return RequiredRuntimeTypes.Get("System.Void", "System.Void was not found.")
     }
 
     static func EnumeratorInterfaceTypeOf(elementType: Type): Type {
@@ -2964,11 +2960,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func NonGenericEnumeratorType(): Type {
-        enumeratorType := Type.GetType("System.Collections.IEnumerator")
-        if enumeratorType == null {
-            throw new InvalidOperationException("System.Collections.IEnumerator was not found.")
-        }
-        return enumeratorType
+        return RequiredRuntimeTypes.Get("System.Collections.IEnumerator", "System.Collections.IEnumerator was not found.")
     }
 
     static func LoadThis(emit: ColumnarMoveNextEmit) {

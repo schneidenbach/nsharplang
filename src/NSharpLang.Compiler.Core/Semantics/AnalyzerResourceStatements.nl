@@ -1146,30 +1146,15 @@ class AnalyzerResourceStatements {
     // mechanism. Both resolve to `System.Private.CoreLib`, so the identity is the one `typeof` would
     // have given.
     static func DisposableRoot(): Type {
-        disposable := Type.GetType("System.IDisposable")
-        if disposable == null {
-            throw new InvalidOperationException("AnalyzerResourceStatements requires System.IDisposable in the compiler's own core library, and Type.GetType returned null for it.")
-        }
-
-        return disposable
+        return RequiredRuntimeTypes.Get("System.IDisposable", "AnalyzerResourceStatements requires System.IDisposable in the compiler's own core library, and Type.GetType returned null for it.")
     }
 
     static func AsyncDisposableRoot(): Type {
-        asyncDisposable := Type.GetType("System.IAsyncDisposable")
-        if asyncDisposable == null {
-            throw new InvalidOperationException("AnalyzerResourceStatements requires System.IAsyncDisposable in the compiler's own core library, and Type.GetType returned null for it.")
-        }
-
-        return asyncDisposable
+        return RequiredRuntimeTypes.Get("System.IAsyncDisposable", "AnalyzerResourceStatements requires System.IAsyncDisposable in the compiler's own core library, and Type.GetType returned null for it.")
     }
 
     static func VoidRuntimeType(): Type {
-        voidType := Type.GetType("System.Void")
-        if voidType == null {
-            throw new InvalidOperationException("AnalyzerResourceStatements requires System.Void in the compiler's own core library, and Type.GetType returned null for it.")
-        }
-
-        return voidType
+        return RequiredRuntimeTypes.Get("System.Void", "AnalyzerResourceStatements requires System.Void in the compiler's own core library, and Type.GetType returned null for it.")
     }
 
     // ── SHARED REQUEST SHAPES ──────────────────────────────────────────────────────────────────

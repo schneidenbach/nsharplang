@@ -119,12 +119,7 @@ class ColumnarTypeEquivalenceFacts {
 
     // The open `System.Nullable<T>` definition, loaded by metadata name; its absence is a broken runtime.
     static func RequiredNullableDefinition(): Type {
-        result := Type.GetType("System.Nullable`1")
-        if result == null {
-            throw new InvalidOperationException("System.Nullable<T> runtime type was not found.")
-        }
-
-        return result
+        return RequiredRuntimeTypes.Get("System.Nullable`1", "System.Nullable<T> runtime type was not found.")
     }
 
     // `IsByRef` is answerable for every baked type and throws for some unbaked emit-time shapes. A throw

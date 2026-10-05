@@ -1977,82 +1977,42 @@ class ColumnarTypeOfPlanner {
     // The read-only dictionary definition is fetched BY NAME rather than by `typeof`: this kernel is
     // compiled by the pinned toolset, which is the one that does not yet publish the head.
     static func RequiredReadOnlyDictionaryDefinition(): Type {
-        result := Type.GetType("System.Collections.Generic.IReadOnlyDictionary`2")
-        if result == null {
-            throw new InvalidOperationException("System.Collections.Generic.IReadOnlyDictionary`2 runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Collections.Generic.IReadOnlyDictionary`2", "System.Collections.Generic.IReadOnlyDictionary`2 runtime type was not found.")
     }
 
     static func RequiredVoidType(): Type {
-        result := Type.GetType("System.Void")
-        if result == null {
-            throw new InvalidOperationException("System.Void runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Void", "System.Void runtime type was not found.")
     }
 
     static func RequiredNullableDefinition(): Type {
-        result := Type.GetType("System.Nullable`1")
-        if result == null {
-            throw new InvalidOperationException("System.Nullable<T> runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Nullable`1", "System.Nullable<T> runtime type was not found.")
     }
 
     static func RequiredEnumeratorDefinition(): Type {
-        result := Type.GetType("System.Collections.Generic.IEnumerator`1")
-        if result == null {
-            throw new InvalidOperationException("System.Collections.Generic.IEnumerator<T> runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Collections.Generic.IEnumerator`1", "System.Collections.Generic.IEnumerator<T> runtime type was not found.")
     }
 
     static func RequiredListEnumeratorDefinition(): Type {
-        result := Type.GetType("System.Collections.Generic.List`1+Enumerator")
-        if result == null {
-            throw new InvalidOperationException("List<T>.Enumerator runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Collections.Generic.List`1+Enumerator", "List<T>.Enumerator runtime type was not found.")
     }
 
     static func RequiredDictionaryValueCollectionDefinition(): Type {
-        result := Type.GetType("System.Collections.Generic.Dictionary`2+ValueCollection")
-        if result == null {
-            throw new InvalidOperationException("Dictionary<TKey, TValue>.ValueCollection runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Collections.Generic.Dictionary`2+ValueCollection", "Dictionary<TKey, TValue>.ValueCollection runtime type was not found.")
     }
 
     static func RequiredDictionaryKeyCollectionDefinition(): Type {
-        result := Type.GetType("System.Collections.Generic.Dictionary`2+KeyCollection")
-        if result == null {
-            throw new InvalidOperationException("Dictionary<TKey, TValue>.KeyCollection runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Collections.Generic.Dictionary`2+KeyCollection", "Dictionary<TKey, TValue>.KeyCollection runtime type was not found.")
     }
 
     static func RequiredDictionaryKeyEnumeratorDefinition(): Type {
-        result := Type.GetType("System.Collections.Generic.Dictionary`2+KeyCollection+Enumerator")
-        if result == null {
-            throw new InvalidOperationException("Dictionary<TKey, TValue>.KeyCollection.Enumerator runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Collections.Generic.Dictionary`2+KeyCollection+Enumerator", "Dictionary<TKey, TValue>.KeyCollection.Enumerator runtime type was not found.")
     }
 
     static func RequiredDictionaryEnumeratorDefinition(): Type {
-        result := Type.GetType("System.Collections.Generic.Dictionary`2+Enumerator")
-        if result == null {
-            throw new InvalidOperationException("Dictionary<TKey, TValue>.Enumerator runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Collections.Generic.Dictionary`2+Enumerator", "Dictionary<TKey, TValue>.Enumerator runtime type was not found.")
     }
 
     static func RequiredDictionaryValueEnumeratorDefinition(): Type {
-        result := Type.GetType("System.Collections.Generic.Dictionary`2+ValueCollection+Enumerator")
-        if result == null {
-            throw new InvalidOperationException("Dictionary<TKey, TValue>.ValueCollection.Enumerator runtime type was not found.")
-        }
-        return result
+        return RequiredRuntimeTypes.Get("System.Collections.Generic.Dictionary`2+ValueCollection+Enumerator", "Dictionary<TKey, TValue>.ValueCollection.Enumerator runtime type was not found.")
     }
 }
