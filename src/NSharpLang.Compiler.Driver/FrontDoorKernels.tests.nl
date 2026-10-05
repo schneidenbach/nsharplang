@@ -1,6 +1,5 @@
 namespace NSharpLang.Cli
 
-import System
 import System.Collections
 import System.Collections.Generic
 import System.IO

@@ -5,7 +5,6 @@ import System.Collections.Generic
 import System.ComponentModel
 import System.Diagnostics
 import System.IO
-import System.Runtime.CompilerServices
 import System.Runtime.InteropServices
 
 // THE NATIVE FRONT DOOR: `nlc` AS A NATIVEAOT EXECUTABLE. The decisions are `FrontDoorKernels`;
@@ -245,12 +244,12 @@ class FrontDoor {
 // NUL-terminated UTF-8 or a NULL-terminated pointer vector, so nothing needs runtime marshalling.
 static class FrontDoorNative {
     [LibraryImport("/usr/lib/libSystem.B.dylib", EntryPoint = "execve")]
-    static func ExecveDarwin(path: nint, argv: nint[], envp: nint[]): int
+    static func ExecveDarwin(path: IntPtr, argv: IntPtr[], envp: IntPtr[]): int
 
     [LibraryImport("libc.so.6", EntryPoint = "execve")]
-    static func ExecveGlibc(path: nint, argv: nint[], envp: nint[]): int
+    static func ExecveGlibc(path: IntPtr, argv: IntPtr[], envp: IntPtr[]): int
 
-    static func Execve(path: nint, argv: nint[], envp: nint[]): int {
+    static func Execve(path: IntPtr, argv: IntPtr[], envp: IntPtr[]): int {
         if OperatingSystem.IsMacOS() {
             return ExecveDarwin(path, argv, envp)
         }
@@ -258,12 +257,12 @@ static class FrontDoorNative {
         return ExecveGlibc(path, argv, envp)
     }
 
-    static func ToNative(text: string): nint {
+    static func ToNative(text: string): IntPtr {
         return Marshal.StringToCoTaskMemUTF8(text)
     }
 
-    static func ToNativeVector(values: string[]): nint[] {
-        vector := new nint[](values.Length + 1)
+    static func ToNativeVector(values: string[]): IntPtr[] {
+        vector := new IntPtr[](values.Length + 1)
         index := 0
         while index < values.Length {
             vector[index] = Marshal.StringToCoTaskMemUTF8(values[index])
