@@ -35,6 +35,8 @@ class BenchOptions {
     Only: string
     ShowHelp: bool
     Error: string
+    SyntheticDirectory: string
+    SyntheticShape: string
 
     constructor(runs: int, outputDirectory: string, cliDll: string, scope: string, only: string) {
         Runs = runs
@@ -44,11 +46,13 @@ class BenchOptions {
         Only = only
         ShowHelp = false
         Error = ""
+        SyntheticDirectory = ""
+        SyntheticShape = "10x10x6"
     }
 }
 
 func BenchHelpText(): string {
-    return "N# compile-time benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench [options]\n" + "\n" + "Measures how long `nlc build` and `nlc check` take over the example, test and template\n" + "corpus and over the large-project case, src/NSharpLang.Compiler.Core.\n" + "\n" + "Options:\n" + "  --runs <n>              Measured runs per project per command (default 5)\n" + "  --out <dir>             Output directory (default artifacts/compile-time/<local date>)\n" + "  --cli <path>            Cli.dll under test (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --scope <scope>         corpus, bootstrap or all (default all)\n" + "  --only <substring>      Only projects whose repository-relative path contains <substring>\n" + "  --help, -h              Show this help text\n" + "\n" + "Outputs, written to the output directory:\n" + "  runs.csv                One row per individual run\n" + "  compile-time.csv        One row per project and command, with the median\n" + "  compile-time.md         The readable report, aggregate table included\n" + "\n" + "Exit codes:\n" + "  0  The sweep completed and the outputs were written\n" + "  1  A harness failure (missing CLI, unwritable output, or a build that modified the tree)"
+    return "N# compile-time benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench [options]\n" + "\n" + "Measures how long `nlc build` and `nlc check` take over the example, test and template\n" + "corpus and over the large-project case, src/NSharpLang.Compiler.Core.\n" + "\n" + "Options:\n" + "  --runs <n>              Measured runs per project per command (default 5)\n" + "  --out <dir>             Output directory (default artifacts/compile-time/<local date>)\n" + "  --cli <path>            Cli.dll under test (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --scope <scope>         corpus, bootstrap or all (default all)\n" + "  --only <substring>      Only projects whose repository-relative path contains <substring>\n" + "  --synthetic <dir>       Write the deterministic synthetic project there and exit (no sweep)\n" + "  --synthetic-shape <s>   Its size as <modules>x<files>x<items> (default 10x10x6: 80,009 lines)\n" + "  --help, -h              Show this help text\n" + "\n" + "Outputs, written to the output directory:\n" + "  runs.csv                One row per individual run\n" + "  compile-time.csv        One row per project and command, with the median\n" + "  compile-time.md         The readable report, aggregate table included\n" + "\n" + "Exit codes:\n" + "  0  The sweep completed and the outputs were written\n" + "  1  A harness failure (missing CLI, unwritable output, or a build that modified the tree)"
 }
 
 // Local date as `YYYY-MM-DD`, assembled from the parts rather than a format string so the report
@@ -131,6 +135,22 @@ func BenchParseOptions(args: string[], repositoryRoot: string): BenchOptions {
 
             options.Scope = scope
             i = i + 1
+        } else if argument == "--synthetic" {
+            if i + 1 >= args.Length {
+                options.Error = "--synthetic needs a directory to write the project into."
+                return options
+            }
+
+            options.SyntheticDirectory = Path.GetFullPath(args[i + 1])
+            i = i + 1
+        } else if argument == "--synthetic-shape" {
+            if i + 1 >= args.Length || BenchParseSyntheticShape(args[i + 1]) == null {
+                options.Error = "--synthetic-shape needs <modules>x<files>x<items>, each a positive whole number."
+                return options
+            }
+
+            options.SyntheticShape = args[i + 1]
+            i = i + 1
         } else if argument == "--only" {
             if i + 1 >= args.Length {
                 options.Error = "--only needs a substring of a repository-relative project path."
@@ -194,6 +214,16 @@ func main(): void {
 
     if options.Error != "" {
         BenchFailHarness(options.Error)
+    }
+
+    if options.SyntheticDirectory != "" {
+        shape := BenchParseSyntheticShape(options.SyntheticShape) ?? new int[](3)
+        if Directory.Exists(options.SyntheticDirectory) && Directory.GetFileSystemEntries(options.SyntheticDirectory).Length > 0 {
+            BenchFailHarness("The synthetic project directory " + options.SyntheticDirectory + " is not empty.")
+        }
+        writtenLines := BenchWriteSyntheticProject(options.SyntheticDirectory, shape[0], shape[1], shape[2])
+        print "Wrote the synthetic project (" + options.SyntheticShape + ", " + writtenLines.ToString() + " lines) to " + options.SyntheticDirectory
+        return
     }
 
     if !File.Exists(options.CliDll) {
