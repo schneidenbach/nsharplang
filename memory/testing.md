@@ -1284,6 +1284,78 @@ another compiler build (for example a historical worktree) is measured over the 
 2026-09-01 numbers and their interpretation are in
 `systems-language-closeout/MEASUREMENT-VERDICT-2026-09.md`.
 
+### 8a. The Agent-Loop Latency Benchmark And Gate (`--agent-loop`, same project)
+
+An agent writing N# does not build a project once: it edits, checks, builds and tests dozens of
+times an hour, and the latency of THAT loop is what it pays. §8 measures one cold Core build; this
+measures the loop. It lives in `tests/native/compile-time-bench` (`AgentLoopBench.nl`,
+`AgentLoopProgram.nl`, `AgentLoopBench.tests.nl`) because it is the same claim about the machine,
+reuses that project's spawn kernel (`BenchRunUnderTimeUtility`), load reader, median and baseline
+patterns, and rides in the same serial Step 3a slot.
+
+**Scenarios** (each `check`/`build`/`test` named): `no-op` (nothing changed since the same command
+last ran: check, build, test), `body` (one function body changed: check, build, test), `signature`
+(a PUBLIC function gained a parameter its body reads, its caller updated: check, build), `new-file`
+(a source file added: check, build). **Sizes**: `small` = a copy of `tests/fixtures/issue-tracker`
+(448 non-test lines, ASP.NET), `medium` = a deterministic synthetic library of 10,640 lines / 40
+files, `large` = the same generator at ~85k lines / 160 files (Compiler.Core's size). **Modes**: one
+sample is a fresh temp copy, one PRIME run of the scenario's own command (the agent's previous
+step), the edit, then the measured COLD run and the measured WARM run (the same command again,
+unchanged; with `--daemon` an `nlc daemon` is kept up for the copy). Every sample re-primes a fresh
+copy, so an incremental compiler's caches are always exactly one prime old. Edits are refused by
+name if their anchor is missing or not unique - a silent no-op edit would be a lie.
+
+**Metrics**: wall, CPU (user + sys, children included) and peak RSS from `/usr/bin/time -l` around
+the CLI process, median of N samples; and the CLI's STRUCTURAL counters from `--stats=<path>`
+(`nsharp.cli-stats` v1, `memory/components/cli-toolchain.md`): files parsed, columnar emit parses,
+files analyzed, assemblies emitted, reference images loaded, processes spawned. Counters do not move
+with load, so they are the gated half and they explain a wall-time change.
+
+**The gate** (`agent-loop gate:` block, Step 3a, serial): the `small` and `medium` sizes, every
+scenario, cold and warm. Counters must EQUAL the baseline row for row on every run - loaded,
+`SYSTEMS_BENCH=skip` or not; a failing run, a missing row or counters that differ between identical
+samples fail too. Wall time is judged (median ≤ baseline × `toleranceFactor` 1.5) only when the
+one-minute load is under 0.2 × logical cores (§8's `BenchLoadRefusesTimingJudgement`), the baseline
+says `timingJudgeable: true`, and `SYSTEMS_BENCH` is not `skip`; then it takes `runs` samples,
+otherwise one. Cost: about 2 minutes. It is silent; it leaves
+`artifacts/agent-loop/last-gate-run.txt` (the verdict line: judged or why not, load, CLI commit) and
+`last-gate-run.md` (the whole table against the baseline), carried out of the isolated copy by
+`tests/scripts/test-all.sh`.
+
+**The budget** is `tests/fixtures/agent-loop/agent-loop-baseline.golden.json` (all three sizes; the
+gate reads the small and medium rows). A counter DECREASE fails the gate until it is ratcheted into
+the baseline in the same commit (`--ratchet`, below); an INCREASE is a regression to fix. No
+threshold in that file is loosened - a counter raised, a tolerance widened, `timingJudgeable` turned
+off - without the owner. The 2026-10-05 baseline was measured on a SHARED machine (load recorded in
+the file): its counters are exact, its wall times are a record with `timingJudgeable: false` until
+someone re-measures it idle (`--sizes all --runs 3 --write-baseline …` with the `pgrep` check of §8).
+
+What the counters said on day one (Debug CLI, issue-tracker): a no-op `check` parses its 8 files 40
+times, analyzes 16 units and opens 684 reference images; a no-op `build` parses 15 times, emits an
+assembly and opens 497; `test` 20 / 1 / 505. No scenario is incremental yet: no-op equals body edit.
+
+#### How sibling agents use it
+
+From your worktree, with your branch's CLI built (`./scripts/dev.sh`):
+
+```bash
+dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll build --project tests/native/compile-time-bench \
+  && dotnet tests/native/compile-time-bench/bin/Debug/net10.0/NSharpLang.CompileTimeBench.dll --agent-loop
+```
+
+That prints the table for small and medium with the committed baseline (the base) in parentheses
+beside every value that moved, and writes it to `artifacts/agent-loop/<date>/agent-loop.md`. Options:
+`--sizes small,medium,large|all`, `--runs <n>` (default 3), `--daemon` (keep `nlc daemon` up per
+sample - the daemon-first branch), `--cli <Cli.dll>`, and `--base-cli <other worktree>/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll`
+to measure a base build live in the same run instead of reading the baseline (a CLI without
+`--stats` is measured for time only). `--judge` exits 1 when a counter differs from the baseline.
+When your change LOWERS counters (the point of incremental compilation, the daemon and throughput
+work), run `… --agent-loop --sizes all --ratchet` and commit the rewritten baseline with the change:
+it copies decreased counters in, refuses any row where a counter rose, and never touches a wall
+time. Daemon-routed commands must fold the daemon's work for the request into their `--stats`
+counters (snapshot before/after, `CompilerWorkCounterSnapshot.Since`), or the table would claim the
+work vanished.
+
 ### 9. The Installed Toolchain (`tests/native/installed-toolchain-integration`)
 
 **This is the only place anything asserts what a USER's first command does.** Every other project in

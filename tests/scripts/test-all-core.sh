@@ -723,7 +723,8 @@ else
     #
     # Two things stay serial, both because they read or write state that is NOT per-project:
     #   * a project whose claim is about the MACHINE (`compile-time-bench` reads the one-minute load
-    #     average and measures latency against a baseline);
+    #     average and measures latency against a baseline - the Core build gate and the agent-loop
+    #     gate, which spawns the CLI over every edit/check/build/test scenario);
     #   * a project that mutates or depends on state outside its own directory - daemon sockets and
     #     `~/.nsharp`, the shared NuGet cache through a real `dotnet restore`/`dotnet build`, the
     #     installers, or a walk of the whole working tree that concurrent `bin`/`obj` writes would
@@ -740,7 +741,8 @@ else
     native_requires_serial_run() {
         case "$1" in
             # Reads `sysctl -n vm.loadavg` and judges a median against a baseline measured on an
-            # idle machine: it may not run beside seven siblings.
+            # idle machine: it may not run beside seven siblings. Its agent-loop gate also counts
+            # the work each CLI run does and the processes it spawns, exactly.
             tests/native/compile-time-bench) return 0 ;;
             # Starts daemons, binds their sockets and writes their state outside the project.
             tests/native/daemon-command) return 0 ;;

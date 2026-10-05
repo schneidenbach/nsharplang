@@ -55,6 +55,7 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 | `nlc build --release` | Build with Release configuration/output layout | `nlc build --release` |
 | `nlc build --verbose` | Build with detailed native resolver/test output | `nlc build --verbose` |
 | `nlc build --perf-report` | Emit a versioned JSON perf report (allocations, dispatch, AOT blockers) | `nlc build --perf-report` |
+| `nlc build\|check\|test --stats[=<path>]` | One `nsharp.cli-stats` v1 JSON line: wall/CPU time and the structural work counters (files parsed and analyzed, assemblies emitted, reference images loaded, processes spawned) — see [`--stats`](#--stats--what-one-command-cost) | `nlc check --stats` |
 | `nlc build --aot` | Native AOT safety analysis; AOT blockers (reflection/dynamic code/runtime generics/expression trees) become build errors | `nlc build --aot` |
 | `nlc run` | Compile and run project through the IL backend | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
@@ -132,6 +133,7 @@ At a position on a member that METADATA declares and the project does not — `l
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --verbose` | Show individual test results | `nlc test --verbose` |
 | `nlc test --timings` | Report build, run and total time (stderr, or a `timings` object in `--json`) | `nlc test --json --timings` |
+| `nlc test --stats[=<path>]` | The `nsharp.cli-stats` v1 line for the whole test command (build included) | `nlc test --stats=/tmp/s.json` |
 | `nlc test --coverage` | Unsupported/planned native coverage; exits 1 with text or JSON guidance | `nlc test --coverage --json` |
 
 ### Project Management
@@ -215,6 +217,44 @@ Undefined identifier 'unknownVar'
 - `results[].line`, `results[].column`, and `results[].length` are the canonical marker span for both compiler and linter diagnostics; linter results no longer use one-character placeholder lengths.
 - Always runs parse + analysis first, then:
   - `il` backend (default): emits a temporary IL assembly to verify the direct backend succeeds
+
+### `--stats` — What One Command Cost
+
+`nlc build`, `nlc check` and `nlc test` accept `--stats` (one JSON line, the LAST line on stderr) or
+`--stats=<path>` (the same line written to that file, so a caller that captures the command's own
+stderr does not have to parse around diagnostics). Stdout is never touched: `check`'s envelope and
+`test --json` stay exactly their documented schemas. Any other command refuses the flag by name, and
+a `--stats` after `--` belongs to the program, not to `nlc`.
+
+```json
+{"schema":"nsharp.cli-stats","schemaVersion":1,"command":"check","exitCode":0,"wallMs":1483,"cpuMs":1483,
+ "counters":{"filesParsed":40,"emitParses":8,"filesAnalyzed":16,"assembliesEmitted":1,"referenceAssembliesLoaded":684,"processesSpawned":0}}
+```
+
+| Field | Meaning |
+|---|---|
+| `schema`, `schemaVersion` | `nsharp.cli-stats`, `1`. Adding a field is compatible; renaming or retyping one is a new version |
+| `command`, `exitCode` | The command measured and the exit code it returned |
+| `wallMs` | In-process time from dispatch to completion. Excludes .NET host start-up; measure the process from outside for the whole wall |
+| `cpuMs` | The CLI process's total CPU (user + system), start-up included |
+| `peakWorkingSetBytes` | The process's peak working set; OMITTED where the platform does not report it (macOS) |
+| `counters.filesParsed` | Source files parsed into the analyzer's syntax tree (`ColumnarParserRecovery.Run`). The same file parsed twice counts twice — that is the point |
+| `counters.emitParses` | Source files tokenized and parsed by the columnar IL pipeline (`ColumnarProgramInputBuilder`) |
+| `counters.filesAnalyzed` | Compilation units through `Analyzer.Analyze` |
+| `counters.assembliesEmitted` | IL images written by the columnar emitter (a reference assembly beside one is not counted) |
+| `counters.referenceAssembliesLoaded` | Reference images opened from a path: MetadataLoadContext loads plus exact-identity executable loads; one file in two contexts counts twice |
+| `counters.processesSpawned` | Child processes this process started (`DotnetRunner`, the daemon launcher) |
+
+The counters are always on (`CompilerWorkCounters` in `src/NSharpLang.Compiler.Model`, one atomic
+increment per event) and process-wide; `--stats` reports the difference across the command. They do
+not move with machine load, so they explain a latency change where a wall clock cannot: on
+2026-10-05 a no-op `nlc check` of the 448-line issue-tracker fixture parsed its 8 files **40** times,
+analyzed them twice and opened **684** reference images. A command routed through the daemon must
+report the daemon's work for the request in these counters (snapshot before and after,
+`CompilerWorkCounterSnapshot.Since`), or the numbers would claim the work vanished.
+
+The agent-loop benchmark gates these counters exactly over the edit → check/build/test loop; see
+`memory/testing.md` §8a.
 
 ### Backend Selection
 
@@ -1124,7 +1164,7 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.Driver/OutputFormatterTextBuilders.tests.nl` | Every Elm-style `--text` answer, stated as whole texts |
 | `src/NSharpLang.Compiler.Driver/OutputFormatterDiagnosticKernels.tests.nl` | Severity arithmetic, reference deduplication, end-to-end diagnostics |
 | `tests/native/completion-engine` | `CompletionEngine` over real projects, reached by reflection |
-| `tests/native/compile-time-bench` | The compile-time benchmark and gate: `nlc build --timings` and `nlc check --json` SPAWNED as real processes under `/usr/bin/time -l` over the 68-project corpus and `src/NSharpLang.Compiler.Core`, median of N runs, lines per second, peak RSS, the diagnostic census of a failing check; its `compile-time gate:` block pins Compiler Core `nlc build` against `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json` (exit code, stage, median × tolerance), skippable with `SYSTEMS_BENCH=skip`. See `memory/testing.md` §8 |
+| `tests/native/compile-time-bench` | The compile-time benchmark and gate: `nlc build --timings` and `nlc check --json` SPAWNED as real processes under `/usr/bin/time -l` over the 68-project corpus and `src/NSharpLang.Compiler.Core`, median of N runs, lines per second, peak RSS, the diagnostic census of a failing check; its `compile-time gate:` block pins Compiler Core `nlc build` against `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json` (exit code, stage, median × tolerance), skippable with `SYSTEMS_BENCH=skip`. See `memory/testing.md` §8. It also owns the AGENT-LOOP benchmark (`--agent-loop`): no-op, body-edit, signature-edit and new-file scenarios through `check`/`build`/`test`, cold and warm, on small/medium/large projects, with `--stats` counters gated exactly by its `agent-loop gate:` block against `tests/fixtures/agent-loop/agent-loop-baseline.golden.json`. See `memory/testing.md` §8a |
 | `tests/native/systems-proof-corpus` | `nlc build --perf-report`, `nlc check --systems-report` and `nlc query trusted` over the 21 shipped proof projects under `docs/design/systems-samples/proofs`, each SPAWNED AS A REAL PROCESS, plus the emitted assemblies executed as processes |
 | `tests/native/systems-analysis-census` | The systems policy corpus answered by a SPAWNED `nlc check --project … --systems-report`: 54 fixture projects written, checked and deleted per block, plus `build --perf-report`, `query perf` and `query trusted` on temporary projects. Whole envelopes, whole finding rows, whole function summaries and the diagnostic census |
 | `tests/native/systems-gauntlet-facts` | The ten `tests/fixtures/systems-gauntlet` cases against their four goldens each, plus the facts no CLI surface exposes: return lifetimes, scoped parameters, ref-struct-ness and the `Result<T, E>` runtime ABI |

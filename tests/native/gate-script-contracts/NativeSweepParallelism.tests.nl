@@ -49,6 +49,24 @@ test "the native sweep runs its serial group first and only then runs the rest i
     assert capText == "1" || capText == "2" || capText == "3" || capText == "4" || capText == "5" || capText == "6", "The native sweep's worker cap must stay at or below 6 (found " + capText + "): the projects it runs are whole compiler processes, not unit tests."
 }
 
+// THE AGENT-LOOP GATE RIDES IN THE COMPILE-TIME BENCH'S SERIAL SLOT. It spawns the CLI over every
+// edit/check/build/test scenario, counts the work each run does exactly and judges wall time against
+// an idle-machine baseline, so it has the same claim about the machine the Core build gate has. It
+// lives in that project (one latency owner, one serial slot), and its records are carried out of the
+// isolated copy beside the compile-time gate's.
+test "the agent-loop gate is a block of the serial compile-time-bench project and has a committed baseline" {
+    body := SerialGroupBody(SweepScript())
+    assert body.Contains("tests/native/compile-time-bench)"), "compile-time-bench, which carries the agent-loop gate, must stay in the serial group."
+
+    root := RepositoryRoot()
+    gateSource := File.ReadAllText(Path.Combine(Path.Combine(Path.Combine(root, "tests"), "native"), Path.Combine("compile-time-bench", "AgentLoopBench.tests.nl")))
+    assert gateSource.Contains("test \"agent-loop gate: "), "The agent-loop gate block must live in tests/native/compile-time-bench/AgentLoopBench.tests.nl."
+    assert File.Exists(Path.Combine(Path.Combine(Path.Combine(root, "tests"), "fixtures"), Path.Combine("agent-loop", "agent-loop-baseline.golden.json"))), "The agent-loop gate needs its committed baseline."
+
+    driver := ReadGateScript("test-all.sh")
+    assert driver.Contains("for gate_record in native-sweep compile-time agent-loop; do"), "tests/scripts/test-all.sh must carry artifacts/agent-loop back out of the isolated copy."
+}
+
 test "a native project whose claim is about the machine, or that touches state outside its own directory, stays serial" {
     body := SerialGroupBody(SweepScript())
 
@@ -230,9 +248,9 @@ test "the sweep records every project's build and run split, in discovery order,
     // The isolated gate deletes its copy on exit, so the record must be carried back out of it -
     // on a failing run as well, which is why the copy sits BEFORE the exit-code check.
     driver := ReadGateScript("test-all.sh")
-    carry := driver.IndexOf("for gate_record in native-sweep compile-time; do")
+    carry := driver.IndexOf("for gate_record in native-sweep compile-time agent-loop; do")
     exitCheck := driver.IndexOf("if [ \"$CORE_EXIT\" -ne 0 ]; then")
-    assert carry >= 0, "tests/scripts/test-all.sh must carry the gate's records back to the source tree."
+    assert carry >= 0, "tests/scripts/test-all.sh must carry the gate's records back to the source tree: the native sweep's, the compile-time gate's and the agent-loop gate's."
     assert driver.Contains("cp -R \"$RUN_REPO/artifacts/$gate_record/.\" \"$SOURCE_ROOT/artifacts/$gate_record/\"")
     assert exitCheck >= 0 && carry < exitCheck, "The records must be carried back before a failing run exits."
 }

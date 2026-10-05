@@ -16,7 +16,8 @@ import System.IO
 //     --base-cli <Cli.dll>     also measure this CLI and compare against it instead of the baseline
 //     --daemon                 keep `nlc daemon` running for the project during each sample
 //     --judge                  exit 1 when a counter differs from the committed baseline
-//     --write-baseline <path>  write the measured rows as a baseline file
+//     --write-baseline <path>  write the measured rows as a baseline file (the owner's re-baseline)
+//     --ratchet                lower the committed baseline's counters to this run's; refuses a rise
 //     --out <dir>              output directory (default artifacts/agent-loop/<local date>)
 //
 // It prints the table and writes `agent-loop.md` to the output directory.
@@ -28,6 +29,7 @@ class AgentLoopOptions {
     BaseCliDll: string
     Daemon: bool
     Judge: bool
+    Ratchet: bool
     WriteBaseline: string
     OutputDirectory: string
     ShowHelp: bool
@@ -40,6 +42,7 @@ class AgentLoopOptions {
         BaseCliDll = ""
         Daemon = false
         Judge = false
+        Ratchet = false
         WriteBaseline = ""
         OutputDirectory = outputDirectory
         ShowHelp = false
@@ -61,7 +64,7 @@ func AgentLoopRequested(args: string[]): bool {
 }
 
 func AgentLoopHelpText(): string {
-    return "N# agent-loop latency benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench --agent-loop [options]\n" + "\n" + "Measures the edit -> check/build/test loop an agent runs: no-op, body edit, signature edit\n" + "and new file, cold and warm, on small, medium and large projects. Reports wall, CPU, peak RSS\n" + "and the CLI's structural work counters (nlc --stats).\n" + "\n" + "Options:\n" + "  --sizes <list>           small, medium, large (comma-separated) or all (default small,medium)\n" + "  --runs <n>               Samples per scenario (default 3)\n" + "  --cli <path>             Cli.dll under test (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --base-cli <path>        Also measure this Cli.dll and compare against it\n" + "  --daemon                 Keep nlc daemon running for the project during each sample\n" + "  --judge                  Exit 1 when a structural counter differs from the committed baseline\n" + "  --write-baseline <path>  Write the measured rows as a baseline file\n" + "  --out <dir>              Output directory (default artifacts/agent-loop/<local date>)\n" + "  --help, -h               Show this help text"
+    return "N# agent-loop latency benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench --agent-loop [options]\n" + "\n" + "Measures the edit -> check/build/test loop an agent runs: no-op, body edit, signature edit\n" + "and new file, cold and warm, on small, medium and large projects. Reports wall, CPU, peak RSS\n" + "and the CLI's structural work counters (nlc --stats).\n" + "\n" + "Options:\n" + "  --sizes <list>           small, medium, large (comma-separated) or all (default small,medium)\n" + "  --runs <n>               Samples per scenario (default 3)\n" + "  --cli <path>             Cli.dll under test (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --base-cli <path>        Also measure this Cli.dll and compare against it\n" + "  --daemon                 Keep nlc daemon running for the project during each sample\n" + "  --judge                  Exit 1 when a structural counter differs from the committed baseline\n" + "  --write-baseline <path>  Write the measured rows as a baseline file (the owner's re-baseline)\n" + "  --ratchet                Lower the committed baseline's counters to this run's; refuses any rise\n" + "  --out <dir>              Output directory (default artifacts/agent-loop/<local date>)\n" + "  --help, -h               Show this help text"
 }
 
 func AgentLoopParseSizes(text: string): List<string> {
@@ -112,6 +115,8 @@ func AgentLoopParseOptions(args: string[], repositoryRoot: string): AgentLoopOpt
             options.Daemon = true
         } else if argument == "--judge" {
             options.Judge = true
+        } else if argument == "--ratchet" {
+            options.Ratchet = true
         } else if !hasValue && (argument == "--sizes" || argument == "--runs" || argument == "--cli" || argument == "--base-cli" || argument == "--write-baseline" || argument == "--out") {
             options.Error = argument + " needs a value. Run with --agent-loop --help for the option list."
             return options
@@ -237,6 +242,27 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         Directory.CreateDirectory(Path.GetDirectoryName(options.WriteBaseline) ?? options.OutputDirectory)
         File.WriteAllText(options.WriteBaseline, AgentLoopBaselineJson(written))
         print "wrote baseline " + options.WriteBaseline
+    }
+
+    if options.Ratchet {
+        if baseline == null {
+            BenchFailHarness("--ratchet needs the committed baseline at " + baselinePath + ".")
+        }
+
+        ratcheted := baseline ?? new AgentLoopBaseline()
+        refusals := AgentLoopRatchetCounters(ratcheted, rows)
+        File.WriteAllText(baselinePath, AgentLoopBaselineJson(ratcheted))
+        print "ratcheted the counters of " + AgentLoopBaselineRelativePath() + " (wall-time fields unchanged)"
+        if refusals.Count > 0 {
+            Console.Error.WriteLine("rows NOT ratcheted:")
+            r := 0
+            while r < refusals.Count {
+                Console.Error.WriteLine("  " + refusals[r])
+                r = r + 1
+            }
+
+            Environment.Exit(1)
+        }
     }
 
     if options.Judge {

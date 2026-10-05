@@ -267,6 +267,7 @@ one; that is how the runbook is exercised without touching the committed seed.
 | Read the current compiler closeout cursor and gate census? | [systems-language status](../systems-language-closeout/STATUS.md#1-cursor) · [toolchain census](../tasks/TOOLCHAIN-NATIVE.md) |
 | Work on CLI/tooling behavior? | [components/cli-toolchain.md](components/cli-toolchain.md) |
 | Run tests and gates? | [testing.md](testing.md) |
+| Measure edit→check/build/test latency, or what work a command did? | [testing.md §8a](testing.md#8a-the-agent-loop-latency-benchmark-and-gate---agent-loop-same-project) · `nlc check\|build\|test --stats` in [cli-toolchain.md](components/cli-toolchain.md) |
 | Check known limitations? | [limitations.md](limitations.md) |
 | Work on language features? | Current source, recent commits, tests, and focused website docs |
 | Work on Systems N#? | Current source, recent commits, tests, and [../website/docs/systems.md](../website/docs/systems.md) |

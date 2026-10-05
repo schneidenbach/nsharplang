@@ -68,8 +68,9 @@ test "the stats line is one compact nsharp.cli-stats v1 object with every counte
     assert root.GetProperty("exitCode").GetInt32() == 0
     assert root.GetProperty("wallMs").GetInt64() == 1234
     assert root.GetProperty("cpuMs").GetInt64() == 1500
-    // A platform that does not report a peak working set (macOS answers 0) says so with null.
-    assert root.GetProperty("peakWorkingSetBytes").ValueKind == JsonValueKind.Null
+    // A platform that does not report a peak working set (macOS answers 0) omits the field, as
+    // every CLI envelope omits a null one.
+    assert !json.Contains("peakWorkingSetBytes")
     work := root.GetProperty("counters")
     assert work.GetProperty("filesParsed").GetInt64() == 8
     assert work.GetProperty("emitParses").GetInt64() == 8

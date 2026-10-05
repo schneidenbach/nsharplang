@@ -1092,6 +1092,44 @@ func AgentLoopCounterFailures(baseline: AgentLoopBaseline, observed: List<AgentL
     return failures
 }
 
+func AgentLoopCounterNotAbove(baseline: AgentLoopCounters, observed: AgentLoopCounters): bool {
+    return observed.FilesParsed <= baseline.FilesParsed && observed.EmitParses <= baseline.EmitParses && observed.FilesAnalyzed <= baseline.FilesAnalyzed && observed.AssembliesEmitted <= baseline.AssembliesEmitted && observed.ReferenceAssembliesLoaded <= baseline.ReferenceAssembliesLoaded && observed.ProcessesSpawned <= baseline.ProcessesSpawned
+}
+
+// THE RATCHET (`--ratchet`). Copy each measured row's counters into the baseline when NONE of them
+// went up, and refuse the rows where one did: an improvement lands in the same commit as the change
+// that made it, and a regression can never be written in by the tool that is meant to catch it.
+// Wall-time fields are left exactly as they were, so a ratchet run on a busy machine cannot loosen a
+// timing budget either. Returns the refusals; the baseline is changed only for the rows accepted.
+func AgentLoopRatchetCounters(baseline: AgentLoopBaseline, observed: List<AgentLoopRow>): List<string> {
+    refusals := new List<string>()
+    i := 0
+    while i < observed.Count {
+        row := observed[i]
+        key := AgentLoopRowKey(row.Size, row.Scenario, row.Mode)
+        expected := AgentLoopFindRow(baseline.Rows, row.Size, row.Scenario, row.Mode)
+        observedCounters := row.Counters
+        if row.ExitCode != 0 || row.Failure != "" || !row.CountersStable || observedCounters == null {
+            refusals.Add(key + ": not ratcheted - the run failed or its counters were unstable")
+        } else if expected == null {
+            refusals.Add(key + ": not ratcheted - no baseline row (a new row is written with --write-baseline, by the owner)")
+        } else {
+            baselineRow := expected ?? row
+            current := baselineRow.Counters ?? new AgentLoopCounters(0, 0, 0, 0, 0, 0)
+            next := observedCounters ?? current
+            if AgentLoopCounterNotAbove(current, next) {
+                baselineRow.Counters = next
+            } else {
+                refusals.Add(key + ": not ratcheted - " + String.Join("; ", AgentLoopCounterChanges(current, next)))
+            }
+        }
+
+        i = i + 1
+    }
+
+    return refusals
+}
+
 func AgentLoopTimingLimitMs(baselineWallMs: long, toleranceThousandths: long): long {
     return baselineWallMs * toleranceThousandths / 1000
 }

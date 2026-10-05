@@ -98,15 +98,6 @@ class CliStatsKernels {
         return new CliStatsRequest(requested, outputPath, error, remaining.ToArray())
     }
 
-    // `null` where the platform does not report a figure (macOS answers 0 for the peak working set).
-    static func PositiveOrNull(value: long): object? {
-        if value <= 0 {
-            return null
-        }
-
-        return value
-    }
-
     static func ToJson(
         command: string,
         exitCode: int,
@@ -130,7 +121,11 @@ class CliStatsKernels {
         envelope["exitCode"] = exitCode
         envelope["wallMs"] = wallMs
         envelope["cpuMs"] = cpuMs
-        envelope["peakWorkingSetBytes"] = PositiveOrNull(peakWorkingSetBytes)
+        // Omitted, like every null field in a CLI envelope, where the platform does not report it:
+        // macOS answers 0 for the peak working set.
+        if peakWorkingSetBytes > 0 {
+            envelope["peakWorkingSetBytes"] = peakWorkingSetBytes
+        }
         envelope["counters"] = counterObject
         return JsonSerializer.Serialize<Dictionary<string, object?>>(envelope)
     }

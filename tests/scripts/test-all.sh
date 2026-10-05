@@ -729,11 +729,12 @@ nuget_store promote "$NUGET_STORE" "$NUGET_STORE_INDEX" "$RUN_PACKAGES" \
     || echo "Could not promote this run's NuGet packages into the shared store; the gate's verdict is unaffected." >&2
 
 # THE RECORDS THE GATE LEAVES BEHIND, CARRIED OUT OF THE COPY IT DELETES. Step 3a writes
-# `artifacts/native-sweep/<UTC time>.json` and the compile-time bench writes
-# `artifacts/compile-time/last-gate-run.txt`, both under the ISOLATED copy's root, which
+# `artifacts/native-sweep/<UTC time>.json`, the compile-time bench writes
+# `artifacts/compile-time/last-gate-run.txt` and the agent-loop bench writes
+# `artifacts/agent-loop/last-gate-run.{txt,md}`, all under the ISOLATED copy's root, which
 # `cleanup_run` removes on exit. Carried back on a failing run too: what a red sweep cost is the
 # record most worth keeping. `artifacts/` is gitignored and never part of any input set.
-for gate_record in native-sweep compile-time; do
+for gate_record in native-sweep compile-time agent-loop; do
     if [ -d "$RUN_REPO/artifacts/$gate_record" ]; then
         mkdir -p "$SOURCE_ROOT/artifacts/$gate_record" \
             && cp -R "$RUN_REPO/artifacts/$gate_record/." "$SOURCE_ROOT/artifacts/$gate_record/" \
