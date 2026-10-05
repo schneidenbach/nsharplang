@@ -189,14 +189,16 @@ class AnalyzerAssignabilityFacts {
     // a parameter pair is checked source ← target (the target's parameter must be acceptable where
     // the source's is expected) while the return pair is checked target ← source.
     func ClassifyFunctionTypeAssignability(source: FunctionTypeInfo, target: FunctionTypeInfo): AnalyzerAssignabilityDecision {
+        sourceParameters := source.ParameterTypes
+        targetParameters := target.ParameterTypes
         sourceParameterCount := 0
-        if source.ParameterTypes != null {
-            sourceParameterCount = source.ParameterTypes.Count
+        if sourceParameters != null {
+            sourceParameterCount = sourceParameters.Count
         }
 
         targetParameterCount := 0
-        if target.ParameterTypes != null {
-            targetParameterCount = target.ParameterTypes.Count
+        if targetParameters != null {
+            targetParameterCount = targetParameters.Count
         }
 
         if sourceParameterCount != targetParameterCount {
@@ -207,8 +209,14 @@ class AnalyzerAssignabilityFacts {
         pendingSources := new List<TypeInfo>()
         index := 0
         while index < targetParameterCount {
-            sourceParameter := source.ParameterTypes[index]
-            targetParameter := target.ParameterTypes[index]
+            // A positive count can only come from a present parameter list. Keep the runtime guard
+            // here so a broken mutable model object cannot turn a nullable field into an index fault.
+            if sourceParameters == null || targetParameters == null {
+                return AnalyzerAssignabilityDecision.Answer(false)
+            }
+
+            sourceParameter := sourceParameters[index]
+            targetParameter := targetParameters[index]
             if !BuiltInTypes.IsUnknown(sourceParameter) {
                 pendingTargets.Add(sourceParameter)
                 pendingSources.Add(targetParameter)

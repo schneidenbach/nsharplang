@@ -381,9 +381,10 @@ class AnalyzerLambdaAnalysis {
         parameterIndex := state.ParameterTypes.Count
         hasExplicitType := HasExplicitParameterType(parameter)
         signature := state.ExpectedSignature
+        signatureParameters: List<TypeInfo>? = null
         hasInferenceSource := false
         if signature != null {
-            signatureParameters := signature.ParameterTypes
+            signatureParameters = signature.ParameterTypes
             if signatureParameters != null && parameterIndex < signatureParameters.Count {
                 hasInferenceSource = true
             }
@@ -392,8 +393,8 @@ class AnalyzerLambdaAnalysis {
         parameterType: TypeInfo = BuiltInTypes.Unknown
         if hasExplicitType {
             parameterType = typeResolver.ResolveType(parameter.Type)
-        } else if hasInferenceSource {
-            parameterType = signature.ParameterTypes[parameterIndex]
+        } else if hasInferenceSource && signatureParameters != null {
+            parameterType = signatureParameters[parameterIndex]
         }
 
         state.ParameterType = parameterType
