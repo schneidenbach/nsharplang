@@ -536,8 +536,12 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
     activeSourceFileId: int
     sourceScanComplete: bool
 
+    // NO DIRECTORY IS READ HERE. Both constructions name their root: `Create` resolves it
+    // (`ResolveProjectRoot`, which owns the current-directory fallback) and `ForSourceFile` copies its
+    // parent's. A `Path.GetFullPath(".")` here was a `getcwd` system call on every per-file view the
+    // emit walk asks for, 7-14% of a large program's emit, for a value always overwritten.
     constructor() {
-        projectRoot = Path.GetFullPath(".")
+        projectRoot = ""
         sourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
         exportedSourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
         ambiguousSourceTypeNames = new HashSet<string>(StringComparer.Ordinal)
