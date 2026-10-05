@@ -425,7 +425,6 @@ test "a GENERIC union instantiation resolves to its definition and is asked the 
     // through the definition lookup — and the substitution it produces is what lets nested case
     // property types close.
     harness := MatchExhaustivenessDefault()
-    definition := MatchUnionOf("Box", MatchCaseList2(MatchUnionCase("Full"), MatchUnionCase("Empty")))
     parameters := new List<TypeParameter>()
     parameters.Add(new TypeParameter("T"))
     generic := new GenericTypeInfo(

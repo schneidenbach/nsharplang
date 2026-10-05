@@ -104,7 +104,6 @@ func LambdaHarnessOf(): LambdaHarness {
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     resolver := new AnalyzerTypeResolver(scopes, context, discovery, probe, diagnostics, new Dictionary<string, string>(StringComparer.Ordinal), new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal), new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal), model, new BindingMap())
     resolver.BeginAnalysis(LambdaPath(), null, model, new BindingMap())
-    substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
     facts := new AnalyzerAssignabilityFacts(context, null)
     clrConversion := new AnalyzerClrTypeConversion(context, null)
     escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)

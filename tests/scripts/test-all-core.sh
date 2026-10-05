@@ -595,11 +595,13 @@ else
     # Compiler 2. The identity diff has no additions; only those six NL012 findings were removed.
     # 2026-10-05, handle empty catches with explicit fallbacks and failure paths: Core 275,
     # Compiler 0. The identity diff has no additions; only eight Core and two Compiler NL011s were removed.
+    # 2026-10-05, remove two dead test setup locals diagnosed NL001: Core 273, Compiler 0.
+    # The identity diff has no additions; only those two NL001 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        275
+        273
         0
         0
         0
