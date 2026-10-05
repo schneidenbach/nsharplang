@@ -162,6 +162,8 @@ sealed class ColumnarProgramInputBuilder {
 
     private static func TryBuild(source: string, out program: ColumnarProgramInput): bool {
         program = null
+        // One source file read by the columnar IL pipeline (CompilerWorkCounters, `--stats`).
+        CompilerWorkCounters.Shared.CountEmitParse()
         tokens: ColumnarTokenizedSource = null
         if !TryTokenizeColumnarSource(source, out tokens) {
             return Decline(ColumnarParseDeclines.Tokenize, -1, 0, "")

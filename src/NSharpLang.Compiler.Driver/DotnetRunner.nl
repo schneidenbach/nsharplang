@@ -3,6 +3,7 @@ namespace NSharpLang.Cli
 import System
 import System.Diagnostics
 import System.IO
+import NSharpLang.Compiler
 
 class DotnetRunResult {
     ExitCode: int
@@ -31,6 +32,7 @@ class DotnetRunner {
 
         process := new Process { StartInfo: psi }
         process.Start()
+        CompilerWorkCounters.Shared.CountProcessSpawned()
         process.WaitForExit()
         exitCode := process.ExitCode
         process.Dispose()
@@ -58,6 +60,7 @@ class DotnetRunner {
 
         process := new Process { StartInfo: psi }
         process.Start()
+        CompilerWorkCounters.Shared.CountProcessSpawned()
 
         if !captureOutput {
             process.WaitForExit()

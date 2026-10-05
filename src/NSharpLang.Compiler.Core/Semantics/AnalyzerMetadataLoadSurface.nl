@@ -298,7 +298,9 @@ class AnalyzerMetadataLoadSurface {
                 return
             }
 
-            Register(loadContext.LoadFromAssemblyPath(fullPath))
+            loaded := loadContext.LoadFromAssemblyPath(fullPath)
+            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
+            Register(loaded)
         } catch error: Exception {
             RecordExceptionFailure(assemblyPath, error)
         }

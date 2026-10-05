@@ -245,6 +245,7 @@ class ExternalAssemblyScan {
 
         try {
             owned := ExactIdentityLoadContext().LoadFromAssemblyPath(Path.GetFullPath(path))
+            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
             if RuntimeAssemblyHasIdentity(owned, identity) {
                 return owned
             }
@@ -471,6 +472,7 @@ class ExternalAssemblyScan {
             if entry.IsInspectable {
                 try {
                     metadataAssembly := context.LoadFromAssemblyPath(entry.MetadataPath)
+                    CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
                     entry.AttachMetadataAssembly(metadataAssembly)
                 } catch {
                     entry.MarkUninspectable()

@@ -113,7 +113,9 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
     // written once rather than at each of the three probe stages that can hit a bad file.
     func TryLoadFromPath(context: MetadataLoadContext, assemblyPath: string): Assembly? {
         try {
-            return context.LoadFromAssemblyPath(assemblyPath)
+            loaded := context.LoadFromAssemblyPath(assemblyPath)
+            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
+            return loaded
         } catch loadError: Exception {
             RecordLoadFailure(assemblyPath, loadError)
         }

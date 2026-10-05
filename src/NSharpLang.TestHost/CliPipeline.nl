@@ -1,7 +1,10 @@
 namespace NSharpLang.Cli
 
 import System
+import System.Diagnostics
+import System.IO
 import NSharpLang.Cli.Commands
+import NSharpLang.Compiler
 
 // THE `nlc` DISPATCH PIPELINE.
 //
@@ -14,10 +17,65 @@ import NSharpLang.Cli.Commands
 // read its own assembly's `AssemblyInformationalVersionAttribute`. So `Main` reads it and hands it
 // here; nothing in this assembly asks a second time, and the answer cannot drift between the two
 // sentences that print it.
+//
+// `--stats` IS THE ONE OPTION THIS OWNER READS ITSELF. It belongs to no single command: it measures
+// whichever of `build`, `check` or `test` runs, so it is split out of the command's arguments here
+// (`CliStatsKernels.Extract`), the command runs exactly as it would without it, and the stats line
+// is written after it returns.
 static class CliPipeline {
     static func Execute(args: string[], version: string): int {
         commandKind := ProgramCommandKernels.GetCommandKind(args)
+        stats := CliStatsKernels.Extract(GetCommandArgs(args))
+        if !stats.Requested {
+            return Dispatch(commandKind, args, stats.CommandArgs, version)
+        }
 
+        if stats.Error != null {
+            return CliError.Report(stats.Error ?? "")
+        }
+
+        if !CliStatsKernels.SupportsStats(commandKind) {
+            return CliError.Report(CliStatsKernels.UnsupportedCommandMessage(args[0]))
+        }
+
+        return ExecuteWithStats(commandKind, args, stats, version)
+    }
+
+    static func ExecuteWithStats(commandKind: int, args: string[], stats: CliStatsRequest, version: string): int {
+        before := CompilerWorkCounters.Shared.Snapshot()
+        elapsed := Stopwatch.StartNew()
+        exitCode := Dispatch(commandKind, args, stats.CommandArgs, version)
+        elapsed.Stop()
+        counters := CompilerWorkCounters.Shared.Snapshot().Since(before)
+
+        process := Process.GetCurrentProcess()
+        process.Refresh()
+        json := CliStatsKernels.ToJson(
+            args[0].ToLowerInvariant(),
+            exitCode,
+            elapsed.ElapsedMilliseconds,
+            process.TotalProcessorTime.Ticks / TimeSpan.TicksPerMillisecond,
+            process.PeakWorkingSet64,
+            counters
+        )
+        process.Dispose()
+
+        outputPath := stats.OutputPath
+        if outputPath == null {
+            Console.Error.WriteLine(json)
+            return exitCode
+        }
+
+        try {
+            File.WriteAllText(outputPath ?? "", json + "\n")
+        } catch writeFailure: Exception {
+            Console.Error.WriteLine("Could not write --stats to " + (outputPath ?? "") + ": " + writeFailure.Message)
+        }
+
+        return exitCode
+    }
+
+    static func Dispatch(commandKind: int, args: string[], commandArgs: string[], version: string): int {
         if commandKind == 29 {
             Console.WriteLine(ProgramCommandKernels.GetHelpText(version))
             return 0
@@ -29,82 +87,82 @@ static class CliPipeline {
         }
 
         if commandKind == 1 {
-            return ProgramCommands.BuildCommand(GetCommandArgs(args))
+            return ProgramCommands.BuildCommand(commandArgs)
         }
         if commandKind == 2 {
-            return ProgramCommands.RunCommand(GetCommandArgs(args))
+            return ProgramCommands.RunCommand(commandArgs)
         }
         if commandKind == 3 {
-            return ProgramCommands.PublishCommand(GetCommandArgs(args))
+            return ProgramCommands.PublishCommand(commandArgs)
         }
         if commandKind == 4 {
-            return ProgramCommands.NewCommand(GetCommandArgs(args))
+            return ProgramCommands.NewCommand(commandArgs)
         }
         if commandKind == 5 {
-            return TestCommandHost.TestCommand(GetCommandArgs(args))
+            return TestCommandHost.TestCommand(commandArgs)
         }
         if commandKind == 6 {
-            return ProgramCommands.FormatCommand(GetCommandArgs(args))
+            return ProgramCommands.FormatCommand(commandArgs)
         }
         if commandKind == 7 {
-            return LintCommand.Execute(GetCommandArgs(args))
+            return LintCommand.Execute(commandArgs)
         }
         if commandKind == 8 {
-            return RestoreCommand.Execute(GetCommandArgs(args))
+            return RestoreCommand.Execute(commandArgs)
         }
         if commandKind == 9 {
-            return CleanCommand.Execute(GetCommandArgs(args))
+            return CleanCommand.Execute(commandArgs)
         }
         if commandKind == 10 {
-            return WatchCommandHost.Execute(GetCommandArgs(args), version)
+            return WatchCommandHost.Execute(commandArgs, version)
         }
         if commandKind == 11 {
-            return DocCommand.Execute(GetCommandArgs(args))
+            return DocCommand.Execute(commandArgs)
         }
         if commandKind == 12 {
-            return CompletionCommand.Execute(GetCommandArgs(args))
+            return CompletionCommand.Execute(commandArgs)
         }
         if commandKind == 13 {
-            return CheckCommand.Execute(GetCommandArgs(args))
+            return CheckCommand.Execute(commandArgs)
         }
         if commandKind == 14 {
-            return FixCommand.Execute(GetCommandArgs(args))
+            return FixCommand.Execute(commandArgs)
         }
         if commandKind == 15 {
-            return QueryCommand.Execute(GetCommandArgs(args))
+            return QueryCommand.Execute(commandArgs)
         }
         if commandKind == 16 {
-            return DaemonCommand.Execute(GetCommandArgs(args))
+            return DaemonCommand.Execute(commandArgs)
         }
         if commandKind == 17 {
-            return AddCommand.Execute(GetCommandArgs(args))
+            return AddCommand.Execute(commandArgs)
         }
         if commandKind == 18 {
-            return TidyCommand.Execute(GetCommandArgs(args))
+            return TidyCommand.Execute(commandArgs)
         }
         if commandKind == 19 {
-            return RemoveCommand.Execute(GetCommandArgs(args))
+            return RemoveCommand.Execute(commandArgs)
         }
         if commandKind == 20 {
-            return UpdateCommand.Execute(GetCommandArgs(args))
+            return UpdateCommand.Execute(commandArgs)
         }
         if commandKind == 21 {
-            return InitCommand.Execute(GetCommandArgs(args))
+            return InitCommand.Execute(commandArgs)
         }
         if commandKind == 22 {
-            return EnvCommand.Execute(GetCommandArgs(args))
+            return EnvCommand.Execute(commandArgs)
         }
         if commandKind == 23 {
-            return DoctorCommand.Execute(GetCommandArgs(args))
+            return DoctorCommand.Execute(commandArgs)
         }
         if commandKind == 24 {
-            return TreeCommand.Execute(GetCommandArgs(args))
+            return TreeCommand.Execute(commandArgs)
         }
         if commandKind == 25 {
-            return AuditCommand.Execute(GetCommandArgs(args))
+            return AuditCommand.Execute(commandArgs)
         }
         if commandKind == 26 {
-            return PackCommand.Execute(GetCommandArgs(args))
+            return PackCommand.Execute(commandArgs)
         }
 
         firstArgument := ""

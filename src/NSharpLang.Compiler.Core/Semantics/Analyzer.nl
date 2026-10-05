@@ -806,6 +806,7 @@ class Analyzer: IDisposable {
     }
 
     func Analyze(unit: CompilationUnit, currentFilePath: string?, projectRoot: string?, sourceCode: string? = null): AnalysisResult {
+        CompilerWorkCounters.Shared.CountFileAnalyzed()
         Errors.Clear()
         Scopes.Clear()
         UsingNamespaces.Clear()

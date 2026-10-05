@@ -898,6 +898,8 @@ class ColumnarParserRecovery {
     }
 
     func Run() {
+        // One whole-file parse; `nlc <command> --stats` reports the total (CompilerWorkCounters).
+        CompilerWorkCounters.Shared.CountFileParsed()
         RunHeader()
 
         // Declaration boundary. Stage 2 carries the declaration-NAME family through the SAME

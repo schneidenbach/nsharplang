@@ -676,6 +676,7 @@ class MultiFileCompiler {
             return false
         }
         File.WriteAllBytes(outputPath, assembly)
+        CompilerWorkCounters.Shared.CountAssemblyEmitted()
         return TryEmitReferenceAssembly(outputPath, referenceAssemblyPaths)
     }
 

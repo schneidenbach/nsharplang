@@ -8,6 +8,7 @@ import System.Net.Sockets
 import System.Text
 import System.Text.Json
 import System.Threading
+import NSharpLang.Compiler
 
 // The last lines from a daemon child are retained while its redirected streams are drained. Keeping
 // the pipes moving prevents a verbose `dotnet run` startup from blocking before the listening socket
@@ -279,6 +280,7 @@ class DaemonClient {
                 process.Dispose()
                 return false
             }
+            CompilerWorkCounters.Shared.CountProcessSpawned()
 
             process.BeginErrorReadLine()
 

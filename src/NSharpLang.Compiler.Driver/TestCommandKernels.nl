@@ -565,6 +565,7 @@ class TestCommandKernels {
         CommandOutputKernels.AppendLine(builder, "  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout")
         CommandOutputKernels.AppendLine(builder, "  --no-cache            Force clean rebuild before running tests (bypass incremental build)")
         CommandOutputKernels.AppendLine(builder, "  --timings             Report the build, run and total time (stderr, or `timings` in --json)")
+        CommandOutputKernels.AppendLine(builder, "  --stats[=<path>]      Write one JSON line of time and work counters to stderr, or to <path>")
         CommandOutputKernels.AppendLine(builder, "  --coverage            Planned; currently exits with unsupported-feature guidance")
         CommandOutputKernels.AppendLine(builder, "  --coverage-report     Planned; currently exits with unsupported-feature guidance")
         CommandOutputKernels.AppendLine(builder, "  --help, -h            Show this help text")
