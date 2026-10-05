@@ -617,11 +617,13 @@ else
     # The identity diff has no additions; only those four NL905 findings were removed.
     # 2026-10-05, check nullable runtime metadata before constructing reflection test fixtures: Core 108, Compiler 0.
     # The identity diff has no additions; only those seven NL905 findings were removed.
+    # 2026-10-05, guard nullable function signatures and completed lambda test results: Core 82, Compiler 0.
+    # The identity diff has no additions; only those 26 NL905 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        108
+        82
         0
         0
         0

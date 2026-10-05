@@ -201,7 +201,12 @@ func ResolverTypeName(candidate: TypeInfo?): string {
 
     functionType := candidate as FunctionTypeInfo
     if functionType != null {
-        return "function/" + functionType.ParameterTypes.Count.ToString()
+        parameters := functionType.ParameterTypes
+        if parameters == null {
+            return "function/unknown-parameters"
+        }
+
+        return "function/" + parameters.Count.ToString()
     }
 
     if BuiltInTypes.IsUnknown(candidate) {

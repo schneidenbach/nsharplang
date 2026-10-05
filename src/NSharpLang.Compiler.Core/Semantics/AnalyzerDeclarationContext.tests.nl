@@ -1318,16 +1318,22 @@ test "runtime array AsSpan extension preserves element identity and System impor
     assert group != null
     functions := NSharpMethodGroupInfoFactory.GetFunctions(group)
     assert functions.Count == 2
-    assert functions[0].ParameterTypes != null
-    assert functions[0].ParameterTypes.Count == 0
-    assert functions[1].ParameterTypes != null
-    assert functions[1].ParameterTypes.Count == 2
+    zeroParameterTypes := functions[0].ParameterTypes
+    if zeroParameterTypes == null {
+        throw new InvalidOperationException("The zero-argument array method must carry its empty parameter list.")
+    }
+    assert zeroParameterTypes.Count == 0
+    twoParameterTypes := functions[1].ParameterTypes
+    if twoParameterTypes == null {
+        throw new InvalidOperationException("The two-argument array method must carry its parameter list.")
+    }
+    assert twoParameterTypes.Count == 2
     assert TypeInfoIdentityFacts.AreEqual(
-        functions[1].ParameterTypes[0],
+        twoParameterTypes[0],
         BuiltInTypes.Int
     )
     assert TypeInfoIdentityFacts.AreEqual(
-        functions[1].ParameterTypes[1],
+        twoParameterTypes[1],
         BuiltInTypes.Int
     )
 

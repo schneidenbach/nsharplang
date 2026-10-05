@@ -128,6 +128,24 @@ func LambdaTypeShown(candidate: TypeInfo?): string {
     return rendered
 }
 
+func RequiredLambdaAnalysisTestResult(state: LambdaAnalysisState): FunctionTypeInfo {
+    result := state.Result
+    if result == null {
+        throw new InvalidOperationException("A completed lambda test walk must produce its function type.")
+    }
+
+    return result
+}
+
+func RequiredLambdaAnalysisTestParameters(state: LambdaAnalysisState): List<TypeInfo> {
+    parameters := RequiredLambdaAnalysisTestResult(state).ParameterTypes
+    if parameters == null {
+        throw new InvalidOperationException("A completed lambda test walk must retain its parameter list.")
+    }
+
+    return parameters
+}
+
 // ── AST shapes ────────────────────────────────────────────────────────────────
 
 func LambdaParams(): List<Parameter> {
@@ -542,7 +560,7 @@ test "an expression body is walked under the signature's return type and ITS ans
 
     assert LambdaTranscript(steps) == "2 1 6"
     assert steps[1].ExpectedType == "string"
-    assert LambdaTypeShown(state.Result.ReturnType) == "bool"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "bool"
 }
 
 test "an expression body whose analysis answers nothing falls back to unknown" {
@@ -552,7 +570,7 @@ test "an expression body whose analysis answers nothing falls back to unknown" {
 
     LambdaRun(harness, state, null)
 
-    assert LambdaTypeShown(state.Result.ReturnType) == "unknown"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "unknown"
 }
 
 test "a BLOCK body's return type is the signature's whatever the block does" {
@@ -565,7 +583,7 @@ test "a BLOCK body's return type is the signature's whatever the block does" {
     assert LambdaTranscript(steps) == "2 5 6"
     // The nested-body boundary the driver brackets is entered with the SAME type the lambda answers.
     assert steps[1].CarriedType == "string"
-    assert LambdaTypeShown(state.Result.ReturnType) == "string"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "string"
 }
 
 // ── a target whose return position is not decided ─────────────────────────────
@@ -617,7 +635,7 @@ test "an UNBOUND type parameter in the return position offers no target, and the
     // The boundary is entered with `unknown` rather than with the type parameter, which is what stops
     // the block's returns being measured against a type the call has not decided.
     assert steps[1].CarriedType == "unknown"
-    assert LambdaTypeShown(state.Result.ReturnType) == "int"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "int"
 }
 
 test "a DECIDED return position keeps its own answer whatever the block worked out" {
@@ -628,7 +646,7 @@ test "a DECIDED return position keeps its own answer whatever the block worked o
     steps := LambdaRunWithBlockAnswer(harness, state, BuiltInTypes.Int)
 
     assert steps[1].CarriedType == "string"
-    assert LambdaTypeShown(state.Result.ReturnType) == "string"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "string"
 }
 
 test "a block that worked nothing out leaves the lambda at the target's own answer" {
@@ -638,7 +656,7 @@ test "a block that worked nothing out leaves the lambda at the target's own answ
 
     LambdaRunWithBlockAnswer(harness, state, null)
 
-    assert LambdaTypeShown(state.Result.ReturnType) == "unknown"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "unknown"
 }
 
 // AN `async` LAMBDA'S TYPE IS THE TARGET'S TASK FAMILY OVER THE BODY'S RESULT, and the target may be
@@ -661,7 +679,7 @@ test "a block body with no signature enters the boundary with unknown and answer
     steps := LambdaRun(harness, state, BuiltInTypes.Bool)
 
     assert steps[1].CarriedType == "unknown"
-    assert LambdaTypeShown(state.Result.ReturnType) == "unknown"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "unknown"
 }
 
 test "a lambda with NEITHER body still opens and closes its scope and answers unknown" {
@@ -676,8 +694,8 @@ test "a lambda with NEITHER body still opens and closes its scope and answers un
     steps := LambdaRun(harness, state, BuiltInTypes.Bool)
 
     assert LambdaTranscript(steps) == "2 3 4 6"
-    assert LambdaTypeShown(state.Result.ReturnType) == "unknown"
-    assert state.Result.ParameterTypes.Count == 1
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "unknown"
+    assert RequiredLambdaAnalysisTestParameters(state).Count == 1
 }
 
 // ── the resulting signature ───────────────────────────────────────────────────
@@ -695,10 +713,10 @@ test "the lambda's own type is its parameter types in order and its body's retur
 
     LambdaRun(harness, state, BuiltInTypes.Bool)
 
-    assert state.Result.ParameterTypes.Count == 2
-    assert LambdaTypeShown(state.Result.ParameterTypes[0]) == "int"
-    assert LambdaTypeShown(state.Result.ParameterTypes[1]) == "string"
-    assert LambdaTypeShown(state.Result.ReturnType) == "bool"
+    assert RequiredLambdaAnalysisTestParameters(state).Count == 2
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestParameters(state)[0]) == "int"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestParameters(state)[1]) == "string"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "bool"
 }
 
 // ── the expression-tree validator, which the walk now calls directly ──────────
@@ -1053,7 +1071,7 @@ test "an async lambda's body is measured against the task's result, not against 
     // type is the task built over what the body answered.
     assert steps[1].ExpectedType == "int"
     assert harness.Errors.Count == 0
-    assert LambdaTypeShown(state.Result.ReturnType) == "Task<int>"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "Task<int>"
 }
 
 test "an async lambda on a unit task expects a void body and keeps the unit task as its own type" {
@@ -1065,7 +1083,7 @@ test "an async lambda on a unit task expects a void body and keeps the unit task
 
     assert steps[1].ExpectedType == "void"
     assert harness.Errors.Count == 0
-    assert LambdaTypeShown(state.Result.ReturnType) == "Task"
+    assert LambdaTypeShown(RequiredLambdaAnalysisTestResult(state).ReturnType) == "Task"
 }
 
 test "an ordinary lambda is untouched: its body is measured against the delegate's return verbatim" {

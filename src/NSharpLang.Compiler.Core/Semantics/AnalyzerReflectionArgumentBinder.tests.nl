@@ -1717,7 +1717,11 @@ test "a reflected method group is read into a signature, and the shapes that are
     assert AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(signature)
     assert signature.SourceName == "Exists"
     assert signature.SourceLine == 0
-    assert signature.ParameterTypes.Count == 1
+    parameterTypes := signature.ParameterTypes
+    if parameterTypes == null {
+        throw new InvalidOperationException("The reflected Directory.Exists signature must include its parameter list.")
+    }
+    assert parameterTypes.Count == 1
     assert BinderTypeName(signature.ReturnType) == "bool"
 
     // A GENERIC METHOD DEFINITION is not a signature yet — its own type arguments would have to be
