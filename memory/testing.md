@@ -1075,7 +1075,7 @@ outputs. Standalone `scripts/ilverify.sh` and CI build the product surface and
 selected native regression assemblies themselves before verification.
 
 ### 7a. The Slice Edit -> Test Cycle
-Splitting Compiler.Core exists to make one slice's edit -> test cycle fast. The measurement is
+The completed Compiler.Core split makes one slice's edit -> test cycle fast. The measurement is
 `./scripts/dev.sh --estate <Rows>` after a warm run: a one-line body edit (a comment inside the first
 function body of the file) and its revert, each timed. The files and rows are the ones each carve
 recorded: Emit `ColumnarIlEmitter.nl` / `ColumnarLambdaStatementBodyTests`, Model

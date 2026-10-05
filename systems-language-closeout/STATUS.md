@@ -31,7 +31,61 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-### Census wave 18 — current closeout cursor (2026-09-23)
+### Census wave 19 — current closeout cursor (2026-09-24 → 2026-10-05)
+
+**Tip.** Product history `bea64ac92..9721a02a0` (tip dated 2026-09-30); this cursor is dated
+2026-10-05. The Compiler.Core split is **DONE**: Model, Syntax, Driver, Tooling, CodeIntel, Emit and
+Plan are separate projects; Core remains the Semantics façade (D-B), and the compile-time benchmark
+continues to measure that façade. Per-slice carve ranges, reseed receipts and edit→test measurements
+are recorded in §4.13 and `memory/architecture.md` / `memory/testing.md` §7a.
+
+| Current item | State at `9721a02a0` | Receipt |
+|---|---|---|
+| Compiler.Core split | **DONE**; every carved project has its own `nlc check --use-built-references` front door | §4.13; `tests/scripts/test-all-core.sh` Step 2d |
+| Core front door | **355 / 355 at ceiling**, still owed to zero | `combined-9721a02a0/gate-nonvs.log` |
+| Other Step 2d ceilings | Model 0; Syntax 0; Plan 0; Emit 0; CodeIntel 0; Tooling 0; Driver 0; Compiler 5; Playground 0; Build.Tasks 0 | same Step 2d log |
+| Compiler-service estate | **9,977 passed, 0 failed** | `combined-9721a02a0/gate-nonvs.log`; `combined-a409c9400/gate-nonvs.log` |
+| Native sweep | **152 projects; 5,305 tests: 5,304 passed, 0 failed, 1 skipped** | `Native sweep record` in both combined gate directories |
+| Gate result | `9721a02a0` non-VS **PASS**; `a409c9400` non-VS and VS **PASS**; all present logs say `GATE EXIT 0` | `/Users/spencer/repos/nsharp-worktrees/evidence/combined-{9721a02a0,a409c9400}/` (`9721a02a0` contains only `gate-nonvs.log`) |
+| Ownership audit | **25/25** in the recorded gates; rerun after the doc edits, last | `tests/native/ownership-audit`; both combined gate logs |
+| Compile-time benchmark | Core Semantics façade baseline **124 s → 15.2 s** | `9721a02a0` |
+
+**Split and language work now landed.** BCL/referenced nullability is enforced as errors across the
+Model/Core/Driver/Plan/Emit path; the opt-in switch was removed after phases 1–3. Bare member/free
+function ambiguity now reports position-aware NL209 instead of silently preferring a member. NL413,
+NL415 and NL339 are scoped to one program. `x as T` yields `T?`; `&T` parameters read as their storage
+type and forward with `ref`; `HasValue`, short-circuit paths and loop bodies contribute narrowing;
+read-only `in` calls materialize rvalues and reject explicit `in` at by-value parameters. Generic
+receiver functions, overloaded free functions, source indexers, iterators and generic source members
+are supported. Workspace-root `nlc check` returns grouped JSON schema v2, and the source declaration
+index avoids repeated declaration walks. Commit receipts are summarized in `tasks/TOOLCHAIN-NATIVE.md`.
+
+**Gate, CI and daemon hardening.** Linux CI now reuses the compiler-referenced identity handle;
+installed-toolchain tests pack the release set, isolate every Docker run and use flags accepted by both
+builders; `nlc test` names failed rows. Each gate has a private NuGet packages directory over an
+immutable shared store. NL010 fixture resolution uses the shared framework, and daemon readiness now
+waits for listen completion so startup probes cannot unlink a live socket.
+
+**C# still in the product hosts, remeasured with the repository's `find … -name '*.cs' … | xargs wc -l` method:**
+
+| Project | C# lines | Files |
+|---|---:|---:|
+| `src/NSharpLang.Runtime` | 861 | 4 |
+| `src/NSharpLang.Playground.Wasm` | 71 | 2 |
+| `src/NSharpLang.Cli` | 25 | 1 |
+| **Compiler/toolchain total** | **957** | **7** |
+| `editors/visualstudio` (separate IDE host) | 359 | 4 |
+| **All four listed owners** | **1,316** | **11** |
+
+**Process.** Development was delegated to Codex CLI (`gpt-6-luna`, xhigh) under
+`~/.claude/CLAUDE.md`; this wave landed in four integration batches of session work.
+
+**Still owed.** Rendered visual VS Code proof remains absent because computer-use attempts were
+unavailable or timed out; headless VS smoke does not discharge it. The Runtime / Playground.Wasm
+ownership-boundary decision remains with the owner. Deletion of the landed `origin/claude/*` branches
+awaits the owner (16 remote refs remain). Core's front door must go from 355 to 0.
+
+### Census wave 18 — superseded cursor (2026-09-23)
 
 **Tip.** `5a869e9db` on `census/merge`. **Forty-one commits** since the wave-17 docs tip
 `59c965af0` (`git log 59c965af0..HEAD --stat`). The checkout is clean. **Two bootstrap seeds were
@@ -5768,6 +5822,27 @@ are launch-facing inputs to the 015 decision (§7 of `MEASUREMENT-VERDICT-2026-0
 - **`out` on an external call is a CATALOG question, not a blanket byref refusal.** `Dictionary.TryGetValue(k, out v)` passes; `DateTime.TryParse(s, out d)` is `emit.call.static-member-unmodeled`. The ordinary resolver refuses byref signatures, so every working `out` today is a hand-written row — which is the same allow-list shape twice more.
 - **The implicit handle conversion is a design constraint, not a blocker.** All 28 handle structs publish `op_Implicit` to `EntityHandle` and N# applies none of them (`NL402`, naming the one overload). The spelling-around — `MetadataTokens.EntityHandle(<token>)` over a token computed from the writer's own declaration order — is the two-pass row reservation a from-scratch writer needs anyway, so the constraint costs nothing it was not already paying.
 - **C#'s two constant-conversion rules are different rules and must not be folded.** §10.2.4 converts only the literal ZERO to an enum; §10.2.11 converts any in-range integer constant to a narrower integral type. Folding them would make N# laxer than C# and silently accept `AssemblyFlags = 7`. Both are FILED with their probes and their sizing: the typed-local gate is `IsAssignable(TypeInfo, TypeInfo)` with **45 call sites and no literal in scope**, the argument position is a second owner, and the typed-local emit coercion is in `ColumnarIlEmitter.cs` — C#, which this task forbids adding to.
+
+### 4.13 Census wave 19 — Compiler.Core split completed
+
+| slice | commit | what moved | durable finding | numbers |
+|---|---|---|---|---|
+| Model | `32e991834..77be0b494` | Model product became its own project; its estate rows stayed with Core | The compiler must resolve the same declared type through a project boundary as it does within one project | `reseed-15efdeeaf`: Core estate **9,651/9,651**; edit→test **7/5 s** |
+| Syntax | `ad240630b..9262eaaa9` | Syntax product and its estate rows moved into their own project | Build against each dependency's built assembly; the formatter and parser rows follow the syntax owner | `reseed-691229915`: Syntax **1,376** + Core **8,294**; **9,670/9,670**; edit→test **8/10 s** |
+| Driver | `4635b7539..30712fa80` | Driver product and rows moved to `Compiler.Driver` | `nlc check --use-built-references` makes every project front door independently measurable | `reseed-1c052c596`: Syntax **1,376** + Core **7,591** + Driver **707**; **9,674/9,674**; edit→test **10/9 s** |
+| Tooling | `0f69fae1e..d7443aa17` | Formatter and JSON tooling product and rows moved to `Compiler.Tooling` | The Tooling → Core edge is explicit and part of the release set | `reseed-76e5177ac`: Syntax **1,376** + Core **7,238** + Tooling **353** + Driver **707**; **9,674/9,674**; edit→test **5/5 s** |
+| CodeIntel | `8bf153349..fc0fbc7da` | Code-intelligence product and rows moved to `Compiler.CodeIntel` | CodeIntel is above Emit and below Tooling in the explicit project graph | `reseed-90c93ede6`: Syntax **1,376** + Core **6,106** + CodeIntel **1,132** + Tooling **353** + Driver **708**; **9,675/9,675**; edit→test **9/9 s** |
+| Emit | `cba7c9b76..33c7e2f9b` | IL emitter product and rows moved to `Compiler.Emit` | The emitted dependency chain is explicit; reference assembly bytes stay stable across body-only edits | `reseed-d65ccca7d`: Syntax **1,383** + Core **6,104** + Emit **57** + CodeIntel **1,133** + Tooling **353** + Driver **711**; **9,741/9,741**; edit→test **7/8 s** |
+| Plan | `55d16cff7..fc8762861` | Planner product and rows moved to `Compiler.Plan` | Plan sits below Emit; Core is retained as the Semantics façade under D-B | `reseed-c7c836d8f`: Syntax **1,383** + Core **4,307** + Plan **1,817** + Emit **57** + CodeIntel **1,133** + Tooling **353** + Driver **711**; **9,761/9,761**; edit→test **16/17 s** |
+
+**Findings.** Every reseed figure above is the sum of the passing estate rows actually printed in that
+carve's `reseed.log`; no failed row is included. The measured inner loop is 5–10 seconds for the
+smaller carved projects, 16–17 seconds for Plan and 28–32 seconds for Core. `memory/testing.md` §7a
+records the causes: an estate-only edit skips the CLI build, `dev.sh` now builds/runs only the selected
+estate project, and stable reference assemblies keep downstream builds from re-emitting. The Emit
+case additionally fixed declaration-sized parse scratch (57 GB allocated → 1.1 GB) and repeated
+referenced-type misses. The current front-door ceilings and integration evidence are in the wave-19
+cursor above.
 
 ## 5. Remediations, corrections, do-not-relitigate verdicts
 

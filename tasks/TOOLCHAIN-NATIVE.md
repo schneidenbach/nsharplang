@@ -1,6 +1,92 @@
 # Managed toolchain conversion and census closeout
 
-## Census wave 18 — current status (2026-09-23)
+## Census wave 19 — current status (2026-09-24 → 2026-10-05)
+
+The source history for this update is `bea64ac92..9721a02a0` (product tip `9721a02a0`, dated
+2026-09-30); this cursor is current through 2026-10-05. Four integration batches of session work
+landed in the interval. Per `~/.claude/CLAUDE.md`, development was delegated to Codex CLI
+(`gpt-6-luna`, xhigh).
+
+### Compiler.Core split — complete
+
+Seven product slices were moved out; Core remains the Semantics façade under D-B. Every carved
+project now has a zero `nlc check --use-built-references` front door and participates in SDK packing,
+release verification and reseeding. Where estate rows moved, they run in the slice's own estate
+project; Model's estate rows remain hosted by Core.
+
+| Slice | Carve range | Reseed receipt and measured estate rows | Edit→test after carve |
+|---|---|---|---:|
+| Model | `32e991834..77be0b494` | `reseed-15efdeeaf`: Core **9,651/9,651** (Model rows remain in Core) | **7/5 s** |
+| Syntax | `ad240630b..9262eaaa9` | `reseed-691229915`: Syntax **1,376** + Core **8,294** = **9,670/9,670** | **8/10 s** |
+| Driver | `4635b7539..30712fa80` | `reseed-1c052c596`: Syntax **1,376** + Core **7,591** + Driver **707** = **9,674/9,674** | **10/9 s** |
+| Tooling | `0f69fae1e..d7443aa17` | `reseed-76e5177ac`: Syntax **1,376** + Core **7,238** + Tooling **353** + Driver **707** = **9,674/9,674** | **5/5 s** |
+| CodeIntel | `8bf153349..fc0fbc7da` | `reseed-90c93ede6`: Syntax **1,376** + Core **6,106** + CodeIntel **1,132** + Tooling **353** + Driver **708** = **9,675/9,675** | **9/9 s** |
+| Emit | `cba7c9b76..33c7e2f9b` | `reseed-d65ccca7d`: Syntax **1,383** + Core **6,104** + Emit **57** + CodeIntel **1,133** + Tooling **353** + Driver **711** = **9,741/9,741** | **7/8 s** |
+| Plan | `55d16cff7..fc8762861` | `reseed-c7c836d8f`: Syntax **1,383** + Core **4,307** + Plan **1,817** + Emit **57** + CodeIntel **1,133** + Tooling **353** + Driver **711** = **9,761/9,761** | **16/17 s** |
+
+Most slice cycles now take 5–10 seconds. Plan is 16–17 seconds and Core 28–32 seconds. The causes
+and paired measurements are in `memory/testing.md` §7a: an estate-only edit skips the CLI build,
+`dev.sh` limits work to the selected estate project, and unchanged reference assemblies let dependent
+projects skip emits. Emit also stopped sizing parse scratch by whole-file tokens (57 GB allocated →
+1.1 GB) and stopped repeating expensive referenced-type misses.
+
+### Landed language, tooling and gate work
+
+- **Referenced nullability:** phases 1–3 moved the diagnostics from opt-in collection to unconditional
+  errors for BCL and referenced assemblies; the switch was removed. Receipts include
+  `a038a0fc0`, `3ecb05516`, `6493c8381`, `b915c818d`, `2ec6663ae`, `9d21124bd`, `1361201e6` and
+  `c33804f71`.
+- **Name binding and scope:** `185838d85` and `b17c38d3b` make bare member/free-function ambiguity a
+  position-aware NL209 instead of member-first silence. NL413 (`e58adf60a`), NL415 (`3599b2750`) and
+  NL339 (`a83b8a3a4`) now ask whether declarations belong to one program.
+- **Types, flow and calls:** `48e9d8114` types `x as T` as `T?`; `7360d1dc4` and `e022550ec` make
+  `&T` parameters read as storage and forward with `ref`; `a5ad67c60` adds `HasValue` narrowing.
+  Short-circuit and loop-body facts survive only reachable paths (`6c171bf7d`, `c54b5e1f3`,
+  `6d5a2a135`, `32bce6f27`, `72b7fb1a8`). Read-only `in` calls spill rvalues to temporaries, while
+  written `in` at a by-value parameter is rejected (`4d1ed92df`, `346bc978f`). Generic receiver
+  functions, overloaded free functions and source indexers landed at `45dc58808`, `402847979` and
+  `595c7d830`; generic source members, iterators and writes followed at `90306829e`.
+- **Workspace and code intelligence:** `a409c9400` makes root `nlc check` inspect every workspace
+  project and return grouped JSON schema v2; `77b990281` indexes declarations for analyzer lookups.
+  `447780660` adds hover for external generic and inherited .NET members. The Core compile-time bench
+  was re-baselined at **124 s → 15.2 s** by `9721a02a0`, measuring the retained Semantics façade.
+- **CI and gate reliability:** `2859ccc42` fixes Linux compiler-referenced identity by returning the
+  compiler's handle. `a85affefd` packs the installed-toolchain fixture from the release set;
+  `62bc87159` isolates Docker image/container resources per run and `14bef0089` uses flags accepted by
+  both builders. `6e1d5c0cd` names failed `nlc test` rows. `2377d52a5` gives each gate a private
+  packages folder over an immutable NuGet store. `8a7444dd0` fixes the NL010 fixture's framework type
+  lookup. `9189262f4` and `e5a22a8c6` make daemon readiness wait for listen completion and prevent the
+  startup-probe race.
+
+### Current gate and ownership cursor
+
+Evidence is under `/Users/spencer/repos/nsharp-worktrees/evidence/`. The `combined-9721a02a0`
+non-VS gate and both `combined-a409c9400` gates report `GATE EXIT 0`. The `9721a02a0` directory has
+only `gate-nonvs.log`; `a409c9400` has both the non-VS and VS logs. Each native sweep reports **152
+projects / 5,305 tests** (**5,304 passed, 0 failed, 1 skipped**). The split compiler-service estate
+totals **9,977 passed / 0 failed**: Syntax 1,399; Core 4,410; Plan 1,879; Emit 63; CodeIntel 1,139;
+Tooling 365; Driver 722. The head gate logs show ownership-audit **25/25**.
+
+Step 2d's observed ceilings are Model 0, Syntax 0, Core 355, Plan 0, Emit 0, CodeIntel 0, Tooling 0,
+Driver 0, Compiler 5, Playground 0 and Build.Tasks 0. Core's **355 → 0** is still owed.
+
+| Remaining C# owner | C# lines | Files |
+|---|---:|---:|
+| `src/NSharpLang.Runtime` | 861 | 4 |
+| `src/NSharpLang.Playground.Wasm` | 71 | 2 |
+| `src/NSharpLang.Cli` | 25 | 1 |
+| **Compiler/toolchain total** | **957** | **7** |
+| `editors/visualstudio` (separate IDE host) | 359 | 4 |
+| **All listed owners** | **1,316** | **11** |
+
+The C# count uses the existing `find <project> -name '*.cs' -not -path '*/obj/*' -not -path
+'*/bin/*' | xargs wc -l` procedure.
+
+**Still owed:** rendered visual VS Code proof (computer-use was unavailable or timed out); the
+Runtime / Playground.Wasm ownership-boundary decision; deletion of 16 landed `origin/claude/*` refs,
+awaiting the owner; and Core's front door from 355 to zero.
+
+## Census wave 18 — history (superseded 2026-10-05)
 
 Wave 18 is integrated through **`5a869e9db`** on `census/merge`. **Forty-one commits** sit between
 the wave-17 docs tip `59c965af0` and the tip (`git log 59c965af0..HEAD --stat`). The checkout is

@@ -264,6 +264,7 @@ one; that is how the runbook is exercised without touching the committed seed.
 | Question | Read |
 |----------|------|
 | Understand current architecture? | [architecture.md](architecture.md) |
+| Read the current compiler closeout cursor and gate census? | [systems-language status](../systems-language-closeout/STATUS.md#1-cursor) · [toolchain census](../tasks/TOOLCHAIN-NATIVE.md) |
 | Work on CLI/tooling behavior? | [components/cli-toolchain.md](components/cli-toolchain.md) |
 | Run tests and gates? | [testing.md](testing.md) |
 | Check known limitations? | [limitations.md](limitations.md) |

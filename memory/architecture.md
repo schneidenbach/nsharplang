@@ -39,35 +39,37 @@ separately. Historical allowlist labels below do not establish current completio
 5. **CLI** - command-line workflows (`src/NSharpLang.Cli/`)
 6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.Model/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
 
-## Compiler.Core slice directories
+## Compiler.Core slice projects
 
-`src/NSharpLang.Compiler.Core` is being carved into eight slice projects, lowest first, and ordered so
-a file names only its own slice or a lower one. **S0, S1, S3, S4, S5, S6 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
-`src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Plan` (S3, `Backend.Plan`), `src/NSharpLang.Compiler.Emit`
-(S4, `Backend.Emit`), `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling` and
-`src/NSharpLang.Compiler.Driver` are each their own N#-SDK project (one-line csproj, `project.yml`, the SDK's
-`global.json` pin); Syntax takes Model with `project:`, Core takes Syntax, Plan takes Core, Emit takes Plan,
-CodeIntel takes Emit, Tooling takes CodeIntel, Driver takes Tooling, the `Compiler` facade takes Driver,
-and every consumer builds the Model -> Syntax -> Core -> Plan -> Emit -> CodeIntel -> Tooling -> Driver
-DAG through those edges. Core itself stays a project (user decision D-B) holding what is left:
+The split is complete: Model (S0), Syntax (S1), Plan (S3), Emit (S4), CodeIntel (S5), Tooling (S6)
+and Driver (S7) are separate projects, and Core retains Semantics (S2) as its façade under decision
+D-B. The projects are ordered lowest first so each reference points down the dependency graph:
+`src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Plan`
+(S3, `Backend.Plan`), `src/NSharpLang.Compiler.Emit` (S4, `Backend.Emit`),
+`src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling` and
+`src/NSharpLang.Compiler.Driver` are each their own N#-SDK project (one-line csproj, `project.yml`,
+the SDK's `global.json` pin); Syntax takes Model with `project:`, Core takes Syntax, Plan takes Core,
+Emit takes Plan, CodeIntel takes Emit, Tooling takes CodeIntel, Driver takes Tooling, the `Compiler`
+facade takes Driver, and every consumer builds the Model -> Syntax -> Core -> Plan -> Emit -> CodeIntel
+-> Tooling -> Driver DAG through those edges. Core owns the retained Semantics project and the Model
+estate:
 
 | directory | slice | holds |
 |---|---|---|
 | `src/NSharpLang.Compiler.Model/` (Core's `Model/` holds only its estate) | S0 | the AST, the type, diagnostic and project-config models, and the shared facts every slice reads |
 | `src/NSharpLang.Compiler.Syntax/` (product AND estate) | S1 | lexer, preprocessor, the columnar parser kernels and node table |
-| `Semantics/` | S2 | the analyzer, the systems analyzer, flow and nullability |
+| `src/NSharpLang.Compiler.Core/Semantics/` | S2 | the analyzer, the systems analyzer, flow and nullability; Core's retained façade |
 | `src/NSharpLang.Compiler.Plan/` (product AND estate) | S3 | the columnar planners and binding scope, and the metadata-blob writers |
 | `src/NSharpLang.Compiler.Emit/` (product AND estate) | S4 | `ColumnarIlEmitter` and the IL realizations |
 | `src/NSharpLang.Compiler.CodeIntel/` (product AND estate) | S5 | completion, hover, signature help, navigation, code fixes, DocQuery and the Linter |
 | `src/NSharpLang.Compiler.Tooling/` (product AND estate) | S6 | the formatter and the JSON output models |
 | `src/NSharpLang.Compiler.Driver/` (product AND estate) | S7 | the CLI command kernels, `MultiFileCompiler`, the reference resolver, and the SDK's three MSBuild tasks |
 
-Every `.tests.nl` sits beside its subject, in the same directory, except where a row's helpers force
-it into the lowest slice they build in (Syntax's `AstNodeFinderCore.tests.nl`, below). The directories are organisational
-only: the SDK's `**/*.nl` globs and the CLI's source walk recurse, `project.yml` lists no sources, a
-file's namespace is its own `namespace` line, and canonical source order (below) keys on the
-basename, so moving a file between directories changes no byte of any assembly. `scripts/dev.sh
---since` selects tests by these directories.
+Every `.tests.nl` sits beside its subject, except where a row's helpers force it into the lowest
+slice it builds in (Syntax's `AstNodeFinderCore.tests.nl`, below). Within a project, directories are
+organizational: the SDK's `**/*.nl` globs and CLI source walk recurse, `project.yml` lists no sources,
+and canonical source order keys on the basename. Moving a file across project boundaries changes its
+assembly owner. `scripts/dev.sh --since` selects estate tests by these slice directories.
 
 **No product file reaches upward.** The last reach -- the node table's binding context -- is held as
 `ColumnarBindingScope`, an empty Syntax base that `ColumnarBindingScopeFacts` (Backend.Plan) derives
@@ -76,12 +78,10 @@ marker interface: the committed seed's columnar emitter registers every source i
 structurally, `duck` or not, so an empty interface lands on every class in the assembly. The tip
 emitter registers only `duck interface`s since `ae7daa9a4`, pinned by
 `tests/native/census-nominal-interfaces`; the base can collapse to a marker after the next reseed.)
-`tests/native/compiler-core-slice-direction`
-holds the rule until the slices are projects: a product file under slice k naming a top-level name a
-file under slice j > k owns fails it with the file, line and name, and so does a Core file outside
-the eight directories. The estate's own reaches upward (171: rows in a lower slice than their
-subject, and helpers another slice's rows call -- 111 of them from `Model/`) are a ceiling that may
-only fall; they are the split's fixture-hoisting work.
+`tests/native/compiler-core-slice-direction` holds the rule across the completed project graph: a
+product file under slice k naming a top-level name owned by slice j > k fails with the file, line and
+name; it also guards Core's retained Semantics sources. Estate reach is tracked separately from
+product direction and remains the fixture-hoisting backlog.
 
 **One `Program` holder per namespace per slice, and no per-slice estate namespace.** The emitter puts
 a namespace's free functions on one `<namespace>.Program` per assembly (`ColumnarFreeFunctionHolders`),
@@ -202,18 +202,12 @@ a body edit leaves Syntax's reference assembly unchanged, so neither Core nor it
 re-emits, and Core's estate answers "no row matches" in seconds; a Core file
 (`Driver/RunCommandKernels.nl`) 362 / 218 s at the base, 297 / 330 s and 202 / 214 s on the same two
 seeds -- Core's own and tests-included emits are the whole cost there, as before.
-What the next carve (Semantics) repeats: its front door at 0 first (product, and estate if its rows
-move); its name in the `project:` chain (Core -> Semantics -> Syntax), `CompilerSliceAssemblyNames`,
-the emit-only switch and the SDK payload/`Inputs`, `ShippedPayloadAssemblies`, the release set
-(`NSHARP_PACKAGE_SPECS` in packages.sh -- the installed-toolchain fixture packs exactly it, and its
-ungated guard row fails until the new `project:` edge ships -- verify-release.py and its test), reseed.sh's `COMPILER_PROJECT_DIRS` (and
-`ESTATE_PROJECTS`, dev.sh's and Step 3a's lists, if its rows move -- with `excludeTests: true`), the
-format loops, the `dll:` consumers and every assembly-qualified `..., NSharpLang.Compiler.Core` name of
-a type it takes (`Analyzer`, `SemanticModel`, `SystemsAnalyzer` ...); the NL002 imports its referenced
-types then need in Core; and the seed republished with the emit-only switch naming it BEFORE its build
-relies on that (until then the seed compiles it WITH analysis, so its own diagnostics must already be
-zero, estate included). Whether its rows can move is the slice graph's estate-reach answer plus a scan
-for Core rows calling its estate's helpers, as it was here.
+The subsequent Driver, Tooling, CodeIntel, Emit and Plan carves applied this boundary checklist; the
+Compiler.Core split is now complete. Core remains the Semantics façade under decision D-B, so there is
+no pending Semantics project carve. Step 2d checks each carved project through
+`nlc check --use-built-references`; each slice owns its project edge, SDK payload and `Inputs`,
+`ShippedPayloadAssemblies`, release-set entry, reseed wiring and estate selection. For the current
+front-door ceilings and per-carve receipts, see `systems-language-closeout/STATUS.md` §1 and §4.13.
 
 **Compiler.Driver is carved** (2026-09-25, `census/carve-driver`), TOP-DOWN: the slices between it and
 Syntax are still Core's directories, so Driver becomes a project ABOVE Core (Driver takes Core with
@@ -669,12 +663,13 @@ remaining state/control ownership from the active goal:
   files by basename (ordinal), tie-broken by full path, inside `MultiFileCompilerInputBuilder.Build`
   - the one owner that `nlc build`/`check`/`test`, the SDK's `EmitIlAssembly` task and the language
   server all pass through - so the CLI's directory walk and the SDK glob's item order no longer
-  decide anything, and moving a file between directories no longer changes a byte (the module
-  version id and timestamp being content hashes, a whole-file comparison is the check).
+  decide anything. Moving a file within a project no longer changes a byte (the module version id
+  and timestamp are content hashes, and a whole-file comparison is the check); crossing a project
+  boundary changes assembly ownership and is outside this guarantee.
   `tests/native/canonical-source-order` pins it: two layouts of one program emit identical
   implementation and reference assemblies, explicit lists in any order match discovery, a rename
   DOES move the bytes (the control), and every `src/` N# project keeps its basenames unique, which
-  is what makes the Compiler.Core split's directory moves byte-identical.
+  lets moves within one project remain byte-identical.
 - `CompilationReferenceResolver.nl` solely owns recursive reference builds, package traversal,
   caching and failure behavior. The C# owner is deleted; seven direct and four command canonicals
   execute in N#. Fresh gate and installed SDK verification are accepted at `a20dc98af`.
