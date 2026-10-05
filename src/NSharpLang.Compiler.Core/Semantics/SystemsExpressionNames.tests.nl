@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.Performance
 
+import System
 import System.Collections.Generic
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
@@ -161,6 +162,9 @@ test "NEITHER PROJECTION IS THE TYPE-NAME SIMPLIFIER" {
     // They are used together — the span width of an unknown-external-call finding is the simple name
     // of the target this owner produced — so a fold in either direction would be visible.
     target := SystemsExpressionNames.CallTarget(SenMember(SenMember(SenIdentifier("System"), "IO"), "File"))
+    if target == null {
+        throw new InvalidOperationException("A qualified member expression must produce its written call target.")
+    }
     assert target == "System.IO.File"
     assert SystemsTypeNames.SimpleName(target) == "File"
     assert SystemsTypeNames.SimpleName(target) != target

@@ -515,7 +515,11 @@ test "the SoA table and row surfaces are the columns plus the intrinsics" {
     assert wrapNames[0] == "x"
     assert wrapNames[1] == "name"
     assert wrapNames[2] == "length"
-    assert TypeInfoIdentityFacts.AreEqual(wrapFunction.ReturnType, table)
+    wrapReturnType := wrapFunction.ReturnType
+    if wrapReturnType == null {
+        throw new InvalidOperationException("The synthetic wrap signature must return its table type.")
+    }
+    assert TypeInfoIdentityFacts.AreEqual(wrapReturnType, table)
 
     // And the intrinsics are INSTANCE members: they are not on the static surface.
     assert BuiltInTypes.IsUnknown(harness.Resolution.ResolveMember(table, "add", true, null))

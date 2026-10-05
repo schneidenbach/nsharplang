@@ -244,7 +244,11 @@ test "a delegate outside the arity tables is read through Invoke" {
     // A type with no `Invoke` at all answers the unknown signature rather than throwing.
     notADelegateType := FactoryRuntimeType("System.Uri, System.Private.Uri")
     notADelegate := AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(notADelegateType)
-    assert BuiltInTypes.IsUnknown(notADelegate.ReturnType)
+    notADelegateReturnType := notADelegate.ReturnType
+    if notADelegateReturnType == null {
+        throw new InvalidOperationException("A non-delegate signature must carry the explicit unknown return type.")
+    }
+    assert BuiltInTypes.IsUnknown(notADelegateReturnType)
 }
 
 test "an expression tree unwraps to its delegate, including through a by-ref shell" {
