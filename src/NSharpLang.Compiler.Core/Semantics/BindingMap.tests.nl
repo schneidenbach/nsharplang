@@ -613,25 +613,68 @@ test "binding map falls back to the file-less key" {
     assert bindings.GetBindingAt("any.nl", 7, 4) == null
 }
 
-// NOT IN THE DELETED FILE. The index key is TEXT, and the encoding is length-prefixed precisely so
-// two different triples cannot spell the same key — the classic collision being a file whose name
-// contains the separator, and a line/column pair that reads the same when concatenated.
+// NOT IN THE DELETED FILE. The index key is the POSITION itself -- (file, line, column) compared
+// ordinally -- so two different triples can never be the same key: not a file whose name contains a
+// separator, not a line/column pair that would read the same concatenated, and not a file-less key
+// and an empty file. Each such pair is recorded side by side and each must come back as itself.
 test "binding map keys cannot collide across positions" {
-    plain := BindingMap.KeyText(BindingMap.MakeBindingKey("a.nl", 1, 23))
-    shifted := BindingMap.KeyText(BindingMap.MakeBindingKey("a.nl", 12, 3))
-    fileLess := BindingMap.KeyText(BindingMap.MakeBindingKey(null, 1, 23))
-    separatorInName := BindingMap.KeyText(BindingMap.MakeBindingKey("a|1", 1, 1))
-    trickyPair := BindingMap.KeyText(BindingMap.MakeBindingKey("a", 11, 1))
+    plain := BindingMap.MakeBindingKey("a.nl", 1, 23)
+    shifted := BindingMap.MakeBindingKey("a.nl", 12, 3)
+    fileLess := BindingMap.MakeBindingKey(null, 1, 23)
+    emptyFile := BindingMap.MakeBindingKey("", 1, 23)
+    separatorInName := BindingMap.MakeBindingKey("a|1", 1, 1)
+    trickyPair := BindingMap.MakeBindingKey("a", 11, 1)
 
-    assert plain != shifted
-    assert plain != fileLess
-    assert separatorInName != trickyPair
-    assert plain == BindingMap.KeyText(BindingMap.MakeBindingKey("a.nl", 1, 23))
+    assert !plain.Equals(shifted)
+    assert !plain.Equals(fileLess)
+    assert !fileLess.Equals(emptyFile)
+    assert !separatorInName.Equals(trickyPair)
+    assert plain.Equals(BindingMap.MakeBindingKey("a.nl", 1, 23))
+    assert plain.GetHashCode() == BindingMap.MakeBindingKey("a.nl", 1, 23).GetHashCode()
+
+    bindings := new BindingMap()
+    bindings.RecordDeclaration(new SymbolDeclaration("Plain", "a.nl", 1, 23, "class"))
+    bindings.RecordDeclaration(new SymbolDeclaration("Shifted", "a.nl", 12, 3, "class"))
+    bindings.RecordDeclaration(new SymbolDeclaration("Separator", "a|1", 1, 1, "class"))
+    bindings.RecordDeclaration(new SymbolDeclaration("Tricky", "a", 11, 1, "class"))
+    assert bindings.AllDeclarations.Count == 4
+    plainFound := bindings.GetBindingAt("a.nl", 1, 23)
+    assert plainFound != null && plainFound.Name == "Plain"
+    shiftedFound := bindings.GetBindingAt("a.nl", 12, 3)
+    assert shiftedFound != null && shiftedFound.Name == "Shifted"
+    separatorFound := bindings.GetBindingAt("a|1", 1, 1)
+    assert separatorFound != null && separatorFound.Name == "Separator"
+    trickyFound := bindings.GetBindingAt("a", 11, 1)
+    assert trickyFound != null && trickyFound.Name == "Tricky"
 
     assert BindingMap.KeysEqual(BindingMap.MakeBindingKey("a.nl", 1, 2), BindingMap.MakeBindingKey("a.nl", 1, 2))
     assert !BindingMap.KeysEqual(BindingMap.MakeBindingKey("a.nl", 1, 2), BindingMap.MakeBindingKey("b.nl", 1, 2))
     assert !BindingMap.KeysEqual(BindingMap.MakeBindingKey("a.nl", 1, 2), BindingMap.MakeBindingKey("a.nl", 2, 2))
     assert !BindingMap.KeysEqual(BindingMap.MakeBindingKey("a.nl", 1, 2), BindingMap.MakeBindingKey("a.nl", 1, 3))
+}
+
+// A REFERENCE BUCKET MISSED BY ITS EXACT KEY IS STILL FOUND AT ITS POSITION, through the first bucket
+// recorded there whose file `FilesMatch` -- and only there. The position index must reproduce the
+// full scan it replaced: the earliest matching bucket wins, a bucket at another line or column is
+// never reached, and a file that does not match is skipped for a later one that does.
+test "binding map finds a reference bucket by position the way the full scan did" {
+    bindings := new BindingMap()
+    bindings.RecordDeclaration(new SymbolDeclaration("Other", "/src/other.nl", 4, 9, "class"))
+    bindings.RecordDeclaration(new SymbolDeclaration("Deep", "/src/app/main.nl", 4, 9, "class"))
+    bindings.RecordDeclaration(new SymbolDeclaration("Later", "/src/app/main.nl", 4, 10, "class"))
+    bindings.RecordBinding("/src/use.nl", 20, 5, 4, new SymbolDeclaration("Deep", "/src/app/main.nl", 4, 9, "class"))
+
+    // `app/main.nl` is a suffix of the second bucket's file only, so the first bucket at (4, 9) is
+    // skipped and the second answers; (4, 10) is a different position and is never consulted.
+    suffixUsages := bindings.GetReferences(new SymbolDeclaration("Deep", "app/main.nl", 4, 9, "class"))
+    assert suffixUsages.Count == 1, suffixUsages.Count.ToString()
+    assert suffixUsages[0].Line == 20 && suffixUsages[0].Column == 5
+
+    // A file-less query matches every file, so the FIRST bucket recorded at (4, 9) answers.
+    firstUsages := bindings.GetReferences(new SymbolDeclaration("Other", null, 4, 9, "class"))
+    assert firstUsages.Count == 0, firstUsages.Count.ToString()
+
+    assert bindings.GetReferences(new SymbolDeclaration("Nowhere", "/src/app/main.nl", 5, 9, "class")).Count == 0
 }
 
 // NOT IN THE DELETED FILE. The two projections the language server reads the whole map through:

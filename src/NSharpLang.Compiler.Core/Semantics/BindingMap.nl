@@ -242,16 +242,28 @@ class BindingReferenceResult {
     }
 }
 
+// THE INDEXES ARE KEYED BY POSITION, NOT BY TEXT. Each one maps a `BindingPositionKey` -- (file,
+// line, column), compared ordinally and file-less distinct from an empty file -- to the entry's slot.
+// They were keyed by a string spelling of the triple, built on every record, lookup and merge: 1.2 GB
+// of strings in one Compiler.Core build, 16% of everything it allocated.
+//
+// THE FUZZY REFERENCE LOOKUP IS INDEXED TOO. A reference bucket missed by its exact key is still
+// found through a bucket at the same line and column whose file `FilesMatch` (a file-less key, or one
+// path a suffix of the other). That fallback scanned every bucket, and `GetOrAddReferenceList` asks it
+// for every NEW declaration, so building or merging a project's map was quadratic in its size. The
+// buckets at each (line, column) are now listed in insertion order, and the fallback scans only
+// those, in that order -- the same first match the full scan found.
 class BindingMap {
-    bindingIndexByKey: Dictionary<string, int>
+    bindingIndexByKey: Dictionary<BindingPositionKey, int>
     bindingKeys: List<BindingPositionKey>
     bindingDeclarations: List<SymbolDeclaration>
 
-    declarationIndexByKey: Dictionary<string, int>
+    declarationIndexByKey: Dictionary<BindingPositionKey, int>
     declarationKeys: List<BindingPositionKey>
     declarations: List<SymbolDeclaration>
 
-    referenceIndexByKey: Dictionary<string, int>
+    referenceIndexByKey: Dictionary<BindingPositionKey, int>
+    referenceIndicesByPosition: Dictionary<(Line: int, Column: int), List<int>>
     referenceKeys: List<BindingPositionKey>
     referenceBuckets: List<SymbolUsageBucket>
 
@@ -289,10 +301,9 @@ class BindingMap {
     func RecordBinding(usageFile: string?, usageLine: int, usageCol: int, usageLength: int, declaration: SymbolDeclaration) {
         EnsureInitialized()
         usageKey := MakeBindingKey(usageFile, usageLine, usageCol)
-        usageText := KeyText(usageKey)
 
-        if bindingIndexByKey.ContainsKey(usageText) {
-            bindingIndex := bindingIndexByKey[usageText]
+        bindingIndex := 0
+        if bindingIndexByKey.TryGetValue(usageKey, out bindingIndex) {
             oldDecl := bindingDeclarations[bindingIndex]
             oldDeclKey := MakeBindingKey(oldDecl.File, oldDecl.Line, oldDecl.Column)
             newDeclKey := MakeBindingKey(declaration.File, declaration.Line, declaration.Column)
@@ -306,7 +317,7 @@ class BindingMap {
             bindingKeys[bindingIndex] = usageKey
             bindingDeclarations[bindingIndex] = declaration
         } else {
-            bindingIndexByKey[usageText] = bindingKeys.Count
+            bindingIndexByKey[usageKey] = bindingKeys.Count
             bindingKeys.Add(usageKey)
             bindingDeclarations.Add(declaration)
         }
@@ -322,10 +333,10 @@ class BindingMap {
     func RecordDeclaration(declaration: SymbolDeclaration) {
         EnsureInitialized()
         key := MakeBindingKey(declaration.File, declaration.Line, declaration.Column)
-        text := KeyText(key)
 
-        if declarationIndexByKey.ContainsKey(text) {
-            existing := declarations[declarationIndexByKey[text]]
+        existingIndex := 0
+        if declarationIndexByKey.TryGetValue(key, out existingIndex) {
+            existing := declarations[existingIndex]
             if IsTypeDeclaration(existing.Kind) && IsInternalDeclaration(declaration.Name) {
                 return
             }
@@ -339,26 +350,25 @@ class BindingMap {
     func GetBindingAt(filePath: string?, line: int, col: int): SymbolDeclaration? {
         EnsureInitialized()
         key := MakeBindingKey(filePath, line, col)
-        text := KeyText(key)
 
-        if declarationIndexByKey.ContainsKey(text) {
-            return declarations[declarationIndexByKey[text]]
+        index := 0
+        if declarationIndexByKey.TryGetValue(key, out index) {
+            return declarations[index]
         }
 
-        if bindingIndexByKey.ContainsKey(text) {
-            return bindingDeclarations[bindingIndexByKey[text]]
+        if bindingIndexByKey.TryGetValue(key, out index) {
+            return bindingDeclarations[index]
         }
 
         if filePath != null {
             nullFileKey := MakeBindingKey(null, line, col)
-            nullFileText := KeyText(nullFileKey)
 
-            if declarationIndexByKey.ContainsKey(nullFileText) {
-                return declarations[declarationIndexByKey[nullFileText]]
+            if declarationIndexByKey.TryGetValue(nullFileKey, out index) {
+                return declarations[index]
             }
 
-            if bindingIndexByKey.ContainsKey(nullFileText) {
-                return bindingDeclarations[bindingIndexByKey[nullFileText]]
+            if bindingIndexByKey.TryGetValue(nullFileKey, out index) {
+                return bindingDeclarations[index]
             }
         }
 
@@ -465,13 +475,12 @@ class BindingMap {
         i = 0
         while i < other.bindingKeys.Count {
             key := other.bindingKeys[i]
-            text := KeyText(key)
-            if bindingIndexByKey.ContainsKey(text) {
-                bindingIndex := bindingIndexByKey[text]
+            bindingIndex := 0
+            if bindingIndexByKey.TryGetValue(key, out bindingIndex) {
                 bindingKeys[bindingIndex] = key
                 bindingDeclarations[bindingIndex] = other.bindingDeclarations[i]
             } else {
-                bindingIndexByKey[text] = bindingKeys.Count
+                bindingIndexByKey[key] = bindingKeys.Count
                 bindingKeys.Add(key)
                 bindingDeclarations.Add(other.bindingDeclarations[i])
             }
@@ -492,13 +501,12 @@ class BindingMap {
 
     func SetDeclaration(declaration: SymbolDeclaration) {
         key := MakeBindingKey(declaration.File, declaration.Line, declaration.Column)
-        text := KeyText(key)
-        if declarationIndexByKey.ContainsKey(text) {
-            declarationIndex := declarationIndexByKey[text]
+        declarationIndex := 0
+        if declarationIndexByKey.TryGetValue(key, out declarationIndex) {
             declarationKeys[declarationIndex] = key
             declarations[declarationIndex] = declaration
         } else {
-            declarationIndexByKey[text] = declarations.Count
+            declarationIndexByKey[key] = declarations.Count
             declarationKeys.Add(key)
             declarations.Add(declaration)
         }
@@ -511,26 +519,35 @@ class BindingMap {
         }
 
         newBucket := new SymbolUsageBucket()
-        referenceIndexByKey[KeyText(key)] = referenceBuckets.Count
+        newIndex := referenceBuckets.Count
+        referenceIndexByKey[key] = newIndex
+        position := (Line: key.Line, Column: key.Col)
+        atPosition: List<int>? = null
+        if !referenceIndicesByPosition.TryGetValue(position, out atPosition) || atPosition == null {
+            atPosition = new List<int>()
+            referenceIndicesByPosition[position] = atPosition
+        }
+        atPosition.Add(newIndex)
         referenceKeys.Add(key)
         referenceBuckets.Add(newBucket)
         return newBucket.Items
     }
 
     func FindReferenceBucket(key: BindingPositionKey): SymbolUsageBucket? {
-        text := KeyText(key)
-        if referenceIndexByKey.ContainsKey(text) {
-            return referenceBuckets[referenceIndexByKey[text]]
+        exactIndex := 0
+        if referenceIndexByKey.TryGetValue(key, out exactIndex) {
+            return referenceBuckets[exactIndex]
         }
 
-        i := 0
-        while i < referenceKeys.Count {
-            candidate := referenceKeys[i]
-            if candidate.Line == key.Line && candidate.Col == key.Col && FilesMatch(candidate.File, key.File) {
-                return referenceBuckets[i]
-            }
+        atPosition: List<int>? = null
+        if !referenceIndicesByPosition.TryGetValue((Line: key.Line, Column: key.Col), out atPosition) || atPosition == null {
+            return null
+        }
 
-            i = i + 1
+        for candidateIndex in atPosition {
+            if FilesMatch(referenceKeys[candidateIndex].File, key.File) {
+                return referenceBuckets[candidateIndex]
+            }
         }
 
         return null
@@ -538,15 +555,6 @@ class BindingMap {
 
     static func MakeBindingKey(filePath: string?, line: int, col: int): BindingPositionKey {
         return new BindingPositionKey(filePath, line, col)
-    }
-
-    static func KeyText(key: BindingPositionKey): string {
-        if key.File == null {
-            return "N|" + key.Line.ToString() + "|" + key.Col.ToString()
-        }
-
-        fileText := key.File
-        return "F|" + fileText.Length.ToString() + "|" + fileText + "|" + key.Line.ToString() + "|" + key.Col.ToString()
     }
 
     static func KeysEqual(left: BindingPositionKey, right: BindingPositionKey): bool {
@@ -604,13 +612,14 @@ class BindingMap {
             return
         }
 
-        bindingIndexByKey = new Dictionary<string, int>()
+        bindingIndexByKey = new Dictionary<BindingPositionKey, int>()
         bindingKeys = new List<BindingPositionKey>()
         bindingDeclarations = new List<SymbolDeclaration>()
-        declarationIndexByKey = new Dictionary<string, int>()
+        declarationIndexByKey = new Dictionary<BindingPositionKey, int>()
         declarationKeys = new List<BindingPositionKey>()
         declarations = new List<SymbolDeclaration>()
-        referenceIndexByKey = new Dictionary<string, int>()
+        referenceIndexByKey = new Dictionary<BindingPositionKey, int>()
+        referenceIndicesByPosition = new Dictionary<(Line: int, Column: int), List<int>>()
         referenceKeys = new List<BindingPositionKey>()
         referenceBuckets = new List<SymbolUsageBucket>()
     }
