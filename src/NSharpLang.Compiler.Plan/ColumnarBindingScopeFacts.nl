@@ -1358,7 +1358,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
                 result = elementType
                 return true
             }
-            nullableDefinition := Type.GetType("System.Nullable`1")
+            nullableDefinition := RequiredRuntimeTypes.Find("System.Nullable`1")
             if nullableDefinition == null {
                 return false
             }
@@ -1392,7 +1392,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
                 claimed = claimed || elementClaimed
                 elementIndex = elementIndex + 1
             }
-            tupleDefinition := Type.GetType("System.ValueTuple`" + elementCanonicals.Count.ToString())
+            tupleDefinition := RequiredRuntimeTypes.Find("System.ValueTuple`" + elementCanonicals.Count.ToString())
             if tupleDefinition == null || !tupleDefinition.IsGenericTypeDefinition {
                 return false
             }

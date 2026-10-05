@@ -1847,7 +1847,7 @@ class ColumnarTypeOfPlanner {
             return typeof(ValueTuple<int, int, int, int, int, int, int>).GetGenericTypeDefinition()
         }
         if arity == 8 {
-            result := Type.GetType("System.ValueTuple`8")
+            result := RequiredRuntimeTypes.Find("System.ValueTuple`8")
             if result == null || !result.IsGenericTypeDefinition {
                 throw new InvalidOperationException("System.ValueTuple`8 runtime type was not found.")
             }

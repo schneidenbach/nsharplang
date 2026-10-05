@@ -312,7 +312,7 @@ class ColumnarIteratorMemberBinding {
     }
 
     static func ValueTaskOfBoolType(): Type {
-        definition := Type.GetType("System.Threading.Tasks.ValueTask`1")
+        definition := RequiredRuntimeTypes.Find("System.Threading.Tasks.ValueTask`1")
         if definition == null {
             throw new InvalidOperationException("System.Threading.Tasks.ValueTask`1 was not found.")
         }

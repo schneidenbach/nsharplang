@@ -223,7 +223,7 @@ class ColumnarRecordValueMemberPlanner {
     }
 
     static func ComparerTypeFor(fieldType: Type): Type {
-        definition := Type.GetType("System.Collections.Generic.EqualityComparer`1")
+        definition := RequiredRuntimeTypes.Find("System.Collections.Generic.EqualityComparer`1")
         if definition == null {
             throw new InvalidOperationException("System.Collections.Generic.EqualityComparer`1 was not found.")
         }

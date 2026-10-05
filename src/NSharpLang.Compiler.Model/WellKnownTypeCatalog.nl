@@ -137,7 +137,7 @@ static class WellKnownTypeCatalog {
     static func TryResolveSpecialKnownTypeOrComparable(canonical: string, out result: Type): bool {
         result = null
         if canonical == "IComparable" {
-            comparable := Type.GetType("System.IComparable")
+            comparable := RequiredRuntimeTypes.Find("System.IComparable")
             if comparable == null {
                 return false
             }

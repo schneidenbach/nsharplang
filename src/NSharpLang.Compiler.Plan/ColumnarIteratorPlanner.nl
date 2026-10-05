@@ -2940,7 +2940,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func EnumeratorInterfaceTypeOf(elementType: Type): Type {
-        definition := Type.GetType("System.Collections.Generic.IEnumerator`1")
+        definition := RequiredRuntimeTypes.Find("System.Collections.Generic.IEnumerator`1")
         if definition == null {
             throw new InvalidOperationException("System.Collections.Generic.IEnumerator`1 was not found.")
         }
@@ -2950,7 +2950,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func EnumerableInterfaceTypeOf(elementType: Type): Type {
-        definition := Type.GetType("System.Collections.Generic.IEnumerable`1")
+        definition := RequiredRuntimeTypes.Find("System.Collections.Generic.IEnumerable`1")
         if definition == null {
             throw new InvalidOperationException("System.Collections.Generic.IEnumerable`1 was not found.")
         }
@@ -5953,7 +5953,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func DisposableDisposeMethod(): MethodInfo {
-        disposableType := Type.GetType("System.IDisposable")
+        disposableType := RequiredRuntimeTypes.Find("System.IDisposable")
         if disposableType == null {
             throw new InvalidOperationException("System.IDisposable was not found.")
         }

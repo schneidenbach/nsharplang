@@ -318,7 +318,7 @@ class ColumnarPropertyDef {
 
         setter: MethodBuilder? = null
         if setterName != null {
-            voidType := Type.GetType("System.Void")
+            voidType := RequiredRuntimeTypes.Find("System.Void")
             if voidType == null {
                 throw new InvalidOperationException("System.Void runtime type was not found.")
             }

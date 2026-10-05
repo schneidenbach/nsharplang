@@ -329,7 +329,7 @@ class TypeInfoIdentityFacts {
         }
 
         baseType := definition.BaseType
-        multicastDelegate := Type.GetType("System.MulticastDelegate, System.Private.CoreLib")
+        multicastDelegate := RequiredRuntimeTypes.Find("System.MulticastDelegate, System.Private.CoreLib")
         return baseType != null && multicastDelegate != null && HaveSameReflectionTypeIdentity(baseType, multicastDelegate)
     }
 
@@ -349,8 +349,8 @@ class TypeInfoIdentityFacts {
             return false
         }
 
-        runtimeSpan := Type.GetType("System.Span`1, System.Private.CoreLib")
-        runtimeReadOnlySpan := Type.GetType("System.ReadOnlySpan`1, System.Private.CoreLib")
+        runtimeSpan := RequiredRuntimeTypes.Find("System.Span`1, System.Private.CoreLib")
+        runtimeReadOnlySpan := RequiredRuntimeTypes.Find("System.ReadOnlySpan`1, System.Private.CoreLib")
         return runtimeSpan != null && runtimeReadOnlySpan != null && HaveSameReflectionTypeIdentity(sourceDefinition.Type, runtimeSpan) && HaveSameReflectionTypeIdentity(targetDefinition.Type, runtimeReadOnlySpan) && AreEqual(targetGeneric.TypeArguments[0], sourceGeneric.TypeArguments[0])
     }
 

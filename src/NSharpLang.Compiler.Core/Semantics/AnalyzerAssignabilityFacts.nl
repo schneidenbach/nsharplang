@@ -286,8 +286,8 @@ class AnalyzerAssignabilityFacts {
             return false
         }
 
-        runtimeSpan := Type.GetType("System.Span`1, System.Private.CoreLib")
-        runtimeReadOnlySpan := Type.GetType("System.ReadOnlySpan`1, System.Private.CoreLib")
+        runtimeSpan := RequiredRuntimeTypes.Find("System.Span`1, System.Private.CoreLib")
+        runtimeReadOnlySpan := RequiredRuntimeTypes.Find("System.ReadOnlySpan`1, System.Private.CoreLib")
         isSpanDefinition := runtimeSpan != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(spanDefinition.Type, runtimeSpan)
         isReadOnlySpanDefinition := runtimeReadOnlySpan != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(spanDefinition.Type, runtimeReadOnlySpan)
         if !isSpanDefinition && !isReadOnlySpanDefinition {
