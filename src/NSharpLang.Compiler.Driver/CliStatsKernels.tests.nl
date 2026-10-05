@@ -5,7 +5,6 @@ import NSharpLang.Compiler
 import NSharpLang.Compiler.Columnar
 
 // `nlc build|check|test --stats` and the compiler work counters behind it.
-
 test "--stats is split out of a command's arguments and the rest pass through in order" {
     request := CliStatsKernels.Extract(["--project", "app", "--stats", "--json"])
     assert request.Requested

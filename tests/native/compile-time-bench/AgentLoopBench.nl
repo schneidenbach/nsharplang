@@ -48,7 +48,6 @@ import System.Text.Json
 // No threshold in that file is ever loosened without the owner.
 
 // ─── SIZES AND SCENARIOS ──────────────────────────────────────────────────────────────────────
-
 class AgentLoopSize {
     Name: string
     FixtureProject: string
@@ -469,6 +468,11 @@ class AgentLoopCounters {
     }
 }
 
+// The stand-in an unwrap needs after a null check has already ruled null out.
+func AgentLoopZeroCounters(): AgentLoopCounters {
+    return new AgentLoopCounters(0, 0, 0, 0, 0, 0)
+}
+
 func AgentLoopCountersEqual(left: AgentLoopCounters, right: AgentLoopCounters): bool {
     return left.FilesParsed == right.FilesParsed && left.EmitParses == right.EmitParses && left.FilesAnalyzed == right.FilesAnalyzed && left.AssembliesEmitted == right.AssembliesEmitted && left.ReferenceAssembliesLoaded == right.ReferenceAssembliesLoaded && left.ProcessesSpawned == right.ProcessesSpawned
 }
@@ -702,7 +706,7 @@ func AgentLoopRecordRun(row: AgentLoopRow, run: AgentLoopRun, wall: long[], cpu:
             if first != null || current != null {
                 row.CountersStable = false
             }
-        } else if !AgentLoopCountersEqual(first ?? current ?? new AgentLoopCounters(0, 0, 0, 0, 0, 0), current ?? new AgentLoopCounters(0, 0, 0, 0, 0, 0)) {
+        } else if !AgentLoopCountersEqual(first ?? AgentLoopZeroCounters(), current ?? AgentLoopZeroCounters()) {
             row.CountersStable = false
         }
     }
@@ -745,6 +749,7 @@ func AgentLoopMeasureScenario(
     sample := 0
     while sample < samples {
         directory := AgentLoopSampleDirectory()
+        daemonStarted := false
         try {
             AgentLoopMaterialize(repositoryRoot, size, directory)
             if sample == 0 {
@@ -755,6 +760,7 @@ func AgentLoopMeasureScenario(
 
             if daemon {
                 started := AgentLoopDaemonCommand(cliDll, "start", directory)
+                daemonStarted = started.ExitCode == 0
                 if started.ExitCode != 0 {
                     cold.Failure = "nlc daemon start exited " + BenchIntText(started.ExitCode) + ": " + BenchTruncate(started.Stderr.Trim(), 400)
                     cold.ExitCode = started.ExitCode
@@ -775,11 +781,12 @@ func AgentLoopMeasureScenario(
 
             AgentLoopRecordRun(cold, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats), coldWall, coldCpu, coldRss)
             AgentLoopRecordRun(warm, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats), warmWall, warmCpu, warmRss)
-
-            if daemon {
+        } finally {
+            // Stopped before its directory goes, on a failing sample too: a daemon left behind
+            // would hold its socket under a deleted tree until its idle timeout.
+            if daemonStarted {
                 _ = AgentLoopDaemonCommand(cliDll, "stop", directory)
             }
-        } finally {
             BenchDeleteDirectory(directory)
         }
 
@@ -841,7 +848,7 @@ func AgentLoopProgressCounters(row: AgentLoopRow): string {
         return ""
     }
 
-    return ", " + AgentLoopCountersText(counters ?? new AgentLoopCounters(0, 0, 0, 0, 0, 0))
+    return ", " + AgentLoopCountersText(counters ?? AgentLoopZeroCounters())
 }
 
 // ─── THE BASELINE ─────────────────────────────────────────────────────────────────────────────
@@ -1012,7 +1019,7 @@ func AgentLoopBaselineRefusal(baseline: AgentLoopBaseline): string {
     while i < baseline.Rows.Count {
         row := baseline.Rows[i]
         counters := row.Counters
-        if counters == null || (counters ?? new AgentLoopCounters(0, 0, 0, 0, 0, 0)).FilesParsed < 0 {
+        if counters == null || (counters ?? AgentLoopZeroCounters()).FilesParsed < 0 {
             return "agent-loop baseline row " + AgentLoopRowKey(row.Size, row.Scenario, row.Mode) + " has no measured counters"
         }
 
@@ -1079,7 +1086,7 @@ func AgentLoopCounterFailures(baseline: AgentLoopBaseline, observed: List<AgentL
                 failures.Add(key + ": the CLI reported no counters")
             } else {
                 baselineRow := expected ?? row
-                changes := AgentLoopCounterChanges(baselineRow.Counters ?? new AgentLoopCounters(0, 0, 0, 0, 0, 0), observedCounters ?? new AgentLoopCounters(0, 0, 0, 0, 0, 0))
+                changes := AgentLoopCounterChanges(baselineRow.Counters ?? AgentLoopZeroCounters(), observedCounters ?? AgentLoopZeroCounters())
                 if changes.Count > 0 {
                     failures.Add(key + ": " + String.Join("; ", changes))
                 }
@@ -1115,7 +1122,7 @@ func AgentLoopRatchetCounters(baseline: AgentLoopBaseline, observed: List<AgentL
             refusals.Add(key + ": not ratcheted - no baseline row (a new row is written with --write-baseline, by the owner)")
         } else {
             baselineRow := expected ?? row
-            current := baselineRow.Counters ?? new AgentLoopCounters(0, 0, 0, 0, 0, 0)
+            current := baselineRow.Counters ?? AgentLoopZeroCounters()
             next := observedCounters ?? current
             if AgentLoopCounterNotAbove(current, next) {
                 baselineRow.Counters = next

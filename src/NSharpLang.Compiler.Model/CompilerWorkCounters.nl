@@ -86,6 +86,7 @@ record CompilerWorkCounterSnapshot(
     ReferenceAssembliesLoaded: long,
     ProcessesSpawned: long
 ) {
+
     // The work done between `earlier` and this snapshot.
     func Since(earlier: CompilerWorkCounterSnapshot): CompilerWorkCounterSnapshot {
         return new CompilerWorkCounterSnapshot(

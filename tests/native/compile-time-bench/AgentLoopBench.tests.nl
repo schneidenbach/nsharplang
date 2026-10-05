@@ -14,7 +14,6 @@ import System.IO
 // LIKE `CompileTimeBench.tests.nl`, NOTHING HERE WRITES TO STDOUT OR STDERR, ON ANY PATH: Step 3a
 // parses the captured output of `nlc test --json` as one JSON document. A failure's numbers travel
 // in its assertion message, and a green gate leaves its table in `artifacts/agent-loop/`.
-
 func AgentLoopTestTempDirectory(label: string): string {
     directory := Path.Combine(Path.GetTempPath(), "nsharp-agent-loop-test-" + label + "-" + BenchLongText(DateTime.UtcNow.Ticks))
     BenchDeleteDirectory(directory)

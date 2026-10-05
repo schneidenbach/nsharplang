@@ -21,7 +21,6 @@ import System.IO
 //     --out <dir>              output directory (default artifacts/agent-loop/<local date>)
 //
 // It prints the table and writes `agent-loop.md` to the output directory.
-
 class AgentLoopOptions {
     SizeNames: List<string>
     Runs: int
