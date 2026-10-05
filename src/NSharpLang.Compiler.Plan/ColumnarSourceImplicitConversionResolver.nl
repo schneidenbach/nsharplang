@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Runtime.CompilerServices
 
 
 // The analyzer admits user-defined implicit conversion compatibility only from members declared
@@ -54,6 +55,64 @@ class ColumnarSourceImplicitConversionSelection {
     }
 }
 
+// THE SOURCE DEFINITIONS OF ONE REGISTRY, BY THEIR BUILT TYPE. `ResolveExact` must find the one
+// definition whose builder IS the source type; it scanned the whole registry for that on every
+// argument of every overload it scored, which made overload scoring quadratic in the size of the
+// program (the registry's values scan was a fifth of a large program's emit). The index is built
+// once per registry collection, with the scan's own validation (a null definition or builder throws
+// while building, exactly as the scan threw on any call), and rebuilt whenever the collection's count
+// changes; definitions are registered before any body is emitted, so a body's lookups all see one
+// count. Two different definitions of one type are kept as AMBIGUOUS and throw only when that type is
+// asked about, as the scan did.
+class ColumnarSourceDefinitionIndex {
+    Count: int
+    ByType: Dictionary<Type, ColumnarStructDef>
+    Ambiguous: HashSet<Type>
+
+    private static readonly byCollection: ConditionalWeakTable<object, ColumnarSourceDefinitionIndex> = new ConditionalWeakTable<object, ColumnarSourceDefinitionIndex>()
+
+    constructor(count: int) {
+        Count = count
+        ByType = new Dictionary<Type, ColumnarStructDef>()
+        Ambiguous = new HashSet<Type>()
+    }
+
+    // The index for a registry collection, or null when the collection cannot report its count
+    // (the caller then scans, as before).
+    static func For(sourceDefinitions: IEnumerable<ColumnarStructDef>): ColumnarSourceDefinitionIndex? {
+        counted := sourceDefinitions as ICollection<ColumnarStructDef>
+        if counted == null {
+            return null
+        }
+
+        collectionKey: object = sourceDefinitions
+        cached: ColumnarSourceDefinitionIndex? = null
+        if ColumnarSourceDefinitionIndex.byCollection.TryGetValue(collectionKey, out cached) && cached != null && cached.Count == counted.Count {
+            return cached
+        }
+
+        built := new ColumnarSourceDefinitionIndex(counted.Count)
+        for candidate in sourceDefinitions {
+            if candidate == null || candidate.Builder == null {
+                throw new InvalidOperationException("Source implicit-conversion type definitions cannot be null.")
+            }
+
+            candidateType: Type = candidate.Builder
+            existing: ColumnarStructDef? = null
+            if built.ByType.TryGetValue(candidateType, out existing) && existing != null {
+                if existing != candidate {
+                    built.Ambiguous.Add(candidateType)
+                }
+            } else {
+                built.ByType[candidateType] = candidate
+            }
+        }
+
+        ColumnarSourceDefinitionIndex.byCollection.AddOrUpdate(collectionKey, built)
+        return built
+    }
+}
+
 class ColumnarSourceImplicitConversionResolver {
 
     // This is the analyzer's ordinary assignability tier: below exact (8) and implicit numeric
@@ -65,6 +124,29 @@ class ColumnarSourceImplicitConversionResolver {
     static func ResolveExact(sourceType: Type, targetType: Type, sourceDefinitions: IEnumerable<ColumnarStructDef>): ColumnarSourceImplicitConversionSelection {
         ValidateInputs(sourceType, targetType, sourceDefinitions)
 
+        sourceDefinition: ColumnarStructDef? = null
+        index := ColumnarSourceDefinitionIndex.For(sourceDefinitions)
+        if index != null {
+            if index.Ambiguous.Contains(sourceType) {
+                throw new InvalidOperationException("One exact implicit-conversion source type cannot map to two definitions.")
+            }
+            indexed: ColumnarStructDef? = null
+            if index.ByType.TryGetValue(sourceType, out indexed) {
+                sourceDefinition = indexed
+            }
+        } else {
+            sourceDefinition = ScanSourceDefinition(sourceType, sourceDefinitions)
+        }
+
+        if sourceDefinition == null {
+            return Unselected(ColumnarSourceImplicitConversionStatus.NotSourceType, null, sourceType, targetType)
+        }
+        return ResolveExactFromDefinition(sourceDefinition, sourceType, targetType)
+    }
+
+    // The definition whose builder is the source type, by a scan of every definition -- the answer
+    // `ColumnarSourceDefinitionIndex` gives for a collection that can report its count.
+    static func ScanSourceDefinition(sourceType: Type, sourceDefinitions: IEnumerable<ColumnarStructDef>): ColumnarStructDef? {
         sourceDefinition: ColumnarStructDef? = null
         for candidate in sourceDefinitions {
             if candidate == null || candidate.Builder == null {
@@ -81,10 +163,10 @@ class ColumnarSourceImplicitConversionResolver {
             }
         }
 
-        if sourceDefinition == null {
-            return Unselected(ColumnarSourceImplicitConversionStatus.NotSourceType, null, sourceType, targetType)
-        }
+        return sourceDefinition
+    }
 
+    static func ResolveExactFromDefinition(sourceDefinition: ColumnarStructDef, sourceType: Type, targetType: Type): ColumnarSourceImplicitConversionSelection {
         ValidateSourceDefinition(sourceDefinition, sourceType)
 
         overloads := new List<ColumnarStaticMethodDef>()
