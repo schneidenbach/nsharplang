@@ -698,8 +698,11 @@ remaining state/control ownership from the active goal:
   SDK task acceptance (`2026-09-09-complete-sdk-emit-task-ownership.md`).
 - The former Analyzer metadata quarantine is removed with the complete C# class. Its metadata
   lifecycle and existing reflection operations are owned by N#; no metadata-writer rewrite was
-  required to achieve that ownership. NativeAOT and a broader metadata-writer initiative remain
-  separate from the compiler-only goal unless a concrete ownership dependency is demonstrated.
+  required to achieve that ownership. A broader metadata-writer initiative remains separate from
+  the compiler-only goal unless a concrete ownership dependency is demonstrated. NativeAOT now
+  covers only the `nlc` FRONT DOOR (per-RID toolsets; see `memory/components/cli-toolchain.md`):
+  the compiler stays a ReadyToRun JIT host because the emitter binds runtime types and loads
+  references in-process.
 
 Sibling assemblies are classified the same way and carry two `(b)` pins — surfaces that retire *with
 their subject* rather than moving, and which are pinned by contract in the meantime:

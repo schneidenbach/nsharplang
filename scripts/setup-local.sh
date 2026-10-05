@@ -58,6 +58,8 @@ Environment overrides:
   NSHARP_LOCAL_FEED          Local NuGet feed path
   NSHARP_INSTALL_DIR         N# install directory (default: ~/.nsharp)
   NSHARP_ENV_DIR             Directory for the N# shell env file
+  NSHARP_TOOLSET_RID         RID to publish for (default: this machine's, which makes nlc the
+                             NativeAOT front door over a ReadyToRun compiler; 'portable' for IL)
 EOF
 }
 
@@ -209,6 +211,17 @@ verify_local_toolchain() {
     fi
 }
 
+# A local install is for this machine, so it is published for this machine's RID unless told
+# otherwise: the compiler host is ReadyToRun-compiled and `nlc` is the NativeAOT front door.
+local_toolset_rid() {
+    local rid="${NSHARP_TOOLSET_RID:-host}"
+    case "$rid" in
+        portable) echo "" ;;
+        host) nsharp_host_rid ;;
+        *) echo "$rid" ;;
+    esac
+}
+
 deploy_local_toolset() {
     local skip_vscode="$1"
     local vscode_vsix=""
@@ -247,7 +260,7 @@ deploy_local_toolset() {
 
     nsharp_log "Publishing and installing local app payloads"
     if [[ "$DRY_RUN" -eq 0 ]]; then
-        nsharp_publish_toolset "$TOOLSET_DIR" "$LOCAL_FEED"
+        nsharp_publish_toolset "$TOOLSET_DIR" "$LOCAL_FEED" "$(local_toolset_rid)"
         nsharp_install_toolset "$TOOLSET_DIR" "$NSHARP_INSTALL_DIR"
         nsharp_install_templates_from_packages "$NSHARP_INSTALL_DIR/packages"
         nsharp_write_shared_nuget_config "$NSHARP_INSTALL_DIR/packages" "$NSHARP_INSTALL_DIR/NuGet.config"

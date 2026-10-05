@@ -239,14 +239,98 @@ nsharp_write_launchers() {
     nsharp_write_cmd_launcher "$bin_dir/nsharp-lsp.cmd" "nsharp-lsp"
 }
 
+# The RID this machine's .NET SDK builds for (`osx-arm64`, `linux-x64`, ...).
+nsharp_host_rid() {
+    dotnet --info 2>/dev/null | awk -F': *' '/^ *RID:/ { gsub(/ /, "", $2); print $2; exit }'
+}
+
+# NativeAOT compiles for the OS and architecture it runs on; this toolchain assumes no cross
+# linker, so only a host-RID toolset gets the native front door.
+nsharp_can_build_native_front_door() {
+    [[ "$1" == "$(nsharp_host_rid)" ]]
+}
+
+# A source-built .NET SDK (Homebrew, distro packages) bundles its own NativeAOT packs, whose
+# native runtime links the distro's OpenSSL (`ld: library 'ssl' not found` on macOS) and so
+# cannot produce a relocatable executable. Resolving the packs from NuGet instead gives the
+# official ones, which link only system libraries. An official SDK ships no ILCompiler pack and
+# needs nothing.
+nsharp_native_front_door_pack_args() {
+    local rid="$1"
+    local dotnet_root=""
+    if command -v dotnet >/dev/null 2>&1; then
+        dotnet_root="$(nsharp_resolve_dotnet_root "$(command -v dotnet)")"
+    fi
+    if [[ -n "$dotnet_root" && -d "$dotnet_root/packs/runtime.$rid.Microsoft.DotNet.ILCompiler" ]]; then
+        local temp_root="${TMPDIR:-/tmp}"
+        local empty_pack_root="${temp_root%/}/nsharp-official-pack-root"
+        mkdir -p "$empty_pack_root"
+        printf '%s\n' "-p:NetCoreTargetingPackRoot=$empty_pack_root" "-p:AllowMissingPrunePackageData=true"
+    fi
+}
+
+# `bin/nlc` becomes the NativeAOT front door (src/NSharpLang.Compiler.Driver/FrontDoor.nl): it
+# answers --version/help itself and execs `dotnet lib/nlc/Cli.dll` for everything else, so the
+# toolset needs no launcher script for nlc. Any trim/AOT warning fails the publish: the front
+# door is warning-free by construction and must stay that way.
+nsharp_publish_native_front_door() {
+    local rid="$1"
+    local bin_dir="$2"
+    local stage log executable target
+    local pack_args=()
+    local pack_arg
+    while IFS= read -r pack_arg; do
+        [[ -n "$pack_arg" ]] && pack_args+=("$pack_arg")
+    done < <(nsharp_native_front_door_pack_args "$rid")
+
+    local temp_root="${TMPDIR:-/tmp}"
+    stage="$(mktemp -d "${temp_root%/}/nsharp-front-door.XXXXXX")"
+    log="$stage.log"
+    if ! nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet publish src/NSharpLang.Cli/Cli.csproj -c Release -r "$rid" -o "$stage" -p:PublishAot=true ${pack_args[@]+"${pack_args[@]}"} -v q >"$log" 2>&1; then
+        cat "$log" >&2
+        echo "Error: NativeAOT publish of the nlc front door failed for $rid." >&2
+        rm -rf "$stage" "$log"
+        return 1
+    fi
+    if grep -E 'warning IL[0-9]+' "$log" >&2; then
+        echo "Error: the nlc front door must publish without trim/AOT warnings." >&2
+        rm -rf "$stage" "$log"
+        return 1
+    fi
+
+    executable="Cli"
+    target="nlc"
+    if [[ "$rid" == win-* ]]; then
+        executable="Cli.exe"
+        target="nlc.exe"
+    fi
+    rm -f "$bin_dir/nlc"
+    cp "$stage/$executable" "$bin_dir/$target"
+    chmod +x "$bin_dir/$target"
+    rm -rf "$stage" "$log"
+}
+
+# Without a RID: the portable, framework-dependent IL toolset that runs on every platform (the
+# release archive and the Docker integration rows use it). With a RID: the compiler host is
+# ReadyToRun-compiled for that RID, and on a host of that RID `nlc` is the NativeAOT front door;
+# elsewhere it keeps the launcher script.
 nsharp_publish_toolset() {
     local output_dir="$1"
     local package_source_dir="$2"
+    local rid="${3:-}"
+    local rid_args=()
+    local front_door="script"
+
+    if [[ -n "$rid" ]]; then
+        rid_args=(-r "$rid" -p:PublishReadyToRun=true)
+    fi
 
     rm -rf "$output_dir"
     mkdir -p "$output_dir/lib/nlc" "$output_dir/lib/nsharp-lsp" "$output_dir/bin" "$output_dir/packages"
 
-    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet publish src/NSharpLang.Cli/Cli.csproj -c Release -o "$output_dir/lib/nlc" --self-contained false -p:UseAppHost=false -v q
+    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet publish src/NSharpLang.Cli/Cli.csproj -c Release -o "$output_dir/lib/nlc" --self-contained false -p:UseAppHost=false ${rid_args[@]+"${rid_args[@]}"} -v q
+    # The language server stays portable IL in every shape: a ReadyToRun server is an IDE change and
+    # ships only with the VS Code verification that requires.
     nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet publish src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o "$output_dir/lib/nsharp-lsp" --self-contained false -p:UseAppHost=false -v q
 
     if compgen -G "$package_source_dir/NSharpLang.*.nupkg" >/dev/null; then
@@ -254,10 +338,22 @@ nsharp_publish_toolset() {
     fi
 
     nsharp_write_launchers "$output_dir/bin"
+    if [[ -n "$rid" ]]; then
+        if nsharp_can_build_native_front_door "$rid"; then
+            nsharp_log "Publishing the NativeAOT nlc front door for $rid"
+            nsharp_publish_native_front_door "$rid" "$output_dir/bin"
+            front_door="native"
+        else
+            nsharp_log "The NativeAOT nlc front door needs a $rid build host; this toolset keeps the launcher script"
+        fi
+    fi
+
     {
         echo "nsharp-toolset"
         echo "repo=$NSHARP_REPO_ROOT"
         echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "rid=${rid:-portable}"
+        echo "nlc=$front_door"
     } > "$output_dir/VERSION"
 }
 

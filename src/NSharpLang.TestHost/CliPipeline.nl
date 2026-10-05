@@ -3,6 +3,7 @@ namespace NSharpLang.Cli
 import System
 import System.Diagnostics
 import System.IO
+import System.Runtime.CompilerServices
 import NSharpLang.Cli.Commands
 import NSharpLang.Cli.Daemon
 import NSharpLang.Compiler
@@ -30,7 +31,22 @@ static class CliPipeline {
     // the same dispatch below, run on this process's behalf, or declines and the command runs here
     // exactly as it always has. `DaemonExecKernels` owns which commands route and every switch that
     // turns routing off.
+    //
+    // THE FRONT DOOR COMES FIRST. A NativeAOT `nlc` is only the front door (see `FrontDoor`): it
+    // answers `--version` and help itself and hands everything else, daemon routing included, to the
+    // JIT-compiled compiler host it execs.
     static func Execute(args: string[], version: string): int {
+        // This test is a compile-time constant in a NativeAOT image, and it stands ALONE so the AOT
+        // compiler can fold it and trim the compiler and the daemon client out of the native image;
+        // folded into one condition with the force switch it would not.
+        if !RuntimeFeature.IsDynamicCodeSupported {
+            return FrontDoor.Execute(args, version)
+        }
+
+        if FrontDoor.IsForced() {
+            return FrontDoor.Execute(args, version)
+        }
+
         DaemonBuildIdentity.SetCliVersion(version)
         if TestWorkerHost.IsWorkerInvocation(args) {
             return TestWorkerHost.Run()
