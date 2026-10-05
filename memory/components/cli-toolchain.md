@@ -1070,6 +1070,64 @@ The script:
 
 For a CLI-only reinstall while debugging packaging, use `./install-local.sh --skip-vscode --no-path-update`.
 
+### Native front door and per-RID toolsets
+
+`scripts/publish-toolset.sh` publishes two toolset shapes from the same sources:
+
+| Shape | How | `bin/nlc` | `lib/nlc/Cli.dll` (compiler host) |
+|---|---|---|---|
+| portable (default; release archive, Docker rows) | `publish-toolset.sh` | bash/PowerShell launcher script | IL, JIT-compiled |
+| per-RID | `publish-toolset.sh --rid <rid>` or `--rid host` | NativeAOT front door (on a build host of that RID; otherwise the script) | ReadyToRun for that RID |
+
+`scripts/setup-local.sh` publishes for the host RID (`NSHARP_TOOLSET_RID=portable` opts out). The
+toolset's `VERSION` records `rid=` and `nlc=native|script`.
+
+**The front door** (`src/NSharpLang.Compiler.Driver/FrontDoor.nl`, decisions in `FrontDoorKernels.nl`)
+is `Cli.csproj` published with `PublishAot=true`. `CliPipeline.Execute` first tests
+`RuntimeFeature.IsDynamicCodeSupported`; under NativeAOT that is a compile-time `false`, so the AOT
+compiler folds the test and trims the whole compiler out of the image (about 2.6 MB on osx-arm64,
+zero trim/AOT warnings — `nsharp_publish_native_front_door` fails the publish on any `warning IL`).
+The front door prints `--version`/`help` itself and, for every other command, resolves .NET in the
+launcher script's order (`DOTNET_ROOT_<ARCH>`, `DOTNET_ROOT`, `dotnet` on PATH, `~/.dotnet`, the
+standard install locations), exports `DOTNET_ROOT` the way the script did, and `execve`s
+`dotnet lib/nlc/Cli.dll <args>`: same process id, same descriptors, signals and exit code. Windows
+has no `exec`; there it starts the host on the same console and returns its exit code.
+`NSHARP_FRONT_DOOR=1` forces the front-door path inside a JIT process; the host never sees it.
+`tests/native/cli-command-contracts/FrontDoorContracts.tests.nl` proves the hand-off is
+indistinguishable from a direct run (version, help, unknown command, check, run, test).
+
+**Why the compiler is not itself NativeAOT.** The emitter binds RUNTIME types:
+`PersistedAssemblyBuilder` is created over `typeof(object).Assembly`, the plan/emit slices spell
+types as runtime `typeof(...)` handles (about 3,400 sites), and `ExternalAssemblyScan` loads each
+reference's implementation into the compiler's process (`AssemblyLoadContext.LoadFromAssemblyPath`,
+`Assembly.Load`) to supply Reflection.Emit handles. Under NativeAOT neither in-process loading nor
+the framework assemblies beyond the image exist, so every external type would stay metadata-only
+and decline at emit; framework resolution (`RuntimeEnvironment.GetRuntimeDirectory()`) also points
+at the app directory. `nlc test`/`nlc run` additionally load emitted assemblies into a collectible
+context. All of that runs unchanged in the JIT host — the front door's `exec` IS the move to a child
+process, at about 4 ms over invoking the host directly. Making the compiler AOT needs the emitter on
+one metadata (`MetadataLoadContext`) type universe first.
+
+Measured on osx-arm64 (M-series, `tests/fixtures/issue-tracker`, 534 lines; medians of paired,
+interleaved runs; CPU = user+sys):
+
+| Command | before: launcher script + JIT IL | after: front door + ReadyToRun host |
+|---|---|---|
+| `nlc --version` (quiet machine) | 40 ms wall (script 19 ms + host 21 ms) | 7 ms wall, 6 ms CPU |
+| `nlc check` (quiet, host only) | 1,360 ms wall, 1,441 ms CPU | 950 ms wall, 979 ms CPU |
+| `nlc build` (quiet, host only) | 1,026 ms wall, 1,023 ms CPU | 624 ms wall, 626 ms CPU |
+| `nlc check` (loaded machine, load ≈ 23) | 4,317 ms CPU | 3,150–3,237 ms CPU |
+| `nlc build` (loaded) | 2,852–2,959 ms CPU | 1,856–1,875 ms CPU |
+| `nlc test --no-cache` (loaded) | 3,014–3,190 ms CPU | 1,976–2,108 ms CPU |
+| unknown command (loaded; pure start-up) | 126 ms wall | 62 ms wall (direct host: 58 ms) |
+
+The shipped portable toolset was already Release-optimized: `Cli.dll` and the seed's
+`NSharpLang.Runtime.dll` carry `DebuggableAttribute(IgnoreSymbolStoreSequencePoints)` only, and
+N#-emitted assemblies carry no `DebuggableAttribute` at all, so the JIT optimizes them. Even
+`dev.sh`'s Debug build differs only in the 6 KB C# `Cli.dll` (`DisableOptimizations`); its
+`NSharpLang.Runtime.dll` comes from the seed package and is Release, and Debug-vs-Release JIT runs
+of `check`/`build` measured within noise of each other. ReadyToRun is what removes the JIT cost.
+
 ---
 
 ## Architecture
