@@ -167,11 +167,34 @@ class CodeIntelligenceTextUtilities {
         return true
     }
 
+    // A LINE IS EVERYTHING UP TO ITS '\n' (a '\r' before it stays in the line), and the text after
+    // the last '\n' is one more line, empty when the source ends with one.
+    //
+    // A LARGE SOURCE IS INDEXED ONCE. The analyzer asks this for the line of every declaration and
+    // member name it records a span for, and the walk from the start of the text to the line made
+    // each ask cost the file's size up to that line: 16% of a Compiler.Core build's CPU. A source of
+    // at least `LineIndexThreshold` characters has its line starts computed once and kept against the
+    // string itself (weakly), so an ask is an array read; a short one is still walked.
     static func TryGetSourceLineRange(source: string, line: int, out start: int, out length: int): bool {
         start = 0
         length = 0
         if line <= 0 {
             return false
+        }
+
+        if source.Length >= CodeIntelligenceTextUtilities.LineIndexThreshold {
+            lineStarts := SourceLineIndex.LineStartsOf(source)
+            if line > lineStarts.Length {
+                return false
+            }
+
+            start = lineStarts[line - 1]
+            if line < lineStarts.Length {
+                length = lineStarts[line] - 1 - start
+            } else {
+                length = source.Length - start
+            }
+            return true
         }
 
         sourceLength := source.Length
@@ -204,6 +227,8 @@ class CodeIntelligenceTextUtilities {
 
         return false
     }
+
+    static LineIndexThreshold: int => 4096
 
     static func IsCodeIntelligenceIdentifierChar(ch: char): bool {
         if ch >= 'a' && ch <= 'z' {

@@ -142,3 +142,76 @@ test "the offset walk addresses the position after the last character" {
     assert CodeIntelligenceTextUtilities.TryGetEditorOffset("ab\ncd", 1, 0, out offset)
     assert offset == 3
 }
+
+// ── line ranges: the indexed path answers exactly what the walk answers ─────────────────────────
+
+// The walk `TryGetSourceLineRange` made before a large source was indexed, kept here as the oracle:
+// a line runs up to its '\n', a '\r' before it stays in the line, and the text after the last '\n'
+// is one more line.
+func TuWalkedLineRange(source: string, line: int, out start: int, out length: int): bool {
+    start = 0
+    length = 0
+    if line <= 0 {
+        return false
+    }
+
+    currentLine := 1
+    lineStart := 0
+    position := 0
+    while position < source.Length {
+        if source[position] == '\n' {
+            if currentLine == line {
+                start = lineStart
+                length = position - lineStart
+                return true
+            }
+            currentLine = currentLine + 1
+            lineStart = position + 1
+        }
+        position = position + 1
+    }
+
+    if currentLine == line {
+        start = lineStart
+        length = source.Length - lineStart
+        return true
+    }
+    return false
+}
+
+test "an indexed source answers every line range the walk answers" {
+    pieces := ["func a() {", "\r", "", "    x := 1", "}", "\r\r", "// tail"]
+    builder := new System.Text.StringBuilder()
+    index := 0
+    while builder.Length < CodeIntelligenceTextUtilities.LineIndexThreshold * 2 {
+        builder.Append(pieces[index % pieces.Length])
+        builder.Append('\n')
+        index = index + 1
+    }
+    endsWithNewline := builder.ToString()
+    noTrailingNewline := endsWithNewline + "last line without a newline"
+    doubled := endsWithNewline + "\n"
+
+    for source in [endsWithNewline, noTrailingNewline, doubled] {
+        assert source.Length >= CodeIntelligenceTextUtilities.LineIndexThreshold
+        lineCount := 0
+        for ch in source {
+            if ch == '\n' {
+                lineCount = lineCount + 1
+            }
+        }
+        line := -1
+        while line <= lineCount + 3 {
+            expectedStart := 0
+            expectedLength := 0
+            expectedFound := TuWalkedLineRange(source, line, out expectedStart, out expectedLength)
+            actualStart := 0
+            actualLength := 0
+            actualFound := CodeIntelligenceTextUtilities.TryGetSourceLineRange(source, line, out actualStart, out actualLength)
+            assert actualFound == expectedFound, "line " + line.ToString()
+            assert actualStart == expectedStart, "line " + line.ToString()
+            assert actualLength == expectedLength, "line " + line.ToString()
+            line = line + 1
+        }
+    }
+}
