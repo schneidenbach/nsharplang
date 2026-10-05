@@ -215,6 +215,17 @@ Undefined identifier 'unknownVar'
 - `results[].line`, `results[].column`, and `results[].length` are the canonical marker span for both compiler and linter diagnostics; linter results no longer use one-character placeholder lengths.
 - Always runs parse + analysis first, then:
   - `il` backend (default): emits a temporary IL assembly to verify the direct backend succeeds
+- **One analysis per file per check.** The emission proof uses the compiler that produced the
+  diagnostics (`MultiFileCompiler.EmitAnalyzedAssembly`); it used to hand the project to a second
+  compiler that parsed, analysed and loaded the reference closure again. On
+  `tests/fixtures/issue-tracker` (8 files) `--stats` went from 40 parses / 16 analyses / 684
+  reference loads to 16 / 8 / 501. What remains per file is deliberate: the driver's parse of the
+  PREPROCESSED text the analysis runs on, the project source provider's parse of the raw text that
+  cross-file lookup reads (body analysis annotates the driver's declarations —
+  `ReferencedNullabilityReturnType` — so sharing those objects with other files' lookups would make
+  diagnostics depend on analysis order), and the emitter's own columnar parse. File imports reuse the
+  provider's parse. The analyzer's metadata context and the emitter's are still separate loads of the
+  same reference set (the larger share of `referenceAssembliesLoaded`).
 
 ### Backend Selection
 
