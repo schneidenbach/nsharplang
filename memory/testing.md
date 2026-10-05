@@ -1298,7 +1298,7 @@ last ran: check, build, test), `body` (one function body changed: check, build, 
 (a PUBLIC function gained a parameter its body reads, its caller updated: check, build), `new-file`
 (a source file added: check, build). **Sizes**: `small` = a copy of `tests/fixtures/issue-tracker`
 (448 non-test lines, ASP.NET), `medium` = a deterministic synthetic library of 10,640 lines / 40
-files, `large` = the same generator at ~85k lines / 160 files (Compiler.Core's size). **Modes**: one
+files, `large` = the same generator at 80,960 lines / 160 files (Compiler.Core's size). **Modes**: one
 sample is a fresh temp copy, one PRIME run of the scenario's own command (the agent's previous
 step), the edit, then the measured COLD run and the measured WARM run (the same command again,
 unchanged; with `--daemon` an `nlc daemon` is kept up for the copy). Every sample re-primes a fresh
