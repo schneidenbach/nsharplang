@@ -635,7 +635,7 @@ class AnalyzerFunctionBodies {
     // resolving, and the ambient restore is what makes a `return` mean the enclosing function again.
     func AdvanceLeaveBody(state: FunctionBodyState): FunctionBodyRequest? {
         declaration := state.Declaration
-        declaration.ReferencedNullabilityReturnType = state.ReturnType
+        functionTypeFactoryValue.RecordBodyReturnType(declaration, state.ReturnType)
 
         symbolFunction := state.SymbolType as FunctionTypeInfo
         if symbolFunction != null && symbolFunction.ReturnType != null {
@@ -1023,7 +1023,7 @@ class AnalyzerFunctionBodies {
     // function to return from. The scope closes after it, exactly as the nested form does.
     func AdvanceDeclarationLeaveBody(state: FunctionBodyState): FunctionBodyRequest? {
         declaration := state.Declaration
-        declaration.ReferencedNullabilityReturnType = state.ReturnType
+        functionTypeFactoryValue.RecordBodyReturnType(declaration, state.ReturnType)
         symbolFunction := state.SymbolType as FunctionTypeInfo
         if symbolFunction != null && symbolFunction.ReturnType != null {
             NullabilityMetadataCore.TransferReferencedNullabilityOrigins(state.ReturnType, symbolFunction.ReturnType)

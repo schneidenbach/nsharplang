@@ -30,10 +30,39 @@ import NSharpLang.Compiler.Ast
 class AnalyzerFunctionTypeFactory {
     declarationContext: AnalyzerDeclarationContext
     typeSubstitution: AnalyzerTypeSubstitution
+    // THE RETURN TYPE EACH BODY ANALYSED IN THIS FILE'S ANALYSIS RESOLVED TO, by declaration object.
+    // Body analysis can attach referenced-metadata provenance to an explicitly nullable return (the
+    // .NET member a `string?` came from), and a later call signature built from the same declaration
+    // carries it into its diagnostics. It is kept HERE, per analysis, rather than on the syntax tree:
+    // the tree's declarations are shared -- the driver hands its parsed units to every analyzer
+    // (`Analyzer.SeedProjectParses`), a warm compilation reuses them, and parallel workers read other
+    // files' units while their own analyses run -- so provenance written onto a shared declaration
+    // would reach another file's call sites or not depending on which file happened to be analysed
+    // first. Cleared at the start of every `Analyzer.Analyze`, so a call reaches the provenance of a
+    // callee in its OWN file whose body was analysed before it, and never another file's.
+    bodyReturnTypes: Dictionary<FunctionDeclaration, TypeInfo>
 
     constructor(context: AnalyzerDeclarationContext, substitution: AnalyzerTypeSubstitution) {
         declarationContext = context
         typeSubstitution = substitution
+        bodyReturnTypes = new Dictionary<FunctionDeclaration, TypeInfo>(ReferenceEqualityComparer.Instance)
+    }
+
+    func RecordBodyReturnType(declaration: FunctionDeclaration, returnType: TypeInfo) {
+        bodyReturnTypes[declaration] = returnType
+    }
+
+    func BodyReturnTypeOf(declaration: FunctionDeclaration): TypeInfo? {
+        recorded: TypeInfo = null
+        if bodyReturnTypes.TryGetValue(declaration, out recorded) {
+            return recorded
+        }
+
+        return null
+    }
+
+    func ClearBodyReturnTypes() {
+        bodyReturnTypes.Clear()
     }
 
     // A signature read off a CLR delegate type. An expression tree unwraps to the delegate it
@@ -396,8 +425,9 @@ class AnalyzerFunctionTypeFactory {
         signature.ResolvedGenericConstraintTypes = ResolveDeclarationConstraints(declaration.Constraints, methodSubstitution, declarationFile)
         signature.HasMustUseAttribute = HasMustUseAttribute(declaration.Attributes)
         signature.ReturnType = ResolveFunctionCallReturnType(declaration.Name, isAsync, isGenerator, sourceReturnType)
-        if declaration.ReferencedNullabilityReturnType != null {
-            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(declaration.ReferencedNullabilityReturnType, signature.ReturnType)
+        bodyReturnType := BodyReturnTypeOf(declaration)
+        if bodyReturnType != null {
+            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(bodyReturnType, signature.ReturnType)
         }
         return signature
     }
@@ -462,8 +492,11 @@ class AnalyzerFunctionTypeFactory {
         }
         signature.ReturnType = ResolveFunctionCallReturnType(member.Name, member.IsAsync, member.IsGenerator, sourceReturnType)
         sourceDeclaration := member.SourceDeclaration
-        if sourceDeclaration != null && sourceDeclaration.ReferencedNullabilityReturnType != null {
-            NullabilityMetadataCore.TransferReferencedNullabilityOrigins(sourceDeclaration.ReferencedNullabilityReturnType, signature.ReturnType)
+        if sourceDeclaration != null {
+            sourceBodyReturnType := BodyReturnTypeOf(sourceDeclaration)
+            if sourceBodyReturnType != null {
+                NullabilityMetadataCore.TransferReferencedNullabilityOrigins(sourceBodyReturnType, signature.ReturnType)
+            }
         }
         return signature
     }

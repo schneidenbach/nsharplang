@@ -141,3 +141,45 @@ test "parallel columnar parse reports the serial emission refusal" {
         Directory.Delete(root, true)
     }
 }
+
+// A BODY'S RETURN PROVENANCE STAYS IN ITS OWN FILE'S ANALYSIS. `Get` returns a value a .NET member is
+// annotated to return as nullable, so an analysis that has seen `Get`'s BODY can say where the `?`
+// came from. Every analyzer shares the driver's parsed declarations, so if that provenance lived on the
+// declaration, a caller in another file would or would not get it depending on whether `Get`'s file
+// happened to be analysed first -- in file order serially, by timing in parallel. It lives in the
+// analysis instead (`AnalyzerFunctionTypeFactory.RecordBodyReturnType`): the caller in `Get`'s own
+// file gets it, callers in other files -- before and after `Get`'s file -- never do, at any worker
+// count.
+test "a callee body's nullability provenance reaches same-file callers only, at every worker count" {
+    root := PanRoot()
+    try {
+        PanWrite(root, "project.yml", "name: PanProvenance\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        PanWrite(root, "A.nl", "namespace Pan\n\nfunc FirstCaller(): string {\n    first: string = Get()\n    return first\n}\n")
+        PanWrite(root, "M.nl", "namespace Pan\n\nimport System\n\nfunc Get(): string? {\n    return Environment.GetEnvironmentVariable(\"PAN_PROVENANCE\")\n}\n\nfunc SameFileCaller(): string {\n    same: string = Get()\n    return same\n}\n")
+        PanWrite(root, "Z.nl", "namespace Pan\n\nfunc LastCaller(): string {\n    last: string = Get()\n    return last\n}\n")
+        serial := PanCompile(root, 1, Path.Combine(root, "out-serial", "PanProvenance.dll"))
+        serialText := PanDescribe(serial.Errors)
+        sameFile := 0
+        crossFile := 0
+        for error in serial.Errors {
+            if error.DiagnosticId != "NL202" {
+                continue
+            }
+            if Path.GetFileName(error.FileName ?? "") == "M.nl" {
+                sameFile = sameFile + 1
+                assert error.Message.Contains("annotated to return"), serialText
+            } else {
+                crossFile = crossFile + 1
+                assert !error.Message.Contains("annotated to return"), serialText
+            }
+        }
+        assert sameFile == 1, serialText
+        assert crossFile == 2, serialText
+        for workers in [2, 3] {
+            parallel := PanCompile(root, workers, Path.Combine(root, "out-" + workers.ToString(), "PanProvenance.dll"))
+            assert PanDescribe(parallel.Errors) == serialText, "workers=" + workers.ToString() + "\n" + PanDescribe(parallel.Errors)
+        }
+    } finally {
+        Directory.Delete(root, true)
+    }
+}

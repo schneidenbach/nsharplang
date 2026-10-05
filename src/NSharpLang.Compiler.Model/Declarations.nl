@@ -69,9 +69,6 @@ class FunctionDeclaration: Declaration {
     OperatorKeywordSpan: SourceSpan
     OperatorSymbolSpan: SourceSpan
     ReturnLifetime: string?
-    // Body analysis can attach referenced-metadata provenance to an explicitly nullable return.
-    // Call signatures are reconstructed later from this declaration, so retain that resolved source.
-    ReferencedNullabilityReturnType: TypeInfo?
 
     constructor(Name: string, Parameters: List<Parameter>, ReturnType: TypeReference?, Body: BlockStatement?, ExpressionBody: Expression?, TypeParameters: List<TypeParameter>?, Constraints: List<GenericConstraint>?, Modifiers: Modifiers, Attributes: List<AttributeNode>, IsOperatorOverload: bool, OperatorSymbol: string?, IsConversionOperator: bool, IsImplicitConversion: bool, Line: int, Column: int): base(Line, Column) {
         this.Name = Name
@@ -87,7 +84,6 @@ class FunctionDeclaration: Declaration {
         this.OperatorSymbol = OperatorSymbol
         this.IsConversionOperator = IsConversionOperator
         this.IsImplicitConversion = IsImplicitConversion
-        this.ReferencedNullabilityReturnType = null
     }
 }
 
