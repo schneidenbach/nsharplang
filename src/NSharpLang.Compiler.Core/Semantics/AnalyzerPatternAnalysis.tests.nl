@@ -443,6 +443,10 @@ func PatternRenderStep(step: PatternAnalysisRequest): string {
 
     if step.Kind == 7 {
         statements := step.Statements
+        if statements == null {
+            throw new InvalidOperationException("A statement-list request must carry its switch arm body.")
+        }
+
         return "stmts:" + statements.Count.ToString()
     }
 

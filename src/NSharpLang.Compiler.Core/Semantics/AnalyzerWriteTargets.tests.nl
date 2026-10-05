@@ -155,6 +155,15 @@ func WriteTargetTypes(): Dictionary<object, TypeInfo> {
     return new Dictionary<object, TypeInfo>()
 }
 
+func WriteTargetRequiredCaptureTypes(harness: WriteTargetHarness, state: string): Dictionary<object, TypeInfo> {
+    types := harness.Ambient.WriteTargetExpressionTypes
+    if types == null {
+        throw new InvalidOperationException("The write-target capture table must be open " + state + ".")
+    }
+
+    return types
+}
+
 func WriteTargetCodes(errors: List<CompilerError>): string {
     text := ""
     index := 0
@@ -771,9 +780,11 @@ test "the ambient write-target slot opens, records, answers and closes" {
 
     inner := harness.Ambient.EnterWriteTargetExpressionTypes()
     assert inner != null
-    assert harness.Ambient.WriteTargetExpressionTypes.Count == 0
+    innerTable := WriteTargetRequiredCaptureTypes(harness, "inside the nested write target")
+    assert innerTable.Count == 0
     harness.Ambient.ExitWriteTargetExpressionTypes(inner)
-    assert harness.Ambient.WriteTargetExpressionTypes.Count == 1
+    restoredTable := WriteTargetRequiredCaptureTypes(harness, "after restoring the outer write target")
+    assert restoredTable.Count == 1
 
     harness.Ambient.ClearWriteTargetExpressionTypes()
     assert !harness.Ambient.InWriteTarget

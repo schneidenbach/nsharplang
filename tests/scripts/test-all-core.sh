@@ -625,11 +625,13 @@ else
     # The identity diff has no additions; only those nine NL905 findings were removed.
     # 2026-10-05, check successful project lookups carry a declaration: Core 57, Compiler 0.
     # The identity diff has no additions; only those eight NL905 findings were removed.
+    # 2026-10-05, guard required open-generic, write-target and switch-body test values: Core 49, Compiler 0.
+    # The identity diff has no additions; only those eight NL905 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        57
+        49
         0
         0
         0

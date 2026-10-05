@@ -25,6 +25,14 @@ func WellKnownTypeName(candidate: Type?): string {
     return candidate.get_FullName() ?? "<no full name>"
 }
 
+func WellKnownRequiredType(candidate: Type?, name: string): Type {
+    if candidate == null {
+        throw new InvalidOperationException("The metadata load context must provide the open generic type '" + name + "'.")
+    }
+
+    return candidate
+}
+
 test "the fact bag resolves every required core type into the load context, not the runtime" {
     scan := ExternalAssemblyScan.OpenWithReferences(null)
     try {
@@ -91,11 +99,14 @@ test "the fact bag resolves the optional open generics it is asked for" {
 
         // Every open generic really is an open definition — a closed instantiation here would silently
         // break every MakeGenericType the analyzer performs.
-        assert facts.ListOpen.get_IsGenericTypeDefinition()
-        assert facts.DictionaryOpen.get_IsGenericTypeDefinition()
-        assert facts.Func5.get_IsGenericTypeDefinition()
-        assert facts.DictionaryOpen.GetGenericArguments().Length == 2
-        assert facts.Func5.GetGenericArguments().Length == 5
+        listOpen := WellKnownRequiredType(facts.ListOpen, "System.Collections.Generic.List`1")
+        dictionaryOpen := WellKnownRequiredType(facts.DictionaryOpen, "System.Collections.Generic.Dictionary`2")
+        func5 := WellKnownRequiredType(facts.Func5, "System.Func`5")
+        assert listOpen.get_IsGenericTypeDefinition()
+        assert dictionaryOpen.get_IsGenericTypeDefinition()
+        assert func5.get_IsGenericTypeDefinition()
+        assert dictionaryOpen.GetGenericArguments().Length == 2
+        assert func5.GetGenericArguments().Length == 5
     } finally {
         scan.Dispose()
     }
