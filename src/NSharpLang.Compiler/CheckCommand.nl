@@ -44,6 +44,7 @@ class CheckCommand {
 
         projectYmlPath := CheckCommandKernels.GetProjectYmlPath(projectDir)
         sw := Stopwatch.StartNew()
+        warmKey: string? = null
 
         try {
             nestedProjectRoots := new ProjectConfig().DiscoverNestedProjectRoots(projectDir)
@@ -73,6 +74,9 @@ class CheckCommand {
             // the reference closure all over again.
             service := new CodeIntelligenceService()
             compiler := new MultiFileCompiler(projectDir, projectConfig, null, true) { AotMode: aot }
+            // In the workspace server, the previous check of this project hands over its analyses
+            // (`WarmIncrementalSessions`), so a body edit re-analyses only the files it can reach.
+            warmKey = WarmIncrementalSessions.Attach(compiler, projectDir, "", "check", true, aot)
             compiler.CompileForAnalysis()
             snapshot := service.SnapshotOfCompilation(projectDir, compiler)
             diagnostics := service.GetDiagnostics(snapshot, null)
@@ -123,11 +127,14 @@ class CheckCommand {
 
             return CheckCommandKernels.GetExitCode(summary.Errors)
         } catch ex: Exception {
+            WarmIncrementalSessions.Discard(warmKey)
             if useText {
                 Console.Error.WriteLine(CheckCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)))
             }
 
             return EmitError(useText, CheckCommandKernels.GetFailedMessage(ex.Message), projectDir)
+        } finally {
+            WarmIncrementalSessions.Release(warmKey)
         }
     }
 

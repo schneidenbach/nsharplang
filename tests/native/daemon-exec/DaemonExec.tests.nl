@@ -383,6 +383,110 @@ test "cancelling a client stops its test run and leaves the server serving" {
     }
 }
 
+// ═══ WARM INCREMENTAL COMPILATION ═════════════════════════════════════════════════════════════
+//
+// The server keeps each compilation's analyses (`WarmIncrementalSessions`), so the next check or build
+// of the same project re-analyses only the files an edit can reach -- the edited file after a body
+// edit, the edited file and its callers after a signature edit -- and still answers exactly as a fresh
+// process does.
+
+func WarmProgram(): string {
+    return "namespace DaemonExecProbe\n\nfunc main() {\n    print $\"alpha={AlphaValue()} beta={BetaValue()}\"\n}\n"
+}
+
+func WarmAlpha(body: string): string {
+    return "namespace DaemonExecProbe\n\nfunc AlphaValue(): int {\n    return " + body + "\n}\n"
+}
+
+func WarmAlphaWithParameter(): string {
+    return "namespace DaemonExecProbe\n\nfunc AlphaValue(offset: int): int {\n    return 40 + offset\n}\n"
+}
+
+func WarmProgramPassingOffset(): string {
+    return "namespace DaemonExecProbe\n\nfunc main() {\n    print $\"alpha={AlphaValue(3)} beta={BetaValue()}\"\n}\n"
+}
+
+// `"filesAnalyzed":N` from an `nlc --stats=<path>` line.
+func FilesAnalyzed(statsPath: string): int {
+    text := File.ReadAllText(statsPath)
+    marker := "\"filesAnalyzed\":"
+    start := text.IndexOf(marker, StringComparison.Ordinal)
+    if start < 0 {
+        throw new InvalidOperationException("No filesAnalyzed in the stats line: " + text)
+    }
+
+    start = start + marker.Length
+    end := start
+    while end < text.Length && Char.IsDigit(text[end]) {
+        end = end + 1
+    }
+
+    return Int32.Parse(text.Substring(start, end - start))
+}
+
+func RoutedWithStats(workspace: string, command: string, statsPath: string): ProcessRun {
+    if File.Exists(statsPath) {
+        File.Delete(statsPath)
+    }
+
+    run := NlcWith([command, "--stats=" + statsPath], workspace, Traced(), null)
+    if !RoutedThroughServer(run.Stderr) {
+        throw new InvalidOperationException("'" + command + "' was not routed through the server: " + run.Stderr)
+    }
+
+    return run
+}
+
+test "a warm check and build re-analyse only the files an edit reaches and answer as a fresh process does" {
+    workspace := NewWorkspace()
+    statsPath := Path.Combine(workspace, "stats.json")
+    try {
+        WriteSource(workspace, "Program.nl", WarmProgram())
+        WriteSource(workspace, "Alpha.nl", WarmAlpha("1"))
+        WriteSource(workspace, "Beta.nl", "namespace DaemonExecProbe\n\nfunc BetaValue(): int => 2\n")
+        WriteSource(workspace, "Gamma.nl", "namespace DaemonExecProbe\n\nfunc GammaValue(): string => \"unrelated\"\n")
+        StartServer(workspace)
+
+        // The first routed compilation of each kind has nothing to reuse.
+        prime := RoutedWithStats(workspace, "check", statsPath)
+        assert prime.ExitCode == 0
+        assert FilesAnalyzed(statsPath) == 4
+
+        // A body edit: only the edited file is analysed again.
+        WriteSource(workspace, "Alpha.nl", WarmAlpha("10"))
+        body := RoutedWithStats(workspace, "check", statsPath)
+        assert body.ExitCode == 0
+        assert FilesAnalyzed(statsPath) == 1
+        assert RoutedThroughServer(AssertParity(workspace, ["check"], null))
+
+        // A signature edit: the edited file and its caller; Beta and Gamma are reused.
+        WriteSource(workspace, "Alpha.nl", WarmAlphaWithParameter())
+        WriteSource(workspace, "Program.nl", WarmProgramPassingOffset())
+        signature := RoutedWithStats(workspace, "check", statsPath)
+        assert signature.ExitCode == 0
+        assert FilesAnalyzed(statsPath) == 2
+        assert RoutedThroughServer(AssertParity(workspace, ["check", "--text"], null))
+
+        // The same for build, whose session is its own; the program it emits is the edited one.
+        RoutedWithStats(workspace, "build", statsPath)
+        WriteSource(workspace, "Alpha.nl", "namespace DaemonExecProbe\n\nfunc AlphaValue(offset: int): int {\n    return 50 + offset\n}\n")
+        built := RoutedWithStats(workspace, "build", statsPath)
+        assert built.ExitCode == 0
+        assert FilesAnalyzed(statsPath) == 1
+        ran := NlcWith(["run"], workspace, InProcess(), null)
+        assert ran.ExitCode == 0
+        assert ran.Stdout.Contains("alpha=53 beta=2")
+
+        // A compile error introduced and fixed again through the warm session answers as in-process.
+        WriteSource(workspace, "Beta.nl", "namespace DaemonExecProbe\n\nfunc BetaValue(): int => \"two\"\n")
+        assert RoutedThroughServer(AssertParity(workspace, ["check"], null))
+        WriteSource(workspace, "Beta.nl", "namespace DaemonExecProbe\n\nfunc BetaValue(): int => 2\n")
+        assert RoutedThroughServer(AssertParity(workspace, ["check"], null))
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
 test "a referenced project rebuilt under a running server is never compiled against the stale build" {
     workspace := Path.Combine("/tmp", "nlc-" + Guid.NewGuid().ToString("N").Substring(0, 12))
     library := Path.Combine(workspace, "lib")

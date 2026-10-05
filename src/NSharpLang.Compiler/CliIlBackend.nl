@@ -257,15 +257,28 @@ class CliIlBackend {
         // is answered from its up-to-date stamp. A perf report needs the systems analysis the stamp
         // skips, so it asks for a full compilation.
         compiler.IncrementalBuild = incrementalBuild
-        return CompileReportingPerfFacts(
-            compiler,
-            outputDir,
-            CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config),
-            config,
-            references,
-            out perfFacts,
-            aotMode
-        )
+        assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config)
+        // In the workspace server, the previous compilation of this project hands over its analyses
+        // (`WarmIncrementalSessions`), so a body edit re-analyses only the files it can reach.
+        warmKey := WarmIncrementalSessions.Attach(compiler, projectRoot, assemblyName, "build", includeTests, aotMode)
+        outputPath: string? = null
+        try {
+            outputPath = CompileReportingPerfFacts(
+                compiler,
+                outputDir,
+                assemblyName,
+                config,
+                references,
+                out perfFacts,
+                aotMode
+            )
+        } catch compileFailure: Exception {
+            WarmIncrementalSessions.Discard(warmKey)
+            throw
+        }
+
+        WarmIncrementalSessions.Release(warmKey)
+        return outputPath
     }
 
     static func CompileSourceFiles(
