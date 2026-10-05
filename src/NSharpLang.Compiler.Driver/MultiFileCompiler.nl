@@ -258,7 +258,7 @@ class MultiFileCompiler {
         analyzer := new Analyzer()
         analyzer.SoaEnabled = _soaEnabled
         analyzer.LoadSystemAssemblies()
-        analyzer.LoadFromProjectConfig(_config, _projectRoot)
+        analyzer.LoadFromProjectConfig(_config ?? ProjectFileParser.CreateDefault(null), _projectRoot)
         if _declaresOneProgram {
             analyzer.DeclareOneProgram()
         }
@@ -636,19 +636,23 @@ class MultiFileCompiler {
     // file indices from the queue in increasing order, replaying the import loads of every earlier
     // file it skipped before analysing the next. See `AnalyzeAllFiles` for why.
     private func RunAnalysisWorker(state: MultiFileCompilerAnalysisWorker): void {
-        analyzer: Analyzer? = state.Analyzer
+        resolved: Analyzer? = state.Analyzer
         try {
-            if analyzer == null {
+            if resolved == null {
                 created := CreateAnalyzer()
                 created.SetProjectSourceTexts(_sourceTexts)
                 created.SeedProjectCompilationUnits(_reusableUnits)
                 created.SeedProjectNamespaces(_projectRoot, state.ProjectNamespaces)
-                analyzer = created
+                resolved = created
             }
         } catch ex: Exception {
             state.Failure = ex
             return
         }
+        if resolved == null {
+            return
+        }
+        analyzer: Analyzer = resolved
 
         preloaded := 0
         next := 0
