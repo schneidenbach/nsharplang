@@ -22,6 +22,11 @@
 
     <!-- Ensure project-reference assemblies are present for local launcher/publish flows. -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+    <!-- A compile is short-lived and its hottest methods run millions of times inside one process,
+         so tiered PGO's instrumented tier costs more than its profile repays: 15-25% of a large
+         build's CPU went to JIT_CountProfile32/JIT_ClassProfile32. See memory/testing.md section 10. -->
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
 
   <ItemGroup>
