@@ -32,6 +32,25 @@ class DaemonParameterValidation {
     }
 }
 
+// What `daemon/status` adds for a server that runs commands.
+class DaemonStatusExecFacts {
+    Version: string
+    Identity: string
+    ActiveRequests: int
+    ServedRequests: int
+    WorkingSetMegabytes: long
+    MemoryCapMegabytes: long
+
+    constructor(version: string, identity: string, activeRequests: int, servedRequests: int, workingSetMegabytes: long, memoryCapMegabytes: long) {
+        Version = version
+        Identity = identity
+        ActiveRequests = activeRequests
+        ServedRequests = servedRequests
+        WorkingSetMegabytes = workingSetMegabytes
+        MemoryCapMegabytes = memoryCapMegabytes
+    }
+}
+
 class DaemonProtocolKernels {
     static func GetSocketDir(): string {
         return ".nlc"
@@ -192,13 +211,53 @@ class DaemonProtocolKernels {
     }
 
     static func StatusResultJson(pid: int, uptime: string, projectRoot: string, cachedFiles: int, idleTimeout: string): string {
+        return StatusResultJson(pid, uptime, projectRoot, cachedFiles, idleTimeout, null)
+    }
+
+    // The status of a workspace server: the five members above, then — when the server can run
+    // commands — the build it is, how busy it is and how much memory it holds against its cap.
+    static func StatusResultJson(pid: int, uptime: string, projectRoot: string, cachedFiles: int, idleTimeout: string, exec: DaemonStatusExecFacts?): string {
         payload := new Dictionary<string, object>()
         payload[GetStatusPidField()] = pid
         payload[GetStatusUptimeField()] = uptime
         payload[GetStatusProjectRootField()] = projectRoot
         payload[GetStatusCachedFilesField()] = cachedFiles
         payload[GetStatusIdleTimeoutField()] = idleTimeout
+        if exec != null {
+            facts := exec ?? new DaemonStatusExecFacts("", "", 0, 0, 0L, 0L)
+            payload[GetStatusVersionField()] = facts.Version
+            payload[GetStatusIdentityField()] = facts.Identity
+            payload[GetStatusActiveRequestsField()] = facts.ActiveRequests
+            payload[GetStatusServedRequestsField()] = facts.ServedRequests
+            payload[GetStatusWorkingSetField()] = facts.WorkingSetMegabytes
+            payload[GetStatusMemoryCapField()] = facts.MemoryCapMegabytes
+        }
+
         return JsonSerializer.Serialize(payload, CreateCompactJsonOptions())
+    }
+
+    static func GetStatusVersionField(): string {
+        return "version"
+    }
+
+    static func GetStatusIdentityField(): string {
+        return "identity"
+    }
+
+    static func GetStatusActiveRequestsField(): string {
+        return "activeRequests"
+    }
+
+    static func GetStatusServedRequestsField(): string {
+        return "servedRequests"
+    }
+
+    static func GetStatusWorkingSetField(): string {
+        return "workingSetMb"
+    }
+
+    static func GetStatusMemoryCapField(): string {
+        return "memoryCapMb"
     }
 
     static func ErrorResponseJson(id: int, code: int, message: string): string {

@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Diagnostics
 import System.IO
 import System.Net.Sockets
+import System.Reflection
 import System.Text
 import System.Text.Json
 import System.Threading
@@ -241,15 +242,23 @@ class DaemonClient {
             return false
         }
 
-        cliDir: string? = null
-        if DaemonClientKernels.ShouldProbeCliProject(exePath) {
-            cliDir = FindCliProject()
+        // The server is THIS binary — never `dotnet run` over whatever a checkout holds — so it is the
+        // same build the client is, which is what `DaemonExecKernels.GetServerLaunchCommand` encodes.
+        entryAssembly := Assembly.GetEntryAssembly()
+        entryPath: string? = null
+        if entryAssembly != null {
+            entryPath = entryAssembly.Location
         }
 
-        startPlan := DaemonClientKernels.GetStartPlan(exePath, projectRoot, cliDir)
+        command := DaemonExecKernels.GetServerLaunchCommand(exePath ?? "", entryPath, projectRoot, false)
         startInfo := new ProcessStartInfo()
-        startInfo.FileName = startPlan.FileName
-        startInfo.Arguments = startPlan.Arguments
+        startInfo.FileName = command[0]
+        argumentIndex := 1
+        while argumentIndex < command.Length {
+            startInfo.ArgumentList.Add(command[argumentIndex])
+            argumentIndex = argumentIndex + 1
+        }
+
         startInfo.UseShellExecute = false
         startInfo.RedirectStandardOutput = false
         startInfo.RedirectStandardError = true
@@ -324,9 +333,20 @@ class DaemonClient {
     }
 
     // Shut down the daemon gracefully.
+    // Stopped means GONE: the answer waits (up to ten seconds) until the server no longer answers,
+    // so a caller that starts a replacement next never races the old one for the socket.
     static func StopDaemon(projectRoot: string): bool {
         result := Query(projectRoot, DaemonConstants.MethodShutdown, null)
-        return result != null
+        if result == null {
+            return false
+        }
+
+        clock := Stopwatch.StartNew()
+        while clock.ElapsedMilliseconds < 10000L && IsRunning(projectRoot) {
+            Thread.Sleep(50)
+        }
+
+        return true
     }
 
     // Get daemon status information.
@@ -334,17 +354,22 @@ class DaemonClient {
         return Query(projectRoot, DaemonConstants.MethodStatus, null)
     }
 
-    // Walk up from the current directory to find Cli.csproj.
-    static func FindCliProject(): string? {
-        dir: string? = Directory.GetCurrentDirectory()
-        while dir != null {
-            cliProj := DaemonClientKernels.GetCliProjectPath(dir)
-            if File.Exists(cliProj) {
-                return DaemonClientKernels.GetCliProjectDirectory(cliProj)
-            }
+    // The build identity the running server reports, or null when none answers (or it is a build
+    // from before servers reported one).
+    static func GetStatusIdentity(projectRoot: string): string? {
+        status := GetStatus(projectRoot)
+        if status == null {
+            return null
+        }
 
-            parent := Directory.GetParent(dir)
-            dir = parent?.FullName
+        try {
+            using document := JsonDocument.Parse(status ?? "")
+            identity: JsonElement = default
+            if document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty(DaemonProtocolKernels.GetStatusIdentityField(), out identity) {
+                return identity.GetString()
+            }
+        } catch parseFailure: Exception {
+            return null
         }
 
         return null

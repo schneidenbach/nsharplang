@@ -1,17 +1,5 @@
 namespace NSharpLang.Cli.Daemon
 
-import System.IO
-
-class DaemonStartPlan {
-    FileName: string
-    Arguments: string
-
-    constructor(fileName: string, arguments: string) {
-        FileName = fileName
-        Arguments = arguments
-    }
-}
-
 class DaemonClientKernels {
     static func GetConnectionErrorMessage(messageText: string): string {
         return "[daemon] Connection error: " + messageText
@@ -65,30 +53,5 @@ class DaemonClientKernels {
         }
 
         return socketErrorCode == connectionRefusedErrorCode && hasReadyPidFile
-    }
-
-    static func ShouldProbeCliProject(executablePath: string): bool {
-        return executablePath.Contains("dotnet")
-    }
-
-    static func GetStartPlan(executablePath: string, projectRoot: string, cliProjectDirectory: string?): DaemonStartPlan {
-        if ShouldProbeCliProject(executablePath) && cliProjectDirectory != null {
-            cliDir := cliProjectDirectory ?? ""
-            return new DaemonStartPlan("dotnet", "run --project " + QuoteArgument(cliDir) + " -- daemon run --project " + QuoteArgument(projectRoot))
-        }
-
-        return new DaemonStartPlan(executablePath, "daemon run --project " + QuoteArgument(projectRoot))
-    }
-
-    static func GetCliProjectPath(candidateRoot: string): string {
-        return Path.Combine(Path.Combine(Path.Combine(candidateRoot, "src"), "NSharpLang.Cli"), "Cli.csproj")
-    }
-
-    static func GetCliProjectDirectory(cliProjectPath: string): string? {
-        return Path.GetDirectoryName(cliProjectPath)
-    }
-
-    static func QuoteArgument(value: string): string {
-        return "\"" + value + "\""
     }
 }

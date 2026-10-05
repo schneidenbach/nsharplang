@@ -4,6 +4,7 @@ import System
 import System.Diagnostics
 import System.IO
 import NSharpLang.Cli.Commands
+import NSharpLang.Cli.Daemon
 import NSharpLang.Compiler
 
 // THE `nlc` DISPATCH PIPELINE.
@@ -23,7 +24,32 @@ import NSharpLang.Compiler
 // (`CliStatsKernels.Extract`), the command runs exactly as it would without it, and the stats line
 // is written after it returns.
 static class CliPipeline {
+    // DAEMON FIRST. A routed command (`check`, `build`, `test`, `run`, `format`, `lint`, `fix`) is
+    // offered to the workspace server before it runs here; the server answers with the exit code of
+    // the same dispatch below, run on this process's behalf, or declines and the command runs here
+    // exactly as it always has. `DaemonExecKernels` owns which commands route and every switch that
+    // turns routing off.
     static func Execute(args: string[], version: string): int {
+        if TestWorkerHost.IsWorkerInvocation(args) {
+            return TestWorkerHost.Run()
+        }
+
+        routedExitCode := 0
+        if DaemonExecClient.TryExecute(args, version, out routedExitCode) {
+            return routedExitCode
+        }
+
+        localArgs := args
+        if args.Length > 0 && DaemonExecKernels.IsRoutedCommandName(args[0]) {
+            localArgs = DaemonExecKernels.StripNoDaemonFlag(args)
+        }
+
+        return ExecuteLocal(localArgs, version)
+    }
+
+    // The dispatch itself: what an `nlc` process runs for itself, and what the workspace server runs
+    // for a client.
+    static func ExecuteLocal(args: string[], version: string): int {
         commandKind := ProgramCommandKernels.GetCommandKind(args)
         stats := CliStatsKernels.Extract(GetCommandArgs(args))
         if !stats.Requested {
@@ -132,6 +158,8 @@ static class CliPipeline {
             return QueryCommand.Execute(commandArgs)
         }
         if commandKind == 16 {
+            DaemonExecHost.Configure(version, (serverArgs) => CliPipeline.ExecuteLocal(serverArgs, version))
+            DaemonExecHost.AddWarmupHook(() => TestWorkerHost.Replenish())
             return DaemonCommand.Execute(commandArgs)
         }
         if commandKind == 17 {

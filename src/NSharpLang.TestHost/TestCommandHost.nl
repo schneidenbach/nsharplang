@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Diagnostics
 import System.IO
+import NSharpLang.Cli.Daemon
 import NSharpLang.Compiler
 
 // `nlc test`, WHOLE: option parsing through the kernels, the preflight refusals, the incremental
@@ -203,12 +204,35 @@ static class TestCommandHost {
         }
     }
 
+    // WHERE THE TESTS RUN. In the user's own `nlc test` process they run right here. When the
+    // workspace server is running this command they run in an isolated test worker instead
+    // (`TestWorkerHost`), so a test that kills or poisons its process takes nothing shared with it.
+    static func RunSelectedRunner(
+        projectConfig: ProjectConfig,
+        outputPath: string,
+        filter: string?,
+        verbose: bool,
+        outputMode: int,
+        timeoutMs: int?
+    ): NativeTestRun {
+        if CliInvocationContext.IsRemoteInvocation() {
+            return TestWorkerHost.RunIsolated(projectConfig.TestFramework, outputPath, filter, verbose, outputMode, timeoutMs)
+        }
+
+        return RunRunnerInProcess(projectConfig.TestFramework, outputPath, filter, verbose, outputMode, timeoutMs)
+    }
+
     // WHICH RUNNER, AND WHOSE STDOUT. In JSON mode the document has to be alone on stdout, so the
     // run itself writes to stderr and the original writer is restored BEFORE the envelope is
     // printed — a test's own `print` goes to stderr, the envelope goes to stdout, and a throwing
     // run still restores.
-    static func RunSelectedRunner(
-        projectConfig: ProjectConfig,
+    //
+    // WHAT THE TESTS SEE. For the length of the run `NLC_DAEMON_CHILD` is set, so an `nlc` the tests
+    // start runs in-process: it never starts a workspace server that would outlive the test, and never
+    // queues behind the very request that is running it. The marker is set on BOTH routes, so a test
+    // observes the same environment whichever process runs it.
+    static func RunRunnerInProcess(
+        testFramework: string?,
         outputPath: string,
         filter: string?,
         verbose: bool,
@@ -220,13 +244,17 @@ static class TestCommandHost {
             Console.SetOut(Console.Error)
         }
 
+        markerName := DaemonExecKernels.GetDaemonChildEnvironmentVariable()
+        previousMarker := Environment.GetEnvironmentVariable(markerName)
+        Environment.SetEnvironmentVariable(markerName, "1")
         try {
-            if TestCommandKernels.ShouldRunNUnit(projectConfig.TestFramework) {
+            if TestCommandKernels.ShouldRunNUnit(testFramework) {
                 return ReflectionTestRunner.Run(outputPath, filter, verbose, timeoutMs)
             }
 
             return XunitTestRunner.Run(outputPath, filter, verbose, timeoutMs)
         } finally {
+            Environment.SetEnvironmentVariable(markerName, previousMarker)
             Console.SetOut(stdout)
         }
     }

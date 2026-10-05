@@ -52,10 +52,10 @@ class DiagnosticColorPolicy {
     // this function holds the readings and `Decide` holds the policy.
     static func ShouldColorizeStandardError(): bool {
         return Decide(
-            FindColorOption(Environment.GetCommandLineArgs()),
+            FindColorOption(CliInvocationContext.GetCommandLineArgs()),
             Environment.GetEnvironmentVariable("NO_COLOR"),
             Environment.GetEnvironmentVariable("FORCE_COLOR"),
-            Console.IsErrorRedirected
+            CliInvocationContext.IsStandardErrorRedirected()
         )
     }
 
