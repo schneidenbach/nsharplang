@@ -24,7 +24,8 @@ class CliIlBackend {
         timings: bool,
         verbose: bool = false,
         aot: bool = false,
-        cliDefines: IReadOnlyList<string>? = null
+        cliDefines: IReadOnlyList<string>? = null,
+        incrementalBuild: bool = true
     ): BuildCommandResult {
         totalSw := Stopwatch.StartNew()
         resolveSw := new Stopwatch()
@@ -56,7 +57,7 @@ class CliIlBackend {
 
             compileSw.Start()
             perfFacts: BuildPerfReportFacts = BuildPerfReportFacts.Empty
-            outputPath := CompileProjectReportingPerfFacts(projectRoot, config, resolvedOutputDir, references, out perfFacts, false, aot)
+            outputPath := CompileProjectReportingPerfFacts(projectRoot, config, resolvedOutputDir, references, out perfFacts, false, aot, incrementalBuild)
             compileSw.Stop()
             if outputPath == null {
                 Console.WriteLine(BuildCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)))
@@ -236,7 +237,7 @@ class CliIlBackend {
         aotMode: bool
     ): string? {
         discardedPerfFacts: BuildPerfReportFacts = BuildPerfReportFacts.Empty
-        return CompileProjectReportingPerfFacts(projectRoot, config, outputDir, references, out discardedPerfFacts, includeTests, aotMode)
+        return CompileProjectReportingPerfFacts(projectRoot, config, outputDir, references, out discardedPerfFacts, includeTests, aotMode, true)
     }
 
     static func CompileProjectReportingPerfFacts(
@@ -246,11 +247,16 @@ class CliIlBackend {
         references: ReferenceResolutionResult?,
         out perfFacts: BuildPerfReportFacts,
         includeTests: bool,
-        aotMode: bool
+        aotMode: bool,
+        incrementalBuild: bool
     ): string? {
         perfFacts = BuildPerfReportFacts.Empty
         sourceFiles := config.GetSourceFiles(projectRoot, includeTests).ToArray()
         compiler := new MultiFileCompiler(sourceFiles, projectRoot, config)
+        // `build`, `run`, `test`, `publish` and `pack` keep what they emit, so an unchanged project
+        // is answered from its up-to-date stamp. A perf report needs the systems analysis the stamp
+        // skips, so it asks for a full compilation.
+        compiler.IncrementalBuild = incrementalBuild
         return CompileReportingPerfFacts(
             compiler,
             outputDir,

@@ -47,7 +47,8 @@ static class ProgramCommands {
                     buildOptions.Timings,
                     buildOptions.Verbose,
                     buildOptions.Aot,
-                    cliDefines
+                    cliDefines,
+                    !buildOptions.PerfReport
                 )
                 buildResult := RunBuildEmittingPerfReport(
                     buildOptions.PerfReport,

@@ -18,6 +18,7 @@ import System.Threading
 // (the differential test, a warm daemon measuring one request) that want a window rather than a
 // lifetime.
 static class CompilerStats {
+
     // Files the multi-file driver parsed into ASTs (a cache hit does not count).
     private static filesParsed: long = 0
     // Files whose semantic analysis ran (a reused per-file analysis does not count).
@@ -31,7 +32,8 @@ static class CompilerStats {
     private static assembliesEmitted: long = 0
     // Compilations answered entirely by the up-to-date check: nothing parsed, analysed or emitted.
     private static compilationsUpToDate: long = 0
-    // Compilations that ran (some or all of) the pipeline.
+    // Compilations requested (`CompileToIlAssembly`, `CompileForAnalysis`), whether or not the
+    // up-to-date check then answered them.
     private static compilationsRun: long = 0
     // Persisted-cache outcomes: an entry that was read and matched, read and did not match (or was
     // corrupt, truncated or another format), and entries written.

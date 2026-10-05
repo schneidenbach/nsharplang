@@ -2338,6 +2338,16 @@ class Analyzer: IDisposable {
         ReferenceLoadOrchestration.Load(config, directory)
     }
 
+    // The metadata files this analyzer read and the directories its resolver probes — the reference
+    // half of what an incremental build records as this compilation's inputs.
+    func MetadataInputAssemblyPaths(): List<string> {
+        return MetadataLoadSurface.LoadedAssemblyLocations()
+    }
+
+    func MetadataSearchDirectories(): List<string> {
+        return new List<string>(MetadataLoadSurface.SearchDirectories)
+    }
+
     func GetFriendGrants(): InternalsVisibleToGrants {
         return FriendGrants
     }

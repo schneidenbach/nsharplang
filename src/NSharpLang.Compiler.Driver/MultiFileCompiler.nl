@@ -34,7 +34,11 @@ class MultiFileCompiler {
     private readonly _compilationUnits: Dictionary<string, CompilationUnit>
     private readonly _semanticModels: Dictionary<string, SemanticModel>
     private readonly _allErrors: List<CompilerError>
-    private readonly _sharedAnalyzer: Analyzer
+    // Built on first use: a compilation the up-to-date check answers never loads a single assembly.
+    private _sharedAnalyzerValue: Analyzer?
+    private readonly _declaredOneProgram: bool
+    private _incrementalBuild: bool
+    private _wasUpToDate: bool
     private readonly _debugLoggingEnabled: bool
     private readonly _sourceTextOverrides: IReadOnlyDictionary<string, string>
     private readonly _preprocessorSymbols: IReadOnlySet<string>
@@ -66,7 +70,7 @@ class MultiFileCompiler {
     // ONE object so that the probe, member resolution, extension discovery, attribute resolution,
     // completion and `nlc query` cannot disagree about what this compilation may name — and
     // completion could not ask it at all until the snapshot carried it out of here.
-    FriendGrants: InternalsVisibleToGrants => _sharedAnalyzer.GetFriendGrants()
+    FriendGrants: InternalsVisibleToGrants => SharedAnalyzer().GetFriendGrants()
 
     AotMode: bool {
         get {
@@ -101,10 +105,30 @@ class MultiFileCompiler {
         }
         set {
             _soaEnabled = value
-            analyzer := _sharedAnalyzer
-            analyzer.SoaEnabled = value
+            analyzer := _sharedAnalyzerValue
+            if analyzer != null {
+                analyzer.SoaEnabled = value
+            }
         }
     }
+
+    // WHETHER THIS COMPILATION MAY BE ANSWERED BY ITS UP-TO-DATE STAMP (`IncrementalBuildStamp`).
+    // Off unless the caller asks: the stamp lives in the project's `obj/` and describes an output
+    // the caller will keep, which is true of `nlc build`, `run`, `test` and a referenced project's
+    // build, and not of a check that emits into a temporary directory or an editor's buffers.
+    IncrementalBuild: bool {
+        get {
+            return _incrementalBuild
+        }
+        set {
+            _incrementalBuild = value
+        }
+    }
+
+    // True after `CompileToIlAssembly` answered from the stamp: nothing was parsed, analysed or
+    // emitted, so the units, models, index and systems report are empty. A caller that needs those
+    // (a perf report, a query) leaves `IncrementalBuild` off.
+    WasUpToDate: bool => _wasUpToDate
 
     // WHERE THE COLUMNAR DECLINE TRACE GOES, or null for nowhere. Decided ONCE, when the compiler is
     // built: stderr when `NSHARP_COLUMNAR_DECLINE_LOG` is on, else nothing. A caller that wants the
@@ -171,18 +195,32 @@ class MultiFileCompiler {
             _columnarDeclineLog = Console.Error
         }
 
-        // One analyzer instance owns the complete repeated-call lifetime.
+        _sharedAnalyzerValue = null
+        _declaredOneProgram = config != null
+        _incrementalBuild = false
+        _wasUpToDate = false
+    }
+
+    // One analyzer instance owns the complete repeated-call lifetime, created the first time a pass
+    // needs it.
+    private func SharedAnalyzer(): Analyzer {
+        existing := _sharedAnalyzerValue
+        if existing != null {
+            return existing
+        }
+
         analyzer := new Analyzer()
         analyzer.SoaEnabled = _soaEnabled
-        _sharedAnalyzer = analyzer
-        _sharedAnalyzer.LoadSystemAssemblies()
-        _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot)
+        analyzer.LoadSystemAssemblies()
+        analyzer.LoadFromProjectConfig(_config, _projectRoot)
         // A caller that hands over a project configuration compiles these files into ONE assembly —
         // a parsed `project.yml`, or a virtual project like the playground's. A caller with none (a
         // folder of standalone scripts checked as a directory) leaves the analyzer to ask the root.
-        if config != null {
-            _sharedAnalyzer.DeclareOneProgram()
+        if _declaredOneProgram {
+            analyzer.DeclareOneProgram()
         }
+        _sharedAnalyzerValue = analyzer
+        return analyzer
     }
 
     private static func BuildProjectInputs(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?, includeTests: bool): MultiFileCompilerInputs {
@@ -355,7 +393,8 @@ class MultiFileCompiler {
     /// This prevents the performance issue of reloading assemblies for each file.</summary>
     private func AnalyzeAllFiles(): void {
         analyzeClock := Stopwatch.StartNew()
-        _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
+        sharedAnalyzer := SharedAnalyzer()
+        sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
 
         // Analyze each file using the shared analyzer instance
         // The Analyzer's import system handles cross-file references via proper import statements
@@ -365,7 +404,7 @@ class MultiFileCompiler {
 
             {
                 // Use the shared analyzer (assemblies already loaded in constructor)
-                result := _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile))
+                result := sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile))
 
                 // Save semantic model for project-wide analysis and emission.
                 _semanticModels[sourceFile] = result.SemanticModel
@@ -376,7 +415,7 @@ class MultiFileCompiler {
                 }
 
                 // Merge type-declaration-to-file mapping into the project index
-                for columnarKeyValuePair2 in _sharedAnalyzer.GetTypeDeclarationFiles() {
+                for columnarKeyValuePair2 in sharedAnalyzer.GetTypeDeclarationFiles() {
                     typeName := columnarKeyValuePair2.Key
                     filePath := columnarKeyValuePair2.Value
 
@@ -531,6 +570,9 @@ class MultiFileCompiler {
 
         runLegacyValidation := validateWithLegacyAnalysis || validateStrictLint
         if (!runLegacyValidation) {
+            // The emit-only route has always had a loaded analyzer in the process by the time it
+            // emits; keep it that way, because the emitter's host-assembly scan sees what is loaded.
+            SharedAnalyzer()
             ReadAllSourceTexts()
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot)
             let decline: NSharpLang.Compiler.ColumnarDeclineDiagnostic? = null
@@ -566,6 +608,33 @@ class MultiFileCompiler {
                 emitOnlyResultErrors,
                 emitOnlyResultPath
             )
+        }
+
+        // THE UP-TO-DATE CHECK. When every input this compilation would read still has the value the
+        // last successful compilation of the same output recorded, that compilation's output and
+        // diagnostics ARE this one's: nothing is parsed, analysed or emitted.
+        stampPath: string? = null
+        stampKey := ""
+        capture: IncrementalBuildInputCapture? = null
+        if CanUseIncrementalStamp() {
+            upToDateClock := Stopwatch.StartNew()
+            stampKey = ComputeIncrementalKey(assemblyName, outputPath, validateStrictLint, validateWithLegacyAnalysis)
+            stampPath = IncrementalBuildStamp.PathFor(_projectRoot, assemblyName, outputPath)
+            stamp := IncrementalBuildStamp.TryRead(stampPath, stampKey)
+            if stamp != null && stamp.IsCurrent() {
+                CompilerStats.AddCacheHit()
+                CompilerStats.AddCompilationUpToDate()
+                CompilerStats.AddUpToDateTicks(upToDateClock.ElapsedTicks)
+                _wasUpToDate = true
+                _allErrors.AddRange(stamp.Diagnostics)
+                return new MultiFileCompilationResult(true, _allErrors, Path.GetFullPath(outputPath))
+            }
+
+            CompilerStats.AddCacheMiss()
+            newCapture := new IncrementalBuildInputCapture()
+            newCapture.CaptureBeforeCompile(_projectRoot, _config, _sourceFiles)
+            capture = newCapture
+            CompilerStats.AddUpToDateTicks(upToDateClock.ElapsedTicks)
         }
 
         let strictLintFailed: bool = false
@@ -626,12 +695,78 @@ class MultiFileCompiler {
         resultPath: string? = null
         if success {
             resultPath = outputPath
+            if stampPath != null && capture != null {
+                WriteIncrementalStamp(stampPath, stampKey, capture, outputPath)
+            }
         }
         return new MultiFileCompilationResult(
             resultSuccess,
             resultErrors,
             resultPath
         )
+    }
+
+    private func CanUseIncrementalStamp(): bool {
+        if !_incrementalBuild {
+            return false
+        }
+        // An editor's unsaved buffers are not files the stamp could compare later.
+        if _sourceTextOverrides.Count > 0 {
+            return false
+        }
+        // A caller asking for the decline trace or the debug log wants the pipeline to run.
+        if _columnarDeclineLog != null || _debugLoggingEnabled {
+            return false
+        }
+        return IncrementalBuildPolicy.IsEnabled()
+    }
+
+    // Everything this compilation depends on that is not a file (see `IncrementalBuildInputs`).
+    private func ComputeIncrementalKey(assemblyName: string, outputPath: string, validateStrictLint: bool, validateWithLegacyAnalysis: bool): string {
+        key := new IncrementalKeyBuilder()
+        key.Add("format", IncrementalBuildStamp.FormatVersion.ToString())
+        key.Add("compiler", IncrementalCompilerIdentity.Current())
+        key.Add("project-root", Path.GetFullPath(_projectRoot))
+        key.Add("assembly", assemblyName)
+        key.Add("output", Path.GetFullPath(outputPath))
+        key.AddBool("strict-lint", validateStrictLint)
+        key.AddBool("analysis", validateWithLegacyAnalysis)
+        key.AddBool("aot", _aotMode)
+        key.AddBool("reference-assembly", _emitReferenceAssembly)
+        key.AddBool("soa", _soaEnabled)
+        key.AddBool("one-program", _declaredOneProgram)
+        key.Add("config", IncrementalConfigFingerprint.Describe(_config))
+        symbols := new List<string>(_preprocessorSymbols)
+        symbols.Sort(StringComparer.Ordinal)
+        key.Add("defines", string.Join(",", symbols))
+        key.Add("source-count", _sourceFiles.Count.ToString())
+        for sourceFile in _sourceFiles {
+            key.Add("source", Path.GetFullPath(sourceFile))
+        }
+        // Where the package cache is, and the directory a project with no `name:` is named after.
+        key.Add("nuget-packages", Environment.GetEnvironmentVariable("NUGET_PACKAGES"))
+        key.Add("user-profile", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
+        key.Add("current-directory", Environment.CurrentDirectory)
+        return key.Build()
+    }
+
+    private func WriteIncrementalStamp(stampPath: string, stampKey: string, capture: IncrementalBuildInputCapture, outputPath: string): void {
+        capture.CaptureFileImports(_projectRoot, _compilationUnits)
+        analyzer := _sharedAnalyzerValue
+        if analyzer != null {
+            capture.CaptureMetadataInputs(analyzer.MetadataInputAssemblyPaths(), analyzer.MetadataSearchDirectories())
+        }
+
+        stamp := new IncrementalBuildStamp(stampKey)
+        stamp.Entries.AddRange(capture.Entries)
+        stamp.AddOutput(outputPath)
+        if _emitReferenceAssembly {
+            stamp.AddOutput(MultiFileCompiler.ReferenceAssemblyPathFor(outputPath))
+        }
+        stamp.Diagnostics.AddRange(_allErrors)
+        if stamp.TryWrite(stampPath) {
+            CompilerStats.AddCacheWrite()
+        }
     }
 
     // Emit the whole assembly through the standalone columnar backend.

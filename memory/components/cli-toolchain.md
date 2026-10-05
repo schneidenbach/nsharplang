@@ -804,6 +804,60 @@ nlc build --release --verbose
 - Set `NSHARP_COLUMNAR_DECLINE_LOG=1` while debugging an `NL103` columnar-emission decline to print every decline trace
   record to stderr. `NSHARP_DEBUG_LOG=1` also mirrors the trace into `compile-debug.log`.
 
+### Incremental builds — the up-to-date stamp
+
+`nlc build`, `run`, `test`, `publish`, `pack` and every `project:` reference they build answer an
+UNCHANGED compilation from a stamp instead of compiling it: nothing is parsed, analysed, linted or
+emitted, the previous output is kept, and its diagnostics (warnings included) are printed exactly as
+the compilation printed them. A no-op `nlc build` of the 973-line `examples/16-task-cli` drops from
+0.88 s to 0.08 s of CPU, and a no-op `nlc test` from 1.88 s to 0.26 s (the tests still run).
+
+- **Content, never time.** The stamp (`<projectRoot>/obj/nlc/<assembly>.<output hash>.stamp`,
+  `IncrementalBuildStamp.nl`) records a KEY — every non-file input hashed together: the compiler's
+  identity (the deterministic MVIDs of the Model, Syntax, Core, Plan, Emit, CodeIntel and Driver
+  assemblies, plus the CLR version, runtime directory and RID), the options (assembly name, output
+  path, strict lint, analysis, AOT, reference assembly, SoA), the parsed `project.yml` (a structural
+  walk of every public field and read/write property, so a new setting is covered without anyone
+  listing it), the defines, the ordered source list, `NUGET_PACKAGES`, the user profile and the
+  current directory — and an ENTRY per file or directory the compilation consulted, with its SHA-256
+  (`IncrementalBuildInputCapture.nl` names each reader): every source; every `.nl` file the analyzer's
+  project walk sees, as a set and by content, and whether any `*.tests.nl` exists; `project.yml`
+  byte for byte; every `.editorconfig` from each source directory to the filesystem root (absence
+  recorded); `obj/project.assets.json`; hot-summary sidecars; every `dll:` reference and its paired
+  runtime asset; each `nuget:` reference's locally built `bin/` candidate and cache-directory listing;
+  each `project:` reference's `project.yml`; every file a unit imports by path (each spelling the
+  resolvers try); every assembly the analyzer's metadata context actually read, including lazily
+  resolved ones, and the listing of every directory its resolver probes; `NSharpLang.Runtime.dll`;
+  and the outputs themselves. Only files inside the running .NET installation's `shared/` and `packs/`
+  trees (immutable, version-named) are identified by path, size and write time.
+- **Fail-safe.** The stamp ends with a SHA-256 of its own payload and opens with a magic string and a
+  format version; a corrupt, truncated, foreign or old stamp is a miss. An unreadable input never
+  matches. Stamps are written atomically (unique temp file, then rename) and only after a successful
+  compilation, so a failed build is always re-run.
+- **Who opts in.** `MultiFileCompiler.IncrementalBuild` is off by default; the CLI's project builds
+  and reference builds turn it on. `nlc check`'s temporary verification build, editor buffers
+  (source overrides), single-file builds, `--perf-report` (which needs the systems analysis) and runs
+  with `NSHARP_COLUMNAR_DECLINE_LOG`/`NSHARP_DEBUG_LOG` set always compile. `NSHARP_INCREMENTAL=0`
+  turns every shortcut off for the process. `nlc test --no-cache` deletes the test output, which
+  invalidates its stamp.
+- **Pinned by** `tests/native/incremental-build` (`UpToDate.tests.nl`): every invalidation axis
+  (source edit, add/delete/rename, a test file the build does not compile, `project.yml` comment,
+  define, configuration value, compile options, `.editorconfig`, deleted or modified output, corrupt,
+  truncated or foreign stamp, a referenced DLL's content) rebuilds and must equal a build with the
+  machinery off; a touched-but-identical source stays up to date; and the stamp's `CompilerError`
+  field list is compared with the record's own members.
+
+### Compiler work counters (`NSHARP_STATS=1`)
+
+Any `nlc` command run with `NSHARP_STATS=1` prints one JSON line on stderr after its own output:
+`{"schemaVersion":1,"kind":"nsharp.compiler-stats","filesParsed":…,"filesAnalyzed":…,
+"filesAnalysisReused":…,"filesLinted":…,"filesPlanned":…,"assembliesEmitted":…,"compilationsRun":…,
+"compilationsUpToDate":…,"cacheHits":…,"cacheMisses":…,"cacheWrites":…,"parseMs":…,"analyzeMs":…,
+"lintMs":…,"emitMs":…,"upToDateCheckMs":…}`. The counters are exact and are the right evidence on a
+loaded machine; the `*Ms` phase times are wall clock. The one owner is `CompilerStats`
+(`src/NSharpLang.Compiler.Model/CompilerStats.nl`, the lowest slice so every pass can count into it);
+a harness in the same process reads `CompilerStats.ToJson()` and windows it with `Reset()`.
+
 ### `nlc publish` — Framework-Dependent Deployment Artifacts
 
 `nlc publish` builds through the IL backend and writes framework-dependent artifacts. Supported shapes today:

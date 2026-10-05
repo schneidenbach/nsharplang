@@ -151,6 +151,27 @@ class AnalyzerMetadataLoadSurface {
         Context = new MetadataLoadContext(resolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
     }
 
+    // EVERY FILE THIS CONTEXT READ METADATA FROM, including the assemblies the resolver pulled in
+    // lazily while a type was being resolved, plus the directories the resolver probes. An
+    // incremental build records both: a sibling assembly appearing in a probed directory can change
+    // what a later resolution finds.
+    func LoadedAssemblyLocations(): List<string> {
+        locations := new List<string>()
+        loadContext := Context
+        if loadContext == null {
+            return locations
+        }
+
+        for assembly in loadContext.GetAssemblies() {
+            location := assembly.Location
+            if !string.IsNullOrEmpty(location) {
+                locations.Add(location)
+            }
+        }
+
+        return locations
+    }
+
     // The analyzer is being disposed. The context is released and nothing may be loaded afterwards.
     func Close() {
         loadContext := Context
