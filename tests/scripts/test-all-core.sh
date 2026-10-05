@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# THE WORKSPACE SERVER IS OFF FOR THIS SCRIPT'S OWN `nlc` CALLS. `nlc check/build/test/...` route to a
+# warm per-workspace server by default; a batch that runs commands in parallel gains nothing from one
+# (concurrent requests are answered "busy" and run in-process anyway) and would leave one behind. The
+# in-process path is the reference behaviour; `tests/native/daemon-exec` proves the routed path
+# matches it. Set NLC_NO_DAEMON=0 to run this script's commands through the server instead.
+: "${NLC_NO_DAEMON:=1}"
+export NLC_NO_DAEMON
+
 echo "========================================="
 echo "N# Comprehensive Test Suite"
 echo "========================================="

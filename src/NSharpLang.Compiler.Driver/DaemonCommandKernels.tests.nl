@@ -51,9 +51,23 @@ test "an unknown subcommand is Unknown and does NOT ask for help, but no argumen
 test "the daemon help text names the command, its usage and its failure banner" {
     helpText := DaemonCommandKernels.GetHelpText()
 
-    assert helpText.Contains("N# Analysis Daemon")
+    assert helpText.Contains("N# Workspace Server")
     assert helpText.Contains("Usage: nlc daemon <command> [options]")
     assert helpText.Contains("Command failed")
+
+    // The help is where a user learns the server is automatic and how to turn it off.
+    assert helpText.Contains("--no-daemon")
+    assert helpText.Contains("NLC_NO_DAEMON=1")
+    assert helpText.Contains("start it in the background on first use")
+}
+
+test "--background is a daemon run flag the summary reports, off unless given" {
+    background := DaemonCommandKernels.GetOptionSummary(["run", "--project", "/w", "--background"])
+    assert background.SubcommandKind == DaemonSubcommandKind.Run
+    assert background.ProjectOption == "/w"
+    assert background.Background
+
+    assert !DaemonCommandKernels.GetOptionSummary(["run", "--project", "/w"]).Background
 }
 
 test "every daemon lifecycle sentence is spelled by a kernel, character for character" {

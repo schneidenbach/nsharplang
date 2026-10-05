@@ -259,8 +259,13 @@ class DaemonClient {
             argumentIndex = argumentIndex + 1
         }
 
+        // All three streams are fresh pipes: a server that inherited the caller's stdout would hold
+        // it open for its whole life, and `nlc daemon start | cat` would not finish until the server
+        // idled out. Startup lines arrive on stderr and are echoed below; the server sends anything
+        // later to its log.
         startInfo.UseShellExecute = false
-        startInfo.RedirectStandardOutput = false
+        startInfo.RedirectStandardInput = true
+        startInfo.RedirectStandardOutput = true
         startInfo.RedirectStandardError = true
         startInfo.CreateNoWindow = true
         startInfo.WorkingDirectory = projectRoot

@@ -97,7 +97,6 @@ class DaemonServer {
     background: bool
     maxMemoryMegabytes: long
     lockStream: FileStream?
-    listenerSocket: Socket?
 
     constructor(root: string): this(root, TimeSpan.FromMilliseconds((double)DaemonExecKernels.ParseIdleTimeoutMilliseconds(
         Environment.GetEnvironmentVariable(DaemonExecKernels.GetIdleTimeoutEnvironmentVariable()),
@@ -128,7 +127,6 @@ class DaemonServer {
         background = false
         maxMemoryMegabytes = DaemonExecKernels.ParseMaxMemoryMegabytes(Environment.GetEnvironmentVariable(DaemonExecKernels.GetMaxMemoryEnvironmentVariable()))
         lockStream = null
-        listenerSocket = null
     }
 
     // `daemon run --background`: started by a client that does not wait, so every line goes to the
@@ -172,12 +170,9 @@ class DaemonServer {
             kick.Connect(new UnixDomainSocketEndPoint(socketPath))
             kick.Close()
         } catch kickFailure: Exception {
-            // No socket file to connect through (the workspace was deleted): closing the listener
-            // is what unblocks `Accept` instead.
-            listener := listenerSocket
-            if listener != null {
-                listener.Close()
-            }
+            // No socket file to connect through (the workspace was deleted): the accept loop polls,
+            // so it sees `running` cleared within one poll interval anyway.
+            return
         }
     }
 
@@ -344,7 +339,6 @@ class DaemonServer {
             }
 
             using listener := new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
-            listenerSocket = listener
 
             try {
                 listener.Bind(new UnixDomainSocketEndPoint(socketPath))
@@ -379,6 +373,7 @@ class DaemonServer {
                     writer.AutoFlush = true
                     previousError := Console.Error
                     synchronized := TextWriter.Synchronized(writer)
+                    Console.SetOut(synchronized)
                     Console.SetError(synchronized)
                     logWriter = synchronized
                     previousError.Dispose()
@@ -424,8 +419,15 @@ class DaemonServer {
 
                 StartWarmup()
 
+                // The loop POLLS rather than blocking in `Accept`: on macOS closing a listener does not
+                // wake a thread blocked in accept(2), so a server whose socket file was deleted could
+                // never be woken to exit. Half a second of poll is invisible next to a command.
                 while Volatile.Read(ref running) {
                     try {
+                        if !listener.Poll(500000, SelectMode.SelectRead) {
+                            continue
+                        }
+
                         client := listener.Accept()
                         lastActivity = DateTime.UtcNow
 
@@ -451,7 +453,6 @@ class DaemonServer {
                 WaitForActiveRequests()
             } finally {
                 Volatile.Write(ref running, false)
-                listenerSocket = null
                 if ownsSocket {
                     Cleanup(pidPath)
                 } else {

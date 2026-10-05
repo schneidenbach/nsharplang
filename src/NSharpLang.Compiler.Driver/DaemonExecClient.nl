@@ -447,8 +447,13 @@ class DaemonAutoStart {
             socketDirectory := Path.GetDirectoryName(socketPath) ?? workspaceRoot
             markerPath := Path.Combine(socketDirectory, DaemonExecKernels.GetSpawnMarkerFileName())
             if !force && File.Exists(markerPath) {
-                age := DateTime.UtcNow - File.GetLastWriteTimeUtc(markerPath)
-                if age.TotalMilliseconds >= 0 && age.TotalMilliseconds < (double)DaemonExecKernels.GetSpawnBackoffMilliseconds() {
+                markerTime := File.GetLastWriteTimeUtc(markerPath)
+                age := DateTime.UtcNow - markerTime
+                pidPath := DaemonProtocolKernels.GetPidFilePath(socketPath)
+                // A server that came up after the last attempt (its PID file is newer) and has since
+                // died is not a server that cannot start: replace it now.
+                cameUp := File.Exists(pidPath) && File.GetLastWriteTimeUtc(pidPath) >= markerTime
+                if !cameUp && age.TotalMilliseconds >= 0 && age.TotalMilliseconds < (double)DaemonExecKernels.GetSpawnBackoffMilliseconds() {
                     return false
                 }
             }
