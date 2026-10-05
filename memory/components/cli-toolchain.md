@@ -1244,6 +1244,7 @@ nlc daemon stop
 | Test environment | `NLC_DAEMON_CHILD=1` during every test run on BOTH routes, so a test that runs `nlc` never starts or queues on a server and observes the same environment either way | `TestCommandHost.RunRunnerInProcess` |
 | Cancellation | Client SIGINT/SIGTERM: commit buffered output, send `Cancel`, then die by the signal exactly as in-process (`-2`/`-15`). Server kills registered children (test workers) and, if the command is still running after 10 s, removes its socket and exits | `DaemonClientSession.OnInterrupt`, `DaemonServer.RetireIfStillRunning` |
 | Server loss | Keep-alive every 1 s; no frame for 15 s = frozen (the client kills that PID). EOF/freeze before `Done` → one stderr line `nlc: the workspace server stopped responding; running in-process instead (…)` and an in-process rerun. Output is held for the first 1.5 s / 64 KB, so an early loss prints only the rerun's output. After `nlc run` launched the program, its exit code stands (the program is never run twice) | `DaemonClientSession.Lose` |
+| Detachment | A server any `nlc` launched (auto or `daemon start`) gets fresh pipes for stdin/stdout/stderr (every other descriptor is close-on-exec), ignores SIGINT/SIGHUP (the launching terminal's process group), and stops gracefully on SIGTERM — the managed equivalent of `setsid`. A hand-typed `nlc daemon run` keeps default signals | `DaemonServer.Run`, `DaemonClient.StartDaemon`, `DaemonAutoStart.Spawn` |
 | Lifecycle | Idle timeout (default 30 m, `NLC_DAEMON_IDLE_TIMEOUT`; never while a request runs), liveness (socket file gone → exit within 2 s), memory cap (default 4096 MB, `NLC_DAEMON_MAX_MEMORY_MB`: trim warm state, GC, retire if still over), SIGTERM graceful (in-flight requests finish), background servers ignore SIGINT/SIGHUP. The accept loop POLLS (500 ms): on macOS `close()` does not wake a thread blocked in `accept(2)` | `DaemonServer` |
 | Stale references | The compiler loads executable handles for references (packages, `project:` outputs) into non-collectible contexts. MEASURED: rebuild a referenced library with a new member and a long-lived compiler's emitter still sees the old one. So the server records every loaded assembly file outside the runtime and CLI directories, checks them before each command, and on any change declines (client runs in-process) and retires; the next command starts a fresh server. A project's OWN output changing does not trigger it | `DaemonLoadedReferenceGuard` |
 | Warm-up | A new server compiles a small built-in project (`check` + `build`, output discarded) under the work lock before taking work, then pre-spawns a test worker (`NLC_DAEMON_WARMUP=0` skips) | `DaemonWarmup`, `DaemonExecHost.RunWarmupHooks` |
@@ -1276,13 +1277,13 @@ single-analysis `check`.
 
 ### Native rows
 
-`tests/native/daemon-exec` (20 rows, real processes against a real server): routing and auto-start,
+`tests/native/daemon-exec` (22 rows, real processes against a real server): routing and auto-start,
 switches (`--no-daemon`, `NLC_NO_DAEMON`, `CI`), no-workspace, parity over success/error/JSON/text/
 `--color=always`/failing tests/`--verbose`/`--filter`/`format --stdin`/`run` with stdin and exit code,
 per-request env and cwd, `Environment.Exit` and stack-overflow isolation, server killed mid-command,
 build-identity replacement (a `DOTNET_` variable makes the other build), a `project:` dependency rebuilt under a running server, two clients at once,
 SIGTERM cancellation of a hung test, status/stop, idle timeout, workspace deletion, memory cap,
-owner-only socket. Kernel and wire contracts: `DaemonExecKernels.tests.nl`,
+owner-only socket, `nlc daemon start` outside any repository returning while a caller reads its output to EOF (both bugs the agent-loop benchmark reported against the old start path: `dotnet run --project src/NSharpLang.Cli` outside the repo, and the server inheriting the caller's stdout), and a launched server ignoring SIGHUP/SIGINT but stopping on SIGTERM. Kernel and wire contracts: `DaemonExecKernels.tests.nl`,
 `DaemonServerAndClientKernels.tests.nl`, `DaemonCommandKernels.tests.nl` (Driver);
 `CliInvocationContext.tests.nl`, `WarmStateRegistry.tests.nl`, `ExternalTypeNameIndex.tests.nl`
 (Core/Model).

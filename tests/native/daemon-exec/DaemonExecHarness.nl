@@ -260,9 +260,9 @@ func DeleteWorkspace(workspace: string) {
 // ─── COMPARING OUTPUT ─────────────────────────────────────────────────────────────────────────
 //
 // Two runs of the same command differ only in wall-clock numbers. Everything else must match byte for
-// byte, so only durations are normalised: `[1.7s]`, `in 0.4s`, `"duration": "0.003s"`.
+// byte, so only durations are normalised: `[1.7s]`, `[3 ms]`, `in 0.4s`, `"duration": "0.003s"`.
 func Normalized(text: string): string {
-    result := System.Text.RegularExpressions.Regex.Replace(text, "[0-9]+(\\.[0-9]+)?(ms|s)\\b", "<t>")
+    result := System.Text.RegularExpressions.Regex.Replace(text, "[0-9]+(\\.[0-9]+)? ?(ms|s)\\b", "<t>")
     return System.Text.RegularExpressions.Regex.Replace(result, "[0-9]+m [0-9]+s\\b", "<t>")
 }
 

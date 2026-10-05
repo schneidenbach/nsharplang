@@ -306,17 +306,22 @@ class DaemonServer {
         }
 
         // SIGNALS. SIGTERM (`kill`, a logout, a container stop) is a request to stop: the accept loop
-        // winds down, requests in flight finish, the socket and PID file are removed. A background
-        // server was started from inside some command's process group, so a Ctrl-C or hang-up meant
-        // for that terminal must not reach it; a foreground `nlc daemon run` keeps the default and
-        // stops on Ctrl-C like any other program.
+        // winds down, requests in flight finish, the socket and PID file are removed.
+        //
+        // DETACHED. A server some `nlc` LAUNCHED (automatically, or by `nlc daemon start`; both hand it
+        // its log path) must outlive that command the way a `setsid` daemon does. Its three standard
+        // streams are fresh pipes, never the caller's (every other descriptor is close-on-exec), so a
+        // caller reading `nlc`'s output to end-of-file is never held open by the server; and the
+        // Ctrl-C or hang-up of the terminal whose process group launched it does not reach it. Only a
+        // `nlc daemon run` typed by hand keeps the default and stops on Ctrl-C like any program.
+        detached := background || (startupLogPath != null && startupLogPath != "")
         terminate := PosixSignalRegistration.Create(PosixSignal.SIGTERM, context => {
             context.Cancel = true
             RequestStop()
         })
         interrupt: PosixSignalRegistration? = null
         hangUp: PosixSignalRegistration? = null
-        if background {
+        if detached {
             interrupt = PosixSignalRegistration.Create(PosixSignal.SIGINT, context => {
                 context.Cancel = true
             })

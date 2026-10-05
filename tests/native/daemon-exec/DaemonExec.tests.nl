@@ -428,6 +428,59 @@ test "a referenced project rebuilt under a running server is never compiled agai
     }
 }
 
+test "nlc daemon start works outside any repository and never holds the caller's output open" {
+    workspace := NewWorkspace()
+    try {
+        WriteSource(workspace, "Program.nl", CleanProgram())
+        clock := Stopwatch.StartNew()
+        // `Finish` reads stdout and stderr to END-OF-FILE: a server that inherited either pipe would
+        // keep this call waiting until the server's idle timeout.
+        started := NlcWith(["daemon", "start"], workspace, NoEnvironment(), null)
+        assert started.ExitCode == 0
+        assert started.Stdout.Contains("Daemon started.")
+        assert clock.ElapsedMilliseconds < 60000
+        pid := ServerPid(workspace)
+        assert IsProcessAlive(pid)
+
+        // The same for the background start a routed command does.
+        StopServer(workspace)
+        routed := NlcWith(["check"], workspace, NoEnvironment(), null)
+        assert routed.ExitCode == 0
+        assert WaitUntil(() => IsProcessAlive(ServerPid(workspace)), 60000)
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
+test "a launched server ignores the hang-up and Ctrl-C of the terminal it came from and stops on SIGTERM" {
+    workspace := NewWorkspace()
+    try {
+        WriteSource(workspace, "Program.nl", CleanProgram())
+        assert NlcWith(["daemon", "start"], workspace, NoEnvironment(), null).ExitCode == 0
+        pid := ServerPid(workspace)
+        for signal in ["-HUP", "-INT"] {
+            sender := Process.Start("kill", signal + " " + pid.ToString())
+            if sender != null {
+                (sender ?? new Process()).WaitForExit()
+            }
+        }
+
+        Thread.Sleep(1000)
+        assert IsProcessAlive(pid)
+        assert StatusString(workspace, "pid") == pid.ToString()
+
+        terminate := Process.Start("kill", "-TERM " + pid.ToString())
+        if terminate != null {
+            (terminate ?? new Process()).WaitForExit()
+        }
+
+        assert WaitUntil(() => !IsProcessAlive(pid), 20000)
+        assert !File.Exists(SocketPath(workspace))
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
 // ═══ LIFECYCLE ════════════════════════════════════════════════════════════════════════════════
 
 test "daemon status reports the build and its load, and daemon stop stops it" {
