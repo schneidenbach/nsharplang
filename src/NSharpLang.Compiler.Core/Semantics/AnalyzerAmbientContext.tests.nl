@@ -1414,23 +1414,27 @@ test "THE MEMBER-LIST SLOT HANDS THE PREVIOUS LIST BACK AND NESTS, WHATEVER THE 
     assert harness.Context.CurrentTypeMembers == null
 }
 
-test "NEITHER TYPE-CONTEXT SLOT IS RESET BY BeginAnalysis, WHICH IS THE SHELL'S OWN ASYMMETRY" {
+test "TYPE-CONTEXT SLOTS ARE NOT RESET BY BeginAnalysis, WHICH IS THE SHELL'S OWN ASYMMETRY" {
     harness := AmbientDefault()
-    harness.Context.EnterClassDeclaration(AmbientClass("Outer"))
+    outer := AmbientClass("Outer")
+    harness.Context.EnterClassDeclaration(outer)
+    harness.Context.EnterConstructorDeclaringClass(outer)
     harness.Context.EnterTypeName("Outer")
     harness.Context.EnterLoop()
 
     harness.Context.BeginAnalysis()
 
-    // The eight fields `Analyzer.cs` reset in its prologue are reset; the two it left alone are
-    // left alone. They are only ever written inside a matched pair, so they are already null
+    // The eight fields `Analyzer.cs` reset in its prologue are reset; the type-context slots it left
+    // alone remain. They are only ever written inside a matched pair, so they are already null
     // wherever a new analysis can begin — and resetting them here would be a write this family
     // never performed.
     assert !harness.Context.InLoop
     assert harness.Context.CurrentTypeName == "Outer"
     assert harness.Context.CurrentClass != null
+    assert harness.Context.CurrentConstructorDeclaringClass == outer
 
     harness.Context.ExitTypeName(null)
+    harness.Context.ExitConstructorDeclaringClass(null)
     harness.Context.ExitClassDeclaration(null)
 }
 

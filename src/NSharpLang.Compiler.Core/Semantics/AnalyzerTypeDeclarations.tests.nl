@@ -27,9 +27,10 @@ func TypeDeclarationTestRequiredSuggestion(error: CompilerError): string {
 // members. Levelling that would silently make a forward reference between two struct methods resolve
 // where it does not today.
 //
-// (2) A CLASS MOVES BOTH AMBIENT SLOTS AND EVERYTHING ELSE MOVES ONE. A struct, record or interface
-// sets only the ambient type NAME, so a struct nested inside a class is analysed with that class
-// still current — which is what the constructor's definite-assignment walk and the `lock` rule read.
+// (2) A CLASS MOVES `CurrentClass`; all four forms set the constructor declaring-class slot to the
+// class they own, or clear it for a non-class form. A nested struct still leaves the enclosing
+// `CurrentClass` visible to the `lock` rule, but its constructor must not inherit that class's field
+// assignment duty.
 //
 // (3) THE MEMBER WALK RE-ENTERS THE DISPATCH THIS WALK IS REACHED THROUGH. A nested type declaration
 // is a SECOND state and a SECOND driver frame; the outer walk's phase, member index and saved ambient
@@ -86,9 +87,10 @@ class TypeDeclarationStep {
     Depth: int
     AmbientTypeName: string
     AmbientClassName: string
+    AmbientConstructorClassName: string
     ErrorCount: int
 
-    constructor(kind: int, name: string?, containingType: string?, carriedType: string, scopeKindName: string, recordsBinding: bool, parameterCount: int, hasMember: bool, hasNode: bool, line: int, column: int, depth: int, ambientTypeName: string, ambientClassName: string, errorCount: int) {
+    constructor(kind: int, name: string?, containingType: string?, carriedType: string, scopeKindName: string, recordsBinding: bool, parameterCount: int, hasMember: bool, hasNode: bool, line: int, column: int, depth: int, ambientTypeName: string, ambientClassName: string, ambientConstructorClassName: string, errorCount: int) {
         Kind = kind
         Name = name
         ContainingType = containingType
@@ -103,6 +105,7 @@ class TypeDeclarationStep {
         Depth = depth
         AmbientTypeName = ambientTypeName
         AmbientClassName = ambientClassName
+        AmbientConstructorClassName = ambientConstructorClassName
         ErrorCount = errorCount
     }
 }
@@ -194,7 +197,7 @@ func TypeDeclRun(harness: TypeDeclarationHarness, state: TypeDeclarationState, a
         }
 
         scopeKindName := step.CarriedScopeKind as object
-        steps.Add(new TypeDeclarationStep(step.Kind, step.Name, step.ContainingType, TypeDeclText(step.CarriedType), scopeKindName.ToString() ?? "", step.RecordsBinding, parameterCount, step.Member != null, step.Node != null, step.Line, step.Column, harness.Scopes.Count, TypeDeclName(harness.Ambient.CurrentTypeName), TypeDeclClassName(harness.Ambient.CurrentClass), harness.Errors.Count))
+        steps.Add(new TypeDeclarationStep(step.Kind, step.Name, step.ContainingType, TypeDeclText(step.CarriedType), scopeKindName.ToString() ?? "", step.RecordsBinding, parameterCount, step.Member != null, step.Node != null, step.Line, step.Column, harness.Scopes.Count, TypeDeclName(harness.Ambient.CurrentTypeName), TypeDeclClassName(harness.Ambient.CurrentClass), TypeDeclClassName(harness.Ambient.CurrentConstructorDeclaringClass), harness.Errors.Count))
 
         if step.Kind == 2 {
             harness.Scopes.Push(harness.Model, new Scope(step.CarriedScopeKind), step.Line, step.Column)
@@ -670,7 +673,7 @@ test "THE FORWARD-REFERENCE PASS DECLARES ONLY FUNCTIONS, AND THE MEMBER WALK TA
 // THE AMBIENT TYPE CONTEXT
 // ---------------------------------------------------------------------------------------------
 
-test "A CLASS ENTERS BOTH AMBIENT SLOTS AND RESTORES BOTH WHEN IT LEAVES" {
+test "A CLASS ENTERS ITS TYPE AND CONSTRUCTOR OWNERS AND RESTORES THEM WHEN IT LEAVES" {
     harness := TypeDeclDefault()
     assert harness.Ambient.CurrentTypeName == null
     assert harness.Ambient.CurrentClass == null
@@ -681,31 +684,49 @@ test "A CLASS ENTERS BOTH AMBIENT SLOTS AND RESTORES BOTH WHEN IT LEAVES" {
     // Every step inside the walk sees the class as current — which is what makes a member a member.
     assert steps[0].AmbientTypeName == "Box"
     assert steps[0].AmbientClassName == "Box"
+    assert steps[0].AmbientConstructorClassName == "Box"
     assert steps[3].AmbientTypeName == "Box"
     // And the walk leaves them exactly as it found them.
     assert harness.Ambient.CurrentTypeName == null
     assert harness.Ambient.CurrentClass == null
 }
 
-test "A STRUCT, RECORD AND INTERFACE MOVE ONLY THE NAME — A NESTED ONE KEEPS THE OUTER CLASS CURRENT" {
+test "A STRUCT, RECORD AND INTERFACE CLEAR THE CONSTRUCTOR OWNER WHILE KEEPING THE OUTER CLASS CURRENT" {
     harness := TypeDeclDefault()
     outer := TypeDeclClass("Outer", TypeDeclNoMembers(), null, null, Modifiers.None)
     savedClass := harness.Ambient.EnterClassDeclaration(outer)
+    savedConstructorClass := harness.Ambient.EnterConstructorDeclaringClass(outer)
     savedName := harness.Ambient.EnterTypeName("Outer")
 
     structSteps := TypeDeclRun(harness, harness.Declarations.BeginStruct(TypeDeclStruct("Point", TypeDeclNoMembers(), null, null, Modifiers.None), harness.Assignability), null)
 
-    // The NAME is the struct's; the CLASS is still the enclosing one. That asymmetry is what the
-    // constructor's definite-assignment walk and the `lock` rule read.
+    // The type name is the struct's and `CurrentClass` stays the enclosing class for the lock rule;
+    // the separate constructor owner is cleared so the struct cannot inherit its field duty.
     assert structSteps[0].AmbientTypeName == "Point"
     assert structSteps[0].AmbientClassName == "Outer"
+    assert structSteps[0].AmbientConstructorClassName == "<null>"
     assert harness.Ambient.CurrentTypeName == "Outer"
     assert harness.Ambient.CurrentClass != null
+    assert harness.Ambient.CurrentConstructorDeclaringClass == outer
+
+    recordSteps := TypeDeclRun(harness, harness.Declarations.BeginRecord(TypeDeclRecord("Pair", TypeDeclNoMembers(), null, Modifiers.None), harness.Assignability), null)
+    assert recordSteps[0].AmbientTypeName == "Pair"
+    assert recordSteps[0].AmbientClassName == "Outer"
+    assert recordSteps[0].AmbientConstructorClassName == "<null>"
+    assert harness.Ambient.CurrentConstructorDeclaringClass == outer
+
+    interfaceSteps := TypeDeclRun(harness, harness.Declarations.BeginInterface(TypeDeclInterface("Shape", TypeDeclNoMembers(), Modifiers.None), harness.Assignability), null)
+    assert interfaceSteps[0].AmbientTypeName == "Shape"
+    assert interfaceSteps[0].AmbientClassName == "Outer"
+    assert interfaceSteps[0].AmbientConstructorClassName == "<null>"
+    assert harness.Ambient.CurrentConstructorDeclaringClass == outer
 
     harness.Ambient.ExitTypeName(savedName)
+    harness.Ambient.ExitConstructorDeclaringClass(savedConstructorClass)
     harness.Ambient.ExitClassDeclaration(savedClass)
     assert harness.Ambient.CurrentTypeName == null
     assert harness.Ambient.CurrentClass == null
+    assert harness.Ambient.CurrentConstructorDeclaringClass == null
 }
 
 test "A UNION, AN ENUM AND A FIELD NEVER WRITE THE AMBIENT TYPE NAME" {
@@ -747,7 +768,7 @@ test "A NESTED TYPE IS A SECOND STATE AND A SECOND FRAME, AND THE OUTER WALK RES
     step := harness.Declarations.NextStep(outerState)
     while step != null {
         scopeKindName := step.CarriedScopeKind as object
-        outerSteps.Add(new TypeDeclarationStep(step.Kind, step.Name, step.ContainingType, TypeDeclText(step.CarriedType), scopeKindName.ToString() ?? "", step.RecordsBinding, 0, step.Member != null, step.Node != null, step.Line, step.Column, harness.Scopes.Count, TypeDeclName(harness.Ambient.CurrentTypeName), TypeDeclClassName(harness.Ambient.CurrentClass), harness.Errors.Count))
+        outerSteps.Add(new TypeDeclarationStep(step.Kind, step.Name, step.ContainingType, TypeDeclText(step.CarriedType), scopeKindName.ToString() ?? "", step.RecordsBinding, 0, step.Member != null, step.Node != null, step.Line, step.Column, harness.Scopes.Count, TypeDeclName(harness.Ambient.CurrentTypeName), TypeDeclClassName(harness.Ambient.CurrentClass), TypeDeclClassName(harness.Ambient.CurrentConstructorDeclaringClass), harness.Errors.Count))
 
         if step.Kind == 2 {
             harness.Scopes.Push(harness.Model, new Scope(step.CarriedScopeKind), step.Line, step.Column)
@@ -782,14 +803,17 @@ test "A NESTED TYPE IS A SECOND STATE AND A SECOND FRAME, AND THE OUTER WALK RES
     assert TypeDeclKinds(innerSteps) == "2,3,5"
     assert innerSteps[1].Depth == 3
     assert innerSteps[1].AmbientTypeName == "Inner"
+    assert innerSteps[1].AmbientConstructorClassName == "Inner"
     assert TypeDeclKinds(outerSteps) == "2,3,7,7,5"
     assert outerSteps[3].AmbientTypeName == "Outer"
     assert outerSteps[3].AmbientClassName == "Outer"
+    assert outerSteps[3].AmbientConstructorClassName == "Outer"
     assert outerSteps[3].Depth == 2
     // Both walks closed everything they opened, and the ambient context came all the way back.
     assert harness.Scopes.Count == 1
     assert harness.Ambient.CurrentTypeName == null
     assert harness.Ambient.CurrentClass == null
+    assert harness.Ambient.CurrentConstructorDeclaringClass == null
 }
 
 test "THE MEMBER STEP ANSWERS NOTHING, SO A RE-ENTRY CANNOT DISTURB THE OUTER WALK'S FOLD" {

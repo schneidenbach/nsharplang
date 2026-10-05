@@ -899,10 +899,11 @@ class AnalyzerDeclarationWalkers {
         }
 
         if phase == 47 {
-            // Definite assignment is the DECLARING CLASS's question, and a constructor that chains
-            // to another one has handed the duty over: the fields it does not set are the other
-            // constructor's to set.
-            currentClass := ambient.CurrentClass
+            // Definite assignment belongs to the constructor's declaring class. `CurrentClass` may
+            // still name an enclosing class while a nested struct, record or interface is walked, so
+            // use the dedicated owner slot. A constructor that chains has handed the duty over: the
+            // fields it does not set are the other constructor's to set.
+            currentClass := ambient.CurrentConstructorDeclaringClass
             if currentClass != null && ctor.Initializer == null {
                 definiteAssignment.CheckConstructorFields(ctor, currentClass)
             }

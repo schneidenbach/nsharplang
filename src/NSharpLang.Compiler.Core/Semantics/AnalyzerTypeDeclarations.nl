@@ -103,10 +103,12 @@ class TypeDeclarationRequest {
 //          arm's rules; 43 declares the name; 44 records the type member; 45 records the field.
 //   99     done.
 //
-// `SavedClass`, `SavedTypeMembers` and `SavedTypeName` are the ambient context's hand-backs, held
-// HERE because the boundary opens in phase 0 and closes in phase 8 with the whole member walk in
-// between. They are three slots rather than one frame because the four type forms do not move them
-// together: only a CLASS moves the declaration, while all four move the name and the member list.
+// `SavedClass`, `SavedConstructorDeclaringClass`, `SavedTypeMembers` and `SavedTypeName` are the
+// ambient context's hand-backs, held HERE because the boundary opens in phase 0 and closes in phase 8
+// with the whole member walk in between. They are separate slots because the four type forms do not
+// move them together: only a CLASS moves `CurrentClass`; all four set the constructor owner to the
+// class currently declaring constructors (or null for a non-class form); all four move the name and
+// the member list.
 //
 // `SavedExpectedType` is the target-typing slot's hand-back for the field band's checked arm, held
 // for exactly one step.
@@ -133,6 +135,7 @@ class TypeDeclarationState {
     ParameterType: TypeInfo
     FieldType: TypeInfo
     SavedClass: ClassDeclaration?
+    SavedConstructorDeclaringClass: ClassDeclaration?
     SavedTypeMembers: List<Declaration>?
     SavedTypeName: string?
     SavedExpectedType: TypeInfo?
@@ -152,6 +155,7 @@ class TypeDeclarationState {
         ParameterType = BuiltInTypes.Unknown
         FieldType = BuiltInTypes.Unknown
         SavedClass = null
+        SavedConstructorDeclaringClass = null
         SavedTypeMembers = null
         SavedTypeName = null
         SavedExpectedType = null
@@ -388,9 +392,11 @@ class AnalyzerTypeDeclarations {
 
     // PHASE 0 — THE AMBIENT CONTEXT, THE CONVENTION, THE DECLARED TYPE AND THE SCOPE, IN THAT ORDER.
     // The ambient context moves FIRST, before a single report, because every report made from here
-    // down is made from inside this type. A CLASS moves the DECLARATION slot and everything else
-    // leaves it alone — the difference a struct nested in a class depends on — while all four forms
-    // move the NAME and the MEMBER LIST together, so those two always describe the same declaration.
+    // down is made from inside this type. A CLASS moves the `CurrentClass` declaration slot and
+    // everything else leaves it alone — the difference a struct nested in a class depends on. The
+    // separate constructor-owner slot is set to this class for a class walk and cleared for every
+    // non-class form, so a nested type's constructor cannot inherit another type's field duty. All
+    // four forms move the NAME and the MEMBER LIST together, so those two always describe this type.
     // The declared type is looked up BEFORE the scope opens, so the lookup sees the ENCLOSING scope,
     // which is where a type declaration's own name lives.
     //
@@ -405,6 +411,8 @@ class AnalyzerTypeDeclarations {
             classDeclaration := state.Declaration as ClassDeclaration
             state.SavedClass = ambientValue.EnterClassDeclaration(classDeclaration)
         }
+
+        state.SavedConstructorDeclaringClass = ambientValue.EnterConstructorDeclaringClass(state.Declaration as ClassDeclaration)
 
         state.SavedTypeMembers = ambientValue.EnterTypeMembers(TypeMembers(state))
         state.SavedTypeName = ambientValue.EnterTypeName(name)
@@ -588,6 +596,8 @@ class AnalyzerTypeDeclarations {
         if state.Form == 0 {
             ambientValue.ExitClassDeclaration(state.SavedClass)
         }
+
+        ambientValue.ExitConstructorDeclaringClass(state.SavedConstructorDeclaringClass)
 
         ambientValue.ExitTypeMembers(state.SavedTypeMembers)
         ambientValue.ExitTypeName(state.SavedTypeName)

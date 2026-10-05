@@ -232,6 +232,7 @@ class AnalyzerAmbientContext {
     capturedByRefParameterNamesValue: HashSet<string>?
     currentExpectedTypeValue: TypeInfo?
     currentClassValue: ClassDeclaration?
+    currentConstructorDeclaringClassValue: ClassDeclaration?
     currentTypeMembersValue: List<Declaration>?
     currentTypeNameValue: string?
     inConstructorValue: bool
@@ -326,11 +327,15 @@ class AnalyzerAmbientContext {
     // nested walk.
     CurrentExpectedType: TypeInfo? => currentExpectedTypeValue
 
-    // THE CLASS DECLARATION THE WALK IS INSIDE, or `null` outside every class. Read by the
-    // constructor's definite-assignment walk, by the `lock` rule's value-type judgement and by the
-    // implicit-field lookups that let a bare name resolve to a field of the enclosing class. A struct,
-    // record or interface nested in a class does NOT clear it.
+    // THE CLASS DECLARATION THE WALK IS INSIDE, or `null` outside every class. Read by the `lock`
+    // rule's value-type judgement and by the implicit-field lookups that let a bare name resolve to a
+    // field of the enclosing class. A struct, record or interface nested in a class does NOT clear it.
     CurrentClass: ClassDeclaration? => currentClassValue
+
+    // THE CLASS THAT OWNS A CONSTRUCTOR'S FIELD-ASSIGNMENT DUTY, or `null` inside a non-class type.
+    // Unlike `CurrentClass`, this slot does not inherit an enclosing class through a nested struct,
+    // record or interface: their constructors cannot assign the enclosing class's fields.
+    CurrentConstructorDeclaringClass: ClassDeclaration? => currentConstructorDeclaringClassValue
 
     // THE MEMBER LIST OF THE TYPE THE WALK IS INSIDE — a CLASS's, a STRUCT's or a RECORD's alike —
     // or `null` outside all three. `CurrentClass` cannot answer this: its slot is typed
@@ -447,6 +452,7 @@ class AnalyzerAmbientContext {
         rethrowTargetFinallyDepthValue = 0
         currentExpectedTypeValue = null
         currentClassValue = null
+        currentConstructorDeclaringClassValue = null
         currentTypeMembersValue = null
         currentTypeNameValue = null
         inConstructorValue = false
@@ -700,23 +706,21 @@ class AnalyzerAmbientContext {
         memberIsStaticValue = saved
     }
 
-    // THE TYPE-DECLARATION FAMILY, WHICH IS TWO INDEPENDENT SLOTS RATHER THAN ONE FRAME, BECAUSE THE
-    // WALKS THAT MOVE THEM DO NOT MOVE THEM TOGETHER. A class declaration saves and sets BOTH: the
-    // declaration itself, which the constructor's definite-assignment walk, the `lock` rule and the
-    // implicit-field lookups read, and the type NAME, which every member declaration reads to know
-    // what it is a member OF. A struct, a record and an interface save and set ONLY THE NAME — so a
-    // struct nested inside a class is analysed with the CLASS still current, which is the shipped
-    // behaviour and is preserved verbatim rather than tidied into a single frame that would clear it.
+    // THE TYPE-DECLARATION FAMILY, WHICH MOVES SEPARATE SLOTS BECAUSE THE WALKS DO NOT MOVE THEM
+    // TOGETHER. Only a class declaration replaces `CurrentClass`; the `lock` rule and implicit-field
+    // lookups keep seeing the enclosing class inside a nested struct, record or interface. A second
+    // slot names the class that owns constructor field assignment and is cleared by those non-class
+    // forms. All four forms set the current type name and member list.
     //
     // A union, an enum and a `soa record` move neither: a union's cases and an enum's members are not
     // members OF a containing type in this sense, and the SoA walk READS the name to refuse a nested
     // table.
     //
-    // NEITHER SLOT IS RESET BY `BeginAnalysis`, and that is deliberate for the reason the
-    // expected-type slot records: `Analyzer.cs` reset its other ambient state in the `Analyze`
-    // prologue and left these two fields alone. They are only ever written inside a matched
-    // save/restore pair, so they are already `null` wherever a new analysis can begin, and resetting
-    // them here would be a write this family never performed.
+    // THESE TYPE-CONTEXT SLOTS ARE NOT RESET BY `BeginAnalysis`, and that is deliberate for the
+    // reason the expected-type slot records: `Analyzer.cs` reset its other ambient state in the
+    // `Analyze` prologue and left these fields alone. They are only ever written inside matched
+    // save/restore pairs, so they are already back to `null` wherever a new analysis can begin, and
+    // resetting them here would be a write this family never performed.
     //
     // THE SNAPSHOT GOES TO THE CALLER, exactly as every other boundary here: the walk holds the saved
     // value on its own state and restores it on the straight line. A throw abandons the restore
@@ -729,6 +733,16 @@ class AnalyzerAmbientContext {
 
     func ExitClassDeclaration(saved: ClassDeclaration?) {
         currentClassValue = saved
+    }
+
+    func EnterConstructorDeclaringClass(declaration: ClassDeclaration?): ClassDeclaration? {
+        saved := currentConstructorDeclaringClassValue
+        currentConstructorDeclaringClassValue = declaration
+        return saved
+    }
+
+    func ExitConstructorDeclaringClass(saved: ClassDeclaration?) {
+        currentConstructorDeclaringClassValue = saved
     }
 
     // THE ENCLOSING TYPE'S MEMBERS, WHICH A CLASS, A STRUCT AND A RECORD ALL MOVE. Save/restore, for

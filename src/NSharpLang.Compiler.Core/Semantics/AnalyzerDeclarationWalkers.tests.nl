@@ -666,6 +666,7 @@ test "the definite-assignment check needs BOTH a declaring class and no initiali
     fields.Add(new FieldDeclaration("Value", new SimpleTypeReference("string", 5, 12), null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), 5, 5))
     classDeclaration := new ClassDeclaration("Thing", null, null, new List<TypeReference>(), fields, null, Modifiers.None, new List<AttributeNode>(), 4, 1)
     harness.Ambient.EnterClassDeclaration(classDeclaration)
+    harness.Ambient.EnterConstructorDeclaringClass(classDeclaration)
 
     DeclWalkRun(harness, harness.Walkers.BeginConstructor(DeclWalkConstructor(DeclWalkParams(), null), harness.Assignability), null)
 
@@ -679,6 +680,7 @@ test "a CHAINING constructor hands the definite-assignment duty over and is sile
     fields.Add(new FieldDeclaration("Value", new SimpleTypeReference("string", 5, 12), null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), 5, 5))
     classDeclaration := new ClassDeclaration("Thing", null, null, new List<TypeReference>(), fields, null, Modifiers.None, new List<AttributeNode>(), 4, 1)
     harness.Ambient.EnterClassDeclaration(classDeclaration)
+    harness.Ambient.EnterConstructorDeclaringClass(classDeclaration)
     initializer := new CallExpression(new IdentifierExpression("this", 7, 9), new List<Argument>(), null, 7, 9)
 
     DeclWalkRun(harness, harness.Walkers.BeginConstructor(DeclWalkConstructor(DeclWalkParams(), initializer), harness.Assignability), BuiltInTypes.Void)
@@ -689,6 +691,22 @@ test "a CHAINING constructor hands the definite-assignment duty over and is sile
 test "with NO declaring class the check does not run at all" {
     harness := DeclWalkHarnessOf()
 
+    DeclWalkRun(harness, harness.Walkers.BeginConstructor(DeclWalkConstructor(DeclWalkParams(), null), harness.Assignability), null)
+
+    assert harness.Errors.Count == 0
+}
+
+test "a nested type constructor does not inherit an enclosing class's field-assignment duty" {
+    harness := DeclWalkHarnessOf()
+    fields := new List<Declaration>()
+    fields.Add(new FieldDeclaration("Value", new SimpleTypeReference("string", 5, 12), null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), 5, 5))
+    enclosingClass := new ClassDeclaration("Outer", null, null, new List<TypeReference>(), fields, null, Modifiers.None, new List<AttributeNode>(), 4, 1)
+    harness.Ambient.EnterClassDeclaration(enclosingClass)
+
+    // This is the ambient shape while a nested struct, record or interface is analyzed:
+    // CurrentClass remains available to its existing readers, while no class owns this constructor.
+    assert harness.Ambient.CurrentClass == enclosingClass
+    assert harness.Ambient.CurrentConstructorDeclaringClass == null
     DeclWalkRun(harness, harness.Walkers.BeginConstructor(DeclWalkConstructor(DeclWalkParams(), null), harness.Assignability), null)
 
     assert harness.Errors.Count == 0
