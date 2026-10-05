@@ -256,7 +256,12 @@ static class ProgramCommands {
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute
             )
         } catch modeFailure: Exception {
-            // Best-effort on filesystems that do not support Unix modes.
+            if !(modeFailure is IOException || modeFailure is PlatformNotSupportedException) {
+                throw
+            }
+
+            // Unsupported Unix modes leave a usable publish artifact, but its launcher may need chmod.
+            Console.Error.WriteLine("warning: could not mark launcher executable at '" + launcherPath + "': " + modeFailure.Message)
         }
     }
 

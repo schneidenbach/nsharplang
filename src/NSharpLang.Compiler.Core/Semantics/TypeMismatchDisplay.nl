@@ -243,6 +243,7 @@ class TypeMismatchDisplay {
                 return " [" + assemblyName + "]"
             }
         } catch {
+            return ""
         }
 
         return ""

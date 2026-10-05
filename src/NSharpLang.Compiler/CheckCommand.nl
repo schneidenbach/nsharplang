@@ -341,7 +341,9 @@ class CheckCommand {
     private static func CleanupVerificationDirectory(tempDir: string): void {
         try {
             Directory.Delete(tempDir, true)
-        } catch {
+        } catch cleanupError: Exception {
+            // Keep a cleanup problem from replacing the check result, but make the leaked path visible.
+            Console.Error.WriteLine("warning: could not remove temporary verification directory '" + tempDir + "': " + cleanupError.Message)
         }
     }
 

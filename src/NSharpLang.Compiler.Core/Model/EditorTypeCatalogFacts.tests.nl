@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Reflection
 import NSharpLang.Compiler
 
@@ -82,9 +83,16 @@ func EtcAnalyzerUniverse(): List<Assembly> {
     names := ExternalAssemblyScan.CommonAssemblyNames()
     index := 0
     while index < names.Length {
+        assembly: Assembly? = null
         try {
-            assemblies.Add(context.LoadFromAssemblyName(names[index]))
-        } catch loadError: Exception {
+            assembly = context.LoadFromAssemblyName(names[index])
+        } catch missingAssembly: FileNotFoundException {
+            // The editor universe omits optional common assemblies that are absent from this reference pack.
+            assembly = null
+        }
+
+        if assembly != null {
+            assemblies.Add(assembly)
         }
 
         index = index + 1

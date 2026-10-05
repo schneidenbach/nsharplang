@@ -88,7 +88,9 @@ class AnalyzerWellKnownTypes {
 
         try {
             coreLibraryAssembly = metadataContext.LoadFromAssemblyName("System.Private.CoreLib")
-        } catch {
+        } catch missingCoreLibrary: FileNotFoundException {
+            // Some reference sets expose all required core types through the supplied core assembly.
+            coreLibraryAssembly = null
         }
 
         Int32 = ResolveRequired("System.Int32")
@@ -178,6 +180,9 @@ class AnalyzerWellKnownTypes {
             runtimeUnionOpen = runtimeAssembly.GetType("NSharpLang.Runtime.Union`2")
             runtimeResultOpen = runtimeAssembly.GetType("NSharpLang.Runtime.Result`2")
         } catch notFound: FileNotFoundException {
+            // The runtime is optional; keep both cached lookups absent if its assembly is unavailable.
+            runtimeUnionOpen = null
+            runtimeResultOpen = null
         }
     }
 

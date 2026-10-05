@@ -593,17 +593,19 @@ else
     # branch measurement is kept as the stricter ceiling while the final rebased tree is remeasured.
     # 2026-10-05, remove the six unused NL012 parameters and their dead call plumbing: Core 283,
     # Compiler 2. The identity diff has no additions; only those six NL012 findings were removed.
+    # 2026-10-05, handle empty catches with explicit fallbacks and failure paths: Core 275,
+    # Compiler 0. The identity diff has no additions; only eight Core and two Compiler NL011s were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        283
+        275
         0
         0
         0
         0
         0
-        2
+        0
         0
         0
     )

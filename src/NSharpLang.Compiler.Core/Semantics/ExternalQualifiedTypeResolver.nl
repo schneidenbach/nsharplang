@@ -29,23 +29,21 @@ class ExternalQualifiedTypeResolver {
         candidate := fullName
         searchEnd := candidate.Length
         while searchEnd > 0 {
-            index := 0
-            while index < assemblies.Count {
+            for assembly in assemblies {
                 try {
-                    resolved := AssemblyTypeNameIndex.GetTypeOrNull(assemblies[index], candidate)
+                    resolved := AssemblyTypeNameIndex.GetTypeOrNull(assembly, candidate)
                     if resolved != null && IsNameable(resolved, grants) {
                         runtimeType = resolved
                         return true
                     }
-                } catch {
+                } catch metadataError: Exception {
+                    // An unresolvable metadata slot must not hide an exact type in a later assembly.
+                    continue
                 }
-                // A hostile metadata slot cannot replace an exact type from a later slot.
-
-                index = index + 1
             }
 
             separator := -1
-            index = searchEnd - 1
+            index := searchEnd - 1
             while index >= 0 {
                 if candidate[index] == '.' {
                     separator = index
@@ -81,9 +79,10 @@ class ExternalQualifiedTypeResolver {
                     }
                     typeIndex = typeIndex + 1
                 }
-            } catch {
+            } catch metadataError: Exception {
+                // A hostile metadata slot must not hide an exact type in a later assembly.
+                continue
             }
-            // A hostile metadata slot cannot replace an exact type from a later slot.
         }
         return false
     }

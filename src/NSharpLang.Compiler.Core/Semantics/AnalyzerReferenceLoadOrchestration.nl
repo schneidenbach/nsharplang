@@ -452,11 +452,12 @@ class AnalyzerReferenceLoadOrchestration {
         versions := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         assetsPath := AnalyzerMetadataLoadPolicy.RestoredPackageAssetsPath(projectDirectory)
         if File.Exists(assetsPath) {
+            document: JsonDocument? = null
             try {
-                document := JsonDocument.Parse(File.ReadAllText(assetsPath))
+                document = JsonDocument.Parse(File.ReadAllText(assetsPath))
                 root := document.RootElement
                 libraries := new JsonElement()
-                if root.TryGetProperty(AnalyzerMetadataLoadPolicy.RestoredLibrariesPropertyName(), out libraries) {
+                if root.ValueKind == JsonValueKind.Object && root.TryGetProperty(AnalyzerMetadataLoadPolicy.RestoredLibrariesPropertyName(), out libraries) {
                     if libraries.ValueKind == JsonValueKind.Object {
                         entries := libraries.EnumerateObject()
                         while entries.MoveNext() {
@@ -469,9 +470,17 @@ class AnalyzerReferenceLoadOrchestration {
                         }
                     }
                 }
-
-                document.Dispose()
             } catch assetsError: Exception {
+                if !(assetsError is IOException || assetsError is UnauthorizedAccessException || assetsError is JsonException) {
+                    throw
+                }
+
+                // A partial restore map can pin the wrong package version, so discard it on read failure.
+                versions.Clear()
+            } finally {
+                if document != null {
+                    document.Dispose()
+                }
             }
         }
 

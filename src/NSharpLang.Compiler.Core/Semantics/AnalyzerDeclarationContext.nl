@@ -596,7 +596,8 @@ class AnalyzerDeclarationContext {
             if relative.Length > 0 && !relative.StartsWith("..", StringComparison.Ordinal) {
                 return relative.Replace('\\', '/')
             }
-        } catch {
+        } catch pathError: Exception {
+            return filePath
         }
 
         return filePath
