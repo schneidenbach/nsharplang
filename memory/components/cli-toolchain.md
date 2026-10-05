@@ -239,13 +239,17 @@ Undefined identifier 'unknownVar'
   diagnostics (`MultiFileCompiler.EmitAnalyzedAssembly`); it used to hand the project to a second
   compiler that parsed, analysed and loaded the reference closure again. On
   `tests/fixtures/issue-tracker` (8 files) `--stats` went from 40 parses / 16 analyses / 684
-  reference loads to 16 / 8 / 501. What remains per file is deliberate: the driver's parse of the
-  PREPROCESSED text the analysis runs on, the project source provider's parse of the raw text that
-  cross-file lookup reads (body analysis annotates the driver's declarations —
-  `ReferencedNullabilityReturnType` — so sharing those objects with other files' lookups would make
-  diagnostics depend on analysis order), and the emitter's own columnar parse. File imports reuse the
-  provider's parse. The analyzer's metadata context and the emitter's are still separate loads of the
-  same reference set (the larger share of `referenceAssembliesLoaded`).
+  reference loads to 16 / 8 / 501, and to 8 / 8 / 501 once the driver's parses were handed to the
+  analyzer. What remains per file: ONE parse, shared — the driver parses the text, and when
+  preprocessing changed nothing that parse (unit and syntax errors) seeds every analyzer of the
+  compilation (`Analyzer.SeedProjectParses`), which serves cross-file declaration lookup and file
+  imports (`TryGetProjectParse`) — plus the emitter's own columnar parse. Sharing declarations across
+  files is safe because analysis writes nothing another file's analysis reads: the one such write,
+  a body's nullable-return provenance, lives per analysis in `AnalyzerFunctionTypeFactory`
+  (`RecordBodyReturnType`), not on the declaration (it used to, and once declarations were shared it
+  made cross-file diagnostics depend on analysis order). The analyzer's metadata context and the
+  emitter's are still separate loads of the same reference set (the larger share of
+  `referenceAssembliesLoaded`).
 
 ### `--stats` — What One Command Cost
 
@@ -256,9 +260,19 @@ stderr does not have to parse around diagnostics). Stdout is never touched: `che
 a `--stats` after `--` belongs to the program, not to `nlc`.
 
 ```json
-{"schema":"nsharp.cli-stats","schemaVersion":1,"command":"check","exitCode":0,"wallMs":1483,"cpuMs":1483,
- "counters":{"filesParsed":40,"emitParses":8,"filesAnalyzed":16,"assembliesEmitted":1,"referenceAssembliesLoaded":684,"processesSpawned":0}}
+{"schema":"nsharp.cli-stats","schemaVersion":1,"command":"check","exitCode":0,"wallMs":727,"cpuMs":746,
+ "counters":{"filesParsed":8,"emitParses":8,"filesAnalyzed":8,"assembliesEmitted":1,"referenceAssembliesLoaded":501,"processesSpawned":0},
+ "phases":[{"project":"IssueTracker","phase":"parse","wallMs":22,"cpuMs":22,"allocatedBytes":1025064,"calls":1},
+           {"project":"IssueTracker","phase":"import-graph","wallMs":1,"cpuMs":1,"allocatedBytes":8200,"calls":1},
+           {"project":"IssueTracker","phase":"load-references","wallMs":40,"cpuMs":41,"allocatedBytes":23406936,"calls":1}, …]}
 ```
+
+ONE LINE, TWO OWNERS BEHIND IT: the `counters` are `CompilerWorkCounters`' (how much work — exact,
+load-independent, the agent-loop gate's subject) and the `phases` are `CompilerPhaseTimings`' (where
+the time went — the same rows `nlc build --timings` prints under `Phase timings:`). `--stats` turns
+the phase ledger on for its command. `phases` was added to version 1 as an optional field (omitted
+when nothing was recorded), which the version's own compatibility rule allows; no existing field
+changed.
 
 | Field | Meaning |
 |---|---|
@@ -273,6 +287,7 @@ a `--stats` after `--` belongs to the program, not to `nlc`.
 | `counters.assembliesEmitted` | IL images written by the columnar emitter (a reference assembly beside one is not counted) |
 | `counters.referenceAssembliesLoaded` | Reference images opened from a path: MetadataLoadContext loads plus exact-identity executable loads; one file in two contexts counts twice |
 | `counters.processesSpawned` | Child processes this process started (`DotnetRunner`, the daemon launcher) |
+| `phases[]` | Optional. One row per (project, phase) the command compiled — `load-references`, `parse`, `import-graph`, `analysis`, `systems-policy`, `lint`, `emit.parse`, `emit.codegen`, `emit.write` — with `wallMs`, `cpuMs` (process CPU across all threads, so CPU above wall is that phase's parallelism), `allocatedBytes` and `calls` (repeated rows folded). Wall-clock data: never gated |
 
 The counters are always on (`CompilerWorkCounters` in `src/NSharpLang.Compiler.Model`, one atomic
 increment per event) and process-wide; `--stats` reports the difference across the command. They do
@@ -286,7 +301,8 @@ before/after snapshot around the request (one request runs at a time, so the del
 request's), writes the line to the client's stderr or to the `--stats=<path>` file (resolved in the
 client's working directory), and reports `cpuMs` as the request's CPU delta rather than the server's
 lifetime total. `peakWorkingSetBytes` is then the SERVER's peak; time the client process for the
-client's own. A warm server opens fewer reference images per command (measured on the small agent-loop
+client's own. The server resets the phase ledger around every request, so a routed `--stats` or
+`--timings` reports its own phases and never an earlier client's. A warm server opens fewer reference images per command (measured on the small agent-loop
 project: no-op `check` 684 → 540, `build` 497 → 356, `test` 505 → 361), because executable reference
 handles loaded once stay loaded.
 
@@ -1005,6 +1021,33 @@ re-analysed. The incremental layers add their own direct readings:
 `MultiFileCompiler.WasUpToDate` (the stamp answered) and
 `IncrementalCompilationState.LastFilesAnalyzed` / `LastFilesReused` (what the last warm run did).
 
+### The workspace server holds the sessions — warm body-edit re-analysis
+
+`nlc check` and `nlc build` (and `run`/`test`/`publish`/`pack`, which compile through the same
+backend) take a warm session when the workspace server runs them for a client
+(`WarmIncrementalSessions`, Driver): one `IncrementalProjectSession` per compilation identity —
+project root, assembly, command (`check` analyses for diagnostics and emits into a scratch directory;
+`build` emits what it keeps), test sources included or not, AOT. So a routed check after a body edit
+re-analyses only the edited file; after a signature edit, that file and its dependents.
+
+- Only a command the server runs for a client gets a session (`CliInvocationContext.IsRemoteInvocation`);
+  a one-shot `nlc` and the server's own warm-up compile exactly as before.
+- The state's own environment key still resets it on any configuration, define or reference change,
+  so a stale session can cost a full compilation but never a wrong one. A compilation that THROWS
+  discards its session; a session in use is never handed to a second compilation.
+- It registers with `WarmStateRegistry` as `incremental-compilations`: a trim (memory cap) drops
+  every idle session, a path change needs nothing (the plan compares content), and
+  `nlc daemon status` lists `"incremental-compilations: N compilations, M files retained"`.
+- Composes with parallel analysis: files the plan reuses skip the workers; the rest fan out under
+  `CompilerParallelism`, and workers still replay every earlier file's import loads, reused ones
+  included. A reused file's driver parse is kept on its record, so it seeds the analyzers too.
+- Measured through `--stats` folded from the server (4-file probe, `tests/native/daemon-exec`):
+  first routed check 4 files analysed, after a body edit 1, after a signature edit with its caller
+  updated 2; `build` the same. Pinned by `daemon-exec`'s "a warm check and build re-analyse only the
+  files an edit reaches and answer as a fresh process does" (counters plus in-process parity across
+  body, signature and error edits) and `incremental-build/WarmIncrementalSessions.tests.nl` (identity,
+  busy refusal, trim, discard).
+
 ### `nlc publish` — Framework-Dependent Deployment Artifacts
 
 `nlc publish` builds through the IL backend and writes framework-dependent artifacts. Supported shapes today:
@@ -1377,7 +1420,8 @@ nlc query <cmd>
 | `src/NSharpLang.TestHost/TestWorkerHost.nl` | Isolated single-use test workers for server-run `nlc test` (N#-owned) |
 | `src/NSharpLang.Compiler.Model/CliInvocationContext.nl` | The remote-invocation scope: client command line, stderr-is-terminal, `run` launcher, cancellation, termination (N#-owned) |
 | `src/NSharpLang.Compiler.Model/WarmStateRegistry.nl` | The seam caches use to live in a long-lived host: change/trim/describe hooks (N#-owned) |
-| `src/NSharpLang.Compiler.Model/ExternalTypeNameIndex.nl` | Reference assemblies' top-level type names, read once per file version; lets type probes skip impossible MLC lookups (N#-owned) |
+| `src/NSharpLang.Compiler.Model/AssemblyTypeNameIndex.nl` | Reference assemblies' top-level type and forwarder names, per assembly object and per file version; lets every type probe skip impossible MLC lookups (N#-owned; the one owner since speed/integration) |
+| `src/NSharpLang.Compiler.Driver/WarmIncrementalSessions.nl` | The workspace server's incremental sessions, one per compilation identity (N#-owned) |
 | `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` | Shared analysis engine |
 | `src/NSharpLang.Compiler/CodeIntelligence/CompletionEngine.nl` | LLM-optimized completions (snapshot plumbing; policy lives in `NSharpLang.Compiler.CodeIntel/CompletionEngineKernels.nl`) |
 | `src/NSharpLang.Compiler/CodeIntelligence/SignatureHelpEngine.nl` | Overload signatures for a call being typed (snapshot plumbing; policy lives in `NSharpLang.Compiler.CodeIntel/SignatureHelpOverloadFacts.nl`). It resolves through the PROJECT SNAPSHOT, the same program completion asks, so an external instance or static method, a whole overload set and a type declared in another file all answer — the current document's own declaration table, which is all `textDocument/signatureHelp` used to read, could answer none of them |
@@ -1470,7 +1514,7 @@ nlc daemon stop
 | Lifecycle | Idle timeout (default 30 m, `NLC_DAEMON_IDLE_TIMEOUT`; never while a request runs), liveness (socket file gone → exit within 2 s), memory cap (default 4096 MB, `NLC_DAEMON_MAX_MEMORY_MB`: trim warm state, GC, retire if still over), SIGTERM graceful (in-flight requests finish), background servers ignore SIGINT/SIGHUP. The accept loop POLLS (500 ms): on macOS `close()` does not wake a thread blocked in `accept(2)` | `DaemonServer` |
 | Stale references | The compiler loads executable handles for references (packages, `project:` outputs) into non-collectible contexts. MEASURED: rebuild a referenced library with a new member and a long-lived compiler's emitter still sees the old one. So the server records every loaded assembly file outside the runtime and CLI directories, checks them before each command, and on any change declines (client runs in-process) and retires; the next command starts a fresh server. A project's OWN output changing does not trigger it | `DaemonLoadedReferenceGuard` |
 | Warm-up | A new server compiles a small built-in project (`check` + `build`, output discarded) under the work lock before taking work, then pre-spawns a test worker (`NLC_DAEMON_WARMUP=0` skips). `daemon/status` reports `"warm"`, and `nlc daemon start` returns only once it is true | `DaemonWarmup`, `DaemonExecHost.RunWarmupHooks` |
-| Warm state | Kept across commands: JIT, `ExternalTypeNameIndex` (each reference's top-level type/forwarder names per file version — lets the analyzer and `ExternalQualifiedTypeResolver` skip MLC misses, which build and discard a localized `TypeLoadException`), query snapshots per project. Any cache can join via `WarmStateRegistry.Register(name, onPathChanged, onTrim, describe)`; the server feeds it file-watcher changes, trims it before a memory retirement and lists it in `warmState` | `WarmStateRegistry` |
+| Warm state | Kept across commands: JIT, `AssemblyTypeNameIndex` (each reference's top-level type/forwarder names, per assembly object and per FILE VERSION — lets every type probe skip MLC misses, which build and discard a localized `TypeLoadException`; registered as `reference-type-names`), the incremental sessions (`WarmIncrementalSessions`, registered as `incremental-compilations`: a warm check/build re-analyses only what an edit reaches), query snapshots per project. Any cache can join via `WarmStateRegistry.Register(name, onPathChanged, onTrim, describe)`; the server feeds it file-watcher changes, trims it before a memory retirement and lists it in `warmState` | `WarmStateRegistry` |
 | Queries | `nlc query` reaches the WORKSPACE server, passes `projectRoot` and its `identity`; a different build answers `-32001` and the query runs in-process. The server keeps one snapshot per project, dropped on any watched change | `QueryCommand.TryExecuteViaDaemon`, `DaemonServer.EnsureSnapshot` |
 | Security | Socket `0600` after bind (connect needs write permission); fallback runtime dirs created `0700`; nothing listens on TCP | `DaemonServer.RunWithSignals`, `DaemonProtocolKernels.GetSocketPath` |
 | Scripts | `scripts/dev.sh` and `tests/scripts/test-all-core.sh` default `NLC_NO_DAEMON=1` for their own commands (parallel batches gain nothing; the in-process path is the reference). `NLC_NO_DAEMON=0 ./scripts/dev.sh …` exercises the server | — |
@@ -1491,23 +1535,22 @@ reference assemblies):
 
 `nlc run` of a small exe through the server: ~0.17 s client wall time including the program.
 Client-side overhead per routed command ≈ 40 ms runtime start + ≈ 35 ms routing (resolve, identity,
-connect, request); the rest is server-side compiler work. Where a warm `check` still spends its time
-(stack sampling): the analyzer runs TWICE (`LoadProjectIncludingTests` and again inside
-`VerifyIlOutput` → `CompileToIlAssembly`), plus emit — throughput work, not daemon work. Reaching
-≲0.2 s needs the incremental parse/declaration cache (it plugs into `WarmStateRegistry`) and a
-single-analysis `check`.
+connect, request); the rest is server-side compiler work. Both follow-ups this table pointed at have
+landed on `speed/integration`: `check` analyses once (`EmitAnalyzedAssembly`), and the server holds
+the incremental sessions, so a routed check after a body edit re-analyses one file (the agent-loop
+benchmark's `--daemon` table in `memory/testing.md` §8a has the measured loop).
 
 ### Native rows
 
-`tests/native/daemon-exec` (22 rows, real processes against a real server): routing and auto-start,
+`tests/native/daemon-exec` (23 rows, real processes against a real server): routing and auto-start,
 switches (`--no-daemon`, `NLC_NO_DAEMON`, `CI`), no-workspace, parity over success/error/JSON/text/
 `--color=always`/failing tests/`--verbose`/`--filter`/`format --stdin`/`run` with stdin and exit code,
 per-request env and cwd, `Environment.Exit` and stack-overflow isolation, server killed mid-command,
 build-identity replacement (a `DOTNET_` variable makes the other build), a `project:` dependency rebuilt under a running server, two clients at once,
 SIGTERM cancellation of a hung test, status/stop, idle timeout, workspace deletion, memory cap,
-owner-only socket, `nlc daemon start` outside any repository returning while a caller reads its output to EOF (both bugs the agent-loop benchmark reported against the old start path: `dotnet run --project src/NSharpLang.Cli` outside the repo, and the server inheriting the caller's stdout), and a launched server ignoring SIGHUP/SIGINT but stopping on SIGTERM. Kernel and wire contracts: `DaemonExecKernels.tests.nl`,
+owner-only socket, warm incremental re-analysis (a body edit re-analyses one file, a signature edit that file and its caller, with in-process parity), `nlc daemon start` outside any repository returning while a caller reads its output to EOF (both bugs the agent-loop benchmark reported against the old start path: `dotnet run --project src/NSharpLang.Cli` outside the repo, and the server inheriting the caller's stdout), and a launched server ignoring SIGHUP/SIGINT but stopping on SIGTERM. Kernel and wire contracts: `DaemonExecKernels.tests.nl`,
 `DaemonServerAndClientKernels.tests.nl`, `DaemonCommandKernels.tests.nl` (Driver);
-`CliInvocationContext.tests.nl`, `WarmStateRegistry.tests.nl`, `ExternalTypeNameIndex.tests.nl`
+`CliInvocationContext.tests.nl`, `WarmStateRegistry.tests.nl`, `AssemblyTypeNameIndex.tests.nl`
 (Core/Model).
 
 ### Daemon start, socket and log

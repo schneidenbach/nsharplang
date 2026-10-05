@@ -1522,8 +1522,9 @@ the synthetic 80k project 71.0 / 79.0 s against 6.6 / 7.8 s (1,070 -> 11,100 lin
    its fuzzy reference-bucket fallback indexed per (line, column) instead of a scan of every bucket
    (quadratic); `FilesMatch` memoised per pair.
 3. The project's disk view held across one compilation's analyses (`HoldProjectDiskView`), the
-   driver's parsed units handed to every analyzer (`SeedProjectCompilationUnits`) instead of a second
-   parse of the project per analyzer.
+   driver's parses handed to every analyzer (`SeedProjectParses`, unit and errors, since
+   `speed/integration` also the file-import parse cache) instead of a second parse of the project per
+   analyzer.
 4. `CodeIntelligenceTextUtilities.TryGetSourceLineRange` walked the source from its start for every
    recorded name span (16% of Core's CPU): line starts are indexed once per large source.
 5. The external extension-method scan walked every type of every reference per member-name fallback
@@ -1547,7 +1548,15 @@ the synthetic 80k project 71.0 / 79.0 s against 6.6 / 7.8 s (1,070 -> 11,100 lin
   assembly loads of every earlier file they skipped (`Analyzer.PreloadImportedAssemblies`), so each
   file is analysed against the serial run's loaded-assembly list. The driver's parsed units are shared
   READ-ONLY: an analysis writes only its own unit (`ImportUsage`, `IsResultFactory`, `IsExhaustive`) and
-  no analysis reads those facts. Outcomes are merged in FILE ORDER through the serial merge; a throwing
+  no analysis reads those facts. (A fourth write -- a body's nullable-return provenance on
+  `FunctionDeclaration` -- WAS read by other files' call signatures; on this branch alone that made a
+  later file's NL202 text depend on analysis order and, in parallel, on timing. `speed/integration`
+  moved it into a per-analysis table, `AnalyzerFunctionTypeFactory.RecordBodyReturnType`, pinned by
+  the Driver row "a callee body's nullability provenance reaches same-file callers only, at every
+  worker count".) Files an incremental plan reuses are not queued; workers still replay their import
+  loads. A workspace `nlc check` analyses each member on one worker (it already runs members
+  concurrently; nesting the pools opened 548 more reference images on the repository root for no
+  wall gain). Outcomes are merged in FILE ORDER through the serial merge; a throwing
   file rethrows after the files before it merge.
 - *The IL back end's per-file parse* (`ColumnarProgramInputBuilder.TryBuildMultiFile`). Workers on
   64 MB stacks; each resets the thread-local decline trace per file and keeps that file's records; the

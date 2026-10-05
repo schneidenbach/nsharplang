@@ -583,6 +583,27 @@ Two layers, both owned by `MultiFileCompiler` in Driver
   systems policy and the emitter consume every file's semantic model.
 - **Observing it:** `MultiFileCompiler.WasUpToDate`, `IncrementalCompilationState.LastFilesAnalyzed`
   / `LastFilesReused`; the work counters themselves belong to `CompilerWorkCounters` (`--stats`).
+- **Who holds the per-file state:** the workspace server (`WarmIncrementalSessions`, registered with
+  `WarmStateRegistry`), one session per compilation identity, for the commands it runs for clients.
+
+### The agent-loop speed program: one owner per concern (`speed/integration`, 2026-10-05)
+
+Five branches made the edit -> check -> build -> test loop faster (agent-loop benchmark and work
+counters, incremental compilation, the workspace server, compiler throughput, the NativeAOT front
+door). Where two of them built the same thing, ONE owner was kept:
+
+| Concern | Owner | Why it won | What went |
+|---|---|---|---|
+| Work counters vs phase timings | ONE `--stats` line (`nsharp.cli-stats` v1): `counters` from `CompilerWorkCounters` (always on, exact, the agent-loop gate's subject) plus an optional `phases` array from `CompilerPhaseTimings` (wall/CPU/alloc per project and phase, the rows `--timings` prints) | The two answer different questions -- "how much work" is gateable under load, "where did the time go" is not -- so both stay, behind one output. `phases` is an added optional field, compatible under v1's own rule | incremental's interim `CompilerStats`/`NSHARP_STATS` (dropped on its branch); the server resets the phase ledger per request |
+| Type-name misses | `AssemblyTypeNameIndex` (Model) | Throughput's API (`GetTypeOrNull`, `MayDeclareTopLevelType`, `PlainTopLevelTypeName`) is wired into every probe site (analyzer, qualified resolver, declaration context, catalog entries); the daemon's per-FILE-VERSION table cache and its `WarmStateRegistry` entry were folded into it, so a long-lived process reads each reference's tables once per file version, not once per load context | daemon's `ExternalTypeNameIndex` and its double check in `ExternalQualifiedTypeResolver` |
+| Parse reuse | One parse per file per compilation: the driver's parse (unit + errors) seeds every analyzer's project source provider (`Analyzer.SeedProjectParses`), which serves cross-file lookup AND file imports (`TryGetProjectParse`); an incremental record keeps its parse so a reused file seeds too | Throughput's seeding saved a whole project parse per analyzer (per worker); incremental's import reuse saved re-parsing imported files; seeding into the provider's parse cache gives both from one cache | throughput's unit-only `SeedCompilationUnits` (it bypassed the import cache) |
+| Order-independence of shared declarations | A body's nullable-return provenance lives per analysis in `AnalyzerFunctionTypeFactory` (cleared per `Analyze`) | Once declarations are shared, the AST field `FunctionDeclaration.ReferencedNullabilityReturnType` leaked to other files' call sites depending on analysis order (and, in parallel, timing); the per-analysis table is exactly the old unshared semantics | the AST field |
+| Reference reuse | incremental's `ExternalAssemblyScan.OwnedAssemblyLoadedFrom` (the process-wide exact-identity context answers a second request for the same path/identity) | Distinct from throughput's in-compilation indexes; nothing overlapped | -- |
+| Warm state | The daemon's `WarmStateRegistry` holds `AssemblyTypeNameIndex` (`reference-type-names`) and `WarmIncrementalSessions` (`incremental-compilations`); routed `check`/`build` attach the session's `IncrementalCompilationState` | That is what makes a warm body edit re-analyse one file | -- |
+| Parallel analysis vs incremental reuse | Reused files skip the workers; only the rest are queued; workers replay every earlier file's import loads, reused included. The shared analyzer stays LAZY (a stamp-answered build loads no reference) and may be the state's retained one | Composes both; no eager reference load on a no-op | throughput's eager `_sharedAnalyzer` in the constructor |
+| Nested parallelism | A workspace `nlc check` (members already concurrent) analyses each member, and each project reference built for it, on one worker (`ResolutionContext.CompilesConcurrently`) | Measured on the repository root: per-member fan-out opened 548 more reference images for no wall gain and broke the root-check row's per-member ratio | -- |
+| `Cli.csproj` `TieredPGO=false` vs AOT/R2R | Kept as is | It reaches the IL host and the RID toolset's ReadyToRun host through `Cli.runtimeconfig.json` (R2R code still tiers up, straight to tier 1); the NativeAOT front door has no JIT. The front-door guard in `CliPipeline.Execute` runs FIRST, before daemon routing, as a lone constant test so ILC trims the compiler and daemon client | -- |
+| Hermetic gates vs daemon | `dev.sh` and `test-all-core.sh` default `NLC_NO_DAEMON=1`; the agent-loop bench's `--daemon` mode clears it (and `NLC_DAEMON_CHILD`, `NLC_DAEMON`, `CI`) for its spawned commands, so the routed path is still what `--daemon` measures | -- | -- |
 
 ## Current Compiler Debt
 
