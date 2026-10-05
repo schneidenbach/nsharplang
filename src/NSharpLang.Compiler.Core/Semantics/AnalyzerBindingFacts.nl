@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import NSharpLang.Compiler.Ast
 
 class AnalyzerBindingFacts {

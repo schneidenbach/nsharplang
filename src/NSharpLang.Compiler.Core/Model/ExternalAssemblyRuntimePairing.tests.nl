@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Reflection.Emit
+import System.Runtime.InteropServices
 import System.Runtime.Loader
 import Microsoft.Build.Framework
 import NSharpLang.Cli

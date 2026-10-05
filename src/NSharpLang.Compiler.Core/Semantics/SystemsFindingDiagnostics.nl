@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.Performance
 
+import System
 import System.Collections.Generic
 import NSharpLang.Compiler
 

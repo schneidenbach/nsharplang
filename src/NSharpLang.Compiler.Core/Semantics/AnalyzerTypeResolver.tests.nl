@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import System.Reflection
 import NSharpLang.Compiler.Ast
 
 func ResolverTestRequiredSuggestion(error: CompilerError): string {

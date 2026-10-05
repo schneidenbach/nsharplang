@@ -627,11 +627,13 @@ else
     # The identity diff has no additions; only those eight NL905 findings were removed.
     # 2026-10-05, guard required open-generic, write-target and switch-body test values: Core 49, Compiler 0.
     # The identity diff has no additions; only those eight NL905 findings were removed.
+    # 2026-10-05, import the BCL namespaces used by the remaining semantic owners: Core 23, Compiler 0.
+    # The identity diff has no additions; only those 26 NL002 findings were removed.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        49
+        23
         0
         0
         0
