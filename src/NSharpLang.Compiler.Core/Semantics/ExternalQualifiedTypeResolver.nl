@@ -32,7 +32,7 @@ class ExternalQualifiedTypeResolver {
             index := 0
             while index < assemblies.Count {
                 try {
-                    resolved := assemblies[index].GetType(candidate)
+                    resolved := AssemblyTypeNameIndex.GetTypeOrNull(assemblies[index], candidate)
                     if resolved != null && IsNameable(resolved, grants) {
                         runtimeType = resolved
                         return true

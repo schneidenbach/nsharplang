@@ -462,9 +462,9 @@ class ColumnarExternalTypeCatalog {
             }
 
             try {
-                candidate := entry.MetadataAssembly.GetType(reservedName)
+                candidate := AssemblyTypeNameIndex.GetTypeOrNull(entry.MetadataAssembly, reservedName)
                 if candidate == null {
-                    ordinary := entry.MetadataAssembly.GetType(ordinaryName)
+                    ordinary := AssemblyTypeNameIndex.GetTypeOrNull(entry.MetadataAssembly, ordinaryName)
                     if ordinary != null && ordinary.IsClass {
                         candidate = ordinary
                     }

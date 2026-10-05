@@ -2674,7 +2674,7 @@ class AnalyzerDeclarationContext {
         for assembly in assemblies {
             candidate: Type? = null
             try {
-                candidate = assembly.GetType(name)
+                candidate = AssemblyTypeNameIndex.GetTypeOrNull(assembly, name)
             } catch {
                 candidate = null
             }

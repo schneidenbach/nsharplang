@@ -137,7 +137,7 @@ class AnalyzerExternalTypeProbe {
         }
 
         for assemblyItem in assemblies {
-            candidate := assemblyItem.GetType(fullName)
+            candidate := AssemblyTypeNameIndex.GetTypeOrNull(assemblyItem, fullName)
             if candidate == null {
                 continue
             }
@@ -201,7 +201,7 @@ class AnalyzerExternalTypeProbe {
         for assembly in assemblies {
             declared: Type? = null
             try {
-                declared = assembly.GetType(fullName)
+                declared = AssemblyTypeNameIndex.GetTypeOrNull(assembly, fullName)
             } catch {
                 declared = null
             }
@@ -370,9 +370,9 @@ class AnalyzerExternalTypeProbe {
         }
         holders := new List<Type>()
         for assemblyItem in assemblies {
-            candidate := assemblyItem.GetType(prefix + "<Program>")
+            candidate := AssemblyTypeNameIndex.GetTypeOrNull(assemblyItem, prefix + "<Program>")
             if candidate == null {
-                ordinary := assemblyItem.GetType(prefix + "Program")
+                ordinary := AssemblyTypeNameIndex.GetTypeOrNull(assemblyItem, prefix + "Program")
                 if ordinary != null && ordinary.IsClass {
                     candidate = ordinary
                 }
