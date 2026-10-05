@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.Reflection
 
 
 // The analyzer's WELL-KNOWN-TYPE TABLES: the policy that is a pure function of

@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
-
 
 // THE CANONICAL CONTRACTS FOR `NumericLiteralFacts`, IN N#.
 //

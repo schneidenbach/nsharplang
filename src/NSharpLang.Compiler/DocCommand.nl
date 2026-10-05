@@ -3,7 +3,6 @@ namespace NSharpLang.Cli.Commands
 import System
 import System.Collections.Generic
 import System.IO
-import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 
 // The doc command owns the complete load -> symbols -> render -> write route. Every page's TEXT is

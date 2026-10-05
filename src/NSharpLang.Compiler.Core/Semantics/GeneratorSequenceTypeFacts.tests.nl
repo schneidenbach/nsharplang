@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System.Collections.Generic
-import NSharpLang.Compiler.Ast
 
 
 // THE CANONICAL CONTRACTS FOR `GeneratorSequenceTypeFacts`, IN N#.

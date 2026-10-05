@@ -1,10 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
-import System.Collections.Generic
-import System.Reflection
-import NSharpLang.Compiler.Ast
-
 
 // The two assignability arms that have to LOOK SOMETHING UP, and are therefore not pure shape facts.
 //

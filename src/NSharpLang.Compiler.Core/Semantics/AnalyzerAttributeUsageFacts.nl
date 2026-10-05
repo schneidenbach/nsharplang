@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.Reflection
 
 // WHAT AN ATTRIBUTE TYPE SAYS ABOUT WHERE IT MAY BE WRITTEN.
 //

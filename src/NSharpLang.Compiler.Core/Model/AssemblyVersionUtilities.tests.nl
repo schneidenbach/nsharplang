@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.Collections.Generic
 
 // CONTRACTS FOR THE PACKAGE-VERSION → ASSEMBLY-VERSION KERNEL (020 slice 15).
 //

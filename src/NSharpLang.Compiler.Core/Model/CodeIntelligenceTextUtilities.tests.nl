@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
-
 
 // CONTRACTS FOR WHICH POSITIONS OF A BUFFER ARE INSIDE LITERAL TEXT.
 //

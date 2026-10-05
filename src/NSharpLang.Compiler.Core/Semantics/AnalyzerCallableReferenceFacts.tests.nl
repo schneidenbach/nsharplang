@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.Reflection
-import NSharpLang.Compiler.Ast
 
 // Native contracts for the analyzer's callable / delegate-reference classification family.
 // These predicates were `private static` in Analyzer.cs, so no test named them directly; their

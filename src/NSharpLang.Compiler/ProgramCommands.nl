@@ -3,7 +3,6 @@ namespace NSharpLang.Cli
 import System
 import System.Collections.Generic
 import System.IO
-import System.Linq
 import System.Runtime.InteropServices
 import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence

@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
 import System.Reflection
 
 // THE RELATION ITSELF, stated as a table rather than through a compile.

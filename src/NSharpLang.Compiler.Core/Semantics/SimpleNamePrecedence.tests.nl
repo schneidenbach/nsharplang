@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
 import System.Collections.Generic
 
 // Contracts for the ONE owner of simple-name precedence. Both walks that resolve a bare type name —

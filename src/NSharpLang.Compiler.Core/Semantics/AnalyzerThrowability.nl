@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System
-import NSharpLang.Compiler.Ast
 
 
 // WHAT IT MEANS FOR A TYPE TO BE THROWABLE — the one question three N# constructs ask about

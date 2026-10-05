@@ -2,15 +2,10 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.Diagnostics.CodeAnalysis
 import System.IO
 import System.Reflection
-import System.Runtime.CompilerServices
-import System.Threading
 import NSharpLang.Cli
 import NSharpLang.Compiler.Ast
-import NSharpLang.Compiler.CodeIntelligence
-import NSharpLang.Compiler.Columnar
 
 class Analyzer: IDisposable {
     private readonly Errors: List<CompilerError>

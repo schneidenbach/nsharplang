@@ -1,7 +1,6 @@
 namespace NSharpLang.Cli
 
 import System
-import NSharpLang.Compiler
 
 // One owner for the CLI's single-line failure report. Every command that fails for a reason it can
 // name writes exactly this line to STDERR and answers 1, so the sentence and the exit code cannot

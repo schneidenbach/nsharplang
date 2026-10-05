@@ -5,7 +5,6 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Threading
-import NSharpLang.Compiler.Ast
 
 // Native contracts for the analyzer's assignability decision.
 //

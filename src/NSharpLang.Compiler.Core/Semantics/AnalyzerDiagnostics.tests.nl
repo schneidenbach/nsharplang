@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
 import System.Collections.Generic
 
 // Native contracts for the analyzer's unresolved-type suggestion policy. It was `private` in

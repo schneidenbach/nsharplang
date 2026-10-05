@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.Collections.Generic
 import System.IO
 
 // CONTRACTS FOR `ProjectConfig` AND ITS SOURCE WALK (020 slice 15).

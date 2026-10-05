@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.Reflection
 
 
 // The SHAPE DECISIONS behind the analyzer's assignability question.

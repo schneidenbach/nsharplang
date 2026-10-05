@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler.Performance
 
-import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 

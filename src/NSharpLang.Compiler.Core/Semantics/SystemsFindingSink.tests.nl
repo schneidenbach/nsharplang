@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler.Performance
 
-import System.Collections.Generic
 import NSharpLang.Compiler
 
 // Native contracts for THE SYSTEMS FINDING SINK — what a systems finding IS, what severity it ends

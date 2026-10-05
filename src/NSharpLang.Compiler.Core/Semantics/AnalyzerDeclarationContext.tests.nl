@@ -4,7 +4,6 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
-import NSharpLang.Compiler.TestStubs
 
 class AnalyzerContextTestUnit {
     Package: object?

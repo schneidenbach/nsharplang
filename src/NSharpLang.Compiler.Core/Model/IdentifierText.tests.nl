@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
-
 
 // CONTRACTS FOR WHAT AN IDENTIFIER IS MADE OF (task 019 slice 9).
 //

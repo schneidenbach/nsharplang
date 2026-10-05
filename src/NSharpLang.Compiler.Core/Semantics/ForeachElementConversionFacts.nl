@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
-
 
 // THE RULE AN ANNOTATED LOOP VARIABLE ANSWERS TO — `for m: Match in matches`.
 //
