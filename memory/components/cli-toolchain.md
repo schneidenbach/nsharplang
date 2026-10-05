@@ -211,6 +211,14 @@ Undefined identifier 'unknownVar'
   instead of diagnostics (for example, invalid project configuration or an unresolved reference).
   A source claimed by multiple projects is a configuration conflict and returns the normal version-1
   error envelope. Single project checks retain their existing `schemaVersion: 1` shape.
+- The repository-root workspace contract in `tests/native/cli-command-contracts` reads both this
+  envelope and `--stats`: it pins 223 unique member projects and 1,991 member-owned files, requires
+  at least one parser event per checked file, and caps current workspace parse events at 5,258.
+  Reference-image opens are capped at the measured 18,184. Both work counters can only ratchet down.
+  Its quiet-machine timing budget is 128 s (the existing ~64 s quiet
+  measurement × 2); time is judged only below the compile-time/agent-loop load threshold (one fifth
+  of logical cores, 2.0 on the 10-core measurement host). Unknown or higher load is recorded as
+  unjudged. A separate 15-minute timeout is only a hang detector.
 - Exit code 0 = clean, 1 = errors
 - Near-zero-warnings policy: correctness/safety/hygiene diagnostics are build-blocking errors, so a clean `nlc check` (`ok: true`, exit 0) is a strong guarantee rather than "clean modulo warnings." `summary.warnings` is reported but is expected to stay at 0 for well-formed code; pure style is handled by `nlc format`, not surfaced here.
 - JSON by default, `--text` for Elm-style diagnostics
