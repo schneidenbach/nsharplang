@@ -587,11 +587,15 @@ else
     # the untouched Core source, the identity diff is zero additions and three removed NL202s in
     # AnalyzerCallAnalysis: the receiver and constrained receiver are carried in a typed non-null
     # local after the guard. The Core ceiling drops with the source.
+    # 2026-10-05, the speed program integrated (`speed/integration`): Core 354. Measured with this
+    # branch's CLI against both trees, the identity diff is zero additions and one removal: the NL010
+    # on `import NSharpLang.Compiler.Columnar` in Analyzer.nl, which `Analyzer.SeedProjectParses`
+    # (it takes the driver's `FileParseAst`s) now uses. Every other project is unmoved.
     #
     SELF_HOST_CEILINGS=(
         0
         0
-        355
+        354
         0
         0
         0

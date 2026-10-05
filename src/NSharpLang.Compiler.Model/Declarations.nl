@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Ast
 
 import System.Collections.Generic
-import NSharpLang.Compiler
 
 
 // Base class for declarations
