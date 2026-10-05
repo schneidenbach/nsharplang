@@ -41,8 +41,9 @@ class DaemonStatusExecFacts {
     WorkingSetMegabytes: long
     MemoryCapMegabytes: long
     WarmState: string[]
+    Warm: bool
 
-    constructor(version: string, identity: string, activeRequests: int, servedRequests: int, workingSetMegabytes: long, memoryCapMegabytes: long, warmState: string[]) {
+    constructor(version: string, identity: string, activeRequests: int, servedRequests: int, workingSetMegabytes: long, memoryCapMegabytes: long, warmState: string[], warm: bool) {
         Version = version
         Identity = identity
         ActiveRequests = activeRequests
@@ -50,6 +51,7 @@ class DaemonStatusExecFacts {
         WorkingSetMegabytes = workingSetMegabytes
         MemoryCapMegabytes = memoryCapMegabytes
         WarmState = warmState
+        Warm = warm
     }
 }
 
@@ -235,7 +237,7 @@ class DaemonProtocolKernels {
         payload[GetStatusCachedFilesField()] = cachedFiles
         payload[GetStatusIdleTimeoutField()] = idleTimeout
         if exec != null {
-            facts := exec ?? new DaemonStatusExecFacts("", "", 0, 0, 0L, 0L, new string[](0))
+            facts := exec ?? new DaemonStatusExecFacts("", "", 0, 0, 0L, 0L, new string[](0), false)
             payload[GetStatusVersionField()] = facts.Version
             payload[GetStatusIdentityField()] = facts.Identity
             payload[GetStatusActiveRequestsField()] = facts.ActiveRequests
@@ -243,6 +245,7 @@ class DaemonProtocolKernels {
             payload[GetStatusWorkingSetField()] = facts.WorkingSetMegabytes
             payload[GetStatusMemoryCapField()] = facts.MemoryCapMegabytes
             payload[GetStatusWarmStateField()] = facts.WarmState
+            payload[GetStatusWarmField()] = facts.Warm
         }
 
         return JsonSerializer.Serialize(payload, CreateCompactJsonOptions())
@@ -270,6 +273,12 @@ class DaemonProtocolKernels {
 
     static func GetStatusMemoryCapField(): string {
         return "memoryCapMb"
+    }
+
+    // True once the server's warm-up compile has finished (or was skipped): `nlc daemon start` returns
+    // only then, so the first command after it is answered warm.
+    static func GetStatusWarmField(): string {
+        return "warm"
     }
 
     // One `name: description` line per cache registered with `WarmStateRegistry`.

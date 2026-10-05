@@ -320,6 +320,32 @@ class DaemonExecKernels {
         return startDirectory
     }
 
+    // WHERE THE WORKSPACE IS LOOKED FOR: the command's own target when it names one with `--project`
+    // (`nlc check --project ../app` run from anywhere still reaches `../app`'s workspace server),
+    // otherwise the current directory. Only the router reads this; the command parses its own
+    // options exactly as before.
+    static func GetRoutingStartDirectory(args: string[], currentDirectory: string): string {
+        index := 1
+        while index < args.Length {
+            argument := args[index]
+            if argument == "--" {
+                break
+            }
+
+            if argument == "--project" && index + 1 < args.Length {
+                return Path.GetFullPath(Path.Combine(currentDirectory, args[index + 1]))
+            }
+
+            if argument.StartsWith("--project=", StringComparison.Ordinal) && argument.Length > "--project=".Length {
+                return Path.GetFullPath(Path.Combine(currentDirectory, argument.Substring("--project=".Length)))
+            }
+
+            index = index + 1
+        }
+
+        return currentDirectory
+    }
+
     // ── Build identity ──────────────────────────────────────────────────────────────────────────
     //
     // Two `nlc` processes share a server only when they are the same build of the same toolchain

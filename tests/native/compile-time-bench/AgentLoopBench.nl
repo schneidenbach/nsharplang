@@ -590,13 +590,13 @@ func AgentLoopStatsPath(): string {
 
 // THE ONE OWNER of "run one agent-loop command and measure it". `useStats` is false only for a CLI
 // that predates `--stats` (a base build being compared); its counters are then null, never zero.
-func AgentLoopRunCommand(cliDll: string, projectDirectory: string, command: string, useStats: bool): AgentLoopRun {
+func AgentLoopRunCommand(cliDll: string, projectDirectory: string, command: string, useStats: bool, daemon: bool): AgentLoopRun {
     statsPath := ""
     if useStats {
         statsPath = AgentLoopStatsPath()
     }
 
-    run := BenchRunUnderTimeUtility(AgentLoopCommandArguments(cliDll, command, projectDirectory, statsPath), Path.GetTempPath())
+    run := BenchRunUnderTimeUtilityWithEnvironment(AgentLoopCommandArguments(cliDll, command, projectDirectory, statsPath), Path.GetTempPath(), AgentLoopDaemonEnvironment(daemon))
     counters: AgentLoopCounters? = null
     if statsPath != "" && File.Exists(statsPath) {
         counters = AgentLoopParseStatsCounters(File.ReadAllText(statsPath))
@@ -619,7 +619,30 @@ func AgentLoopCliSupportsStats(cliDll: string): bool {
     return run.ExitCode == 0 && run.Stdout.IndexOf("--stats", StringComparison.Ordinal) >= 0
 }
 
-// THE DAEMON IS STARTED THROUGH THE APPHOST beside `Cli.dll` when there is one. Measured on
+// WHICH WAY A MEASURED COMMAND RUNS, decided for the child alone. `nlc check|build|test` route to a
+// warm per-workspace server by default and start one on first use, so a run without `--daemon` sets
+// `NLC_NO_DAEMON=1` (the in-process baseline, and no server left behind), and a `--daemon` run clears
+// every switch that would keep it in-process — including `NLC_DAEMON_CHILD`, which a test host sets
+// for everything its tests start.
+func AgentLoopDaemonEnvironment(daemon: bool): Dictionary<string, string?> {
+    environment := new Dictionary<string, string?>()
+    if daemon {
+        removed: string? = null
+        environment["NLC_NO_DAEMON"] = removed
+        environment["NLC_DAEMON_CHILD"] = removed
+        environment["NLC_DAEMON"] = removed
+        environment["CI"] = removed
+    } else {
+        environment["NLC_NO_DAEMON"] = "1"
+    }
+
+    return environment
+}
+
+// THE DAEMON IS STARTED THROUGH THE APPHOST beside `Cli.dll` when there is one. (Both product bugs
+// below were fixed on speed/daemon-first — the server is always this same binary and never inherits
+// its caller's streams — and `tests/native/daemon-exec` pins both; the two workarounds stay, harmless,
+// so a base CLI from before the fix can still be measured.) Measured on
 // 2026-10-05: `dotnet Cli.dll daemon start` for a project OUTSIDE the repository fails ("Could not
 // execute because the specified command or file was not found"), because a CLI whose process is
 // `dotnet` looks for `src/NSharpLang.Cli` above the PROJECT to `dotnet run`, finds none under the temp
@@ -645,6 +668,8 @@ func AgentLoopDaemonCommand(cliDll: string, verb: string, projectDirectory: stri
     startInfo.ArgumentList.Add(command + " > '" + log + "' 2>&1")
     startInfo.WorkingDirectory = Path.GetTempPath()
     startInfo.UseShellExecute = false
+    startInfo.Environment.Remove("NLC_NO_DAEMON")
+    startInfo.Environment.Remove("NLC_DAEMON_CHILD")
     process := new Process { StartInfo: startInfo }
     startTicks := DateTime.UtcNow.Ticks
     process.Start()
@@ -807,7 +832,7 @@ func AgentLoopMeasureScenario(
                 }
             }
 
-            prime := AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats)
+            prime := AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats, daemon)
             if prime.ExitCode != 0 && cold.Failure == "" {
                 cold.Failure = "the prime run of nlc " + scenario.Command + " exited " + BenchIntText(prime.ExitCode) + ": " + prime.Detail
                 cold.ExitCode = prime.ExitCode
@@ -819,8 +844,8 @@ func AgentLoopMeasureScenario(
                 cold.ExitCode = 1
             }
 
-            AgentLoopRecordRun(cold, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats), coldWall, coldCpu, coldRss)
-            AgentLoopRecordRun(warm, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats), warmWall, warmCpu, warmRss)
+            AgentLoopRecordRun(cold, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats, daemon), coldWall, coldCpu, coldRss)
+            AgentLoopRecordRun(warm, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats, daemon), warmWall, warmCpu, warmRss)
         } finally {
             // Stopped before its directory goes, on a failing sample too: a daemon left behind
             // would hold its socket under a deleted tree until its idle timeout.

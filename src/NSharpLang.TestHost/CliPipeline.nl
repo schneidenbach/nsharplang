@@ -70,6 +70,17 @@ static class CliPipeline {
     }
 
     static func ExecuteWithStats(commandKind: int, args: string[], stats: CliStatsRequest, version: string): int {
+        // IN THE WORKSPACE SERVER the counters are already this request's alone (a delta, and one
+        // command runs at a time), but the process's CPU total is the server's whole life, so the CPU
+        // figure becomes this request's delta too. In-process it stays the process total, start-up
+        // included, exactly as before.
+        cpuBaselineTicks := 0L
+        if CliInvocationContext.IsRemoteInvocation() {
+            baselineProcess := Process.GetCurrentProcess()
+            cpuBaselineTicks = baselineProcess.TotalProcessorTime.Ticks
+            baselineProcess.Dispose()
+        }
+
         before := CompilerWorkCounters.Shared.Snapshot()
         elapsed := Stopwatch.StartNew()
         exitCode := Dispatch(commandKind, args, stats.CommandArgs, version)
@@ -82,7 +93,7 @@ static class CliPipeline {
             args[0].ToLowerInvariant(),
             exitCode,
             elapsed.ElapsedMilliseconds,
-            process.TotalProcessorTime.Ticks / TimeSpan.TicksPerMillisecond,
+            (process.TotalProcessorTime.Ticks - cpuBaselineTicks) / TimeSpan.TicksPerMillisecond,
             process.PeakWorkingSet64,
             counters
         )

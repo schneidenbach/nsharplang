@@ -99,6 +99,7 @@ class DaemonServer {
     maxMemoryMegabytes: long
     lockStream: FileStream?
     referenceGuard: DaemonLoadedReferenceGuard
+    warm: bool
 
     constructor(root: string): this(root, TimeSpan.FromMilliseconds(
         (double)DaemonExecKernels.ParseIdleTimeoutMilliseconds(
@@ -132,6 +133,7 @@ class DaemonServer {
         maxMemoryMegabytes = DaemonExecKernels.ParseMaxMemoryMegabytes(Environment.GetEnvironmentVariable(DaemonExecKernels.GetMaxMemoryEnvironmentVariable()))
         lockStream = null
         referenceGuard = new DaemonLoadedReferenceGuard()
+        warm = false
     }
 
     func ReferenceGuard(): DaemonLoadedReferenceGuard {
@@ -603,6 +605,7 @@ class DaemonServer {
     // into a half-warm process, and it writes nothing anywhere a client can see.
     func StartWarmup() {
         if !DaemonExecHost.IsConfigured() || !DaemonExecKernels.IsWarmupEnabled(Environment.GetEnvironmentVariable(DaemonExecKernels.GetWarmupEnvironmentVariable())) {
+            Volatile.Write(ref warm, true)
             return
         }
 
@@ -625,6 +628,8 @@ class DaemonServer {
             } catch warmupFailure: Exception {
                 WriteDiagnostic(DaemonWarmup.GetFailedMessage(warmupFailure.Message))
             }
+
+            Volatile.Write(ref warm, true)
         }
     }
 
@@ -733,7 +738,8 @@ class DaemonServer {
                             Volatile.Read(ref servedRequests),
                             Environment.WorkingSet / 1048576L,
                             maxMemoryMegabytes,
-                            WarmStateRegistry.Describe()
+                            WarmStateRegistry.Describe(),
+                            Volatile.Read(ref warm)
                         )
                     )
                 )

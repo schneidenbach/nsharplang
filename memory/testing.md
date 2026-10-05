@@ -1345,8 +1345,9 @@ dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll build --project tests/native
 
 That prints the table for small and medium with the committed baseline (the base) in parentheses
 beside every value that moved, and writes it to `artifacts/agent-loop/<date>/agent-loop.md`. Options:
-`--sizes small,medium,large|all`, `--runs <n>` (default 3), `--daemon` (keep `nlc daemon` up per
-sample - the daemon-first branch), `--cli <Cli.dll>`, and `--base-cli <other worktree>/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll`
+`--sizes small,medium,large|all`, `--runs <n>` (default 3), `--daemon` (keep the workspace server up per
+sample; every measured command routes to it — without `--daemon` each measured child gets
+`NLC_NO_DAEMON=1`, so the baseline stays the in-process path and no server is left behind), `--cli <Cli.dll>`, and `--base-cli <other worktree>/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll`
 to measure a base build live in the same run instead of reading the baseline (a CLI without
 `--stats` is measured for time only). `--judge` exits 1 when a counter differs from the baseline.
 When your change LOWERS counters (the point of incremental compilation, the daemon and throughput

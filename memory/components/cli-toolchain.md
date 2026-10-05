@@ -251,7 +251,15 @@ not move with machine load, so they explain a latency change where a wall clock 
 2026-10-05 a no-op `nlc check` of the 448-line issue-tracker fixture parsed its 8 files **40** times,
 analyzed them twice and opened **684** reference images. A command routed through the daemon must
 report the daemon's work for the request in these counters (snapshot before and after,
-`CompilerWorkCounterSnapshot.Since`), or the numbers would claim the work vanished.
+`CompilerWorkCounterSnapshot.Since`), or the numbers would claim the work vanished. It does: a routed
+command carries `--stats` to the workspace server, whose `CliPipeline.ExecuteLocal` takes the
+before/after snapshot around the request (one request runs at a time, so the delta is that
+request's), writes the line to the client's stderr or to the `--stats=<path>` file (resolved in the
+client's working directory), and reports `cpuMs` as the request's CPU delta rather than the server's
+lifetime total. `peakWorkingSetBytes` is then the SERVER's peak; time the client process for the
+client's own. A warm server opens fewer reference images per command (measured on the small agent-loop
+project: no-op `check` 684 → 540, `build` 497 → 356, `test` 505 → 361), because executable reference
+handles loaded once stay loaded.
 
 The agent-loop benchmark gates these counters exactly over the edit → check/build/test loop; see
 `memory/testing.md` §8a.
@@ -1230,7 +1238,7 @@ nlc daemon stop
 |---|---|---|
 | Which commands route | `check`, `build`, `test`, `run`, `format`, `lint`, `fix` (case-insensitive); `query` keeps its own JSON-RPC route; `watch`, `new`, `daemon`, … never route | `DaemonExecKernels.IsRoutedCommandName` |
 | Switches | `--no-daemon` (stripped before the command sees it); `NLC_NO_DAEMON` (any value but empty/`0`); `NLC_DAEMON_CHILD` (set for everything the server runs and for every test run); `CI=true\|1` unless `NLC_DAEMON=1` | `DaemonExecKernels.ShouldRoute` |
-| Workspace | Nearest ancestor with `.git` (dir or worktree file), else nearest `project.yml`; neither → in-process, no `.nlc/` created. `nlc daemon start/stop/status` fall back to the directory itself | `DaemonExecKernels.ResolveWorkspaceRoot` |
+| Workspace | Looked for from the command's `--project` (else the current directory): nearest ancestor with `.git` (dir or worktree file), else nearest `project.yml`; neither → in-process, no `.nlc/` created. `nlc daemon start/stop/status` fall back to the directory itself | `DaemonExecKernels.ResolveWorkspaceRoot` |
 | Identity | FNV-1a 64 over: exec protocol version, informational version (commit), `AppContext.BaseDirectory`, name+size+mtime of every `*.dll` there, runtime version, every `DOTNET_*`/`COMPlus_*` variable. Mismatch → client stops the old server, runs in-process, spawns a new one | `DaemonExecKernels.ComposeIdentitySource`, `DaemonBuildIdentity` |
 | Launch | The SAME binary: `dotnet <entry Cli.dll> …` under the muxer, the apphost/native image itself otherwise (the old `dotnet run --project src/NSharpLang.Cli` plan is gone). Fresh pipes for all three streams so a caller reading our stdout to EOF never waits on the server | `DaemonExecKernels.GetServerLaunchCommand`, `DaemonAutoStart.Spawn` |
 | Singleton | `.nlc/daemon.lock` held with `FileShare.None` (flock) for the server's life; a second server of the same build exits, a newer build waits ≤30 s for the old one to stop | `DaemonServer.AcquireServerLock` |
@@ -1247,7 +1255,7 @@ nlc daemon stop
 | Detachment | A server any `nlc` launched (auto or `daemon start`) gets fresh pipes for stdin/stdout/stderr (every other descriptor is close-on-exec), ignores SIGINT/SIGHUP (the launching terminal's process group), and stops gracefully on SIGTERM — the managed equivalent of `setsid`. A hand-typed `nlc daemon run` keeps default signals | `DaemonServer.Run`, `DaemonClient.StartDaemon`, `DaemonAutoStart.Spawn` |
 | Lifecycle | Idle timeout (default 30 m, `NLC_DAEMON_IDLE_TIMEOUT`; never while a request runs), liveness (socket file gone → exit within 2 s), memory cap (default 4096 MB, `NLC_DAEMON_MAX_MEMORY_MB`: trim warm state, GC, retire if still over), SIGTERM graceful (in-flight requests finish), background servers ignore SIGINT/SIGHUP. The accept loop POLLS (500 ms): on macOS `close()` does not wake a thread blocked in `accept(2)` | `DaemonServer` |
 | Stale references | The compiler loads executable handles for references (packages, `project:` outputs) into non-collectible contexts. MEASURED: rebuild a referenced library with a new member and a long-lived compiler's emitter still sees the old one. So the server records every loaded assembly file outside the runtime and CLI directories, checks them before each command, and on any change declines (client runs in-process) and retires; the next command starts a fresh server. A project's OWN output changing does not trigger it | `DaemonLoadedReferenceGuard` |
-| Warm-up | A new server compiles a small built-in project (`check` + `build`, output discarded) under the work lock before taking work, then pre-spawns a test worker (`NLC_DAEMON_WARMUP=0` skips) | `DaemonWarmup`, `DaemonExecHost.RunWarmupHooks` |
+| Warm-up | A new server compiles a small built-in project (`check` + `build`, output discarded) under the work lock before taking work, then pre-spawns a test worker (`NLC_DAEMON_WARMUP=0` skips). `daemon/status` reports `"warm"`, and `nlc daemon start` returns only once it is true | `DaemonWarmup`, `DaemonExecHost.RunWarmupHooks` |
 | Warm state | Kept across commands: JIT, `ExternalTypeNameIndex` (each reference's top-level type/forwarder names per file version — lets the analyzer and `ExternalQualifiedTypeResolver` skip MLC misses, which build and discard a localized `TypeLoadException`), query snapshots per project. Any cache can join via `WarmStateRegistry.Register(name, onPathChanged, onTrim, describe)`; the server feeds it file-watcher changes, trims it before a memory retirement and lists it in `warmState` | `WarmStateRegistry` |
 | Queries | `nlc query` reaches the WORKSPACE server, passes `projectRoot` and its `identity`; a different build answers `-32001` and the query runs in-process. The server keeps one snapshot per project, dropped on any watched change | `QueryCommand.TryExecuteViaDaemon`, `DaemonServer.EnsureSnapshot` |
 | Security | Socket `0600` after bind (connect needs write permission); fallback runtime dirs created `0700`; nothing listens on TCP | `DaemonServer.RunWithSignals`, `DaemonProtocolKernels.GetSocketPath` |

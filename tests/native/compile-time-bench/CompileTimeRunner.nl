@@ -114,8 +114,22 @@ class BenchProcessRun {
 // The wall clock is read from `DateTime.UtcNow` immediately either side of the process's life, in
 // ticks, and reported in milliseconds.
 func BenchRunProcess(fileName: string, arguments: string, workingDirectory: string): BenchProcessRun {
+    return BenchRunProcessWithEnvironment(fileName, arguments, workingDirectory, new Dictionary<string, string?>())
+}
+
+// The same run with `environment` applied to the child (a null value removes the variable). The
+// benchmark never writes its OWN environment: it may be running inside a test host.
+func BenchRunProcessWithEnvironment(fileName: string, arguments: string, workingDirectory: string, environment: Dictionary<string, string?>): BenchProcessRun {
     startInfo := new ProcessStartInfo { FileName: fileName, Arguments: arguments }
     startInfo.WorkingDirectory = workingDirectory
+    for entry in environment {
+        if entry.Value == null {
+            startInfo.Environment.Remove(entry.Key)
+        } else {
+            startInfo.Environment[entry.Key] = entry.Value ?? ""
+        }
+    }
+
     startInfo.RedirectStandardOutput = true
     startInfo.RedirectStandardError = true
     startInfo.UseShellExecute = false
@@ -164,12 +178,16 @@ func BenchTimeUtilityFlag(): string {
 // Run `dotnet <args>` under the OS time utility when one is available, so that the kernel — not
 // this process — reports the child's maximum resident set size.
 func BenchRunUnderTimeUtility(arguments: string, workingDirectory: string): BenchProcessRun {
+    return BenchRunUnderTimeUtilityWithEnvironment(arguments, workingDirectory, new Dictionary<string, string?>())
+}
+
+func BenchRunUnderTimeUtilityWithEnvironment(arguments: string, workingDirectory: string, environment: Dictionary<string, string?>): BenchProcessRun {
     timeUtility := BenchTimeUtilityPath()
     if timeUtility == "" {
-        return BenchRunProcess("dotnet", arguments, workingDirectory)
+        return BenchRunProcessWithEnvironment("dotnet", arguments, workingDirectory, environment)
     }
 
-    return BenchRunProcess(timeUtility, BenchTimeUtilityFlag() + " dotnet " + arguments, workingDirectory)
+    return BenchRunProcessWithEnvironment(timeUtility, BenchTimeUtilityFlag() + " dotnet " + arguments, workingDirectory, environment)
 }
 
 // ─── ONE MEASURED RUN ─────────────────────────────────────────────────────────────────────────

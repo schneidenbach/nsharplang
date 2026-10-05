@@ -301,7 +301,7 @@ class DaemonClient {
             // A listening socket that answers ping is the readiness signal. The generous deadline
             // catches a genuinely stuck startup; process exit is reported on the first poll.
             wait := DaemonStartupWait.WaitUntilReady(
-                () => File.Exists(pidPath) && File.Exists(socketPath) && IsRunning(projectRoot),
+                () => File.Exists(pidPath) && File.Exists(socketPath) && IsRunning(projectRoot) && IsWarm(projectRoot),
                 () => process.HasExited,
                 () => process.ExitCode,
                 () => DaemonStartupOutputTail(output, outputLogPath),
@@ -357,6 +357,27 @@ class DaemonClient {
     // Get daemon status information.
     static func GetStatus(projectRoot: string): string? {
         return Query(projectRoot, DaemonConstants.MethodStatus, null)
+    }
+
+    // Whether the running server has finished its warm-up. A server from before the field existed is
+    // warm by definition: it never ran one.
+    static func IsWarm(projectRoot: string): bool {
+        status := GetStatus(projectRoot)
+        if status == null {
+            return false
+        }
+
+        try {
+            using document := JsonDocument.Parse(status ?? "")
+            warmValue: JsonElement = default
+            if document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty(DaemonProtocolKernels.GetStatusWarmField(), out warmValue) {
+                return warmValue.ValueKind == JsonValueKind.True
+            }
+        } catch parseFailure: Exception {
+            return false
+        }
+
+        return true
     }
 
     // The build identity the running server reports, or null when none answers (or it is a build

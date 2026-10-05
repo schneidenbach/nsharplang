@@ -86,6 +86,17 @@ test "with no marker routing declines but an explicit daemon request keeps its d
     assert DaemonExecKernels.ResolveWorkspaceRoot(start, none, none, false) == start
 }
 
+test "the workspace is looked for from --project when the command names one, else from the directory" {
+    cwd := Path.Combine(Path.GetTempPath(), "dek-cwd")
+    assert DaemonExecKernels.GetRoutingStartDirectory(["check"], cwd) == cwd
+    assert DaemonExecKernels.GetRoutingStartDirectory(["check", "--project", "/w/app"], cwd) == "/w/app"
+    assert DaemonExecKernels.GetRoutingStartDirectory(["build", "--project=/w/lib", "--release"], cwd) == "/w/lib"
+    assert DaemonExecKernels.GetRoutingStartDirectory(["test", "--project", "app"], cwd) == Path.Combine(cwd, "app")
+    // After `--` it is not an option, and a dangling flag names nothing.
+    assert DaemonExecKernels.GetRoutingStartDirectory(["run", "--", "--project", "/w/x"], cwd) == cwd
+    assert DaemonExecKernels.GetRoutingStartDirectory(["check", "--project"], cwd) == cwd
+}
+
 // ── Build identity ──────────────────────────────────────────────────────────────────────────────
 
 test "the identity hash is FNV-1a 64 over UTF-16 code units, printed as 16 hex digits" {

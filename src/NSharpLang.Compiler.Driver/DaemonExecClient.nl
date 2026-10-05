@@ -66,7 +66,7 @@ class DaemonExecClient {
     static func Route(args: string[], version: string, trace: DaemonClientTrace, out exitCode: int): DaemonExecOutcome {
         exitCode = 0
         workingDirectory := Directory.GetCurrentDirectory()
-        workspaceRoot := DaemonWorkspace.ResolveForRouting(workingDirectory)
+        workspaceRoot := DaemonWorkspace.ResolveForRouting(DaemonExecKernels.GetRoutingStartDirectory(args, workingDirectory))
         if workspaceRoot == null {
             trace.Note("no-workspace")
             return DaemonExecOutcome.NotRouted

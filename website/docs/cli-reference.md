@@ -68,8 +68,8 @@ state (`--color=auto` still sees whether *your* stderr is a terminal). Commands 
 (`nlc format --stdin`) read the client's stdin, and `nlc run` starts your program in the client
 process, on your terminal, so it behaves exactly as before. Ctrl-C ends the command the same way.
 
-**The workspace** is the nearest directory above the current one that contains `.git`, otherwise the
-nearest containing `project.yml`. One server serves every project under it. Outside any workspace
+**The workspace** is the nearest directory above the command's `--project` (or, without one, the
+current directory) that contains `.git`, otherwise the nearest containing `project.yml`. One server serves every project under it. Outside any workspace
 commands simply run in-process and nothing is created.
 
 **Build identity.** A server is only ever used by the exact `nlc` build that started it: the
@@ -111,8 +111,8 @@ owner-only (`0600`, in an owner-only directory for the fallback), so no other us
 log is `.nlc/daemon.log`, restarted with each server. `.nlc/` is runtime state and should not be
 committed; all shipped `dotnet new` templates ignore it.
 
-`nlc daemon start` starts the server explicitly and waits for it to answer `daemon/ping` (120-second
-deadline; an early exit or a timeout reports the elapsed time, the socket path, whether the child was
+`nlc daemon start` starts the server explicitly and waits until it answers and has finished its
+warm-up compile, so the next command is answered warm (120-second deadline; an early exit or a timeout reports the elapsed time, the socket path, whether the child was
 alive and the last daemon output). JSON `nlc query` commands reuse a running server of the same build
 for any project in its workspace.
 
