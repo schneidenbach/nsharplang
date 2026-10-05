@@ -81,6 +81,8 @@ static class CliPipeline {
             baselineProcess.Dispose()
         }
 
+        // The phase ledger rides along: the same rows `--timings` prints, as the line's `phases`.
+        CompilerPhaseTimings.Enable()
         before := CompilerWorkCounters.Shared.Snapshot()
         elapsed := Stopwatch.StartNew()
         exitCode := Dispatch(commandKind, args, stats.CommandArgs, version)
@@ -95,7 +97,8 @@ static class CliPipeline {
             elapsed.ElapsedMilliseconds,
             (process.TotalProcessorTime.Ticks - cpuBaselineTicks) / TimeSpan.TicksPerMillisecond,
             process.PeakWorkingSet64,
-            counters
+            counters,
+            CompilerPhaseTimings.Snapshot()
         )
         process.Dispose()
 

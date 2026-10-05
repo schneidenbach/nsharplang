@@ -21,6 +21,13 @@ import NSharpLang.Compiler
 // The object is schema `nsharp.cli-stats` version 1 (`memory/components/cli-toolchain.md`): adding a
 // field is compatible, renaming or retyping one is a new `schemaVersion`.
 //
+// ONE OUTPUT, TWO OWNERS BEHIND IT. The counters are `CompilerWorkCounters`' (how much work: exact,
+// load-independent, gated by the agent-loop benchmark); the `phases` array is `CompilerPhaseTimings`'
+// (where the time went: wall, CPU and allocation per project and phase, the same rows
+// `nlc build --timings` prints). `--stats` turns the phase ledger on for its command, so one line
+// answers both "how much" and "where". `phases` was added after the first release of version 1, as
+// an optional field, which the version's own rule allows.
+//
 // THE FLAG IS STRIPPED BEFORE THE COMMAND SEES ITS ARGUMENTS, and only before a `--` separator, so
 // no command parser has to learn it and no program argument after `--` is ever eaten. It is accepted
 // by `build`, `check` and `test` -- the agent loop -- and refused by name everywhere else rather
@@ -104,7 +111,8 @@ class CliStatsKernels {
         wallMs: long,
         cpuMs: long,
         peakWorkingSetBytes: long,
-        counters: CompilerWorkCounterSnapshot
+        counters: CompilerWorkCounterSnapshot,
+        phases: List<CompilerPhaseRecord>? = null
     ): string {
         counterObject := new Dictionary<string, object?>()
         counterObject["filesParsed"] = counters.FilesParsed
@@ -127,6 +135,22 @@ class CliStatsKernels {
             envelope["peakWorkingSetBytes"] = peakWorkingSetBytes
         }
         envelope["counters"] = counterObject
+        // Omitted when the command recorded no phase (a refusal, `--help`, a stamp-answered build
+        // records only what it did).
+        if phases != null && phases.Count > 0 {
+            phaseObjects := new List<Dictionary<string, object?>>()
+            for phase in phases {
+                phaseObject := new Dictionary<string, object?>()
+                phaseObject["project"] = phase.Project
+                phaseObject["phase"] = phase.Phase
+                phaseObject["wallMs"] = phase.WallMilliseconds
+                phaseObject["cpuMs"] = phase.CpuMilliseconds
+                phaseObject["allocatedBytes"] = phase.AllocatedBytes
+                phaseObject["calls"] = phase.Count
+                phaseObjects.Add(phaseObject)
+            }
+            envelope["phases"] = phaseObjects
+        }
         return JsonSerializer.Serialize<Dictionary<string, object?>>(envelope)
     }
 }

@@ -534,6 +534,8 @@ class DaemonExecHost {
             Console.SetError(stderr)
             Console.SetIn(stdin)
             CliInvocationContext.Begin(request.CommandLineArgs, request.StderrRedirected, launcher)
+            // Each request's phase ledger is its own (`CompilerPhaseTimings`).
+            CompilerPhaseTimings.Reset()
             commandExecutor := DaemonExecHost.executor
             if commandExecutor == null {
                 return InternalErrorBoundary.ExitCode()
@@ -557,6 +559,7 @@ class DaemonExecHost {
             }
 
             CliInvocationContext.End()
+            CompilerPhaseTimings.Reset()
             Console.SetOut(originalOut)
             Console.SetError(originalError)
             Console.SetIn(originalIn)

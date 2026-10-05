@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli
 
+import System.Collections.Generic
 import System.Text.Json
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Columnar
@@ -77,6 +78,35 @@ test "the stats line is one compact nsharp.cli-stats v1 object with every counte
     assert work.GetProperty("assembliesEmitted").GetInt64() == 1
     assert work.GetProperty("referenceAssembliesLoaded").GetInt64() == 212
     assert work.GetProperty("processesSpawned").GetInt64() == 0
+    // No phase recorded: the optional `phases` array is omitted, like every empty field.
+    assert !json.Contains("phases")
+    document.Dispose()
+}
+
+test "the phase ledger's rows ride on the stats line as phases, in ledger order" {
+    counters := new CompilerWorkCounterSnapshot(1, 1, 1, 1, 1, 0)
+    phases := new List<CompilerPhaseRecord>()
+    phases.Add(new CompilerPhaseRecord("App", "parse", 0, 30000, 2048, 1))
+    phases.Add(new CompilerPhaseRecord("App", "analysis", 0, 120000, 4096, 2))
+    json := CliStatsKernels.ToJson("build", 0, 20, 15, 0, counters, phases)
+    assert !json.Contains("\n")
+
+    document := JsonDocument.Parse(json)
+    root := document.RootElement
+    assert root.GetProperty("schemaVersion").GetInt32() == 1
+    rows := root.GetProperty("phases")
+    assert rows.GetArrayLength() == 2
+    first := rows[0]
+    assert first.GetProperty("project").GetString() == "App"
+    assert first.GetProperty("phase").GetString() == "parse"
+    assert first.GetProperty("wallMs").GetInt64() == 0
+    assert first.GetProperty("cpuMs").GetInt64() == 3
+    assert first.GetProperty("allocatedBytes").GetInt64() == 2048
+    assert first.GetProperty("calls").GetInt32() == 1
+    second := rows[1]
+    assert second.GetProperty("phase").GetString() == "analysis"
+    assert second.GetProperty("cpuMs").GetInt64() == 12
+    assert second.GetProperty("calls").GetInt32() == 2
     document.Dispose()
 }
 

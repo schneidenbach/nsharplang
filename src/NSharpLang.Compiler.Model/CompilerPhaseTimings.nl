@@ -15,10 +15,15 @@ import System.Text
 // never be produced by a second, disagreeing stopwatch somewhere else.
 //
 // OFF UNLESS ASKED. `Begin` returns null while the ledger is disabled and `End(null)` is free, so the
-// instrumented pipeline pays one static read per phase when nobody is measuring. A build enables it
-// once, before its first phase, and never turns it off; the ledger is per process because a project
-// build compiles its project references in the same process, and their phases belong in the same
-// report.
+// instrumented pipeline pays one static read per phase when nobody is measuring. A command enables it
+// once, before its first phase (`nlc build --timings`, and `--stats` on build, check and test, whose
+// JSON line carries the same rows as `phases`); the ledger spans the command because a project build
+// compiles its project references in the same process, and their phases belong in the same report.
+//
+// ONE COMMAND'S LEDGER. In a one-shot `nlc` the process is the command. The workspace server runs
+// command after command in one process, so it `Reset`s the ledger around each one: a routed
+// `--timings` reports its own phases, never an earlier client's, and a ledger nobody reads again is
+// not kept.
 //
 // THE COUNTERS ARE PROCESS-WIDE ON PURPOSE. `Process.TotalProcessorTime` and
 // `GC.GetTotalAllocatedBytes` count every thread, so a phase that fans out to workers reports the
@@ -71,6 +76,12 @@ class CompilerPhaseTimings {
 
     static func Enable() {
         CompilerPhaseTimings.enabled = true
+    }
+
+    // Off, and empty: the state of a process that has run no command yet.
+    static func Reset() {
+        CompilerPhaseTimings.enabled = false
+        CompilerPhaseTimings.records.Clear()
     }
 
     static func IsEnabled(): bool {
