@@ -92,6 +92,15 @@ class DaemonProtocolKernels {
         return -32603
     }
 
+    // In JSON-RPC's server-defined range: the client is a different nlc build than the server.
+    static func GetIdentityMismatchErrorCode(): int {
+        return -32001
+    }
+
+    static func GetIdentityMismatchMessage(): string {
+        return "This daemon is a different nlc build than the client."
+    }
+
     static func GetPingMethod(): string {
         return "daemon/ping"
     }
@@ -293,9 +302,13 @@ class DaemonProtocolKernels {
             return projectLocalPath
         }
 
+        // Owner-only directories: on a system whose temp directory is shared between users, another
+        // user can neither list nor reach this server (the socket itself is owner-only as well).
+        ownerOnly := UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
         runtimeRoot := Path.Combine(tempPath, "nlc-daemon")
         runtimeDir := Path.Combine(runtimeRoot, hashPrefix)
-        Directory.CreateDirectory(runtimeDir)
+        Directory.CreateDirectory(runtimeRoot, ownerOnly)
+        Directory.CreateDirectory(runtimeDir, ownerOnly)
         return Path.Combine(runtimeDir, socketName)
     }
 

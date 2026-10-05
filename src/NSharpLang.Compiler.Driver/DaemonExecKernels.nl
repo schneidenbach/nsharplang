@@ -101,9 +101,10 @@ class DaemonExecKernels {
     // How long a request waits for the server's work lock before the server answers "busy" and the
     // client runs the command itself. Commands that touch the process-wide current directory,
     // environment and console cannot run side by side in one process, so a second agent never waits
-    // longer than this behind a first agent's long build.
+    // longer than this behind a first agent's long build: long enough to queue behind a quick
+    // `check` or `format`, short enough that losing the race costs little next to a cold run.
     static func GetBusyWaitMilliseconds(): int {
-        return 1000
+        return 250
     }
 
     // The server sends a keep-alive this often while a command runs; a client that hears nothing for

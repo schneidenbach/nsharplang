@@ -43,6 +43,18 @@ class DaemonWorkspace {
 // The build identity a client and a server must share. See `DaemonExecKernels.ComposeIdentitySource`
 // for what it covers and why.
 class DaemonBuildIdentity {
+    private static cliVersion: string?
+
+    // The CLI pipeline records its version once, first thing, so code with no version in hand (the
+    // query client) can still name the build it is.
+    static func SetCliVersion(version: string) {
+        DaemonBuildIdentity.cliVersion = version
+    }
+
+    static func Current(): string {
+        return Compute(DaemonBuildIdentity.cliVersion ?? "unknown")
+    }
+
     static func Compute(version: string): string {
         baseDirectory := AppContext.BaseDirectory
         return DaemonExecKernels.HashIdentity(DaemonExecKernels.ComposeIdentitySource(

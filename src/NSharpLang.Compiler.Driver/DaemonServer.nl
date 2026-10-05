@@ -6,6 +6,7 @@ import System.Diagnostics
 import System.IO
 import System.Linq
 import System.Net.Sockets
+import System.Runtime.InteropServices
 import System.Text
 import System.Text.Json
 import System.Threading
@@ -78,7 +79,7 @@ class DaemonServer {
     socketPath: string
     service: CodeIntelligenceService
     completionEngine: CompletionEngine
-    snapshot: ProjectSnapshot?
+    snapshots: Dictionary<string, ProjectSnapshot>
     lastActivity: DateTime
     fileWatcher: FileSystemWatcher?
     cacheInvalid: bool
@@ -109,7 +110,7 @@ class DaemonServer {
         socketPath = DaemonConstants.GetSocketPath(root)
         service = new CodeIntelligenceService()
         completionEngine = new CompletionEngine()
-        snapshot = null
+        snapshots = new Dictionary<string, ProjectSnapshot>(StringComparer.Ordinal)
         lastActivity = DateTime.UtcNow
         fileWatcher = null
         cacheInvalid = true
@@ -267,7 +268,6 @@ class DaemonServer {
     func Run() {
         pidPath := DaemonProtocolKernels.GetPidFilePath(socketPath)
         socketDirectory := Path.GetDirectoryName(socketPath) ?? projectRoot
-        ownsSocket := false
         diagnosticWriter: StreamWriter? = null
         startupLogPath := Environment.GetEnvironmentVariable(DaemonClientKernels.GetStartupOutputLogEnvironmentVariableName())
 
@@ -282,6 +282,39 @@ class DaemonServer {
             Console.SetError(synchronized)
             diagnosticWriter = writer
         }
+
+        // SIGNALS. SIGTERM (`kill`, a logout, a container stop) is a request to stop: the accept loop
+        // winds down, requests in flight finish, the socket and PID file are removed. A background
+        // server was started from inside some command's process group, so a Ctrl-C or hang-up meant
+        // for that terminal must not reach it; a foreground `nlc daemon run` keeps the default and
+        // stops on Ctrl-C like any other program.
+        terminate := PosixSignalRegistration.Create(PosixSignal.SIGTERM, (context) => {
+            context.Cancel = true
+            RequestStop()
+        })
+        interrupt: PosixSignalRegistration? = null
+        hangUp: PosixSignalRegistration? = null
+        if background {
+            interrupt = PosixSignalRegistration.Create(PosixSignal.SIGINT, (context) => {
+                context.Cancel = true
+            })
+            hangUp = PosixSignalRegistration.Create(PosixSignal.SIGHUP, (context) => {
+                context.Cancel = true
+            })
+        }
+
+        try {
+            RunWithSignals(pidPath, socketDirectory, diagnosticWriter, startupLogPath)
+        } finally {
+            terminate.Dispose()
+            interrupt?.Dispose()
+            hangUp?.Dispose()
+        }
+    }
+
+    func RunWithSignals(pidPath: string, socketDirectory: string, startupWriter: StreamWriter?, startupLogPath: string?) {
+        ownsSocket := false
+        diagnosticWriter := startupWriter
 
         // ONE SERVER PER WORKSPACE. The lock is held for the server's whole life and released by the
         // kernel when the process dies, however it dies, so it never needs cleaning up.
@@ -675,6 +708,13 @@ class DaemonServer {
                 return Error(request.Id, DaemonConstants.ErrorMethodNotFound, DaemonServerKernels.GetUnknownMethodMessage(request.Method))
             }
 
+            // A query from a client of another build would be answered by this build's compiler. The
+            // client says which build it is, and is told to answer in-process instead.
+            requestIdentity := GetParam<string>(request.Params, "identity")
+            if requestIdentity != null && requestIdentity != DaemonExecHost.GetIdentity() {
+                return Error(request.Id, DaemonProtocolKernels.GetIdentityMismatchErrorCode(), DaemonProtocolKernels.GetIdentityMismatchMessage())
+            }
+
             // Queries share the compiler with exec requests; one thing runs at a time.
             Monitor.Enter(workGate)
             try {
@@ -692,21 +732,32 @@ class DaemonServer {
         }
     }
 
+    // Read without the work lock (status must answer while a command runs), so it reads a copy.
     func CachedFileCount(): int {
-        statusSnapshot := snapshot
-        if statusSnapshot != null {
-            return statusSnapshot.CompilationUnits.Count
+        count := 0
+        try {
+            loadedSnapshots := new List<ProjectSnapshot>(snapshots.Values)
+            for loaded in loadedSnapshots {
+                count = count + loaded.CompilationUnits.Count
+            }
+        } catch concurrentChange: Exception {
+            return count
         }
 
-        return 0
+        return count
     }
 
     func ProcessQuery(request: DaemonRequest, methodKind: DaemonMethodKind): DaemonResponse {
         try {
-            // Ensure snapshot is loaded
-            EnsureSnapshot()
+            // ONE SERVER, MANY PROJECTS. A query names the project it is about; a client from before
+            // that parameter existed means the server's own root.
+            queryRoot := projectRoot
+            requestedRoot := GetParam<string>(request.Params, "projectRoot")
+            if requestedRoot != null {
+                queryRoot = Path.GetFullPath(requestedRoot ?? projectRoot)
+            }
 
-            loaded := snapshot
+            loaded := EnsureSnapshot(queryRoot)
             if loaded == null {
                 return Error(request.Id, DaemonConstants.ErrorInternal, DaemonServerKernels.GetFailedLoadProjectMessage())
             }
@@ -717,7 +768,7 @@ class DaemonServer {
                     return Ok(request.Id, OutputFormatter.ErrorToJson(
                         "batch",
                         DaemonServerKernels.GetEmptyBatchPayloadMessage(),
-                        projectRoot,
+                        queryRoot,
                         "emptyBatch",
                         null
                     ))
@@ -725,7 +776,7 @@ class DaemonServer {
 
                 execution := BatchQueryRunner.Execute(
                     requests,
-                    projectRoot,
+                    queryRoot,
                     () => loaded,
                     service,
                     completionEngine
@@ -968,25 +1019,33 @@ class DaemonServer {
 
     // ── Snapshot Management ─────────────────────────────────────────────
 
-    func EnsureSnapshot() {
-        if snapshot != null && !Volatile.Read(ref cacheInvalid) {
-            return
+    // The project's snapshot, loaded on first use and kept until a watched file changes (any change
+    // under the workspace drops every project's snapshot: a project's analysis reads its references'
+    // sources too). Callers hold the work lock.
+    func EnsureSnapshot(root: string): ProjectSnapshot? {
+        if Volatile.Read(ref cacheInvalid) {
+            Volatile.Write(ref cacheInvalid, false)
+            snapshots.Clear()
+        }
+
+        if snapshots.ContainsKey(root) {
+            return snapshots[root]
         }
 
         WriteDiagnostic(DaemonServerKernels.GetLoadingProjectMessage())
         sw := Stopwatch.StartNew()
 
         try {
-            loaded := service.LoadProject(projectRoot)
-            snapshot = loaded
-            Volatile.Write(ref cacheInvalid, false)
+            loaded := service.LoadProject(root)
+            snapshots[root] = loaded
             sw.Stop()
             elapsedMilliseconds := sw.ElapsedMilliseconds
             fileCount := loaded.CompilationUnits.Count
             WriteDiagnostic(DaemonServerKernels.GetProjectLoadedMessage(elapsedMilliseconds, fileCount))
+            return loaded
         } catch ex: Exception {
             WriteDiagnostic(DaemonServerKernels.GetProjectLoadFailedTraceMessage(ex.Message))
-            snapshot = null
+            return null
         }
     }
 

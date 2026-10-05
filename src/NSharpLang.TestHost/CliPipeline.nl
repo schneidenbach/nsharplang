@@ -30,6 +30,7 @@ static class CliPipeline {
     // exactly as it always has. `DaemonExecKernels` owns which commands route and every switch that
     // turns routing off.
     static func Execute(args: string[], version: string): int {
+        DaemonBuildIdentity.SetCliVersion(version)
         if TestWorkerHost.IsWorkerInvocation(args) {
             return TestWorkerHost.Run()
         }

@@ -1333,16 +1333,25 @@ static class QueryCommand {
             return false
         }
 
-        if !DaemonClient.IsRunning(projectRoot) {
+        // The workspace server answers for every project under it; the query names its project and
+        // its build, and a server of another build declines rather than answer with other semantics.
+        workspaceRoot := DaemonWorkspace.Resolve(projectRoot)
+        if !DaemonClient.IsRunning(workspaceRoot) {
             return false
         }
 
-        response := DaemonClient.QueryResponse(projectRoot, method, parameters)
+        parameters["projectRoot"] = Path.GetFullPath(projectRoot)
+        parameters["identity"] = DaemonBuildIdentity.Current()
+        response := DaemonClient.QueryResponse(workspaceRoot, method, parameters)
         if response == null {
             return false
         }
 
         error := response.Error
+        if error != null && error.Code == DaemonProtocolKernels.GetIdentityMismatchErrorCode() {
+            return false
+        }
+
         if error != null {
             Console.Error.WriteLine(DaemonProtocolKernels.ErrorResponseJson(response.Id, error.Code, error.Message))
             exitCode = 1
