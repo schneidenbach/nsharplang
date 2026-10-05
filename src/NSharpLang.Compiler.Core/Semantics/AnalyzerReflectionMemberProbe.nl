@@ -43,9 +43,10 @@ class AnalyzerReflectionMemberProbe {
         }
     }
 
+    // Read through `ReflectedMethodCache`: the array is SHARED, so it is only ever read.
     static func MethodsOrEmpty(owner: Type, memberFlags: BindingFlags): MethodInfo[] {
         try {
-            result := owner.GetMethods(memberFlags)
+            result := ReflectedMethodCache.GetMethods(owner, memberFlags)
             if result == null {
                 return new MethodInfo[](0)
             }
