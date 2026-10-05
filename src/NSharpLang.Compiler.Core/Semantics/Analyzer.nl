@@ -1320,12 +1320,15 @@ class Analyzer: IDisposable {
             Ambient.ExitLocalFunctionByRefParameters(savedByRefParameters)
         }
     }
+    // Walk requests are tagged records: nullable properties are absent outside their matching kind.
+    // Each owner fills the payload its emitted kind requires; `must` at dispatch enforces that
+    // producer contract instead of letting an absent payload enter a semantic walk.
     private func DriveStatementSequence(state: StatementSequenceState) {
         step := StatementSequence.NextStep(state)
         while step != null {
             kind := step.Kind
             if kind == 1 {
-                AnalyzeStatement(step.Body)
+                AnalyzeStatement((must step.Body))
             }
             if kind == 2 {
                 PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
@@ -1393,13 +1396,13 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             if kind == 4 {
                 PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
             }
             if kind == 5 {
-                DriveStatementSequence(StatementSequence.BeginList(step.Statements))
+                DriveStatementSequence(StatementSequence.BeginList((must step.Statements)))
             }
             if kind == 6 {
                 PopScope()
@@ -1428,31 +1431,31 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
+                answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
             }
             if kind == 2 {
                 PushScope(new Scope(ScopeKind.Function), step.Line, step.Column)
             }
             if kind == 3 {
-                DeclarationPolicy.DeclareSymbol(step.Name, step.CarriedType, step.Line, step.Column, null, true)
+                DeclarationPolicy.DeclareSymbol((must step.Name), step.CarriedType, step.Line, step.Column, null, true)
             }
             if kind == 4 {
-                Scopes.RecordVariable(SemanticModel, step.Name, step.CarriedType)
+                Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 5 {
-                DriveStatementSequence(StatementSequence.BeginList(step.Statements))
+                DriveStatementSequence(StatementSequence.BeginList((must step.Statements)))
             }
             if kind == 6 {
                 PopScope()
             }
             if kind == 7 {
-                DriveParameterDeclarations(DeclarationPolicy.BeginParameterDeclarations(step.Parameters, step.Line, step.Column))
+                DriveParameterDeclarations(DeclarationPolicy.BeginParameterDeclarations((must step.Parameters), step.Line, step.Column))
             }
             if kind == 8 {
-                Scopes.RecordFunction(SemanticModel, step.Name, step.CarriedType)
+                Scopes.RecordFunction(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 9 {
-                AnalyzeStatement(step.Body)
+                AnalyzeStatement((must step.Body))
             }
             FunctionBodies.Supply(state, answer)
             step = FunctionBodies.NextStep(state)
@@ -1465,31 +1468,31 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
+                answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
             }
             if kind == 2 {
                 PushScope(new Scope(ScopeKind.Function), step.Line, step.Column)
             }
             if kind == 3 {
-                DeclarationPolicy.DeclareSymbol(step.Name, step.CarriedType, step.Line, step.Column, null, step.RecordsBinding)
+                DeclarationPolicy.DeclareSymbol((must step.Name), step.CarriedType, step.Line, step.Column, null, step.RecordsBinding)
             }
             if kind == 4 {
-                Scopes.RecordVariable(SemanticModel, step.Name, step.CarriedType)
+                Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 5 {
                 PopScope()
             }
             if kind == 6 {
-                DriveParameterDeclarations(DeclarationPolicy.BeginParameterDeclarations(step.Parameters, step.Line, step.Column))
+                DriveParameterDeclarations(DeclarationPolicy.BeginParameterDeclarations((must step.Parameters), step.Line, step.Column))
             }
             if kind == 7 {
-                AnalyzeStatement(step.Body)
+                AnalyzeStatement((must step.Body))
             }
             if kind == 8 {
-                SemanticModel.RecordTypeMember(step.ContainingType, step.Name, step.CarriedType)
+                SemanticModel.RecordTypeMember((must step.ContainingType), (must step.Name), step.CarriedType)
             }
             if kind == 9 {
-                SemanticModel.RecordProperty(step.Name, step.CarriedType)
+                SemanticModel.RecordProperty((must step.Name), step.CarriedType)
             }
             AccessorBodies.Supply(state, answer)
             step = AccessorBodies.NextStep(state)
@@ -1502,31 +1505,31 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             if kind == 2 {
                 PushScope(new Scope(step.CarriedScopeKind), step.Line, step.Column)
             }
             if kind == 3 {
-                DeclarationPolicy.DeclareSymbol(step.Name, step.CarriedType, step.Line, step.Column, null, step.RecordsBinding)
+                DeclarationPolicy.DeclareSymbol((must step.Name), step.CarriedType, step.Line, step.Column, null, step.RecordsBinding)
             }
             if kind == 4 {
-                Scopes.RecordVariable(SemanticModel, step.Name, step.CarriedType)
+                Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 5 {
                 PopScope()
             }
             if kind == 6 {
-                DriveParameterDeclarations(DeclarationPolicy.BeginParameterDeclarations(step.Parameters, step.Line, step.Column))
+                DriveParameterDeclarations(DeclarationPolicy.BeginParameterDeclarations((must step.Parameters), step.Line, step.Column))
             }
             if kind == 7 {
-                AnalyzeDeclaration(step.Member)
+                AnalyzeDeclaration((must step.Member))
             }
             if kind == 8 {
-                SemanticModel.RecordTypeMember(step.ContainingType, step.Name, step.CarriedType)
+                SemanticModel.RecordTypeMember((must step.ContainingType), (must step.Name), step.CarriedType)
             }
             if kind == 9 {
-                SemanticModel.RecordField(step.Name, step.CarriedType)
+                SemanticModel.RecordField((must step.Name), step.CarriedType)
             }
             TypeDeclarations.Supply(state, answer)
             step = TypeDeclarations.NextStep(state)
@@ -1539,28 +1542,28 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             if kind == 2 {
                 PushScope(new Scope(ScopeKind.Function), step.Line, step.Column)
             }
             if kind == 3 {
-                DeclarationPolicy.DeclareSymbol(step.Name, step.CarriedType, step.Line, step.Column, null, true)
+                DeclarationPolicy.DeclareSymbol((must step.Name), step.CarriedType, step.Line, step.Column, null, true)
             }
             if kind == 4 {
-                Scopes.RecordVariable(SemanticModel, step.Name, step.CarriedType)
+                Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 5 {
-                DriveStatementSequence(StatementSequence.BeginList(step.Statements))
+                DriveStatementSequence(StatementSequence.BeginList((must step.Statements)))
             }
             if kind == 6 {
                 PopScope()
             }
             if kind == 7 {
-                DriveParameterDeclarations(DeclarationPolicy.BeginParameterDeclarations(step.Parameters, step.Line, step.Column))
+                DriveParameterDeclarations(DeclarationPolicy.BeginParameterDeclarations((must step.Parameters), step.Line, step.Column))
             }
             if kind == 8 {
-                AnalyzeStatement(step.Body)
+                AnalyzeStatement((must step.Body))
             }
             DeclarationWalkers.Supply(state, answer)
             step = DeclarationWalkers.NextStep(state)
@@ -1601,17 +1604,17 @@ class Analyzer: IDisposable {
             kind := step.Kind
             if kind == 1 {
                 previousExpectedType := Ambient.EnterExpectedType(step.ExpectedType)
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
                 Ambient.ExitExpectedType(previousExpectedType)
             }
             if kind == 4 {
-                DeclarationPolicy.DeclareSymbol(step.Name, step.CarriedType, step.Line, step.Column, step.Text, true)
+                DeclarationPolicy.DeclareSymbol((must step.Name), step.CarriedType, step.Line, step.Column, step.Text, true)
             }
             if kind == 5 {
-                Scopes.RecordVariable(SemanticModel, step.Name, step.CarriedType)
+                Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 6 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             VariableDeclaration.Supply(state, answer)
             step = VariableDeclaration.NextStep(state)
@@ -1624,19 +1627,19 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             if kind == 2 {
                 PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
             }
             if kind == 3 {
-                DeclarationPolicy.DeclareSymbol(step.Name, step.CarriedType, step.Line, step.Column, null, true)
+                DeclarationPolicy.DeclareSymbol((must step.Name), step.CarriedType, step.Line, step.Column, null, true)
             }
             if kind == 4 {
-                Scopes.RecordVariable(SemanticModel, step.Name, step.CarriedType)
+                Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 5 {
-                AnalyzeStatement(step.Body)
+                AnalyzeStatement((must step.Body))
             }
             if kind == 6 {
                 PopScope()
@@ -1647,14 +1650,14 @@ class Analyzer: IDisposable {
                     PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
                     FlowNarrowing.ApplyNarrowingsToScope(iteratorNarrowings)
                 }
-                DriveExpressionStatement(ExpressionStatements.BeginForIterator(step.Node))
+                DriveExpressionStatement(ExpressionStatements.BeginForIterator((must step.Node)))
                 if iteratorNarrowings != null {
                     PopScope()
                 }
             }
             if kind == 8 {
                 Scopes.NoteLine(step.Line)
-                DriveStatementSequence(StatementSequence.BeginList(step.Statements))
+                DriveStatementSequence(StatementSequence.BeginList((must step.Statements)))
             }
             LoopSequence.SupplyLoop(state, answer)
             step = LoopSequence.NextLoopStep(state)
@@ -1667,25 +1670,25 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             if kind == 2 {
                 PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
             }
             if kind == 3 {
-                DeclarationPolicy.DeclareSymbol(step.Name, step.CarriedType, step.Line, step.Column, null, true)
+                DeclarationPolicy.DeclareSymbol((must step.Name), step.CarriedType, step.Line, step.Column, null, true)
             }
             if kind == 4 {
-                Scopes.RecordVariable(SemanticModel, step.Name, step.CarriedType)
+                Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 5 {
-                AnalyzeStatement(step.Body)
+                AnalyzeStatement((must step.Body))
             }
             if kind == 6 {
                 PopScope()
             }
             if kind == 7 {
-                DriveLocalDeclaration(VariableDeclaration.Begin(step.Declaration))
+                DriveLocalDeclaration(VariableDeclaration.Begin((must step.Declaration)))
             }
             if kind == 8 {
                 // A CATCH FILTER'S TRUE-FACTS, INSTALLED INTO THE CLAUSE'S OWN SCOPE. The handler runs
@@ -1702,7 +1705,7 @@ class Analyzer: IDisposable {
     private func DriveYieldStatement(state: YieldStatementState) {
         step := LoopSequence.NextStep(state)
         while step != null {
-            LoopSequence.Supply(state, AnalyzeExpression(step.Node))
+            LoopSequence.Supply(state, AnalyzeExpression((must step.Node)))
             step = LoopSequence.NextStep(state)
         }
     }
@@ -1710,7 +1713,7 @@ class Analyzer: IDisposable {
     private func DriveReturnStatement(state: ReturnStatementState) {
         step := Ambient.NextStep(state)
         while step != null {
-            Ambient.Supply(state, AnalyzeExpression(step.Node))
+            Ambient.Supply(state, AnalyzeExpression((must step.Node)))
             step = Ambient.NextStep(state)
         }
     }
@@ -1721,19 +1724,19 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             if kind == 4 {
-                DeclarationPolicy.DeclareSymbol(step.Name, step.CarriedType, step.Line, step.Column, null, true)
+                DeclarationPolicy.DeclareSymbol((must step.Name), step.CarriedType, step.Line, step.Column, null, true)
             }
             if kind == 5 {
-                AnalyzePattern(step.Pattern, step.CarriedType)
+                AnalyzePattern((must step.Pattern), step.CarriedType)
             }
             if kind == 6 {
                 PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
             }
             if kind == 7 {
-                DriveStatementSequence(StatementSequence.BeginList(step.Statements))
+                DriveStatementSequence(StatementSequence.BeginList((must step.Statements)))
             }
             if kind == 8 {
                 PopScope()
@@ -1752,16 +1755,16 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             if kind == 2 {
-                answer = AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
+                answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
             }
             if kind == 3 {
                 PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
             }
             if kind == 4 {
-                AnalyzePattern(step.PatternNode, step.CarriedType)
+                AnalyzePattern((must step.PatternNode), step.CarriedType)
             }
             if kind == 5 {
                 PopScope()
@@ -1775,7 +1778,7 @@ class Analyzer: IDisposable {
     private func DriveLiteralExpression(state: LiteralExpressionState): TypeInfo {
         step := LiteralExpressions.NextStep(state)
         while step != null {
-            LiteralExpressions.Supply(state, AnalyzeExpression(step.Node))
+            LiteralExpressions.Supply(state, AnalyzeExpression((must step.Node)))
             step = LiteralExpressions.NextStep(state)
         }
         return LiteralExpressions.Result(state)
@@ -1819,7 +1822,7 @@ class Analyzer: IDisposable {
     private func DrivePassThroughOperand(state: PassThroughOperandState): TypeInfo {
         step := PassThroughOperands.NextStep(state)
         while step != null {
-            PassThroughOperands.Supply(state, AnalyzeExpression(step.Node))
+            PassThroughOperands.Supply(state, AnalyzeExpression((must step.Node)))
             step = PassThroughOperands.NextStep(state)
         }
         return PassThroughOperands.Result(state)
@@ -1831,10 +1834,10 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             if kind == 2 {
-                answer = AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
+                answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
             }
             if kind == 3 {
                 PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
@@ -1860,7 +1863,7 @@ class Analyzer: IDisposable {
                 previousSuppressedFlowTypeNode := NullFlow.SuppressedFlowTypeNode
                 NullFlow.SetSuppressedFlowTypeNode(step.Node)
                 try {
-                    answer = AnalyzeExpression(step.Node)
+                    answer = AnalyzeExpression((must step.Node))
                 } finally {
                     NullFlow.SetSuppressedFlowTypeNode(previousSuppressedFlowTypeNode)
                 }
@@ -1868,11 +1871,11 @@ class Analyzer: IDisposable {
             if kind == 3 {
                 stateBeforeOperator := Scopes.CaptureNullStates()
                 PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
-                FlowNarrowing.ApplyNarrowingsToScope(step.Narrowings)
+                FlowNarrowing.ApplyNarrowingsToScope((must step.Narrowings))
                 rightScope := Scopes.Peek()
                 nullStatesAfterNarrowing := new Dictionary<string, NullState>(rightScope.NullStates, StringComparer.Ordinal)
                 nullWritesAfterNarrowing := new HashSet<string>(rightScope.NullStateWrites, StringComparer.Ordinal)
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
                 changedPaths := new HashSet<string>(StringComparer.Ordinal)
                 for entry in rightScope.NullStates {
                     previous := NullState.Unknown
@@ -1942,7 +1945,7 @@ class Analyzer: IDisposable {
         receiverDispatchedType: TypeInfo? = null
         step := MemberAccess.NextStep(state)
         while step != null {
-            answer := AnalyzeExpression(step.Node)
+            answer := AnalyzeExpression((must step.Node))
             if DispatchedExpression != null && Object.ReferenceEquals(DispatchedExpression, step.Node) {
                 receiverNode = step.Node
                 receiverDispatchedType = DispatchedType
@@ -2040,7 +2043,7 @@ class Analyzer: IDisposable {
     private func DriveIndexAccess(state: IndexAccessState): TypeInfo {
         step := IndexAccess.NextStep(state)
         while step != null {
-            IndexAccess.Supply(state, AnalyzeExpression(step.Node))
+            IndexAccess.Supply(state, AnalyzeExpression((must step.Node)))
             step = IndexAccess.NextStep(state)
         }
         return IndexAccess.Result(state)
@@ -2049,7 +2052,7 @@ class Analyzer: IDisposable {
     private func DriveRangeExpression(state: RangeExpressionState): TypeInfo {
         step := RangeExpression.NextStep(state)
         while step != null {
-            RangeExpression.Supply(state, AnalyzeExpression(step.Node))
+            RangeExpression.Supply(state, AnalyzeExpression((must step.Node)))
             step = RangeExpression.NextStep(state)
         }
         return RangeExpression.Result(state)
@@ -2072,7 +2075,7 @@ class Analyzer: IDisposable {
             kind := step.Kind
             handled := false
             if kind == 3 {
-                NullFlow.ReportPossibleNullAccess(step.Node, step.CarriedType, step.Line, step.Column, step.Text, step.Flag)
+                NullFlow.ReportPossibleNullAccess((must step.Node), (must step.CarriedType), step.Line, step.Column, (must step.Text), step.Flag)
             }
             if kind == 4 {
                 // An argument's target comes from its parameter, never the enclosing call's result.
@@ -2085,7 +2088,7 @@ class Analyzer: IDisposable {
             }
             if kind == 6 {
                 ReceiverRelayMember = null
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
                 if ReceiverRelayMember != null && Object.ReferenceEquals(ReceiverRelayMember, call.Callee) {
                     receiverNode = ReceiverRelayNode
                     receiverDispatchedType = ReceiverRelayDispatchedType
@@ -2096,22 +2099,22 @@ class Analyzer: IDisposable {
             if kind == 16 {
                 keptType := receiverDispatchedType
                 if keptType != null && receiverNode != null && Object.ReferenceEquals(receiverNode, step.Node) {
-                    answer = ExpressionTail.Finish(step.Node, keptType)
+                    answer = ExpressionTail.Finish((must step.Node), keptType)
                 } else {
-                    answer = AnalyzeExpression(step.Node)
+                    answer = AnalyzeExpression((must step.Node))
                 }
             }
             if kind == 7 {
-                SoaEscape.ReportSoaRowEscape(step.Node, step.Text)
+                SoaEscape.ReportSoaRowEscape((must step.Node), (must step.Text))
             }
             if kind == 8 {
-                handled = SoaDirectColumnCalls.ReportDirectColumnCallIfNeeded(call, step.CarriedType)
+                handled = SoaDirectColumnCalls.ReportDirectColumnCallIfNeeded(call, (must step.CarriedType))
             }
             if kind == 14 {
-                SemanticModel.RecordExpressionType(call.Callee.Line, call.Callee.Column, step.CarriedType)
+                SemanticModel.RecordExpressionType(call.Callee.Line, call.Callee.Column, (must step.CarriedType))
             }
             if kind == 15 {
-                answer = DriveLambda(LambdaAnalysis.BeginLambda(step.Lambda, step.CarriedType, true, step.Flag))
+                answer = DriveLambda(LambdaAnalysis.BeginLambda((must step.Lambda), step.CarriedType, true, step.Flag))
             }
             CallAnalysis.SupplyCallStep(state, answer, handled)
             step = CallAnalysis.NextCallStep(state)
@@ -2201,7 +2204,7 @@ class Analyzer: IDisposable {
             if kind == 1 {
                 previousAllow := Ambient.EnterAllowEventReference()
                 try {
-                    answer = AnalyzeExpression(step.Node)
+                    answer = AnalyzeExpression((must step.Node))
                 } finally {
                     Ambient.ExitAllowEventReference(previousAllow)
                 }
@@ -2222,7 +2225,7 @@ class Analyzer: IDisposable {
                     // NOTHING relaxed: the slot is an ordinary delegate position, so a bare method name
                     // in it gets the same NL411 a delegate-typed parameter and a declared delegate local
                     // give it, rather than a sentence only `on` knows how to say.
-                    handlerType := AnalyzeExpressionWithExpectedType(step.Handler, step.ExpectedType, false)
+                    handlerType := AnalyzeExpressionWithExpectedType((must step.Handler), step.ExpectedType, false)
                     LambdaAnalysis.ReportHandlerValueMismatch(step, handlerType, step.ExpectedType != null && Assignability.IsAssignable(step.ExpectedType, handlerType))
                 }
             }
@@ -2238,21 +2241,21 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
+                answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
             }
             if kind == 2 {
                 PushScope(new Scope(ScopeKind.Function), step.Line, step.Column)
             }
             if kind == 3 {
-                DeclarationPolicy.DeclareSymbol(step.Name, step.CarriedType, step.Line, step.Column, null, true)
+                DeclarationPolicy.DeclareSymbol((must step.Name), step.CarriedType, step.Line, step.Column, null, true)
             }
             if kind == 4 {
-                Scopes.RecordVariable(SemanticModel, step.Name, step.CarriedType)
+                Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 5 {
                 bodyFrame := Ambient.EnterNestedBody(null, step.CarriedType)
                 try {
-                    AnalyzeStatement(step.Body)
+                    AnalyzeStatement((must step.Body))
                 } finally {
                     Ambient.ExitNestedBody(bodyFrame)
                 }
@@ -2267,13 +2270,20 @@ class Analyzer: IDisposable {
             LambdaAnalysis.SupplyLambdaStep(state, answer)
             step = LambdaAnalysis.NextLambdaStep(state)
         }
-        return state.Result
+        // FinishLambda stores this before NextLambdaStep completes. A missing result is an internal
+        // walk failure; treating it as an unknown function type would hide a broken protocol.
+        result := state.Result
+        if result == null {
+            throw new InvalidOperationException("Lambda analysis completed without a function type result.")
+        }
+
+        return result
     }
 
     private func DriveArrayLiteral(state: ArrayLiteralState): TypeInfo {
         step := ArrayLiteral.NextStep(state)
         while step != null {
-            ArrayLiteral.Supply(state, AnalyzeExpression(step.Node))
+            ArrayLiteral.Supply(state, AnalyzeExpression((must step.Node)))
             step = ArrayLiteral.NextStep(state)
         }
         return ArrayLiteral.Result(state)
@@ -2285,10 +2295,10 @@ class Analyzer: IDisposable {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpression(step.Node)
+                answer = AnalyzeExpression((must step.Node))
             }
             if kind == 2 {
-                answer = AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
+                answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
             }
             Construction.Supply(state, answer)
             step = Construction.NextStep(state)
