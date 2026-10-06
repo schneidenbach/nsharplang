@@ -41,6 +41,49 @@ class CliRootCheckDiscoveredMember {
     }
 }
 
+func CliRootCheckWorkspaceFailureText(projects: JsonElement): string {
+    failures := ""
+    for member in projects.EnumerateArray() {
+        if member.GetProperty("ok").GetBoolean() {
+            continue
+        }
+
+        if failures.Length > 0 {
+            failures = failures + "\n"
+        }
+        failures = failures + "- " + TextOf(member.GetProperty("projectRoot"))
+
+        errorMessage := new JsonElement()
+        hasError := member.TryGetProperty("error", out errorMessage)
+        if hasError {
+            failures = failures + " error: " + TextOf(errorMessage)
+        }
+
+        diagnosticCount := 0
+        for diagnostic in member.GetProperty("results").EnumerateArray() {
+            if diagnosticCount >= 3 {
+                break
+            }
+            location := TextOf(diagnostic.GetProperty("file")) + ":" +
+                diagnostic.GetProperty("line").GetInt32().ToString() + ":" +
+                diagnostic.GetProperty("column").GetInt32().ToString()
+            failures = failures + "\n  " + TextOf(diagnostic.GetProperty("code")) + " " +
+                TextOf(diagnostic.GetProperty("severity")) + " " + location + ": " +
+                TextOf(diagnostic.GetProperty("message"))
+            diagnosticCount = diagnosticCount + 1
+        }
+
+        if diagnosticCount == 0 && !hasError {
+            failures = failures + " (no diagnostic or project error was returned)"
+        }
+    }
+
+    if failures.Length == 0 {
+        return "none"
+    }
+    return failures
+}
+
 func CliRootCheckParseInteger(text: string): long {
     if text.Length == 0 {
         return -1
@@ -592,7 +635,7 @@ test "nlc check checks each repository project once, keeps Core clean, and pins 
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("info").GetInt32() == memberInfo, "workspace info summary did not aggregate member diagnostics"
-    assert root.GetProperty("summary").GetProperty("projectFailures").GetInt32() == 0, "the workspace reported project failures despite returning a result for every discovered project"
+    assert root.GetProperty("summary").GetProperty("projectFailures").GetInt32() == 0, "the workspace reported project failures despite returning a result for every discovered project. Failing projects and first diagnostics/errors:\n" + CliRootCheckWorkspaceFailureText(projects)
 
     counters := stats.GetProperty("counters")
     filesParsed := counters.GetProperty("filesParsed").GetInt64()

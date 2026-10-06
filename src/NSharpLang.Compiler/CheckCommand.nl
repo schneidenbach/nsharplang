@@ -155,6 +155,25 @@ class CheckCommand {
         sharedReferences := new ResolutionContext(null)
         sharedReferences.CacheProjectFailures = true
         sharedReferences.CompilesConcurrently = true
+
+        // Resolve every member's project graph before any member starts analysis. The reference
+        // resolver and the analyzers share process-wide metadata caches; compiling a cold project
+        // reference while another workspace member analyzes can leave that reference with an
+        // incomplete external-member view. Keep project builds in a serial preflight, then the
+        // independent member analyses can still run concurrently below.
+        referenceFailures := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        for project in workspace.Projects {
+            referenceFailure := ResolveWorkspaceProjectReferences(
+                project,
+                arguments,
+                aotMode,
+                sharedReferences
+            )
+            if referenceFailure != null {
+                referenceFailures[project.ProjectRoot] = referenceFailure ?? ""
+            }
+        }
+
         maxConcurrency := CheckCommandKernels.GetWorkspaceMaxConcurrency(Environment.ProcessorCount)
         batchStart := 0
         while batchStart < projectCount {
@@ -162,7 +181,14 @@ class CheckCommand {
             tasks := new Task<CheckWorkspaceProjectResult>[batchCount]
             for offset := 0; offset < batchCount; offset++ {
                 project := workspace.Projects[batchStart + offset]
-                tasks[offset] = CheckWorkspaceProjectAsync(project, arguments, outputMode, aotMode, sharedReferences)
+                referenceFailure := CheckWorkspaceReferenceFailure(referenceFailures, project.ProjectRoot)
+                tasks[offset] = CheckWorkspaceProjectAsync(
+                    project,
+                    arguments,
+                    outputMode,
+                    aotMode,
+                    referenceFailure
+                )
             }
             for offset := 0; offset < batchCount; offset++ {
                 results.Add(tasks[offset].GetAwaiter().GetResult())
@@ -196,10 +222,49 @@ class CheckCommand {
         arguments: CheckArgumentSummary,
         outputMode: int,
         aotMode: bool,
-        sharedReferences: ResolutionContext
+        referenceFailure: string?
     ): Task<CheckWorkspaceProjectResult> {
         await Task.Yield()
-        return CheckWorkspaceProject(project, arguments, outputMode, aotMode, sharedReferences)
+        return CheckWorkspaceProject(project, arguments, outputMode, aotMode, referenceFailure)
+    }
+
+    private static func ResolveWorkspaceProjectReferences(
+        project: CheckWorkspaceProject,
+        arguments: CheckArgumentSummary,
+        aotMode: bool,
+        sharedReferences: ResolutionContext
+    ): string? {
+        if project.ConfigError != null || project.Config == null {
+            return null
+        }
+
+        try {
+            config := project.Config
+            CompilationBackendSelectionKernels.Validate(arguments.BackendOption, config)
+            referenceOptions := new ReferenceResolutionOptions("Debug", true, true, false, aotMode)
+            referenceOptions.UseBuiltProjectReferences = arguments.UseBuiltReferences
+            referenceOptions.TestSourcesPresent = CheckCommandKernels.HasTestSourceFiles(project.SourceFiles)
+            referenceOptions.WorkspaceContext = sharedReferences
+            CompilationReferenceResolver.AddResolvedDllReferences(
+                project.ProjectRoot,
+                config,
+                referenceOptions
+            )
+            return null
+        } catch ex: Exception {
+            return CheckCommandKernels.GetFailedMessage(ex.Message)
+        }
+    }
+
+    private static func CheckWorkspaceReferenceFailure(
+        failures: Dictionary<string, string>,
+        projectRoot: string
+    ): string? {
+        let failure: string = ""
+        if failures.TryGetValue(projectRoot, out failure) {
+            return failure
+        }
+        return null
     }
 
     static func CheckWorkspaceProject(
@@ -207,7 +272,7 @@ class CheckCommand {
         arguments: CheckArgumentSummary,
         outputMode: int,
         aotMode: bool,
-        sharedReferences: ResolutionContext
+        referenceFailure: string?
     ): CheckWorkspaceProjectResult {
         emptyDiagnostics := new List<DiagnosticResult>()
         if project.ConfigError != null {
@@ -221,21 +286,19 @@ class CheckCommand {
             )
         }
 
+        if referenceFailure != null {
+            return new CheckWorkspaceProjectResult(
+                project.ProjectRoot,
+                project.SourceFiles.Length,
+                emptyDiagnostics,
+                OutputFormatter.SummarizeDiagnostics(emptyDiagnostics),
+                referenceFailure,
+                null
+            )
+        }
+
         try {
             config := project.Config
-            CompilationBackendSelectionKernels.Validate(arguments.BackendOption, config)
-            if config != null {
-                referenceOptions := new ReferenceResolutionOptions("Debug", true, true, false, aotMode)
-                referenceOptions.UseBuiltProjectReferences = arguments.UseBuiltReferences
-                referenceOptions.TestSourcesPresent = CheckCommandKernels.HasTestSourceFiles(project.SourceFiles)
-                referenceOptions.WorkspaceContext = sharedReferences
-                CompilationReferenceResolver.AddResolvedDllReferences(
-                    project.ProjectRoot,
-                    config,
-                    referenceOptions
-                )
-            }
-
             service := new CodeIntelligenceService()
             snapshot := LoadWorkspaceProjectForCheck(service, project, config, aotMode)
             diagnostics := OutputFormatter.DeduplicateAndSortDiagnostics(service.GetDiagnostics(snapshot, null))
