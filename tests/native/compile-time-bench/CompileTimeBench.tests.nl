@@ -46,45 +46,18 @@ func BenchTestBaselinePath(): string {
 }
 
 func BenchTestStageText(): string {
-    return "front-end (parse + semantic analysis + strict lint); build rejects Core before emission"
+    return "Core phase/counter contract plus a deterministic Core-scale build through IL emission"
 }
 
 func BenchTestPlaceholderBaselineJson(): string {
-    return "{\"schemaVersion\":2,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\"," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"0000000000000000000000000000000000000000\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":0,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
-}
-
-func BenchTestHistoricalStageBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\",\"command\":\"build\",\"stage\":\"front-end (parse + strict lint); analysis and emit are NOT covered\",\"expectedExitCode\":1,\"measuredAt\":\"2026-09-01\",\"cliCommit\":\"8cf40128a2175ecf5a61196a6ab7f7911ded5afc\",\"machine\":\"Apple M4\",\"runs\":5,\"files\":403,\"lines\":172653,\"medianWallMs\":7868,\"medianPeakRssBytes\":180584448,\"toleranceFactor\":1.5}"
+    counters := "\"filesParsed\":1,\"emitParses\":1,\"filesAnalyzed\":1,\"assembliesEmitted\":1,\"referenceAssembliesLoaded\":1,\"processesSpawned\":0"
+    return "{\"schemaVersion\":3,\"project\":\"src/NSharpLang.Compiler.Core\",\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1,\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\",\"files\":1,\"lines\":1,\"coreCounters\":{" + counters + "},\"emitCounters\":{" + counters + "}}"
 }
 
 func BenchTestMeasuredBaselineJson(): string {
-    return "{\"schemaVersion\":2,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\"," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
+    return BenchTestPlaceholderBaselineJson()
 }
 
-// The same baseline with `expectedExitCode` 0, for the arm where a run is supposed to SUCCEED.
-func BenchTestSuccessBaselineJson(): string {
-    return "{\"schemaVersion\":2,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"parse, analysis and emit\",\"expectedExitCode\":0," + "\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\"," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
-}
-
-// Three runs' worth of "the CLI printed its own failure banner".
-func BenchTestBanners(a: bool, b: bool, c: bool): bool[] {
-    values := new bool[](3)
-    values[0] = a
-    values[1] = b
-    values[2] = c
-    return values
-}
-
-func BenchTestExitCodes(a: int, b: int, c: int): int[] {
-    values := new int[](3)
-    values[0] = a
-    values[1] = b
-    values[2] = c
-    return values
-}
-
-// An `nlc check --json` envelope carrying three codes in mixed order, with a tie on count so the
-// code-ascending tiebreak is exercised.
 func BenchTestCheckEnvelopeJson(): string {
     return "{\"schemaVersion\":1,\"command\":\"check\",\"checkedFiles\":3,\"ok\":false,\"results\":[" + "{\"code\":\"NL402\",\"severity\":\"error\"}," + "{\"code\":\"NL202\",\"severity\":\"error\"}," + "{\"code\":\"NL402\",\"severity\":\"error\"}," + "{\"code\":\"NL905\",\"severity\":\"warning\"}," + "{\"code\":\"NL202\",\"severity\":\"error\"}," + "{\"code\":\"NL402\",\"severity\":\"error\"}" + "],\"summary\":{\"errors\":5,\"warnings\":1,\"info\":0}}"
 }
@@ -319,177 +292,82 @@ test "compile-time bench: only `\\n`-terminated lines are counted, so a trailing
     assert BenchCountLines("") == 0
 }
 
-// ─── THE BASELINE ─────────────────────────────────────────────────────────────────────────────
+// ─── THE STRUCTURAL BASELINE AND RELATIVE VERDICT ─────────────────────────────────────────────
 
-test "compile-time bench: the checked-in baseline is either the recorded historical phase or a complete measured schema two" {
+test "compile-time baseline: schema three retains stage and exact CompilerWorkCounters without absolute timing fields" {
     baseline := BenchParseBaseline(File.ReadAllText(BenchTestBaselinePath()))
+    assert baseline.SchemaVersion == 3
     assert baseline.Project == "src/NSharpLang.Compiler.Core"
-    assert baseline.Command == "build"
-    assert baseline.ExpectedExitCode == 1
-    assert baseline.Files > 0
-    assert baseline.Lines > 0
-    assert baseline.MedianWallMs > 0
-    assert baseline.ToleranceThousandths == 1500
-    if baseline.SchemaVersion == 1 {
-        assert BenchBaselineRefusal(baseline).IndexOf("cannot be reused", StringComparison.Ordinal) > 0
-    } else {
-        assert baseline.SchemaVersion == 2
-        assert baseline.PhaseContract == BenchCurrentPhaseContract()
-        assert baseline.PhaseDiagnosticMultiset == BenchCurrentPhaseDiagnosticMultiset()
-        assert BenchBaselineRefusal(baseline) == ""
-    }
-}
-
-test "compile-time bench: the historical 7868ms lint-first record is refused after analysis moved before lint" {
-    baseline := BenchParseBaseline(BenchTestHistoricalStageBaselineJson())
-    assert baseline.SchemaVersion == 1
-    assert baseline.Files == 403
-    assert baseline.Lines == 172653
-    assert baseline.MedianWallMs == 7868
-    refusal := BenchBaselineRefusal(baseline)
-    assert refusal.IndexOf("commit 7733ece06 moved analysis before strict lint", StringComparison.Ordinal) > 0
-    assert refusal.IndexOf("cannot be reused", StringComparison.Ordinal) > 0
-}
-
-test "compile-time bench: a baseline whose medianWallMs is still the placeholder ZERO is REFUSED, so a placeholder can never pass the gate it guards" {
-    baseline := BenchParseBaseline(BenchTestPlaceholderBaselineJson())
-    refusal := BenchBaselineRefusal(baseline)
-    assert refusal.IndexOf("baseline not measured: medianWallMs is 0", StringComparison.Ordinal) == 0
-    assert refusal.IndexOf("tests/fixtures/compile-time/bootstrap-build-baseline.golden.json", StringComparison.Ordinal) > 0
-}
-
-test "compile-time bench: a measured baseline is accepted, and its tolerance is applied as an integer limit in milliseconds" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
+    assert baseline.Stage.Contains("Core phase/counter contract")
+    assert baseline.PhaseContract == BenchCurrentPhaseContract()
+    assert baseline.PhaseDiagnosticMultiset == BenchCurrentPhaseDiagnosticMultiset()
+    assert baseline.CoreCounters != null
+    assert baseline.EmitCounters != null
     assert BenchBaselineRefusal(baseline) == ""
-    assert baseline.MedianWallMs == 120000
-    assert baseline.MedianPeakRssBytes == 1073741824
-    assert BenchGateLimitMs(baseline) == 180000
+
+    json := File.ReadAllText(BenchTestBaselinePath())
+    assert !json.Contains("medianWallMs")
+    assert !json.Contains("medianPeakRssBytes")
+    assert !json.Contains("toleranceFactor")
+    assert json.Contains("coreCounters")
+    assert json.Contains("emitCounters")
 }
 
-test "compile-time bench: a baseline for another schema version, project or command is REFUSED by name" {
-    wrongSchema := new BenchBaseline(3, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
-    assert BenchBaselineRefusal(wrongSchema) == "baseline schemaVersion 3 is not the supported version 2"
-
-    wrongProject := new BenchBaseline(2, "examples/01-hello-world", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset())
-    assert BenchBaselineRefusal(wrongProject) == "baseline project 'examples/01-hello-world' is not 'src/NSharpLang.Compiler.Core'"
-
-    wrongCommand := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "check", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset())
-    assert BenchBaselineRefusal(wrongCommand) == "baseline command 'check' is not 'build'"
-}
-
-test "compile-time bench: a baseline with NO stage is REFUSED, because milliseconds that do not say which stage they cover cannot be compared" {
-    noStage := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset())
-    refusal := BenchBaselineRefusal(noStage)
-    assert refusal.IndexOf("baseline stage is missing", StringComparison.Ordinal) == 0
-}
-
-test "compile-time bench: a baseline with a MISSING or negative expectedExitCode is REFUSED, and a JSON without the key parses to the missing marker rather than throwing" {
-    noExit := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", -1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset())
-    refusal := BenchBaselineRefusal(noExit)
-    assert refusal.IndexOf("baseline expectedExitCode is missing or negative", StringComparison.Ordinal) == 0
-
-    legacy := BenchParseBaseline(
-        "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"measuredAt\":\"\",\"cliCommit\":\"\",\"machine\":\"\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":1,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
-    )
-    assert legacy.Stage == ""
-    assert legacy.ExpectedExitCode == -1
-    assert BenchBaselineRefusal(legacy).StartsWith("baseline schemaVersion 1 measured parse plus strict lint")
-}
-
-test "compile-time bench: schema two refuses a missing phase contract or exact canary multiset" {
-    noContract := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
+test "compile-time baseline: missing stage, phase contract or CompilerWorkCounters is refused by name" {
+    baseline := BenchParseBaseline(BenchTestPlaceholderBaselineJson())
+    noStage := new BenchBaseline(3, baseline.Project, baseline.Command, "", 1, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset(), baseline.CoreCounters, baseline.EmitCounters)
+    assert BenchBaselineRefusal(noStage).StartsWith("baseline stage is missing")
+    noContract := new BenchBaseline(3, baseline.Project, baseline.Command, "s", 1)
     assert BenchBaselineRefusal(noContract).StartsWith("baseline phaseContract is missing")
-    wrongContract := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, "lint-before-analysis/v1", BenchCurrentPhaseDiagnosticMultiset())
-    assert BenchBaselineRefusal(wrongContract).IndexOf("is not the live contract", StringComparison.Ordinal) > 0
-    noDiagnostics := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), "")
-    assert BenchBaselineRefusal(noDiagnostics).StartsWith("baseline phaseDiagnosticMultiset is missing")
-    wrongDiagnostics := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), "NL011 ×1")
-    assert BenchBaselineRefusal(wrongDiagnostics).IndexOf("is not the live canary contract", StringComparison.Ordinal) > 0
+    noCounters := new BenchBaseline(3, baseline.Project, baseline.Command, "s", 1, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset())
+    assert BenchBaselineRefusal(noCounters).Contains("missing CompilerWorkCounters")
 }
 
-test "compile-time bench: a tolerance factor is read as thousandths and rendered back without trailing zeros" {
-    assert BenchParseFixed3("1.5") == 1500
-    assert BenchParseFixed3("2") == 2000
-    assert BenchParseFixed3("1.25") == 1250
-    assert BenchParseFixed3("x") == -1
-    assert BenchFormatFixed3(1500) == "1.5"
-    assert BenchFormatFixed3(2000) == "2"
-    assert BenchFormatFixed3(1250) == "1.25"
+test "compile-time baseline: the checked-in Core phase contract keeps the exact exit and diagnostic census" {
+    baseline := BenchParseBaseline(File.ReadAllText(BenchTestBaselinePath()))
+    assert baseline.ExpectedExitCode == 1
+    assert baseline.PhaseContract == "analysis-before-strict-lint/v1"
+    assert baseline.PhaseDiagnosticMultiset == "NL011 ×1, NL202 ×1"
 }
 
-// ─── THE GATE VERDICT ─────────────────────────────────────────────────────────────────────────
-
-test "compile-time bench: runs that MATCH the baselined exit code and carry the CLI's failure banner are `ok`, which is the gate's ONLY silent outcome" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(118000, 130000, 121000)
-    exitCodes := BenchTestExitCodes(1, 1, 1)
-    banners := BenchTestBanners(true, true, true)
-    assert BenchGateVerdict(wallMs, exitCodes, banners, 3, 121000, baseline, "deadbeef") == "ok"
+test "compile-time relative gate: paired ratios are formed before the median and accept at 1.20x" {
+    head := BenchTestLongs(1200, 1200, 1200)
+    control := BenchTestLongs(1000, 1000, 1000)
+    assert BenchMedianPairRatioThousandths(head, control, 3) == 1200
+    assert BenchCompileTimeRatioFailure(head, control, 3) == ""
+    table := BenchPairedBuildTable(head, control, 3)
+    assert table.Contains("| 1 | 1000 | 1200 | 1.2x |")
+    assert table.Contains("Median of per-pair head/base ratios: 1.2x")
 }
 
-test "compile-time bench: a median past the tolerance is a REGRESSION whose message carries all three wall times, the median, the baseline, the tolerance, the limit, the expected exit code, the stage and the CLI commit" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(200000, 190000, 210000)
-    exitCodes := BenchTestExitCodes(1, 1, 1)
-    banners := BenchTestBanners(true, true, true)
-    verdict := BenchGateVerdict(wallMs, exitCodes, banners, 3, 200000, baseline, "deadbeef")
-    assert verdict.IndexOf("regressed", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("runs=[200000, 190000, 210000] ms", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("median=200000ms", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("baseline=120000ms", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("tolerance=x1.5", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("limit=180000ms", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("expectedExitCode=1", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("stage=" + BenchTestStageText(), StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("cliCommit=deadbeef", StringComparison.Ordinal) > 0
+test "compile-time relative gate: an env-delayed head is a regression above the 1.20x tolerance" {
+    head := BenchTestLongs(1300, 1310, 1290)
+    control := BenchTestLongs(1000, 1000, 1000)
+    failure := BenchCompileTimeRatioFailure(head, control, 3)
+    assert failure.Contains("regressed")
+    assert failure.Contains("1.3x")
+    assert failure.Contains("1.2x")
 }
 
-test "compile-time bench: a run that exits 0 where the baseline pins 1 FAILS the gate and says the baseline must be RE-MEASURED, because the command now reaches stages the baseline never covered" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(1000, 1100, 1050)
-    exitCodes := BenchTestExitCodes(1, 0, 1)
-    banners := BenchTestBanners(true, false, true)
-    verdict := BenchGateVerdict(wallMs, exitCodes, banners, 3, 1050, baseline, "deadbeef")
-    assert verdict.IndexOf("exited 0 on run 2 but the baseline pins 1", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("now SUCCEEDS where the baseline recorded a failure", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("re-measure the baseline and rewrite its stage", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("exitCodes=[1, 0, 1]", StringComparison.Ordinal) > 0
+test "compile-time relative gate: missing or invalid pair measurements fail closed" {
+    head := BenchTestLongs(1200, 0, 1200)
+    control := BenchTestLongs(1000, 1000, 0)
+    assert BenchMedianPairRatioThousandths(head, control, 3) == -1
+    assert BenchCompileTimeRatioFailure(head, control, 3).Contains("pair was missing")
 }
 
-test "compile-time bench: a run that exits non-zero where the baseline pins 0 FAILS the gate and says to fix the failure, not the baseline" {
-    baseline := BenchParseBaseline(BenchTestSuccessBaselineJson())
-    wallMs := BenchTestLongs(1000, 1100, 1050)
-    exitCodes := BenchTestExitCodes(0, 0, 1)
-    banners := BenchTestBanners(false, false, true)
-    verdict := BenchGateVerdict(wallMs, exitCodes, banners, 3, 1050, baseline, "deadbeef")
-    assert verdict.IndexOf("exited 1 on run 3 but the baseline pins 0", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("fix the failure rather than", StringComparison.Ordinal) > 0
+test "compile-time structural gate: CompilerWorkCounters must equal the baseline exactly" {
+    expected := new AgentLoopCounters(468, 137, 278, 2, 431, 0)
+    assert BenchCoreCounterFailure("Core", expected, expected) == ""
+    changed := new AgentLoopCounters(468, 137, 279, 2, 431, 0)
+    assert BenchCoreCounterFailure("Core", expected, changed).Contains("fix increases")
+    assert BenchCoreCounterFailure("Core", expected, null).Contains("did not write nsharp.cli-stats")
 }
 
-test "compile-time bench: a run that exits as baselined WITHOUT the CLI's own failure banner FAILS the gate, so a crash or a kill can never pass as the expected failure" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(118000, 130000, 121000)
-    exitCodes := BenchTestExitCodes(1, 1, 1)
-    banners := BenchTestBanners(true, false, true)
-    verdict := BenchGateVerdict(wallMs, exitCodes, banners, 3, 121000, baseline, "deadbeef")
-    assert verdict.IndexOf("run 2 of nlc build", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("did NOT carry the CLI's own 'Build failed in ' banner", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("a crash, a kill or a missing CLI cannot pass", StringComparison.Ordinal) > 0
-}
-
-test "compile-time bench: the banner check is skipped when the baseline pins exit 0, because a successful build writes no failure banner" {
-    baseline := BenchParseBaseline(BenchTestSuccessBaselineJson())
-    wallMs := BenchTestLongs(118000, 130000, 121000)
-    exitCodes := BenchTestExitCodes(0, 0, 0)
-    banners := BenchTestBanners(false, false, false)
-    assert BenchGateVerdict(wallMs, exitCodes, banners, 3, 121000, baseline, "deadbeef") == "ok"
-}
-
-test "compile-time bench: the failure banner is recognised in the CLI's own stdout wording and nowhere else" {
-    assert BenchBuildFailedBanner() == "Build failed in "
-    assert BenchSawBuildFailedBanner("Building project in /x with the IL backend...\n  Build failed in 17.5s\n")
-    assert !BenchSawBuildFailedBanner("Build successful! (il, debug) [3.1s]\n")
-    assert !BenchSawBuildFailedBanner("")
+test "compile-time gate: only head measurements receive the explicit regression-proof delay" {
+    assert BenchConfiguredDelayMs("base", "15") == 0
+    assert BenchConfiguredDelayMs("head", "15") == 15
+    assert BenchConfiguredDelayMs("head", "invalid") == 0
 }
 
 // ─── THE CHECK ENVELOPE'S DIAGNOSTIC CENSUS ───────────────────────────────────────────────────
@@ -542,12 +420,6 @@ test "compile-time bench: the phase contract accepts only its exact diagnostic m
     assert mismatch.IndexOf("observed [NL011 ×1]", StringComparison.Ordinal) > 0
     malformed := BenchPhaseContractRefusal(BenchCurrentPhaseContract(), expected, "NL011 ×1, NL202 ×1, (unrecognized diagnostic rendering) ×1", 1, true)
     assert malformed.IndexOf("unrecognized diagnostic rendering", StringComparison.Ordinal) > 0
-}
-
-test "compile-time bench: the gate reports live and baseline source sizes as an absolute self-host budget" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    detail := BenchAbsoluteSelfHostScopeDetail(526, 288640, baseline)
-    assert detail == "currentFiles=526 currentLines=288640 baselineFiles=403 baselineLines=250000 budget=absolute-live-selfhost"
 }
 
 // ─── THE SOURCE-SELECTION RULE ────────────────────────────────────────────────────────────────
@@ -807,34 +679,13 @@ test "compile-time bench: a line in neither shape reports the load as UNREADABLE
     assert BenchOneMinuteLoadThousandths("load average: sixteen") == -1
 }
 
-test "compile-time bench: the load threshold is a fifth of the logical cores, and 2 when the platform did not answer" {
-    assert BenchLoadThresholdThousandths(10) == 2000
-    assert BenchLoadThresholdThousandths(8) == 1600
-    assert BenchLoadThresholdThousandths(64) == 12800
-    assert BenchLoadThresholdThousandths(0) == 2000
-    assert BenchLoadThresholdThousandths(-1) == 2000
-}
-
-test "compile-time bench: the gate judges just UNDER the threshold, refuses AT it, and refuses an unreadable load too" {
-    justUnder := new BenchMachineLoad(1999, 10)
-    exactly := new BenchMachineLoad(2000, 10)
-    measured := new BenchMachineLoad(5180, 10)
-    quiet := new BenchMachineLoad(1200, 10)
-    assert !BenchLoadRefusesTimingJudgement(justUnder)
-    assert BenchLoadRefusesTimingJudgement(exactly)
-    assert BenchLoadRefusesTimingJudgement(measured)
-    assert !BenchLoadRefusesTimingJudgement(quiet)
-    assert BenchLoadRefusesTimingJudgement(BenchUnknownLoad())
-}
-
 test "compile-time bench: a load renders as a decimal and an unreadable one as `unknown`, never as a number" {
     assert BenchLoadText(5180) == "5.18"
     assert BenchLoadText(2000) == "2"
     assert BenchLoadText(-1) == "unknown"
 }
 
-// THE LIVE READER. Without this contract a typo in `BenchLoadAverageText` would switch the timing
-// gate off in silence, because an unreadable load skips: a broken reader must turn THIS red.
+// THE LIVE READER. Load is retained in trend records, so verify this platform can provide it.
 test "compile-time bench: this platform answers with a POSITIVE load average and a positive core count" {
     if OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() {
         load := BenchReadMachineLoad()
@@ -856,136 +707,6 @@ test "compile-time bench: the live two-file build canary proves analysis runs be
         observed.SawBuildFailedBanner
     )
     assert refusal == "", refusal + "\n" + observed.Stderr
-}
-
-// ─── THE GATE'S TWO HALVES ────────────────────────────────────────────────────────────────────
-
-test "compile-time bench: a median past the tolerance on a LOADED machine is SKIPPED-BY-LOAD rather than a regression, and the skip carries every number" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(200000, 190000, 210000)
-    exitCodes := BenchTestExitCodes(1, 1, 1)
-    banners := BenchTestBanners(true, true, true)
-    loaded := new BenchMachineLoad(5180, 10)
-    outcome := BenchGateOutcome(wallMs, exitCodes, banners, 3, 200000, baseline, "deadbeef", loaded)
-    assert outcome.StartsWith(BenchSkippedByLoadPrefix())
-    assert BenchGateOutcomeIsSilent(outcome)
-    assert outcome.IndexOf("did NOT judge the median", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("runs=[200000, 190000, 210000] ms", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("median=200000ms", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("baseline=120000ms", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("limit=180000ms", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("load=5.18", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("cores=10", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("loadThreshold=2", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("cliCommit=deadbeef", StringComparison.Ordinal) > 0
-}
-
-test "compile-time bench: the SAME median on a QUIET machine is still a regression, and its message states the load it was judged at" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(200000, 190000, 210000)
-    exitCodes := BenchTestExitCodes(1, 1, 1)
-    banners := BenchTestBanners(true, true, true)
-    quiet := new BenchMachineLoad(1200, 10)
-    outcome := BenchGateOutcome(wallMs, exitCodes, banners, 3, 200000, baseline, "deadbeef", quiet)
-    assert outcome.IndexOf("regressed", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("load=1.2 cores=10 loadThreshold=2", StringComparison.Ordinal) > 0
-    assert !BenchGateOutcomeIsSilent(outcome)
-}
-
-test "compile-time bench: a quiet machine inside the tolerance is `ok`, and `ok` and a load skip are the ONLY silent outcomes" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(118000, 130000, 121000)
-    exitCodes := BenchTestExitCodes(1, 1, 1)
-    banners := BenchTestBanners(true, true, true)
-    quiet := new BenchMachineLoad(1200, 10)
-    assert BenchGateOutcome(wallMs, exitCodes, banners, 3, 121000, baseline, "deadbeef", quiet) == "ok"
-    assert BenchGateOutcomeIsSilent("ok")
-    assert !BenchGateOutcomeIsSilent("compile-time gate: nlc build on x regressed; runs=[]")
-    assert !BenchGateOutcomeIsSilent("")
-}
-
-test "compile-time bench: a LOADED machine excuses neither a wrong exit code nor a missing failure banner — the correctness half never skips" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(200000, 190000, 210000)
-    loaded := new BenchMachineLoad(5180, 10)
-
-    wrongExit := BenchGateOutcome(wallMs, BenchTestExitCodes(1, 0, 1), BenchTestBanners(true, false, true), 3, 200000, baseline, "deadbeef", loaded)
-    assert wrongExit.IndexOf("exited 0 on run 2 but the baseline pins 1", StringComparison.Ordinal) > 0
-    assert !BenchGateOutcomeIsSilent(wrongExit)
-
-    noBanner := BenchGateOutcome(wallMs, BenchTestExitCodes(1, 1, 1), BenchTestBanners(true, false, true), 3, 200000, baseline, "deadbeef", loaded)
-    assert noBanner.IndexOf("did NOT carry the CLI's own 'Build failed in ' banner", StringComparison.Ordinal) > 0
-    assert !BenchGateOutcomeIsSilent(noBanner)
-}
-
-test "compile-time bench: the record a JUDGED and PASSING gate leaves behind still carries its numbers, because `ok` alone says nothing" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(118000, 130000, 121000)
-    exitCodes := BenchTestExitCodes(1, 1, 1)
-    quiet := new BenchMachineLoad(1200, 10)
-    detail := BenchGateDetail(wallMs, exitCodes, 3, 121000, baseline, "deadbeef", quiet)
-    assert BenchGateRecordLine("ok", detail).StartsWith("ok runs=[118000, 130000, 121000] ms")
-    assert BenchGateRecordLine("ok", detail).IndexOf("load=1.2", StringComparison.Ordinal) > 0
-    assert BenchGateRecordLine("skipped-by-load: x", detail) == "skipped-by-load: x"
-}
-
-// ─── HOW MANY RUNS THE GATE TAKES ─────────────────────────────────────────────────────────────
-//
-// The timing gate is NOT weakened by taking one run when the verdict will be unjudged: the number
-// of runs is decided by the SAME predicate that decides whether the median is judged at all, so a
-// judged median is always the median of three.
-
-test "compile-time gate: a machine quiet enough to be JUDGED is measured THREE times — a judged median is never one run" {
-    quiet := new BenchMachineLoad(1200, 10)
-    assert !BenchLoadRefusesTimingJudgement(quiet)
-    assert BenchGateRunCount(quiet) == 3
-
-    // Right at the threshold the judgement is declined, so the run count drops with it and not
-    // before it: 1.999 on ten cores is still judged and still costs three runs.
-    justUnder := new BenchMachineLoad(1999, 10)
-    assert !BenchLoadRefusesTimingJudgement(justUnder)
-    assert BenchGateRunCount(justUnder) == 3
-}
-
-test "compile-time gate: a machine whose timing verdict will be SKIPPED is measured once, and the unjudged verdict reads exactly as it did on three runs" {
-    atThreshold := new BenchMachineLoad(2000, 10)
-    loaded := new BenchMachineLoad(3400, 10)
-    assert BenchGateRunCount(atThreshold) == 1
-    assert BenchGateRunCount(loaded) == 1
-
-    // An unreadable load refuses judgement, so it also refuses to pay for a median nobody reads.
-    assert BenchGateRunCount(BenchUnknownLoad()) == 1
-
-    // The single run still carries the whole correctness half, and the verdict is the same
-    // `skipped-by-load:` sentence — one `runs=[...]` entry instead of three is the only difference.
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    single := new long[](1)
-    single[0] = 200000L
-    exitCodes := new int[](1)
-    exitCodes[0] = 1
-    banners := new bool[](1)
-    banners[0] = true
-    outcome := BenchGateOutcome(single, exitCodes, banners, 1, BenchMedian(single, 1), baseline, "deadbeef", loaded)
-    assert outcome.StartsWith(BenchSkippedByLoadPrefix())
-    assert BenchGateOutcomeIsSilent(outcome)
-    assert outcome.IndexOf("did NOT judge the median", StringComparison.Ordinal) > 0
-    assert outcome.IndexOf("runs=[200000] ms", StringComparison.Ordinal) > 0
-
-    // …and a wrong exit code on that one run is still a failure, on a loaded machine, in one run.
-    exitCodes[0] = 0
-    wrongExit := BenchGateOutcome(single, exitCodes, banners, 1, 200000, baseline, "deadbeef", loaded)
-    assert wrongExit.IndexOf("exited 0 on run 1 but the baseline pins 1", StringComparison.Ordinal) > 0
-    assert !BenchGateOutcomeIsSilent(wrongExit)
-}
-
-test "compile-time bench: the gate's own verdict form judges unconditionally and states the load as unknown" {
-    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
-    wallMs := BenchTestLongs(200000, 190000, 210000)
-    exitCodes := BenchTestExitCodes(1, 1, 1)
-    banners := BenchTestBanners(true, true, true)
-    verdict := BenchGateVerdict(wallMs, exitCodes, banners, 3, 200000, baseline, "deadbeef")
-    assert verdict.IndexOf("regressed", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("load=unknown cores=unknown loadThreshold=2", StringComparison.Ordinal) > 0
 }
 
 // ─── THE COMMIT UNDER TEST ────────────────────────────────────────────────────────────────────
@@ -1015,78 +736,109 @@ test "compile-time bench: the CLI commit is the real 40-character sha wherever g
 
 // ─── THE GATE ─────────────────────────────────────────────────────────────────────────────────
 
-func BenchGateSkipRequested(): bool {
-    requested := Environment.GetEnvironmentVariable("SYSTEMS_BENCH") ?? ""
-    return String.Compare(requested.Trim(), "skip", StringComparison.OrdinalIgnoreCase) == 0
-}
+test "compile-time gate: exact Core counters and phase contract accompany interleaved Core-scale emit ratios" {
+    // Step 3a parses the whole test output as one JSON envelope. Keep the gate silent and preserve
+    // the complete relative table and machine trend record under artifacts/compile-time.
+    repositoryRoot := BenchRepositoryRoot()
+    baseline := BenchParseBaseline(File.ReadAllText(BenchTestBaselinePath()))
+    refusal := BenchBaselineRefusal(baseline)
+    assert refusal == "", "compile-time gate: " + refusal
 
-test "compile-time gate: nlc build on src/NSharpLang.Compiler.Core stays inside the checked-in baseline's tolerance" {
-    // SILENT ON EVERY PATH — skip, pass and fail alike. The product gate's Step 3a runs
-    // `nlc test --project <dir> --no-cache --json > out 2>&1` and then parses the WHOLE file as one
-    // JSON document, so ANY line this block writes to stdout or stderr lands ahead of the envelope
-    // and makes it unparseable. A fully green run then reads as "native N# test JSON did not prove a
-    // nonempty successful run" and the gate goes red on 51 passing tests. Nothing is lost by the
-    // silence: every number a red gate needs is already inside `BenchGateOutcome`'s string, which
-    // the runner reports as the assertion's `errorMessage`, and a green run needs no line at all.
-    // A run the machine's load made unjudgeable is silent too, and leaves its numbers in
-    // `artifacts/compile-time/last-gate-run.txt` so that a GREEN gate can still be asked what it
-    // did.
-    if !BenchGateSkipRequested() {
-        repositoryRoot := BenchRepositoryRoot()
-        baseline := BenchParseBaseline(File.ReadAllText(BenchTestBaselinePath()))
-        refusal := BenchBaselineRefusal(baseline)
-        assert refusal == "", "compile-time gate: " + refusal
+    headCli := BenchDefaultCliDll(repositoryRoot)
+    assert File.Exists(headCli), "compile-time gate: head CLI was not found at " + headCli + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug"
+    loadAtStart := BenchReadMachineLoad()
+    gateStarted := DateTime.UtcNow.Ticks
+    baseCompiler := BenchPrepareBaseCompiler(repositoryRoot)
+    assert baseCompiler.Error == "", "compile-time gate: " + baseCompiler.Error
 
-        cliDll := BenchDefaultCliDll(repositoryRoot)
-        assert File.Exists(cliDll), "compile-time gate: the CLI under test was not found at " + cliDll + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug"
+    baseCanary := BenchObserveBuildPhase(baseCompiler.CliDll)
+    headCanary := BenchObserveBuildPhase(headCli)
+    basePhaseRefusal := BenchPhaseContractRefusal(baseline.PhaseContract, baseline.PhaseDiagnosticMultiset, baseCanary.DiagnosticMultiset, baseCanary.ExitCode, baseCanary.SawBuildFailedBanner)
+    headPhaseRefusal := BenchPhaseContractRefusal(baseline.PhaseContract, baseline.PhaseDiagnosticMultiset, headCanary.DiagnosticMultiset, headCanary.ExitCode, headCanary.SawBuildFailedBanner)
+    assert basePhaseRefusal == "", "compile-time gate: base phase contract changed: " + basePhaseRefusal
+    assert headPhaseRefusal == "", "compile-time gate: head phase contract changed: " + headPhaseRefusal
 
-        phase := BenchObserveBuildPhase(cliDll)
-        phaseRefusal := BenchPhaseContractRefusal(
-            baseline.PhaseContract,
-            baseline.PhaseDiagnosticMultiset,
-            phase.DiagnosticMultiset,
-            phase.ExitCode,
-            phase.SawBuildFailedBanner
-        )
-        assert phaseRefusal == "", "compile-time gate: " + phaseRefusal + "\n" + phase.Stderr
+    facts := BenchReadEnvironmentFacts(BenchCompilerPerfGitRoot(repositoryRoot))
+    headCommit := facts.CliCommit
+    // A clean source copy fixes CompilerWorkCounters at the first-build values. Reusing the checkout
+    // makes this failed Core build incremental: the first run parses 468 files, the second 452 and
+    // the third 0, even though the inputs are unchanged. Copying source (including uncommitted edits)
+    // but excluding bin/obj/.nlc makes the structural phase contract deterministic on every gate run.
+    coreCopyRoot := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-" + BenchLongText(DateTime.UtcNow.Ticks))
+    coreSource := Path.Combine(repositoryRoot, "src")
+    copiedSource := Path.Combine(coreCopyRoot, "src")
+    Directory.CreateDirectory(coreCopyRoot)
+    try {
+        AgentLoopCopyDirectory(coreSource, copiedSource)
+        coreProject := Path.Combine(copiedSource, "NSharpLang.Compiler.Core")
+        coreStatsPath := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-stats-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
+        coreBuild := BenchMeasureOnce(headCli, coreProject, "build", 1, coreStatsPath)
+        coreCounterFailure := BenchCoreCounterFailure("src/NSharpLang.Compiler.Core", baseline.CoreCounters, coreBuild.Counters)
+        assert coreBuild.ExitCode == baseline.ExpectedExitCode, "compile-time gate: Core phase exit changed from " + BenchIntText(baseline.ExpectedExitCode) + " to " + BenchIntText(coreBuild.ExitCode)
+        assert coreBuild.SawBuildFailedBanner, "compile-time gate: Core's expected analysis failure did not carry the CLI's Build failed in banner"
+        assert coreCounterFailure == "", "compile-time gate: " + coreCounterFailure
+    } finally {
+        BenchDeleteDirectory(coreCopyRoot)
+    }
 
-        projectDirectory := BenchAbsoluteProjectPath(repositoryRoot, baseline.Project)
-        sourceMeasure := BenchMeasureProjectSources(projectDirectory)
-        sourceScope := BenchAbsoluteSelfHostScopeDetail(sourceMeasure.Files, sourceMeasure.Lines, baseline)
-
-        // BEFORE the runs, so the figure describes the machine these medians were taken on rather
-        // than the machine after three builds of the compiler have loaded it. It is also what
-        // decides HOW MANY runs to take: the same reading that will decline the timing judgement
-        // decides that a median nobody will read is not worth measuring three times. A load under
-        // the threshold still takes three, and the tolerance is still compared against THEIR
-        // median — see `BenchGateRunCount`.
-        load := BenchReadMachineLoad()
-        runCount := BenchGateRunCount(load)
-
-        wallMs := new long[](runCount)
-        exitCodes := new int[](runCount)
-        banners := new bool[](runCount)
+    scaleDirectory := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-scale-" + BenchLongText(DateTime.UtcNow.Ticks))
+    Directory.CreateDirectory(scaleDirectory)
+    try {
+        large := AgentLoopFindSize("large") ?? new AgentLoopSize("large", "", 160, 32)
+        AgentLoopWriteSynthetic(large, scaleDirectory)
+        pairCount := 3
+        baseMs := new long[](pairCount)
+        headMs := new long[](pairCount)
+        headCountersFailure := ""
         i := 0
-        while i < runCount {
-            measured := BenchMeasureOnce(cliDll, projectDirectory, "build", i + 1)
-            wallMs[i] = measured.WallMs
-            exitCodes[i] = measured.ExitCode
-            banners[i] = measured.SawBuildFailedBanner
+        while i < pairCount {
+            headRun := new BenchCommandRun("build", -1, -1, -1)
+            baseRun := new BenchCommandRun("build", -1, -1, -1)
+            headStats := ""
+            headFirst := i % 2 == 0
+            if headFirst {
+                headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
+                headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
+                baseRun = BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", i + 1)
+            } else {
+                baseRun = BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", i + 1)
+                headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
+                headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
+            }
+
+            baseMs[i] = baseRun.WallMs
+            headMs[i] = headRun.WallMs
+            if baseRun.ExitCode != 0 || headRun.ExitCode != 0 {
+                headCountersFailure = "Core-scale build did not reach emission: base exit=" + BenchIntText(baseRun.ExitCode) + ", head exit=" + BenchIntText(headRun.ExitCode) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
+                break
+            }
+
+            rowFailure := BenchCoreCounterFailure("Core-scale emit", baseline.EmitCounters, headRun.Counters)
+            if rowFailure != "" {
+                headCountersFailure = rowFailure
+                break
+            }
+
             i = i + 1
         }
 
-        median := BenchMedian(wallMs, runCount)
-        cliCommit := BenchReadCliCommit(repositoryRoot)
-        outcome := BenchGateOutcome(wallMs, exitCodes, banners, runCount, median, baseline, cliCommit, load)
-        recordedOutcome := outcome
-        if outcome != "ok" {
-            recordedOutcome = outcome + " " + sourceScope
+        ratioFailure := BenchCompileTimeRatioFailure(headMs, baseMs, pairCount)
+        if headCountersFailure != "" {
+            ratioFailure = headCountersFailure
         }
 
-        // The one place a GREEN gate can still say what it did: a skipped timing judgement nobody
-        // can see is the failure mode being removed, and the block may not print.
-        BenchWriteGateRecord(repositoryRoot, BenchGateRecordLine(recordedOutcome, BenchGateDetail(wallMs, exitCodes, runCount, median, baseline, cliCommit, load) + " " + sourceScope))
-        assert BenchGateOutcomeIsSilent(recordedOutcome), recordedOutcome
+        medianRatio := BenchMedianPairRatioThousandths(headMs, baseMs, pairCount)
+        table := BenchPairedBuildTable(headMs, baseMs, pairCount)
+        machine := facts.Architecture + ", " + facts.OsDescription + ", " + BenchCountText(facts.ProcessorCount) + " cores, .NET " + facts.DotnetVersion
+        endLoad := BenchReadMachineLoad()
+        gateElapsedMs := (DateTime.UtcNow.Ticks - gateStarted) / 10000
+        coreSourceStats := BenchMeasureProjectSources(Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.Compiler.Core"))
+        gateLine := BenchRelativeGateRecordLine(ratioFailure, baseCompiler.Commit, headCommit, baseCompiler.BuildMs, baseCompiler.CacheHit, loadAtStart, machine, medianRatio)
+        gateLine = gateLine + "; loadAtEnd=" + BenchLoadText(endLoad.LoadThousandths) + "; gateElapsedMs=" + BenchLongText(gateElapsedMs) + "; coreFiles=" + BenchIntText(coreSourceStats.Files) + "; coreLines=" + BenchLongText(coreSourceStats.Lines) + "; phase=" + baseline.Stage
+        _ = BenchWriteRelativeGateRecord(repositoryRoot, gateLine, table)
+        assert ratioFailure == "", gateLine + "\n" + table
+    } finally {
+        BenchDeleteDirectory(scaleDirectory)
     }
 }
 

@@ -33,20 +33,15 @@ import System.Text.Json
 //   incremental compiler's caches are always exactly one prime old.
 //
 // WHAT IS MEASURED. Wall time and CPU time (user + sys, children included) and peak RSS come from
-// `/usr/bin/time` around the CLI process - the same spawn kernel the compile-time benchmark uses.
-// Those move with machine load. The STRUCTURAL counters do not: files parsed, columnar emit parses,
-// files analyzed, assemblies emitted, reference images loaded and child processes spawned, read from
-// the CLI's own `--stats=<path>` line (`CompilerWorkCounters` in Compiler.Model, schema
-// `nsharp.cli-stats` v1). The same input gives the same counts on a busy machine and an idle one, so
-// they are gated EXACTLY, and they are what explains a wall-time change.
+// `/usr/bin/time` around the CLI process and are retained in the run artifact. Structural counters
+// are read from the CLI's `--stats=<path>` line (`CompilerWorkCounters` in Compiler.Model, schema
+// `nsharp.cli-stats` v1): files parsed, columnar emit parses, files analyzed, assemblies emitted,
+// reference images loaded and child processes spawned. Those counters are the machine-independent
+// gate and must equal the baseline exactly.
 //
-// THE BUDGET (`tests/fixtures/agent-loop/agent-loop-baseline.golden.json`). Counters must equal the
-// baseline row for row: a decrease is an improvement that must be ratcheted into the baseline in the
-// same commit, an increase is a regression to fix. Wall time is judged against the baseline's
-// medians with the baseline's tolerance only on a machine quiet enough to judge (the compile-time
-// benchmark's `BenchLoadRefusesTimingJudgement`, one fifth of the logical cores) AND only when the
-// baseline's own timings were taken on such a machine; otherwise it is reported as unjudged.
-// No threshold in that file is ever loosened without the owner.
+// The relative timing gate alternates base and head samples for each row, then takes the median of
+// the per-pair head/base ratios. The JSON baseline holds only structural counters; absolute times,
+// machine and load are recorded in artifacts and never gate.
 
 // ─── SIZES AND SCENARIOS ──────────────────────────────────────────────────────────────────────
 class AgentLoopSize {
@@ -478,6 +473,15 @@ func AgentLoopCountersEqual(left: AgentLoopCounters, right: AgentLoopCounters): 
     return left.FilesParsed == right.FilesParsed && left.EmitParses == right.EmitParses && left.FilesAnalyzed == right.FilesAnalyzed && left.AssembliesEmitted == right.AssembliesEmitted && left.ReferenceAssembliesLoaded == right.ReferenceAssembliesLoaded && left.ProcessesSpawned == right.ProcessesSpawned
 }
 
+func AgentLoopCountersMeasured(counters: AgentLoopCounters?): bool {
+    if counters == null {
+        return false
+    }
+
+    value := counters ?? AgentLoopZeroCounters()
+    return value.FilesParsed >= 0 && value.EmitParses >= 0 && value.FilesAnalyzed >= 0 && value.AssembliesEmitted >= 0 && value.ReferenceAssembliesLoaded >= 0 && value.ProcessesSpawned >= 0
+}
+
 func AgentLoopCountersText(counters: AgentLoopCounters): string {
     return "filesParsed=" + BenchLongText(counters.FilesParsed) + " emitParses=" + BenchLongText(counters.EmitParses) + " filesAnalyzed=" + BenchLongText(counters.FilesAnalyzed) + " assembliesEmitted=" + BenchLongText(counters.AssembliesEmitted) + " referenceAssembliesLoaded=" + BenchLongText(counters.ReferenceAssembliesLoaded) + " processesSpawned=" + BenchLongText(counters.ProcessesSpawned)
 }
@@ -590,13 +594,14 @@ func AgentLoopStatsPath(): string {
 
 // THE ONE OWNER of "run one agent-loop command and measure it". `useStats` is false only for a CLI
 // that predates `--stats` (a base build being compared); its counters are then null, never zero.
-func AgentLoopRunCommand(cliDll: string, projectDirectory: string, command: string, useStats: bool, daemon: bool): AgentLoopRun {
+func AgentLoopRunCommand(cliDll: string, projectDirectory: string, command: string, useStats: bool, daemon: bool, side: string = ""): AgentLoopRun {
     statsPath := ""
     if useStats {
         statsPath = AgentLoopStatsPath()
     }
 
     run := BenchRunUnderTimeUtilityWithEnvironment(AgentLoopCommandArguments(cliDll, command, projectDirectory, statsPath), Path.GetTempPath(), AgentLoopDaemonEnvironment(daemon))
+    run.WallMs = run.WallMs + BenchInjectedDelayMs(side)
     counters: AgentLoopCounters? = null
     if statsPath != "" && File.Exists(statsPath) {
         counters = AgentLoopParseStatsCounters(File.ReadAllText(statsPath))
@@ -695,6 +700,10 @@ func AgentLoopModeCold(): string {
 
 func AgentLoopModeWarm(): string {
     return "warm"
+}
+
+func AgentLoopModeDaemonWarm(): string {
+    return "daemon-warm"
 }
 
 // One row of the result table: one size, one scenario, one mode, over every sample.
@@ -800,7 +809,8 @@ func AgentLoopMeasureScenario(
     scenario: AgentLoopScenario,
     samples: int,
     useStats: bool,
-    daemon: bool
+    daemon: bool,
+    side: string = ""
 ): List<AgentLoopRow> {
     cold := new AgentLoopRow(size.Name, scenario.Id, AgentLoopModeCold())
     warm := new AgentLoopRow(size.Name, scenario.Id, AgentLoopModeWarm())
@@ -844,8 +854,8 @@ func AgentLoopMeasureScenario(
                 cold.ExitCode = 1
             }
 
-            AgentLoopRecordRun(cold, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats, daemon), coldWall, coldCpu, coldRss)
-            AgentLoopRecordRun(warm, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats, daemon), warmWall, warmCpu, warmRss)
+            AgentLoopRecordRun(cold, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats, daemon, side), coldWall, coldCpu, coldRss)
+            AgentLoopRecordRun(warm, AgentLoopRunCommand(cliDll, directory, scenario.Command, useStats, daemon, side), warmWall, warmCpu, warmRss)
         } finally {
             // Stopped before its directory goes, on a failing sample too: a daemon left behind
             // would hold its socket under a deleted tree until its idle timeout.
@@ -907,6 +917,290 @@ func AgentLoopMeasureMatrix(
     return rows
 }
 
+// Counter baselines cover the in-process cold/warm matrix and the daemon's warmed second request.
+// Absolute timings from these separate runs are never used for verdicts.
+func AgentLoopMeasureStructuralRows(
+    cliDll: string,
+    repositoryRoot: string,
+    sizeNames: List<string>,
+    samples: int,
+    printProgress: bool
+): List<AgentLoopRow> {
+    rows := AgentLoopMeasureMatrix(cliDll, repositoryRoot, sizeNames, samples, true, false, printProgress)
+    daemonRows := AgentLoopMeasureMatrix(cliDll, repositoryRoot, sizeNames, samples, true, true, printProgress)
+    i := 0
+    while i < daemonRows.Count {
+        if daemonRows[i].Mode == AgentLoopModeWarm() {
+            daemonRows[i].Mode = AgentLoopModeDaemonWarm()
+            rows.Add(daemonRows[i])
+        }
+        i = i + 1
+    }
+
+    return rows
+}
+
+class AgentLoopRelativeTimingRow {
+    Size: string
+    Scenario: string
+    Mode: string
+    BaseMs: long[]
+    HeadMs: long[]
+    Samples: int
+
+    constructor(size: string, scenario: string, mode: string, samples: int) {
+        Size = size
+        Scenario = scenario
+        Mode = mode
+        BaseMs = new long[](samples)
+        HeadMs = new long[](samples)
+        Samples = 0
+    }
+}
+
+class AgentLoopRelativeMatrix {
+    HeadCounterRows: List<AgentLoopRow>
+    Timings: List<AgentLoopRelativeTimingRow>
+    Failures: List<string>
+
+    constructor() {
+        HeadCounterRows = new List<AgentLoopRow>()
+        Timings = new List<AgentLoopRelativeTimingRow>()
+        Failures = new List<string>()
+    }
+}
+
+func AgentLoopFindRelativeTiming(rows: List<AgentLoopRelativeTimingRow>, size: string, scenario: string, mode: string): AgentLoopRelativeTimingRow? {
+    i := 0
+    while i < rows.Count {
+        row := rows[i]
+        if row.Size == size && row.Scenario == scenario && row.Mode == mode {
+            return row
+        }
+        i = i + 1
+    }
+
+    return null
+}
+
+func AgentLoopRecordRelativePair(row: AgentLoopRelativeTimingRow, sample: int, baseRow: AgentLoopRow, headRow: AgentLoopRow) {
+    row.BaseMs[sample] = baseRow.MedianWallMs
+    row.HeadMs[sample] = headRow.MedianWallMs
+    row.Samples = sample + 1
+}
+
+func AgentLoopRowsHaveFailure(rows: List<AgentLoopRow>): string {
+    i := 0
+    while i < rows.Count {
+        if rows[i].ExitCode != 0 || rows[i].Failure != "" {
+            return AgentLoopRowKey(rows[i].Size, rows[i].Scenario, rows[i].Mode) + ": failed with exit " + BenchIntText(rows[i].ExitCode) + " - " + rows[i].Failure
+        }
+        i = i + 1
+    }
+
+    return ""
+}
+
+func AgentLoopKeepHeadCounterRow(rows: List<AgentLoopRow>, observed: AgentLoopRow) {
+    existing := AgentLoopFindRow(rows, observed.Size, observed.Scenario, observed.Mode)
+    if existing == null {
+        rows.Add(observed)
+        return
+    }
+
+    current := existing ?? observed
+    if current.ExitCode == 0 && observed.ExitCode != 0 {
+        current.ExitCode = observed.ExitCode
+    }
+    if current.Failure == "" {
+        current.Failure = observed.Failure
+    }
+    left := current.Counters
+    right := observed.Counters
+    if left == null || right == null {
+        if left != null || right != null {
+            current.CountersStable = false
+        }
+    } else if !AgentLoopCountersEqual(left ?? AgentLoopZeroCounters(), right ?? AgentLoopZeroCounters()) {
+        current.CountersStable = false
+    }
+}
+
+// For each scenario, take nearby base/head samples. Cold rows use the in-process path; daemon-warm
+// rows measure the second request after the edit with a daemon serving the workspace. Each pair
+// alternates head/base then base/head, keeping machine load shared by both measurements.
+func AgentLoopMeasureRelativeMatrix(
+    headCliDll: string,
+    baseCliDll: string,
+    repositoryRoot: string,
+    sizeNames: List<string>,
+    samples: int,
+    printProgress: bool
+): AgentLoopRelativeMatrix {
+    result := new AgentLoopRelativeMatrix()
+    scenarios := AgentLoopScenarios()
+    sizeIndex := 0
+    while sizeIndex < sizeNames.Count {
+        size := AgentLoopFindSize(sizeNames[sizeIndex])
+        if size == null {
+            throw new InvalidOperationException("unknown agent-loop size '" + sizeNames[sizeIndex] + "'")
+        }
+
+        scenarioIndex := 0
+        while scenarioIndex < scenarios.Count {
+            scenario := scenarios[scenarioIndex]
+            coldTiming := new AgentLoopRelativeTimingRow(sizeNames[sizeIndex], scenario.Id, AgentLoopModeCold(), samples)
+            daemonTiming := new AgentLoopRelativeTimingRow(sizeNames[sizeIndex], scenario.Id, AgentLoopModeDaemonWarm(), samples)
+            sample := 0
+            while sample < samples {
+                headFirst := sample % 2 == 0
+                headRows := new List<AgentLoopRow>()
+                baseRows := new List<AgentLoopRow>()
+                if headFirst {
+                    headRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, true, false, "head")
+                    baseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, false, false, "base")
+                } else {
+                    baseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, false, false, "base")
+                    headRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, true, false, "head")
+                }
+
+                failure := AgentLoopRowsHaveFailure(headRows)
+                if failure == "" {
+                    failure = AgentLoopRowsHaveFailure(baseRows)
+                }
+                if failure != "" {
+                    result.Failures.Add(failure)
+                }
+
+                AgentLoopKeepHeadCounterRow(result.HeadCounterRows, headRows[0])
+                AgentLoopKeepHeadCounterRow(result.HeadCounterRows, headRows[1])
+                AgentLoopRecordRelativePair(coldTiming, sample, baseRows[0], headRows[0])
+
+                daemonHeadRows := new List<AgentLoopRow>()
+                daemonBaseRows := new List<AgentLoopRow>()
+                if headFirst {
+                    daemonBaseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, false, true, "base")
+                    daemonHeadRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, true, true, "head")
+                } else {
+                    daemonHeadRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, true, true, "head")
+                    daemonBaseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, false, true, "base")
+                }
+
+                daemonFailure := AgentLoopRowsHaveFailure(daemonHeadRows)
+                if daemonFailure == "" {
+                    daemonFailure = AgentLoopRowsHaveFailure(daemonBaseRows)
+                }
+                if daemonFailure != "" {
+                    result.Failures.Add(daemonFailure)
+                }
+
+                daemonHeadWarm := daemonHeadRows[1]
+                daemonBaseWarm := daemonBaseRows[1]
+                daemonHeadWarm.Mode = AgentLoopModeDaemonWarm()
+                daemonBaseWarm.Mode = AgentLoopModeDaemonWarm()
+                AgentLoopKeepHeadCounterRow(result.HeadCounterRows, daemonHeadWarm)
+                AgentLoopRecordRelativePair(daemonTiming, sample, daemonBaseWarm, daemonHeadWarm)
+
+                if printProgress {
+                    print "  " + AgentLoopRowKey(sizeNames[sizeIndex], scenario.Id, AgentLoopModeCold()) + " paired sample " + BenchIntText(sample + 1)
+                }
+                sample = sample + 1
+            }
+
+            result.Timings.Add(coldTiming)
+            result.Timings.Add(daemonTiming)
+            scenarioIndex = scenarioIndex + 1
+        }
+        sizeIndex = sizeIndex + 1
+    }
+
+    return result
+}
+
+func AgentLoopRelativeToleranceThousandths(): long {
+    return 1200
+}
+
+func AgentLoopRelativeTimingFailures(timings: List<AgentLoopRelativeTimingRow>): List<string> {
+    failures := new List<string>()
+    i := 0
+    while i < timings.Count {
+        row := timings[i]
+        ratio := BenchMedianPairRatioThousandths(row.HeadMs, row.BaseMs, row.Samples)
+        if ratio < 0 {
+            failures.Add(AgentLoopRowKey(row.Size, row.Scenario, row.Mode) + ": a paired timing sample is missing or has a non-positive base time")
+        } else if ratio > AgentLoopRelativeToleranceThousandths() {
+            failures.Add(AgentLoopRowKey(row.Size, row.Scenario, row.Mode) + ": median paired head/base ratio " + BenchFormatFixed3(ratio) + "x exceeds " + BenchFormatFixed3(AgentLoopRelativeToleranceThousandths()) + "x")
+        }
+        i = i + 1
+    }
+
+    return failures
+}
+
+func AgentLoopRelativeTimingTable(timings: List<AgentLoopRelativeTimingRow>): string {
+    builder := new StringBuilder()
+    BenchAppendLine(builder, "| size | scenario | mode | base median ms | head median ms | pair ratios | median ratio |")
+    BenchAppendLine(builder, "|---|---|---|---:|---:|---|---:|")
+    i := 0
+    while i < timings.Count {
+        row := timings[i]
+        ratios := new long[](row.Samples)
+        pair := 0
+        ratioText := ""
+        while pair < row.Samples {
+            ratios[pair] = BenchPairRatioThousandths(row.HeadMs[pair], row.BaseMs[pair])
+            if pair > 0 {
+                ratioText = ratioText + ", "
+            }
+            ratioText = ratioText + BenchFormatFixed3(ratios[pair]) + "x"
+            pair = pair + 1
+        }
+
+        baseSamples := new long[](row.Samples)
+        headSamples := new long[](row.Samples)
+        pair = 0
+        while pair < row.Samples {
+            baseSamples[pair] = row.BaseMs[pair]
+            headSamples[pair] = row.HeadMs[pair]
+            pair = pair + 1
+        }
+        medianRatio := BenchMedian(ratios, row.Samples)
+        BenchAppendLine(builder, "| " + row.Size + " | " + row.Scenario + " | " + row.Mode + " | " + BenchLongText(BenchMedian(baseSamples, row.Samples)) + " | " + BenchLongText(BenchMedian(headSamples, row.Samples)) + " | " + ratioText + " | " + BenchFormatFixed3(medianRatio) + "x |")
+        i = i + 1
+    }
+
+    BenchAppendLine(builder, "")
+    BenchAppendLine(builder, "Median ratio is the median of each row's per-pair head/base ratios; tolerance " + BenchFormatFixed3(AgentLoopRelativeToleranceThousandths()) + "x.")
+    return builder.ToString() ?? ""
+}
+
+func AgentLoopRelativeGateRecordLine(
+    failures: List<string>,
+    samples: int,
+    baseLabel: string,
+    baseCommit: string,
+    headCommit: string,
+    baseBuildMs: long,
+    baseCacheHit: bool,
+    gateElapsedMs: long,
+    machine: string,
+    loadAtStart: BenchMachineLoad,
+    loadAtEnd: BenchMachineLoad
+): string {
+    verdict := "PASS"
+    if failures.Count > 0 {
+        verdict = "FAIL (" + BenchIntText(failures.Count) + "): " + String.Join(" | ", failures)
+    }
+
+    baseBuild := "built"
+    if baseCacheHit {
+        baseBuild = "cache-hit"
+    }
+
+    return "agent-loop relative gate: " + verdict + "; base=" + baseLabel + " (" + baseCommit + "); head=" + headCommit + "; baseBuildMs=" + BenchLongText(baseBuildMs) + "; baseBuild=" + baseBuild + "; gateElapsedMs=" + BenchLongText(gateElapsedMs) + "; pairsPerRow=" + BenchIntText(samples) + "; tolerance=" + BenchFormatFixed3(AgentLoopRelativeToleranceThousandths()) + "x; machine=" + machine + "; loadAtStart=" + BenchLoadText(loadAtStart.LoadThousandths) + "; loadAtEnd=" + BenchLoadText(loadAtEnd.LoadThousandths)
+}
+
 func AgentLoopProgressCounters(row: AgentLoopRow): string {
     counters := row.Counters
     if counters == null {
@@ -920,26 +1214,10 @@ func AgentLoopProgressCounters(row: AgentLoopRow): string {
 
 class AgentLoopBaseline {
     SchemaVersion: int
-    MeasuredAt: string
-    CliCommit: string
-    Machine: string
-    LoadAtStart: string
-    LoadAtEnd: string
-    TimingJudgeable: bool
-    Runs: int
-    ToleranceThousandths: long
     Rows: List<AgentLoopRow>
 
     constructor() {
         SchemaVersion = 0
-        MeasuredAt = ""
-        CliCommit = ""
-        Machine = ""
-        LoadAtStart = ""
-        LoadAtEnd = ""
-        TimingJudgeable = false
-        Runs = 0
-        ToleranceThousandths = 0
         Rows = new List<AgentLoopRow>()
     }
 }
@@ -967,14 +1245,6 @@ func AgentLoopAppendField(builder: StringBuilder, indent: string, name: string, 
     builder.Append("\n")
 }
 
-func AgentLoopBoolJson(value: bool): string {
-    if value {
-        return "true"
-    }
-
-    return "false"
-}
-
 // The golden file, written by the harness itself (`--write-baseline`), so its shape can only be
 // the shape `AgentLoopParseBaseline` reads.
 func AgentLoopBaselineJson(baseline: AgentLoopBaseline): string {
@@ -983,14 +1253,6 @@ func AgentLoopBaselineJson(baseline: AgentLoopBaseline): string {
     AgentLoopAppendField(builder, "  ", "schemaVersion", BenchIntText(baseline.SchemaVersion), false)
     AgentLoopAppendField(builder, "  ", "kind", AgentLoopJsonString("nsharp.agent-loop-baseline"), false)
     AgentLoopAppendField(builder, "  ", "policy", AgentLoopJsonString(AgentLoopBaselinePolicy()), false)
-    AgentLoopAppendField(builder, "  ", "measuredAt", AgentLoopJsonString(baseline.MeasuredAt), false)
-    AgentLoopAppendField(builder, "  ", "cliCommit", AgentLoopJsonString(baseline.CliCommit), false)
-    AgentLoopAppendField(builder, "  ", "machine", AgentLoopJsonString(baseline.Machine), false)
-    AgentLoopAppendField(builder, "  ", "loadAtStart", AgentLoopJsonString(baseline.LoadAtStart), false)
-    AgentLoopAppendField(builder, "  ", "loadAtEnd", AgentLoopJsonString(baseline.LoadAtEnd), false)
-    AgentLoopAppendField(builder, "  ", "timingJudgeable", AgentLoopBoolJson(baseline.TimingJudgeable), false)
-    AgentLoopAppendField(builder, "  ", "runs", BenchIntText(baseline.Runs), false)
-    AgentLoopAppendField(builder, "  ", "toleranceFactor", BenchFormatFixed3(baseline.ToleranceThousandths), false)
     builder.Append("  \"rows\": [\n")
     i := 0
     while i < baseline.Rows.Count {
@@ -1001,9 +1263,6 @@ func AgentLoopBaselineJson(baseline: AgentLoopBaseline): string {
         AgentLoopAppendField(builder, "      ", "mode", AgentLoopJsonString(row.Mode), false)
         AgentLoopAppendField(builder, "      ", "sourceLines", BenchLongText(row.SourceLines), false)
         AgentLoopAppendField(builder, "      ", "exitCode", BenchIntText(row.ExitCode), false)
-        AgentLoopAppendField(builder, "      ", "medianWallMs", BenchLongText(row.MedianWallMs), false)
-        AgentLoopAppendField(builder, "      ", "medianCpuMs", BenchLongText(row.MedianCpuMs), false)
-        AgentLoopAppendField(builder, "      ", "medianPeakRssBytes", BenchLongText(row.MedianPeakRssBytes), false)
         counters := row.Counters ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1)
         builder.Append("      \"counters\": {")
         builder.Append("\"filesParsed\": " + BenchLongText(counters.FilesParsed))
@@ -1026,7 +1285,7 @@ func AgentLoopBaselineJson(baseline: AgentLoopBaseline): string {
 }
 
 func AgentLoopBaselinePolicy(): string {
-    return "Structural counters are gated exactly: a decrease is ratcheted into this file in the same commit, an increase is a regression to fix. Wall time is judged only when timingJudgeable is true and the machine is below the load threshold. No threshold here is loosened without the owner."
+    return "CompilerWorkCounters are gated exactly: decreases are ratcheted into this file in the same commit; increases are regressions to fix. Absolute wall, CPU and RSS values are run artifacts only."
 }
 
 func AgentLoopParseBaseline(json: string): AgentLoopBaseline {
@@ -1034,14 +1293,6 @@ func AgentLoopParseBaseline(json: string): AgentLoopBaseline {
     document := JsonDocument.Parse(json)
     root := document.RootElement
     baseline.SchemaVersion = root.GetProperty("schemaVersion").GetInt32()
-    baseline.MeasuredAt = root.GetProperty("measuredAt").GetString() ?? ""
-    baseline.CliCommit = root.GetProperty("cliCommit").GetString() ?? ""
-    baseline.Machine = root.GetProperty("machine").GetString() ?? ""
-    baseline.LoadAtStart = root.GetProperty("loadAtStart").GetString() ?? ""
-    baseline.LoadAtEnd = root.GetProperty("loadAtEnd").GetString() ?? ""
-    baseline.TimingJudgeable = root.GetProperty("timingJudgeable").GetBoolean()
-    baseline.Runs = root.GetProperty("runs").GetInt32()
-    baseline.ToleranceThousandths = BenchParseFixed3(root.GetProperty("toleranceFactor").GetRawText() ?? "")
     rows := root.GetProperty("rows")
     i := 0
     while i < rows.GetArrayLength() {
@@ -1053,11 +1304,7 @@ func AgentLoopParseBaseline(json: string): AgentLoopBaseline {
         )
         row.SourceLines = element.GetProperty("sourceLines").GetInt64()
         row.ExitCode = element.GetProperty("exitCode").GetInt32()
-        row.MedianWallMs = element.GetProperty("medianWallMs").GetInt64()
-        row.MedianCpuMs = element.GetProperty("medianCpuMs").GetInt64()
-        row.MedianPeakRssBytes = element.GetProperty("medianPeakRssBytes").GetInt64()
         row.Counters = AgentLoopCountersFromElement(element.GetProperty("counters"))
-        row.Samples = baseline.Runs
         baseline.Rows.Add(row)
         i = i + 1
     }
@@ -1068,28 +1315,46 @@ func AgentLoopParseBaseline(json: string): AgentLoopBaseline {
 
 // `""` when the baseline can be gated against; the reason otherwise.
 func AgentLoopBaselineRefusal(baseline: AgentLoopBaseline): string {
-    if baseline.SchemaVersion != 1 {
-        return "agent-loop baseline schemaVersion " + BenchIntText(baseline.SchemaVersion) + " is not the supported version 1"
+    if baseline.SchemaVersion != 2 {
+        return "agent-loop baseline schemaVersion " + BenchIntText(baseline.SchemaVersion) + " is not the supported structural schema version 2"
     }
 
     if baseline.Rows.Count == 0 {
         return "agent-loop baseline has no rows: measure one with --agent-loop --write-baseline " + AgentLoopBaselineRelativePath()
     }
 
-    if baseline.ToleranceThousandths <= 0 {
-        return "agent-loop baseline toleranceFactor is missing or not a positive decimal"
+    sizes := AgentLoopSizes()
+    scenarios := AgentLoopScenarios()
+    i := 0
+    while i < sizes.Count {
+        j := 0
+        while j < scenarios.Count {
+            if AgentLoopFindRow(baseline.Rows, sizes[i].Name, scenarios[j].Id, AgentLoopModeCold()) == null || AgentLoopFindRow(baseline.Rows, sizes[i].Name, scenarios[j].Id, AgentLoopModeWarm()) == null {
+                return "agent-loop baseline is missing cold/warm counter rows for " + sizes[i].Name + " / " + scenarios[j].Id
+            }
+            j = j + 1
+        }
+        i = i + 1
     }
 
-    i := 0
+    i = 0
+    while i < sizes.Count {
+        j := 0
+        while j < scenarios.Count {
+            if AgentLoopFindRow(baseline.Rows, sizes[i].Name, scenarios[j].Id, AgentLoopModeDaemonWarm()) == null {
+                return "agent-loop baseline is missing daemon-warm counter row for " + sizes[i].Name + " / " + scenarios[j].Id
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+
+    i = 0
     while i < baseline.Rows.Count {
         row := baseline.Rows[i]
         counters := row.Counters
-        if counters == null || (counters ?? AgentLoopZeroCounters()).FilesParsed < 0 {
+        if !AgentLoopCountersMeasured(counters) {
             return "agent-loop baseline row " + AgentLoopRowKey(row.Size, row.Scenario, row.Mode) + " has no measured counters"
-        }
-
-        if row.MedianWallMs <= 0 {
-            return "agent-loop baseline row " + AgentLoopRowKey(row.Size, row.Scenario, row.Mode) + " has no measured wall time"
         }
 
         i = i + 1
@@ -1222,49 +1487,6 @@ func AgentLoopRatchetCounters(baseline: AgentLoopBaseline, observed: List<AgentL
     return refusals
 }
 
-func AgentLoopTimingLimitMs(baselineWallMs: long, toleranceThousandths: long): long {
-    return baselineWallMs * toleranceThousandths / 1000
-}
-
-// The half that only means something on a quiet machine compared with a baseline that was itself
-// taken on one. `""` when every observed median is inside the limit.
-func AgentLoopTimingFailures(baseline: AgentLoopBaseline, observed: List<AgentLoopRow>): List<string> {
-    failures := new List<string>()
-    i := 0
-    while i < observed.Count {
-        row := observed[i]
-        expected := AgentLoopFindRow(baseline.Rows, row.Size, row.Scenario, row.Mode)
-        if expected != null {
-            baselineRow := expected ?? row
-            limit := AgentLoopTimingLimitMs(baselineRow.MedianWallMs, baseline.ToleranceThousandths)
-            if row.MedianWallMs > limit {
-                failures.Add(AgentLoopRowKey(row.Size, row.Scenario, row.Mode) + ": median wall " + BenchLongText(row.MedianWallMs) + " ms over the limit " + BenchLongText(limit) + " ms (baseline " + BenchLongText(baselineRow.MedianWallMs) + " ms x" + BenchFormatFixed3(baseline.ToleranceThousandths) + ")")
-            }
-        }
-
-        i = i + 1
-    }
-
-    return failures
-}
-
-// Why the timing half was not judged, or `""` when it was.
-func AgentLoopTimingUnjudgedReason(baseline: AgentLoopBaseline, load: BenchMachineLoad, skipRequested: bool): string {
-    if skipRequested {
-        return "SYSTEMS_BENCH=skip"
-    }
-
-    if !baseline.TimingJudgeable {
-        return "the baseline's own timings were taken on a loaded machine (load " + baseline.LoadAtStart + " at start), so they are a record, not a budget; re-measure on an idle machine to make them one"
-    }
-
-    if BenchLoadRefusesTimingJudgement(load) {
-        return "the one-minute load average is " + BenchLoadText(load.LoadThousandths) + " on " + BenchCountText(load.Cores) + " logical cores, at or above the " + BenchFormatFixed3(BenchLoadThresholdThousandths(load.Cores)) + " threshold"
-    }
-
-    return ""
-}
-
 // ─── THE TABLE ────────────────────────────────────────────────────────────────────────────────
 
 func AgentLoopMegabytes(bytes: long): string {
@@ -1283,23 +1505,8 @@ func AgentLoopCounterCell(observed: long, compare: long, hasCompare: bool): stri
     return BenchLongText(observed) + " (" + BenchLongText(compare) + ")"
 }
 
-func AgentLoopWallCell(observed: long, compare: long, hasCompare: bool): string {
-    if !hasCompare || compare <= 0 {
-        return BenchLongText(observed)
-    }
-
-    percent := (observed - compare) * 100 / compare
-    sign := ""
-    if percent > 0 {
-        sign = "+"
-    }
-
-    return BenchLongText(observed) + " (" + BenchLongText(compare) + ", " + sign + BenchLongText(percent) + "%)"
-}
-
-// The markdown table: one line per size x scenario x mode. With `compare` rows (the committed
-// baseline, or a base CLI measured in the same run), every cell that differs carries the compared
-// value in parentheses, and the wall cell its percentage change.
+// The markdown table: one line per size x scenario x mode. `compare` rows supply structural
+// counters only. Absolute timing columns are trend data and are never compared with the baseline.
 func AgentLoopRenderTable(rows: List<AgentLoopRow>, compare: List<AgentLoopRow>?, compareLabel: string): string {
     builder := new StringBuilder()
     if compare != null {
@@ -1322,7 +1529,7 @@ func AgentLoopRenderTable(rows: List<AgentLoopRow>, compare: List<AgentLoopRow>?
         counters := row.Counters ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1)
         otherCounters := other.Counters ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1)
         builder.Append("| " + row.Size + " | " + BenchLongText(row.SourceLines) + " | " + row.Scenario + " | " + row.Mode + " | " + BenchIntText(row.ExitCode))
-        builder.Append(" | " + AgentLoopWallCell(row.MedianWallMs, other.MedianWallMs, hasCompare))
+        builder.Append(" | " + BenchLongText(row.MedianWallMs))
         builder.Append(" | " + BenchLongText(row.MedianCpuMs))
         builder.Append(" | " + AgentLoopMegabytes(row.MedianPeakRssBytes))
         builder.Append(" | " + AgentLoopCounterCell(counters.FilesParsed, otherCounters.FilesParsed, hasCompare))
@@ -1362,6 +1569,18 @@ func AgentLoopWriteGateRecord(repositoryRoot: string, line: string, table: strin
         Directory.CreateDirectory(directory)
         File.WriteAllText(Path.Combine(directory, "last-gate-run.txt"), line + "\n")
         File.WriteAllText(Path.Combine(directory, "last-gate-run.md"), line + "\n\n" + table)
+        return true
+    } catch {
+        return false
+    }
+}
+
+func AgentLoopWriteRelativeGateRecord(repositoryRoot: string, line: string, table: string): bool {
+    directory := Path.Combine(Path.Combine(repositoryRoot, "artifacts"), "agent-loop")
+    try {
+        Directory.CreateDirectory(directory)
+        File.WriteAllText(Path.Combine(directory, "last-gate-run.txt"), line + "\n")
+        File.WriteAllText(Path.Combine(directory, "relative-gate.md"), line + "\n\n" + table)
         return true
     } catch {
         return false

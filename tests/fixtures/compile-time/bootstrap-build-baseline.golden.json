@@ -1,18 +1,25 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "project": "src/NSharpLang.Compiler.Core",
   "command": "build",
-  "stage": "front-end (parse + semantic analysis + strict lint); build rejects Core before emission",
+  "stage": "Core phase/counter contract plus a deterministic Core-scale build through IL emission",
   "expectedExitCode": 1,
   "phaseContract": "analysis-before-strict-lint/v1",
-  "phaseDiagnosticMultiset": "NL011 ×1, NL202 ×1",
-  "measuredAt": "2026-09-30",
-  "cliCommit": "a409c9400950d42c05819627c1d0ee318ca1df03",
-  "machine": "Apple M4, 10 logical cores, arm64, macOS 15.6.1 (build 24G90, Darwin 24.6.0), .NET SDK 10.0.105, /usr/bin/time -l; observed idle start at 2026-09-30T15:25:52Z: load 1.13 < threshold 2.0",
-  "runs": 5,
-  "files": 141,
-  "lines": 82718,
-  "medianWallMs": 15180,
-  "medianPeakRssBytes": 679837696,
-  "toleranceFactor": 1.5
+  "phaseDiagnosticMultiset": "NL011 \u00d71, NL202 \u00d71",
+  "coreCounters": {
+    "filesParsed": 468,
+    "emitParses": 137,
+    "filesAnalyzed": 278,
+    "assembliesEmitted": 2,
+    "referenceAssembliesLoaded": 431,
+    "processesSpawned": 0
+  },
+  "emitCounters": {
+    "filesParsed": 161,
+    "emitParses": 160,
+    "filesAnalyzed": 160,
+    "assembliesEmitted": 1,
+    "referenceAssembliesLoaded": 141,
+    "processesSpawned": 0
+  }
 }

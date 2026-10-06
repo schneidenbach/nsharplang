@@ -37,19 +37,22 @@ func AgentLoopTestRow(size: string, scenario: string, mode: string, wallMs: long
     return row
 }
 
-func AgentLoopTestBaseline(judgeable: bool): AgentLoopBaseline {
+func AgentLoopTestBaseline(): AgentLoopBaseline {
     baseline := new AgentLoopBaseline()
-    baseline.SchemaVersion = 1
-    baseline.MeasuredAt = "2026-10-05"
-    baseline.CliCommit = "deadbeef"
-    baseline.Machine = "test machine"
-    baseline.LoadAtStart = "1.2"
-    baseline.LoadAtEnd = "1.4"
-    baseline.TimingJudgeable = judgeable
-    baseline.Runs = 3
-    baseline.ToleranceThousandths = 1500
-    baseline.Rows.Add(AgentLoopTestRow("small", "no-op check", "cold", 1000, 40))
-    baseline.Rows.Add(AgentLoopTestRow("small", "no-op check", "warm", 1000, 40))
+    baseline.SchemaVersion = 2
+    sizes := AgentLoopSizes()
+    scenarios := AgentLoopScenarios()
+    i := 0
+    while i < sizes.Count {
+        j := 0
+        while j < scenarios.Count {
+            baseline.Rows.Add(AgentLoopTestRow(sizes[i].Name, scenarios[j].Id, AgentLoopModeCold(), 1000, 40))
+            baseline.Rows.Add(AgentLoopTestRow(sizes[i].Name, scenarios[j].Id, AgentLoopModeWarm(), 1000, 40))
+            baseline.Rows.Add(AgentLoopTestRow(sizes[i].Name, scenarios[j].Id, AgentLoopModeDaemonWarm(), 1000, 40))
+            j = j + 1
+        }
+        i = i + 1
+    }
     return baseline
 }
 
@@ -253,34 +256,35 @@ test "agent-loop bench: counters that differ between identical samples mark the 
 // ─── THE BASELINE AND THE VERDICT ─────────────────────────────────────────────────────────────
 
 test "agent-loop bench: the baseline file the harness writes is the baseline file it reads" {
-    written := AgentLoopTestBaseline(true)
+    written := AgentLoopTestBaseline()
     parsed := AgentLoopParseBaseline(AgentLoopBaselineJson(written))
-    assert parsed.SchemaVersion == 1
-    assert parsed.MeasuredAt == "2026-10-05"
-    assert parsed.LoadAtStart == "1.2"
-    assert parsed.TimingJudgeable
-    assert parsed.Runs == 3
-    assert parsed.ToleranceThousandths == 1500
-    assert parsed.Rows.Count == 2
+    assert parsed.SchemaVersion == 2
+    assert parsed.Rows.Count == AgentLoopSizes().Count * AgentLoopScenarios().Count * 3
     first := parsed.Rows[0]
     assert first.Size == "small" && first.Scenario == "no-op check" && first.Mode == "cold"
-    assert first.MedianWallMs == 1000
     assert first.SourceLines == 448
     assert AgentLoopCountersEqual(first.Counters ?? AgentLoopTestCounters(-1), AgentLoopTestCounters(40))
     assert AgentLoopBaselineRefusal(parsed) == ""
-    assert AgentLoopBaselineJson(written).Contains("loosened without the owner")
+    json := AgentLoopBaselineJson(written)
+    assert !json.Contains("medianWallMs")
+    assert !json.Contains("medianCpuMs")
+    assert !json.Contains("toleranceFactor")
 }
 
 test "agent-loop bench: a baseline with no rows, an unknown schema or unmeasured counters is refused" {
-    empty := AgentLoopTestBaseline(true)
+    empty := AgentLoopTestBaseline()
     empty.Rows.Clear()
     assert AgentLoopBaselineRefusal(empty).Contains("has no rows")
 
-    future := AgentLoopTestBaseline(true)
-    future.SchemaVersion = 2
-    assert AgentLoopBaselineRefusal(future).Contains("schemaVersion 2")
+    future := AgentLoopTestBaseline()
+    future.SchemaVersion = 3
+    assert AgentLoopBaselineRefusal(future).Contains("schemaVersion 3")
 
-    unmeasured := AgentLoopTestBaseline(true)
+    missingDaemonWarm := AgentLoopTestBaseline()
+    missingDaemonWarm.Rows.RemoveAt(missingDaemonWarm.Rows.Count - 1)
+    assert AgentLoopBaselineRefusal(missingDaemonWarm).Contains("missing daemon-warm")
+
+    unmeasured := AgentLoopTestBaseline()
     unmeasured.Rows[0].Counters = new AgentLoopCounters(-1, -1, -1, -1, -1, -1)
     assert AgentLoopBaselineRefusal(unmeasured).Contains("no measured counters")
 }
@@ -298,7 +302,7 @@ test "agent-loop bench: a baseline is never written from a failed row or from co
 }
 
 test "agent-loop bench: equal counters pass, fewer must be ratcheted in, more are a regression" {
-    baseline := AgentLoopTestBaseline(true)
+    baseline := AgentLoopTestBaseline()
     assert AgentLoopCounterFailures(baseline, AgentLoopTestObserved(40, 5000)).Count == 0
 
     fewer := AgentLoopCounterFailures(baseline, AgentLoopTestObserved(8, 1000))
@@ -311,7 +315,7 @@ test "agent-loop bench: equal counters pass, fewer must be ratcheted in, more ar
     assert more[0].Contains("MORE work")
 
     unknown := AgentLoopTestObserved(40, 1000)
-    unknown[0].Size = "medium"
+    unknown[0].Size = "unlisted-size"
     assert AgentLoopCounterFailures(baseline, unknown)[0].Contains("has no baseline row")
 
     failed := AgentLoopTestObserved(40, 1000)
@@ -321,7 +325,7 @@ test "agent-loop bench: equal counters pass, fewer must be ratcheted in, more ar
 }
 
 test "agent-loop bench: the ratchet lowers counters, refuses a rise, and never touches a wall time" {
-    baseline := AgentLoopTestBaseline(true)
+    baseline := AgentLoopTestBaseline()
     lower := AgentLoopTestObserved(8, 9999)
     assert AgentLoopRatchetCounters(baseline, lower).Count == 0
     cold := AgentLoopFindRow(baseline.Rows, "small", "no-op check", "cold") ?? lower[0]
@@ -339,30 +343,34 @@ test "agent-loop bench: the ratchet lowers counters, refuses a rise, and never t
     assert (cold.Counters ?? AgentLoopTestCounters(-1)).FilesParsed == 8
 }
 
-test "agent-loop bench: wall time is judged against the baseline median times its tolerance" {
-    baseline := AgentLoopTestBaseline(true)
-    assert AgentLoopTimingFailures(baseline, AgentLoopTestObserved(40, 1500)).Count == 0
-    over := AgentLoopTimingFailures(baseline, AgentLoopTestObserved(40, 1501))
-    assert over.Count == 1
-    assert over[0].Contains("over the limit 1500 ms")
-}
+test "agent-loop relative gate: paired head/base medians accept at 1.20x and fail above it" {
+    timings := new List<AgentLoopRelativeTimingRow>()
+    row := new AgentLoopRelativeTimingRow("small", "no-op check", AgentLoopModeCold(), 3)
+    row.BaseMs[0] = 1000
+    row.BaseMs[1] = 1000
+    row.BaseMs[2] = 1000
+    row.HeadMs[0] = 1200
+    row.HeadMs[1] = 1200
+    row.HeadMs[2] = 1200
+    row.Samples = 3
+    timings.Add(row)
+    assert AgentLoopRelativeTimingFailures(timings).Count == 0
+    assert AgentLoopRelativeTimingTable(timings).Contains("| small | no-op check | cold | 1000 | 1200 | 1.2x, 1.2x, 1.2x | 1.2x |")
 
-test "agent-loop bench: wall time is unjudged on a loaded machine, against a loaded baseline, or under SYSTEMS_BENCH=skip" {
-    quiet := new BenchMachineLoad(1200, 10)
-    loaded := new BenchMachineLoad(3400, 10)
-    assert AgentLoopTimingUnjudgedReason(AgentLoopTestBaseline(true), quiet, false) == ""
-    assert AgentLoopTimingUnjudgedReason(AgentLoopTestBaseline(true), loaded, false).Contains("at or above the 2")
-    assert AgentLoopTimingUnjudgedReason(AgentLoopTestBaseline(true), BenchUnknownLoad(), false) != ""
-    assert AgentLoopTimingUnjudgedReason(AgentLoopTestBaseline(false), quiet, false).Contains("a record, not a budget")
-    assert AgentLoopTimingUnjudgedReason(AgentLoopTestBaseline(true), quiet, true) == "SYSTEMS_BENCH=skip"
+    row.HeadMs[0] = 1300
+    row.HeadMs[1] = 1310
+    row.HeadMs[2] = 1290
+    failures := AgentLoopRelativeTimingFailures(timings)
+    assert failures.Count == 1
+    assert failures[0].Contains("1.3x exceeds 1.2x")
 }
 
 test "agent-loop bench: the table states every counter and puts a compared value beside each one that moved" {
     observed := AgentLoopTestObserved(8, 500)
-    table := AgentLoopRenderTable(observed, AgentLoopTestBaseline(true).Rows, "the baseline")
+    table := AgentLoopRenderTable(observed, AgentLoopTestBaseline().Rows, "the baseline")
     assert table.Contains("Parenthesised values are the baseline")
     assert table.Contains("| parsed | emit parses | analyzed | emitted | refs loaded | spawned |")
-    assert table.Contains("| 500 (1000, -50%) |")
+    assert table.Contains("| 500 |")
     assert table.Contains("| 8 (40) |")
     assert table.Contains("| 684 |")
 
@@ -371,18 +379,19 @@ test "agent-loop bench: the table states every counter and puts a compared value
     assert plain.Contains("| small | 448 | no-op check | cold | 0 | 500 |")
 }
 
-test "agent-loop bench: the committed baseline is usable and covers every size, scenario and mode" {
+test "agent-loop bench: the committed structural baseline covers cold, warm and daemon-warm rows" {
     baseline := AgentLoopParseBaseline(File.ReadAllText(AgentLoopBaselinePath(BenchRepositoryRoot())))
     assert AgentLoopBaselineRefusal(baseline) == "", AgentLoopBaselineRefusal(baseline)
     sizes := AgentLoopSizes()
     scenarios := AgentLoopScenarios()
-    assert baseline.Rows.Count == sizes.Count * scenarios.Count * 2
+    assert baseline.Rows.Count == sizes.Count * scenarios.Count * 3
     i := 0
     while i < sizes.Count {
         j := 0
         while j < scenarios.Count {
             assert AgentLoopFindRow(baseline.Rows, sizes[i].Name, scenarios[j].Id, AgentLoopModeCold()) != null, sizes[i].Name + " / " + scenarios[j].Id
             assert AgentLoopFindRow(baseline.Rows, sizes[i].Name, scenarios[j].Id, AgentLoopModeWarm()) != null, sizes[i].Name + " / " + scenarios[j].Id
+            assert AgentLoopFindRow(baseline.Rows, sizes[i].Name, scenarios[j].Id, AgentLoopModeDaemonWarm()) != null, sizes[i].Name + " / " + scenarios[j].Id
             j = j + 1
         }
         i = i + 1
@@ -391,25 +400,8 @@ test "agent-loop bench: the committed baseline is usable and covers every size, 
 
 // ─── THE GATE ─────────────────────────────────────────────────────────────────────────────────
 
-func AgentLoopGateRecordLine(failures: List<string>, unjudged: string, load: BenchMachineLoad, samples: int, cliCommit: string): string {
-    verdict := "ok"
-    if failures.Count > 0 {
-        verdict = "FAILED (" + BenchIntText(failures.Count) + "): " + String.Join(" | ", failures)
-    }
-
-    timing := "timing judged"
-    if unjudged != "" {
-        timing = "timing unjudged: " + unjudged
-    }
-
-    return "agent-loop gate: " + verdict + "; counters judged exactly; " + timing + "; samples=" + BenchIntText(samples) + " load=" + BenchLoadText(load.LoadThousandths) + " cores=" + BenchCountText(load.Cores) + " cliCommit=" + cliCommit
-}
-
-test "agent-loop gate: the edit-check-build-test loop does exactly the baselined work, and its wall time is judged only on an idle machine" {
-    // SILENT ON EVERY PATH, as the compile-time gate above is. The counters are judged on EVERY run,
-    // loaded or not and under SYSTEMS_BENCH=skip too: a count of files parsed does not move with
-    // load, so load cannot excuse it. Only the wall-time half is declined, and when it is, ONE
-    // sample per row is taken, because a median nobody will judge is not worth three.
+test "agent-loop gate: exact counter contracts and interleaved cold plus daemon-warm ratios" {
+    // SILENT ON EVERY PATH: Step 3a parses the captured test stream as one JSON document.
     repositoryRoot := BenchRepositoryRoot()
     baseline := AgentLoopParseBaseline(File.ReadAllText(AgentLoopBaselinePath(repositoryRoot)))
     refusal := AgentLoopBaselineRefusal(baseline)
@@ -419,20 +411,21 @@ test "agent-loop gate: the edit-check-build-test loop does exactly the baselined
     assert File.Exists(cliDll), "agent-loop gate: the CLI under test was not found at " + cliDll + ". Build it with: ./scripts/dev.sh"
     assert AgentLoopCliSupportsStats(cliDll), "agent-loop gate: the CLI under test at " + cliDll + " does not list --stats in `nlc build --help`."
 
-    load := BenchReadMachineLoad()
-    unjudged := AgentLoopTimingUnjudgedReason(baseline, load, BenchGateSkipRequested())
-    samples := 1
-    if unjudged == "" {
-        samples = baseline.Runs
-    }
+    loadAtStart := BenchReadMachineLoad()
+    gateStarted := DateTime.UtcNow.Ticks
+    baseCompiler := BenchPrepareBaseCompiler(repositoryRoot)
+    assert baseCompiler.Error == "", "agent-loop gate: " + baseCompiler.Error
+    pairCount := 3
+    relative := AgentLoopMeasureRelativeMatrix(cliDll, baseCompiler.CliDll, repositoryRoot, AgentLoopGateSizeNames(), pairCount, false)
+    failures := AgentLoopRelativeTimingFailures(relative.Timings)
+    failures.AddRange(relative.Failures)
+    failures.AddRange(AgentLoopCounterFailures(baseline, relative.HeadCounterRows))
 
-    rows := AgentLoopMeasureMatrix(cliDll, repositoryRoot, AgentLoopGateSizeNames(), samples, true, false, false)
-    failures := AgentLoopCounterFailures(baseline, rows)
-    if unjudged == "" {
-        failures.AddRange(AgentLoopTimingFailures(baseline, rows))
-    }
-
-    line := AgentLoopGateRecordLine(failures, unjudged, load, samples, BenchReadCliCommit(repositoryRoot))
-    _ = AgentLoopWriteGateRecord(repositoryRoot, line, AgentLoopRenderTable(rows, baseline.Rows, "the committed baseline " + AgentLoopBaselineRelativePath()))
-    assert failures.Count == 0, line + " - the full table is in artifacts/agent-loop/last-gate-run.md"
+    loadAtEnd := BenchReadMachineLoad()
+    gateElapsedMs := (DateTime.UtcNow.Ticks - gateStarted) / 10000
+    facts := BenchReadEnvironmentFacts(BenchCompilerPerfGitRoot(repositoryRoot))
+    gateLine := AgentLoopRelativeGateRecordLine(failures, pairCount, "base CLI", baseCompiler.Commit, facts.CliCommit, baseCompiler.BuildMs, baseCompiler.CacheHit, gateElapsedMs, AgentLoopMachineText(facts), loadAtStart, loadAtEnd)
+    table := AgentLoopRelativeTimingTable(relative.Timings) + "\n\n## Head structural counters\n\n" + AgentLoopRenderTable(relative.HeadCounterRows, baseline.Rows, "the committed structural counter baseline " + AgentLoopBaselineRelativePath())
+    _ = AgentLoopWriteRelativeGateRecord(repositoryRoot, gateLine, table)
+    assert failures.Count == 0, gateLine + "\n" + table
 }

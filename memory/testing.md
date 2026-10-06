@@ -1141,230 +1141,85 @@ two biggest slices' tests-included emits: since the Plan carve Core's is 24.9 s 
 Plan's 18.2 s (`EmitIlAssembly`, load ~7) -- the S2/S3 sub-splits' job.
 
 ### 8. The Compile-Time Gate And Benchmark (`tests/native/compile-time-bench`)
-The gate has one compile-speed step, and it is N#-owned rather than a shell step because the
-ownership ratchet (`tests/native/ownership-audit`) admits a new shell or JSON file only as an
-explicitly reviewed delivery row, and pins every gate script to an exact reviewed fingerprint. `tests/native/compile-time-bench` is a native project
-with a `.tests.nl`, so Step 3a discovers and runs it like every other native estate; it appears in
-the gate log as `Testing native project: tests/native/compile-time-bench` and its one gate block is
-named `compile-time gate: …`.
 
-What the gate block does: it spawns the freshly built CLI (`src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll`,
-found by walking up from the test assembly's directory) as
-`nlc build --project src/NSharpLang.Compiler.Core --timings -o <fresh temp dir>` — THREE times
-whenever the timing judgement will be made, and ONCE when the load reading below has already
-declined it (`BenchGateRunCount`; a median nobody reads is not worth three builds of the compiler,
-and the correctness half is a per-run property one run proves as completely as three) — takes
-the median wall clock, and compares it to the checked-in baseline
-`tests/fixtures/compile-time/bootstrap-build-baseline.golden.json` (the `tests/fixtures/*.golden.json`
-path is the ratchet's one JSON exemption). The baseline pins `medianWallMs`, a `toleranceFactor`
-(1.5: the median must be at or under 1.5× the baseline), an `expectedExitCode`, a `stage`, and a
-semantic phase contract. Before the three measured runs, a tiny real two-file build produces one
-semantic-only NL202 and one strict-lint-only NL011. Its exact diagnostic multiset must match the
-schema-2 baseline, so a pipeline reorder is refused even when its exit code stays the same. Every
-measured run must exit with exactly the pinned code, and when that code is non-zero the CLI's own
-`Build failed in` banner must be on stdout, so a crash or a missing CLI can never pass as "the
-expected failure". A placeholder baseline (`medianWallMs: 0`) is refused by name, so the gate can
-never pass on an unmeasured file.
+The compile-time and agent-loop gates are N#-owned blocks in the native project
+`tests/native/compile-time-bench`. Step 3a discovers the project and runs it serially so the paired
+measurements do not compete with sibling gate processes. The compiler performance logic stays in
+N#; the shell gate only carries artifacts out of its isolated tree.
 
-The checked-in schema-2 baseline is the 2026-09-16 live-source measurement at commit
-`88cf7534c4603f33583f5f1ad1c9de920a2824c2`: five validated rejected front-end builds of the
-then-current 526 non-test files / 288,658 lines, with a 123,885 ms median wall clock and a
-1,521,696,768-byte median peak RSS. Its machine provenance is the Apple M4 (10 logical cores),
-macOS 15.6.1 (build 24G90, Darwin 24.6.0), .NET SDK 10.0.105, and the observed idle start had a
-one-minute load of 1.91 below the 2.0 threshold. The runs were rejected at the
-`analysis-before-strict-lint/v1` phase and did not complete emission; this is not evidence of full
-gate or full-emission success. The former schema-1 measurement remains historical context in the
-2026-09 measurement verdict: its 7,868 ms covered only parse plus strict lint on 403 files /
-172,653 lines, so it is not comparable to the current phase or live source size.
+**Structural behavior is the primary gate.** `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json`
+pins the stage, phase diagnostic contract, expected exit and `--stats` `CompilerWorkCounters` for
+Core analysis and a deterministic Core-scale project that reaches IL emission. The Core source
+project itself currently fails during analysis before emit; the generated 80,960-line/160-file
+project covers the emit path. Counter checks are exact and machine-independent. A decrease must be
+reviewed and ratcheted; an increase is a regression to fix.
 
-This is an **absolute live-source latency budget**, not a fixed-corpus or normalized-throughput
-comparison. Each measurement reports its actual Core file and line counts so source growth is
-visible, but count changes do not waive the latency limit and do not require a baseline rewrite.
-Changing the covered compiler phase does require a new phase contract and a fresh measurement.
+**Timing is relative within the same run.** The harness builds the base compiler into a temporary,
+commit-keyed cache, then alternates base and head for three pairs on the Core-scale emit workload.
+It computes each head/base ratio first and gates the median of those pair ratios at **1.20×**. This
+matches the Systems throughput gate. Nearby pairs share the machine's changing load, and three pairs
+provide the smallest practical odd sample for a median. The CLI already built by the gate is the head
+side. The first run also builds the base compiler seed project and CLI; repeated runs reuse the cache.
 
-The gate refuses to judge a LOADED machine. The baseline records observed idle at its start (its `machine`
-field says so), so a median taken while the machine is busy measures the machine, not the compiler:
-five product gates in two days went red at one-minute load averages of 4.4–8.1 on this 10-core M4,
-with medians of 11,941–17,010 ms against the 11,802 ms limit, while the same code measured 6–7 s on
-a quiet box. So the block reads the one-minute load average BEFORE its runs, and that same reading decides both
-whether to judge and how many runs to take — `sysctl -n
-vm.loadavg` on macOS (the systems throughput gate's own source, so the two gates agree), falling
-back to `/usr/bin/uptime`, which is also the Linux reader — and compares it with a threshold of
-**0.2 × logical cores** (2.0 on a 10-core box; 2.0 when the platform gives no core count). At or
-above it, the timing judgement is not made: the block passes and records SKIPPED-BY-LOAD with every
-number. An UNREADABLE load skips too — a gate must not judge a machine it cannot compare — and a
-live contract asserts the platform answers with a positive load, so a broken reader turns that test
-red instead of switching the gate off in silence. (Consequence to know: inside a full product gate
-the box is loaded by the gate's own Step 3a, so the timing judgement usually IS skipped there — and
-that is exactly the case the single run covers, which is why the block costs about 2 minutes inside
-a gate and about 6m23s on a machine quiet enough to judge; and
-in a container `uptime` reports the host's load. The timing number is meant to be taken on a quiet
-box, which is what the re-baseline recipe below already requires.)
+Base selection is deterministic: if `HEAD` is ahead of `origin/systems-language`, use
+`git merge-base HEAD origin/systems-language`; when `HEAD` is at the origin tip, use `HEAD~1` (or
+another explicitly selected predecessor that last changed compiler sources). Absolute medians,
+machine, one-minute load and commit are written under `artifacts/compile-time/` as trend data. They
+never gate. Load is read for the record only: there is no quiet-machine requirement, load threshold,
+load-based skip or load-based run-count shortcut.
 
-The correctness half never skips: every run must still exit with the baselined code, a baselined
-failure must still carry the CLI's `Build failed in` banner, and a placeholder baseline is still
-refused. Load does not move those, so load cannot excuse them.
+A native test must keep stdout and stderr free of benchmark text because Step 3a parses the test
+output as one JSON envelope. The test writes the verdict and ratio table to
+`artifacts/compile-time/relative-gate.md` and `last-gate-run.txt`; `tests/scripts/test-all.sh` copies
+those records out before deleting its isolated tree, including when a later step fails.
 
-Skipping and re-baselining:
+The same project also contains a corpus harness. It measures projects with `project.yml` under
+`examples/`, `tests/` and `templates/` (68 today; projects holding only `.tests.nl` are reported as
+"no non-test sources"), plus Compiler Core. It writes `runs.csv`, `compile-time.csv` and
+`compile-time.md` with source lines, resolve/emit split, check diagnostics and absolute trend values
+to `artifacts/compile-time/<date>/`. Those corpus reports are informational and do not replace the
+paired Core-scale gate. Options include `--only <substring>`, `--scope corpus|bootstrap|all`,
+`--cli <Cli.dll>` and `--out <dir>`.
 
-```bash
-SYSTEMS_BENCH=skip VSCODE_TESTS=skip ./scripts/test-all.sh --commit   # the gate block returns without measuring and passes
-```
-
-#### 2026-09-30 post-split baseline remeasurement
-
-Owner decision D-B keeps `src/NSharpLang.Compiler.Core` as the benchmark subject after the split;
-that project is now the Semantics façade, with Syntax and Model referenced as lower slices. This
-remains the gate's documented absolute latency budget for the Core project identity, not a new sum
-across all compiler slices. The measured stage and semantic canary are unchanged: parse, semantic
-analysis and strict lint, with the Core build rejected before emission. On the same Apple M4 / .NET
-10.0.105, five harness runs changed the live source census from **526 files / 288,658 lines** to
-**141 files / 82,718 lines**, the median wall time from **123,885 ms** to **15,180 ms**, and median
-peak RSS from **1,521,696,768 bytes** to **679,837,696 bytes**. The CLI source commit was
-`a409c9400950d42c05819627c1d0ee318ca1df03`; tolerance remains **1.5**. The valid run started at
-2026-09-30T15:25:52Z with load **1.13**, ended at 15:29:15Z with load **1.81**, and all 30-second
-samples stayed below 2.0. An earlier sweep was discarded after a 2.08 mid-run sample. The updated
-compile-time-bench passed **76/76**, including the 185-project corpus formula; its timing verdict
-was judged `ok` at load **1.31** on 10 cores (three-run median 15,168 ms against the unchanged
-22,770 ms limit). `gate-script-contracts` passed **75/75** with the worktree-built CLI.
-
-Step 3a runs one `nlc test` PROCESS per project over ~129 projects. Since 2026-09-22 it runs them
-under `xargs -P` with a capped worker count, in the same numbered-results-directory pattern Steps 8,
-9 and 10 have always used, with a pinned SERIAL group that runs first: the projects whose claim is
-about the machine (`compile-time-bench`), that own state outside their own directory (daemon
-sockets, the installers, the whole-tree walk of `ownership-audit`) or that drive real `dotnet`
-restores and builds against the package cache. The serial group running first also warms that cache
-before anything runs concurrently. The parent replays every project in DISCOVERY order, so a
-parallel log reads like a serial one, and prints one `project=<dir> seconds=<n>` line per project.
-Each worker runs `nlc test --json --timings`, whose envelope then carries a `timings` object
-(`buildMs`, `runMs`, `totalMs`), and after the replay the step writes every project's split, outcome
-and row counts to `artifacts/native-sweep/<UTC time>.json` (schemaVersion 1, discovery order, a
-`summary` whose totals reconcile with the per-project `Passed:` lines, and a closing
-`Native sweep record: …` log line). The isolated driver copies `artifacts/native-sweep/` and
-`artifacts/compile-time/` back to the source tree before it deletes its copy, on a red run too, so
-the record outlives the run that made it. Measured on the 10-core M4: ~14m18s serial against 5m39s–8m06s parallel over three
-runs, with identical counts (4,775 passed / 0 failed / 1 skipped). The predicate that decides which
-group a project runs in, the discovery-order replay, every clause of the JSON validator and the
-sweep record (its embedded recorder is run over a fabricated results directory) are pinned by
-`tests/native/gate-script-contracts/NativeSweepParallelism.tests.nl`.
-
-A native test must write nothing to stdout or stderr: Step 3a captures both streams into one file
-and `json.load`s the whole thing, so a single printed line turns a passing test document into a red step.
-The gate block's numbers therefore appear only in its failure message (`runs=[…] exitCodes=[…]
-median= baseline= tolerance= limit= cliCommit= stage= load= cores= loadThreshold=`); a green block is
-silent. Because a skipped timing judgement is green and therefore silent too, every run — judged,
-skipped or failed — also writes that one line to `artifacts/compile-time/last-gate-run.txt`
-(gitignored, and discarded with the gate's isolated copy), so a reader of a GREEN gate can still ask
-what it did. `cliCommit` is the real 40-character sha wherever the tree has `.git`; in the product
-gate's isolated copy it reads `unavailable (isolated gate copy — …)`, because
-`tests/scripts/test-all.sh` rsyncs the tree with `--exclude='.git/'` and nothing stamps the commit
-into the build.
-
-`SYSTEMS_BENCH` is the same switch the native-comparison throughput step uses. It is NOT part of the
-step-cache salt (`env_names` in the two gate scripts is ratchet-pinned), so a cached Step 3a from a
-skip run is not compile-time evidence; `--commit` runs are always fresh. To re-baseline, run the
-harness on an IDLE machine (`pgrep -fl 'test-all-core|dotnet build|dotnet test|MSBuild|rustc|clang|code'`
-must be empty; the baseline's `machine` field names the hardware) and copy the Compiler Core
-build row's median, peak RSS, files, lines, CLI commit and date into the golden file:
-
-```bash
-dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll build --project tests/native/compile-time-bench
-dotnet tests/native/compile-time-bench/bin/Debug/net10.0/NSharpLang.CompileTimeBench.dll --runs 5
-```
-
-The harness measures every project with a `project.yml` under `examples/`, `tests/` and `templates/`
-(68 today; the 27 that hold only `.tests.nl` are reported as "no non-test sources" and are compiled
-by `nlc test` in Step 3a instead) plus Compiler Core, with `nlc build --timings` and
-`nlc check --json` five runs each under `/usr/bin/time -l` for peak RSS, and writes `runs.csv`,
-`compile-time.csv` and `compile-time.md` (lines per second per project and in aggregate, the
-`--timings` resolve/emit split, the diagnostic census of every failing check) to
-`artifacts/compile-time/<date>/` (gitignored; committed results are force-added). `--only <substring>`,
-`--scope corpus|bootstrap|all`, `--cli <Cli.dll>` and `--out <dir>` are the options; `--cli` is how
-another compiler build (for example a historical worktree) is measured over the same corpus. The
-2026-09-01 numbers and their interpretation are in
-`systems-language-closeout/MEASUREMENT-VERDICT-2026-09.md`.
+The September 2026 absolute wall/RSS baselines remain historical measurements only; their machine,
+load and phase context is retained in the measurement verdicts. They are no longer a pass/fail
+budget.
 
 ### 8a. The Agent-Loop Latency Benchmark And Gate (`--agent-loop`, same project)
 
-An agent writing N# does not build a project once: it edits, checks, builds and tests dozens of
-times an hour, and the latency of THAT loop is what it pays. §8 measures one cold Core build; this
-measures the loop. It lives in `tests/native/compile-time-bench` (`AgentLoopBench.nl`,
-`AgentLoopProgram.nl`, `AgentLoopBench.tests.nl`) because it is the same claim about the machine,
-reuses that project's spawn kernel (`BenchRunUnderTimeUtility`), load reader, median and baseline
-patterns, and rides in the same serial Step 3a slot.
+An N# editing loop repeats checks, builds and tests, so this benchmark covers small and medium
+versions of those scenarios. Scenarios are no-op, body edit, signature edit and new-file edit.
+Sizes are `small` (the issue-tracker fixture, 448 non-test lines), `medium` (10,640 generated lines,
+40 files) and `large` (80,960 generated lines, 160 files). A sample primes a fresh copy, applies an
+edit, then measures the cold command and an unchanged warm command. Daemon-warm rows measure the
+second request after the edit with an `nlc daemon` serving the workspace.
 
-**Scenarios** (each `check`/`build`/`test` named): `no-op` (nothing changed since the same command
-last ran: check, build, test), `body` (one function body changed: check, build, test), `signature`
-(a PUBLIC function gained a parameter its body reads, its caller updated: check, build), `new-file`
-(a source file added: check, build). **Sizes**: `small` = a copy of `tests/fixtures/issue-tracker`
-(448 non-test lines, ASP.NET), `medium` = a deterministic synthetic library of 10,640 lines / 40
-files, `large` = the same generator at 80,960 lines / 160 files (Compiler.Core's size). **Modes**: one
-sample is a fresh temp copy, one PRIME run of the scenario's own command (the agent's previous
-step), the edit, then the measured COLD run and the measured WARM run (the same command again,
-unchanged; with `--daemon` an `nlc daemon` is kept up for the copy). Every sample re-primes a fresh
-copy, so an incremental compiler's caches are always exactly one prime old. Edits are refused by
-name if their anchor is missing or not unique - a silent no-op edit would be a lie.
+`--stats` provides exact structural rows for files parsed, emit parses, files analyzed, assemblies
+emitted, reference assemblies loaded and processes spawned. The baseline
+`tests/fixtures/agent-loop/agent-loop-baseline.golden.json` contains only these counters; wall, CPU,
+RSS, machine and load fields are not baselined.
 
-**Metrics**: wall, CPU (user + sys, children included) and peak RSS from `/usr/bin/time -l` around
-the CLI process, median of N samples; and the CLI's STRUCTURAL counters from `--stats=<path>`
-(`nsharp.cli-stats` v1, `memory/components/cli-toolchain.md`): files parsed, columnar emit parses,
-files analyzed, assemblies emitted, reference images loaded, processes spawned. Counters do not move
-with load, so they are the gated half and they explain a wall-time change.
+The gate runs every small and medium scenario in three nearby base/head pairs, alternating which
+compiler runs first. It times cold and daemon-warm workloads, then gates the median of each row's
+per-pair head/base ratios at **1.20×**, the Systems throughput tolerance. Structural counters must
+match their committed rows exactly, and counter variation across repeated identical inputs fails.
+Load never skips or loosens the verdict. Absolute medians, machine, load and commit are retained in
+`artifacts/agent-loop/relative-gate.md` and `last-gate-run.txt` as trend data.
 
-**The gate** (`agent-loop gate:` block, Step 3a, serial): the `small` and `medium` sizes, every
-scenario, cold and warm. Counters must EQUAL the baseline row for row on every run - loaded,
-`SYSTEMS_BENCH=skip` or not; a failing run, a missing row or counters that differ between identical
-samples fail too. Wall time is judged (median ≤ baseline × `toleranceFactor` 1.5) only when the
-one-minute load is under 0.2 × logical cores (§8's `BenchLoadRefusesTimingJudgement`), the baseline
-says `timingJudgeable: true`, and `SYSTEMS_BENCH` is not `skip`; then it takes `runs` samples,
-otherwise one. Cost: about 2 minutes. It is silent; it leaves
-`artifacts/agent-loop/last-gate-run.txt` (the verdict line: judged or why not, load, CLI commit) and
-`last-gate-run.md` (the whole table against the baseline), carried out of the isolated copy by
-`tests/scripts/test-all.sh`.
-
-**The budget** is `tests/fixtures/agent-loop/agent-loop-baseline.golden.json` (all three sizes; the
-gate reads the small and medium rows). A counter DECREASE fails the gate until it is ratcheted into
-the baseline in the same commit (`--ratchet`, below); an INCREASE is a regression to fix. No
-threshold in that file is loosened - a counter raised, a tolerance widened, `timingJudgeable` turned
-off - without the owner. The 2026-10-05 baseline was measured on a SHARED machine (load recorded in
-the file): its counters are exact, its wall times are a record with `timingJudgeable: false` until
-someone re-measures it idle (`--sizes all --runs 3 --write-baseline …` with the `pgrep` check of §8).
-
-The owner approved one narrow exception on 2026-10-06: accept the measured combined
-`referenceAssembliesLoaded` values on the 12 `large` rows. Parallel analysis workers load reference
-metadata independently; the large checks fell from about 13 s to 3.5 s while references rose from
-77 to 151 on check/test rows and from 69 to 141 on the three cold build rows. Every other counter on
-those rows is at or below its previous value (large check `filesParsed` fell from 322 to 161; new-file
-check fell from 324 to 162). No small or medium row was raised. The baseline records this exception
-in `notes`. Follow-up: share loaded reference metadata across analysis workers to reduce repeated
-reference loads.
-
-What the counters said on day one (Debug CLI, issue-tracker): a no-op `check` parses its 8 files 40
-times, analyzes 16 units and opens 684 reference images; a no-op `build` parses 15 times, emits an
-assembly and opens 497; `test` 20 / 1 / 505. No scenario is incremental yet: no-op equals body edit.
-
-#### How sibling agents use it
-
-From your worktree, with your branch's CLI built (`./scripts/dev.sh`):
+Developers can compare an explicit base CLI locally. Build the benchmark assembly and pass
+`--base-cli`:
 
 ```bash
-dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll build --project tests/native/compile-time-bench \
-  && dotnet tests/native/compile-time-bench/bin/Debug/net10.0/NSharpLang.CompileTimeBench.dll --agent-loop
+dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll build --project tests/native/compile-time-bench
+dotnet tests/native/compile-time-bench/bin/Debug/net10.0/tests/NSharpLang.CompileTimeBench.dll \
+  --agent-loop --base-cli /path/to/base/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll
 ```
 
-That prints the table for small and medium with the committed baseline (the base) in parentheses
-beside every value that moved, and writes it to `artifacts/agent-loop/<date>/agent-loop.md`. Options:
-`--sizes small,medium,large|all`, `--runs <n>` (default 3), `--daemon` (keep the workspace server up per
-sample; every measured command routes to it — without `--daemon` each measured child gets
-`NLC_NO_DAEMON=1`, so the baseline stays the in-process path and no server is left behind), `--cli <Cli.dll>`, and `--base-cli <other worktree>/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll`
-to measure a base build live in the same run instead of reading the baseline (a CLI without
-`--stats` is measured for time only). `--judge` exits 1 when a counter differs from the baseline.
-When your change LOWERS counters (the point of incremental compilation, the daemon and throughput
-work), run `… --agent-loop --sizes all --ratchet` and commit the rewritten baseline with the change:
-it copies decreased counters in, refuses any row where a counter rose, and never touches a wall
-time. Daemon-routed commands must fold the daemon's work for the request into their `--stats`
-counters (snapshot before/after, `CompilerWorkCounterSnapshot.Since`), or the table would claim the
-work vanished.
+`--sizes small,medium,large|all`, `--runs <n>` (default 3), `--cli <Cli.dll>`, `--base-cli <Cli.dll>`,
+`--judge`, and `--ratchet` are supported. Without `--base-cli`, `--write-baseline` and `--ratchet`
+collect structural rows only. A decrease is reviewed and ratcheted with
+`--agent-loop --sizes all --ratchet`; a counter increase refuses the update. Load remains report
+metadata and does not change the sample count.
 
 ### 9. The Installed Toolchain (`tests/native/installed-toolchain-integration`)
 

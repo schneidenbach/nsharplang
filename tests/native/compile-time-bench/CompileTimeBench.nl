@@ -109,8 +109,8 @@ func BenchParseCount(text: string): int {
 }
 
 // A decimal with at most three fractional digits, read as thousandths: `1.5` -> `1500`, `2` ->
-// `2000`, `1.25` -> `1250`. `-1` when the text is not such a number. This is how `toleranceFactor`
-// is carried, so the whole gate comparison stays in integer arithmetic.
+// `2000`, `1.25` -> `1250`. `-1` when the text is not such a number. Relative timing tolerance
+// comparisons also stay in integer arithmetic.
 func BenchParseFixed3(text: string): long {
     trimmed := text.Trim()
     if trimmed.Length == 0 {
@@ -789,10 +789,6 @@ func BenchPhaseContractRefusal(expectedContract: string, expectedDiagnostics: st
     return ""
 }
 
-func BenchAbsoluteSelfHostScopeDetail(currentFiles: int, currentLines: long, baseline: BenchBaseline): string {
-    return "currentFiles=" + BenchIntText(currentFiles) + " currentLines=" + BenchLongText(currentLines) + " baselineFiles=" + BenchIntText(baseline.Files) + " baselineLines=" + BenchLongText(baseline.Lines) + " budget=absolute-live-selfhost"
-}
-
 // A diagnostic with no `code` is still a result, and is counted under `(no code)` rather than
 // dropped, so the per-code counts always add up to the total the census states.
 func BenchTallyCode(codes: List<string>, counts: List<int>, code: string) {
@@ -1131,29 +1127,22 @@ func BenchDiffSnapshots(before: string, after: string): string {
 // the command still exited 1, so the old exit-code guard compared 126 seconds of a different phase
 // against 7.868 seconds and called the machine load the only uncertainty.
 //
-// Schema 2 pairs the human-readable `stage` with a semantic phase canary. A tiny real build has one
+// Schema 3 pairs the human-readable `stage` with a semantic phase canary. A tiny real build has one
 // semantic-only error and one strict-lint-only error in separate files. Their exact diagnostic
 // multiset proves that both analysis and lint ran, independent of the final exit code. Missing or
-// changed canary evidence refuses the baseline before the three expensive runs. The live Core tree
-// remains an ABSOLUTE self-host latency budget: its current file and line counts are reported with
-// every measurement, but ordinary source growth does not force a baseline rewrite.
+// changed canary evidence refuses the baseline before the measured workloads. Core and a
+// deterministic Core-scale emit project are pinned by exact CompilerWorkCounters; wall times are
+// paired with a base compiler from the same run and never stored in this baseline.
 class BenchBaseline {
     SchemaVersion: int
     Project: string
     Command: string
     Stage: string
     ExpectedExitCode: int
-    MeasuredAt: string
-    CliCommit: string
-    Machine: string
-    Runs: int
-    Files: int
-    Lines: long
-    MedianWallMs: long
-    MedianPeakRssBytes: long
-    ToleranceThousandths: long
     PhaseContract: string
     PhaseDiagnosticMultiset: string
+    CoreCounters: AgentLoopCounters?
+    EmitCounters: AgentLoopCounters?
 
     constructor(
         schemaVersion: int,
@@ -1161,34 +1150,20 @@ class BenchBaseline {
         command: string,
         stage: string,
         expectedExitCode: int,
-        measuredAt: string,
-        cliCommit: string,
-        machine: string,
-        runs: int,
-        files: int,
-        lines: long,
-        medianWallMs: long,
-        medianPeakRssBytes: long,
-        toleranceThousandths: long,
         phaseContract: string = "",
-        phaseDiagnosticMultiset: string = ""
+        phaseDiagnosticMultiset: string = "",
+        coreCounters: AgentLoopCounters? = null,
+        emitCounters: AgentLoopCounters? = null
     ) {
         SchemaVersion = schemaVersion
         Project = project
         Command = command
         Stage = stage
         ExpectedExitCode = expectedExitCode
-        MeasuredAt = measuredAt
-        CliCommit = cliCommit
-        Machine = machine
-        Runs = runs
-        Files = files
-        Lines = lines
-        MedianWallMs = medianWallMs
-        MedianPeakRssBytes = medianPeakRssBytes
-        ToleranceThousandths = toleranceThousandths
         PhaseContract = phaseContract
         PhaseDiagnosticMultiset = phaseDiagnosticMultiset
+        CoreCounters = coreCounters
+        EmitCounters = emitCounters
     }
 }
 
@@ -1210,6 +1185,14 @@ func BenchJsonIntOrMissing(root: JsonElement, name: string): int {
     }
 }
 
+func BenchJsonCountersOrNull(root: JsonElement, name: string): AgentLoopCounters? {
+    try {
+        return AgentLoopCountersFromElement(root.GetProperty(name))
+    } catch {
+        return null
+    }
+}
+
 func BenchParseBaseline(json: string): BenchBaseline {
     document := JsonDocument.Parse(json)
     root := document.RootElement
@@ -1219,31 +1202,20 @@ func BenchParseBaseline(json: string): BenchBaseline {
         root.GetProperty("command").GetString() ?? "",
         BenchJsonStringOrEmpty(root, "stage"),
         BenchJsonIntOrMissing(root, "expectedExitCode"),
-        root.GetProperty("measuredAt").GetString() ?? "",
-        root.GetProperty("cliCommit").GetString() ?? "",
-        root.GetProperty("machine").GetString() ?? "",
-        root.GetProperty("runs").GetInt32(),
-        root.GetProperty("files").GetInt32(),
-        root.GetProperty("lines").GetInt64(),
-        root.GetProperty("medianWallMs").GetInt64(),
-        root.GetProperty("medianPeakRssBytes").GetInt64(),
-        BenchParseFixed3(root.GetProperty("toleranceFactor").GetRawText() ?? ""),
         BenchJsonStringOrEmpty(root, "phaseContract"),
-        BenchJsonStringOrEmpty(root, "phaseDiagnosticMultiset")
+        BenchJsonStringOrEmpty(root, "phaseDiagnosticMultiset"),
+        BenchJsonCountersOrNull(root, "coreCounters"),
+        BenchJsonCountersOrNull(root, "emitCounters")
     )
     document.Dispose()
     return baseline
 }
 
-// `""` when the baseline is usable. Otherwise the reason it is not, in the words a red gate should
-// print. The `medianWallMs == 0` arm is the one that matters most: the file is checked in with
-// placeholder zeros, and a placeholder must never be able to pass the gate it guards.
+// `""` when the structural baseline is usable. Otherwise the reason it is not, in the words a red
+// gate should print. Absolute timing values do not belong in this baseline.
 func BenchBaselineRefusal(baseline: BenchBaseline): string {
-    if baseline.SchemaVersion != 2 {
-        if baseline.SchemaVersion == 1 {
-            return "baseline schemaVersion 1 measured parse plus strict lint before analysis; commit 7733ece06 moved analysis before strict lint, so those milliseconds cannot be reused. Measure the current phase and write one schemaVersion 2 record"
-        }
-        return "baseline schemaVersion " + BenchIntText(baseline.SchemaVersion) + " is not the supported version 2"
+    if baseline.SchemaVersion != 3 {
+        return "baseline schemaVersion " + BenchIntText(baseline.SchemaVersion) + " is not the supported structural schema version 3"
     }
 
     if baseline.Project != BenchBootstrapProjectPath() {
@@ -1255,11 +1227,11 @@ func BenchBaselineRefusal(baseline: BenchBaseline): string {
     }
 
     if baseline.Stage == "" {
-        return "baseline stage is missing: the baseline must say in prose which stage of the command its milliseconds cover"
+        return "baseline stage is missing: the structural baseline must say which compiler stage it covers"
     }
 
     if baseline.PhaseContract == "" {
-        return "baseline phaseContract is missing: schemaVersion 2 must pin the semantic build canary before timing"
+        return "baseline phaseContract is missing: schemaVersion 3 must pin the semantic build canary"
     }
 
     if baseline.PhaseContract != BenchCurrentPhaseContract() {
@@ -1267,7 +1239,7 @@ func BenchBaselineRefusal(baseline: BenchBaseline): string {
     }
 
     if baseline.PhaseDiagnosticMultiset == "" {
-        return "baseline phaseDiagnosticMultiset is missing: schemaVersion 2 must pin the canary's exact diagnostics"
+        return "baseline phaseDiagnosticMultiset is missing: schemaVersion 3 must pin the canary's exact diagnostics"
     }
 
     if baseline.PhaseDiagnosticMultiset != BenchCurrentPhaseDiagnosticMultiset() {
@@ -1278,36 +1250,18 @@ func BenchBaselineRefusal(baseline: BenchBaseline): string {
         return "baseline expectedExitCode is missing or negative: the baseline must pin the exit code" + " the measured stage produces, so that a run which stops failing is caught instead of" + " silently changing what is measured"
     }
 
-    if baseline.MedianWallMs <= 0 {
-        return "baseline not measured: medianWallMs is " + BenchLongText(baseline.MedianWallMs) + " in tests/fixtures/compile-time/bootstrap-build-baseline.golden.json." + " Run the harness on src/NSharpLang.Compiler.Core and fill in the measured" + " medianWallMs, medianPeakRssBytes, files, lines, cliCommit, machine and measuredAt."
+    if baseline.CoreCounters == null || baseline.EmitCounters == null {
+        return "baseline is missing CompilerWorkCounters for the Core and Core-scale emit workloads"
     }
 
-    if baseline.ToleranceThousandths <= 0 {
-        return "baseline toleranceFactor is missing or not a positive decimal"
+    if !AgentLoopCountersMeasured(baseline.CoreCounters) || !AgentLoopCountersMeasured(baseline.EmitCounters) {
+        return "baseline CompilerWorkCounters are unmeasured"
     }
 
     return ""
 }
 
-// ─── THE MACHINE THE MEDIAN WAS TAKEN ON ──────────────────────────────────────────────────────
-
-// WHY A TIMING GATE READS THE LOAD BEFORE IT JUDGES.
-//
-// The baseline this gate compares against was measured on an IDLE machine — its `machine` field
-// says so in words — so a median taken while the box is busy measures the BOX, not the compiler.
-// Measured: five product gates in two days went red at one-minute load averages of 4.4 to 8.1 on
-// this 10-core M4, with medians of 11,941 / 12,319 / 13,241 / 15,623 / 17,010 ms against an
-// 11,802 ms limit (1.52x to 2.16x the baseline), while the same code measured 6-7 s on a quiet
-// box; a sixth run at load 5.18 reproduced it at 12,401 ms. Reporting that as a regression is a
-// lie about the code, and five people paid for it with a red sweep each.
-//
-// So the block reads the one-minute load average FIRST — the way the systems throughput gate does
-// (`benchmarks/native-comparison/runner/Program.nl` prints `load average { … }, 10 cores` before
-// it judges) — and REFUSES TO JUDGE the median above a threshold instead of failing.
-//
-// THE CORRECTNESS HALF IS NOT SKIPPED WITH IT. The exit code must still match the baseline, the
-// CLI's own failure banner must still be on stdout, and a placeholder baseline is still refused.
-// Those are facts about the build; load does not move them, so load cannot excuse them.
+// Load is captured only for the absolute trend record. It has no effect on a relative verdict.
 class BenchMachineLoad {
     LoadThousandths: long
     Cores: int
@@ -1316,11 +1270,6 @@ class BenchMachineLoad {
         LoadThousandths = loadThousandths
         Cores = cores
     }
-}
-
-// The load a caller has not measured, and the load a platform refused to answer: both -1.
-func BenchUnknownLoad(): BenchMachineLoad {
-    return new BenchMachineLoad(-1, -1)
 }
 
 func BenchLoadAverageMarker(): string {
@@ -1354,8 +1303,7 @@ func BenchFirstLoadToken(text: string, start: int): string {
 // averages: 4.17 4.42 4.62` on macOS and `… load average: 0.52, 0.58, 0.59` on Linux. `-1` for
 // anything else — a load that cannot be READ is not a load of zero.
 //
-// Thousandths rather than a `double` because this estate has no float parse or format at all; the
-// same `BenchParseFixed3` that reads the baseline's `toleranceFactor` reads a load figure exactly.
+// Thousandths rather than a `double` because this estate has no float parse or format at all.
 //
 // THE MARKER CUT IS NOT OPTIONAL. An uptime line carries numbers BEFORE the load figures — the
 // clock, the uptime, the user count — and the first parseable token of
@@ -1378,54 +1326,6 @@ func BenchOneMinuteLoadThousandths(text: string): long {
     }
 
     return -1
-}
-
-// THE THRESHOLD IS A FIFTH OF THE LOGICAL CORES — 2.0 on the 10-core machine the baseline was
-// taken on — so that it travels to a machine of another size instead of pinning one box's number.
-//
-// Where it comes from: the measured inflation on this machine is about `1 + 0.13 x load` (six runs
-// at loads 4.4-8.1 landed at 1.52x-2.16x the baseline), so load alone reaches the x1.5 tolerance at
-// about 3.9 and the gate has no margin left by then. At 2.0 load spends ~1.25x, half of the
-// tolerance's headroom, and leaves the other half to catch an actual regression. `2000` when the
-// platform did not answer with a core count, because 10 cores is what the baseline says.
-func BenchLoadThresholdThousandths(cores: int): long {
-    if cores <= 0 {
-        return 2000
-    }
-
-    return cores * 200
-}
-
-// A load that could not be READ refuses judgement too: a timing gate must not judge a machine it
-// cannot compare to its baseline. That is only safe because `BenchReadMachineLoad` is pinned by a
-// LIVE contract on macOS and Linux — a reader that stops answering turns THAT test red instead of
-// switching this gate off in silence.
-func BenchLoadRefusesTimingJudgement(load: BenchMachineLoad): bool {
-    if load.LoadThousandths < 0 {
-        return true
-    }
-
-    return load.LoadThousandths >= BenchLoadThresholdThousandths(load.Cores)
-}
-
-// HOW MANY RUNS THE VERDICT IS WORTH.
-//
-// A median only means something when it will be JUDGED, and the load read BEFORE the first run
-// already decides that (`BenchLoadRefusesTimingJudgement`). Three runs of `nlc build` on
-// Compiler.Core cost about six and a half minutes inside the product gate, and inside that gate the
-// judgement is usually declined — Step 3a's own work is what pushes the load past the threshold.
-//
-// So: THREE runs whenever the timing half will be judged, because a single measurement is not a
-// median and must never reach the tolerance comparison; ONE run when it will not, because the half
-// that still runs — the exact exit code and the CLI's own `Build failed in ` banner — is a per-run
-// property that one run proves as completely as three. The unjudged verdict is the same
-// `skipped-by-load:` string either way; only the number of discarded medians changes.
-func BenchGateRunCount(load: BenchMachineLoad): int {
-    if BenchLoadRefusesTimingJudgement(load) {
-        return 1
-    }
-
-    return 3
 }
 
 func BenchLoadText(thousandths: long): string {
@@ -1453,149 +1353,8 @@ func BenchCliCommitUnavailableReason(hasGitMetadata: bool, isolatedGateCopy: boo
     return "unavailable (git rev-parse HEAD failed in this tree)"
 }
 
-// ─── THE GATE'S VERDICT ───────────────────────────────────────────────────────────────────────
+// ─── SAME-RUN TIMING PAIRS ────────────────────────────────────────────────────────────────────
 
-// Every number the gate has, in one line, on every path: the three wall clocks, the exit codes,
-// the median against the baseline and its limit, the CLI commit under test, the stage the baseline
-// covers, and the machine the median was taken on.
-func BenchGateDetail(
-    wallMs: long[],
-    exitCodes: int[],
-    count: int,
-    medianWallMs: long,
-    baseline: BenchBaseline,
-    cliCommit: string,
-    load: BenchMachineLoad
-): string {
-    return "runs=[" + BenchLongListText(wallMs, count) + "] ms" + " exitCodes=[" + BenchIntListText(exitCodes, count) + "]" + " expectedExitCode=" + BenchIntText(baseline.ExpectedExitCode) + " median=" + BenchLongText(medianWallMs) + "ms" + " baseline=" + BenchLongText(baseline.MedianWallMs) + "ms" + " tolerance=x" + BenchFormatFixed3(baseline.ToleranceThousandths) + " limit=" + BenchLongText(BenchGateLimitMs(baseline)) + "ms" + " cliCommit=" + cliCommit + " baselineCliCommit=" + baseline.CliCommit + " baselineMachine=" + baseline.Machine + " stage=" + baseline.Stage + " load=" + BenchLoadText(load.LoadThousandths) + " cores=" + BenchCountText(load.Cores) + " loadThreshold=" + BenchFormatFixed3(BenchLoadThresholdThousandths(load.Cores))
-}
-
-// The half of the gate the machine's load cannot excuse: every run exited as the baseline pins,
-// and a baselined FAILURE carried the CLI's own banner. `"ok"` when both hold.
-func BenchGateCorrectnessVerdict(
-    wallMs: long[],
-    exitCodes: int[],
-    failureBanners: bool[],
-    count: int,
-    medianWallMs: long,
-    baseline: BenchBaseline,
-    cliCommit: string,
-    load: BenchMachineLoad
-): string {
-    detail := BenchGateDetail(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
-
-    i := 0
-    while i < count {
-        if exitCodes[i] != baseline.ExpectedExitCode {
-            return "compile-time gate: nlc build on " + baseline.Project + " exited " + BenchIntText(exitCodes[i]) + " on run " + BenchIntText(i + 1) + " but the baseline pins " + BenchIntText(baseline.ExpectedExitCode) + ". " + BenchExitCodeChangeAdvice(exitCodes[i], baseline.ExpectedExitCode) + " " + detail
-        }
-
-        i = i + 1
-    }
-
-    // A non-zero expected exit is only meaningful if the CLI ITSELF reported the failure. Without
-    // this check a crashed, killed or missing CLI exits non-zero too, and would sail through as
-    // "the expected failure" while measuring nothing at all.
-    if baseline.ExpectedExitCode != 0 {
-        j := 0
-        while j < count {
-            if !failureBanners[j] {
-                return "compile-time gate: run " + BenchIntText(j + 1) + " of nlc build on " + baseline.Project + " exited " + BenchIntText(exitCodes[j]) + " as baselined but its stdout did NOT carry the" + " CLI's own '" + BenchBuildFailedBanner() + "' banner, so the CLI did not report the" + " failure itself — a crash, a kill or a missing CLI cannot pass as the expected failure. " + detail
-            }
-
-            j = j + 1
-        }
-    }
-
-    return "ok"
-}
-
-// The half that only means something on a machine comparable to the baseline's.
-func BenchGateTimingVerdict(
-    wallMs: long[],
-    exitCodes: int[],
-    count: int,
-    medianWallMs: long,
-    baseline: BenchBaseline,
-    cliCommit: string,
-    load: BenchMachineLoad
-): string {
-    if medianWallMs > BenchGateLimitMs(baseline) {
-        return "compile-time gate: nlc build on " + baseline.Project + " regressed; " + BenchGateDetail(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
-    }
-
-    return "ok"
-}
-
-// The gate's own verdict, so that the whole diagnosis is one string: `"ok"` when every run exited
-// zero and the median is inside the tolerance, and otherwise a message carrying the three wall
-// times, the median, the baseline, the tolerance and the CLI commit under test. This form JUDGES
-// unconditionally and states the load as `unknown`; `BenchGateOutcome` is the form the live gate
-// calls, which knows what the machine was doing.
-func BenchGateVerdict(
-    wallMs: long[],
-    exitCodes: int[],
-    failureBanners: bool[],
-    count: int,
-    medianWallMs: long,
-    baseline: BenchBaseline,
-    cliCommit: string
-): string {
-    load := BenchUnknownLoad()
-    correctness := BenchGateCorrectnessVerdict(wallMs, exitCodes, failureBanners, count, medianWallMs, baseline, cliCommit, load)
-    if correctness != "ok" {
-        return correctness
-    }
-
-    return BenchGateTimingVerdict(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
-}
-
-func BenchSkippedByLoadPrefix(): string {
-    return "skipped-by-load:"
-}
-
-// The two outcomes the gate block says NOTHING about: a judged pass, and a timing judgement it
-// honestly declined to make. Every other outcome is an assertion failure carrying its numbers.
-func BenchGateOutcomeIsSilent(outcome: string): bool {
-    return outcome == "ok" || outcome.StartsWith(BenchSkippedByLoadPrefix())
-}
-
-// The live gate's outcome: the correctness half always, the timing half only on a machine this
-// median can be compared to the baseline on.
-func BenchGateOutcome(
-    wallMs: long[],
-    exitCodes: int[],
-    failureBanners: bool[],
-    count: int,
-    medianWallMs: long,
-    baseline: BenchBaseline,
-    cliCommit: string,
-    load: BenchMachineLoad
-): string {
-    correctness := BenchGateCorrectnessVerdict(wallMs, exitCodes, failureBanners, count, medianWallMs, baseline, cliCommit, load)
-    if correctness != "ok" {
-        return correctness
-    }
-
-    if BenchLoadRefusesTimingJudgement(load) {
-        return BenchSkippedByLoadPrefix() + " the compile-time gate did NOT judge the median: the one-minute load average is " + BenchLoadText(load.LoadThousandths) + " on " + BenchCountText(load.Cores) + " logical cores, at or above the " + BenchFormatFixed3(BenchLoadThresholdThousandths(load.Cores)) + " this gate needs to compare a median against a baseline measured on an IDLE machine." + " The exit codes and the CLI's failure banner WERE checked and are as baselined; only the" + " timing is unjudged. Re-run on a quiet machine to judge it: dotnet <Cli.dll> test --project" + " tests/native/compile-time-bench. " + BenchGateDetail(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
-    }
-
-    return BenchGateTimingVerdict(wallMs, exitCodes, count, medianWallMs, baseline, cliCommit, load)
-}
-
-// The line the gate leaves behind at `artifacts/compile-time/last-gate-run.txt`. `"ok"` on its own
-// would say nothing, so a judged pass carries the same detail every other outcome does: a reader
-// of a GREEN gate must be able to see whether the timing was judged, and on what machine.
-func BenchGateRecordLine(outcome: string, detailText: string): string {
-    if outcome == "ok" {
-        return "ok " + detailText
-    }
-
-    return outcome
-}
-
-// The banner `BuildCommandKernels.GetFailedElapsedMessage` writes to STDOUT when a build fails.
 func BenchBuildFailedBanner(): string {
     return "Build failed in "
 }
@@ -1604,49 +1363,116 @@ func BenchSawBuildFailedBanner(stdout: string): bool {
     return stdout.IndexOf(BenchBuildFailedBanner(), StringComparison.Ordinal) >= 0
 }
 
-// Which direction the exit code moved decides what the reader has to do about it.
-func BenchExitCodeChangeAdvice(actual: int, expected: int): string {
-    if expected != 0 && actual == 0 {
-        return "The command now SUCCEEDS where the baseline recorded a failure, so it is reaching stages" + " the baseline never covered and the two numbers are not comparable: re-measure the baseline" + " and rewrite its stage before trusting this gate again."
-    }
-
-    if expected == 0 && actual != 0 {
-        return "The command now FAILS where the baseline recorded a success; fix the failure rather than" + " the baseline."
-    }
-
-    return "The measured stage changed: re-measure the baseline and rewrite its stage."
+func BenchRelativeToleranceThousandths(): long {
+    return 1200
 }
 
-func BenchGateLimitMs(baseline: BenchBaseline): long {
-    return baseline.MedianWallMs * baseline.ToleranceThousandths / 1000
+func BenchPairRatioThousandths(headMs: long, baseMs: long): long {
+    if headMs < 0 || baseMs <= 0 {
+        return -1
+    }
+
+    return headMs * 1000 / baseMs
 }
 
-func BenchLongListText(values: long[], count: int): string {
-    builder := new StringBuilder()
+// The pair is formed before sorting: each ratio compares measurements taken seconds apart under
+// the same machine state. The median of those ratios is stable under shared contention; dividing
+// separately sorted medians is not.
+func BenchMedianPairRatioThousandths(headMs: long[], baseMs: long[], count: int): long {
+    if count <= 0 || count > headMs.Length || count > baseMs.Length {
+        return -1
+    }
+
+    ratios := new long[](count)
     i := 0
     while i < count {
-        if i > 0 {
-            builder.Append(", ")
+        ratios[i] = BenchPairRatioThousandths(headMs[i], baseMs[i])
+        if ratios[i] < 0 {
+            return -1
         }
-
-        builder.Append(BenchLongText(values[i]))
         i = i + 1
     }
 
-    return builder.ToString() ?? ""
+    return BenchMedian(ratios, count)
 }
 
-func BenchIntListText(values: int[], count: int): string {
+func BenchCoreCounterFailure(workload: string, expected: AgentLoopCounters?, observed: AgentLoopCounters?): string {
+    if expected == null {
+        return workload + ": baseline has no CompilerWorkCounters"
+    }
+
+    if observed == null {
+        return workload + ": CLI did not write nsharp.cli-stats v1 CompilerWorkCounters"
+    }
+
+    expectedCounters := expected ?? AgentLoopZeroCounters()
+    observedCounters := observed ?? AgentLoopZeroCounters()
+    if !AgentLoopCountersEqual(expectedCounters, observedCounters) {
+        return workload + ": CompilerWorkCounters differ; expected " + AgentLoopCountersText(expectedCounters) + ", observed " + AgentLoopCountersText(observedCounters) + "; ratchet decreases and fix increases"
+    }
+
+    return ""
+}
+
+func BenchCompileTimeRatioFailure(headMs: long[], baseMs: long[], count: int): string {
+    ratio := BenchMedianPairRatioThousandths(headMs, baseMs, count)
+    if ratio < 0 {
+        return "compile-time gate: an A/B timing pair was missing or had a non-positive base measurement"
+    }
+
+    if ratio > BenchRelativeToleranceThousandths() {
+        return "compile-time gate: Core-scale build regressed; median paired head/base ratio=" + BenchFormatFixed3(ratio) + "x exceeds " + BenchFormatFixed3(BenchRelativeToleranceThousandths()) + "x"
+    }
+
+    return ""
+}
+
+func BenchPairedBuildTable(headMs: long[], baseMs: long[], count: int): string {
     builder := new StringBuilder()
+    builder.Append("| pair | base ms | head ms | head/base |\n|---:|---:|---:|---:|\n")
     i := 0
     while i < count {
-        if i > 0 {
-            builder.Append(", ")
-        }
-
-        builder.Append(BenchIntText(values[i]))
+        builder.Append("| " + BenchIntText(i + 1) + " | " + BenchLongText(baseMs[i]) + " | " + BenchLongText(headMs[i]) + " | " + BenchFormatFixed3(BenchPairRatioThousandths(headMs[i], baseMs[i])) + "x |\n")
         i = i + 1
     }
 
+    ratio := BenchMedianPairRatioThousandths(headMs, baseMs, count)
+    builder.Append("\nMedian base wall: " + BenchLongText(BenchMedian(baseMs, count)) + " ms; median head wall: " + BenchLongText(BenchMedian(headMs, count)) + " ms.\n")
+    builder.Append("Median of per-pair head/base ratios: " + BenchFormatFixed3(ratio) + "x (tolerance " + BenchFormatFixed3(BenchRelativeToleranceThousandths()) + "x).\n")
     return builder.ToString() ?? ""
+}
+
+func BenchRelativeGateRecordLine(
+    outcome: string,
+    baseCommit: string,
+    headCommit: string,
+    baseCliMs: long,
+    cacheHit: bool,
+    load: BenchMachineLoad,
+    machine: string,
+    ratio: long
+): string {
+    verdict := "PASS"
+    if outcome != "" {
+        verdict = "FAIL: " + outcome
+    }
+
+    cache := "built"
+    if cacheHit {
+        cache = "cache-hit"
+    }
+
+    return verdict + "; base=" + baseCommit + "; head=" + headCommit + "; baseBuildMs=" + BenchLongText(baseCliMs) + "; baseBuild=" + cache + "; medianHeadBase=" + BenchFormatFixed3(ratio) + "x; tolerance=" + BenchFormatFixed3(BenchRelativeToleranceThousandths()) + "x; machine=" + machine + "; load=" + BenchLoadText(load.LoadThousandths)
+}
+
+func BenchWriteRelativeGateRecord(repositoryRoot: string, line: string, table: string): bool {
+    directory := Path.Combine(Path.Combine(repositoryRoot, "artifacts"), "compile-time")
+    try {
+        Directory.CreateDirectory(directory)
+        File.WriteAllText(Path.Combine(directory, "last-gate-run.txt"), line + "\n")
+        File.WriteAllText(Path.Combine(directory, "relative-gate.md"), line + "\n\n" + table)
+        return true
+    } catch {
+        return false
+    }
 }

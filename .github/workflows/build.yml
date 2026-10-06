@@ -27,6 +27,7 @@ jobs:
     - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       with:
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        fetch-depth: 0
 
     - name: Setup .NET
       uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
@@ -64,6 +65,27 @@ jobs:
         dotnet test src/NSharpLang.Compiler.CodeIntel/NSharpLang.Compiler.CodeIntel.csproj -c Release -p:NSharpExcludeTests=false
         dotnet test src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj -c Release -p:NSharpExcludeTests=false
         dotnet test src/NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj -c Release -p:NSharpExcludeTests=false
+
+    - name: Compiler performance gates
+      env:
+        NSHARP_COMPILER_PERF_GIT_ROOT: ${{ github.workspace }}
+        NSHARP_COMPILER_PERF_CACHE: ${{ runner.temp }}/nsharp-compiler-perf-base-cache
+      run: |
+        dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug
+        dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll test --project tests/native/compile-time-bench --no-cache
+
+    - name: Upload compiler performance trends
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: compiler-performance-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          artifacts/compile-time/last-gate-run.txt
+          artifacts/compile-time/relative-gate.md
+          artifacts/agent-loop/last-gate-run.txt
+          artifacts/agent-loop/relative-gate.md
+        if-no-files-found: warn
+        retention-days: 14
 
     - name: Ownership audit
       run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll test --project tests/native/ownership-audit --no-cache

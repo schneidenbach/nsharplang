@@ -6,6 +6,7 @@ import System.Diagnostics
 import System.IO
 import System.Text
 import System.Text.Json
+import System.Threading
 
 
 // THE PROCESS SIDE OF THE COMPILE-TIME BENCHMARK.
@@ -204,6 +205,7 @@ class BenchCommandRun {
     CliStderr: string
     TreeDiff: string
     SawBuildFailedBanner: bool
+    Counters: AgentLoopCounters?
 
     constructor(command: string, exitCode: int, wallMs: long, peakRssBytes: long) {
         Command = command
@@ -217,6 +219,7 @@ class BenchCommandRun {
         CliStderr = ""
         TreeDiff = ""
         SawBuildFailedBanner = false
+        Counters = null
     }
 }
 
@@ -290,7 +293,30 @@ func BenchObserveBuildPhase(cliDll: string): BenchPhaseCanaryObservation {
 }
 
 // THE ONE OWNER of "run a build and measure it". `command` is `build` or `check`.
-func BenchMeasureOnce(cliDll: string, projectDirectory: string, command: string, sequence: int): BenchCommandRun {
+func BenchInjectedDelayMs(side: string): int {
+    text := Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_HEAD_DELAY_MS") ?? ""
+    delay := BenchConfiguredDelayMs(side, text)
+    if delay > 0 {
+        Thread.Sleep(delay)
+    }
+
+    return delay
+}
+
+func BenchConfiguredDelayMs(side: string, configuredDelay: string): int {
+    if side != "head" {
+        return 0
+    }
+
+    delay := BenchParseCount(configuredDelay)
+    if delay > 0 {
+        return delay
+    }
+
+    return 0
+}
+
+func BenchMeasureOnce(cliDll: string, projectDirectory: string, command: string, sequence: int, statsPath: string = "", side: string = ""): BenchCommandRun {
     if command == "check" {
         run := BenchRunUnderTimeUtility(
             BenchQuote(cliDll) + " check --project " + BenchQuote(projectDirectory) + " --json",
@@ -304,18 +330,27 @@ func BenchMeasureOnce(cliDll: string, projectDirectory: string, command: string,
 
     outputDirectory := BenchFreshOutputDirectory(sequence)
     before := BenchSnapshotDirectory(projectDirectory)
+    statsArgument := ""
+    if statsPath != "" {
+        statsArgument = " --stats=" + BenchQuote(statsPath)
+    }
     run := BenchRunUnderTimeUtility(
-        BenchQuote(cliDll) + " build --color=never --project " + BenchQuote(projectDirectory) + " --timings -o " + BenchQuote(outputDirectory),
+        BenchQuote(cliDll) + " build --color=never --project " + BenchQuote(projectDirectory) + " --timings" + statsArgument + " -o " + BenchQuote(outputDirectory),
         Path.GetTempPath()
     )
     after := BenchSnapshotDirectory(projectDirectory)
     BenchDeleteDirectory(outputDirectory)
 
     measured := new BenchCommandRun(command, run.ExitCode, run.WallMs, BenchParsePeakRssBytes(run.Stderr))
+    measured.WallMs = measured.WallMs + BenchInjectedDelayMs(side)
     measured.Stdout = run.Stdout
     measured.CliStderr = BenchStripTimeUtilityLines(run.Stderr)
     measured.TreeDiff = BenchDiffSnapshots(before, after)
     measured.SawBuildFailedBanner = BenchSawBuildFailedBanner(run.Stdout)
+    if statsPath != "" && File.Exists(statsPath) {
+        measured.Counters = AgentLoopParseStatsCounters(File.ReadAllText(statsPath))
+        File.Delete(statsPath)
+    }
 
     timings := BenchParseBuildTimings(measured.CliStderr)
     if timings.Found {
@@ -649,6 +684,142 @@ func BenchReadCliCommit(repositoryRoot: string): string {
     return run.Stdout.Trim()
 }
 
+class BenchBaseCompiler {
+    Commit: string
+    CliDll: string
+    BuildMs: long
+    CacheHit: bool
+    Error: string
+
+    constructor(commit: string, cliDll: string, buildMs: long, cacheHit: bool, error: string) {
+        Commit = commit
+        CliDll = cliDll
+        BuildMs = buildMs
+        CacheHit = cacheHit
+        Error = error
+    }
+}
+
+func BenchCompilerPerfGitRoot(repositoryRoot: string): string {
+    configured := Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_GIT_ROOT") ?? ""
+    if configured.Trim() != "" {
+        return Path.GetFullPath(configured)
+    }
+
+    return repositoryRoot
+}
+
+func BenchCompilerPerfCacheRoot(): string {
+    configured := Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_CACHE") ?? ""
+    if configured.Trim() != "" {
+        return Path.GetFullPath(configured)
+    }
+
+    return Path.Combine(Path.GetTempPath(), "nsharp-compiler-perf-base-cache")
+}
+
+func BenchGitText(gitRoot: string, arguments: string): string {
+    run := BenchRunProcess("git", "-C " + BenchQuote(gitRoot) + " " + arguments, Path.GetTempPath())
+    if run.ExitCode != 0 {
+        return ""
+    }
+
+    return run.Stdout.Trim()
+}
+
+// A branch commit compares to its merge base with origin/systems-language. On the origin tip,
+// there is no branch delta, so use its parent as the live control. HEAD^ is intentionally the
+// fallback even when that commit did not edit compiler files: it still captures the immediately
+// preceding compiler state and keeps CI-on-main measurable.
+func BenchSelectBaseCommit(gitRoot: string): string {
+    head := BenchGitText(gitRoot, "rev-parse HEAD")
+    origin := BenchGitText(gitRoot, "rev-parse --verify refs/remotes/origin/systems-language")
+    if head == "" {
+        return ""
+    }
+
+    if origin != "" && head != origin {
+        mergeBase := BenchGitText(gitRoot, "merge-base HEAD refs/remotes/origin/systems-language")
+        if mergeBase != "" && mergeBase != head {
+            return mergeBase
+        }
+    }
+
+    return BenchGitText(gitRoot, "rev-parse HEAD~1")
+}
+
+func BenchBaseCompilerCliPath(cacheRoot: string, commit: string): string {
+    return Path.Combine(
+        Path.Combine(
+            Path.Combine(
+                Path.Combine(Path.Combine(Path.Combine(cacheRoot, commit), "source"), "src"),
+                "NSharpLang.Cli"
+            ),
+            "bin"
+        ),
+        Path.Combine("Debug", Path.Combine("net10.0", "Cli.dll"))
+    )
+}
+
+func BenchPrepareBaseCompiler(repositoryRoot: string): BenchBaseCompiler {
+    gitRoot := BenchCompilerPerfGitRoot(repositoryRoot)
+    commit := BenchSelectBaseCommit(gitRoot)
+    if commit == "" {
+        return new BenchBaseCompiler("", "", 0, false, "could not select a base commit: need git metadata and either origin/systems-language or HEAD~1")
+    }
+
+    cacheRoot := BenchCompilerPerfCacheRoot()
+    cacheDirectory := Path.Combine(cacheRoot, commit)
+    sourceDirectory := Path.Combine(cacheDirectory, "source")
+    cliDll := BenchBaseCompilerCliPath(cacheRoot, commit)
+    if File.Exists(cliDll) {
+        return new BenchBaseCompiler(commit, cliDll, 0, true, "")
+    }
+
+    prepareStarted := DateTime.UtcNow.Ticks
+    try {
+        if Directory.Exists(cacheDirectory) {
+            Directory.Delete(cacheDirectory, true)
+        }
+
+        Directory.CreateDirectory(sourceDirectory)
+    } catch ex: Exception {
+        return new BenchBaseCompiler(commit, "", 0, false, "could not create the base build cache at " + cacheDirectory + ": " + ex.Message)
+    }
+
+    archivePath := Path.Combine(cacheDirectory, "base-source.tar")
+    archive := BenchRunProcess(
+        "git",
+        "-C " + BenchQuote(gitRoot) + " archive --format=tar --output " + BenchQuote(archivePath) + " " + commit,
+        Path.GetTempPath()
+    )
+    if archive.ExitCode != 0 || !File.Exists(archivePath) {
+        return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "git archive failed for base " + commit + ": " + BenchTruncate(archive.Stderr.Trim(), 600))
+    }
+
+    extraction := BenchRunProcess("tar", "-xf " + BenchQuote(archivePath) + " -C " + BenchQuote(sourceDirectory), Path.GetTempPath())
+    File.Delete(archivePath)
+    if extraction.ExitCode != 0 {
+        return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "could not extract base " + commit + ": " + BenchTruncate(extraction.Stderr.Trim(), 600))
+    }
+
+    compilerProject := Path.Combine(Path.Combine(Path.Combine(sourceDirectory, "src"), "NSharpLang.Compiler"), "Compiler.csproj")
+    seedBuild := BenchRunUnderTimeUtility("build " + BenchQuote(compilerProject) + " --nologo -v q", sourceDirectory)
+    if seedBuild.ExitCode != 0 {
+        errorText := BenchTruncate(BenchStripTimeUtilityLines(seedBuild.Stderr).Trim() + " " + seedBuild.Stdout.Trim(), 1200)
+        return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "base compiler seed build failed for " + commit + ": " + errorText)
+    }
+
+    cliProject := Path.Combine(Path.Combine(Path.Combine(sourceDirectory, "src"), "NSharpLang.Cli"), "Cli.csproj")
+    cliBuild := BenchRunUnderTimeUtility("build " + BenchQuote(cliProject) + " --nologo -v q", sourceDirectory)
+    if cliBuild.ExitCode != 0 || !File.Exists(cliDll) {
+        errorText := BenchTruncate(BenchStripTimeUtilityLines(cliBuild.Stderr).Trim() + " " + cliBuild.Stdout.Trim(), 1200)
+        return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "base compiler CLI build failed for " + commit + ": " + errorText)
+    }
+
+    return new BenchBaseCompiler(commit, cliDll, (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "")
+}
+
 // ─── THE MACHINE'S LOAD ───────────────────────────────────────────────────────────────────────
 
 // `sysctl -n vm.loadavg` is the systems throughput gate's own spelling
@@ -681,23 +852,6 @@ func BenchLoadAverageText(): string {
 // rather than the machine after this gate has spent three builds of the compiler loading it.
 func BenchReadMachineLoad(): BenchMachineLoad {
     return new BenchMachineLoad(BenchOneMinuteLoadThousandths(BenchLoadAverageText()), BenchProcessorCount())
-}
-
-// The one line the gate leaves behind. A timing judgement that was silently NOT MADE is the
-// failure mode this file is removing: Step 3a forbids the block from printing (it parses stdout
-// and stderr as one JSON document), so the record goes to a file instead. `artifacts/` is
-// gitignored and is excluded from the gate's isolated copy, so this never enters the tree the
-// gate measures. Best effort by construction: a gate must not go red because a log could not be
-// written.
-func BenchWriteGateRecord(repositoryRoot: string, line: string): bool {
-    directory := Path.Combine(Path.Combine(repositoryRoot, "artifacts"), "compile-time")
-    try {
-        Directory.CreateDirectory(directory)
-        File.WriteAllText(Path.Combine(directory, "last-gate-run.txt"), line + "\n")
-        return true
-    } catch {
-        return false
-    }
 }
 
 func BenchReadDotnetVersion(): string {

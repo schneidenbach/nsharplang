@@ -714,6 +714,8 @@ set +e
     export NSHARP_TEST_ALL_ISOLATED=1
     export NSHARP_TEST_STEP_CACHE_ROOT="$CACHE_ROOT/steps"
     export NSHARP_TEST_STEP_CACHE_OFF="$STEP_CACHE_OFF"
+    export NSHARP_COMPILER_PERF_GIT_ROOT="$SOURCE_ROOT"
+    export NSHARP_COMPILER_PERF_CACHE="$CACHE_ROOT/compiler-perf-base"
     # Golden regeneration must never leak into the gate: the isolated copy is
     # discarded, and NSHARP_UPDATE_DIAGNOSTIC_GOLDENS=1 makes golden tests
     # self-satisfying (rewrite, then compare against the rewrite). Regenerate
@@ -729,9 +731,8 @@ nuget_store promote "$NUGET_STORE" "$NUGET_STORE_INDEX" "$RUN_PACKAGES" \
     || echo "Could not promote this run's NuGet packages into the shared store; the gate's verdict is unaffected." >&2
 
 # THE RECORDS THE GATE LEAVES BEHIND, CARRIED OUT OF THE COPY IT DELETES. Step 3a writes
-# `artifacts/native-sweep/<UTC time>.json`, the compile-time bench writes
-# `artifacts/compile-time/last-gate-run.txt` and the agent-loop bench writes
-# `artifacts/agent-loop/last-gate-run.{txt,md}`, all under the ISOLATED copy's root, which
+# `artifacts/native-sweep/<UTC time>.json`, the compile-time and agent-loop gates write their
+# `last-gate-run.txt` verdicts and `relative-gate.md` ratio tables under the ISOLATED copy's root, which
 # `cleanup_run` removes on exit. Carried back on a failing run too: what a red sweep cost is the
 # record most worth keeping. `artifacts/` is gitignored and never part of any input set.
 for gate_record in native-sweep compile-time agent-loop; do

@@ -50,10 +50,9 @@ test "the native sweep runs its serial group first and only then runs the rest i
 }
 
 // THE AGENT-LOOP GATE RIDES IN THE COMPILE-TIME BENCH'S SERIAL SLOT. It spawns the CLI over every
-// edit/check/build/test scenario, counts the work each run does exactly and judges wall time against
-// an idle-machine baseline, so it has the same claim about the machine the Core build gate has. It
-// lives in that project (one latency owner, one serial slot), and its records are carried out of the
-// isolated copy beside the compile-time gate's.
+// edit/check/build/test scenario, pins structural counters exactly and measures base/head pairs.
+// Keeping siblings off the machine reduces contention noise in those paired ratios. Its records are
+// carried out of the isolated copy beside the compile-time gate's.
 test "the agent-loop gate is a block of the serial compile-time-bench project and has a committed baseline" {
     body := SerialGroupBody(SweepScript())
     assert body.Contains("tests/native/compile-time-bench)"), "compile-time-bench, which carries the agent-loop gate, must stay in the serial group."
@@ -70,8 +69,9 @@ test "the agent-loop gate is a block of the serial compile-time-bench project an
 test "a native project whose claim is about the machine, or that touches state outside its own directory, stays serial" {
     body := SerialGroupBody(SweepScript())
 
-    // Measures latency against a baseline taken on an idle machine and reads the load average.
-    assert body.Contains("tests/native/compile-time-bench)"), "compile-time-bench measures wall time and reads the one-minute load average; it may not run beside siblings."
+    // Paired latency measurements share each machine state, but sibling compiler processes add
+    // avoidable noise to both sides of every pair.
+    assert body.Contains("tests/native/compile-time-bench)"), "compile-time-bench interleaves base/head timings and pins exact counters; keep it out of the parallel group."
     // Daemon sockets and state outside the project directory.
     assert body.Contains("tests/native/daemon-command)")
     // Runs the installers, the reseed fixtures and scripts/dev.sh as processes.
