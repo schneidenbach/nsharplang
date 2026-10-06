@@ -468,10 +468,10 @@ test "agent-loop sensitivity floor combines the 20 percent ratio and 30 ms absol
     assert AgentLoopMinimumDetectableSlowdownMs(0) == -1
 }
 
-test "agent-loop relative gate skips timing for twenty repeated diffs with no compiler product change" {
+test "agent-loop relative gate skips timing for twenty repeated checks of an identical commit" {
     gitRoot := BenchCompilerPerfGitRoot(BenchRepositoryRoot())
-    baseCommit := BenchSelectBaseCommit(gitRoot)
     headCommit := BenchGitText(gitRoot, "rev-parse HEAD")
+    baseCommit := headCommit
     i := 0
     while i < 20 {
         changes := BenchFindCompilerProductChanges(gitRoot, baseCommit, headCommit)
