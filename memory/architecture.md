@@ -586,7 +586,7 @@ Two layers, both owned by `MultiFileCompiler` in Driver
 - **Who holds the per-file state:** the workspace server (`WarmIncrementalSessions`, registered with
   `WarmStateRegistry`), one session per compilation identity, for the commands it runs for clients.
 
-### The agent-loop speed program: one owner per concern (`speed/integration`, 2026-10-05)
+### The agent-loop speed program: one owner per concern (`speed/integration`, `320cd5f92`, 2026-10-05)
 
 Five branches made the edit -> check -> build -> test loop faster (agent-loop benchmark and work
 counters, incremental compilation, the workspace server, compiler throughput, the NativeAOT front

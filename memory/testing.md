@@ -1236,6 +1236,26 @@ emitted, reference assemblies loaded and processes spawned. The baseline
 `tests/fixtures/agent-loop/agent-loop-baseline.golden.json` contains only these counters; wall, CPU,
 RSS, machine and load fields are not baselined.
 
+**Measured counter rows at the integrated baseline** (`320cd5f92`). Counter order below is
+filesParsed / emitParses / filesAnalyzed / assembliesEmitted / referenceAssembliesLoaded /
+processesSpawned; `—` means all six counters are zero.
+
+| Scenario | Small, 448 lines / 8 files | Medium, 10,640 lines / 41 files |
+|---|---:|---:|
+| No-op `check`, cold in-process | `8 / 8 / 8 / 1 / 501 / 0` | `41 / 41 / 41 / 1 / 77 / 0` |
+| No-op `build` or `test`, cold / warm / daemon-warm | — | — |
+| Body-edit `build`, cold; next unchanged warm build | `8 / 7 / 7 / 1 / 493 / 0`; then — | `41 / 40 / 40 / 1 / 69 / 0`; then — |
+| Body-edit `check`, daemon-warm second request | `0 / 8 / 0 / 1 / 178 / 0` | `0 / 41 / 0 / 1 / 37 / 0` |
+| New-file `check`, cold in-process | `9 / 9 / 9 / 1 / 501 / 0` | `42 / 42 / 42 / 1 / 77 / 0` |
+
+The large fixture is **80,960 lines / 160 files** and remains outside the timing gate's small/medium
+matrix. Parallel analysis raised its reference-image rows (**77 → 151** for a large check, **69 →
+141** for a large build), while halving parses and reducing recorded wall time **13.0 s → 3.5 s**;
+the owner accepted the per-worker reference-load increase and ratcheted the large counter rows at
+`320cd5f92`. The
+initial absolute wall timings are not comparable: `7e60b1487` recorded load **9.49 → 12.31**, with
+peaks near **44**, and marked timing unjudgeable. Current paired timing policy is in §8.
+
 On changed product inputs, the gate runs every small and medium scenario. It discards one warm-up
 pair per cold and daemon-warm row, alternates which compiler runs first, takes at least nine
 measured pairs, continues to a 350 ms paired-command work target, and caps each row at 17 pairs.
@@ -1485,8 +1505,9 @@ identity (`ColumnarSourceDefinitionResolver.TryFindByBuilderIdentity`,
 `IsKnownEnumType`) and `IsBuilderBound`'s `Assembly.IsDynamic` read per type comparison; `emit.parse`
 re-tokenises every file (`CollectSourceNames`) with 3x-length scratch arrays (0.8 GB per 30k lines);
 GC is ~25% of samples (allocation still ~5 GB per Core build); a parallel worker's warm-up (its own
-reference load and lazily built caches, ~0.5-1 s) caps analysis parallelism; and the Core build
-rebuilds Model and Syntax from source every time (the incremental-compile stream's job).
+reference load and lazily built caches, ~0.5-1 s) caps analysis parallelism. The incremental stamp
+at `82368f499` now answers unchanged Model and Syntax project-reference builds from their
+content-hashed outputs; source or dependency changes still rebuild the required slice.
 
 ## Test Categories
 

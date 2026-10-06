@@ -203,8 +203,9 @@ Undefined identifier 'unknownVar'
   nested `project.yml`, assigns each `.nl` file to its nearest project root, applies that project's
   `exclude` rules, and checks every member as its own program. Files owned by the requested root are
   checked as the root program too. Discovery and source walking skip `bin/`, `obj/`, `.git/`, nested
-  Git worktrees, `node_modules/` and `bootstrap/`. Member checks use bounded concurrency and share
-  resolved reference metadata. Text output groups diagnostics by project. JSON workspace output uses
+  Git worktrees, `node_modules/` and `bootstrap/`. Member project-reference graphs are resolved into
+  one shared context before bounded concurrent member analysis; this avoids incomplete external
+  member views during concurrent reference loads. Text output groups diagnostics by project. JSON workspace output uses
   `schemaVersion: 2`: the top-level `projects` array contains each project's `projectRoot`,
   `checkedFiles`, `ok`, `results` and `summary`, with an optional `error` for a failed project and an
   optional `systemsReport` when requested; top-level `checkedFiles` and `summary` aggregate the
@@ -223,8 +224,8 @@ Undefined identifier 'unknownVar'
   `project.assets.json` target when present, and transitive project/NuGet references. Without
   restored assets it follows the declared package versions and the target-framework-compatible
   package assets. Assembly identities are deduplicated per member. The budget is the empty-member
-  surface times the discovered member count, plus three opens for each resolved member reference
-  (analysis, emit and exact-identity runtime contexts). This lets the ratchet account for references
+  surface times the discovered member count, plus up to six opens for each resolved member reference
+  (four analyzer workers, emit and exact-identity runtime contexts). This lets the ratchet account for references
   that exist only in built outputs or restored assets while keeping the allowance tied to what each
   member actually uses. Absolute repo-wide member/file counts are not pinned.
 
@@ -232,17 +233,19 @@ Undefined identifier 'unknownVar'
   a locally built `bin/Debug/<targetFramework>` package assembly and project references load their
   built output; when those files are absent it resolves package assemblies from the NuGet cache.
   `obj/project.assets.json` also pins the restored package versions when available, while an
-  unrestored project falls back to the installed package version. On this worktree the clean state
+  unrestored project falls back to the installed package version. At `d912a77ca`, the clean state
   measured 18,284 opens and the fully built `examples/` + `src/` state measured 18,598, identically
   across three runs in each state. The full-built increase is 314 opens, explained by the different
-  local output and restored-version reference set; both states pass the computed budget.
+  local output and restored-version reference set; both states pass the computed budget. Since
+  `d4f10f232`, member reference graphs are resolved before concurrent analysis to avoid the shared
+  metadata-reference race.
   Earlier fresh worktree/copy runs measured 18,184 opens for 223 members / 1,991 checked files.
   The reported 5,352-event parse result was not reproduced; it does not point to counter
   nondeterminism or a source-inventory difference in that earlier reproduction.
-  Its quiet-machine timing budget is 128 s (the existing ~64 s quiet measurement × 2); time is
-  judged only below the compile-time/agent-loop load threshold (one fifth of logical cores, 2.0 on
-  the 10-core measurement host). Unknown or higher load is recorded as unjudged. A separate
-  15-minute timeout is only a hang detector.
+  Its separate 128 s wall budget (the measured ~64 s check × 2) is judged only below one fifth of
+  logical cores (2.0 on the 10-core measurement host); unknown or higher load records timing as
+  unjudged. Workspace completeness, parse counts and the dependency-derived reference-image budget
+  always gate. The separate 15-minute timeout is only a hang detector.
 - Exit code 0 = clean, 1 = errors
 - Near-zero-warnings policy: correctness/safety/hygiene diagnostics are build-blocking errors, so a clean `nlc check` (`ok: true`, exit 0) is a strong guarantee rather than "clean modulo warnings." `summary.warnings` is reported but is expected to stay at 0 for well-formed code; pure style is handled by `nlc format`, not surfaced here.
 - JSON by default, `--text` for Elm-style diagnostics
@@ -1454,7 +1457,7 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.Driver/OutputFormatterTextBuilders.tests.nl` | Every Elm-style `--text` answer, stated as whole texts |
 | `src/NSharpLang.Compiler.Driver/OutputFormatterDiagnosticKernels.tests.nl` | Severity arithmetic, reference deduplication, end-to-end diagnostics |
 | `tests/native/completion-engine` | `CompletionEngine` over real projects, reached by reflection |
-| `tests/native/compile-time-bench` | The compile-time benchmark and gate: `nlc build --timings` and `nlc check --json` SPAWNED as real processes under `/usr/bin/time -l` over the 68-project corpus and `src/NSharpLang.Compiler.Core`, median of N runs, lines per second, peak RSS, the diagnostic census of a failing check; its `compile-time gate:` block pins Compiler Core `nlc build` against `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json` (exit code, stage, median × tolerance), skippable with `SYSTEMS_BENCH=skip`. See `memory/testing.md` §8. It also owns the AGENT-LOOP benchmark (`--agent-loop`): no-op, body-edit, signature-edit and new-file scenarios through `check`/`build`/`test`, cold and warm, on small/medium/large projects, with `--stats` counters gated exactly by its `agent-loop gate:` block against `tests/fixtures/agent-loop/agent-loop-baseline.golden.json`. See `memory/testing.md` §8a |
+| `tests/native/compile-time-bench` | The compile-time benchmark and gate: `nlc build --timings` and `nlc check --json` run as real processes under `/usr/bin/time -l` over the 68-project corpus and Compiler Core; corpus medians, lines/s, peak RSS and failing-check diagnostics are trend records. The gate always checks exact `--stats` counters and the Core phase contract; it compares paired base/head timings only when compiler product inputs change. It discards one warm-up pair, alternates order, and measures 9–17 pairs; failure requires the exact two-sided sign-test 95% lower bound for median head/base ratio to be >1.20× and median slowdown ≥30 ms/command. A no-compiler-change run says `timing: not compared`; see `memory/testing.md` §8. It also owns `--agent-loop`: no-op, body-edit, signature-edit and new-file scenarios through `check`/`build`/`test`, with exact `--stats` counters over small/medium/large fixtures; see §8a for measured rows and gate policy. |
 | `tests/native/systems-proof-corpus` | `nlc build --perf-report`, `nlc check --systems-report` and `nlc query trusted` over the 21 shipped proof projects under `docs/design/systems-samples/proofs`, each SPAWNED AS A REAL PROCESS, plus the emitted assemblies executed as processes |
 | `tests/native/systems-analysis-census` | The systems policy corpus answered by a SPAWNED `nlc check --project … --systems-report`: 54 fixture projects written, checked and deleted per block, plus `build --perf-report`, `query perf` and `query trusted` on temporary projects. Whole envelopes, whole finding rows, whole function summaries and the diagnostic census |
 | `tests/native/systems-gauntlet-facts` | The ten `tests/fixtures/systems-gauntlet` cases against their four goldens each, plus the facts no CLI surface exposes: return lifetimes, scoped parameters, ref-struct-ness and the `Result<T, E>` runtime ABI |

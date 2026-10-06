@@ -1,9 +1,97 @@
 # Managed toolchain conversion and census closeout
 
-## Census wave 19 — current status (2026-09-24 → 2026-10-05)
+## Census wave 20 — current status (2026-10-05 → 2026-10-06)
+
+The source range is `50816f3c8..28dfd91b2` (**102 non-merge commits**, from
+`git log --no-merges --format='%h %ad %s' --date=short 50816f3c8..28dfd91b2`). Product tip:
+`28dfd91b2`.
+
+### Agent-latency speed program — five branches integrated at `320cd5f92`
+
+| Lane and commit anchors | Shipped work and measured result |
+|---|---|
+| Agent-loop benchmark and counters; `83ef3194f..320cd5f92` | `nlc --stats` v1 reports exact files-parsed, emit-parse, files-analyzed, assemblies-emitted, reference-image and child-process counts. Benchmark fixtures are **448 lines / 8 files**, **10,640 lines / 41 files** and **80,960 lines / 160 files**. The first timing baseline at `7e60b1487` was explicitly unjudgeable (load **9.49 → 12.31**, peaks near **44**); its absolute times are records, not a comparison. Exact counters were stable across **3** samples and an independent gate run. Measured counter rows: `memory/testing.md` §8a. |
+| Incremental compilation; `82368f499..a050c9a19` | Content-hashed no-op stamp; per-file parse/analysis summaries; dependency-tracked warm re-analysis; one analysis pass in `nlc check`. On the **8-file** issue-tracker fixture, check work moved **40 parses / 16 analyses / 684 reference opens → 8 / 8 / 501**; driver parse reuse reduced the intermediate **16 / 8 / 501** to **8 / 8 / 501**. No-op build/test rows report **0 / 0 / 0 / 0 / 0 / 0** for all six `--stats` work counters. |
+| Daemon-first CLI; `ca8aa0f01..ff382d8f1` | Workspace server starts on first eligible command, routes by `--project`, reports warm readiness, returns once warm, carries per-request `--stats`, and falls back after server failure. Process, parity, cancellation, concurrency and warm-state cases are in `tests/native/daemon-exec`. Gates set `NLC_NO_DAEMON=1`; the agent-loop's `--daemon` mode clears it for its measured children. |
+| Compiler throughput; `4bad0247f..05ab274f3` | Paired measurements: Compiler Core **20.6 s → 6.6 s (3.1×)**; synthetic **80k-line** project **71.0 / 79.0 s → 6.6 / 7.8 s (~10×)**. Per-project analysis uses at most **4** workers, one per **500,000** source characters, with deterministic merge order; metadata/name indexes and single-pass parsing removed measured scans and duplicate work. See `memory/testing.md` §10. |
+| NativeAOT front door and ReadyToRun host; `b902c1b38..b4ccbf0c1` | Host-RID `nlc` front door is **2.6 MB**, with **0** trim/AOT warnings; compiler and `nsharp-lsp` hosts publish ReadyToRun, while portable toolsets retain IL. Paired startup measurements on osx-arm64, quiet M-series, with the 534-line issue-tracker fixture: `nlc --version` **40 → 7 ms**, `check` **1,360 → 950 ms**, `build` **1,026 → 624 ms**. See `memory/components/cli-toolchain.md`. |
+
+Integration kept one owner for each concern: one `--stats` line combines exact work counters and an
+optional phase ledger; `AssemblyTypeNameIndex` owns reference type-name tables; driver parses seed
+the analyzer and file-import cache; nullable body-return provenance is per analysis; the daemon's
+warm registry owns reusable incremental sessions; shared analyzer workers remain lazy; and workspace
+checks avoid nested fan-out. Full decisions are in `memory/architecture.md` under “The agent-loop
+speed program: one owner per concern.” The measured agent-loop counter table and gate policy are in
+`memory/testing.md` §8a.
+
+### Compiler-performance gate redesign — `d4fd32072..3869876eb`
+
+The owner decision rejected a single-machine absolute compile-time baseline as a pass/fail oracle.
+`aa7ede33a` fixed the base CLI's dependency closure for paired runs. Exact structural counters always
+gate; timing runs only when compiler product inputs changed. The gate discards one warm-up pair,
+alternates base/head order, and measures **9–17 pairs** per row. It fails only when the exact two-sided
+sign-test **95% lower confidence bound** for the median paired head/base ratio is **> 1.20×** *and*
+the median slowdown is **≥ 30 ms per command**. With no compiler change, timing is reported as
+`timing: not compared`; counters and the Core phase contract still run. Absolute timings and load
+remain trend artifacts. The N# throughput-kernel gate is a separate same-run live/control gate (§6 of
+`memory/testing.md`).
+
+### Repository-root workspace check — `23eb67c1a..28dfd91b2`
+
+`nlc check` now proves workspace membership and source ownership from a live filesystem census,
+requires **1–3 parse events per checked file**, checks the Core diagnostic result, and budgets
+reference images from each member's actual project graph, built outputs and restored assets. The
+budget is the measured empty-project reference surface × discovered members, plus up to **6** opens
+per resolved member reference (four analyzer workers, emit and exact-identity runtime contexts). At
+`d912a77ca`, the **223-member / 1,991-file** measurement used **18,284** opens clean and **18,598**
+fully built, repeat-identically across **3** runs in each state.
+
+`d4f10f232` resolves all member project references into the shared context before concurrent member
+analysis; this prevents concurrent reference loads from exposing incomplete external-member data.
+The concurrency boundary preserves parallel member analyses while project-reference builds run in
+the preflight. `28dfd91b2` removes the now-unread argument summary parameter, keeping the front-door
+diagnostic ceiling at **0**. The live budget and race contracts are in
+`tests/native/cli-command-contracts/CheckRepositoryRootPerformance.tests.nl` and
+`CheckRepositoryRootReferenceBudget.tests.nl`.
+
+### Self-host front door — `126ce756a..28dfd91b2`
+
+At `28dfd91b2`, all **11** Step 2d projects are at **0 diagnostics**: Model, Syntax, Core, Plan, Emit,
+CodeIntel, Tooling, Driver, Compiler, Playground and Build.Tasks. Core moved **355 → 0** and Compiler
+moved **5 → 0**. Receipt: `combined-28dfd91b2/gate-nonvs.log`.
+
+### Product-gate evidence
+
+| Tip | Gate and ownership evidence | Native sweep record |
+|---|---|---|
+| `320cd5f92` | non-VS `gate-nonvs.log:1357` and VS `gate-vs.log:1363`: **GATE EXIT 0**; `ownership-audit:25/25` at line 758 in both | Line 931 in each log: **154 projects**, **5,384 tests** (**5,383 passed, 0 failed, 1 skipped**) |
+| `aa7ede33a` | `gate-nonvs.log:1357`: **GATE EXIT 0**; `ownership-audit:25/25` at line 758 | Line 931: **154 projects**, **5,372 tests** (**5,371 passed, 0 failed, 1 skipped**) |
+| `3869876eb` | `gate-nonvs.log:1357`: **GATE EXIT 0**; `ownership-audit:25/25` at line 758 | Line 931: **154 projects**, **5,381 tests** (**5,380 passed, 0 failed, 1 skipped**) |
+| `28dfd91b2` | `gate-nonvs.log:1357`: **GATE EXIT 0**; `ownership-audit:25/25` at line 758 | Line 931: **154 projects**, **5,382 tests** (**5,381 passed, 0 failed, 1 skipped**) |
+
+Evidence: `/Users/spencer/repos/nsharp-worktrees/evidence/combined-{320cd5f92,aa7ede33a,3869876eb,28dfd91b2}/`;
+`320cd5f92` has `gate-nonvs.log` and `gate-vs.log`, and each later directory has `gate-nonvs.log`.
+The ownership manifest contains **0 Markdown rows** (`.md` is ignored by its path policy), so these
+documentation edits require no delivery-row or dual reviewed-head-key repin. Run
+`tests/native/ownership-audit` **25/25 after all Markdown checks, last**.
+
+### Current closeout cursor
+
+**DONE:** the five-branch speed integration; compiler performance gates; structural workspace check;
+all eleven self-host front doors at zero. The 320/aa7/386/28df gate evidence is tabulated above.
+
+**STILL OWED:** rendered visual VS Code proof; the remaining-C# boundary decision; deletion of
+**16** landed `origin/claude/*` refs, awaiting the owner. C# census (`find … -name '*.cs' … | xargs
+wc -l`): Runtime **861** lines, Playground.Wasm **71**, CLI **25**, and `editors/visualstudio` **359**.
+
+**NEXT:** agent-loop part 2 — check without emit; one shared reference-metadata context across
+analyzer, emitter and workers; incremental emit; LanguageServer stale-library handling. Then full
+compiler NativeAOT, moving emission off live runtime types and approximately **3,400** `typeof` sites.
+
+## Census wave 19 — history (superseded 2026-10-06)
 
 The source history for this update is `bea64ac92..9721a02a0` (product tip `9721a02a0`, dated
-2026-09-30); this cursor is current through 2026-10-05. Four integration batches of session work
+2026-09-30); this cursor was current through 2026-10-05. Four integration batches of session work
 landed in the interval. Per `~/.claude/CLAUDE.md`, development was delegated to Codex CLI
 (`gpt-6-luna`, xhigh).
 
