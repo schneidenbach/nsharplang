@@ -218,13 +218,27 @@ Undefined identifier 'unknownVar'
   every JSON member must appear exactly once and its `checkedFiles` must equal that filesystem
   census. It requires at least one parse event per checked file and caps parse events at three per
   file (the rounded-up measured ratio, including the 5,352-event gate observation). Reference-image
-  opens are capped at 82 per discovered member (the rounded-up measured ratio). These ratios are
-  ratchets and may only decrease; absolute repo-wide member/file counts are not pinned. The five
-  fresh worktree runs, three test-all-style copy runs, and one run with test-all's isolated
-  `HOME`/`TMP` all measured 5,258 parse events and 18,184 reference opens for 223 members / 1,991
-  checked files; the worktree and copy had identical `.nl` inventories. The reported 5,352-event
-  gate result was not reproduced, so its exact gate-time cause is unknown; it does not point to
-  counter nondeterminism or a source-inventory difference in this reproduction.
+  opens use a dependency-derived budget instead of a global per-member constant: the test measures
+  the shared surface with an empty member, then reads each member's `project.yml`, selected
+  `project.assets.json` target when present, and transitive project/NuGet references. Without
+  restored assets it follows the declared package versions and the target-framework-compatible
+  package assets. Assembly identities are deduplicated per member. The budget is the empty-member
+  surface times the discovered member count, plus three opens for each resolved member reference
+  (analysis, emit and exact-identity runtime contexts). This lets the ratchet account for references
+  that exist only in built outputs or restored assets while keeping the allowance tied to what each
+  member actually uses. Absolute repo-wide member/file counts are not pinned.
+
+  Reference counts vary with generated outputs because `AnalyzerReferenceLoadOrchestration` prefers
+  a locally built `bin/Debug/<targetFramework>` package assembly and project references load their
+  built output; when those files are absent it resolves package assemblies from the NuGet cache.
+  `obj/project.assets.json` also pins the restored package versions when available, while an
+  unrestored project falls back to the installed package version. On this worktree the clean state
+  measured 18,284 opens and the fully built `examples/` + `src/` state measured 18,598, identically
+  across three runs in each state. The full-built increase is 314 opens, explained by the different
+  local output and restored-version reference set; both states pass the computed budget.
+  Earlier fresh worktree/copy runs measured 18,184 opens for 223 members / 1,991 checked files.
+  The reported 5,352-event parse result was not reproduced; it does not point to counter
+  nondeterminism or a source-inventory difference in that earlier reproduction.
   Its quiet-machine timing budget is 128 s (the existing ~64 s quiet measurement × 2); time is
   judged only below the compile-time/agent-loop load threshold (one fifth of logical cores, 2.0 on
   the 10-core measurement host). Unknown or higher load is recorded as unjudged. A separate

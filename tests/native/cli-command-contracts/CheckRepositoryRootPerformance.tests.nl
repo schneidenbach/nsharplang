@@ -9,10 +9,10 @@ import System.Text.Json
 // Parse work includes project-reference builds as well as each member's own files. Across five
 // worktree runs, three test-all-style copy runs, and the reported gate observation, the highest
 // observed ratio is 5,352 / 1,991, so the rounded-up ratchet is three parse events per checked file.
-// Reference image opens measured 18,184 / 223 members, so that rounded-up ratchet is 82 per member.
-// These ratios may only decrease; the per-run file/member census below adapts to repository growth.
+// The reference-image budget below measures a no-dependency member's shared reference surface, then
+// adds the resolved reference assets of every actual workspace member. This keeps built project and
+// NuGet outputs in the budget without treating them as a repository-wide per-member constant.
 func CliRootCheckMaxParseEventsPerCheckedFile(): long => 3
-func CliRootCheckMaxReferenceImagesPerMember(): long => 82
 
 // Quiet-machine timing measurement: about 64 s. Keep the documented 2x budget (128 s) independent
 // from the 15-minute hard timeout: that one only catches a stuck CLI and never judges performance.
@@ -548,6 +548,7 @@ test "nlc check checks each repository project once and pins workspace work whil
 
     expectedRoots := CliRootCheckExpectedProjectRoots(repositoryRoot)
     expectedSourceMembers := CliRootCheckExpectedSourceMembers(repositoryRoot, expectedRoots)
+    referenceBudget := CliRootCheckReferenceImageBudget(expectedRoots)
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
@@ -599,8 +600,8 @@ test "nlc check checks each repository project once and pins workspace work whil
     assert filesParsed >= checkedFiles, "filesParsed was " + filesParsed.ToString() + " for " + checkedFiles.ToString() + " checked source files"
     maxParseEvents := CliRootCheckMaxParseEventsPerCheckedFile() * (long)checkedFiles
     assert filesParsed <= maxParseEvents, "filesParsed was " + filesParsed.ToString() + "; the ratio ratchet allows at most " + CliRootCheckMaxParseEventsPerCheckedFile().ToString() + " events per discovered checked file (" + maxParseEvents.ToString() + ")"
-    maxReferenceImages := CliRootCheckMaxReferenceImagesPerMember() * (long)expectedRoots.Count
-    assert referenceImages <= maxReferenceImages, "referenceAssembliesLoaded was " + referenceImages.ToString() + "; the ratio ratchet allows at most " + CliRootCheckMaxReferenceImagesPerMember().ToString() + " opens per discovered member (" + maxReferenceImages.ToString() + ")"
+    maxReferenceImages := referenceBudget.Maximum
+    assert referenceImages <= maxReferenceImages, "referenceAssembliesLoaded was " + referenceImages.ToString() + "; the dependency-derived budget allows " + referenceBudget.EmptyProjectReferenceImages.ToString() + " shared opens per member plus three opens for each of " + referenceBudget.ConfiguredReferenceImages.ToString() + " resolved reference images (" + maxReferenceImages.ToString() + ")"
 
     timingUnjudged := CliRootCheckRefusesTimingJudgement(load)
     timingVerdict := "timing judged"
@@ -609,7 +610,7 @@ test "nlc check checks each repository project once and pins workspace work whil
     } else if wallMs > CliRootCheckQuietWallBudgetMs() {
         timingVerdict = "timing failed: " + wallMs.ToString() + " ms over the " + CliRootCheckQuietWallBudgetMs().ToString() + " ms budget at load " + CliRootCheckLoadText(load)
     }
-    timingRecord := "repository-root check: projects=" + expectedRoots.Count.ToString() + " checkedFiles=" + checkedFiles.ToString() + " filesParsed=" + filesParsed.ToString() + " maxParseEvents=" + maxParseEvents.ToString() + " referenceAssembliesLoaded=" + referenceImages.ToString() + " maxReferenceImages=" + maxReferenceImages.ToString() + " wallMs=" + wallMs.ToString() + " budgetMs=" + CliRootCheckQuietWallBudgetMs().ToString() + " load=" + CliRootCheckLoadText(load) + " cores=" + load.Cores.ToString() + "; " + timingVerdict
+    timingRecord := "repository-root check: projects=" + expectedRoots.Count.ToString() + " checkedFiles=" + checkedFiles.ToString() + " filesParsed=" + filesParsed.ToString() + " maxParseEvents=" + maxParseEvents.ToString() + " referenceAssembliesLoaded=" + referenceImages.ToString() + " sharedReferenceImagesPerMember=" + referenceBudget.EmptyProjectReferenceImages.ToString() + " configuredReferenceImages=" + referenceBudget.ConfiguredReferenceImages.ToString() + " maxReferenceImages=" + maxReferenceImages.ToString() + " wallMs=" + wallMs.ToString() + " budgetMs=" + CliRootCheckQuietWallBudgetMs().ToString() + " load=" + CliRootCheckLoadText(load) + " cores=" + load.Cores.ToString() + "; " + timingVerdict
     _ = CliRootCheckWriteGateRecord(repositoryRoot, timingRecord)
     assert timingUnjudged || wallMs <= CliRootCheckQuietWallBudgetMs(), timingRecord
 
