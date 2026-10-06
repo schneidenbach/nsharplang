@@ -184,7 +184,6 @@ class CheckCommand {
                 referenceFailure := CheckWorkspaceReferenceFailure(referenceFailures, project.ProjectRoot)
                 tasks[offset] = CheckWorkspaceProjectAsync(
                     project,
-                    arguments,
                     outputMode,
                     aotMode,
                     referenceFailure
@@ -219,13 +218,12 @@ class CheckCommand {
 
     private static async func CheckWorkspaceProjectAsync(
         project: CheckWorkspaceProject,
-        arguments: CheckArgumentSummary,
         outputMode: int,
         aotMode: bool,
         referenceFailure: string?
     ): Task<CheckWorkspaceProjectResult> {
         await Task.Yield()
-        return CheckWorkspaceProject(project, arguments, outputMode, aotMode, referenceFailure)
+        return CheckWorkspaceProject(project, outputMode, aotMode, referenceFailure)
     }
 
     private static func ResolveWorkspaceProjectReferences(
@@ -269,7 +267,6 @@ class CheckCommand {
 
     static func CheckWorkspaceProject(
         project: CheckWorkspaceProject,
-        arguments: CheckArgumentSummary,
         outputMode: int,
         aotMode: bool,
         referenceFailure: string?
