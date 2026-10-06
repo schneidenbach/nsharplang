@@ -1154,12 +1154,40 @@ project itself currently fails during analysis before emit; the generated 80,960
 project covers the emit path. Counter checks are exact and machine-independent. A decrease must be
 reviewed and ratcheted; an increase is a regression to fix.
 
-**Timing is relative within the same run.** The harness builds the base compiler into a temporary,
-commit-keyed cache, then alternates base and head for three pairs on the Core-scale emit workload.
-It computes each head/base ratio first and gates the median of those pair ratios at **1.20×**. This
-matches the Systems throughput gate. Nearby pairs share the machine's changing load, and three pairs
-provide the smallest practical odd sample for a median. The CLI already built by the gate is the head
-side. The first run archives and builds the base CLI and compiler project graph in about **38 seconds** on the measured M4; repeated runs reuse the commit-keyed cache. The C# CLI project declares Compiler.Model and Runtime references and a Mono.Cecil package reference so its clean runtime dependency closure includes the N# entry point, runtime and emitter. The cached base CLI keeps its base-built `NSharpLang.*` assemblies while refreshing its `.deps.json` and package DLLs from the head CLI output, so both sides resolve the same runtime package closure.
+**Exact structural behavior is always gated; timing runs only when product inputs changed.** Both
+relative gates run `git diff base..head` and time only if it touches a compiler/runtime/CLI product
+input. The source set is explicit: `.nl`, `.cs` and `project.yml` inputs under the compiler slice
+roots `src/NSharpLang.Compiler.*` and `src/NSharpLang.Compiler/`; those source/config inputs under
+`src/NSharpLang.Cli/`, `src/NSharpLang.TestHost/`, `src/NSharpLang.Runtime/` and
+`src/NSharpLang.Build.Tasks/`; and `.props`/`.targets` under `src/NSharpLang.Sdk/Sdk/`. The
+classifier also accepts `.props`/`.targets` within those project roots. Benchmark harness files,
+`.tests.nl`, documentation and `.csproj` files are excluded. In particular, adding a project
+reference to `Cli.csproj` to make a clean base launcher load its compiler is not a compiler behavior
+change. An unavailable or failed Git diff fails closed.
+
+When no listed product input changed, the artifact says **`timing: not compared (no compiler
+change)`**, skips the base build and timing commands, and passes only if the head's exact counters
+and Core phase contract still match. When a product input changed, the CLI already built by the gate
+is the head side; the harness builds the base compiler into a temporary, commit-keyed cache. It
+discards one interleaved warm-up pair per row, alternates base/head order inside measured pairs, and
+takes at least nine measured pairs. Each row continues until the paired commands have accumulated
+350 ms of wall time, with an odd-count cap of 17 pairs. Core-scale emit uses the same nine-pair
+minimum, 350 ms work target and 17-pair cap. The first base build archives and builds the base CLI
+and compiler project graph in about **38 seconds** on the measured M4; repeated runs reuse the
+commit-keyed cache. The C# CLI project declares Compiler.Model and Runtime references and a Mono.Cecil
+package reference so its clean runtime dependency closure includes the N# entry point, runtime and
+emitter. The cached base CLI keeps its base-built `NSharpLang.*` assemblies while refreshing its
+`.deps.json` and package DLLs from the head CLI output, so both sides resolve the same runtime package
+closure.
+
+Timing fails only when the exact two-sided sign-test 95% confidence interval's lower bound for the
+median per-pair head/base ratio is strictly above **1.20×**, and the median paired slowdown is at
+least **30 ms per command**. At nine samples the conservative exact interval uses the second-lowest
+ratio as its lower bound (96.1% coverage), so one noisy high or low pair cannot determine the
+verdict. The absolute floor prevents a short command's large percentage from failing over a few
+milliseconds. Agent-loop rows under 100 ms use CPU time only when the timed child reports a median
+base CPU of at least 30 ms and CPU's paired-ratio median absolute deviation is lower than wall's;
+otherwise they use wall time. Both measures are retained in the paired artifact for review.
 
 Base selection is deterministic: if `HEAD` is ahead of `origin/systems-language`, use
 `git merge-base HEAD origin/systems-language`; when `HEAD` is at the origin tip, use `HEAD~1` (or
@@ -1199,12 +1227,16 @@ emitted, reference assemblies loaded and processes spawned. The baseline
 `tests/fixtures/agent-loop/agent-loop-baseline.golden.json` contains only these counters; wall, CPU,
 RSS, machine and load fields are not baselined.
 
-The gate runs every small and medium scenario in three nearby base/head pairs, alternating which
-compiler runs first. It times cold and daemon-warm workloads, then gates the median of each row's
-per-pair head/base ratios at **1.20×**, the Systems throughput tolerance. Structural counters must
-match their committed rows exactly, and counter variation across repeated identical inputs fails.
-Load never skips or loosens the verdict. Absolute medians, machine, load and commit are retained in
-`artifacts/agent-loop/relative-gate.md` and `last-gate-run.txt` as trend data.
+On changed product inputs, the gate runs every small and medium scenario. It discards one warm-up
+pair per cold and daemon-warm row, alternates which compiler runs first, takes at least nine
+measured pairs, continues to a 350 ms paired-command work target, and caps each row at 17 pairs.
+Structural counters must match their committed rows exactly, and counter variation across repeated
+identical inputs fails. On harness-only changes, timing is skipped with
+`timing: not compared (no compiler change)` while the head counter matrix still runs. Absolute
+medians, confidence bounds, selected metric, machine, load and commit are retained in
+`artifacts/agent-loop/relative-gate.md` and `last-gate-run.txt` as trend data. The sensitivity table
+reports the zero-noise minimum detectable slowdown by size and mode (cold and daemon-warm) as
+`max(30 ms, ceil(1.201 × baseline median) − baseline median)`; observed noise raises that minimum.
 
 Developers can compare an explicit base CLI locally. Build the benchmark assembly and pass
 `--base-cli`:
@@ -1216,8 +1248,10 @@ dotnet tests/native/compile-time-bench/bin/Debug/net10.0/tests/NSharpLang.Compil
 ```
 
 `--sizes small,medium,large|all`, `--runs <n>` (default 3), `--cli <Cli.dll>`, `--base-cli <Cli.dll>`,
-`--judge`, and `--ratchet` are supported. Without `--base-cli`, `--write-baseline` and `--ratchet`
-collect structural rows only. A decrease is reviewed and ratcheted with
+`--scenario <exact-id>` (paired runs only), `--judge`, and `--ratchet` are supported. For example,
+`--scenario "no-op build"` isolates the cold and daemon-warm no-op build rows for a focused timing
+probe. Without `--base-cli`, `--write-baseline` and `--ratchet` collect structural rows only. A
+decrease is reviewed and ratcheted with
 `--agent-loop --sizes all --ratchet`; a counter increase refuses the update. Load remains report
 metadata and does not change the sample count.
 

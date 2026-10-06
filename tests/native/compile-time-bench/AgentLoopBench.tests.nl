@@ -84,6 +84,15 @@ test "agent-loop bench: ten scenarios, each a check, build or test after no edit
     }
 }
 
+test "agent-loop bench: paired scenario selection isolates one exact row id without changing the default matrix" {
+    all := AgentLoopSelectScenarios("")
+    selected := AgentLoopSelectScenarios("no-op build")
+    unknown := AgentLoopSelectScenarios("no-op builds")
+    assert all.Count == AgentLoopScenarios().Count
+    assert selected.Count == 1 && selected[0].Id == "no-op build"
+    assert unknown.Count == 0
+}
+
 test "agent-loop bench: the sizes are the issue-tracker fixture and two synthetic projects, and the gate measures small and medium" {
     small := AgentLoopFindSize("small") ?? new AgentLoopSize("", "", 0, 0)
     assert small.FixtureProject == "tests/fixtures/issue-tracker"
@@ -345,24 +354,146 @@ test "agent-loop bench: the ratchet lowers counters, refuses a rise, and never t
 
 test "agent-loop relative gate: paired head/base medians accept at 1.20x and fail above it" {
     timings := new List<AgentLoopRelativeTimingRow>()
-    row := new AgentLoopRelativeTimingRow("small", "no-op check", AgentLoopModeCold(), 3)
-    row.BaseMs[0] = 1000
-    row.BaseMs[1] = 1000
-    row.BaseMs[2] = 1000
-    row.HeadMs[0] = 1200
-    row.HeadMs[1] = 1200
-    row.HeadMs[2] = 1200
-    row.Samples = 3
+    row := new AgentLoopRelativeTimingRow("small", "no-op check", AgentLoopModeCold(), AgentLoopRelativeMinimumPairs())
+    i := 0
+    while i < AgentLoopRelativeMinimumPairs() {
+        row.BaseMs[i] = 1000
+        row.HeadMs[i] = 1200
+        row.BaseCpuMs[i] = 60
+        row.HeadCpuMs[i] = 72
+        i = i + 1
+    }
+    row.Samples = AgentLoopRelativeMinimumPairs()
     timings.Add(row)
     assert AgentLoopRelativeTimingFailures(timings).Count == 0
-    assert AgentLoopRelativeTimingTable(timings).Contains("| small | no-op check | cold | 1000 | 1200 | 1.2x, 1.2x, 1.2x | 1.2x |")
+    assert AgentLoopRelativeTimingTable(timings).Contains("| small | no-op check | cold | wall | 1000 | 1200 | 60 | 72 | 200 | 9 | 1.2x |")
 
-    row.HeadMs[0] = 1300
-    row.HeadMs[1] = 1310
-    row.HeadMs[2] = 1290
+    i = 0
+    while i < row.Samples {
+        row.HeadMs[i] = 1300
+        i = i + 1
+    }
     failures := AgentLoopRelativeTimingFailures(timings)
     assert failures.Count == 1
-    assert failures[0].Contains("1.3x exceeds 1.2x")
+    assert failures[0].Contains("95% exact sign interval lower bound 1.3x")
+    assert failures[0].Contains("median slowdown 300 ms >= 30 ms")
+}
+
+test "agent-loop relative gate uses the exact sign-test lower confidence bound, not a raw median" {
+    assert BenchExactMedianLowerBoundRank(9) == 2
+    values := new long[](9)
+    values[0] = 1000
+    values[1] = 1100
+    values[2] = 1200
+    values[3] = 1300
+    values[4] = 1400
+    values[5] = 1500
+    values[6] = 1600
+    values[7] = 1700
+    values[8] = 1800
+    assert BenchMedianLowerConfidenceBound(values, 9) == 1100
+    assert BenchMedianLowerConfidenceBound(values, 8) == -1
+}
+
+test "agent-loop relative gate preserves both deliberate 500 ms and 1,500 ms slowdown proofs" {
+    baseTimes := new long[](9)
+    head500 := new long[](9)
+    head1500 := new long[](9)
+    i := 0
+    while i < 9 {
+        baseTimes[i] = 1000
+        head500[i] = baseTimes[i] + BenchConfiguredDelayMs("head", "500")
+        head1500[i] = baseTimes[i] + BenchConfiguredDelayMs("head", "1500")
+        i = i + 1
+    }
+
+    failure500 := BenchPairedTimingRegressionFailure("small / no-op build / cold", head500, baseTimes, 9, AgentLoopRelativeToleranceThousandths(), AgentLoopRelativeSlowdownFloorMs())
+    failure1500 := BenchPairedTimingRegressionFailure("large / build / cold", head1500, baseTimes, 9, AgentLoopRelativeToleranceThousandths(), AgentLoopRelativeSlowdownFloorMs())
+    assert failure500.Contains("median slowdown 500 ms >= 30 ms"), failure500
+    assert failure1500.Contains("median slowdown 1500 ms >= 30 ms"), failure1500
+}
+
+test "agent-loop relative gate requires both statistical confidence and a 30 ms absolute slowdown" {
+    baseTimes := new long[](9)
+    noisyHead := new long[](9)
+    smallBase := new long[](9)
+    smallHead := new long[](9)
+    i := 0
+    while i < 9 {
+        baseTimes[i] = 1000
+        noisyHead[i] = 1250
+        smallBase[i] = 100
+        smallHead[i] = 125
+        i = i + 1
+    }
+    noisyHead[0] = 1000
+    noisyHead[1] = 1100
+
+    assert BenchPairedTimingRegressionFailure("row", noisyHead, baseTimes, 9, 1200, 30) == ""
+    assert BenchPairedTimingRegressionFailure("row", smallHead, smallBase, 9, 1200, 30) == ""
+}
+
+test "agent-loop timing uses CPU only when a short row has a steadier resolved CPU signal" {
+    row := new AgentLoopRelativeTimingRow("small", "no-op check", AgentLoopModeDaemonWarm(), 9)
+    i := 0
+    while i < 9 {
+        row.BaseMs[i] = 70 + i * 5
+        row.HeadMs[i] = row.BaseMs[i] + (i % 3) * 20
+        row.BaseCpuMs[i] = 42
+        row.HeadCpuMs[i] = 50
+        i = i + 1
+    }
+    row.Samples = 9
+    assert AgentLoopRelativeMetric(row) == "cpu"
+
+    i = 0
+    while i < 5 {
+        row.BaseCpuMs[i] = 4
+        i = i + 1
+    }
+    assert AgentLoopRelativeMetric(row) == "wall"
+}
+
+test "agent-loop relative sampling has a bounded row work target and keeps at least nine odd pairs" {
+    assert AgentLoopRelativeMinimumPairs() == 9
+    assert AgentLoopRelativeMaximumPairs() == 17
+    assert AgentLoopRelativeMaximumPairs() % 2 == 1
+    assert AgentLoopRelativeRowWorkTargetMs() == 350
+}
+
+test "agent-loop sensitivity floor combines the 20 percent ratio and 30 ms absolute thresholds" {
+    assert AgentLoopMinimumDetectableSlowdownMs(100) == 30
+    assert AgentLoopMinimumDetectableSlowdownMs(200) == 41
+    assert AgentLoopMinimumDetectableSlowdownMs(1000) == 201
+    assert AgentLoopMinimumDetectableSlowdownMs(0) == -1
+}
+
+test "agent-loop relative gate skips timing for twenty repeated diffs with no compiler product change" {
+    gitRoot := BenchCompilerPerfGitRoot(BenchRepositoryRoot())
+    baseCommit := BenchSelectBaseCommit(gitRoot)
+    headCommit := BenchGitText(gitRoot, "rev-parse HEAD")
+    i := 0
+    while i < 20 {
+        changes := BenchFindCompilerProductChanges(gitRoot, baseCommit, headCommit)
+        assert changes.Error == "", changes.Error
+        assert !changes.HasCompilerChanges(), "identical compiler products must skip timing; observed " + String.Join(", ", changes.ProductPaths)
+        i = i + 1
+    }
+}
+
+test "agent-loop compiler product paths cover CLI compiler runtime and SDK inputs but ignore harness and tests" {
+    assert BenchIsCompilerProductPath("src/NSharpLang.Compiler.Core/Columnar/Analyzer.nl")
+    assert BenchIsCompilerProductPath("src/NSharpLang.Compiler.Driver/project.yml")
+    assert BenchIsCompilerProductPath("src/NSharpLang.Cli/Program.cs")
+    assert BenchIsCompilerProductPath("src/NSharpLang.TestHost/Runner.cs")
+    assert BenchIsCompilerProductPath("src/NSharpLang.Runtime/Union.cs")
+    assert BenchIsCompilerProductPath("src/NSharpLang.Build.Tasks/NSharpLang.Build.targets")
+    assert BenchIsCompilerProductPath("src/NSharpLang.Sdk/Sdk/Sdk.targets")
+    assert !BenchIsCompilerProductPath("tests/native/compile-time-bench/AgentLoopBench.nl")
+    assert !BenchIsCompilerProductPath("src/NSharpLang.Compiler.Core/Columnar/Analyzer.tests.nl")
+    assert !BenchIsCompilerProductPath("src/NSharpLang.Cli/Cli.csproj")
+    assert !BenchIsCompilerProductPath("src/NSharpLang.Sdk/NSharpLang.Sdk.csproj")
+    assert !BenchIsCompilerProductPath("memory/testing.md")
 }
 
 test "agent-loop bench: the table states every counter and puts a compared value beside each one that moved" {
@@ -400,7 +531,7 @@ test "agent-loop bench: the committed structural baseline covers cold, warm and 
 
 // ─── THE GATE ─────────────────────────────────────────────────────────────────────────────────
 
-test "agent-loop gate: exact counter contracts and interleaved cold plus daemon-warm ratios" {
+test "agent-loop gate: exact counter contracts and change-aware paired cold plus daemon-warm timings" {
     // SILENT ON EVERY PATH: Step 3a parses the captured test stream as one JSON document.
     repositoryRoot := BenchRepositoryRoot()
     baseline := AgentLoopParseBaseline(File.ReadAllText(AgentLoopBaselinePath(repositoryRoot)))
@@ -413,19 +544,40 @@ test "agent-loop gate: exact counter contracts and interleaved cold plus daemon-
 
     loadAtStart := BenchReadMachineLoad()
     gateStarted := DateTime.UtcNow.Ticks
-    baseCompiler := BenchPrepareBaseCompiler(repositoryRoot)
-    assert baseCompiler.Error == "", "agent-loop gate: " + baseCompiler.Error
-    pairCount := 3
-    relative := AgentLoopMeasureRelativeMatrix(cliDll, baseCompiler.CliDll, repositoryRoot, AgentLoopGateSizeNames(), pairCount, false)
-    failures := AgentLoopRelativeTimingFailures(relative.Timings)
-    failures.AddRange(relative.Failures)
+    gitRoot := BenchCompilerPerfGitRoot(repositoryRoot)
+    baseCommit := BenchSelectBaseCommit(gitRoot)
+    headCommit := BenchGitText(gitRoot, "rev-parse HEAD")
+    productChanges := BenchFindCompilerProductChanges(gitRoot, baseCommit, headCommit)
+    assert productChanges.Error == "", "agent-loop gate: " + productChanges.Error
+
+    failures := new List<string>()
+    relative := new AgentLoopRelativeMatrix()
+    baseLabel := "not compared"
+    recordedBaseCommit := baseCommit
+    baseBuildMs := 0L
+    baseCacheHit := false
+    timingStatus := "not compared (no compiler change)"
+    if productChanges.HasCompilerChanges() {
+        baseCompiler := BenchPrepareBaseCompiler(repositoryRoot)
+        assert baseCompiler.Error == "", "agent-loop gate: " + baseCompiler.Error
+        relative = AgentLoopMeasureRelativeMatrix(cliDll, baseCompiler.CliDll, repositoryRoot, AgentLoopGateSizeNames(), AgentLoopRelativeMinimumPairs(), false)
+        failures.AddRange(AgentLoopRelativeTimingFailures(relative.Timings))
+        failures.AddRange(relative.Failures)
+        baseLabel = "base CLI"
+        recordedBaseCommit = baseCompiler.Commit
+        baseBuildMs = baseCompiler.BuildMs
+        baseCacheHit = baseCompiler.CacheHit
+        timingStatus = "compared by exact sign-test 95% lower bound plus 30 ms slowdown floor"
+    } else {
+        relative.HeadCounterRows = AgentLoopMeasureStructuralRows(cliDll, repositoryRoot, AgentLoopGateSizeNames(), 3, false)
+    }
     failures.AddRange(AgentLoopCounterFailures(baseline, relative.HeadCounterRows))
 
     loadAtEnd := BenchReadMachineLoad()
     gateElapsedMs := (DateTime.UtcNow.Ticks - gateStarted) / 10000
-    facts := BenchReadEnvironmentFacts(BenchCompilerPerfGitRoot(repositoryRoot))
-    gateLine := AgentLoopRelativeGateRecordLine(failures, pairCount, "base CLI", baseCompiler.Commit, facts.CliCommit, baseCompiler.BuildMs, baseCompiler.CacheHit, gateElapsedMs, AgentLoopMachineText(facts), loadAtStart, loadAtEnd)
-    table := AgentLoopRelativeTimingTable(relative.Timings) + "\n\n## Head structural counters\n\n" + AgentLoopRenderTable(relative.HeadCounterRows, baseline.Rows, "the committed structural counter baseline " + AgentLoopBaselineRelativePath())
+    facts := BenchReadEnvironmentFacts(gitRoot)
+    gateLine := AgentLoopRelativeGateRecordLine(failures, timingStatus, baseLabel, recordedBaseCommit, facts.CliCommit, baseBuildMs, baseCacheHit, gateElapsedMs, AgentLoopMachineText(facts), loadAtStart, loadAtEnd)
+    table := "timing: " + timingStatus + "\n\n" + AgentLoopRelativeTimingTable(relative.Timings) + "\n\n## Sensitivity\n\n" + AgentLoopTimingSensitivityTable(relative.HeadCounterRows, relative.Timings) + "\n\n## Head structural counters\n\n" + AgentLoopRenderTable(relative.HeadCounterRows, baseline.Rows, "the committed structural counter baseline " + AgentLoopBaselineRelativePath())
     _ = AgentLoopWriteRelativeGateRecord(repositoryRoot, gateLine, table)
     assert failures.Count == 0, gateLine + "\n" + table
 }

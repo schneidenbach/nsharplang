@@ -97,6 +97,68 @@ class BenchProcessRun {
     }
 }
 
+class BenchCompilerProductDiff {
+    ProductPaths: List<string>
+    Error: string
+
+    constructor() {
+        ProductPaths = new List<string>()
+        Error = ""
+    }
+
+    func HasCompilerChanges(): bool {
+        return ProductPaths.Count > 0
+    }
+}
+
+// Compiler performance timing is relevant only when the compared commits change a product input
+// that can affect `nlc build`, `check`, or `test`: the compiler slice projects (including the
+// top-level compiler project), CLI and test host, runtime, SDK build tasks, or SDK targets/config.
+// Test declarations and benchmark harness files are intentionally not compiler product inputs.
+func BenchIsCompilerProductPath(path: string): bool {
+    normalized := path.Replace("\\", "/")
+    if normalized.EndsWith(".tests.nl", StringComparison.Ordinal) {
+        return false
+    }
+
+    productInput := normalized.EndsWith(".nl", StringComparison.Ordinal) || normalized.EndsWith(".cs", StringComparison.Ordinal) || normalized.EndsWith(".yml", StringComparison.Ordinal) || normalized.EndsWith(".props", StringComparison.Ordinal) || normalized.EndsWith(".targets", StringComparison.Ordinal)
+    if !productInput {
+        return false
+    }
+
+    sdkTarget := normalized.StartsWith("src/NSharpLang.Sdk/Sdk/", StringComparison.Ordinal) && (normalized.EndsWith(".props", StringComparison.Ordinal) || normalized.EndsWith(".targets", StringComparison.Ordinal))
+    return normalized.StartsWith("src/NSharpLang.Compiler.", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Compiler/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Cli/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.TestHost/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Runtime/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Build.Tasks/", StringComparison.Ordinal) || sdkTarget
+}
+
+// Compare the committed base/head tree, not the current working directory. A git failure is
+// reported as an error so an unavailable diff can never silently suppress timing coverage.
+func BenchFindCompilerProductChanges(gitRoot: string, baseCommit: string, headCommit: string): BenchCompilerProductDiff {
+    result := new BenchCompilerProductDiff()
+    if baseCommit == "" || headCommit == "" {
+        result.Error = "could not identify both commits for the compiler product diff"
+        return result
+    }
+
+    range := baseCommit + ".." + headCommit
+    run := BenchRunProcess("git", "-C " + BenchQuote(gitRoot) + " diff --name-only " + BenchQuote(range), Path.GetTempPath())
+    if run.ExitCode != 0 {
+        result.Error = "git diff failed for compiler product range " + range + ": " + BenchTruncate(run.Stderr.Trim(), 600)
+        return result
+    }
+
+    paths := BenchSplitLines(run.Stdout)
+    i := 0
+    while i < paths.Count {
+        path := paths[i]
+        if BenchIsCompilerProductPath(path) {
+            result.ProductPaths.Add(path)
+        }
+        i = i + 1
+    }
+
+    return result
+}
+
 // Start a child, drain BOTH pipes CONCURRENTLY, wait, and dispose.
 //
 // THE CONCURRENCY IS THE WHOLE POINT, AND IT IS NOT THEORETICAL. Reading stdout to end BEFORE
@@ -198,6 +260,7 @@ class BenchCommandRun {
     ExitCode: int
     WallMs: long
     PeakRssBytes: long
+    CpuMs: long
     ResolveMs: long
     EmitMs: long
     TotalMs: long
@@ -212,6 +275,7 @@ class BenchCommandRun {
         ExitCode = exitCode
         WallMs = wallMs
         PeakRssBytes = peakRssBytes
+        CpuMs = -1
         ResolveMs = -1
         EmitMs = -1
         TotalMs = -1
@@ -323,6 +387,7 @@ func BenchMeasureOnce(cliDll: string, projectDirectory: string, command: string,
             Path.GetTempPath()
         )
         measured := new BenchCommandRun(command, run.ExitCode, run.WallMs, BenchParsePeakRssBytes(run.Stderr))
+        measured.CpuMs = AgentLoopParseCpuMs(run.Stderr)
         measured.Stdout = run.Stdout
         measured.CliStderr = BenchStripTimeUtilityLines(run.Stderr)
         return measured
@@ -342,6 +407,7 @@ func BenchMeasureOnce(cliDll: string, projectDirectory: string, command: string,
     BenchDeleteDirectory(outputDirectory)
 
     measured := new BenchCommandRun(command, run.ExitCode, run.WallMs, BenchParsePeakRssBytes(run.Stderr))
+    measured.CpuMs = AgentLoopParseCpuMs(run.Stderr)
     measured.WallMs = measured.WallMs + BenchInjectedDelayMs(side)
     measured.Stdout = run.Stdout
     measured.CliStderr = BenchStripTimeUtilityLines(run.Stderr)

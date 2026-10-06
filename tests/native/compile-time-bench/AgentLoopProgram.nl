@@ -11,9 +11,10 @@ import System.IO
 //
 // Options:
 //     --sizes <list>           small, medium, large (comma-separated) or all (default small,medium)
-//     --runs <n>               samples per scenario (default 3)
+//     --runs <n>               minimum paired samples per scenario (default 3; relative runs use at least 9)
 //     --cli <Cli.dll>          the CLI under test (default: the Debug build beside the repo root)
 //     --base-cli <Cli.dll>     interleave this base CLI with head and report paired ratios
+//     --scenario <id>          limit paired measurement to one exact scenario id
 //     --daemon                 keep `nlc daemon` running for the project during each sample
 //     --judge                  exit 1 when a counter differs from the committed baseline
 //     --write-baseline <path>  write the measured rows as a baseline file (the owner's re-baseline)
@@ -26,6 +27,7 @@ class AgentLoopOptions {
     Runs: int
     CliDll: string
     BaseCliDll: string
+    ScenarioId: string
     Daemon: bool
     Judge: bool
     Ratchet: bool
@@ -39,6 +41,7 @@ class AgentLoopOptions {
         Runs = 3
         CliDll = cliDll
         BaseCliDll = ""
+        ScenarioId = ""
         Daemon = false
         Judge = false
         Ratchet = false
@@ -63,7 +66,7 @@ func AgentLoopRequested(args: string[]): bool {
 }
 
 func AgentLoopHelpText(): string {
-    return "N# agent-loop performance benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench --agent-loop [options]\n" + "\n" + "Measures cold and daemon-warm edit/check/build/test scenarios on small, medium and large projects.\n" + "Structural CompilerWorkCounters are gated exactly; timings are paired against --base-cli in the same run.\n" + "\n" + "Options:\n" + "  --sizes <list>           small, medium, large (comma-separated) or all (default small,medium)\n" + "  --runs <n>               paired samples per scenario (default 3)\n" + "  --cli <path>             head Cli.dll (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --base-cli <path>        base Cli.dll measured interleaved with head; prints head/base ratios\n" + "  --daemon                 Keep nlc daemon running for each single-CLI sample\n" + "  --judge                  Exit 1 when structural counters differ from the committed baseline\n" + "  --write-baseline <path>  Write structural counters only (the owner's re-baseline)\n" + "  --ratchet                Lower the committed counter baseline; refuses any rise\n" + "  --out <dir>              Output directory (default artifacts/agent-loop/<local date>)\n" + "  --help, -h               Show this help text"
+    return "N# agent-loop performance benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench --agent-loop [options]\n" + "\n" + "Measures cold and daemon-warm edit/check/build/test scenarios on small, medium and large projects.\n" + "Structural CompilerWorkCounters are gated exactly; timing uses interleaved pairs and a confidence-bound rule.\n" + "\n" + "Options:\n" + "  --sizes <list>           small, medium, large (comma-separated) or all (default small,medium)\n" + "  --runs <n>               minimum paired samples per row (default 3; relative runs use at least 9)\n" + "  --cli <path>             head Cli.dll (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --base-cli <path>        base Cli.dll measured interleaved with head\n" + "  --scenario <id>          exact scenario id to isolate in paired measurements\n" + "  --daemon                 Keep nlc daemon running for each single-CLI sample\n" + "  --judge                  Exit 1 when structural counters differ from the committed baseline\n" + "  --write-baseline <path>  Write structural counters only (the owner's re-baseline)\n" + "  --ratchet                Lower the committed counter baseline; refuses any rise\n" + "  --out <dir>              Output directory (default artifacts/agent-loop/<local date>)\n" + "  --help, -h               Show this help text"
 }
 
 func AgentLoopParseSizes(text: string): List<string> {
@@ -116,7 +119,7 @@ func AgentLoopParseOptions(args: string[], repositoryRoot: string): AgentLoopOpt
             options.Judge = true
         } else if argument == "--ratchet" {
             options.Ratchet = true
-        } else if !hasValue && (argument == "--sizes" || argument == "--runs" || argument == "--cli" || argument == "--base-cli" || argument == "--write-baseline" || argument == "--out") {
+        } else if !hasValue && (argument == "--sizes" || argument == "--runs" || argument == "--cli" || argument == "--base-cli" || argument == "--scenario" || argument == "--write-baseline" || argument == "--out") {
             options.Error = argument + " needs a value. Run with --agent-loop --help for the option list."
             return options
         } else if argument == "--sizes" {
@@ -146,6 +149,14 @@ func AgentLoopParseOptions(args: string[], repositoryRoot: string): AgentLoopOpt
             i = i + 1
         } else if argument == "--base-cli" {
             options.BaseCliDll = Path.GetFullPath(args[i + 1])
+            i = i + 1
+        } else if argument == "--scenario" {
+            options.ScenarioId = args[i + 1]
+            if AgentLoopSelectScenarios(options.ScenarioId).Count == 0 {
+                options.Error = "--scenario needs an exact scenario id such as 'no-op build'."
+                return options
+            }
+
             i = i + 1
         } else if argument == "--write-baseline" {
             options.WriteBaseline = Path.GetFullPath(args[i + 1])
@@ -204,17 +215,21 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         BenchFailHarness("--base-cli cannot be combined with --write-baseline or --ratchet; measure the head CLI alone for structural baseline updates.")
     }
 
+    if options.ScenarioId != "" && options.BaseCliDll == "" {
+        BenchFailHarness("--scenario is available with --base-cli paired measurements only.")
+    }
+
     Directory.CreateDirectory(options.OutputDirectory)
     environment := BenchReadEnvironmentFacts(repositoryRoot)
     loadAtStart := BenchReadMachineLoad()
-    print "agent-loop benchmark: sizes " + String.Join(",", options.SizeNames) + ", " + BenchIntText(options.Runs) + " sample(s) per scenario; load " + BenchLoadText(loadAtStart.LoadThousandths) + " on " + BenchCountText(loadAtStart.Cores) + " cores (trend metadata only)"
+    print "agent-loop benchmark: sizes " + String.Join(",", options.SizeNames) + ", minimum " + BenchIntText(options.Runs) + " paired sample(s) per scenario (gate minimum 9); load " + BenchLoadText(loadAtStart.LoadThousandths) + " on " + BenchCountText(loadAtStart.Cores) + " cores (trend metadata only)"
     print "head CLI: " + options.CliDll
 
     relative: AgentLoopRelativeMatrix? = null
     rows := new List<AgentLoopRow>()
     if options.BaseCliDll != "" {
         print "base CLI: " + options.BaseCliDll
-        relative = AgentLoopMeasureRelativeMatrix(options.CliDll, options.BaseCliDll, repositoryRoot, options.SizeNames, options.Runs, true)
+        relative = AgentLoopMeasureRelativeMatrix(options.CliDll, options.BaseCliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.ScenarioId)
         rows = (relative ?? new AgentLoopRelativeMatrix()).HeadCounterRows
     } else if options.WriteBaseline != "" || options.Ratchet || options.Judge {
         rows = AgentLoopMeasureStructuralRows(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true)

@@ -331,29 +331,53 @@ test "compile-time baseline: the checked-in Core phase contract keeps the exact 
 }
 
 test "compile-time relative gate: paired ratios are formed before the median and accept at 1.20x" {
-    head := BenchTestLongs(1200, 1200, 1200)
-    control := BenchTestLongs(1000, 1000, 1000)
-    assert BenchMedianPairRatioThousandths(head, control, 3) == 1200
-    assert BenchCompileTimeRatioFailure(head, control, 3) == ""
-    table := BenchPairedBuildTable(head, control, 3)
+    head := new long[](9)
+    control := new long[](9)
+    i := 0
+    while i < 9 {
+        head[i] = 1200
+        control[i] = 1000
+        i = i + 1
+    }
+    assert BenchMedianPairRatioThousandths(head, control, 9) == 1200
+    assert BenchCompileTimeRatioFailure(head, control, 9) == ""
+    table := BenchPairedBuildTable(head, control, 9)
     assert table.Contains("| 1 | 1000 | 1200 | 1.2x |")
-    assert table.Contains("Median of per-pair head/base ratios: 1.2x")
+    assert table.Contains("exact sign-test 95% lower bound 1.2x")
 }
 
-test "compile-time relative gate: an env-delayed head is a regression above the 1.20x tolerance" {
-    head := BenchTestLongs(1300, 1310, 1290)
-    control := BenchTestLongs(1000, 1000, 1000)
-    failure := BenchCompileTimeRatioFailure(head, control, 3)
-    assert failure.Contains("regressed")
-    assert failure.Contains("1.3x")
-    assert failure.Contains("1.2x")
+test "compile-time relative gate: the deliberate 500 ms and 1,500 ms head delays fail the confidence and floor rule" {
+    head500 := new long[](9)
+    head1500 := new long[](9)
+    control := new long[](9)
+    i := 0
+    while i < 9 {
+        control[i] = 1000
+        head500[i] = control[i] + BenchConfiguredDelayMs("head", "500")
+        head1500[i] = control[i] + BenchConfiguredDelayMs("head", "1500")
+        i = i + 1
+    }
+    failure500 := BenchCompileTimeRatioFailure(head500, control, 9)
+    failure1500 := BenchCompileTimeRatioFailure(head1500, control, 9)
+    assert failure500.Contains("median slowdown 500 ms >= 30 ms"), failure500
+    assert failure1500.Contains("median slowdown 1500 ms >= 30 ms"), failure1500
+    assert failure500.Contains("95% exact sign interval lower bound")
+    assert failure500.Contains("1.2x")
 }
 
 test "compile-time relative gate: missing or invalid pair measurements fail closed" {
-    head := BenchTestLongs(1200, 0, 1200)
-    control := BenchTestLongs(1000, 1000, 0)
-    assert BenchMedianPairRatioThousandths(head, control, 3) == -1
-    assert BenchCompileTimeRatioFailure(head, control, 3).Contains("pair was missing")
+    head := new long[](9)
+    control := new long[](9)
+    i := 0
+    while i < 9 {
+        head[i] = 1200
+        control[i] = 1000
+        i = i + 1
+    }
+    head[1] = 0
+    control[8] = 0
+    assert BenchMedianPairRatioThousandths(head, control, 9) == -1
+    assert BenchCompileTimeRatioFailure(head, control, 9).Contains("non-positive base")
 }
 
 test "compile-time relative gate: negative ratio sentinels render as readable signed decimals" {
@@ -782,7 +806,7 @@ test "compile-time bench: the CLI commit is the real 40-character sha wherever g
 
 // ─── THE GATE ─────────────────────────────────────────────────────────────────────────────────
 
-test "compile-time gate: exact Core counters and phase contract accompany interleaved Core-scale emit ratios" {
+test "compile-time gate: exact Core counters and phase contract accompany change-aware Core-scale emit timing" {
     // Step 3a parses the whole test output as one JSON envelope. Keep the gate silent and preserve
     // the complete relative table and machine trend record under artifacts/compile-time.
     repositoryRoot := BenchRepositoryRoot()
@@ -794,18 +818,30 @@ test "compile-time gate: exact Core counters and phase contract accompany interl
     assert File.Exists(headCli), "compile-time gate: head CLI was not found at " + headCli + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug"
     loadAtStart := BenchReadMachineLoad()
     gateStarted := DateTime.UtcNow.Ticks
-    baseCompiler := BenchPrepareBaseCompiler(repositoryRoot)
-    assert baseCompiler.Error == "", "compile-time gate: " + baseCompiler.Error
+    gitRoot := BenchCompilerPerfGitRoot(repositoryRoot)
+    baseCommit := BenchSelectBaseCommit(gitRoot)
+    headCommit := BenchGitText(gitRoot, "rev-parse HEAD")
+    productChanges := BenchFindCompilerProductChanges(gitRoot, baseCommit, headCommit)
+    assert productChanges.Error == "", "compile-time gate: " + productChanges.Error
+    comparesTiming := productChanges.HasCompilerChanges()
+    baseCompiler := new BenchBaseCompiler(baseCommit, "", 0, false, "")
+    timingStatus := "not compared (no compiler change)"
+    if comparesTiming {
+        baseCompiler = BenchPrepareBaseCompiler(repositoryRoot)
+        assert baseCompiler.Error == "", "compile-time gate: " + baseCompiler.Error
+    }
 
-    baseCanary := BenchObserveBuildPhase(baseCompiler.CliDll)
     headCanary := BenchObserveBuildPhase(headCli)
-    basePhaseRefusal := BenchPhaseContractRefusal(baseline.PhaseContract, baseline.PhaseDiagnosticMultiset, baseCanary.DiagnosticMultiset, baseCanary.ExitCode, baseCanary.SawBuildFailedBanner)
     headPhaseRefusal := BenchPhaseContractRefusal(baseline.PhaseContract, baseline.PhaseDiagnosticMultiset, headCanary.DiagnosticMultiset, headCanary.ExitCode, headCanary.SawBuildFailedBanner)
-    assert basePhaseRefusal == "", "compile-time gate: base phase contract changed: " + basePhaseRefusal
     assert headPhaseRefusal == "", "compile-time gate: head phase contract changed: " + headPhaseRefusal
+    if comparesTiming {
+        baseCanary := BenchObserveBuildPhase(baseCompiler.CliDll)
+        basePhaseRefusal := BenchPhaseContractRefusal(baseline.PhaseContract, baseline.PhaseDiagnosticMultiset, baseCanary.DiagnosticMultiset, baseCanary.ExitCode, baseCanary.SawBuildFailedBanner)
+        assert basePhaseRefusal == "", "compile-time gate: base phase contract changed: " + basePhaseRefusal
+        timingStatus = "compared by exact sign-test 95% lower bound plus 30 ms slowdown floor"
+    }
 
-    facts := BenchReadEnvironmentFacts(BenchCompilerPerfGitRoot(repositoryRoot))
-    headCommit := facts.CliCommit
+    facts := BenchReadEnvironmentFacts(gitRoot)
     // A clean source copy fixes CompilerWorkCounters at the first-build values. Reusing the checkout
     // makes this failed Core build incremental: the first run parses 468 files, the second 452 and
     // the third 0, even though the inputs are unchanged. Copying source (including uncommitted edits)
@@ -832,30 +868,54 @@ test "compile-time gate: exact Core counters and phase contract accompany interl
     try {
         large := AgentLoopFindSize("large") ?? new AgentLoopSize("large", "", 160, 32)
         AgentLoopWriteSynthetic(large, scaleDirectory)
-        pairCount := 3
-        baseMs := new long[](pairCount)
-        headMs := new long[](pairCount)
+        minimumPairs := 9
+        maximumPairs := 17
+        baseMs := new long[](maximumPairs)
+        headMs := new long[](maximumPairs)
         headCountersFailure := ""
+        if comparesTiming {
+            warmupHead := BenchMeasureOnce(headCli, scaleDirectory, "build", 0)
+            warmupBase := BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", 0)
+            if warmupHead.ExitCode != 0 || warmupBase.ExitCode != 0 {
+                headCountersFailure = "Core-scale discarded warm-up pair failed: head exit=" + BenchIntText(warmupHead.ExitCode) + ", base exit=" + BenchIntText(warmupBase.ExitCode)
+            }
+        }
+        comparisonWorkMs := 0L
         i := 0
-        while i < pairCount {
+        counterOnlySamples := 3
+        while headCountersFailure == "" && ((comparesTiming && (i < minimumPairs || (i < maximumPairs && (comparisonWorkMs < 350 || i % 2 == 0)))) || (!comparesTiming && i < counterOnlySamples)) {
             headRun := new BenchCommandRun("build", -1, -1, -1)
             baseRun := new BenchCommandRun("build", -1, -1, -1)
             headStats := ""
-            headFirst := i % 2 == 0
-            if headFirst {
+            if comparesTiming && i % 2 == 0 {
                 headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
                 headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
                 baseRun = BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", i + 1)
-            } else {
+            } else if comparesTiming {
                 baseRun = BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", i + 1)
+                headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
+                headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
+            } else {
                 headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
                 headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
             }
 
-            baseMs[i] = baseRun.WallMs
             headMs[i] = headRun.WallMs
-            if baseRun.ExitCode != 0 || headRun.ExitCode != 0 {
-                headCountersFailure = "Core-scale build did not reach emission: base exit=" + BenchIntText(baseRun.ExitCode) + ", head exit=" + BenchIntText(headRun.ExitCode) + ", base output=" + BenchTruncate(baseRun.Stdout + baseRun.CliStderr, 600) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
+            if comparesTiming {
+                baseMs[i] = baseRun.WallMs
+                comparisonWorkMs = comparisonWorkMs + headRun.WallMs + baseRun.WallMs
+            }
+
+            failedRun := headRun.ExitCode != 0
+            if comparesTiming && baseRun.ExitCode != 0 {
+                failedRun = true
+            }
+            if failedRun {
+                if comparesTiming {
+                    headCountersFailure = "Core-scale build did not reach emission: base exit=" + BenchIntText(baseRun.ExitCode) + ", head exit=" + BenchIntText(headRun.ExitCode) + ", base output=" + BenchTruncate(baseRun.Stdout + baseRun.CliStderr, 600) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
+                } else {
+                    headCountersFailure = "Core-scale build did not reach emission: head exit=" + BenchIntText(headRun.ExitCode) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
+                }
                 break
             }
 
@@ -868,21 +928,27 @@ test "compile-time gate: exact Core counters and phase contract accompany interl
             i = i + 1
         }
 
-        ratioFailure := BenchCompileTimeRatioFailure(headMs, baseMs, pairCount)
+        pairCount := i
+        gateFailure := ""
+        medianRatio := -1L
+        table := "timing: " + timingStatus + "; Core-scale CompilerWorkCounters were checked against the committed baseline."
+        if comparesTiming {
+            gateFailure = BenchCompileTimeRatioFailure(headMs, baseMs, pairCount)
+            medianRatio = BenchMedianPairRatioThousandths(headMs, baseMs, pairCount)
+            table = BenchPairedBuildTable(headMs, baseMs, pairCount)
+        }
         if headCountersFailure != "" {
-            ratioFailure = headCountersFailure
+            gateFailure = headCountersFailure
         }
 
-        medianRatio := BenchMedianPairRatioThousandths(headMs, baseMs, pairCount)
-        table := BenchPairedBuildTable(headMs, baseMs, pairCount)
         machine := facts.Architecture + ", " + facts.OsDescription + ", " + BenchCountText(facts.ProcessorCount) + " cores, .NET " + facts.DotnetVersion
         endLoad := BenchReadMachineLoad()
         gateElapsedMs := (DateTime.UtcNow.Ticks - gateStarted) / 10000
         coreSourceStats := BenchMeasureProjectSources(Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.Compiler.Core"))
-        gateLine := BenchRelativeGateRecordLine(ratioFailure, baseCompiler.Commit, headCommit, baseCompiler.BuildMs, baseCompiler.CacheHit, loadAtStart, machine, medianRatio)
+        gateLine := BenchRelativeGateRecordLine(gateFailure, timingStatus, baseCompiler.Commit, headCommit, baseCompiler.BuildMs, baseCompiler.CacheHit, loadAtStart, machine, medianRatio)
         gateLine = gateLine + "; loadAtEnd=" + BenchLoadText(endLoad.LoadThousandths) + "; gateElapsedMs=" + BenchLongText(gateElapsedMs) + "; coreFiles=" + BenchIntText(coreSourceStats.Files) + "; coreLines=" + BenchLongText(coreSourceStats.Lines) + "; phase=" + baseline.Stage
         _ = BenchWriteRelativeGateRecord(repositoryRoot, gateLine, table)
-        assert ratioFailure == "", gateLine + "\n" + table
+        assert gateFailure == "", gateLine + "\n" + table
     } finally {
         BenchDeleteDirectory(scaleDirectory)
     }

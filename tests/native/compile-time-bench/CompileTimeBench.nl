@@ -1412,6 +1412,116 @@ func BenchMedianPairRatioThousandths(headMs: long[], baseMs: long[], count: int)
     return BenchMedian(ratios, count)
 }
 
+// Exact two-sided sign-test interval for the population median. The returned index is one-based:
+// for nine independent pairs the 95% lower confidence bound is the second-smallest observation
+// (coverage 96.1%). The gate uses odd sample counts and never treats a point estimate alone as
+// regression evidence.
+func BenchExactMedianLowerBoundRank(count: int): int {
+    if count <= 0 {
+        return -1
+    }
+
+    denominator := 1L
+    i := 0
+    while i < count {
+        denominator = denominator * 2
+        i = i + 1
+    }
+
+    rank := 1
+    tailCount := 1L
+    combination := 1L
+    while rank < count {
+        nextCombination := combination
+        nextCombination = nextCombination * (count - rank + 1)
+        nextCombination = nextCombination / rank
+        nextTailCount := tailCount + nextCombination
+        if nextTailCount * 40 > denominator {
+            break
+        }
+
+        rank = rank + 1
+        tailCount = nextTailCount
+        combination = nextCombination
+    }
+
+    return rank
+}
+
+func BenchMedianLowerConfidenceBound(values: long[], count: int): long {
+    if count < 9 || count > values.Length {
+        return -1
+    }
+
+    sorted := new long[](count)
+    i := 0
+    while i < count {
+        sorted[i] = values[i]
+        i = i + 1
+    }
+
+    BenchSortLongs(sorted, count)
+    rank := BenchExactMedianLowerBoundRank(count)
+    if rank <= 0 || rank > count {
+        return -1
+    }
+
+    return sorted[rank - 1]
+}
+
+func BenchMedianPairedDifference(headMs: long[], baseMs: long[], count: int): long {
+    if count <= 0 || count > headMs.Length || count > baseMs.Length {
+        return -1
+    }
+
+    differences := new long[](count)
+    i := 0
+    while i < count {
+        if headMs[i] < 0 || baseMs[i] < 0 {
+            return -1
+        }
+
+        differences[i] = headMs[i] - baseMs[i]
+        i = i + 1
+    }
+
+    return BenchMedian(differences, count)
+}
+
+// A timing regression requires both a statistically clear ratio regression and a useful absolute
+// slowdown. The latter keeps tiny denominator noise from turning into an agent-visible failure.
+func BenchPairedTimingRegressionFailure(
+    rowKey: string,
+    headMs: long[],
+    baseMs: long[],
+    count: int,
+    toleranceThousandths: long,
+    slowdownFloorMs: long
+): string {
+    if count < 9 || count > headMs.Length || count > baseMs.Length {
+        return rowKey + ": fewer than nine valid paired timing samples"
+    }
+
+    ratios := new long[](count)
+    i := 0
+    while i < count {
+        ratios[i] = BenchPairRatioThousandths(headMs[i], baseMs[i])
+        if ratios[i] < 0 {
+            return rowKey + ": a paired timing sample is missing or has a non-positive base measurement"
+        }
+        i = i + 1
+    }
+
+    medianRatio := BenchMedian(ratios, count)
+    lowerBound := BenchMedianLowerConfidenceBound(ratios, count)
+    medianSlowdown := BenchMedianPairedDifference(headMs, baseMs, count)
+    if lowerBound > toleranceThousandths && medianSlowdown >= slowdownFloorMs {
+        return rowKey + ": median paired ratio " + BenchFormatFixed3(medianRatio) + "x (95% exact sign interval lower bound " + BenchFormatFixed3(lowerBound) + "x) exceeds " + BenchFormatFixed3(toleranceThousandths) + "x with median slowdown " + BenchLongText(medianSlowdown) + " ms >= " + BenchLongText(slowdownFloorMs) + " ms"
+    }
+
+    return ""
+}
+
 func BenchCoreCounterFailure(workload: string, expected: AgentLoopCounters?, observed: AgentLoopCounters?): string {
     if expected == null {
         return workload + ": baseline has no CompilerWorkCounters"
@@ -1431,16 +1541,7 @@ func BenchCoreCounterFailure(workload: string, expected: AgentLoopCounters?, obs
 }
 
 func BenchCompileTimeRatioFailure(headMs: long[], baseMs: long[], count: int): string {
-    ratio := BenchMedianPairRatioThousandths(headMs, baseMs, count)
-    if ratio < 0 {
-        return "compile-time gate: an A/B timing pair was missing or had a non-positive base measurement"
-    }
-
-    if ratio > BenchRelativeToleranceThousandths() {
-        return "compile-time gate: Core-scale build regressed; median paired head/base ratio=" + BenchFormatFixed3(ratio) + "x exceeds " + BenchFormatFixed3(BenchRelativeToleranceThousandths()) + "x"
-    }
-
-    return ""
+    return BenchPairedTimingRegressionFailure("compile-time gate: Core-scale build", headMs, baseMs, count, BenchRelativeToleranceThousandths(), 30)
 }
 
 func BenchPairedBuildTable(headMs: long[], baseMs: long[], count: int): string {
@@ -1454,12 +1555,22 @@ func BenchPairedBuildTable(headMs: long[], baseMs: long[], count: int): string {
 
     ratio := BenchMedianPairRatioThousandths(headMs, baseMs, count)
     builder.Append("\nMedian base wall: " + BenchLongText(BenchMedian(baseMs, count)) + " ms; median head wall: " + BenchLongText(BenchMedian(headMs, count)) + " ms.\n")
-    builder.Append("Median of per-pair head/base ratios: " + BenchFormatFixed3(ratio) + "x (tolerance " + BenchFormatFixed3(BenchRelativeToleranceThousandths()) + "x).\n")
+    lowerBound := -1L
+    ratios := new long[](count)
+    i = 0
+    while i < count {
+        ratios[i] = BenchPairRatioThousandths(headMs[i], baseMs[i])
+        i = i + 1
+    }
+    lowerBound = BenchMedianLowerConfidenceBound(ratios, count)
+    slowdown := BenchMedianPairedDifference(headMs, baseMs, count)
+    builder.Append("Median of per-pair head/base ratios: " + BenchFormatFixed3(ratio) + "x; exact sign-test 95% lower bound " + BenchFormatFixed3(lowerBound) + "x; median slowdown " + BenchLongText(slowdown) + " ms (tolerance " + BenchFormatFixed3(BenchRelativeToleranceThousandths()) + "x, floor 30 ms).\n")
     return builder.ToString() ?? ""
 }
 
 func BenchRelativeGateRecordLine(
     outcome: string,
+    timingStatus: string,
     baseCommit: string,
     headCommit: string,
     baseCliMs: long,
@@ -1477,8 +1588,16 @@ func BenchRelativeGateRecordLine(
     if cacheHit {
         cache = "cache-hit"
     }
+    if timingStatus == "not compared (no compiler change)" {
+        cache = "not-required"
+    }
 
-    return verdict + "; base=" + baseCommit + "; head=" + headCommit + "; baseBuildMs=" + BenchLongText(baseCliMs) + "; baseBuild=" + cache + "; medianHeadBase=" + BenchFormatFixed3(ratio) + "x; tolerance=" + BenchFormatFixed3(BenchRelativeToleranceThousandths()) + "x; machine=" + machine + "; load=" + BenchLoadText(load.LoadThousandths)
+    ratioText := BenchFormatFixed3(ratio) + "x"
+    if ratio < 0 {
+        ratioText = "not-compared"
+    }
+
+    return verdict + "; timing: " + timingStatus + "; base=" + baseCommit + "; head=" + headCommit + "; baseBuildMs=" + BenchLongText(baseCliMs) + "; baseBuild=" + cache + "; medianHeadBase=" + ratioText + "; tolerance=" + BenchFormatFixed3(BenchRelativeToleranceThousandths()) + "x; minimumPairs=9; slowdownFloorMs=30; machine=" + machine + "; load=" + BenchLoadText(load.LoadThousandths)
 }
 
 func BenchWriteRelativeGateRecord(repositoryRoot: string, line: string, table: string): bool {

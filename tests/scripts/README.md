@@ -32,11 +32,23 @@ automation, and agent instructions already call those paths.
 - `test-compile.sh` - minimal direct SDK compilation repro helper.
 ## Compiler performance gates
 
-The compile-time and agent-loop gates use exact `--stats` structural counters as their machine-independent
-contract. They compare timing against a base compiler built in the same run, interleaved in three pairs,
-and gate the median of per-pair head/base ratios at 1.20x. The base is `git merge-base HEAD
-origin/systems-language` when the worktree is ahead of origin, otherwise `HEAD~1`; its build is cached
-by commit. Absolute medians, machine, load and commit are trend artifacts only. Load never skips a verdict.
+The compile-time and agent-loop gates always enforce exact `--stats` structural counters. They compare
+timing only when `git diff base..head` changes compiler product inputs: `.nl`, `.cs`, or `project.yml`
+under `src/NSharpLang.Compiler.*`, `src/NSharpLang.Compiler/`, `src/NSharpLang.Cli/`,
+`src/NSharpLang.TestHost/`, `src/NSharpLang.Runtime/`, or `src/NSharpLang.Build.Tasks/`, plus SDK
+`.props`/`.targets` under `src/NSharpLang.Sdk/Sdk/`. `.tests.nl`, benchmark harness files, docs and
+`.csproj` files do not trigger a timing comparison. A no-product-change run reports
+`timing: not compared (no compiler change)` and checks the head counters and Core phase contract.
+
+Changed-product timing discards one warm-up pair, alternates base/head order, and takes at least nine
+measured pairs per row. Rows collect at least 350 ms of paired command wall time and stop at 17 pairs.
+The gate fails only when the exact two-sided sign-test 95% lower confidence bound for the median
+per-pair ratio exceeds 1.20x and the median slowdown is at least 30 ms per command. Short agent-loop
+rows use CPU only when the timed child reports at least 30 ms median CPU and its paired-ratio MAD is
+lower than wall's. The base is `git merge-base HEAD origin/systems-language` on a branch, otherwise
+`HEAD~1`; its build is cached by commit. Absolute medians, confidence bounds, selected metric, both
+wall and CPU medians, machine, load and commit remain trend artifacts. The agent-loop report gives
+the zero-noise minimum detectable slowdown by size and mode; load never skips a timing verdict.
 
 To compare an explicit base CLI locally, build the benchmark project and run:
 
@@ -45,5 +57,8 @@ dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll build --project tests/native
 dotnet tests/native/compile-time-bench/bin/Debug/net10.0/tests/NSharpLang.CompileTimeBench.dll \
   --agent-loop --base-cli /path/to/base/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll
 ```
+
+Add `--scenario "no-op build"` to isolate that exact cold and daemon-warm row for a paired timing
+probe; the product gate always uses the complete small/medium scenario matrix.
 
 See `memory/testing.md` sections 8 and 8a for the counter rows, base selection, artifacts and ratchet workflow.

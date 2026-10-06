@@ -132,6 +132,21 @@ func AgentLoopScenarios(): List<AgentLoopScenario> {
     return scenarios
 }
 
+func AgentLoopSelectScenarios(scenarioId: string): List<AgentLoopScenario> {
+    selected := new List<AgentLoopScenario>()
+    scenarios := AgentLoopScenarios()
+    i := 0
+    while i < scenarios.Count {
+        if scenarioId == "" || scenarios[i].Id == scenarioId {
+            selected.Add(scenarios[i])
+        }
+
+        i = i + 1
+    }
+
+    return selected
+}
+
 // ─── THE PROJECTS ─────────────────────────────────────────────────────────────────────────────
 
 func AgentLoopPad(value: int, width: int): string {
@@ -946,7 +961,10 @@ class AgentLoopRelativeTimingRow {
     Mode: string
     BaseMs: long[]
     HeadMs: long[]
+    BaseCpuMs: long[]
+    HeadCpuMs: long[]
     Samples: int
+    Metric: string
 
     constructor(size: string, scenario: string, mode: string, samples: int) {
         Size = size
@@ -954,7 +972,10 @@ class AgentLoopRelativeTimingRow {
         Mode = mode
         BaseMs = new long[](samples)
         HeadMs = new long[](samples)
+        BaseCpuMs = new long[](samples)
+        HeadCpuMs = new long[](samples)
         Samples = 0
+        Metric = "wall"
     }
 }
 
@@ -986,7 +1007,146 @@ func AgentLoopFindRelativeTiming(rows: List<AgentLoopRelativeTimingRow>, size: s
 func AgentLoopRecordRelativePair(row: AgentLoopRelativeTimingRow, sample: int, baseRow: AgentLoopRow, headRow: AgentLoopRow) {
     row.BaseMs[sample] = baseRow.MedianWallMs
     row.HeadMs[sample] = headRow.MedianWallMs
+    row.BaseCpuMs[sample] = baseRow.MedianCpuMs
+    row.HeadCpuMs[sample] = headRow.MedianCpuMs
     row.Samples = sample + 1
+}
+
+func AgentLoopRelativeMinimumPairs(): int {
+    return 9
+}
+
+func AgentLoopRelativeMaximumPairs(): int {
+    return 17
+}
+
+func AgentLoopRelativeRowWorkTargetMs(): long {
+    return 350
+}
+
+func AgentLoopRelativeSlowdownFloorMs(): long {
+    return 30
+}
+
+func AgentLoopRelativeWallNoiseFloorMs(): long {
+    return 100
+}
+
+func AgentLoopMinimumDetectableSlowdownMs(baseMedianMs: long): long {
+    if baseMedianMs <= 0 {
+        return -1
+    }
+
+    ratioBoundaryHeadMs := (baseMedianMs * 1201 + 999) / 1000
+    ratioSlowdownMs := ratioBoundaryHeadMs - baseMedianMs
+    if ratioSlowdownMs < AgentLoopRelativeSlowdownFloorMs() {
+        return AgentLoopRelativeSlowdownFloorMs()
+    }
+
+    return ratioSlowdownMs
+}
+
+func AgentLoopTimingSensitivityTable(counterRows: List<AgentLoopRow>, timingRows: List<AgentLoopRelativeTimingRow>): string {
+    builder := new StringBuilder()
+    BenchAppendLine(builder, "| size | mode | baseline metric median ms | zero-noise minimum detectable slowdown ms |")
+    BenchAppendLine(builder, "|---|---|---:|---:|")
+    sizes := AgentLoopGateSizeNames()
+    modes := new string[](2)
+    modes[0] = AgentLoopModeCold()
+    modes[1] = AgentLoopModeDaemonWarm()
+    i := 0
+    while i < sizes.Count {
+        modeIndex := 0
+        while modeIndex < modes.Length {
+            values := new List<long>()
+            j := 0
+            while j < timingRows.Count {
+                timing := timingRows[j]
+                if timing.Size == sizes[i] && timing.Mode == modes[modeIndex] {
+                    metric := AgentLoopRelativeMetric(timing)
+                    samples := timing.BaseMs
+                    if metric == "cpu" {
+                        samples = timing.BaseCpuMs
+                    }
+                    values.Add(BenchMedian(samples, timing.Samples))
+                }
+                j = j + 1
+            }
+
+            if values.Count == 0 {
+                j = 0
+                while j < counterRows.Count {
+                    row := counterRows[j]
+                    if row.Size == sizes[i] && row.Mode == modes[modeIndex] {
+                        values.Add(row.MedianWallMs)
+                    }
+                    j = j + 1
+                }
+            }
+
+            if values.Count > 0 {
+                baselineMedian := BenchMedian(values.ToArray(), values.Count)
+                detectable := AgentLoopMinimumDetectableSlowdownMs(baselineMedian)
+                BenchAppendLine(builder, "| " + sizes[i] + " | " + modes[modeIndex] + " | " + BenchLongText(baselineMedian) + " | " + BenchLongText(detectable) + " |")
+            }
+            modeIndex = modeIndex + 1
+        }
+        i = i + 1
+    }
+
+    BenchAppendLine(builder, "")
+    BenchAppendLine(builder, "Sensitivity floor is optimistic with zero measurement noise: max(30 ms, ceil(1.201 × baseline median) − baseline median). Real noisy rows need a larger slowdown for the 95% lower bound to clear 1.20x.")
+    return builder.ToString() ?? ""
+}
+
+func AgentLoopRelativeMetricDispersion(headMs: long[], baseMs: long[], count: int): long {
+    ratios := new long[](count)
+    i := 0
+    while i < count {
+        ratios[i] = BenchPairRatioThousandths(headMs[i], baseMs[i])
+        if ratios[i] < 0 {
+            return -1
+        }
+        i = i + 1
+    }
+
+    median := BenchMedian(ratios, count)
+    deviations := new long[](count)
+    i = 0
+    while i < count {
+        difference := ratios[i] - median
+        if difference < 0 {
+            difference = -difference
+        }
+        deviations[i] = difference
+        i = i + 1
+    }
+
+    return BenchMedian(deviations, count)
+}
+
+// Wall remains the default. On sub-100 ms rows, use process CPU only when the time utility reported
+// enough CPU to resolve a 30 ms slowdown and its paired-ratio MAD is lower than wall's.
+func AgentLoopRelativeMetric(row: AgentLoopRelativeTimingRow): string {
+    if row.Samples < AgentLoopRelativeMinimumPairs() {
+        return "wall"
+    }
+
+    if BenchMedian(row.BaseMs, row.Samples) >= AgentLoopRelativeWallNoiseFloorMs() {
+        return "wall"
+    }
+
+    if BenchMedian(row.BaseCpuMs, row.Samples) < AgentLoopRelativeSlowdownFloorMs() {
+        return "wall"
+    }
+
+    wallDispersion := AgentLoopRelativeMetricDispersion(row.HeadMs, row.BaseMs, row.Samples)
+    cpuDispersion := AgentLoopRelativeMetricDispersion(row.HeadCpuMs, row.BaseCpuMs, row.Samples)
+    if wallDispersion >= 0 && cpuDispersion >= 0 && cpuDispersion < wallDispersion {
+        return "cpu"
+    }
+
+    return "wall"
 }
 
 func AgentLoopRowsHaveFailure(rows: List<AgentLoopRow>): string {
@@ -1026,6 +1186,36 @@ func AgentLoopKeepHeadCounterRow(rows: List<AgentLoopRow>, observed: AgentLoopRo
     }
 }
 
+// Discard one interleaved setup/measurement pair before collecting a row's samples. The pair is
+// still checked for command failures, but its wall and CPU values and its counters never enter the
+// verdict or the committed counter census.
+func AgentLoopDiscardRelativeWarmupPair(
+    headCliDll: string,
+    baseCliDll: string,
+    repositoryRoot: string,
+    size: AgentLoopSize,
+    scenario: AgentLoopScenario,
+    daemon: bool,
+    headFirst: bool
+): string {
+    headRows := new List<AgentLoopRow>()
+    baseRows := new List<AgentLoopRow>()
+    if headFirst {
+        headRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size, scenario, 1, false, daemon)
+        baseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size, scenario, 1, false, daemon)
+    } else {
+        baseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size, scenario, 1, false, daemon)
+        headRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size, scenario, 1, false, daemon)
+    }
+
+    failure := AgentLoopRowsHaveFailure(headRows)
+    if failure == "" {
+        failure = AgentLoopRowsHaveFailure(baseRows)
+    }
+
+    return failure
+}
+
 // For each scenario, take nearby base/head samples. Cold rows use the in-process path; daemon-warm
 // rows measure the second request after the edit with a daemon serving the workspace. Each pair
 // alternates head/base then base/head, keeping machine load shared by both measurements.
@@ -1035,10 +1225,22 @@ func AgentLoopMeasureRelativeMatrix(
     repositoryRoot: string,
     sizeNames: List<string>,
     samples: int,
-    printProgress: bool
+    printProgress: bool,
+    scenarioId: string = ""
 ): AgentLoopRelativeMatrix {
     result := new AgentLoopRelativeMatrix()
-    scenarios := AgentLoopScenarios()
+    scenarios := AgentLoopSelectScenarios(scenarioId)
+    if scenarios.Count == 0 {
+        throw new InvalidOperationException("unknown agent-loop scenario '" + scenarioId + "'")
+    }
+    minimumPairs := samples
+    if minimumPairs < AgentLoopRelativeMinimumPairs() {
+        minimumPairs = AgentLoopRelativeMinimumPairs()
+    }
+    maximumPairs := AgentLoopRelativeMaximumPairs()
+    if maximumPairs < minimumPairs {
+        maximumPairs = minimumPairs
+    }
     sizeIndex := 0
     while sizeIndex < sizeNames.Count {
         size := AgentLoopFindSize(sizeNames[sizeIndex])
@@ -1049,10 +1251,20 @@ func AgentLoopMeasureRelativeMatrix(
         scenarioIndex := 0
         while scenarioIndex < scenarios.Count {
             scenario := scenarios[scenarioIndex]
-            coldTiming := new AgentLoopRelativeTimingRow(sizeNames[sizeIndex], scenario.Id, AgentLoopModeCold(), samples)
-            daemonTiming := new AgentLoopRelativeTimingRow(sizeNames[sizeIndex], scenario.Id, AgentLoopModeDaemonWarm(), samples)
+            coldTiming := new AgentLoopRelativeTimingRow(sizeNames[sizeIndex], scenario.Id, AgentLoopModeCold(), maximumPairs)
+            daemonTiming := new AgentLoopRelativeTimingRow(sizeNames[sizeIndex], scenario.Id, AgentLoopModeDaemonWarm(), maximumPairs)
+            coldWarmupFailure := AgentLoopDiscardRelativeWarmupPair(headCliDll, baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, false, true)
+            if coldWarmupFailure != "" {
+                result.Failures.Add(AgentLoopRowKey(sizeNames[sizeIndex], scenario.Id, AgentLoopModeCold()) + " warm-up: " + coldWarmupFailure)
+            }
+            daemonWarmupFailure := AgentLoopDiscardRelativeWarmupPair(headCliDll, baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, true, false)
+            if daemonWarmupFailure != "" {
+                result.Failures.Add(AgentLoopRowKey(sizeNames[sizeIndex], scenario.Id, AgentLoopModeDaemonWarm()) + " warm-up: " + daemonWarmupFailure)
+            }
+            coldWorkMs := 0L
+            daemonWorkMs := 0L
             sample := 0
-            while sample < samples {
+            while sample < minimumPairs || (sample < maximumPairs && (coldWorkMs < AgentLoopRelativeRowWorkTargetMs() || daemonWorkMs < AgentLoopRelativeRowWorkTargetMs() || sample % 2 == 0)) {
                 headFirst := sample % 2 == 0
                 headRows := new List<AgentLoopRow>()
                 baseRows := new List<AgentLoopRow>()
@@ -1075,6 +1287,7 @@ func AgentLoopMeasureRelativeMatrix(
                 AgentLoopKeepHeadCounterRow(result.HeadCounterRows, headRows[0])
                 AgentLoopKeepHeadCounterRow(result.HeadCounterRows, headRows[1])
                 AgentLoopRecordRelativePair(coldTiming, sample, baseRows[0], headRows[0])
+                coldWorkMs = coldWorkMs + baseRows[0].MedianWallMs + headRows[0].MedianWallMs
 
                 daemonHeadRows := new List<AgentLoopRow>()
                 daemonBaseRows := new List<AgentLoopRow>()
@@ -1100,6 +1313,7 @@ func AgentLoopMeasureRelativeMatrix(
                 daemonBaseWarm.Mode = AgentLoopModeDaemonWarm()
                 AgentLoopKeepHeadCounterRow(result.HeadCounterRows, daemonHeadWarm)
                 AgentLoopRecordRelativePair(daemonTiming, sample, daemonBaseWarm, daemonHeadWarm)
+                daemonWorkMs = daemonWorkMs + daemonBaseWarm.MedianWallMs + daemonHeadWarm.MedianWallMs
 
                 if printProgress {
                     print "  " + AgentLoopRowKey(sizeNames[sizeIndex], scenario.Id, AgentLoopModeCold()) + " paired sample " + BenchIntText(sample + 1)
@@ -1126,11 +1340,17 @@ func AgentLoopRelativeTimingFailures(timings: List<AgentLoopRelativeTimingRow>):
     i := 0
     while i < timings.Count {
         row := timings[i]
-        ratio := BenchMedianPairRatioThousandths(row.HeadMs, row.BaseMs, row.Samples)
-        if ratio < 0 {
-            failures.Add(AgentLoopRowKey(row.Size, row.Scenario, row.Mode) + ": a paired timing sample is missing or has a non-positive base time")
-        } else if ratio > AgentLoopRelativeToleranceThousandths() {
-            failures.Add(AgentLoopRowKey(row.Size, row.Scenario, row.Mode) + ": median paired head/base ratio " + BenchFormatFixed3(ratio) + "x exceeds " + BenchFormatFixed3(AgentLoopRelativeToleranceThousandths()) + "x")
+        row.Metric = AgentLoopRelativeMetric(row)
+        headMs := row.HeadMs
+        baseMs := row.BaseMs
+        if row.Metric == "cpu" {
+            headMs = row.HeadCpuMs
+            baseMs = row.BaseCpuMs
+        }
+
+        failure := BenchPairedTimingRegressionFailure(AgentLoopRowKey(row.Size, row.Scenario, row.Mode), headMs, baseMs, row.Samples, AgentLoopRelativeToleranceThousandths(), AgentLoopRelativeSlowdownFloorMs())
+        if failure != "" {
+            failures.Add(failure)
         }
         i = i + 1
     }
@@ -1140,16 +1360,22 @@ func AgentLoopRelativeTimingFailures(timings: List<AgentLoopRelativeTimingRow>):
 
 func AgentLoopRelativeTimingTable(timings: List<AgentLoopRelativeTimingRow>): string {
     builder := new StringBuilder()
-    BenchAppendLine(builder, "| size | scenario | mode | base median ms | head median ms | pair ratios | median ratio |")
-    BenchAppendLine(builder, "|---|---|---|---:|---:|---|---:|")
+    BenchAppendLine(builder, "| size | scenario | mode | decision metric | wall base ms | wall head ms | CPU base ms | CPU head ms | median slowdown ms | pairs | median ratio | 95% lower ratio | pair ratios |")
+    BenchAppendLine(builder, "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     i := 0
     while i < timings.Count {
         row := timings[i]
         ratios := new long[](row.Samples)
+        headSamples := row.HeadMs
+        baseSamples := row.BaseMs
+        if row.Metric == "cpu" {
+            headSamples = row.HeadCpuMs
+            baseSamples = row.BaseCpuMs
+        }
         pair := 0
         ratioText := ""
         while pair < row.Samples {
-            ratios[pair] = BenchPairRatioThousandths(row.HeadMs[pair], row.BaseMs[pair])
+            ratios[pair] = BenchPairRatioThousandths(headSamples[pair], baseSamples[pair])
             if pair > 0 {
                 ratioText = ratioText + ", "
             }
@@ -1157,27 +1383,22 @@ func AgentLoopRelativeTimingTable(timings: List<AgentLoopRelativeTimingRow>): st
             pair = pair + 1
         }
 
-        baseSamples := new long[](row.Samples)
-        headSamples := new long[](row.Samples)
-        pair = 0
-        while pair < row.Samples {
-            baseSamples[pair] = row.BaseMs[pair]
-            headSamples[pair] = row.HeadMs[pair]
-            pair = pair + 1
-        }
         medianRatio := BenchMedian(ratios, row.Samples)
-        BenchAppendLine(builder, "| " + row.Size + " | " + row.Scenario + " | " + row.Mode + " | " + BenchLongText(BenchMedian(baseSamples, row.Samples)) + " | " + BenchLongText(BenchMedian(headSamples, row.Samples)) + " | " + ratioText + " | " + BenchFormatFixed3(medianRatio) + "x |")
+        lowerBound := BenchMedianLowerConfidenceBound(ratios, row.Samples)
+        medianSlowdown := BenchMedianPairedDifference(headSamples, baseSamples, row.Samples)
+        BenchAppendLine(builder, "| " + row.Size + " | " + row.Scenario + " | " + row.Mode + " | " + row.Metric + " | " + BenchLongText(BenchMedian(row.BaseMs, row.Samples)) + " | " + BenchLongText(BenchMedian(row.HeadMs, row.Samples)) + " | " + BenchLongText(BenchMedian(row.BaseCpuMs, row.Samples)) + " | " + BenchLongText(BenchMedian(row.HeadCpuMs, row.Samples)) + " | " + BenchLongText(medianSlowdown) + " | " + BenchIntText(row.Samples) + " | " + BenchFormatFixed3(medianRatio) + "x | " + BenchFormatFixed3(lowerBound) + "x | " + ratioText + " |")
         i = i + 1
     }
 
     BenchAppendLine(builder, "")
-    BenchAppendLine(builder, "Median ratio is the median of each row's per-pair head/base ratios; tolerance " + BenchFormatFixed3(AgentLoopRelativeToleranceThousandths()) + "x.")
+    BenchAppendLine(builder, "Decision: fail only when the exact two-sided sign-test 95% median-ratio lower bound exceeds " + BenchFormatFixed3(AgentLoopRelativeToleranceThousandths()) + "x AND median paired slowdown is at least " + BenchLongText(AgentLoopRelativeSlowdownFloorMs()) + " ms per command. Rows below " + BenchLongText(AgentLoopRelativeWallNoiseFloorMs()) + " ms use CPU only when its paired-ratio median absolute deviation is lower and its median base CPU is at least " + BenchLongText(AgentLoopRelativeSlowdownFloorMs()) + " ms.")
+    BenchAppendLine(builder, "Sampling: at least " + BenchIntText(AgentLoopRelativeMinimumPairs()) + " pairs per row; continue until at least " + BenchLongText(AgentLoopRelativeRowWorkTargetMs()) + " ms of paired command wall time or the " + BenchIntText(AgentLoopRelativeMaximumPairs()) + "-pair cap. Pair order alternates.")
     return builder.ToString() ?? ""
 }
 
 func AgentLoopRelativeGateRecordLine(
     failures: List<string>,
-    samples: int,
+    timingStatus: string,
     baseLabel: string,
     baseCommit: string,
     headCommit: string,
@@ -1197,8 +1418,11 @@ func AgentLoopRelativeGateRecordLine(
     if baseCacheHit {
         baseBuild = "cache-hit"
     }
+    if baseLabel == "not compared" {
+        baseBuild = "not-required"
+    }
 
-    return "agent-loop relative gate: " + verdict + "; base=" + baseLabel + " (" + baseCommit + "); head=" + headCommit + "; baseBuildMs=" + BenchLongText(baseBuildMs) + "; baseBuild=" + baseBuild + "; gateElapsedMs=" + BenchLongText(gateElapsedMs) + "; pairsPerRow=" + BenchIntText(samples) + "; tolerance=" + BenchFormatFixed3(AgentLoopRelativeToleranceThousandths()) + "x; machine=" + machine + "; loadAtStart=" + BenchLoadText(loadAtStart.LoadThousandths) + "; loadAtEnd=" + BenchLoadText(loadAtEnd.LoadThousandths)
+    return "agent-loop relative gate: " + verdict + "; timing: " + timingStatus + "; base=" + baseLabel + " (" + baseCommit + "); head=" + headCommit + "; baseBuildMs=" + BenchLongText(baseBuildMs) + "; baseBuild=" + baseBuild + "; gateElapsedMs=" + BenchLongText(gateElapsedMs) + "; pairRangePerRow=" + BenchIntText(AgentLoopRelativeMinimumPairs()) + ".." + BenchIntText(AgentLoopRelativeMaximumPairs()) + "; rowWorkTargetMs=" + BenchLongText(AgentLoopRelativeRowWorkTargetMs()) + "; tolerance=" + BenchFormatFixed3(AgentLoopRelativeToleranceThousandths()) + "x; machine=" + machine + "; loadAtStart=" + BenchLoadText(loadAtStart.LoadThousandths) + "; loadAtEnd=" + BenchLoadText(loadAtEnd.LoadThousandths)
 }
 
 func AgentLoopProgressCounters(row: AgentLoopRow): string {
