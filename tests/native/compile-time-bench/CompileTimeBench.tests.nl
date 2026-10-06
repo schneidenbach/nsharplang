@@ -396,9 +396,9 @@ test "compile-time relative gate: negative ratio sentinels render as readable si
 }
 
 test "compile-time structural gate: CompilerWorkCounters must equal the baseline exactly" {
-    expected := new AgentLoopCounters(468, 137, 278, 2, 431, 0)
+    expected := new AgentLoopCounters(468, 278, 278, 3, 479, 0)
     assert BenchCoreCounterFailure("Core", expected, expected) == ""
-    changed := new AgentLoopCounters(468, 137, 279, 2, 431, 0)
+    changed := new AgentLoopCounters(468, 278, 279, 3, 479, 0)
     assert BenchCoreCounterFailure("Core", expected, changed).Contains("fix increases")
     assert BenchCoreCounterFailure("Core", expected, null).Contains("did not write nsharp.cli-stats")
 }

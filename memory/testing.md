@@ -1144,8 +1144,10 @@ Plan's 18.2 s (`EmitIlAssembly`, load ~7) -- the S2/S3 sub-splits' job.
 
 The compile-time and agent-loop gates are N#-owned blocks in the native project
 `tests/native/compile-time-bench`. Step 3a discovers the project and runs it serially so the paired
-measurements do not compete with sibling gate processes. The compiler performance logic stays in
-N#; the shell gate only carries artifacts out of its isolated tree.
+measurements do not compete with sibling gate processes. This project selects the sequential N#
+reflection test runner as well: its compile-time and agent-loop gates live in separate test classes,
+and the default xUnit runner would execute those machine-sensitive gates concurrently. The compiler
+performance logic stays in N#; the shell gate only carries artifacts out of its isolated tree.
 
 **Structural behavior is the primary gate.** `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json`
 pins the stage, phase diagnostic contract, expected exit and `--stats` `CompilerWorkCounters` for

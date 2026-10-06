@@ -8,10 +8,10 @@
   "phaseDiagnosticMultiset": "NL011 \u00d71, NL202 \u00d71",
   "coreCounters": {
     "filesParsed": 468,
-    "emitParses": 137,
+    "emitParses": 278,
     "filesAnalyzed": 278,
-    "assembliesEmitted": 2,
-    "referenceAssembliesLoaded": 431,
+    "assembliesEmitted": 3,
+    "referenceAssembliesLoaded": 479,
     "processesSpawned": 0
   },
   "emitCounters": {
