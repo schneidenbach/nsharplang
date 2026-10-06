@@ -1,9 +1,13 @@
 {
   "schemaVersion": 1,
   "kind": "nsharp.agent-loop-baseline",
-  "policy": "Structural counters are gated exactly: a decrease is ratcheted into this file in the same commit, an increase is a regression to fix. Wall time is judged only when timingJudgeable is true and the machine is below the load threshold. No threshold here is loosened without the owner.",
+  "policy": "Structural counters are gated exactly: decreases are ratcheted into this file in the same commit; increases are regressions except the owner-approved large-row reference-load trade recorded in notes. Wall time is judged only when timingJudgeable is true and the machine is below the load threshold. No other threshold here is loosened without the owner.",
+  "notes": [
+    "Owner decision (2026-10-06): accept nine large check/test rows at 151 reference loads (from 77) and three large cold-build rows at 141 (from 69). Parallel analysis workers load reference metadata independently; large checks fell from about 13 s to 3.5 s. Only those reference counters rise; every other counter is at or below its prior value.",
+    "Follow-up: share loaded reference metadata across analysis workers to reduce duplicate reference loads."
+  ],
   "measuredAt": "2026-10-05",
-  "cliCommit": "754c669af4867c0b59bdd21330281acaf60c55b4",
+  "cliCommit": "d912a77ca071177f2c8f8bf4ef0089f1a183e2b6",
   "machine": "arm64, Darwin 24.6.0, 10 logical cores, .NET SDK 10.0.105, /usr/bin/time -l",
   "loadAtStart": "9.49",
   "loadAtEnd": "12.31",
@@ -460,7 +464,7 @@
       "medianWallMs": 55949,
       "medianCpuMs": 57830,
       "medianPeakRssBytes": 3571777536,
-      "counters": {"filesParsed": 322, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 151, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -471,7 +475,7 @@
       "medianWallMs": 57795,
       "medianCpuMs": 57010,
       "medianPeakRssBytes": 3383050240,
-      "counters": {"filesParsed": 322, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 151, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -526,7 +530,7 @@
       "medianWallMs": 62067,
       "medianCpuMs": 57700,
       "medianPeakRssBytes": 3486892032,
-      "counters": {"filesParsed": 322, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 151, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -537,7 +541,7 @@
       "medianWallMs": 59941,
       "medianCpuMs": 57600,
       "medianPeakRssBytes": 3538665472,
-      "counters": {"filesParsed": 322, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 151, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -548,7 +552,7 @@
       "medianWallMs": 35828,
       "medianCpuMs": 42530,
       "medianPeakRssBytes": 1893859328,
-      "counters": {"filesParsed": 321, "emitParses": 160, "filesAnalyzed": 160, "assembliesEmitted": 1, "referenceAssembliesLoaded": 69, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 160, "filesAnalyzed": 160, "assembliesEmitted": 1, "referenceAssembliesLoaded": 141, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -570,7 +574,7 @@
       "medianWallMs": 37043,
       "medianCpuMs": 44100,
       "medianPeakRssBytes": 2182758400,
-      "counters": {"filesParsed": 322, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 151, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -592,7 +596,7 @@
       "medianWallMs": 38020,
       "medianCpuMs": 48410,
       "medianPeakRssBytes": 3562717184,
-      "counters": {"filesParsed": 322, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 151, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -603,7 +607,7 @@
       "medianWallMs": 35661,
       "medianCpuMs": 45840,
       "medianPeakRssBytes": 3562536960,
-      "counters": {"filesParsed": 322, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 151, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -614,7 +618,7 @@
       "medianWallMs": 27216,
       "medianCpuMs": 35960,
       "medianPeakRssBytes": 1874853888,
-      "counters": {"filesParsed": 321, "emitParses": 160, "filesAnalyzed": 160, "assembliesEmitted": 1, "referenceAssembliesLoaded": 69, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 160, "filesAnalyzed": 160, "assembliesEmitted": 1, "referenceAssembliesLoaded": 141, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -636,7 +640,7 @@
       "medianWallMs": 36258,
       "medianCpuMs": 46190,
       "medianPeakRssBytes": 3513794560,
-      "counters": {"filesParsed": 324, "emitParses": 162, "filesAnalyzed": 162, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 162, "emitParses": 162, "filesAnalyzed": 162, "assembliesEmitted": 1, "referenceAssembliesLoaded": 151, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -647,7 +651,7 @@
       "medianWallMs": 37688,
       "medianCpuMs": 48100,
       "medianPeakRssBytes": 3528835072,
-      "counters": {"filesParsed": 324, "emitParses": 162, "filesAnalyzed": 162, "assembliesEmitted": 1, "referenceAssembliesLoaded": 77, "processesSpawned": 0}
+      "counters": {"filesParsed": 162, "emitParses": 162, "filesAnalyzed": 162, "assembliesEmitted": 1, "referenceAssembliesLoaded": 151, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -658,7 +662,7 @@
       "medianWallMs": 31569,
       "medianCpuMs": 40680,
       "medianPeakRssBytes": 1839824896,
-      "counters": {"filesParsed": 323, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 69, "processesSpawned": 0}
+      "counters": {"filesParsed": 162, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 141, "processesSpawned": 0}
     },
     {
       "size": "large",

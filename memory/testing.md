@@ -1330,6 +1330,15 @@ off - without the owner. The 2026-10-05 baseline was measured on a SHARED machin
 the file): its counters are exact, its wall times are a record with `timingJudgeable: false` until
 someone re-measures it idle (`--sizes all --runs 3 --write-baseline …` with the `pgrep` check of §8).
 
+The owner approved one narrow exception on 2026-10-06: accept the measured combined
+`referenceAssembliesLoaded` values on the 12 `large` rows. Parallel analysis workers load reference
+metadata independently; the large checks fell from about 13 s to 3.5 s while references rose from
+77 to 151 on check/test rows and from 69 to 141 on the three cold build rows. Every other counter on
+those rows is at or below its previous value (large check `filesParsed` fell from 322 to 161; new-file
+check fell from 324 to 162). No small or medium row was raised. The baseline records this exception
+in `notes`. Follow-up: share loaded reference metadata across analysis workers to reduce repeated
+reference loads.
+
 What the counters said on day one (Debug CLI, issue-tracker): a no-op `check` parses its 8 files 40
 times, analyzes 16 units and opens 684 reference images; a no-op `build` parses 15 times, emits an
 assembly and opens 497; `test` 20 / 1 / 505. No scenario is incremental yet: no-op equals body edit.
