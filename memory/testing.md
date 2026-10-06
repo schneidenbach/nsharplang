@@ -1159,7 +1159,7 @@ commit-keyed cache, then alternates base and head for three pairs on the Core-sc
 It computes each head/base ratio first and gates the median of those pair ratios at **1.20×**. This
 matches the Systems throughput gate. Nearby pairs share the machine's changing load, and three pairs
 provide the smallest practical odd sample for a median. The CLI already built by the gate is the head
-side. The first run also builds the base compiler seed project and CLI; repeated runs reuse the cache.
+side. The first run archives and builds the base CLI and compiler project graph in about **38 seconds** on the measured M4; repeated runs reuse the commit-keyed cache. The C# CLI project declares Compiler.Model and Runtime references and a Mono.Cecil package reference so its clean runtime dependency closure includes the N# entry point, runtime and emitter. The cached base CLI keeps its base-built `NSharpLang.*` assemblies while refreshing its `.deps.json` and package DLLs from the head CLI output, so both sides resolve the same runtime package closure.
 
 Base selection is deterministic: if `HEAD` is ahead of `origin/systems-language`, use
 `git merge-base HEAD origin/systems-language`; when `HEAD` is at the origin tip, use `HEAD~1` (or

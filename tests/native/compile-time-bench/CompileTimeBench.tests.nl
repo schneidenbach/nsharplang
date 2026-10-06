@@ -356,6 +356,11 @@ test "compile-time relative gate: missing or invalid pair measurements fail clos
     assert BenchCompileTimeRatioFailure(head, control, 3).Contains("pair was missing")
 }
 
+test "compile-time relative gate: negative ratio sentinels render as readable signed decimals" {
+    assert BenchFormatFixed3(-1) == "-0.001"
+    assert BenchFormatFixed3(-1200) == "-1.2"
+}
+
 test "compile-time structural gate: CompilerWorkCounters must equal the baseline exactly" {
     expected := new AgentLoopCounters(468, 137, 278, 2, 431, 0)
     assert BenchCoreCounterFailure("Core", expected, expected) == ""
@@ -711,6 +716,47 @@ test "compile-time bench: the live two-file build canary proves analysis runs be
 
 // ─── THE COMMIT UNDER TEST ────────────────────────────────────────────────────────────────────
 
+test "compile-time bench: a clean base CLI explicitly carries the compiler runtime closure" {
+    project := "<Project>\n  <ItemGroup>\n    <ProjectReference Include=\"..\\NSharpLang.Compiler.Driver\\NSharpLang.Compiler.Driver.csproj\" />\n    <PackageReference Include=\"YamlDotNet\" Version=\"16.3.0\" />\n  </ItemGroup>\n</Project>"
+    normalized := BenchBaseCliProjectWithCompilerDependencies(project)
+    modelReference := "..\\NSharpLang.Compiler.Model\\NSharpLang.Compiler.Model.csproj"
+    runtimeReference := "..\\NSharpLang.Runtime\\NSharpLang.Runtime.csproj"
+    cecilReference := "<PackageReference Include=\"Mono.Cecil\" Version=\"0.11.6\" />"
+    driverReference := "..\\NSharpLang.Compiler.Driver\\NSharpLang.Compiler.Driver.csproj"
+    assert normalized.Contains(modelReference)
+    assert normalized.Contains(runtimeReference)
+    assert normalized.Contains(cecilReference)
+    assert normalized.IndexOf(modelReference, StringComparison.Ordinal) < normalized.IndexOf(runtimeReference, StringComparison.Ordinal)
+    assert normalized.IndexOf(runtimeReference, StringComparison.Ordinal) < normalized.IndexOf(driverReference, StringComparison.Ordinal)
+    assert BenchBaseCliProjectWithCompilerDependencies(normalized) == normalized
+}
+
+test "compile-time bench: base cache reuses head package dependencies and preserves base compiler assemblies" {
+    root := BenchTestScratchDirectory("base-runtime-closure")
+    headCliDirectory := Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.Cli"), "bin"), "Debug"), "net10.0")
+    baseCliDirectory := Path.Combine(root, "base-cli")
+    Directory.CreateDirectory(headCliDirectory)
+    Directory.CreateDirectory(baseCliDirectory)
+    headCliDll := Path.Combine(headCliDirectory, "Cli.dll")
+    baseCliDll := Path.Combine(baseCliDirectory, "Cli.dll")
+    File.WriteAllText(headCliDll, "head cli")
+    File.WriteAllText(Path.ChangeExtension(headCliDll, ".deps.json"), "head dependency manifest")
+    File.WriteAllText(Path.Combine(headCliDirectory, "Microsoft.Build.Framework.dll"), "head package")
+    File.WriteAllText(Path.Combine(headCliDirectory, "NSharpLang.Compiler.Emit.dll"), "head compiler")
+    File.WriteAllText(baseCliDll, "base cli")
+    File.WriteAllText(Path.ChangeExtension(baseCliDll, ".deps.json"), "base dependency manifest")
+    File.WriteAllText(Path.Combine(baseCliDirectory, "NSharpLang.Compiler.Emit.dll"), "base compiler")
+    File.WriteAllText(Path.Combine(baseCliDirectory, "Microsoft.Build.Framework.dll"), "old package")
+
+    refusal := BenchApplyHeadCliDependencyClosure(root, baseCliDll)
+    assert refusal == "", refusal
+    assert File.ReadAllText(Path.ChangeExtension(baseCliDll, ".deps.json")) == "head dependency manifest"
+    assert File.ReadAllText(Path.Combine(baseCliDirectory, "Microsoft.Build.Framework.dll")) == "head package"
+    assert File.ReadAllText(Path.Combine(baseCliDirectory, "NSharpLang.Compiler.Emit.dll")) == "base compiler"
+    assert File.ReadAllText(baseCliDll) == "base cli"
+    BenchDeleteDirectory(root)
+}
+
 test "compile-time bench: a tree with no git metadata says WHY the CLI commit is unavailable instead of the bare word `unknown`" {
     isolated := BenchCliCommitUnavailableReason(false, true)
     noMetadata := BenchCliCommitUnavailableReason(false, false)
@@ -809,7 +855,7 @@ test "compile-time gate: exact Core counters and phase contract accompany interl
             baseMs[i] = baseRun.WallMs
             headMs[i] = headRun.WallMs
             if baseRun.ExitCode != 0 || headRun.ExitCode != 0 {
-                headCountersFailure = "Core-scale build did not reach emission: base exit=" + BenchIntText(baseRun.ExitCode) + ", head exit=" + BenchIntText(headRun.ExitCode) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
+                headCountersFailure = "Core-scale build did not reach emission: base exit=" + BenchIntText(baseRun.ExitCode) + ", head exit=" + BenchIntText(headRun.ExitCode) + ", base output=" + BenchTruncate(baseRun.Stdout + baseRun.CliStderr, 600) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
                 break
             }
 

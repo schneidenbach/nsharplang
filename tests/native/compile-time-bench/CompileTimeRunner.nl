@@ -761,6 +761,87 @@ func BenchBaseCompilerCliPath(cacheRoot: string, commit: string): string {
     )
 }
 
+func BenchBaseCliProjectWithCompilerDependencies(projectText: string): string {
+    modelReference := "    <ProjectReference Include=\"..\\NSharpLang.Compiler.Model\\NSharpLang.Compiler.Model.csproj\" />"
+    runtimeReference := "    <ProjectReference Include=\"..\\NSharpLang.Runtime\\NSharpLang.Runtime.csproj\" />"
+    cecilReference := "    <PackageReference Include=\"Mono.Cecil\" Version=\"0.11.6\" />"
+    if projectText.Contains(modelReference) && projectText.Contains(runtimeReference) && projectText.Contains(cecilReference) {
+        return projectText
+    }
+
+    driverReference := "    <ProjectReference Include=\"..\\NSharpLang.Compiler.Driver\\NSharpLang.Compiler.Driver.csproj\" />"
+    yamlReference := "    <PackageReference Include=\"YamlDotNet\" Version=\"16.3.0\" />"
+    if !projectText.Contains(driverReference) || !projectText.Contains(yamlReference) {
+        throw new InvalidOperationException("base CLI project is missing the Compiler.Driver project reference")
+    }
+
+    normalized := projectText
+    if !normalized.Contains(modelReference) {
+        normalized = normalized.Replace(driverReference, modelReference + "\n" + driverReference)
+    }
+    if !normalized.Contains(runtimeReference) {
+        normalized = normalized.Replace(driverReference, runtimeReference + "\n" + driverReference)
+    }
+    if !normalized.Contains(cecilReference) {
+        normalized = normalized.Replace(yamlReference, cecilReference + "\n" + yamlReference)
+    }
+
+    return normalized
+}
+
+// Program.cs calls InternalErrorBoundary from Compiler.Model, the CLI runs the compiler with
+// NSharpLang.Runtime, and the emitter loads Mono.Cecil. Make those dependencies explicit in the
+// temporary base C# project too: a clean archive's N# project metadata does not populate the
+// launcher's runtime dependency closure.
+func BenchPrepareBaseCliProject(sourceDirectory: string): string {
+    cliProject := Path.Combine(Path.Combine(Path.Combine(sourceDirectory, "src"), "NSharpLang.Cli"), "Cli.csproj")
+    try {
+        projectText := File.ReadAllText(cliProject)
+        normalized := BenchBaseCliProjectWithCompilerDependencies(projectText)
+        if normalized != projectText {
+            File.WriteAllText(cliProject, normalized)
+        }
+    } catch ex: Exception {
+        return "could not prepare the base CLI project reference: " + ex.Message
+    }
+
+    return ""
+}
+
+// The launcher dependency closure is deliberately shared with the compiler currently under test.
+// Base CLI/compiler assemblies still come from the base commit; the runtime manifest and package
+// DLLs are normalized so both CLIs resolve the same dependency set while measuring compiler behavior.
+func BenchApplyHeadCliDependencyClosure(repositoryRoot: string, baseCliDll: string): string {
+    headCliDll := BenchDefaultCliDll(repositoryRoot)
+    headCliDirectory := Path.GetDirectoryName(headCliDll) ?? ""
+    baseCliDirectory := Path.GetDirectoryName(baseCliDll) ?? ""
+    headDeps := Path.ChangeExtension(headCliDll, ".deps.json")
+    baseDeps := Path.ChangeExtension(baseCliDll, ".deps.json")
+    if headCliDirectory == "" || baseCliDirectory == "" {
+        return "head or base CLI has no containing directory"
+    }
+
+    if !File.Exists(headDeps) {
+        return "head CLI dependency manifest was not found at " + headDeps
+    }
+
+    try {
+        File.Copy(headDeps, baseDeps, true)
+        for dependencyPath in Directory.GetFiles(headCliDirectory, "*.dll", SearchOption.TopDirectoryOnly) {
+            dependencyName := Path.GetFileName(dependencyPath)
+            if dependencyName == "Cli.dll" || dependencyName.StartsWith("NSharpLang.", StringComparison.Ordinal) {
+                continue
+            }
+
+            File.Copy(dependencyPath, Path.Combine(baseCliDirectory, dependencyName), true)
+        }
+    } catch ex: Exception {
+        return "could not apply the head CLI runtime dependencies to the base compiler: " + ex.Message
+    }
+
+    return ""
+}
+
 func BenchPrepareBaseCompiler(repositoryRoot: string): BenchBaseCompiler {
     gitRoot := BenchCompilerPerfGitRoot(repositoryRoot)
     commit := BenchSelectBaseCommit(gitRoot)
@@ -773,6 +854,10 @@ func BenchPrepareBaseCompiler(repositoryRoot: string): BenchBaseCompiler {
     sourceDirectory := Path.Combine(cacheDirectory, "source")
     cliDll := BenchBaseCompilerCliPath(cacheRoot, commit)
     if File.Exists(cliDll) {
+        dependencyError := BenchApplyHeadCliDependencyClosure(repositoryRoot, cliDll)
+        if dependencyError != "" {
+            return new BenchBaseCompiler(commit, "", 0, false, dependencyError)
+        }
         return new BenchBaseCompiler(commit, cliDll, 0, true, "")
     }
 
@@ -803,18 +888,21 @@ func BenchPrepareBaseCompiler(repositoryRoot: string): BenchBaseCompiler {
         return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "could not extract base " + commit + ": " + BenchTruncate(extraction.Stderr.Trim(), 600))
     }
 
-    compilerProject := Path.Combine(Path.Combine(Path.Combine(sourceDirectory, "src"), "NSharpLang.Compiler"), "Compiler.csproj")
-    seedBuild := BenchRunUnderTimeUtility("build " + BenchQuote(compilerProject) + " --nologo -v q", sourceDirectory)
-    if seedBuild.ExitCode != 0 {
-        errorText := BenchTruncate(BenchStripTimeUtilityLines(seedBuild.Stderr).Trim() + " " + seedBuild.Stdout.Trim(), 1200)
-        return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "base compiler seed build failed for " + commit + ": " + errorText)
+    projectPreparationError := BenchPrepareBaseCliProject(sourceDirectory)
+    if projectPreparationError != "" {
+        return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, projectPreparationError)
     }
 
     cliProject := Path.Combine(Path.Combine(Path.Combine(sourceDirectory, "src"), "NSharpLang.Cli"), "Cli.csproj")
-    cliBuild := BenchRunUnderTimeUtility("build " + BenchQuote(cliProject) + " --nologo -v q", sourceDirectory)
+    cliBuild := BenchRunUnderTimeUtility("build --disable-build-servers -nr:false " + BenchQuote(cliProject) + " --nologo -v q", sourceDirectory)
     if cliBuild.ExitCode != 0 || !File.Exists(cliDll) {
         errorText := BenchTruncate(BenchStripTimeUtilityLines(cliBuild.Stderr).Trim() + " " + cliBuild.Stdout.Trim(), 1200)
         return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "base compiler CLI build failed for " + commit + ": " + errorText)
+    }
+
+    dependencyError := BenchApplyHeadCliDependencyClosure(repositoryRoot, cliDll)
+    if dependencyError != "" {
+        return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, dependencyError)
     }
 
     return new BenchBaseCompiler(commit, cliDll, (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "")

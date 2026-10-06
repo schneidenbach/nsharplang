@@ -151,10 +151,21 @@ func BenchParseFixed3(text: string): long {
 
 // The inverse of `BenchParseFixed3`, with trailing zeros trimmed: `1500` -> `1.5`, `2000` -> `2`.
 func BenchFormatFixed3(thousandths: long): string {
-    whole := thousandths / 1000
-    fraction := thousandths - whole * 1000
+    negative := thousandths < 0
+    magnitude := thousandths
+    if negative {
+        magnitude = -magnitude
+    }
+
+    whole := magnitude / 1000
+    fraction := magnitude - whole * 1000
     if fraction == 0 {
-        return BenchLongText(whole)
+        formatted := BenchLongText(whole)
+        if negative {
+            return "-" + formatted
+        }
+
+        return formatted
     }
 
     text := BenchLongText(fraction)
@@ -166,7 +177,12 @@ func BenchFormatFixed3(thousandths: long): string {
         text = text.Substring(0, text.Length - 1)
     }
 
-    return BenchLongText(whole) + "." + text
+    formatted := BenchLongText(whole) + "." + text
+    if negative {
+        return "-" + formatted
+    }
+
+    return formatted
 }
 
 // Tenths as `<whole>.<tenth>`; the estate has no float formatting, so every one-decimal column in

@@ -14,7 +14,12 @@ test "compiler performance base selection uses merge-base for branches and HEAD 
     assert runner.Contains("archive --format=tar --output"), "The base source must be materialized without changing this worktree."
     assert runner.Contains("NSHARP_COMPILER_PERF_CACHE"), "The caller must be able to put commit-keyed base builds in its gate cache."
     assert runner.Contains("File.Exists(cliDll)"), "A cached base CLI must be reused."
-    assert runner.Contains("\"NSharpLang.Compiler\"") && runner.Contains("\"Compiler.csproj\""), "A clean base archive must build the N# seed compiler before its CLI."
+    assert runner.Contains("BenchPrepareBaseCliProject"), "A clean base archive must receive the explicit compiler model/runtime project edges needed by the C# CLI launcher."
+    assert runner.Contains("BenchApplyHeadCliDependencyClosure"), "The base CLI must use the head runtime dependency closure so both measured compilers resolve the same packages."
+    assert runner.Contains("File.Copy(headDeps, baseDeps, true)"), "The dependency manifest must be refreshed for both new and cached base CLI builds."
+    assert runner.Contains("Directory.GetFiles(headCliDirectory, \"*.dll\", SearchOption.TopDirectoryOnly)"), "The head package assemblies must be available to the cached base CLI."
+    assert runner.Contains("dependencyName.StartsWith(\"NSharpLang.\""), "Refreshing package dependencies must preserve the base compiler's N# assemblies."
+    assert runner.Contains("--disable-build-servers -nr:false"), "The cached base CLI must use the product gate's stable MSBuild flags."
     assert runner.Contains("\"NSharpLang.Cli\"") && runner.Contains("\"Cli.csproj\""), "The cached base compiler must be a built CLI."
 }
 
