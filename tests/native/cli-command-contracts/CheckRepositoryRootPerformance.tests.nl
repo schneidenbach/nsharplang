@@ -592,7 +592,7 @@ test "nlc check checks each repository project once, keeps Core clean, and pins 
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("info").GetInt32() == memberInfo, "workspace info summary did not aggregate member diagnostics"
-    assert root.GetProperty("summary").GetProperty("projectFailures").GetInt32() > 0
+    assert root.GetProperty("summary").GetProperty("projectFailures").GetInt32() == 0, "the workspace reported project failures despite returning a result for every discovered project"
 
     counters := stats.GetProperty("counters")
     filesParsed := counters.GetProperty("filesParsed").GetInt64()
@@ -601,7 +601,7 @@ test "nlc check checks each repository project once, keeps Core clean, and pins 
     maxParseEvents := CliRootCheckMaxParseEventsPerCheckedFile() * (long)checkedFiles
     assert filesParsed <= maxParseEvents, "filesParsed was " + filesParsed.ToString() + "; the ratio ratchet allows at most " + CliRootCheckMaxParseEventsPerCheckedFile().ToString() + " events per discovered checked file (" + maxParseEvents.ToString() + ")"
     maxReferenceImages := referenceBudget.Maximum
-    assert referenceImages <= maxReferenceImages, "referenceAssembliesLoaded was " + referenceImages.ToString() + "; the dependency-derived budget allows " + referenceBudget.EmptyProjectReferenceImages.ToString() + " shared opens per member plus three opens for each of " + referenceBudget.ConfiguredReferenceImages.ToString() + " resolved reference images (" + maxReferenceImages.ToString() + ")"
+    assert referenceImages <= maxReferenceImages, "referenceAssembliesLoaded was " + referenceImages.ToString() + "; the dependency-derived budget allows " + referenceBudget.EmptyProjectReferenceImages.ToString() + " shared opens per member plus up to six opens for each of " + referenceBudget.ConfiguredReferenceImages.ToString() + " resolved reference images (" + maxReferenceImages.ToString() + ")"
 
     timingUnjudged := CliRootCheckRefusesTimingJudgement(load)
     timingVerdict := "timing judged"

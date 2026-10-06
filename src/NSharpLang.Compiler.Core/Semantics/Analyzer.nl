@@ -6,6 +6,7 @@ import System.IO
 import System.Reflection
 import NSharpLang.Cli
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 class Analyzer: IDisposable {
     private readonly Errors: List<CompilerError>

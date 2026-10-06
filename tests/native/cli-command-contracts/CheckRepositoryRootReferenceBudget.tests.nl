@@ -27,11 +27,10 @@ class CliRootCheckReferenceImageBudget {
     constructor(emptyProjectImages: long, configuredImages: long, memberCount: int) {
         EmptyProjectReferenceImages = emptyProjectImages
         ConfiguredReferenceImages = configuredImages
-        // A check can open a configured image once in each metadata context (analysis and emit),
-        // plus once in the exact-identity runtime context. The empty-project probe measures the
-        // common runtime surface in those same contexts, so only configured references need this
-        // three-open allowance.
-        Maximum = emptyProjectImages * (long)memberCount + configuredImages * 3L
+        // Parallel analysis gives each worker its own analyzer and metadata context. Bound each
+        // configured image by the compiler's four-worker maximum, plus emit and exact-identity
+        // runtime contexts. The empty-project probe covers the shared runtime surface per member.
+        Maximum = emptyProjectImages * (long)memberCount + configuredImages * 6L
     }
 }
 

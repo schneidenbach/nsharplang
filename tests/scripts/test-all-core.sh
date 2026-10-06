@@ -631,6 +631,9 @@ else
     # The identity diff has no additions; only those 26 NL002 findings were removed.
     # 2026-10-05, scope constructor field-assignment checks to the declaring class: Core 0, Compiler 0.
     # The identity diff has no additions; only those 23 NL304 findings were removed.
+    # 2026-10-05, remeasure the rebased speed integration: all eleven projects are at 0. Its new
+    # NL002 on `FileParseAst` in `Analyzer.SeedProjectParses` is fixed by importing Columnar, which
+    # owns the parse result type. No project ceiling increased.
     #
     SELF_HOST_CEILINGS=(
         0
