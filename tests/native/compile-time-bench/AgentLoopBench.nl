@@ -1521,7 +1521,7 @@ func AgentLoopBaselineJson(baseline: AgentLoopBaseline): string {
 }
 
 func AgentLoopBaselinePolicy(): string {
-    return "CompilerWorkCounters are gated exactly: decreases are ratcheted into this file in the same commit; increases are regressions to fix. Absolute wall, CPU and RSS values are run artifacts only."
+    return "CompilerWorkCounters are gated exactly: decreases are ratcheted into this file in the same commit; increases are regressions to fix. Member isolation deliberately loads one additional xunit.abstractions reference from the fixture closure when the host has only the same identity at a different path. Absolute wall, CPU and RSS values are run artifacts only."
 }
 
 func AgentLoopParseBaseline(json: string): AgentLoopBaseline {
