@@ -13,12 +13,18 @@ import NSharpLang.Compiler
 //
 // What is left here is the adapter: three forwards and the shape change from the owner's
 // `EditorImportableType` to the LSP's own record.
+//
+// The catalog is the document manager's CURRENT one, asked per call: the shared analyzer is replaced
+// when a reference it read changes on disk (`DocumentManager.RefreshStaleReferences`), and a catalog
+// captured once would keep offering the old library's types.
 class TypeResolver {
-    readonly catalog: EditorTypeCatalog
+    readonly documentManager: DocumentManager
 
     constructor(documentManager: DocumentManager) {
-        catalog = documentManager.SharedAnalyzer.CreateEditorTypeCatalog()
+        this.documentManager = documentManager
     }
+
+    catalog: EditorTypeCatalog => documentManager.CurrentTypeCatalog()
 
     func ResolveType(typeName: string): Type? => catalog.ResolveType(typeName)
 

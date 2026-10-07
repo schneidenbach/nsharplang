@@ -11,19 +11,18 @@ import NSharpLang.Compiler.Ast
 // the buffer in front of the caret could not name a BCL method, an overload set, or a type declared
 // in the file next door; a snapshot can, because it is the same program the analyzer bound.
 //
-// The type catalog is held rather than re-made per keystroke: it holds the analyzer's assembly
-// registry BY REFERENCE, so one catalog stays current as packages join, and rebuilding it per
-// request would pay for the exported-type scan on every character typed.
+// The type catalog is the CALLER'S, handed over before each request rather than re-made per
+// keystroke: it holds the analyzer's assembly registry BY REFERENCE, so one catalog stays current as
+// packages join, and rebuilding it per request would pay for the exported-type scan on every
+// character typed. The caller (the language server's `DocumentManager.CurrentTypeCatalog`) rebuilds
+// it only when its analyzer is replaced because a reference changed on disk.
 class SignatureHelpEngine {
     catalog: EditorTypeCatalog?
 
-    // THE EDITOR'S TYPE UNIVERSE, made once from the analyzer that is already answering for this
-    // workspace. A caller with no analyzer gets no catalog and therefore no external type-name
-    // receivers, which is a smaller answer rather than a wrong one.
-    func UseAnalyzer(analyzer: Analyzer?) {
-        if catalog == null && analyzer != null {
-            catalog = analyzer.CreateEditorTypeCatalog()
-        }
+    // THE EDITOR'S TYPE UNIVERSE. A caller with no catalog gets no external type-name receivers,
+    // which is a smaller answer rather than a wrong one.
+    func UseCatalog(current: EditorTypeCatalog?) {
+        catalog = current
     }
 
     // THE PROJECT DOOR. `fileName` is the path the snapshot knows the caret's file by; line and

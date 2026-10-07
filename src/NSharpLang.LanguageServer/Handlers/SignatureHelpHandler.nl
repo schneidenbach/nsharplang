@@ -29,10 +29,11 @@ class SignatureHelpHandler: SignatureHelpHandlerBase {
         this.documentManager = documentManager
         this.logger = logger
         signatureHelpEngine = new SignatureHelpEngine()
-        signatureHelpEngine.UseAnalyzer(documentManager.SharedAnalyzer)
     }
 
     override func Handle(request: SignatureHelpParams, cancellationToken: CancellationToken): Task<SignatureHelp?> {
+        // The current catalog, asked per request: it is rebuilt when a reference changes on disk.
+        signatureHelpEngine.UseCatalog(documentManager.CurrentTypeCatalog())
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 

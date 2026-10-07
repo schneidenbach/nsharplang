@@ -24,6 +24,16 @@ import NSharpLang.LanguageServer.Models
 //
 // What is left here is the editor's own state: which documents are open, which roots were scanned,
 // the `file://` conversion, and the three dictionaries the owner's rows are poured into.
+//
+// THE SHARED ANALYZER MUST NOT OUTLIVE THE REFERENCES IT READ. It loads a project's references once
+// per project directory into a metadata load context that keeps the bytes it read, so a referenced
+// library rebuilt with a new member stayed the OLD library for the life of the server: every use of
+// the new member was reported as missing until the editor restarted, and the cached project snapshot
+// (stamped by sources and `project.yml` only) kept answering from the old one too. The workspace
+// server had the same defect and retires itself (`DaemonLoadedReferenceGuard`); here the analyzer is
+// replaced instead. Every file its context read is recorded (`ReferenceFileVersions`), and before a
+// document is analysed or a snapshot is served, one that changed on disk swaps in a fresh analyzer,
+// forgets which project directories were loaded and drops the cached snapshots and type catalog.
 class DocumentManager {
     readonly documents: ConcurrentDictionary<string, DocumentState>
     readonly lastAccessTimes: ConcurrentDictionary<string, DateTime>
@@ -36,6 +46,10 @@ class DocumentManager {
     readonly projectSnapshots: ConcurrentDictionary<string, CachedProjectSnapshot>
     readonly editorOpenUris: ConcurrentDictionary<string, byte>
     readonly workspaceRoots: ConcurrentDictionary<string, byte>
+    readonly referenceVersions: ReferenceFileVersions
+    // The shared analyzer's type universe as the completion and signature-help handlers read it;
+    // rebuilt with the analyzer.
+    typeCatalog: EditorTypeCatalog?
 
     constructor(logger: ILogger<DocumentManager>) {
         this.logger = logger
@@ -48,12 +62,63 @@ class DocumentManager {
         projectSnapshots = new ConcurrentDictionary<string, CachedProjectSnapshot>()
         editorOpenUris = new ConcurrentDictionary<string, byte>()
         workspaceRoots = new ConcurrentDictionary<string, byte>()
+        referenceVersions = new ReferenceFileVersions()
+        typeCatalog = null
 
-        // Initialize shared analyzer ONCE with system assemblies
+        // Initialize shared analyzer with system assemblies; it is replaced only when a reference it
+        // read changes on disk (`RefreshStaleReferences`).
         SharedAnalyzer = new Analyzer()
         SharedAnalyzer.LoadSystemAssemblies()
 
         logger.LogInformation("DocumentManager initialized with shared Analyzer (system assemblies loaded)")
+    }
+
+    // A reference the shared analyzer read changed on disk: replace the analyzer, so the next
+    // analysis loads the project's references again, and drop everything derived from the old one.
+    // True when it did.
+    func RefreshStaleReferences(): bool {
+        lock analyzerLock {
+            changed := referenceVersions.FindChanged()
+            if changed == null {
+                return false
+            }
+
+            logger.LogInformation("Referenced assembly changed on disk, reloading project references: {Path}", changed)
+            fresh := new Analyzer()
+            fresh.LoadSystemAssemblies()
+            SharedAnalyzer = fresh
+            loadedProjectDirs.Clear()
+            referenceVersions.Clear()
+            typeCatalog = null
+        }
+
+        lock projectSnapshotLock {
+            projectSnapshots.Clear()
+        }
+        return true
+    }
+
+    // The shared analyzer's type catalog, built on first use and again after a refresh.
+    func CurrentTypeCatalog(): EditorTypeCatalog {
+        lock analyzerLock {
+            existing := typeCatalog
+            if existing != null {
+                return existing
+            }
+
+            created := SharedAnalyzer.CreateEditorTypeCatalog()
+            typeCatalog = created
+            return created
+        }
+    }
+
+    // Records every file the shared analyzer's metadata context has read so far.
+    func recordReferenceVersions(analyzer: Analyzer) {
+        lock analyzerLock {
+            for location in analyzer.MetadataInputAssemblyPaths() {
+                referenceVersions.Record(location)
+            }
+        }
     }
 
     // Scans a workspace directory for all .nl files, loads them into the document manager,
@@ -232,12 +297,16 @@ class DocumentManager {
             projectConfig := ProjectFileParser.ParseFromDirectoryOrDefault(projectDir)
             analysisProjectRoot := EditorWorkspaceFacts.AnalysisProjectRoot(projectDir)
 
-            // Load assemblies from project configuration ONCE per project directory
+            // Load assemblies from project configuration ONCE per project directory -- and again after
+            // a reference the analyzer read changed on disk (`RefreshStaleReferences`).
             // Use lock to ensure thread-safe access to shared analyzer and loaded projects cache
+            RefreshStaleReferences()
+            analyzer := SharedAnalyzer
             lock analyzerLock {
+                analyzer = SharedAnalyzer
                 if !loadedProjectDirs.Contains(projectDir) {
                     logger.LogInformation("Loading assemblies for new project directory: {ProjectDir}", projectDir)
-                    SharedAnalyzer.LoadFromProjectConfig(projectConfig, projectDir)
+                    analyzer.LoadFromProjectConfig(projectConfig, projectDir)
                     loadedProjectDirs.Add(projectDir)
                 }
             }
@@ -246,7 +315,8 @@ class DocumentManager {
             unit := state.CompilationUnit
             if unit != null {
                 // Use shared analyzer (thread-safe because Analyze doesn't mutate state)
-                analysisResult := SharedAnalyzer.Analyze(unit, filePath, analysisProjectRoot, text)
+                analysisResult := analyzer.Analyze(unit, filePath, analysisProjectRoot, text)
+                recordReferenceVersions(analyzer)
                 diagnostics.AddRange(analysisResult.Errors)
 
                 // Store semantic model and binding map for IDE features
@@ -447,6 +517,8 @@ class DocumentManager {
             logProjectSnapshotDegraded(refusal)
             return null
         }
+
+        RefreshStaleReferences()
 
         sourceTextOverrides := buildOpenBufferSourceTextOverrides(projectRoot)
         stamp := EditorWorkspaceFacts.ProjectSnapshotStamp(projectRoot, sourceTextOverrides)
