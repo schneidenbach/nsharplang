@@ -1565,11 +1565,12 @@ class AnalyzerMemberAccess {
             // reporting there would accuse the reader of the analyzer's own gap.
             reflectedDefinition := genericDefinition as ReflectionTypeInfo
             if reflectedDefinition != null {
-                if !HasReliableReflectionMemberSet(reflectedDefinition.Type) {
+                reflectedNames := new List<string>()
+                if !TryGetReflectionMemberNames(reflectedDefinition.Type, includeStaticMembers, out reflectedNames) {
                     return false
                 }
 
-                return !GetReflectionMemberNames(reflectedDefinition.Type, includeStaticMembers).Contains(memberName)
+                return !reflectedNames.Contains(memberName)
             }
 
             return false
@@ -1581,7 +1582,12 @@ class AnalyzerMemberAccess {
                 return false
             }
 
-            return HasReliableReflectionMemberSet(reflection.Type)
+            reflectedNames := new List<string>()
+            if !TryGetReflectionMemberNames(reflection.Type, includeStaticMembers, out reflectedNames) {
+                return false
+            }
+
+            return !reflectedNames.Contains(memberName)
         }
 
         if resolved as ClassTypeInfo != null || resolved as StructTypeInfo != null || resolved as RecordTypeInfo != null || resolved as SoaRecordTypeInfo != null || resolved as SoaRowTypeInfo != null || resolved as InterfaceTypeInfo != null || resolved as EnumTypeInfo != null || resolved as UnionTypeInfo != null || resolved as NewtypeInfo != null || resolved as TupleTypeInfo != null {
@@ -1642,46 +1648,66 @@ class AnalyzerMemberAccess {
         return BuiltInTypes.Is(candidate, BuiltInTypes.Int) || BuiltInTypes.Is(candidate, BuiltInTypes.Long) || BuiltInTypes.Is(candidate, BuiltInTypes.Float) || BuiltInTypes.Is(candidate, BuiltInTypes.Double) || BuiltInTypes.Is(candidate, BuiltInTypes.Decimal) || BuiltInTypes.Is(candidate, BuiltInTypes.Byte) || BuiltInTypes.Is(candidate, BuiltInTypes.SByte) || BuiltInTypes.Is(candidate, BuiltInTypes.Short) || BuiltInTypes.Is(candidate, BuiltInTypes.UShort) || BuiltInTypes.Is(candidate, BuiltInTypes.UInt) || BuiltInTypes.Is(candidate, BuiltInTypes.ULong)
     }
 
-    // WHOSE REFLECTED MEMBER SET CAN BE TRUSTED TO BE COMPLETE: the core library, the console
-    // library, LINQ, and any non-interface `System.*` type. An interface is excluded because its
-    // members may be spread across the interfaces it inherits, which this probe does not walk.
-    static func HasReliableReflectionMemberSet(reflected: Type): bool {
-        // `Object.ReferenceEquals` rather than `==`: `Assembly` declares no equality operator, so C#'s
-        // `==` on two of them IS reference identity — and that identity is load-bearing. A type read
-        // through the metadata load context is never reference-equal to a runtime assembly, so an
-        // MLC-loaded `System.String` deliberately falls through these three to the namespace rule.
-        // Comparing assembly NAMES instead would silently collapse that distinction.
-        //
-        // `Console` and `Enumerable` are read by ASSEMBLY-QUALIFIED NAME rather than written
-        // `typeof(...)`, because the columnar front end's `typeof` surface carries neither and
-        // extending it is a compiler-capability change needing a two-stage bootstrap. This is the
-        // compiler's own established spelling — `ColumnarExternalBindingPlans` resolves
-        // `System.Console` by exactly this qualified name — and it yields the IDENTICAL runtime
-        // `Assembly` instances, so the identity test above is preserved rather than approximated.
-        assembly: object = reflected.Assembly
-        coreAssembly: object = typeof(object).Assembly
-        if Object.ReferenceEquals(assembly, coreAssembly) {
+    // A REFLECTED MEMBER SET IS RELIABLE WHEN THE TYPE ITSELF CAN ANSWER THE WHOLE QUESTION.
+    // Restricting this to selected `System.*` namespaces silenced NL303 for every ordinary NuGet
+    // type, even when its MetadataLoadContext could enumerate the referenced type's complete public
+    // surface. The enumerations below are the evidence: if any part of the surface is unreadable
+    // (for example, a signature names an assembly outside the reference closure), this returns false
+    // and analysis stays conservative. Interfaces add their transitive base interfaces explicitly,
+    // because reflection does not include those members in the interface's own member lists.
+    static func TryGetReflectionMemberNames(reflected: Type, includeStaticMembers: bool, out names: List<string>): bool {
+        names = new List<string>()
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy
+        if includeStaticMembers {
+            flags = flags | BindingFlags.Static
+        }
+
+        try {
+            AddReflectionTypeMemberNames(reflected, flags, names, seen)
+            if reflected.IsInterface {
+                inheritedInterfaces := reflected.GetInterfaces()
+                for inheritedInterface in inheritedInterfaces {
+                    AddReflectionTypeMemberNames(inheritedInterface, flags, names, seen)
+                }
+            }
+
+            if includeStaticMembers {
+                nestedTypes := reflected.GetNestedTypes(BindingFlags.Public)
+                for nestedType in nestedTypes {
+                    AddDistinctName(names, seen, nestedType.Name)
+                }
+            }
+
             return true
+        } catch {
+            names = new List<string>()
+            return false
+        }
+    }
+
+    static func AddReflectionTypeMemberNames(reflected: Type, flags: BindingFlags, names: List<string>, seen: HashSet<string>) {
+        properties := reflected.GetProperties(flags)
+        for property in properties {
+            AddDistinctName(names, seen, property.Name)
         }
 
-        consoleType := RequiredRuntimeTypes.Find("System.Console, System.Console")
-        if consoleType != null {
-            consoleAssembly: object = consoleType.Assembly
-            if Object.ReferenceEquals(assembly, consoleAssembly) {
-                return true
+        fields := reflected.GetFields(flags)
+        for field in fields {
+            AddDistinctName(names, seen, field.Name)
+        }
+
+        events := reflected.GetEvents(flags)
+        for eventMember in events {
+            AddDistinctName(names, seen, eventMember.Name)
+        }
+
+        methods := reflected.GetMethods(flags)
+        for method in methods {
+            if !method.IsSpecialName {
+                AddDistinctName(names, seen, method.Name)
             }
         }
-
-        linqType := RequiredRuntimeTypes.Find("System.Linq.Enumerable, System.Linq")
-        if linqType != null {
-            linqAssembly: object = linqType.Assembly
-            if Object.ReferenceEquals(assembly, linqAssembly) {
-                return true
-            }
-        }
-
-        reflectedNamespace := reflected.Namespace
-        return reflectedNamespace != null && reflectedNamespace.StartsWith("System.", StringComparison.Ordinal) && !reflected.IsInterface
     }
 
     static func IsSystemObjectType(reflected: Type): bool {
@@ -1846,32 +1872,8 @@ class AnalyzerMemberAccess {
     // first-occurrence order. SPECIAL-NAME methods are excluded: a developer who mistyped `Length`
     // should be offered `Length`, not `get_Length`.
     static func GetReflectionMemberNames(reflected: Type, includeStaticMembers: bool): List<string> {
-        flags := BindingFlags.Public | BindingFlags.Instance
-        if includeStaticMembers {
-            flags = flags | BindingFlags.Static
-        }
-
-        // EVERY REFLECTED RECEIVER IS A LOCAL, NEVER AN INDEX EXPRESSION. `properties[i].get_Name()`
-        // declines as an unmodeled instance call while `property.get_Name()` on the loop's own binding
-        // does not — the receiver's SHAPE decides, not the member.
         names := new List<string>()
-        seen := new HashSet<string>(StringComparer.Ordinal)
-        properties := reflected.GetProperties(flags)
-        for property in properties {
-            AddDistinctName(names, seen, property.Name)
-        }
-
-        fields := reflected.GetFields(flags)
-        for field in fields {
-            AddDistinctName(names, seen, field.Name)
-        }
-
-        methods := reflected.GetMethods(flags)
-        for method in methods {
-            if !method.IsSpecialName {
-                AddDistinctName(names, seen, method.Name)
-            }
-        }
+        _ = TryGetReflectionMemberNames(reflected, includeStaticMembers, out names)
 
         return names
     }

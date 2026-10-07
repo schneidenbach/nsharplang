@@ -2586,7 +2586,7 @@ The three callers:
   independently, so it needs the rule too or it declines (NL103) a call the analyzer accepted. Oracle:
   `ExactTypeShapeMatches` and `ArgumentFlowScore(...) >= 0`. Asked only on a tie.
 
-#### `ShouldReportUndefinedMember` through a BCL generic over a source type (census 2026-09-13, LAMBDA5)
+#### `ShouldReportUndefinedMember` through a BCL generic over a source type and a referenced NuGet type (census 2026-10-06)
 
 `List<PriceArgs>.Nope` and `items.Nope` (over `items: List<PriceArgs>`) reported NOTHING: the generic
 arm answers from a SOURCE definition or from a reachable CLR type, and a BCL definition closed over a
@@ -2594,12 +2594,19 @@ type that is still a declaration has neither — its closed CLR type cannot be c
 first surfaced as an emitter decline (`emit.expression.generic-type-receiver` / `emit.return.expression`),
 which names a backend rather than the typo.
 
-The DEFINITION answers instead, and it is asked about the NAME: `HasReliableReflectionMemberSet(List<>)`
-AND `List<>` has no member called `Nope`. A type argument never adds a member, so the report is certain.
-Asking only "is the definition reliable" is NOT enough and was the first (reverted) shape — `List<T>`
-inside a generic function has the same unconstructible closed type, and every `result.Add(...)` in the
-estate became a false NL303. A name the definition DOES have is the analyzer's own resolution gap, not
-the reader's.
+The DEFINITION answers instead, and it is asked about the NAME: the metadata surface for `List<>`
+can be enumerated, and `List<>` has no member called `Nope`. A type argument never adds a member, so
+the report is certain. Asking only "is the definition reliable" is NOT enough — `List<T>` inside a
+generic function has the same unconstructible closed type, and every `result.Add(...)` would become a
+false NL303. A name the definition DOES have is the analyzer's own resolution gap, not the reader's.
+
+The same rule applies to any reflected type the compilation references, including NuGet types. The
+reliable member set is earned by reading its public properties, fields, events, methods, nested types,
+and (for interfaces) inherited interface members. If any part of that metadata cannot be read, the
+probe returns incomplete and the analyzer stays silent rather than making a claim from a partial
+surface. This lets the existing NL303 renderer and its member-name suggester report a miss such as
+`DeserializerBuilder.Buildd()` with the type, member, and `Build` suggestion; a real method called
+with the wrong arity remains NL402.
 
 #### `AnalyzerOpenTypeSpecificity` — "more specific parameter types", the last tie-break (census 2026-09-13, LAMBDA5)
 

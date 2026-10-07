@@ -655,6 +655,19 @@ test "a core-library reflected type has a reliable member set and DOES report" {
     assert harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Version)), "Nonesuch", false)
 }
 
+test "a readable reflected type outside System has a complete member set" {
+    harness := MemberArmOf()
+    reflected := typeof(MemberAccessHarness)
+    names := new List<string>()
+
+    assert reflected.Namespace != null
+    assert !reflected.Namespace.StartsWith("System.", StringComparison.Ordinal)
+    assert AnalyzerMemberAccess.TryGetReflectionMemberNames(reflected, false, out names)
+    assert names.Contains("Arm")
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(reflected), "Arm", false)
+    assert harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(reflected), "Armm", false)
+}
+
 // A BCL GENERIC CLOSED OVER A TYPE WITH NO CLR HANDLE reported NOTHING AT ALL: `List<PriceArgs>`
 // cannot be constructed as a CLR type while `PriceArgs` is still a declaration, so the "reachable
 // CLR type" question answered no and the miss first surfaced as an emitter decline naming a backend.
