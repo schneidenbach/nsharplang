@@ -265,6 +265,9 @@ class BindingMap {
 
     referenceIndexByKey: Dictionary<BindingPositionKey, int>
     referenceIndicesByPosition: Dictionary<(Line: int, Column: int), List<int>>
+    // The same buckets grouped by the FILE NAME their key's spelling ends in (`ReferenceNameGroup`),
+    // so a bucket lookup that misses exactly asks only the buckets that can name the same file.
+    referenceIndicesByPositionAndName: Dictionary<(Line: int, Column: int, Name: string), List<int>>
     referenceKeys: List<BindingPositionKey>
     referenceBuckets: List<SymbolUsageBucket>
 
@@ -529,9 +532,48 @@ class BindingMap {
             referenceIndicesByPosition[position] = atPosition
         }
         atPosition.Add(newIndex)
+        named := (Line: key.Line, Column: key.Col, Name: ReferenceNameGroup(key.File))
+        withName: List<int>? = null
+        if !referenceIndicesByPositionAndName.TryGetValue(named, out withName) || withName == null {
+            withName = new List<int>()
+            referenceIndicesByPositionAndName[named] = withName
+        }
+        withName.Add(newIndex)
         referenceKeys.Add(key)
         referenceBuckets.Add(newBucket)
         return newBucket.Items
+    }
+
+    // WHICH BUCKETS A FALLBACK LOOKUP HAS TO ASK. `FilesMatch` answers yes for two spellings of one
+    // file only when they end in the same file name -- equal, equal once separators are normalised,
+    // or one a path suffix of the other all keep the last segment -- so a key whose spelling is plain
+    // printable ASCII can match only buckets in its own name group, plus the buckets whose spelling
+    // is absent (which match anything) or not plain ASCII (whose suffix test is culture-aware), both
+    // kept in the WILDCARD group. Merging the two ascending index lists keeps the full scan's
+    // insertion order, and so its first match. Merging the per-file binding maps of a project whose
+    // files declare at the same lines and columns had made every new bucket ask every earlier file's
+    // bucket at that position: measured, 80% of a warm daemon check of an 81k-line project.
+    static func ReferenceNameGroup(file: string?): string {
+        if file == null {
+            return ReferenceWildcardGroup()
+        }
+
+        index := 0
+        while index < file.Length {
+            character := file[index]
+            if character < ' ' || character > '~' {
+                return ReferenceWildcardGroup()
+            }
+            index = index + 1
+        }
+
+        normalized := file.Replace('\\', '/')
+        separator := normalized.LastIndexOf('/')
+        return normalized.Substring(separator + 1)
+    }
+
+    static func ReferenceWildcardGroup(): string {
+        return "\u0000*"
     }
 
     func FindReferenceBucket(key: BindingPositionKey): SymbolUsageBucket? {
@@ -540,12 +582,43 @@ class BindingMap {
             return referenceBuckets[exactIndex]
         }
 
-        atPosition: List<int>? = null
-        if !referenceIndicesByPosition.TryGetValue((Line: key.Line, Column: key.Col), out atPosition) || atPosition == null {
+        group := ReferenceNameGroup(key.File)
+        if group == ReferenceWildcardGroup() {
+            atPosition: List<int>? = null
+            if !referenceIndicesByPosition.TryGetValue((Line: key.Line, Column: key.Col), out atPosition) || atPosition == null {
+                return null
+            }
+
+            for candidateIndex in atPosition {
+                if FilesMatch(referenceKeys[candidateIndex].File, key.File) {
+                    return referenceBuckets[candidateIndex]
+                }
+            }
+
             return null
         }
 
-        for candidateIndex in atPosition {
+        emptyGroup := new List<int>()
+        sameName: List<int>? = null
+        if !referenceIndicesByPositionAndName.TryGetValue((Line: key.Line, Column: key.Col, Name: group), out sameName) || sameName == null {
+            sameName = emptyGroup
+        }
+        wildcard: List<int>? = null
+        if !referenceIndicesByPositionAndName.TryGetValue((Line: key.Line, Column: key.Col, Name: ReferenceWildcardGroup()), out wildcard) || wildcard == null {
+            wildcard = emptyGroup
+        }
+
+        named := 0
+        wild := 0
+        while named < sameName.Count || wild < wildcard.Count {
+            candidateIndex := 0
+            if wild >= wildcard.Count || (named < sameName.Count && sameName[named] < wildcard[wild]) {
+                candidateIndex = sameName[named]
+                named = named + 1
+            } else {
+                candidateIndex = wildcard[wild]
+                wild = wild + 1
+            }
             if FilesMatch(referenceKeys[candidateIndex].File, key.File) {
                 return referenceBuckets[candidateIndex]
             }
@@ -644,6 +717,7 @@ class BindingMap {
         declarations = new List<SymbolDeclaration>()
         referenceIndexByKey = new Dictionary<BindingPositionKey, int>()
         referenceIndicesByPosition = new Dictionary<(Line: int, Column: int), List<int>>()
+        referenceIndicesByPositionAndName = new Dictionary<(Line: int, Column: int, Name: string), List<int>>()
         referenceKeys = new List<BindingPositionKey>()
         referenceBuckets = new List<SymbolUsageBucket>()
     }

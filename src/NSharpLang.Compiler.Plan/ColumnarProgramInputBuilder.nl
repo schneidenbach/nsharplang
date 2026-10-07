@@ -344,6 +344,78 @@ sealed class ColumnarProgramInputBuilder {
         return TryBuildMultiFile(sources, fileNames, projectRoot, out program, 0)
     }
 
+    // WITH A WARM CALLER'S CACHE (`ColumnarFileProgramCache`): every file whose text and position are
+    // unchanged takes its kept parse, the rest are parsed by the workers, and the result -- program,
+    // decline trace, refusal -- is the one `TryBuildMultiFile` without a cache gives. The parses are
+    // merged in file order and the trace is appended in file order, stopping at the first file that
+    // declined or threw, exactly as the parallel path does.
+    static func TryBuildMultiFile(sources: IReadOnlyList<string>, fileNames: IReadOnlyList<string>, projectRoot: string, out program: ColumnarProgramInput, workersOverride: int, cache: ColumnarFileProgramCache?): bool {
+        if cache == null {
+            return TryBuildMultiFile(sources, fileNames, projectRoot, out program, workersOverride)
+        }
+
+        program = null
+        fileCache: ColumnarFileProgramCache = cache
+        sourceFiles := ColumnarEmissionPlanner.BuildSourceFilesFromLists(sources, fileNames)
+        programs := new ColumnarProgramInput[](sources.Count)
+        outcomes := new ColumnarFileBuildOutcome[](sources.Count)
+        reused := new bool[](sources.Count)
+        queue := new ConcurrentQueue<int>()
+        noDeclines: IReadOnlyList<ColumnarDeclineReason> = System.Array.Empty<ColumnarDeclineReason>()
+        missingCharacters := 0L
+        missingFiles := 0
+        index := 0
+        while index < sources.Count {
+            cached := fileCache.TryGet(fileNames[index], sources[index], sourceFiles[index].FileId)
+            if cached != null {
+                outcomes[index] = new ColumnarFileBuildOutcome(true, cached.Program, cached.Declines, null, false)
+                reused[index] = true
+            } else {
+                outcomes[index] = new ColumnarFileBuildOutcome(false, null, noDeclines, null, true)
+                queue.Enqueue(index)
+                missingCharacters = missingCharacters + sources[index].Length
+                missingFiles = missingFiles + 1
+            }
+            index = index + 1
+        }
+
+        if missingFiles > 0 {
+            workers := CompilerParallelism.WorkerCount(missingFiles, missingCharacters)
+            if workersOverride > 0 {
+                workers = Math.Min(workersOverride, missingFiles)
+            }
+            RunFileBuildWorkers(new ColumnarFileBuildWork(sources, sourceFiles, outcomes, queue), Math.Max(workers, 1))
+        }
+        fileCache.LastReused = sources.Count - missingFiles
+        fileCache.LastParsed = missingFiles
+        fileCache.RetainOnly(fileNames)
+
+        file := 0
+        while file < outcomes.Length {
+            outcome := outcomes[file]
+            if outcome.Pending {
+                throw new InvalidOperationException("Columnar parse produced no outcome for file " + file.ToString() + ".")
+            }
+            ColumnarDeclineTrace.Append(outcome.Declines)
+            failure := outcome.Failure
+            if failure != null {
+                throw failure
+            }
+            built := outcome.Program
+            if !outcome.Built || built == null {
+                return false
+            }
+            programs[file] = built
+            if !reused[file] {
+                fileCache.Store(fileNames[file], sources[file], sourceFiles[file].FileId, built, outcome.Declines)
+            }
+            file = file + 1
+        }
+
+        program = ColumnarProgramInput.MergeSourceFilesAtProjectRoot(sourceFiles, programs, projectRoot)
+        return true
+    }
+
     // `workersOverride` (0 = `CompilerParallelism` decides) is the driver's `MultiFileCompiler.Workers`.
     static func TryBuildMultiFile(sources: IReadOnlyList<string>, fileNames: IReadOnlyList<string>, projectRoot: string, out program: ColumnarProgramInput, workersOverride: int): bool {
         program = null
@@ -408,23 +480,7 @@ sealed class ColumnarProgramInputBuilder {
             outcomes[pendingIndex] = new ColumnarFileBuildOutcome(false, null, noDeclines, null, true)
             pendingIndex = pendingIndex + 1
         }
-        work := new ColumnarFileBuildWork(sources, sourceFiles, outcomes, queue)
-        threads := new List<Thread>(workers)
-        worker := 0
-        while worker < workers {
-            start: ThreadStart = () => RunFileBuildWorker(work)
-            thread := new Thread(start, 64 * 1024 * 1024)
-            thread.IsBackground = true
-            thread.Name = "nsharp-columnar-parse-" + worker.ToString()
-            threads.Add(thread)
-            worker = worker + 1
-        }
-        for started in threads {
-            started.Start()
-        }
-        for joined in threads {
-            joined.Join()
-        }
+        RunFileBuildWorkers(new ColumnarFileBuildWork(sources, sourceFiles, outcomes, queue), workers)
 
         file := 0
         while file < outcomes.Length {
@@ -446,6 +502,26 @@ sealed class ColumnarProgramInputBuilder {
         }
 
         return true
+    }
+
+    // `workers` threads on wide stacks, each taking queued file indices until the queue is empty.
+    private static func RunFileBuildWorkers(work: ColumnarFileBuildWork, workers: int): void {
+        threads := new List<Thread>(workers)
+        worker := 0
+        while worker < workers {
+            start: ThreadStart = () => RunFileBuildWorker(work)
+            thread := new Thread(start, 64 * 1024 * 1024)
+            thread.IsBackground = true
+            thread.Name = "nsharp-columnar-parse-" + worker.ToString()
+            threads.Add(thread)
+            worker = worker + 1
+        }
+        for started in threads {
+            started.Start()
+        }
+        for joined in threads {
+            joined.Join()
+        }
     }
 
     // Not private: the thread-start closure that calls it is emitted outside this class.

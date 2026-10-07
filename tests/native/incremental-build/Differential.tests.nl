@@ -30,6 +30,32 @@ test "a warm session's diagnostics and IL bytes equal a clean build's across see
     assert report.FailedComparisons > 0, detail
     assert report.PartialSteps > 0, detail
     assert report.FilesReused > 0, detail
+    assert report.EmissionReuses > 0, detail
+    assert report.ParseReuses > 0, detail
+}
+
+// THE CHECK'S HALF OF THE SAME CONTRACT. `nlc check` in the workspace server keeps a session too: the
+// analyses, each file's columnar parse and the last validation's outcome. After each seeded edit its
+// diagnostics and its in-memory image must be a fresh check's, and the run must have reused all three.
+test "a warm check session's diagnostics and validated image equal a fresh check's across seeded edits" {
+    report := new DifferentialReport()
+    steps := DifferentialSteps(8)
+    seed := 20261006
+    for project in DifferentialCorpus() {
+        DifferentialCheckRun(project, seed, steps, report)
+        seed = seed + 1
+    }
+
+    detail := report.Summary()
+    if report.Mismatches.Count > 0 {
+        detail = detail + "\n" + report.Mismatches[0]
+    }
+    assert report.Mismatches.Count == 0, detail
+    assert report.SuccessfulComparisons > 0, detail
+    assert report.FailedComparisons > 0, detail
+    assert report.FilesReused > 0, detail
+    assert report.EmissionReuses > 0, detail
+    assert report.ParseReuses > 0, detail
 }
 
 test "a body-only edit re-analyses only the edited file" {

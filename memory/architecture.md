@@ -579,8 +579,12 @@ Two layers, both owned by `MultiFileCompiler` in Driver
   `IncrementalFileSummary`, `IncrementalProjectSession`): a warm caller keeps the analyzer and each
   file's analysis; a file is re-analysed only when its text, or the surface of a file in its
   name-based dependency closure, changed. Parsing, import cycles, the systems policy, lint and
-  emission still run whole-project. Cold processes rebuild everything after an edit, because the
-  systems policy and the emitter consume every file's semantic model.
+  the IL walk still run whole-project; the back end keeps each file's columnar parse while its text
+  holds and answers an unchanged compilation's emission from the last one
+  (`ColumnarFileProgramCache`, `IncrementalCompilationState.LastEmissionKey`; why the walk itself is
+  not per-function incremental is in `memory/components/cli-toolchain.md`). Cold processes rebuild
+  everything after an edit, because the systems policy and the emitter consume every file's
+  semantic model.
 - **Observing it:** `MultiFileCompiler.WasUpToDate`, `IncrementalCompilationState.LastFilesAnalyzed`
   / `LastFilesReused`; the work counters themselves belong to `CompilerWorkCounters` (`--stats`).
 - **Who holds the per-file state:** the workspace server (`WarmIncrementalSessions`, registered with

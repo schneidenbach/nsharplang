@@ -74,6 +74,17 @@ class IncrementalCompilationState {
     LastFilesReused: int
     LastWasFull: bool
 
+    // THE BACK END'S HALF. Each file's columnar parse, kept while its text and position hold
+    // (`ColumnarFileProgramCache`), and the last emission's outcome under the key of everything it
+    // read (`MultiFileCompiler.ComputeEmissionKey`): its image when it emitted, and the diagnostics it
+    // added either way. A compilation whose key matches is answered from them without walking a body.
+    EmitParses: ColumnarFileProgramCache
+    LastEmissionKey: string
+    LastEmissionImage: byte[]?
+    LastEmissionErrors: List<CompilerError>
+    // Whether the last compilation's emission was answered by `LastEmissionKey`, for tests.
+    LastEmissionReused: bool
+
     constructor() {
         EnvironmentKey = ""
         RetainedAnalyzer = null
@@ -83,14 +94,27 @@ class IncrementalCompilationState {
         LastFilesAnalyzed = 0
         LastFilesReused = 0
         LastWasFull = true
+        EmitParses = new ColumnarFileProgramCache()
+        LastEmissionKey = ""
+        LastEmissionImage = null
+        LastEmissionErrors = new List<CompilerError>()
+        LastEmissionReused = false
     }
 
-    // Drops everything: the next run analyses every file with a new analyzer.
+    // Drops everything: the next run analyses and emits every file with a new analyzer.
     func Reset(environmentKey: string) {
         EnvironmentKey = environmentKey
         RetainedAnalyzer = null
         Files.Clear()
         MetadataEntries.Clear()
+        EmitParses.Clear()
+        ForgetEmission()
+    }
+
+    func ForgetEmission() {
+        LastEmissionKey = ""
+        LastEmissionImage = null
+        LastEmissionErrors = new List<CompilerError>()
     }
 
     // Whether the metadata the analyzer read last run is still what is on disk.

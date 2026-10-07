@@ -41,7 +41,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 8,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -176,7 +176,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 8,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -311,7 +311,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 8,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -401,7 +401,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 9,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -491,7 +491,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 41,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -626,7 +626,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 41,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -761,7 +761,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 41,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -851,7 +851,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 42,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -941,7 +941,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 161,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -1076,7 +1076,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 161,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -1211,7 +1211,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 161,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,
@@ -1301,7 +1301,7 @@
       "mode": "daemon-warm",
       "counters": {
         "filesParsed": 0,
-        "emitParses": 162,
+        "emitParses": 0,
         "filesAnalyzed": 0,
         "assembliesEmitted": 0,
         "referenceAssembliesLoaded": 0,

@@ -1112,6 +1112,12 @@ class MultiFileCompiler {
                 Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot)
             }
 
+            emissionKey := ComputeEmissionKey(assemblyName)
+            if TryReuseEmission(emissionKey, outputPath) {
+                return FinishEmission(outputPath, stampPath, stampKey, capture)
+            }
+            errorsBeforeEmission := _allErrors.Count
+
             // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
             // (a standalone columnar pipeline that owns assembly emission without materializing an object AST).
             let decline: NSharpLang.Compiler.ColumnarDeclineDiagnostic? = null
@@ -1128,8 +1134,15 @@ class MultiFileCompiler {
                     decline.SpanLength
                 ))
             }
+            RecordEmission(emissionKey, errorsBeforeEmission)
         }
 
+        return FinishEmission(outputPath, stampPath, stampKey, capture)
+    }
+
+    // The result of an emission that has run (or was answered from the state): success is the absence
+    // of an error, and a successful written output records its up-to-date stamp when one was asked for.
+    private func FinishEmission(outputPath: string?, stampPath: string?, stampKey: string, capture: IncrementalBuildInputCapture?): MultiFileCompilationResult {
         success := true
         for emissionError in _allErrors {
             if emissionError.Severity == ErrorSeverity.Error {
@@ -1155,6 +1168,98 @@ class MultiFileCompiler {
 
     // ---- the in-memory incremental state ---------------------------------------------------------
 
+    // EVERYTHING AN EMISSION READS, AS ONE KEY. The state's environment key already covers the
+    // compiler, the configuration (output type, version, friend grants), the defines, the references
+    // and their bytes, and the options analysis reads; the rest is this compilation's own: the
+    // assembly name, the switches the back end reads, and every source in compilation order by path
+    // and content. The analysis the emitter reads is a function of the same inputs, so two
+    // compilations with one key emit the same image and the same refusal. The empty key means "do not
+    // reuse": no warm state, a decline trace or debug log was asked for (the caller wants the walk to
+    // run), or a reference assembly is to be written beside the output.
+    private func ComputeEmissionKey(assemblyName: string): string {
+        state := _incrementalState
+        plan := _incrementalPlan
+        if state == null || plan == null || _columnarDeclineLog != null || _debugLoggingEnabled || _emitReferenceAssembly {
+            return ""
+        }
+
+        key := new IncrementalKeyBuilder()
+        key.Add("environment", state.EnvironmentKey)
+        key.Add("assembly", assemblyName)
+        key.AddBool("aot", _aotMode)
+        key.AddBool("soa", _soaEnabled)
+        key.Add("source-count", _sourceFiles.Count.ToString())
+        for sourceFile in _sourceFiles {
+            fullPath := Path.GetFullPath(sourceFile)
+            summary: IncrementalFileSummary = null
+            if !plan.Summaries.TryGetValue(fullPath, out summary) {
+                return ""
+            }
+            key.Add("source", fullPath)
+            key.Add("text", summary.TextHash)
+        }
+        return key.Build()
+    }
+
+    // Answers this emission from the state when the last one ran under the same key: its diagnostics,
+    // and its image -- kept in memory for a validation, written for a build.
+    private func TryReuseEmission(emissionKey: string, outputPath: string?): bool {
+        state := _incrementalState
+        if state == null {
+            return false
+        }
+
+        state.LastEmissionReused = false
+        if emissionKey.Length == 0 || emissionKey != state.LastEmissionKey {
+            return false
+        }
+
+        _allErrors.AddRange(state.LastEmissionErrors)
+        image := state.LastEmissionImage
+        if image != null {
+            _emittedImage = image
+            if outputPath != null {
+                File.WriteAllBytes(outputPath, image)
+                CompilerWorkCounters.Shared.CountAssemblyEmitted()
+            }
+        }
+        state.LastEmissionReused = true
+        return true
+    }
+
+    // Keeps this emission's outcome for the next compilation of the state: the image when it emitted,
+    // the diagnostics the emission added either way.
+    private func RecordEmission(emissionKey: string, errorsBeforeEmission: int): void {
+        state := _incrementalState
+        if state == null {
+            return
+        }
+
+        if emissionKey.Length == 0 {
+            state.ForgetEmission()
+            return
+        }
+
+        added := new List<CompilerError>()
+        index := errorsBeforeEmission
+        while index < _allErrors.Count {
+            added.Add(_allErrors[index])
+            index = index + 1
+        }
+        hasError := false
+        for addedError in added {
+            if addedError.Severity == ErrorSeverity.Error {
+                hasError = true
+            }
+        }
+        state.LastEmissionKey = emissionKey
+        state.LastEmissionErrors = added
+        state.LastEmissionImage = null
+        if !hasError {
+            state.LastEmissionImage = _emittedImage
+        }
+    }
+
     // Decides, before anything is parsed, which files' analyses the state lets this compilation
     // reuse. A different environment (or metadata that moved on disk) resets the state first.
     private func PrepareIncrementalPlan(): void {
@@ -1162,6 +1267,9 @@ class MultiFileCompiler {
         if state == null {
             return
         }
+        state.LastEmissionReused = false
+        state.EmitParses.LastReused = 0
+        state.EmitParses.LastParsed = 0
 
         paths := new List<string>()
         texts := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -1349,7 +1457,12 @@ class MultiFileCompiler {
         isExecutable := ColumnarEmissionPlanner.IsExecutableOutput(outputType)
         ColumnarDeclineTrace.Reset()
         let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput = null
-        if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out program, _workers)) {
+        emitParses: ColumnarFileProgramCache? = null
+        warmState := _incrementalState
+        if warmState != null {
+            emitParses = warmState.EmitParses
+        }
+        if (!ColumnarProgramInputBuilder.TryBuildMultiFile(sources, _sourceFiles, _projectRoot, out program, _workers, emitParses)) {
             CompilerPhaseTimings.End(emitParseMark)
             return false
         }

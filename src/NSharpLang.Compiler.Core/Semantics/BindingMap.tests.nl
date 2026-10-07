@@ -677,6 +677,56 @@ test "binding map finds a reference bucket by position the way the full scan did
     assert bindings.GetReferences(new SymbolDeclaration("Nowhere", "/src/app/main.nl", 5, 9, "class")).Count == 0
 }
 
+// THE FALLBACK ASKS ONLY THE BUCKETS THAT CAN NAME THE SAME FILE, AND STILL THE FIRST ONE THAT DOES.
+// Buckets at one position are grouped by the file name their spelling ends in; a file-less or
+// non-ASCII spelling sits in a wildcard group every lookup also asks. Many files declaring at the same
+// line and column (the shape that made merging per-file maps quadratic) must still answer exactly as
+// the full scan: a same-named bucket in another directory is not a suffix match and is skipped, a
+// wildcard bucket recorded EARLIER than the matching named one wins because it came first, and a
+// backslash spelling joins its forward-slash name group.
+test "binding map's fallback asks only same-named and wildcard buckets, first recorded first" {
+    bindings := new BindingMap()
+    file := 0
+    while file < 50 {
+        bindings.RecordDeclaration(new SymbolDeclaration("D" + file.ToString(), "/src/m" + file.ToString() + ".nl", 3, 5, "class"))
+        file = file + 1
+    }
+    bindings.RecordDeclaration(new SymbolDeclaration("Elsewhere", "/other/target.nl", 3, 5, "class"))
+    bindings.RecordDeclaration(new SymbolDeclaration("Target", "C:\\repo\\src\\target.nl", 3, 5, "class"))
+    bindings.RecordBinding("/src/use.nl", 9, 2, 6, new SymbolDeclaration("Target", "C:\\repo\\src\\target.nl", 3, 5, "class"))
+
+    // `src/target.nl` is a suffix of the backslash spelling only; `/other/target.nl` shares the name
+    // group and is skipped; the fifty other files at (3, 5) are never asked.
+    targetUsages := bindings.GetReferences(new SymbolDeclaration("Target", "src/target.nl", 3, 5, "class"))
+    assert targetUsages.Count == 1, targetUsages.Count.ToString()
+    assert BindingMap.ReferenceNameGroup("C:\\repo\\src\\target.nl") == "target.nl"
+    assert BindingMap.ReferenceNameGroup("/src/target.nl") == "target.nl"
+    assert BindingMap.ReferenceNameGroup(null) == BindingMap.ReferenceWildcardGroup()
+    assert BindingMap.ReferenceNameGroup("/src/caf\u00e9.nl") == BindingMap.ReferenceWildcardGroup()
+
+    // Two buckets at one position that both match the query: the one recorded first answers, whether
+    // it sits in the query's name group or in the wildcard group (a non-ASCII spelling), as in the full
+    // scan. `/x/a.nl` and `/y/a.nl` do not match each other, so both are real buckets.
+    named := new BindingMap()
+    named.RecordDeclaration(new SymbolDeclaration("First", "/x/a.nl", 8, 1, "class"))
+    named.RecordDeclaration(new SymbolDeclaration("Second", "/y/a.nl", 8, 1, "class"))
+    named.RecordBinding("/src/use.nl", 12, 1, 8, new SymbolDeclaration("Second", "/y/a.nl", 8, 1, "class"))
+    assert named.GetReferences(new SymbolDeclaration("Either", "a.nl", 8, 1, "class")).Count == 0
+    assert named.GetReferences(new SymbolDeclaration("Second", "y/a.nl", 8, 1, "class")).Count == 1
+
+    wildcardFirst := new BindingMap()
+    wildcardFirst.RecordDeclaration(new SymbolDeclaration("First", "/x/caf\u00e9/a.nl", 8, 1, "class"))
+    wildcardFirst.RecordDeclaration(new SymbolDeclaration("Second", "/y/a.nl", 8, 1, "class"))
+    wildcardFirst.RecordBinding("/src/use.nl", 12, 1, 8, new SymbolDeclaration("Second", "/y/a.nl", 8, 1, "class"))
+    assert wildcardFirst.GetReferences(new SymbolDeclaration("Either", "a.nl", 8, 1, "class")).Count == 0
+
+    namedFirst := new BindingMap()
+    namedFirst.RecordDeclaration(new SymbolDeclaration("First", "/y/a.nl", 8, 1, "class"))
+    namedFirst.RecordDeclaration(new SymbolDeclaration("Second", "/x/caf\u00e9/a.nl", 8, 1, "class"))
+    namedFirst.RecordBinding("/src/use.nl", 12, 1, 8, new SymbolDeclaration("First", "/y/a.nl", 8, 1, "class"))
+    assert namedFirst.GetReferences(new SymbolDeclaration("Either", "a.nl", 8, 1, "class")).Count == 1
+}
+
 // NOT IN THE DELETED FILE. The two projections the language server reads the whole map through:
 // `BindingEntries` pairs every usage position with its declaration, `DeclarationEntries` carries
 // the declarations alone, and both are SNAPSHOTS — growing the map afterwards does not grow them.

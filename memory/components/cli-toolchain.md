@@ -1080,6 +1080,34 @@ re-analyses only the edited file; after a signature edit, that file and its depe
   files an edit reaches and answer as a fresh process does" (counters plus in-process parity across
   body, signature and error edits) and `incremental-build/WarmIncrementalSessions.tests.nl` (identity,
   busy refusal, trim, discard).
+- **The back end is incremental too (`speed/agent-loop-2`).** The session also keeps each file's
+  columnar parse (`ColumnarFileProgramCache`, reused while the file's text and position hold, with
+  the decline records it made) and the last emission's outcome under the key of everything emission
+  reads (`MultiFileCompiler.ComputeEmissionKey`: the state's environment key, the assembly name, the
+  back-end switches and every source by path and content): an unchanged compilation is answered with
+  the previous image (written for a build, kept in memory for a check) and the previous diagnostics
+  without walking a body. The IL walk itself is NOT per-function incremental, and cannot be cheaply:
+  `PersistedAssemblyBuilder` writes `ldstr` tokens into the user-string heap at emit time (a body's
+  bytes depend on every string emitted before it), the emitter's lambda counter, display classes and
+  holder types are program-wide sequences, and the stage-0 seed cannot subclass `ILGenerator` (it
+  does not yet emit an override of an abstract property, `ILOffset`) to record a body's call stream
+  for replay -- so a body edit re-walks the program, which the walk's own speed-ups made cheap.
+  Proven by `incremental-build`'s differential rows: a warm build session's diagnostics and IL bytes,
+  and a warm check session's diagnostics and validated image, equal a fresh compilation's after every
+  one of the seeded edits to five multi-file projects (40 per project measured; 8 in the gate), and
+  each run must have reused emissions and parses -- the rows fail when the key ignores source text or
+  the parse cache ignores it.
+- **Measured warm (the agent-loop `large` project, 80,960 lines, daemon running, one body edit):**
+
+  | request | before (`28dfd91b2`) | after |
+  |---|---:|---:|
+  | first `check` after the edit | 2.28 s | 0.76 s |
+  | the same `check` again | 1.93 s | 0.13 s |
+  | first `build` after the edit | 2.02 s | 0.43 s |
+
+  The first check after the edit re-analyses one file, reuses 160 of 161 columnar parses and walks
+  the program once (~0.3-0.5 s); merging the reused files' binding maps had cost ~0.2 s by itself
+  until `BindingMap.FindReferenceBucket` grouped its fallback by file name.
 
 ### `nlc publish` — Framework-Dependent Deployment Artifacts
 

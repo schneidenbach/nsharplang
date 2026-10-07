@@ -35,6 +35,11 @@ class DifferentialReport {
     FilesAnalyzed: int
     FilesReused: int
     PartialSteps: int
+    // Steps whose emission was answered from the state (`IncrementalCompilationState.LastEmissionKey`)
+    // and file parses the back end reused (`ColumnarFileProgramCache`), so a run can prove the
+    // incremental back end was exercised and not merely bypassed.
+    EmissionReuses: int
+    ParseReuses: int
     Mismatches: List<string>
 
     constructor() {
@@ -44,11 +49,13 @@ class DifferentialReport {
         FilesAnalyzed = 0
         FilesReused = 0
         PartialSteps = 0
+        EmissionReuses = 0
+        ParseReuses = 0
         Mismatches = new List<string>()
     }
 
     func Summary(): string {
-        return "steps=" + Steps.ToString() + " successful=" + SuccessfulComparisons.ToString() + " failing=" + FailedComparisons.ToString() + " analyzed=" + FilesAnalyzed.ToString() + " reused=" + FilesReused.ToString() + " partial=" + PartialSteps.ToString() + " mismatches=" + Mismatches.Count.ToString()
+        return "steps=" + Steps.ToString() + " successful=" + SuccessfulComparisons.ToString() + " failing=" + FailedComparisons.ToString() + " analyzed=" + FilesAnalyzed.ToString() + " reused=" + FilesReused.ToString() + " partial=" + PartialSteps.ToString() + " emission-reuses=" + EmissionReuses.ToString() + " parse-reuses=" + ParseReuses.ToString() + " mismatches=" + Mismatches.Count.ToString()
     }
 }
 
@@ -178,6 +185,7 @@ func DifferentialCompare(session: IncrementalProjectSession, root: string, label
     if session.State.LastFilesReused > 0 {
         report.PartialSteps = report.PartialSteps + 1
     }
+    DifferentialCountBackEndReuse(session, report)
 
     referenceConfig := DifferentialConfig(root)
     reference := new MultiFileCompiler(referenceConfig.GetSourceFiles(root, false), root, referenceConfig)
@@ -197,6 +205,63 @@ func DifferentialCompare(session: IncrementalProjectSession, root: string, label
 
     if incremental.Success != full.Success || incrementalDiagnostics != fullDiagnostics || incrementalBytes != fullBytes {
         report.Mismatches.Add(label + ": success " + incremental.Success.ToString() + "/" + full.Success.ToString() + ", bytes " + incrementalBytes + "/" + fullBytes + "\n--- incremental\n" + incrementalDiagnostics + "--- full\n" + fullDiagnostics)
+    }
+}
+
+func DifferentialCountBackEndReuse(session: IncrementalProjectSession, report: DifferentialReport) {
+    if session.State.LastEmissionReused {
+        report.EmissionReuses = report.EmissionReuses + 1
+    }
+    report.ParseReuses = report.ParseReuses + session.State.EmitParses.LastReused
+}
+
+func DifferentialImageHash(compiler: MultiFileCompiler): string {
+    image := compiler.EmittedImage
+    if image == null {
+        return "-"
+    }
+    return ContentHash.OfBytes(image ?? new byte[](0))
+}
+
+// THE CHECK'S SIDE: a warm session analyses and validates the emission in memory, the way `nlc check`
+// runs in the workspace server, and a fresh compiler does the same over the same files; the two must
+// agree on success, every diagnostic and the validated image.
+func DifferentialCheckCompare(session: IncrementalProjectSession, root: string, label: string, report: DifferentialReport) {
+    config := DifferentialConfig(root)
+    files := config.GetSourceFiles(root, true)
+    warm := session.Analyze(config, files, null)
+    warmResult := warm.ValidateAnalyzedEmission(session.AssemblyName)
+    warmDiagnostics := DifferentialRender(warmResult.Errors)
+    report.FilesAnalyzed = report.FilesAnalyzed + session.State.LastFilesAnalyzed
+    report.FilesReused = report.FilesReused + session.State.LastFilesReused
+    if session.State.LastFilesReused > 0 {
+        report.PartialSteps = report.PartialSteps + 1
+    }
+    DifferentialCountBackEndReuse(session, report)
+
+    freshConfig := DifferentialConfig(root)
+    fresh := new MultiFileCompiler(freshConfig.GetSourceFiles(root, true), root, freshConfig)
+    fresh.CompileForAnalysis()
+    freshResult := fresh.ValidateAnalyzedEmission(session.AssemblyName)
+    freshDiagnostics := DifferentialRender(freshResult.Errors)
+
+    report.Steps = report.Steps + 1
+    if freshResult.Success {
+        report.SuccessfulComparisons = report.SuccessfulComparisons + 1
+    } else {
+        report.FailedComparisons = report.FailedComparisons + 1
+    }
+
+    warmImage := DifferentialImageHash(warm)
+    freshImage := DifferentialImageHash(fresh)
+    if !warmResult.Success {
+        warmImage = "-"
+    }
+    if !freshResult.Success {
+        freshImage = "-"
+    }
+    if warmResult.Success != freshResult.Success || warmDiagnostics != freshDiagnostics || warmImage != freshImage {
+        report.Mismatches.Add(label + " (check): success " + warmResult.Success.ToString() + "/" + freshResult.Success.ToString() + ", image " + warmImage + "/" + freshImage + "\n--- warm\n" + warmDiagnostics + "--- fresh\n" + freshDiagnostics)
     }
 }
 
@@ -363,6 +428,28 @@ func DifferentialIdentifierEnds(text: string): List<int> {
         }
     }
     return positions
+}
+
+func DifferentialCheckRun(project: DifferentialProject, seed: int, steps: int, report: DifferentialReport) {
+    scratch := IncrementalScratch("differential-check-" + project.Name)
+    try {
+        root := Path.Combine(scratch, project.Name)
+        originals := DifferentialCopy(project, root)
+        config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
+        assemblyName := config.Name ?? project.Name
+        session := new IncrementalProjectSession(root, assemblyName)
+        DifferentialCheckCompare(session, root, project.Name + " initial", report)
+        DifferentialCheckCompare(session, root, project.Name + " unchanged", report)
+        random := new Random(seed)
+        step := 0
+        while step < steps {
+            edit := DifferentialEdit(random, root, originals, step)
+            DifferentialCheckCompare(session, root, project.Name + " step " + step.ToString() + " (" + edit + ")", report)
+            step = step + 1
+        }
+    } finally {
+        IncrementalCleanup(scratch)
+    }
 }
 
 func DifferentialRun(project: DifferentialProject, seed: int, steps: int, report: DifferentialReport) {
