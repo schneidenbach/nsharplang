@@ -533,6 +533,10 @@ func CliRootCheckWriteGateRecord(repositoryRoot: string, line: string): bool {
 }
 
 func CliRootCheckRunJson(projectRoot: string): CliRun {
+    return CliRootCheckRunJsonWithProcessorCount(projectRoot, 0)
+}
+
+func CliRootCheckRunJsonWithProcessorCount(projectRoot: string, processorCount: int): CliRun {
     startInfo := new ProcessStartInfo {
         FileName: "dotnet",
         Arguments: "\"" + CliDll() + "\" check --project \"" + projectRoot + "\" --json",
@@ -542,6 +546,9 @@ func CliRootCheckRunJson(projectRoot: string): CliRun {
     startInfo.RedirectStandardError = true
     startInfo.UseShellExecute = false
     startInfo.Environment["NLC_NO_DAEMON"] = "1"
+    if processorCount > 0 {
+        startInfo.Environment["DOTNET_PROCESSOR_COUNT"] = processorCount.ToString()
+    }
 
     process := new Process { StartInfo: startInfo }
     process.Start()
@@ -585,6 +592,85 @@ func CliRootCheckDiagnosticSet(stdout: string): string {
     return result
 }
 
+func CliRootCheckAppendNl103Diagnostics(stdout: string, diagnostics: List<string>): void {
+    document := JsonDocument.Parse(stdout)
+    root := document.RootElement
+    projects := new JsonElement()
+    if root.TryGetProperty("projects", out projects) {
+        for project in projects.EnumerateArray() {
+            projectRoot := TextOf(project.GetProperty("projectRoot"))
+            for diagnostic in project.GetProperty("results").EnumerateArray() {
+                if TextOf(diagnostic.GetProperty("code")) == "NL103" {
+                    diagnostics.Add(projectRoot + "\n" + diagnostic.GetRawText())
+                }
+            }
+        }
+    } else {
+        projectRoot := TextOf(root.GetProperty("projectRoot"))
+        for diagnostic in root.GetProperty("results").EnumerateArray() {
+            if TextOf(diagnostic.GetProperty("code")) == "NL103" {
+                diagnostics.Add(projectRoot + "\n" + diagnostic.GetRawText())
+            }
+        }
+    }
+    document.Dispose()
+}
+
+func CliRootCheckNl103DiagnosticSet(stdout: string): string {
+    diagnostics := new List<string>()
+    CliRootCheckAppendNl103Diagnostics(stdout, diagnostics)
+    diagnostics.Sort(StringComparer.Ordinal)
+    return string.Join("\n---\n", diagnostics)
+}
+
+func CliRootCheckAssertCompleteWorkspace(stdout: string, expectedProjectCount: int): void {
+    document := JsonDocument.Parse(stdout)
+    root := document.RootElement
+    projects := root.GetProperty("projects")
+    assert projects.GetArrayLength() == expectedProjectCount, "workspace returned " + projects.GetArrayLength().ToString() + " member rows; expected " + expectedProjectCount.ToString()
+    assert root.GetProperty("summary").GetProperty("projectFailures").GetInt32() == 0, "workspace reported project failures instead of checking every configured member. Failing projects and first diagnostics/errors:\n" + CliRootCheckWorkspaceFailureText(projects)
+    document.Dispose()
+}
+
+func CliRootCheckReferenceNl103DiagnosticSet(repositoryRoot: string): string {
+    relativeMembers := new List<string>()
+    relativeMembers.Add("examples/14-minimal-api")
+    relativeMembers.Add("examples/17-issue-tracker/backend")
+    relativeMembers.Add("templates/nsharp-webapi")
+    relativeMembers.Add("tests/fixtures/issue-tracker")
+    relativeMembers.Add("tests/fixtures/staticrecv-runtime-inline")
+    relativeMembers.Add("tests/fixtures/staticrecv-runtime-typed")
+    relativeMembers.Add("src/NSharpLang.LanguageServer")
+    relativeMembers.Add("tests/native/census-generic-interface-method")
+    relativeMembers.Add("tests/native/census-params-expansion")
+    relativeMembers.Add("tests/native/language-server-diagnostics")
+    relativeMembers.Add("tests/native/language-server-handlers")
+    diagnostics := new List<string>()
+    for relativeMember in relativeMembers {
+        memberRoot := Path.Combine(repositoryRoot, relativeMember)
+        assert Directory.Exists(memberRoot) && File.Exists(Path.Combine(memberRoot, "project.yml")), "the Microsoft.Extensions workspace subset is missing a project: " + memberRoot
+        single := CliRootCheckRunJson(memberRoot)
+        assert single.Stderr.Length == 0, single.Stderr
+        CliRootCheckAppendNl103Diagnostics(single.Stdout, diagnostics)
+    }
+    // These two projects are the regression fixture itself. Older worktrees used to verify the
+    // checker's pre-fix output do not contain them; the repository census above still requires
+    // every project that exists in the checked worktree to appear in the workspace result.
+    optionalFixtures := new List<string>()
+    optionalFixtures.Add("tests/fixtures/workspace-reference-isolation/framework10")
+    optionalFixtures.Add("tests/fixtures/workspace-reference-isolation/logging9")
+    for relativeFixture in optionalFixtures {
+        fixtureRoot := Path.Combine(repositoryRoot, relativeFixture)
+        if Directory.Exists(fixtureRoot) && File.Exists(Path.Combine(fixtureRoot, "project.yml")) {
+            single := CliRootCheckRunJson(fixtureRoot)
+            assert single.Stderr.Length == 0, single.Stderr
+            CliRootCheckAppendNl103Diagnostics(single.Stdout, diagnostics)
+        }
+    }
+    diagnostics.Sort(StringComparer.Ordinal)
+    return string.Join("\n---\n", diagnostics)
+}
+
 func CliRootCheckJoinDiagnosticSets(first: string, second: string): string {
     if first.Length == 0 {
         return second
@@ -595,60 +681,65 @@ func CliRootCheckJoinDiagnosticSets(first: string, second: string): string {
     return first + "\n---\n" + second
 }
 
-func CliRootCheckWriteVersionedDependencyProject(directory: string, name: string, packageVersion: string) {
-    Directory.CreateDirectory(directory)
-    WriteProjectYml(
-        directory,
-        "name: " + name + "\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - nuget: Microsoft.Extensions.DependencyInjection.Abstractions\n    version: " + packageVersion + "\n"
-    )
-    File.WriteAllText(
-        Path.Combine(directory, "DependencyVersionProbe.nl"),
-        "import Microsoft.Extensions.DependencyInjection\n\nclass DependencyVersionProbe {\n    services: IServiceCollection\n}\n"
-    )
+func CliRootCheckCopyFixtureProject(source: string, destination: string) {
+    Directory.CreateDirectory(destination)
+    for file in Directory.GetFiles(source, "*", SearchOption.TopDirectoryOnly) {
+        File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true)
+    }
 }
 
-test "repository-root workspace diagnostics agree across consecutive checks" {
+test "workspace check matches framework 10 and logging 9 members alone in both orders and concurrency settings" {
     repositoryRoot := CliRepositoryRoot()
-    first := CliRootCheckRunJson(repositoryRoot)
-    second := CliRootCheckRunJson(repositoryRoot)
-
-    assert first.ExitCode == second.ExitCode, "consecutive workspace checks returned different exit codes"
-    assert first.Stderr.Length == 0, first.Stderr
-    assert second.Stderr.Length == 0, second.Stderr
-    assert CliRootCheckDiagnosticSet(first.Stdout) == CliRootCheckDiagnosticSet(second.Stdout), "consecutive repository-root workspace checks returned different diagnostic sets"
-}
-
-test "workspace check matches each dependency-version member alone in both member orders" {
-    directory := NewTempDirectory("nlc-check-workspace-reference-versions")
-    firstMember := Path.Combine(directory, "a")
-    secondMember := Path.Combine(directory, "b")
+    fixtureRoot := Path.Combine(repositoryRoot, "tests/fixtures/workspace-reference-isolation")
+    frameworkFixture := Path.Combine(fixtureRoot, "framework10")
+    loggingFixture := Path.Combine(fixtureRoot, "logging9")
+    directory := NewTempDirectory("nlc-check-workspace-reference-isolation")
+    firstOrder := Path.Combine(directory, "framework-first")
+    secondOrder := Path.Combine(directory, "logging-first")
     try {
-        CliRootCheckWriteVersionedDependencyProject(firstMember, "DependencyVersionA", "10.0.0")
-        CliRootCheckWriteVersionedDependencyProject(secondMember, "DependencyVersionB", "10.0.9")
+        firstOrderA := Path.Combine(firstOrder, "a")
+        firstOrderB := Path.Combine(firstOrder, "b")
+        Directory.CreateDirectory(firstOrder)
+        CliRootCheckCopyFixtureProject(frameworkFixture, firstOrderA)
+        CliRootCheckCopyFixtureProject(loggingFixture, firstOrderB)
+        firstSingleA := CliRootCheckRunJson(firstOrderA)
+        firstSingleB := CliRootCheckRunJson(firstOrderB)
+        firstExpected := CliRootCheckJoinDiagnosticSets(CliRootCheckDiagnosticSet(firstSingleA.Stdout), CliRootCheckDiagnosticSet(firstSingleB.Stdout))
+        firstWorkspace := CliRootCheckRunJsonWithProcessorCount(firstOrder, 2)
+        firstSerialWorkspace := CliRootCheckRunJsonWithProcessorCount(firstOrder, 1)
+        assert firstSingleA.ExitCode == 0, firstSingleA.Stdout + firstSingleA.Stderr
+        assert firstSingleB.ExitCode == 0, firstSingleB.Stdout + firstSingleB.Stderr
+        assert firstWorkspace.Stderr.Length == 0, firstWorkspace.Stderr
+        CliRootCheckAssertCompleteWorkspace(firstWorkspace.Stdout, 2)
+        assert CliRootCheckDiagnosticSet(firstWorkspace.Stdout) == firstExpected, "framework-10 first concurrent workspace diagnostics differ from the union of its single-member results"
+        assert firstSerialWorkspace.Stderr.Length == 0, firstSerialWorkspace.Stderr
+        CliRootCheckAssertCompleteWorkspace(firstSerialWorkspace.Stdout, 2)
+        assert CliRootCheckDiagnosticSet(firstSerialWorkspace.Stdout) == firstExpected, "framework-10 first serial workspace diagnostics differ from the union of its single-member results"
 
-        firstSingle := CliRootCheckRunJson(firstMember)
-        secondSingle := CliRootCheckRunJson(secondMember)
-        firstWorkspace := CliRootCheckRunJson(directory)
-        assert firstSingle.ExitCode == 0, firstSingle.Stdout + firstSingle.Stderr
-        assert secondSingle.ExitCode == 0, secondSingle.Stdout + secondSingle.Stderr
-        assert firstWorkspace.ExitCode == 0, firstWorkspace.Stdout + firstWorkspace.Stderr
-        assert CliRootCheckDiagnosticSet(firstWorkspace.Stdout) == CliRootCheckJoinDiagnosticSets(CliRootCheckDiagnosticSet(firstSingle.Stdout), CliRootCheckDiagnosticSet(secondSingle.Stdout)), "the 10.0.0 / 10.0.9 workspace result differs from its single-member results"
-
-        CliRootCheckWriteVersionedDependencyProject(firstMember, "DependencyVersionA", "10.0.9")
-        CliRootCheckWriteVersionedDependencyProject(secondMember, "DependencyVersionB", "10.0.0")
-        firstSingle = CliRootCheckRunJson(firstMember)
-        secondSingle = CliRootCheckRunJson(secondMember)
-        secondWorkspace := CliRootCheckRunJson(directory)
-        assert firstSingle.ExitCode == 0, firstSingle.Stdout + firstSingle.Stderr
-        assert secondSingle.ExitCode == 0, secondSingle.Stdout + secondSingle.Stderr
-        assert secondWorkspace.ExitCode == 0, secondWorkspace.Stdout + secondWorkspace.Stderr
-        assert CliRootCheckDiagnosticSet(secondWorkspace.Stdout) == CliRootCheckJoinDiagnosticSets(CliRootCheckDiagnosticSet(firstSingle.Stdout), CliRootCheckDiagnosticSet(secondSingle.Stdout)), "the reversed 10.0.9 / 10.0.0 workspace result differs from its single-member results"
+        secondOrderA := Path.Combine(secondOrder, "a")
+        secondOrderB := Path.Combine(secondOrder, "b")
+        Directory.CreateDirectory(secondOrder)
+        CliRootCheckCopyFixtureProject(loggingFixture, secondOrderA)
+        CliRootCheckCopyFixtureProject(frameworkFixture, secondOrderB)
+        secondSingleA := CliRootCheckRunJson(secondOrderA)
+        secondSingleB := CliRootCheckRunJson(secondOrderB)
+        secondExpected := CliRootCheckJoinDiagnosticSets(CliRootCheckDiagnosticSet(secondSingleA.Stdout), CliRootCheckDiagnosticSet(secondSingleB.Stdout))
+        secondWorkspace := CliRootCheckRunJsonWithProcessorCount(secondOrder, 2)
+        secondSerialWorkspace := CliRootCheckRunJsonWithProcessorCount(secondOrder, 1)
+        assert secondSingleA.ExitCode == 0, secondSingleA.Stdout + secondSingleA.Stderr
+        assert secondSingleB.ExitCode == 0, secondSingleB.Stdout + secondSingleB.Stderr
+        assert secondWorkspace.Stderr.Length == 0, secondWorkspace.Stderr
+        CliRootCheckAssertCompleteWorkspace(secondWorkspace.Stdout, 2)
+        assert CliRootCheckDiagnosticSet(secondWorkspace.Stdout) == secondExpected, "logging-9 first concurrent workspace diagnostics differ from the union of its single-member results"
+        assert secondSerialWorkspace.Stderr.Length == 0, secondSerialWorkspace.Stderr
+        CliRootCheckAssertCompleteWorkspace(secondSerialWorkspace.Stdout, 2)
+        assert CliRootCheckDiagnosticSet(secondSerialWorkspace.Stdout) == secondExpected, "logging-9 first serial workspace diagnostics differ from the union of its single-member results"
     } finally {
         Directory.Delete(directory, true)
     }
 }
 
-test "nlc check checks each repository project once, keeps Core clean, and pins workspace work while load judges wall time" {
+test "nlc check checks every repository project once, keeps diagnostics stable, and pins workspace work while load judges wall time" {
     repositoryRoot := CliRepositoryRoot()
     load := CliRootCheckReadMachineLoad()
     statsPath := Path.Combine(Path.GetTempPath(), "nsharp-check-workspace-stats-" + Guid.NewGuid().ToString("N") + ".json")
@@ -748,6 +839,13 @@ test "nlc check checks each repository project once, keeps Core clean, and pins 
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("info").GetInt32() == memberInfo, "workspace info summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("projectFailures").GetInt32() == 0, "the workspace reported project failures despite returning a result for every discovered project. Failing projects and first diagnostics/errors:\n" + CliRootCheckWorkspaceFailureText(projects)
+
+    repeat := CliRootCheckRunJson(repositoryRoot)
+    assert repeat.ExitCode == exitCode, "consecutive repository-root workspace checks returned different exit codes"
+    assert repeat.Stderr.Length == 0, repeat.Stderr
+    assert CliRootCheckDiagnosticSet(stdout) == CliRootCheckDiagnosticSet(repeat.Stdout), "consecutive repository-root workspace checks returned different diagnostic sets"
+    CliRootCheckAssertCompleteWorkspace(repeat.Stdout, expectedRoots.Count)
+    assert CliRootCheckNl103DiagnosticSet(stdout) == CliRootCheckReferenceNl103DiagnosticSet(repositoryRoot), "repository-root NL103 diagnostics differ from the union of per-member checks for Microsoft.Extensions references"
 
     counters := stats.GetProperty("counters")
     filesParsed := counters.GetProperty("filesParsed").GetInt64()

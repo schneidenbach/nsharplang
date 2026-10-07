@@ -74,6 +74,16 @@ func RunProcess(fileName: string, arguments: string, workingDirectory: string): 
 // ─── FINDING THE BUILT CLI ────────────────────────────────────────────────────────────────────
 
 func CliRepositoryRoot(): string {
+    testRootOverride := Environment.GetEnvironmentVariable("NLC_TEST_REPOSITORY_ROOT")
+    if !string.IsNullOrWhiteSpace(testRootOverride) {
+        directory := Path.GetFullPath(testRootOverride)
+        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) && Directory.Exists(Path.Combine(directory, "tests")) {
+            return directory
+        }
+
+        throw new InvalidOperationException("NLC_TEST_REPOSITORY_ROOT does not point to an N# repository: " + directory)
+    }
+
     current: string? = AppContext.BaseDirectory
     while current != null {
         directory := current ?? ""
