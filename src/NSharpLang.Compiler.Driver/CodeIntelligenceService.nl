@@ -45,21 +45,22 @@ class CodeIntelligenceService {
         return Snapshot(projectRoot, compiler)
     }
 
-    // `nlc check` needs the analysis snapshot and backend verification for each project. Running
-    // `CompileForAnalysis` and then creating a second compiler for IL verification parsed and
-    // analyzed every clean member twice. Compile once, then expose that compiler's completed
+    // `nlc check` needs the analysis snapshot and backend validation for each project. Running
+    // `CompileForAnalysis` and then creating a second compiler for IL validation parsed and
+    // analyzed every clean member twice. Analyse once, validate that compiler's emission in memory
+    // (`MultiFileCompiler.ValidateAnalyzedEmission`: nothing is written), then expose the completed
     // analysis and emission diagnostics through the same snapshot used by code intelligence.
     func LoadWorkspaceProjectIncludingTestsForCheck(
         projectRoot: string,
         config: ProjectConfig,
         sourceFiles: IEnumerable<string>,
         assemblyName: string,
-        outputPath: string,
         aotMode: bool
     ): ProjectSnapshot {
         // One worker: see `LoadWorkspaceProjectIncludingTests`.
         compiler := new MultiFileCompiler(sourceFiles, projectRoot, config, null) { AotMode: aotMode, Workers: 1 }
-        compiler.CompileToIlAssembly(assemblyName, outputPath, false, true)
+        compiler.CompileForAnalysis()
+        compiler.ValidateAnalyzedEmission(assemblyName)
         return SnapshotAfterCompilation(projectRoot, compiler)
     }
 

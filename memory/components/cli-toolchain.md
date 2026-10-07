@@ -170,7 +170,7 @@ Browser `Run` intentionally supports tutorial-scale code only: functions, `print
 
 ### `nlc check` — Fast Type-Check
 
-The N# equivalent of `cargo check`. Parses and analyzes first, then verifies IL emission without producing final app artifacts. The tightest feedback loop for development.
+The N# equivalent of `cargo check`. Parses and analyzes first, then validates IL emission in memory: it writes no assembly, scratch directory or reference assembly. The tightest feedback loop for development.
 
 ```bash
 $ nlc check
@@ -251,9 +251,25 @@ Undefined identifier 'unknownVar'
 - JSON by default, `--text` for Elm-style diagnostics
 - `results[].line`, `results[].column`, and `results[].length` are the canonical marker span for both compiler and linter diagnostics; linter results no longer use one-character placeholder lengths.
 - Always runs parse + analysis first, then:
-  - `il` backend (default): emits a temporary IL assembly to verify the direct backend succeeds
+  - `il` backend (default): when the analysis is clean, validates the direct backend's emission IN
+    MEMORY (`MultiFileCompiler.ValidateAnalyzedEmission`) and writes nothing.
+- **Why a check still runs the IL back end.** One class of diagnostic exists nowhere but in the code
+  generator: NL103, a program the analysis accepts and the back end refuses
+  (`ColumnarEmissionDiagnostics`). The refusals are decided while the back end walks every body (the
+  planners that choose an instruction sequence are the code that hands it to the `ILGenerator`, and
+  the image's metadata serialisation can refuse it last), so no cheaper pass can answer them without
+  being a second code generator. The repository corpus carries six of them under `nlc check`
+  (`examples/14-minimal-api`, `examples/17-issue-tracker/backend`, `templates/nsharp-webapi`,
+  `tests/fixtures/issue-tracker` and two census projects at the repository-root workspace check), so
+  skipping the walk would turn real failures into `ok: true`. Measured on the agent-loop `large`
+  project (80,960 lines): metadata generation and PE serialisation are ~20 ms of a ~1.5 s walk, so the
+  walk itself is the cost and the image's write was never the part worth removing; what the check no
+  longer does is create a scratch directory, write the image and count it (`--stats`
+  `assembliesEmitted` is 0 for a check). The validated image stays on the compiler
+  (`MultiFileCompiler.EmittedImage`). The repository-root workspace check's JSON was byte-identical
+  before and after (225 members, 175 errors, 162 warnings, six NL103).
 - **One analysis per file per check.** The emission proof uses the compiler that produced the
-  diagnostics (`MultiFileCompiler.EmitAnalyzedAssembly`); it used to hand the project to a second
+  diagnostics (`MultiFileCompiler.ValidateAnalyzedEmission`); it used to hand the project to a second
   compiler that parsed, analysed and loaded the reference closure again. On
   `tests/fixtures/issue-tracker` (8 files) `--stats` went from 40 parses / 16 analyses / 684
   reference loads to 16 / 8 / 501, and to 8 / 8 / 501 once the driver's parses were handed to the
@@ -960,7 +976,7 @@ to 0.34 s and 5.87 s to 0.46 s (the tests still run).
 - **Who opts in.** `MultiFileCompiler.IncrementalBuild` is off by default; the CLI's project builds
   and reference builds turn it on. A stamp is kept only for an output INSIDE the project root, so
   `nlc build -o /elsewhere` (the compile-time bench) leaves the source tree untouched and always
-  compiles. `nlc check`'s temporary verification build, editor buffers
+  compiles. `nlc check` (which writes nothing), editor buffers
   (source overrides), single-file builds, `--perf-report` (which needs the systems analysis) and runs
   with `NSHARP_COLUMNAR_DECLINE_LOG`/`NSHARP_DEBUG_LOG` set always compile. `NSHARP_INCREMENTAL=0`
   turns every shortcut off for the process. `nlc test --no-cache` deletes the test output, which
@@ -1043,7 +1059,7 @@ re-analysed. The incremental layers add their own direct readings:
 `nlc check` and `nlc build` (and `run`/`test`/`publish`/`pack`, which compile through the same
 backend) take a warm session when the workspace server runs them for a client
 (`WarmIncrementalSessions`, Driver): one `IncrementalProjectSession` per compilation identity —
-project root, assembly, command (`check` analyses for diagnostics and emits into a scratch directory;
+project root, assembly, command (`check` analyses for diagnostics and validates the emission in memory;
 `build` emits what it keeps), test sources included or not, AOT. So a routed check after a body edit
 re-analyses only the edited file; after a signature edit, that file and its dependents.
 
@@ -1553,7 +1569,8 @@ reference assemblies):
 `nlc run` of a small exe through the server: ~0.17 s client wall time including the program.
 Client-side overhead per routed command ≈ 40 ms runtime start + ≈ 35 ms routing (resolve, identity,
 connect, request); the rest is server-side compiler work. Both follow-ups this table pointed at have
-landed on `speed/integration`: `check` analyses once (`EmitAnalyzedAssembly`), and the server holds
+landed on `speed/integration`: `check` analyses once (`EmitAnalyzedAssembly`, since `speed/agent-loop-2`
+`ValidateAnalyzedEmission`, which writes nothing), and the server holds
 the incremental sessions, so a routed check after a body edit re-analyses one file (the agent-loop
 benchmark's `--daemon` table in `memory/testing.md` §8a has the measured loop).
 

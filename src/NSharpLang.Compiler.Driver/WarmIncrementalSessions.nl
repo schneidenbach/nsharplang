@@ -15,8 +15,8 @@ import System.IO
 // project, which then re-analyses only what the edit invalidated (`IncrementalCompilationPlan`).
 //
 // One session per COMPILATION IDENTITY: the project, the assembly, whether test sources are
-// included, AOT, and which command compiles it (a check analyses for diagnostics and emits into a
-// scratch directory; a build emits what it keeps). Anything else the analyses depend on -- the
+// included, AOT, and which command compiles it (a check analyses for diagnostics and validates the
+// emission in memory; a build emits what it keeps). Anything else the analyses depend on -- the
 // configuration, defines, references and their bytes -- is the state's own environment key, which
 // resets the state when it moves, so a stale session can cost a full compilation but never a wrong
 // one.

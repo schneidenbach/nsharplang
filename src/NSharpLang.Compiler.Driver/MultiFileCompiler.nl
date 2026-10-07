@@ -91,9 +91,12 @@ class MultiFileCompiler {
     // compilation sees these, so a file edited mid-compilation cannot pair one text's plan with
     // another text's parse.
     private readonly _plannedTexts: Dictionary<string, string>
-    // Set once `CompileForAnalysis` has run, so `EmitAnalyzedAssembly` can refuse to emit a program
-    // nothing analysed.
+    // Set once `CompileForAnalysis` has run, so `ValidateAnalyzedEmission` can refuse to validate a
+    // program nothing analysed.
     private _analysisCompleted: bool
+    // The image the last emission produced, whether it was written (`CompileToIlAssembly`) or only
+    // validated (`ValidateAnalyzedEmission`); null until an emission succeeds.
+    private _emittedImage: byte[]?
     private readonly _debugLoggingEnabled: bool
     private readonly _sourceTextOverrides: IReadOnlyDictionary<string, string>
     private readonly _preprocessorSymbols: IReadOnlySet<string>
@@ -176,7 +179,7 @@ class MultiFileCompiler {
     // WHETHER THIS COMPILATION MAY BE ANSWERED BY ITS UP-TO-DATE STAMP (`IncrementalBuildStamp`).
     // Off unless the caller asks: the stamp lives in the project's `obj/` and describes an output
     // the caller will keep, which is true of `nlc build`, `run`, `test` and a referenced project's
-    // build, and not of a check that emits into a temporary directory or an editor's buffers.
+    // build, and not of a check (which writes nothing) or an editor's buffers.
     IncrementalBuild: bool {
         get {
             return _incrementalBuild
@@ -298,6 +301,7 @@ class MultiFileCompiler {
         _pendingRecords = new Dictionary<string, IncrementalFileRecord>(StringComparer.OrdinalIgnoreCase)
         _plannedTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         _analysisCompleted = false
+        _emittedImage = null
     }
 
     // The configuration this compiler was built with; the constructor already replaced a missing one
@@ -920,19 +924,28 @@ class MultiFileCompiler {
         _analysisCompleted = true
     }
 
-    // EMIT WHAT `CompileForAnalysis` ALREADY ANALYSED. `nlc check` reports the analysis's diagnostics
-    // and then, when they are clean, proves the program also EMITS; asking a second compiler for the
-    // second half parsed, analysed and loaded the reference closure all over again. This emits from
-    // this compiler's own units and semantic models — exactly what `CompileToIlAssembly` would have
-    // emitted after the same analysis — and reports the same way: no emission while an analysis
-    // error stands, and an emission decline appended to `AllErrors`.
-    func EmitAnalyzedAssembly(assemblyName: string, outputPath: string): MultiFileCompilationResult {
+    // PROVE THAT WHAT `CompileForAnalysis` ANALYSED ALSO EMITS, AND WRITE NOTHING. `nlc check` reports
+    // diagnostics only, but one class of them exists nowhere except in the code generator: a program
+    // the analysis accepts and the IL back end refuses (NL103, `ColumnarEmissionDiagnostics`). Those
+    // refusals are decided while the back end walks every body — the planners that pick an
+    // instruction sequence are the same code that hands it to the `ILGenerator`, and the image's own
+    // metadata serialisation can refuse it last — so the walk runs exactly as `CompileToIlAssembly`
+    // runs it, from this compiler's own units and semantic models, and the finished image is kept in
+    // memory (`EmittedImage`) instead of being written: no output file, no scratch directory, no
+    // reference assembly, and `CompilerWorkCounters.AssembliesEmitted` is not counted. It reports the
+    // way a build does: nothing is emitted while an analysis error stands, and a decline is appended
+    // to `AllErrors`.
+    func ValidateAnalyzedEmission(assemblyName: string): MultiFileCompilationResult {
         if !_analysisCompleted {
-            throw new InvalidOperationException("EmitAnalyzedAssembly needs CompileForAnalysis to have run on this compiler first.")
+            throw new InvalidOperationException("ValidateAnalyzedEmission needs CompileForAnalysis to have run on this compiler first.")
         }
 
-        return EmitAfterValidation(assemblyName, outputPath, null, "", null)
+        return EmitAfterValidation(assemblyName, null, null, "", null)
     }
+
+    // The image the last successful emission of this compiler produced (written or only validated),
+    // or null when nothing was emitted.
+    EmittedImage: byte[]? => _emittedImage
 
     // Shared N# validation pipeline used by analysis and emission.
     //
@@ -1067,8 +1080,9 @@ class MultiFileCompiler {
     }
 
     // The emission half of a compilation whose validation has run: refuse on any error, emit,
-    // report a decline, and record the up-to-date stamp when one was asked for.
-    private func EmitAfterValidation(assemblyName: string, outputPath: string, stampPath: string?, stampKey: string, capture: IncrementalBuildInputCapture?): MultiFileCompilationResult {
+    // report a decline, and record the up-to-date stamp when one was asked for. A null output path
+    // validates the emission without writing it (`ValidateAnalyzedEmission`).
+    private func EmitAfterValidation(assemblyName: string, outputPath: string?, stampPath: string?, stampKey: string, capture: IncrementalBuildInputCapture?): MultiFileCompilationResult {
         hasValidationErrors := false
         for validationError in _allErrors {
             if validationError.Severity == ErrorSeverity.Error {
@@ -1085,7 +1099,9 @@ class MultiFileCompiler {
         }
 
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot)
+            if outputPath != null {
+                Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot)
+            }
 
             // STAGE 5 ROUTING: when the columnar backend can emit the whole program, route emission through it
             // (a standalone columnar pipeline that owns assembly emission without materializing an object AST).
@@ -1115,7 +1131,7 @@ class MultiFileCompiler {
         resultSuccess := success
         resultErrors := _allErrors
         resultPath: string? = null
-        if success {
+        if success && outputPath != null {
             resultPath = outputPath
             if stampPath != null && capture != null {
                 WriteIncrementalStamp(stampPath, stampKey, capture, outputPath)
@@ -1300,8 +1316,9 @@ class MultiFileCompiler {
         }
     }
 
-    // Emit the whole assembly through the standalone columnar backend.
-    private func TryEmitWithColumnarBackend(assemblyName: string, outputPath: string): bool {
+    // Emit the whole assembly through the standalone columnar backend; with no output path the image
+    // is kept in memory only.
+    private func TryEmitWithColumnarBackend(assemblyName: string, outputPath: string?): bool {
         if (_sourceFiles.Count == 0) {
             return false
         }
@@ -1361,6 +1378,10 @@ class MultiFileCompiler {
             return false
         }
         CompilerPhaseTimings.End(codegenMark)
+        _emittedImage = assembly
+        if outputPath == null {
+            return true
+        }
         writeMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.write")
         File.WriteAllBytes(outputPath, assembly)
         CompilerWorkCounters.Shared.CountAssemblyEmitted()
@@ -1406,7 +1427,7 @@ class MultiFileCompiler {
     // MSBuild task threads have ~256 KB stacks and the emitter's per-node recursion frames are large, so
     // emission runs on a dedicated 64 MB wide-stack thread. ColumnarDeclineTrace is [ThreadStatic], so the
     // decline diagnostic must also be built on that thread, while its recorded declines are still visible.
-    private func EmitOnWideStackThread(assemblyName: string, outputPath: string, out decline: ColumnarDeclineDiagnostic): bool {
+    private func EmitOnWideStackThread(assemblyName: string, outputPath: string?, out decline: ColumnarDeclineDiagnostic): bool {
         state := new MultiFileCompiler.MultiFileCompilerEmissionThreadState()
         work: ThreadStart = () => RunColumnarEmissionOnCurrentThread(state, assemblyName, outputPath)
         thread := new Thread(work, 64 * 1024 * 1024)
@@ -1425,7 +1446,7 @@ class MultiFileCompiler {
     // compilation in hand — so both are opened as a thread-local scope here, on the very thread the
     // whole emit walk runs on, and closed when it ends. `InternalsVisibleToEmissionScope` explains
     // why the scope is thread-local.
-    private func RunColumnarEmissionOnCurrentThread(state: MultiFileCompilerEmissionThreadState, assemblyName: string, outputPath: string): void {
+    private func RunColumnarEmissionOnCurrentThread(state: MultiFileCompilerEmissionThreadState, assemblyName: string, outputPath: string?): void {
         grantsConfig := _config
         declaredGrants: List<string>? = null
         if grantsConfig != null {

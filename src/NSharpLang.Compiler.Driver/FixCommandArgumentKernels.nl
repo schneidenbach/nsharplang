@@ -242,14 +242,6 @@ class CheckCommandKernels {
         return errorCount == 0 && sourceFileCount > 0 && hasProjectFile
     }
 
-    static func GetVerificationOutputPath(tempDir: string, assemblyName: string): string {
-        return Path.Combine(tempDir, assemblyName + ".dll")
-    }
-
-    static func GetVerificationTempDirectory(tempRoot: string, uniqueName: string): string {
-        return Path.Combine(tempRoot, "nlc-check-il-" + uniqueName)
-    }
-
     static func GetExitCode(errorCount: int): int {
         if errorCount > 0 {
             return 1

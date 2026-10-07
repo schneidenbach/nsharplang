@@ -21,6 +21,12 @@ import NSharpLang.Compiler.Performance
 // analysis snapshot and the IL verification below therefore take the `nlc test` file list. A
 // single-project check keeps schema 1 because tests use its existing `checkedFiles` and `results`;
 // the separate workspace envelope groups each member under schema 2.
+//
+// CHECK WRITES NOTHING. A clean analysis is followed by the IL back end's validation
+// (`MultiFileCompiler.ValidateAnalyzedEmission`), because the refusals that back end can still make
+// (NL103) are decided only by walking the program's bodies; the image it produces stays in memory.
+// No assembly, scratch directory or reference assembly is written, and the stats line counts no
+// emitted assembly.
 class CheckCommand {
     static func Execute(args: string[]): int {
         arguments := CheckCommandKernels.GetArgumentSummary(args)
@@ -69,9 +75,9 @@ class CheckCommand {
             }
 
             CompilationBackendSelectionKernels.Validate(arguments.BackendOption, projectConfig)
-            // ONE COMPILATION PER CHECK. The same compiler that analysed the project emits it below
-            // when the analysis is clean, instead of a second compiler parsing, analysing and loading
-            // the reference closure all over again.
+            // ONE COMPILATION PER CHECK. The same compiler that analysed the project validates its
+            // emission below when the analysis is clean, instead of a second compiler parsing,
+            // analysing and loading the reference closure all over again.
             service := new CodeIntelligenceService()
             compiler := new MultiFileCompiler(projectDir, projectConfig, null, true) { AotMode: aot }
             // In the workspace server, the previous check of this project hands over its analyses
@@ -86,7 +92,7 @@ class CheckCommand {
             sourceFileCount := snapshot.SourceFiles.Count
             hasProjectFile := File.Exists(projectYmlPath)
             if CheckCommandKernels.ShouldVerifyIlOutput(summary.Errors, sourceFileCount, hasProjectFile) {
-                verificationDiagnostics := VerifyIlOutput(compiler, projectDir, projectConfig)
+                verificationDiagnostics := ValidateEmission(compiler, projectDir, projectConfig)
                 if verificationDiagnostics.Count > 0 {
                     diagnostics.AddRange(verificationDiagnostics)
                     diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics)
@@ -335,22 +341,13 @@ class CheckCommand {
             return service.LoadWorkspaceProjectIncludingTests(project.ProjectRoot, config, project.SourceFiles)
         }
 
-        tempDir := CheckCommandKernels.GetVerificationTempDirectory(Path.GetTempPath(), Guid.NewGuid().ToString("N"))
-        try {
-            Directory.CreateDirectory(tempDir)
-            assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(project.ProjectRoot, config)
-            outputPath := CheckCommandKernels.GetVerificationOutputPath(tempDir, assemblyName)
-            return service.LoadWorkspaceProjectIncludingTestsForCheck(
-                project.ProjectRoot,
-                config,
-                project.SourceFiles,
-                assemblyName,
-                outputPath,
-                aotMode
-            )
-        } finally {
-            CleanupVerificationDirectory(tempDir)
-        }
+        return service.LoadWorkspaceProjectIncludingTestsForCheck(
+            project.ProjectRoot,
+            config,
+            project.SourceFiles,
+            CompilationReferenceResolver.GetProjectAssemblyName(project.ProjectRoot, config),
+            aotMode
+        )
     }
 
     private static func WriteWorkspaceText(results: IReadOnlyList<CheckWorkspaceProjectResult>, elapsed: Stopwatch): void {
@@ -373,38 +370,22 @@ class CheckCommand {
         Console.Error.WriteLine("  Checked " + results.Count.ToString() + " projects in " + ProgramCommandKernels.FormatElapsedMilliseconds(elapsed.ElapsedMilliseconds) + ".")
     }
 
-    // Emits the analysed program into a scratch directory and reports any error the emission adds.
-    private static func VerifyIlOutput(compiler: MultiFileCompiler, projectDir: string, config: ProjectConfig?): List<DiagnosticResult> {
+    // Validates the analysed program's emission in memory and reports any error the back end adds.
+    private static func ValidateEmission(compiler: MultiFileCompiler, projectDir: string, config: ProjectConfig?): List<DiagnosticResult> {
         results := new List<DiagnosticResult>()
         effectiveConfig := config ?? ProjectFileParser.CreateDefault(null)
-        tempDir := CheckCommandKernels.GetVerificationTempDirectory(Path.GetTempPath(), Guid.NewGuid().ToString("N"))
-        try {
-            Directory.CreateDirectory(tempDir)
-            assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(projectDir, effectiveConfig)
-            outputPath := CheckCommandKernels.GetVerificationOutputPath(tempDir, assemblyName)
-            compileResult := compiler.EmitAnalyzedAssembly(assemblyName, outputPath)
+        assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(projectDir, effectiveConfig)
+        compileResult := compiler.ValidateAnalyzedEmission(assemblyName)
 
-            if !compileResult.Success {
-                errors := CompilerErrorSeverityFilter.Filter(compileResult.Errors, ErrorSeverity.Error)
-                sourceTexts: IReadOnlyDictionary<string, string>? = null
-                for error in errors {
-                    results.Add(CodeIntelligenceDiagnostics.FromCompilerError(error, projectDir, sourceTexts))
-                }
+        if !compileResult.Success {
+            errors := CompilerErrorSeverityFilter.Filter(compileResult.Errors, ErrorSeverity.Error)
+            sourceTexts: IReadOnlyDictionary<string, string>? = null
+            for error in errors {
+                results.Add(CodeIntelligenceDiagnostics.FromCompilerError(error, projectDir, sourceTexts))
             }
-        } finally {
-            CleanupVerificationDirectory(tempDir)
         }
 
         return results
-    }
-
-    private static func CleanupVerificationDirectory(tempDir: string): void {
-        try {
-            Directory.Delete(tempDir, true)
-        } catch cleanupError: Exception {
-            // Keep a cleanup problem from replacing the check result, but make the leaked path visible.
-            Console.Error.WriteLine("warning: could not remove temporary verification directory '" + tempDir + "': " + cleanupError.Message)
-        }
     }
 
     private static func EmitError(useText: bool, message: string, projectRoot: string? = null): int {

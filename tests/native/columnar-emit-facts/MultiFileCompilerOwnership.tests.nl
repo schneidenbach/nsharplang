@@ -285,8 +285,10 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     // its output have an unchanged compilation answered from its `obj/` stamp, `WasUpToDate` says
     // that happened, and `IncrementalState` carries the per-file analyses a warm caller keeps
     // between compilations of the same project. Both instructions default off.
-    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 17
-    propertyNames := new string[](17)
+    // THE EIGHTEENTH IS `EmittedImage`: the image the last successful emission produced, read-only,
+    // and the only place a validation (`ValidateAnalyzedEmission`, which writes nothing) leaves it.
+    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 18
+    propertyNames := new string[](18)
     propertyNames[0] = "CompilationUnits"
     propertyNames[1] = "SemanticModels"
     propertyNames[2] = "AllErrors"
@@ -304,6 +306,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     propertyNames[14] = "IncrementalBuild"
     propertyNames[15] = "WasUpToDate"
     propertyNames[16] = "IncrementalState"
+    propertyNames[17] = "EmittedImage"
     propertyIndex := 0
     while propertyIndex < propertyNames.Length {
         property := MultiFileOwnerRequiredProperty(
@@ -322,6 +325,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("SoaEnabled"), "SoaEnabled").get_PropertyType() == typeof(bool)
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("ColumnarDeclineLog"), "ColumnarDeclineLog").get_PropertyType() == typeof(TextWriter)
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("Workers"), "Workers").get_PropertyType() == typeof(int)
+    assert MultiFileOwnerRequiredProperty(owner.GetProperty("EmittedImage"), "EmittedImage").get_PropertyType() == typeof(byte[])
 
     analysisTypes := new Type[](0)
     analysis := MultiFileOwnerRequiredMethod(
@@ -354,17 +358,17 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
         }
         declaredMethodIndex = declaredMethodIndex + 1
     }
-    // THE THIRD IS `EmitAnalyzedAssembly`: emission from an analysis `CompileForAnalysis` already
-    // ran, so `nlc check` proves its program emits without a second compiler analysing it again.
+    // THE THIRD IS `ValidateAnalyzedEmission`: the emission of an analysis `CompileForAnalysis`
+    // already ran, validated in memory, so `nlc check` proves its program emits without a second
+    // compiler analysing it again and without writing an assembly.
     assert declaredMethodCount == 3
-    emitAnalyzedTypes := new Type[](2)
-    emitAnalyzedTypes[0] = typeof(string)
-    emitAnalyzedTypes[1] = typeof(string)
-    emitAnalyzed := MultiFileOwnerRequiredMethod(
-        owner.GetMethod("EmitAnalyzedAssembly", emitAnalyzedTypes),
-        "EmitAnalyzedAssembly"
+    validateTypes := new Type[](1)
+    validateTypes[0] = typeof(string)
+    validateAnalyzed := MultiFileOwnerRequiredMethod(
+        owner.GetMethod("ValidateAnalyzedEmission", validateTypes),
+        "ValidateAnalyzedEmission"
     )
-    assert emitAnalyzed.get_ReturnType() == emit.get_ReturnType()
+    assert validateAnalyzed.get_ReturnType() == emit.get_ReturnType()
 
     // The path the reference assembly is written to is the compiler's answer, not the build task's
     // guess: one static reading of an output path, so the SDK task copies a file it did not choose

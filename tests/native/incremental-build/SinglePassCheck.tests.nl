@@ -5,11 +5,12 @@ import System.IO
 import System.Text
 import NSharpLang.Compiler
 
-// `nlc check` ANALYSES ONCE. It used to analyse the project for its diagnostics and then hand the
-// same project to a second compiler to prove it emits — every file parsed, analysed and the whole
-// reference closure loaded twice. It now emits from the compiler that analysed it
-// (`MultiFileCompiler.EmitAnalyzedAssembly`). These rows hold that door to exactly what a fresh
-// `CompileToIlAssembly` produces.
+// `nlc check` ANALYSES ONCE AND WRITES NOTHING. It used to analyse the project for its diagnostics and
+// then hand the same project to a second compiler to prove it emits — every file parsed, analysed and
+// the whole reference closure loaded twice — and that proof wrote an assembly into a scratch
+// directory. It now validates the emission of the compiler that analysed it, in memory
+// (`MultiFileCompiler.ValidateAnalyzedEmission`). These rows hold that door to exactly what a fresh
+// `CompileToIlAssembly` produces: the same diagnostics, the same image, and no file anywhere.
 func SinglePassRender(result: MultiFileCompilationResult): string {
     builder := new StringBuilder()
     for error in result.Errors {
@@ -18,28 +19,39 @@ func SinglePassRender(result: MultiFileCompilationResult): string {
     return builder.ToString()
 }
 
-test "emitting from the analysis already run produces a fresh compilation's bytes and diagnostics" {
+func SinglePassFilesUnder(directory: string): int {
+    return Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Length
+}
+
+test "validating the emission of the analysis already run produces a fresh compilation's image and diagnostics, and writes nothing" {
     scratch := IncrementalScratch("single-pass")
     try {
         IncrementalWriteProject(scratch)
+        filesBefore := SinglePassFilesUnder(scratch)
+        emittedBefore := CompilerWorkCounters.Shared.Snapshot().AssembliesEmitted
         config := ProjectFileParser.Parse(Path.Combine(scratch, "project.yml"))
         analysed := new MultiFileCompiler(scratch, config, null, true)
         analysed.CompileForAnalysis()
-        reused := analysed.EmitAnalyzedAssembly("Lib", Path.Combine(scratch, "a", "Lib.dll"))
+        validated := analysed.ValidateAnalyzedEmission("Lib")
+        assert SinglePassFilesUnder(scratch) == filesBefore
+        assert CompilerWorkCounters.Shared.Snapshot().AssembliesEmitted == emittedBefore
+        assert validated.OutputAssemblyPath == null
 
         fresh := new MultiFileCompiler(scratch, config, null, true)
         full := fresh.CompileToIlAssembly("Lib", Path.Combine(scratch, "b", "Lib.dll"), false, true)
 
-        assert reused.Success, SinglePassRender(reused)
+        assert validated.Success, SinglePassRender(validated)
         assert full.Success
-        assert SinglePassRender(reused) == SinglePassRender(full)
-        assert ContentHash.OfFileOrMissing(Path.Combine(scratch, "a", "Lib.dll")) == ContentHash.OfFileOrMissing(Path.Combine(scratch, "b", "Lib.dll"))
+        assert SinglePassRender(validated) == SinglePassRender(full)
+        image := analysed.EmittedImage
+        assert image != null
+        assert ContentHash.OfBytes(image ?? new byte[](0)) == ContentHash.OfFileOrMissing(Path.Combine(scratch, "b", "Lib.dll"))
     } finally {
         IncrementalCleanup(scratch)
     }
 }
 
-test "an analysis error stops the emission exactly as a fresh compilation's does" {
+test "an analysis error stops the validation exactly as it stops a fresh compilation" {
     scratch := IncrementalScratch("single-pass-error")
     try {
         IncrementalWriteProject(scratch)
@@ -48,19 +60,19 @@ test "an analysis error stops the emission exactly as a fresh compilation's does
         config := ProjectFileParser.Parse(Path.Combine(scratch, "project.yml"))
         analysed := new MultiFileCompiler(scratch, config, null, true)
         analysed.CompileForAnalysis()
-        reused := analysed.EmitAnalyzedAssembly("Lib", Path.Combine(scratch, "a", "Lib.dll"))
+        validated := analysed.ValidateAnalyzedEmission("Lib")
         full := new MultiFileCompiler(scratch, config, null, true).CompileToIlAssembly("Lib", Path.Combine(scratch, "b", "Lib.dll"), false, true)
 
-        assert !reused.Success
+        assert !validated.Success
         assert !full.Success
-        assert SinglePassRender(reused) == SinglePassRender(full)
-        assert !File.Exists(Path.Combine(scratch, "a", "Lib.dll"))
+        assert SinglePassRender(validated) == SinglePassRender(full)
+        assert analysed.EmittedImage == null
     } finally {
         IncrementalCleanup(scratch)
     }
 }
 
-test "emitting before anything was analysed is refused" {
+test "validating before anything was analysed is refused" {
     scratch := IncrementalScratch("single-pass-refused")
     try {
         IncrementalWriteProject(scratch)
@@ -68,7 +80,7 @@ test "emitting before anything was analysed is refused" {
         compiler := new MultiFileCompiler(scratch, config, null, true)
         refused := false
         try {
-            compiler.EmitAnalyzedAssembly("Lib", Path.Combine(scratch, "a", "Lib.dll"))
+            compiler.ValidateAnalyzedEmission("Lib")
         } catch error: InvalidOperationException {
             refused = error.Message.Contains("CompileForAnalysis")
         }
