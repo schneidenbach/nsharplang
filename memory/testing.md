@@ -1482,10 +1482,11 @@ the synthetic 80k project 71.0 / 79.0 s against 6.6 / 7.8 s (1,070 -> 11,100 lin
   when it already holds every file the scan wants from exactly that path
   (`ExternalAssemblyScan.OpenWithReferences`), and opens its own otherwise. Reference images opened per
   agent-loop row: large check 151 -> 40, medium 77 -> 40, small (ASP.NET) 501 -> 323; daemon-warm rows
-  open none (the scan reads the retained analyzer's context). Pinned by the Driver rows "parallel
-  workers open no reference image the shared analyzer already opened", "validating the emission of an
-  analysed program opens no reference image" and "eight workers sharing one reference context reproduce
-  the serial compilation every time". Workers take file
+  open none (the scan reads the retained analyzer's context). Pinned by the compile-time-bench row "parallel analysis workers open no reference image beyond the
+  serial compilation's" (two CLI processes, one and four workers; the process-wide counter cannot be
+  read reliably from an estate row, whose classes run concurrently), the committed agent-loop counter
+  baseline (the back end's half: a medium check opens 40 images, not 77) and the Driver row "eight
+  workers sharing one reference context reproduce the serial compilation every time". Workers take file
   indices from a FIFO queue in increasing order and, before each file, replay the import-triggered
   assembly loads of every earlier file they skipped (`Analyzer.PreloadImportedAssemblies`), so each
   file is analysed against the serial run's loaded-assembly list. The driver's parsed units are shared

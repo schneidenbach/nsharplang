@@ -184,56 +184,6 @@ test "a callee body's nullability provenance reaches same-file callers only, at 
     }
 }
 
-func PanReferenceLoads(): long {
-    return CompilerWorkCounters.Shared.Snapshot().ReferenceAssembliesLoaded
-}
-
-// ONE LOADED REFERENCE SET PER COMPILATION (`SharedReferenceMetadata`). A parallel worker's analyzer
-// reads the shared analyzer's metadata context instead of opening the reference closure again, so a
-// compilation opens the same reference images at any worker count. The serial compilation runs twice
-// first: an image the process loads once for good (an executable handle) is then already loaded for
-// both of the compilations compared.
-test "parallel workers open no reference image the shared analyzer already opened" {
-    root := PanRoot()
-    try {
-        PanWriteProject(root, false)
-        _ = PanCompile(root, 1, Path.Combine(root, "out-warm", "PanApp.dll"))
-        serialStart := PanReferenceLoads()
-        serial := PanCompile(root, 1, Path.Combine(root, "out-serial", "PanApp.dll"))
-        serialLoads := PanReferenceLoads() - serialStart
-        assert serial.Success, PanDescribe(serial.Errors)
-        assert serialLoads > 0
-        for workers in [2, 4, 8] {
-            parallelStart := PanReferenceLoads()
-            parallel := PanCompile(root, workers, Path.Combine(root, "out-" + workers.ToString(), "PanApp.dll"))
-            assert parallel.Success, PanDescribe(parallel.Errors)
-            assert PanReferenceLoads() - parallelStart == serialLoads, "workers=" + workers.ToString() + " opened " + (PanReferenceLoads() - parallelStart).ToString() + ", serial " + serialLoads.ToString()
-        }
-    } finally {
-        Directory.Delete(root, true)
-    }
-}
-
-// THE IL BACK END READS THE ANALYSIS'S IMAGES. Its external type scan used to open a context of its own
-// over the same files; it now attaches to the shared analyzer's, so emitting what was analysed opens
-// no reference image at all when every file the scan wants is one the analysis already read.
-test "validating the emission of an analysed program opens no reference image" {
-    root := PanRoot()
-    try {
-        PanWriteProject(root, false)
-        _ = PanCompile(root, 1, Path.Combine(root, "out-warm", "PanApp.dll"))
-        config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
-        compiler := new MultiFileCompiler(root, config)
-        compiler.CompileForAnalysis()
-        before := PanReferenceLoads()
-        validated := compiler.ValidateAnalyzedEmission("PanApp")
-        assert validated.Success, PanDescribe(validated.Errors)
-        assert PanReferenceLoads() == before, "the emission opened " + (PanReferenceLoads() - before).ToString() + " reference images"
-    } finally {
-        Directory.Delete(root, true)
-    }
-}
-
 // MANY READERS OF ONE CONTEXT AT ONCE. Forty files analysed by eight workers attached to one shared
 // context, three times over, against the serial diagnostics and bytes: every load, resolver probe
 // and table write the workers race on goes through the context's gate, and the context's own tables

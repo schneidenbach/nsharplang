@@ -581,3 +581,46 @@ test "agent-loop gate: exact counter contracts and change-aware paired cold plus
     _ = AgentLoopWriteRelativeGateRecord(repositoryRoot, gateLine, table)
     assert failures.Count == 0, gateLine + "\n" + table
 }
+
+// ONE LOADED REFERENCE SET PER COMPILATION, AT ANY WORKER COUNT (`SharedReferenceMetadata`). A parallel
+// analysis worker reads the metadata context its shared analyzer opened instead of re-reading the
+// project's reference closure, so the medium project checked with four workers opens exactly the
+// reference images it opens with one. Two separate processes, so nothing else running in this one can
+// move the process-wide counter. (The IL back end's half -- its external type scan reading the same
+// context -- is pinned by the committed counter baseline: a medium check opens 40 images, not 77.)
+func AgentLoopRunWithWorkers(cliDll: string, directory: string, workers: string): AgentLoopRun {
+    statsPath := AgentLoopStatsPath()
+    environment := AgentLoopDaemonEnvironment(false)
+    environment["NSHARP_COMPILER_WORKERS"] = workers
+    run := BenchRunUnderTimeUtilityWithEnvironment(AgentLoopCommandArguments(cliDll, "check", directory, statsPath), Path.GetTempPath(), environment)
+    counters: AgentLoopCounters? = null
+    if File.Exists(statsPath) {
+        counters = AgentLoopParseStatsCounters(File.ReadAllText(statsPath))
+        File.Delete(statsPath)
+    }
+    return new AgentLoopRun(run.ExitCode, run.WallMs, 0, 0, counters, BenchTruncate(run.Stderr.Trim(), 600))
+}
+
+test "agent-loop: parallel analysis workers open no reference image beyond the serial compilation's" {
+    repositoryRoot := BenchRepositoryRoot()
+    cliDll := BenchDefaultCliDll(repositoryRoot)
+    assert File.Exists(cliDll), "the CLI under test was not found at " + cliDll
+    size := AgentLoopFindSize("medium")
+    assert size != null
+    directory := AgentLoopSampleDirectory()
+    try {
+        AgentLoopMaterialize(repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), directory)
+        serial := AgentLoopRunWithWorkers(cliDll, directory, "1")
+        parallel := AgentLoopRunWithWorkers(cliDll, directory, "4")
+        assert serial.ExitCode == 0, serial.Detail
+        assert parallel.ExitCode == 0, parallel.Detail
+        serialCounters := serial.Counters ?? AgentLoopZeroCounters()
+        parallelCounters := parallel.Counters ?? AgentLoopZeroCounters()
+        assert serial.Counters != null && parallel.Counters != null
+        assert serialCounters.FilesAnalyzed == parallelCounters.FilesAnalyzed
+        assert serialCounters.ReferenceAssembliesLoaded > 0
+        assert parallelCounters.ReferenceAssembliesLoaded == serialCounters.ReferenceAssembliesLoaded, "four workers opened " + parallelCounters.ReferenceAssembliesLoaded.ToString() + " reference images, one worker " + serialCounters.ReferenceAssembliesLoaded.ToString()
+    } finally {
+        BenchDeleteDirectory(directory)
+    }
+}
