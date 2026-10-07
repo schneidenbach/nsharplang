@@ -326,13 +326,18 @@ test "the trigger is a CONTAINS test, because the SDK id a user writes is not a 
     assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Microsoft.NET.Sdk.web")
 }
 
-test "the ASP.NET table is eight names and every one of them is loaded by NAME, not by path" {
+test "the ASP.NET table names framework and extension assemblies by NAME, not by path" {
     names := AnalyzerMetadataLoadPolicy.AspNetCoreAssemblyNames()
 
-    assert names.Length == 8
+    assert names.Length == 13
     assert names[0] == "Microsoft.AspNetCore"
     assert names[7] == "Microsoft.Extensions.DependencyInjection.Abstractions"
-    assert JoinNames(names) == "Microsoft.AspNetCore|Microsoft.AspNetCore.Http|Microsoft.AspNetCore.Http.Abstractions|Microsoft.AspNetCore.Mvc.Core|Microsoft.AspNetCore.Mvc.Abstractions|Microsoft.AspNetCore.Routing|Microsoft.Extensions.DependencyInjection|Microsoft.Extensions.DependencyInjection.Abstractions"
+    assert names[8] == "Microsoft.AspNetCore.Hosting.Abstractions"
+    assert names[9] == "Microsoft.AspNetCore.Http.Extensions"
+    assert names[10] == "Microsoft.AspNetCore.Authorization.Policy"
+    assert names[11] == "Microsoft.AspNetCore.HttpsPolicy"
+    assert names[12] == "Microsoft.Extensions.Hosting.Abstractions"
+    assert JoinNames(names) == "Microsoft.AspNetCore|Microsoft.AspNetCore.Http|Microsoft.AspNetCore.Http.Abstractions|Microsoft.AspNetCore.Mvc.Core|Microsoft.AspNetCore.Mvc.Abstractions|Microsoft.AspNetCore.Routing|Microsoft.Extensions.DependencyInjection|Microsoft.Extensions.DependencyInjection.Abstractions|Microsoft.AspNetCore.Hosting.Abstractions|Microsoft.AspNetCore.Http.Extensions|Microsoft.AspNetCore.Authorization.Policy|Microsoft.AspNetCore.HttpsPolicy|Microsoft.Extensions.Hosting.Abstractions"
 }
 
 // ── THE SHARED-FRAMEWORK WALK ────────────────────────────────────────────────────────────────────

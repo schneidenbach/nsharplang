@@ -48,6 +48,7 @@ class AnalyzerExtensionMethodResolution {
     usingNamespaces: List<string>
     assemblies: List<Assembly>
     assemblyTypes: Dictionary<Assembly, Type[]>
+    incompleteAssemblyTypeLists: HashSet<Assembly>
     // THE SCAN'S CANDIDATE HOSTS, in assembly then type order: every static (`sealed abstract`) type
     // with a namespace, of every loaded assembly. The scan used to walk EVERY type of EVERY reference
     // -- reading each one's namespace -- for every member name that fell through to an extension
@@ -58,6 +59,7 @@ class AnalyzerExtensionMethodResolution {
     extensionHosts: List<AnalyzerExtensionHostCandidate>
     extensionHostAssemblies: int
     extensionHostLastAssembly: Assembly?
+    extensionHostSurfaceComplete: bool
     // Bumped every time the host list changes, so the answers below can tell.
     extensionHostVersion: int
     // THE SCAN'S ANSWERS, per (method name, receiver CLR type), for as long as the imported namespaces,
@@ -66,6 +68,10 @@ class AnalyzerExtensionMethodResolution {
     // ask was a walk of every host. The inputs are compared on every ask (the import list element by
     // element), so a new file's imports, a newly loaded assembly or a changed grant starts afresh.
     extensionScanMemo: Dictionary<(Name: string, Receiver: Type), List<MethodInfo>>
+    // Members may also reach the emitter through SDK-provided/global extension imports that are
+    // not represented by a source `import` directive. This inventory is used only to decide whether
+    // an absent reflected member name is certainly missing; normal binding still observes imports.
+    extensionScanAnyNamespaceMemo: Dictionary<(Name: string, Receiver: Type), List<MethodInfo>>
     extensionScanMemoNamespaces: List<string>
     extensionScanMemoHosts: int
     extensionScanMemoGrantName: string
@@ -75,6 +81,8 @@ class AnalyzerExtensionMethodResolution {
     // THE FRIEND GRANTS OF THE COMPILATION BEING ANALYSED, or null for an owner built without a
     // project behind it — which grants nothing, exactly as before friends existed.
     friendGrants: InternalsVisibleToGrants?
+    referenceSetComplete: bool
+    commonReferenceAssemblyNames: HashSet<string>
 
     constructor(types: AnalyzerTypeResolver, assignabilityOwner: AnalyzerAssignability, declarations: AnalyzerDeclarationContext, functionTypes: AnalyzerFunctionTypeFactory, clrConversion: AnalyzerClrTypeConversion, declaredExtensions: List<FunctionDeclaration>, importedNamespaces: List<string>, referenceAssemblies: List<Assembly>) {
         importUsageCredit = null
@@ -87,15 +95,20 @@ class AnalyzerExtensionMethodResolution {
         usingNamespaces = importedNamespaces
         assemblies = referenceAssemblies
         assemblyTypes = new Dictionary<Assembly, Type[]>()
+        incompleteAssemblyTypeLists = new HashSet<Assembly>()
         extensionHosts = new List<AnalyzerExtensionHostCandidate>()
         extensionHostAssemblies = 0
         extensionHostLastAssembly = null
+        extensionHostSurfaceComplete = true
         extensionHostVersion = 0
         extensionScanMemo = new Dictionary<(Name: string, Receiver: Type), List<MethodInfo>>()
+        extensionScanAnyNamespaceMemo = new Dictionary<(Name: string, Receiver: Type), List<MethodInfo>>()
         extensionScanMemoNamespaces = new List<string>()
         extensionScanMemoHosts = -1
         extensionScanMemoGrantName = ""
         friendGrants = null
+        referenceSetComplete = false
+        commonReferenceAssemblyNames = new HashSet<string>(AnalyzerMetadataLoadPolicy.CommonAssemblyNames(), StringComparer.Ordinal)
         genericCallBinder = null
     }
 
@@ -105,6 +118,10 @@ class AnalyzerExtensionMethodResolution {
 
     func SetGenericCallBinder(binder: AnalyzerSyntheticCallBinder?) {
         genericCallBinder = binder
+    }
+
+    func SetReferenceSetComplete(complete: bool) {
+        referenceSetComplete = complete
     }
 
     // SOURCE EXTENSIONS FIRST, AND THE EXTERNAL SCAN IS THE FALLBACK — but only when no source
@@ -294,6 +311,58 @@ class AnalyzerExtensionMethodResolution {
         return ScanExternalExtensionMethods(bindingClrType, methodName)
     }
 
+    // An unresolved member can still be supplied by an SDK/global import which is absent from the
+    // source import list. The analyzer's normal binder remains import-scoped; this broader question
+    // only protects NL303. A complete framework or project reference set with a complete host scan
+    // and no compatible candidate proves the name absent. An open set does not.
+    func ExtensionSearchCannotProveNoCandidate(targetType: TypeInfo, methodName: string): bool {
+        EnsureExtensionHosts()
+        reflection := targetType as ReflectionTypeInfo
+        exactClrType: Type? = null
+        if reflection != null {
+            exactClrType = reflection.Type
+        } else {
+            exactClrType = clrTypeConversion.TryConvertTypeInfoToClrType(targetType)
+        }
+
+        if exactClrType == null {
+            return !referenceSetComplete || !extensionHostSurfaceComplete
+        }
+
+        candidates := ScanExternalExtensionMethodsAnyNamespace(exactClrType, methodName)
+        if candidates.Count > 0 {
+            return true
+        }
+
+        // A framework member surface is complete from the common reference table. Other external
+        // types need the project's loaded reference closure before an absent extension can be
+        // ruled out. An incomplete type scan remains conservative in either case.
+        assemblyName := exactClrType.Assembly.GetName().Name ?? ""
+        frameworkType := commonReferenceAssemblyNames.Contains(assemblyName)
+        return (!referenceSetComplete && !frameworkType) || !extensionHostSurfaceComplete
+    }
+
+    private func ScanExternalExtensionMethodsAnyNamespace(targetClrType: Type, methodName: string): List<MethodInfo> {
+        EnsureExtensionHosts()
+        ValidateExtensionScanMemo()
+        memoKey := (Name: methodName, Receiver: targetClrType)
+        remembered: List<MethodInfo>? = null
+        if extensionScanAnyNamespaceMemo.TryGetValue(memoKey, out remembered) && remembered != null {
+            return new List<MethodInfo>(remembered)
+        }
+
+        methods := new List<MethodInfo>()
+        for candidate in extensionHosts {
+            hostType := candidate.HostType
+            if IsNameableHost(hostType) {
+                CollectExtensionMethods(hostType, HostMemberFlags(hostType), methodName, targetClrType, methods, friendGrants)
+            }
+        }
+
+        extensionScanAnyNamespaceMemo[memoKey] = new List<MethodInfo>(methods)
+        return methods
+    }
+
     // The DECLARED types of every reference assembly, not the exported ones. An extension declared
     // on an INTERNAL static class is a candidate the exported surface would silently drop.
     // EVERY READ HERE IS OVER A TYPE THE PROJECT MERELY REFERENCES, so every one of them goes
@@ -349,6 +418,7 @@ class AnalyzerExtensionMethodResolution {
         }
 
         extensionScanMemo.Clear()
+        extensionScanAnyNamespaceMemo.Clear()
         extensionScanMemoNamespaces.Clear()
         extensionScanMemoNamespaces.AddRange(usingNamespaces)
         extensionScanMemoHosts = extensionHostVersion
@@ -364,12 +434,17 @@ class AnalyzerExtensionMethodResolution {
             extensionHosts.Clear()
             extensionHostAssemblies = 0
             extensionHostLastAssembly = null
+            extensionHostSurfaceComplete = true
             extensionHostVersion = extensionHostVersion + 1
         }
 
         while extensionHostAssemblies < assemblies.Count {
             assembly := assemblies[extensionHostAssemblies]
-            assemblyTypes := AssemblyTypesOrEmpty(assembly)
+            assemblyComplete := true
+            assemblyTypes := AssemblyTypesOrEmpty(assembly, out assemblyComplete)
+            if !assemblyComplete {
+                extensionHostSurfaceComplete = false
+            }
             typeIndex := 0
             while typeIndex < assemblyTypes.Length {
                 hostType := assemblyTypes[typeIndex]
@@ -390,13 +465,17 @@ class AnalyzerExtensionMethodResolution {
     // every member access, but `Assembly.GetTypes()` answers the same metadata each time. Keeping the
     // cache on the project analyzer bounds its lifetime and avoids retaining every member project's
     // unique reference graph for the lifetime of a CLI or language-server process.
-    private func AssemblyTypesOrEmpty(assembly: Assembly): Type[] {
+    private func AssemblyTypesOrEmpty(assembly: Assembly, out complete: bool): Type[] {
         let cached: Type[]? = null
         if assemblyTypes.TryGetValue(assembly, out cached) && cached != null {
+            complete = !incompleteAssemblyTypeLists.Contains(assembly)
             return cached
         }
 
-        loaded := AnalyzerReflectionMemberProbe.TypesOrEmpty(assembly)
+        loaded := AnalyzerReflectionMemberProbe.TypesOrEmpty(assembly, out complete)
+        if !complete {
+            incompleteAssemblyTypeLists.Add(assembly)
+        }
         assemblyTypes[assembly] = loaded
         return loaded
     }

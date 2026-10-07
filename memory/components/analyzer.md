@@ -2608,6 +2608,13 @@ surface. This lets the existing NL303 renderer and its member-name suggester rep
 `DeserializerBuilder.Buildd()` with the type, member, and `Build` suggestion; a real method called
 with the wrong arity remains NL402.
 
+An absent instance name is not enough by itself when an extension method may supply it. Normal
+extension binding still follows source imports, while the NL303 existence check also considers
+compatible extension hosts loaded for SDK/global imports. It reports absence only when that host scan
+and the receiver's reference closure are complete. Framework types use the common reference table;
+other referenced types require successfully loaded project dependencies. A partial metadata closure
+keeps the result unknown rather than mislabeling a valid extension call.
+
 #### `AnalyzerOpenTypeSpecificity` — "more specific parameter types", the last tie-break (census 2026-09-13, LAMBDA5)
 
 `Task.Run(() => Task.FromResult(11))` answered `Task<Task<int>>` and every rule above agreed it should:

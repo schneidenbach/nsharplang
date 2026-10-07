@@ -30,12 +30,19 @@ import System.Reflection
 // contributes nothing rather than a subset that depends on load order.
 class AnalyzerReflectionMemberProbe {
     static func TypesOrEmpty(assembly: Assembly): Type[] {
+        complete := false
+        return TypesOrEmpty(assembly, out complete)
+    }
+
+    static func TypesOrEmpty(assembly: Assembly, out complete: bool): Type[] {
+        complete = false
         try {
             result := assembly.GetTypes()
             if result == null {
                 return new Type[](0)
             }
 
+            complete = true
             return result
         } catch {
             return new Type[](0)

@@ -12,6 +12,7 @@ class Analyzer: IDisposable {
     private readonly Errors: List<CompilerError>
     private readonly Scopes: AnalyzerScopeStack
     private readonly UsingNamespaces: List<string>
+    private readonly ProjectDefaultNamespaces: List<string>
     private readonly UsingAliases: Dictionary<string, string>
     private readonly ImportedSymbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo>>
     private readonly ImportedDeclarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration>>
@@ -22,6 +23,7 @@ class Analyzer: IDisposable {
     private ClrTypeConversion: AnalyzerClrTypeConversion
     private AssignabilityFacts: AnalyzerAssignabilityFacts
     private readonly MlcAssemblies: List<Assembly>
+    private ReferenceSetConfigured: bool
     private readonly ReferenceLoadFailures: Dictionary<string, string>
     private readonly ReferencedPackageNames: HashSet<string>
     private readonly ExternalTypeProbe: AnalyzerExternalTypeProbe
@@ -136,12 +138,14 @@ class Analyzer: IDisposable {
         Errors = new List<CompilerError>()
         Scopes = new AnalyzerScopeStack()
         UsingNamespaces = new List<string>()
+        ProjectDefaultNamespaces = new List<string>()
         UsingAliases = new Dictionary<string, string>()
         ImportedSymbolsByAlias = new Dictionary<string, Dictionary<string, TypeInfo>>()
         ImportedDeclarationsByAlias = new Dictionary<string, Dictionary<string, SymbolDeclaration>>()
         DeclarationContext = new AnalyzerDeclarationContext()
         ExtensionMethods = new List<FunctionDeclaration>()
         MlcAssemblies = new List<Assembly>()
+        ReferenceSetConfigured = false
         ReferenceLoadFailures = new Dictionary<string, string>(StringComparer.Ordinal)
         ReferencedPackageNames = new HashSet<string>(StringComparer.Ordinal)
         TypeDeclarationFiles = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -281,6 +285,7 @@ class Analyzer: IDisposable {
         OverloadScoring = CreateOverloadScoring()
         SyntheticCallBinder = CreateSyntheticCallBinder()
         ExtensionMethodResolution = CreateExtensionMethodResolution()
+        ExtensionMethodResolution.SetReferenceSetComplete(ReferenceSetConfigured)
         MemberResolution = CreateMemberResolution()
         ReflectionArgumentBinder = CreateReflectionArgumentBinder()
         SyntheticCallWalk = CreateSyntheticCallWalk()
@@ -868,6 +873,9 @@ class Analyzer: IDisposable {
         Errors.Clear()
         Scopes.Clear()
         UsingNamespaces.Clear()
+        for defaultNamespace in ProjectDefaultNamespaces {
+            UsingNamespaces.Add(defaultNamespace)
+        }
         UsingAliases.Clear()
         ImportedSymbolsByAlias.Clear()
         ImportedDeclarationsByAlias.Clear()
@@ -2345,6 +2353,7 @@ class Analyzer: IDisposable {
         OverloadScoring = CreateOverloadScoring()
         SyntheticCallBinder = CreateSyntheticCallBinder()
         ExtensionMethodResolution = CreateExtensionMethodResolution()
+        ExtensionMethodResolution.SetReferenceSetComplete(ReferenceSetConfigured)
         MemberResolution = CreateMemberResolution()
         ReflectionArgumentBinder = CreateReflectionArgumentBinder()
         SyntheticCallWalk = CreateSyntheticCallWalk()
@@ -2383,7 +2392,9 @@ class Analyzer: IDisposable {
             Assignability = CreateAssignability()
             OverloadScoring = CreateOverloadScoring()
             SyntheticCallBinder = CreateSyntheticCallBinder()
+            ReferenceSetConfigured = false
             ExtensionMethodResolution = CreateExtensionMethodResolution()
+            ExtensionMethodResolution.SetReferenceSetComplete(false)
             MemberResolution = CreateMemberResolution()
             ReflectionArgumentBinder = CreateReflectionArgumentBinder()
             SyntheticCallWalk = CreateSyntheticCallWalk()
@@ -2419,8 +2430,17 @@ class Analyzer: IDisposable {
     // meet — rather than being rediscovered by each owner that asks.
     func LoadFromProjectConfig(config: ProjectConfig, projectDirectory: string? = null) {
         directory := projectDirectory ?? Environment.CurrentDirectory
+        ProjectDefaultNamespaces.Clear()
+        if AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies(config.Sdk) {
+            // Match the Web SDK's implicit hosting namespace so extension calls such as
+            // `environment.IsDevelopment()` use the same reference surface as their project.
+            ProjectDefaultNamespaces.Add("Microsoft.AspNetCore.Hosting")
+            ProjectDefaultNamespaces.Add("Microsoft.Extensions.Hosting")
+        }
         FriendGrants.SetCompilingAssemblyName(CompilationReferenceResolverKernels.GetProjectAssemblyName(directory, config.Name))
         ReferenceLoadOrchestration.Load(config, directory)
+        ReferenceSetConfigured = config.Dependencies.Count > 0 && ReferenceLoadFailures.Count == 0
+        ExtensionMethodResolution.SetReferenceSetComplete(ReferenceSetConfigured)
     }
 
     // The metadata files this analyzer read and the directories its resolver probes — the reference

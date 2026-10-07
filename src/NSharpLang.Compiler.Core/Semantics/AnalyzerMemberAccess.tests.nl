@@ -39,6 +39,7 @@ class MemberAccessHarness {
     Members: AnalyzerMemberResolution
     ExtensionResolution: AnalyzerExtensionMethodResolution
     NullFlow: AnalyzerNullFlow
+    Assemblies: List<Assembly>
 
     constructor(
         arm: AnalyzerMemberAccess,
@@ -52,7 +53,8 @@ class MemberAccessHarness {
         importedDeclarations: Dictionary<string, Dictionary<string, SymbolDeclaration>>,
         members: AnalyzerMemberResolution,
         extensionResolution: AnalyzerExtensionMethodResolution,
-        nullFlow: AnalyzerNullFlow
+        nullFlow: AnalyzerNullFlow,
+        assemblies: List<Assembly>
     ) {
         Arm = arm
         Errors = errors
@@ -65,7 +67,9 @@ class MemberAccessHarness {
         ImportedDeclarations = importedDeclarations
         Members = members
         ExtensionResolution = extensionResolution
+        ExtensionResolution.SetReferenceSetComplete(true)
         NullFlow = nullFlow
+        Assemblies = assemblies
     }
 }
 
@@ -108,7 +112,7 @@ func MemberArmOf(): MemberAccessHarness {
     identifierResolution := new AnalyzerIdentifierResolution(sink, scopes, resolver, discovery, probe, functionTypes, ambient, nullFlow, extensions, members, new AnalyzerSourceMemberDeclarations(context, provider), model, bindings)
 
     arm := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, new AnalyzerSourceMemberDeclarations(context, provider), discovery, probe, substitution, identifierResolution, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
-    return new MemberAccessHarness(arm, errors, scopes, model, bindings, sink, context, importedSymbols, importedDeclarations, members, extensionResolution, nullFlow)
+    return new MemberAccessHarness(arm, errors, scopes, model, bindings, sink, context, importedSymbols, importedDeclarations, members, extensionResolution, nullFlow, assemblies)
 }
 
 func MemberCodes(errors: List<CompilerError>): string {
@@ -666,6 +670,27 @@ test "a readable reflected type outside System has a complete member set" {
     assert names.Contains("Arm")
     assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(reflected), "Arm", false)
     assert harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(reflected), "Armm", false)
+}
+
+test "a referenced extension name is not diagnosed as an absent reflected member" {
+    harness := MemberArmOf()
+    harness.Assemblies.Add(typeof(string).Assembly)
+
+    // `string.AsSpan()` is supplied by a BCL extension host. The analyzer's ordinary binding stays
+    // scoped to explicit imports, but the NL303 existence check must preserve SDK/global imports.
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(string)), "AsSpan", false)
+    assert harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(string)), "AsSpann", false)
+}
+
+test "an incomplete reference set cannot prove a reflected name absent" {
+    harness := MemberArmOf()
+    reflected := new ReflectionTypeInfo(typeof(MemberAccessHarness))
+
+    harness.ExtensionResolution.SetReferenceSetComplete(false)
+    assert !harness.Arm.ShouldReportUndefinedMember(reflected, "NoSuchVersionMember", false)
+
+    harness.ExtensionResolution.SetReferenceSetComplete(true)
+    assert harness.Arm.ShouldReportUndefinedMember(reflected, "NoSuchVersionMember", false)
 }
 
 // A BCL GENERIC CLOSED OVER A TYPE WITH NO CLR HANDLE reported NOTHING AT ALL: `List<PriceArgs>`

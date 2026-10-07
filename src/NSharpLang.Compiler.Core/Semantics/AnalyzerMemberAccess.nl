@@ -1527,7 +1527,7 @@ class AnalyzerMemberAccess {
             }
 
             if clrTypeConversionValue.TryConvertTypeInfoToClrType(simple) != null {
-                return true
+                return !CouldBeExtensionMember(resolved, memberName, includeStaticMembers)
             }
 
             return IsKnownBuiltInReceiverWithoutReflection(simple) && !IsKnownBuiltInMemberWithoutReflection(simple, memberName, includeStaticMembers)
@@ -1535,7 +1535,7 @@ class AnalyzerMemberAccess {
 
         if resolved as ArrayTypeInfo != null {
             if clrTypeConversionValue.TryConvertTypeInfoToClrType(resolved) != null {
-                return true
+                return !CouldBeExtensionMember(resolved, memberName, includeStaticMembers)
             }
 
             return !IsKnownBuiltInMemberWithoutReflection(resolved, memberName, includeStaticMembers)
@@ -1570,7 +1570,7 @@ class AnalyzerMemberAccess {
                     return false
                 }
 
-                return !reflectedNames.Contains(memberName)
+                return !reflectedNames.Contains(memberName) && !CouldBeExtensionMember(new ReflectionTypeInfo(reflectedDefinition.Type), memberName, includeStaticMembers)
             }
 
             return false
@@ -1587,7 +1587,7 @@ class AnalyzerMemberAccess {
                 return false
             }
 
-            return !reflectedNames.Contains(memberName)
+            return !reflectedNames.Contains(memberName) && !CouldBeExtensionMember(reflection, memberName, includeStaticMembers)
         }
 
         if resolved as ClassTypeInfo != null || resolved as StructTypeInfo != null || resolved as RecordTypeInfo != null || resolved as SoaRecordTypeInfo != null || resolved as SoaRowTypeInfo != null || resolved as InterfaceTypeInfo != null || resolved as EnumTypeInfo != null || resolved as UnionTypeInfo != null || resolved as NewtypeInfo != null || resolved as TupleTypeInfo != null {
@@ -1605,6 +1605,14 @@ class AnalyzerMemberAccess {
         }
 
         return false
+    }
+
+    private func CouldBeExtensionMember(receiverType: TypeInfo, memberName: string, includeStaticMembers: bool): bool {
+        if includeStaticMembers {
+            return false
+        }
+
+        return extensionMethodResolutionValue.ExtensionSearchCannotProveNoCandidate(receiverType, memberName)
     }
 
     func IsKnownBuiltInMemberWithoutReflection(receiverType: TypeInfo, memberName: string, includeStaticMembers: bool): bool {

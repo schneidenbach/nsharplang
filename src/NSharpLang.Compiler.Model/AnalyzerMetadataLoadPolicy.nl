@@ -60,7 +60,7 @@ class AnalyzerMetadataLoadPolicy {
     }
 
     static func AspNetCoreAssemblyNames(): string[] {
-        names := new string[](8)
+        names := new string[](13)
         names[0] = "Microsoft.AspNetCore"
         names[1] = "Microsoft.AspNetCore.Http"
         names[2] = "Microsoft.AspNetCore.Http.Abstractions"
@@ -69,6 +69,11 @@ class AnalyzerMetadataLoadPolicy {
         names[5] = "Microsoft.AspNetCore.Routing"
         names[6] = "Microsoft.Extensions.DependencyInjection"
         names[7] = "Microsoft.Extensions.DependencyInjection.Abstractions"
+        names[8] = "Microsoft.AspNetCore.Hosting.Abstractions"
+        names[9] = "Microsoft.AspNetCore.Http.Extensions"
+        names[10] = "Microsoft.AspNetCore.Authorization.Policy"
+        names[11] = "Microsoft.AspNetCore.HttpsPolicy"
+        names[12] = "Microsoft.Extensions.Hosting.Abstractions"
         return names
     }
 

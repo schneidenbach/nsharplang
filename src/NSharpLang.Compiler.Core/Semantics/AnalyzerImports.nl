@@ -937,6 +937,7 @@ class AnalyzerImports {
         mappings["System.Xml.Linq"] = TwoAssemblies("System.Xml.Linq", "System.Private.Xml.Linq")
         mappings["System.ComponentModel.DataAnnotations"] = OneAssembly("System.ComponentModel.Annotations")
         mappings["Microsoft.AspNetCore.Builder"] = TwoAssemblies("Microsoft.AspNetCore", "Microsoft.AspNetCore.Http.Abstractions")
+        mappings["Microsoft.AspNetCore.Hosting"] = TwoAssemblies("Microsoft.AspNetCore.Hosting.Abstractions", "Microsoft.AspNetCore.Hosting")
         mappings["Microsoft.AspNetCore.Mvc"] = TwoAssemblies("Microsoft.AspNetCore.Mvc.Core", "Microsoft.AspNetCore.Mvc.Abstractions")
         mappings["Microsoft.AspNetCore.Http"] = TwoAssemblies("Microsoft.AspNetCore.Http", "Microsoft.AspNetCore.Http.Abstractions")
         mappings["Microsoft.Extensions.DependencyInjection"] = TwoAssemblies("Microsoft.Extensions.DependencyInjection.Abstractions", "Microsoft.Extensions.DependencyInjection")
