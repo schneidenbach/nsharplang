@@ -2609,6 +2609,13 @@ surface. This lets the existing NL303 renderer and its member-name suggester rep
 `DeserializerBuilder.Buildd()` with the type, member, and `Build` suggestion; a real method called
 with the wrong arity remains NL402.
 
+The same proof applies to a type exported by an emitted N# DLL referenced through a `dependencies`
+`dll:` entry. `tests/native/analyzer-referenced-members` builds a small `RefLib.dll`, checks misses on its
+static method, instance method, and property surfaces at their member-name spans, and references a
+separate CLR fixture to keep an extension method, inherited base member, default interface member,
+and explicit interface implementation callable. The diagnostic remains NL303; if the referenced
+type's metadata or dependency closure cannot be enumerated completely, the analyzer stays lenient.
+
 An absent instance name is not enough by itself when an extension method may supply it. Normal
 extension binding still follows source imports, while the NL303 existence check also considers
 compatible extension hosts loaded for SDK/global imports. It reports absence only when that host scan

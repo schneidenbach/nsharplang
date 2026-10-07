@@ -3,7 +3,10 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import System.Linq
 import System.Reflection
+import System.Text.Json
+import System.Threading.Tasks
 import NSharpLang.Compiler.Ast
 
 // Native contracts for the member arm — what `a.b` MEANS.
@@ -680,6 +683,39 @@ test "a referenced extension name is not diagnosed as an absent reflected member
     // scoped to explicit imports, but the NL303 existence check must preserve SDK/global imports.
     assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(string)), "AsSpan", false)
     assert harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(string)), "AsSpann", false)
+}
+
+test "resolved external framework members and extension names stay outside NL303" {
+    harness := MemberArmOf()
+    harness.Assemblies.Add(typeof(Enumerable).Assembly)
+
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(string)), "Length", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(string)), "Substring", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(string)), "ToString", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Console)), "WriteLine", true)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(List<int>)), "Count", false)
+    listDefinition := typeof(List<int>).GetGenericTypeDefinition()
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(listDefinition), "Count", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(listDefinition), "ConvertAll", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Dictionary<string, int>)), "TryGetValue", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Dictionary<string, int>)), "Item", false)
+    dictionaryDefinition := typeof(Dictionary<string, int>).GetGenericTypeDefinition()
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(dictionaryDefinition), "TryGetValue", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Span<int>)), "Slice", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Task<int>)), "Result", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Action<int>)), "Invoke", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(DayOfWeek)), "Monday", true)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Version)), "ToString", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Version)), "GetHashCode", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Version)), "GetType", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(IEnumerable<int>)), "GetEnumerator", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(IList<int>)), "Add", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(IList<int>)), "Item", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(JsonElement)), "ArrayEnumerator", true)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(IEnumerable<int>)), "Where", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(IEnumerable<int>)), "Select", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(BuiltInTypes.Unknown, "AnyName", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(BuiltInTypes.Object, "AnyName", false)
 }
 
 test "an incomplete reference set cannot prove a reflected name absent" {

@@ -722,6 +722,14 @@ test "a parameterless `Finalize` on an UNRELATED slot is an ordinary method" {
 // `ArrayEnumerator` while `nameof(System.Text.Json.JsonElement.ArrayEnumerator.Current)` passed. These
 // rows need the framework's metadata, so the harness loads the common reference set first.
 func MemberResolutionFrameworkErrors(source: string): List<string> {
+    return MemberResolutionFrameworkDiagnostics(source, false)
+}
+
+func MemberResolutionFrameworkDiagnosticRows(source: string): List<string> {
+    return MemberResolutionFrameworkDiagnostics(source, true)
+}
+
+func MemberResolutionFrameworkDiagnostics(source: string, includePosition: bool): List<string> {
     projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-member-nested-" + Guid.NewGuid().ToString("N"))
     filePath := Path.Combine(projectRoot, "Probe.nl")
     parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
@@ -736,7 +744,15 @@ func MemberResolutionFrameworkErrors(source: string): List<string> {
         result := analyzer.Analyze(unit, filePath, projectRoot, source)
         for error in result.Errors {
             if error.Severity == ErrorSeverity.Error {
-                messages.Add(error.DiagnosticId + " " + error.Message)
+                rendered := error.DiagnosticId
+                if includePosition {
+                    rendered = rendered + "@" + error.Line.ToString() + ":" + error.Column.ToString() + "+" + error.Length.ToString()
+                    rendered = rendered + "|" + error.Message + "|" + (error.Suggestion ?? "")
+                } else {
+                    rendered = rendered + " " + error.Message
+                }
+
+                messages.Add(rendered)
             }
         }
     } finally {
@@ -770,4 +786,19 @@ test "A NAME THAT IS NO NESTED TYPE, OR A NESTED TYPE READ OFF A VALUE, IS STILL
     throughValue := MemberResolutionFrameworkErrors(MemberResolutionNameofProbe("    return nameof(builder.ChunkEnumerator)\n"))
     assert throughValue.Count == 1, string.Join("\n", throughValue)
     assert throughValue[0] == "NL303 Member 'ChunkEnumerator' not found on type 'StringBuilder'", throughValue[0]
+}
+
+test "resolved external static calls, instance calls, and properties report NL303 at the member name" {
+    errors := MemberResolutionFrameworkDiagnosticRows("namespace P\n\nimport System\n\nfunc Misses(value: Version): int {\n    _static := Version.Pares(\"1.2\")\n    _instance := value.ToStringg()\n    _property := value.Majorr\n    return 0\n}\n")
+
+    assert errors.Count == 3, string.Join("\n", errors)
+    assert errors[0].StartsWith("NL303@6:24+5|Member 'Pares' not found on type 'Version'|", StringComparison.Ordinal), errors[0]
+    assert errors[1].StartsWith("NL303@7:24+9|Member 'ToStringg' not found on type 'Version'|", StringComparison.Ordinal), errors[1]
+    assert errors[2].StartsWith("NL303@8:24+6|Member 'Majorr' not found on type 'Version'|", StringComparison.Ordinal), errors[2]
+}
+
+test "members on a type parameter constrained by an external generic interface stay resolved" {
+    errors := MemberResolutionFrameworkErrors("namespace P\n\nimport System.Collections.Generic\n\nfunc Constrained<T>(values: T): int where T: IList<int> {\n    values.Add(1)\n    return values.Count + values.IndexOf(1)\n}\n")
+
+    assert errors.Count == 0, string.Join("\n", errors)
 }
