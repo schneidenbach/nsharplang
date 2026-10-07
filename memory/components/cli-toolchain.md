@@ -56,7 +56,7 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 | `nlc build --verbose` | Build with detailed native resolver/test output | `nlc build --verbose` |
 | `nlc build --timings` | Print, to stderr, the `Build timings:` block (resolve, emit, total) and then a `Phase timings:` block: one row per compiled project (project references included) and phase -- `load-references`, `parse`, `import-graph`, `analysis`, `systems-policy`, `lint`, `emit.parse`, `emit.codegen`, `emit.write` -- with wall ms, process CPU ms (all threads, so CPU above wall is that phase's parallelism) and process allocation MB. Owner: `CompilerPhaseTimings` (Compiler.Model); printed on failed builds too | `nlc build --timings` |
 | `nlc build --perf-report` | Emit a versioned JSON perf report (allocations, dispatch, AOT blockers) | `nlc build --perf-report` |
-| `nlc build\|check\|test --stats[=<path>]` | One `nsharp.cli-stats` v1 JSON line: wall/CPU time and the structural work counters (files parsed and analyzed, assemblies emitted, reference images loaded, processes spawned) — see [`--stats`](#--stats--what-one-command-cost) | `nlc check --stats` |
+| `nlc build\|check\|test --stats[=<path>]` | One `nsharp.cli-stats` v1 JSON line: wall/CPU time and the structural work counters (files parsed and analyzed, assemblies emitted, reference images loaded, framework-reference bytes hashed, processes spawned) — see [`--stats`](#--stats--what-one-command-cost) | `nlc check --stats` |
 | `nlc build --aot` | Native AOT safety analysis; AOT blockers (reflection/dynamic code/runtime generics/expression trees) become build errors | `nlc build --aot` |
 | `nlc run` | Compile and run project through the IL backend | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
@@ -294,7 +294,7 @@ a `--stats` after `--` belongs to the program, not to `nlc`.
 
 ```json
 {"schema":"nsharp.cli-stats","schemaVersion":1,"command":"check","exitCode":0,"wallMs":727,"cpuMs":746,
- "counters":{"filesParsed":8,"emitParses":8,"filesAnalyzed":8,"assembliesEmitted":1,"referenceAssembliesLoaded":501,"processesSpawned":0},
+ "counters":{"filesParsed":8,"emitParses":8,"filesAnalyzed":8,"assembliesEmitted":1,"referenceAssembliesLoaded":501,"frameworkReferenceBytesHashed":0,"processesSpawned":0},
  "phases":[{"project":"IssueTracker","phase":"parse","wallMs":22,"cpuMs":22,"allocatedBytes":1025064,"calls":1},
            {"project":"IssueTracker","phase":"import-graph","wallMs":1,"cpuMs":1,"allocatedBytes":8200,"calls":1},
            {"project":"IssueTracker","phase":"load-references","wallMs":40,"cpuMs":41,"allocatedBytes":23406936,"calls":1}, …]}
@@ -319,6 +319,7 @@ changed.
 | `counters.filesAnalyzed` | Compilation units through `Analyzer.Analyze` |
 | `counters.assembliesEmitted` | IL images written by the columnar emitter (a reference assembly beside one is not counted) |
 | `counters.referenceAssembliesLoaded` | Reference images opened from a path: MetadataLoadContext loads plus exact-identity executable loads; one file in two contexts counts twice |
+| `counters.frameworkReferenceBytesHashed` | Bytes read and SHA-256 hashed from installed `shared/` framework or `packs/` reference assemblies while validating incremental build inputs; an up-to-date build must report zero |
 | `counters.processesSpawned` | Child processes this process started (`DotnetRunner`, the daemon launcher) |
 | `phases[]` | Optional. One row per (project, phase) the command compiled — `load-references`, `parse`, `import-graph`, `analysis`, `systems-policy`, `lint`, `emit.parse`, `emit.codegen`, `emit.write` — with `wallMs`, `cpuMs` (process CPU across all threads, so CPU above wall is that phase's parallelism), `allocatedBytes` and `calls` (repeated rows folded). Wall-clock data: never gated |
 

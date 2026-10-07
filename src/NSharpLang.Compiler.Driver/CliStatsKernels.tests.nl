@@ -1,6 +1,8 @@
 namespace NSharpLang.Cli
 
 import System.Collections.Generic
+import System.IO
+import System.Runtime.InteropServices
 import System.Text.Json
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Columnar
@@ -56,7 +58,7 @@ test "--stats is accepted by build, test and check and by nothing else" {
 }
 
 test "the stats line is one compact nsharp.cli-stats v1 object with every counter" {
-    counters := new CompilerWorkCounterSnapshot(8, 8, 9, 1, 212, 0)
+    counters := new CompilerWorkCounterSnapshot(8, 8, 9, 1, 212, 4096, 0)
     json := CliStatsKernels.ToJson("check", 0, 1234, 1500, 0, counters)
     assert !json.Contains("\n")
 
@@ -77,6 +79,7 @@ test "the stats line is one compact nsharp.cli-stats v1 object with every counte
     assert work.GetProperty("filesAnalyzed").GetInt64() == 9
     assert work.GetProperty("assembliesEmitted").GetInt64() == 1
     assert work.GetProperty("referenceAssembliesLoaded").GetInt64() == 212
+    assert work.GetProperty("frameworkReferenceBytesHashed").GetInt64() == 4096
     assert work.GetProperty("processesSpawned").GetInt64() == 0
     // No phase recorded: the optional `phases` array is omitted, like every empty field.
     assert !json.Contains("phases")
@@ -84,7 +87,7 @@ test "the stats line is one compact nsharp.cli-stats v1 object with every counte
 }
 
 test "the phase ledger's rows ride on the stats line as phases, in ledger order" {
-    counters := new CompilerWorkCounterSnapshot(1, 1, 1, 1, 1, 0)
+    counters := new CompilerWorkCounterSnapshot(1, 1, 1, 1, 1, 0, 0)
     phases := new List<CompilerPhaseRecord>()
     phases.Add(new CompilerPhaseRecord("App", "parse", 0, 30000, 2048, 1))
     phases.Add(new CompilerPhaseRecord("App", "analysis", 0, 120000, 4096, 2))
@@ -111,7 +114,7 @@ test "the phase ledger's rows ride on the stats line as phases, in ledger order"
 }
 
 test "a reported peak working set is carried as a number" {
-    counters := new CompilerWorkCounterSnapshot(0, 0, 0, 0, 0, 0)
+    counters := new CompilerWorkCounterSnapshot(0, 0, 0, 0, 0, 0, 0)
     document := JsonDocument.Parse(CliStatsKernels.ToJson("build", 1, 1, 1, 4096, counters))
     assert document.RootElement.GetProperty("peakWorkingSetBytes").GetInt64() == 4096
     document.Dispose()
@@ -122,12 +125,24 @@ test "the shared work counters only move forward, and a snapshot difference is t
     CompilerWorkCounters.Shared.CountFileParsed()
     CompilerWorkCounters.Shared.CountFileParsed()
     CompilerWorkCounters.Shared.CountAssemblyEmitted()
+    CompilerWorkCounters.Shared.CountFrameworkReferenceBytesHashed(4096)
     CompilerWorkCounters.Shared.CountProcessSpawned()
     delta := CompilerWorkCounters.Shared.Snapshot().Since(before)
     // Other rows in this process may parse concurrently, so the floor is what this row added.
     assert delta.FilesParsed >= 2
     assert delta.AssembliesEmitted >= 1
+    assert delta.FrameworkReferenceBytesHashed >= 4096
     assert delta.ProcessesSpawned >= 1
+}
+
+test "full hashing of an installed framework reference increments its byte counter" {
+    path := Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "System.Private.CoreLib.dll")
+    length := new FileInfo(path).Length
+    before := CompilerWorkCounters.Shared.Snapshot()
+    _ = ContentHash.OfFileOrMissing(path, true)
+    delta := CompilerWorkCounters.Shared.Snapshot().Since(before)
+
+    assert delta.FrameworkReferenceBytesHashed >= length
 }
 
 test "parsing one file through the production entry counts exactly one parse" {

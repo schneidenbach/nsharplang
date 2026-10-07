@@ -4,7 +4,6 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Linq
-import System.Runtime.InteropServices
 import NSharpLang.Compiler.Ast
 
 // THE INPUT INVENTORY OF ONE MULTI-FILE COMPILATION: every file and directory the parse, the
@@ -19,12 +18,10 @@ import NSharpLang.Compiler.Ast
 class IncrementalBuildInputCapture {
     private readonly entries: List<IncrementalInputEntry>
     private readonly seen: HashSet<string>
-    private readonly installedRuntimeRoots: List<string>
 
     constructor() {
         entries = new List<IncrementalInputEntry>()
         seen = new HashSet<string>(StringComparer.Ordinal)
-        installedRuntimeRoots = InstalledRuntimeRoots()
     }
 
     Entries: List<IncrementalInputEntry> => entries
@@ -210,28 +207,6 @@ class IncrementalBuildInputCapture {
     // directories are named by exact version and an installer never rewrites a file in place; the
     // key already carries the runtime's version and directory.
     private func IsInstalledRuntimePath(fullPath: string): bool {
-        for root in installedRuntimeRoots {
-            if fullPath.StartsWith(root, StringComparison.Ordinal) {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private static func InstalledRuntimeRoots(): List<string> {
-        roots := new List<string>()
-        sharedRoot := AnalyzerMetadataLoadPolicy.SharedRootFromRuntimeDirectory(RuntimeEnvironment.GetRuntimeDirectory())
-        if sharedRoot == null {
-            return roots
-        }
-
-        dotnetRoot := Path.GetDirectoryName(sharedRoot)
-        roots.Add(Path.GetFullPath(sharedRoot) + Path.DirectorySeparatorChar.ToString())
-        if dotnetRoot != null {
-            roots.Add(Path.GetFullPath(Path.Combine(dotnetRoot, "packs")) + Path.DirectorySeparatorChar.ToString())
-        }
-
-        return roots
+        return IncrementalInputEntry.IsInstalledRuntimePath(fullPath)
     }
 }

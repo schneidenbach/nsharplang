@@ -146,6 +146,7 @@ class ExternalAssemblyScan {
     private static readonly runtimeReferenceContexts: Dictionary<string, AssemblyLoadContext> = new Dictionary<string, AssemblyLoadContext>(StringComparer.Ordinal)
     private static readonly runtimeReferenceFileFingerprints: Dictionary<string, string> = new Dictionary<string, string>(StringComparer.Ordinal)
     private static readonly runtimeReferenceContextsGate: object = new object()
+    private static runtimeReferenceFingerprintRoots: string[]? = null
 
     // WHY THE COMPILER OWNS A LOAD CONTEXT OF ITS OWN.
     //
@@ -242,6 +243,19 @@ class ExternalAssemblyScan {
         }
     }
 
+    private static func IsInstalledRuntimeReferencePath(path: string): bool {
+        roots: string[]? = null
+        lock runtimeReferenceContextsGate {
+            roots = runtimeReferenceFingerprintRoots
+            if roots == null {
+                roots = AnalyzerMetadataLoadPolicy.InstalledRuntimeReferenceRoots(RuntimeEnvironment.GetRuntimeDirectory())
+                runtimeReferenceFingerprintRoots = roots
+            }
+        }
+
+        return AnalyzerMetadataLoadPolicy.IsInstalledRuntimePath(path, roots ?? new string[](0))
+    }
+
     private static func RuntimeReferenceFileFingerprint(path: string): string {
         length := -1L
         writeTicks := 0L
@@ -264,10 +278,20 @@ class ExternalAssemblyScan {
             }
         }
 
-        identityName := TryReadAssemblyName(path)
-        identity := identityName == null ? "" : identityName.FullName
-        moduleVersionId := RuntimeModuleVersionId(path)
-        fingerprint := identity.Length.ToString() + ":" + identity + moduleVersionId.Length.ToString() + ":" + moduleVersionId
+        fingerprint := ""
+        if IsInstalledRuntimeReferencePath(path) {
+            // Shared-framework and targeting-pack directories are immutable once installed and
+            // carry their version in the path. Keep the exact path, size and write time in the
+            // closure fingerprint without opening every large framework image for its metadata.
+            fingerprint = "installed-runtime:" + length.ToString() + ":" + writeTicks.ToString()
+        } else {
+            // User and package references are mutable. Preserve their exact assembly identity and
+            // MVID so equal-size/same-timestamp replacements cannot reuse the wrong runtime context.
+            identityName := TryReadAssemblyName(path)
+            identity := identityName == null ? "" : identityName.FullName
+            moduleVersionId := RuntimeModuleVersionId(path)
+            fingerprint = identity.Length.ToString() + ":" + identity + moduleVersionId.Length.ToString() + ":" + moduleVersionId
+        }
         lock runtimeReferenceContextsGate {
             if !runtimeReferenceFileFingerprints.ContainsKey(fileVersion) {
                 runtimeReferenceFileFingerprints[fileVersion] = fingerprint

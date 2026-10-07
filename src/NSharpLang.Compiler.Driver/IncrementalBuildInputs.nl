@@ -68,9 +68,22 @@ class IncrementalInputEntry {
 
     static func UnreadableValue(): string => "!"
 
+    static func IsInstalledRuntimePath(fullPath: string): bool {
+        // Most content-hashed paths are project files or outputs. Avoid consulting the running
+        // runtime on the up-to-date path unless the path could be inside a shared-framework tree.
+        if fullPath.IndexOf("shared", StringComparison.OrdinalIgnoreCase) < 0 && fullPath.IndexOf("packs", StringComparison.OrdinalIgnoreCase) < 0 {
+            return false
+        }
+
+        return AnalyzerMetadataLoadPolicy.IsInstalledRuntimePath(fullPath, InstalledRuntimeReferencePathRoots.Get())
+    }
+
     static func ComputeValue(kind: int, path: string): string {
         try {
             if kind == IncrementalInputEntry.FileContent {
+                if path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) {
+                    return ContentHash.OfFileOrMissing(path, true)
+                }
                 return ContentHash.OfFileOrMissing(path)
             }
             if kind == IncrementalInputEntry.DirectoryListing {
@@ -142,6 +155,27 @@ class IncrementalInputEntry {
     }
 }
 
+// This type is reached only for a DLL path whose spelling includes `shared` or `packs`. Keeping the
+// runtime-root cache here means loading an incremental stamp does not run a static initializer just
+// to hash project files or outputs on the no-op path.
+static class InstalledRuntimeReferencePathRoots {
+    private static readonly gate: object = new object()
+    private static roots: string[]? = null
+
+    static func Get(): string[] {
+        roots: string[]? = null
+        lock gate {
+            roots = InstalledRuntimeReferencePathRoots.roots
+            if roots == null {
+                roots = AnalyzerMetadataLoadPolicy.InstalledRuntimeReferenceRoots(RuntimeEnvironment.GetRuntimeDirectory())
+                InstalledRuntimeReferencePathRoots.roots = roots
+            }
+        }
+
+        return roots ?? new string[](0)
+    }
+}
+
 // THE ONE CONTENT HASH. Upper-case hexadecimal SHA-256, so two owners can never disagree about the
 // spelling of the same bytes.
 static class ContentHash {
@@ -160,12 +194,15 @@ static class ContentHash {
         return ContentHash.OfBytes(bytes)
     }
 
-    static func OfFileOrMissing(path: string): string {
+    static func OfFileOrMissing(path: string, countFrameworkReferenceBytes: bool = false): string {
         if !File.Exists(path) {
             return IncrementalInputEntry.MissingValue()
         }
 
         bytes := File.ReadAllBytes(path)
+        if countFrameworkReferenceBytes && IncrementalInputEntry.IsInstalledRuntimePath(path) {
+            CompilerWorkCounters.Shared.CountFrameworkReferenceBytesHashed(bytes.Length)
+        }
         return ContentHash.OfBytes(bytes)
     }
 }

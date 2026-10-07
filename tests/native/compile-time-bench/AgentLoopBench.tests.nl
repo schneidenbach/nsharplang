@@ -22,7 +22,7 @@ func AgentLoopTestTempDirectory(label: string): string {
 }
 
 func AgentLoopTestCounters(parsed: long): AgentLoopCounters {
-    return new AgentLoopCounters(parsed, 8, 16, 1, 684, 0)
+    return new AgentLoopCounters(parsed, 8, 16, 1, 684, 0, 0)
 }
 
 func AgentLoopTestRow(size: string, scenario: string, mode: string, wallMs: long, parsed: long): AgentLoopRow {
@@ -209,14 +209,23 @@ test "agent-loop bench: an edit anchor that is missing or not unique is refused,
 // ─── WHAT A RUN REPORTS ───────────────────────────────────────────────────────────────────────
 
 test "agent-loop bench: the counters are read from an nsharp.cli-stats v1 line and from nothing else" {
-    line := "{\"schema\":\"nsharp.cli-stats\",\"schemaVersion\":1,\"command\":\"check\",\"exitCode\":0,\"wallMs\":1483,\"cpuMs\":1483,\"peakWorkingSetBytes\":null,\"counters\":{\"filesParsed\":40,\"emitParses\":8,\"filesAnalyzed\":16,\"assembliesEmitted\":1,\"referenceAssembliesLoaded\":684,\"processesSpawned\":2}}"
-    counters := AgentLoopParseStatsCounters(line) ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1)
+    line := "{\"schema\":\"nsharp.cli-stats\",\"schemaVersion\":1,\"command\":\"check\",\"exitCode\":0,\"wallMs\":1483,\"cpuMs\":1483,\"peakWorkingSetBytes\":null,\"counters\":{\"filesParsed\":40,\"emitParses\":8,\"filesAnalyzed\":16,\"assembliesEmitted\":1,\"referenceAssembliesLoaded\":684,\"frameworkReferenceBytesHashed\":0,\"processesSpawned\":2}}"
+    counters := AgentLoopParseStatsCounters(line) ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1, -1)
     assert counters.FilesParsed == 40
     assert counters.EmitParses == 8
     assert counters.FilesAnalyzed == 16
     assert counters.AssembliesEmitted == 1
     assert counters.ReferenceAssembliesLoaded == 684
+    assert counters.FrameworkReferenceBytesHashed == 0
     assert counters.ProcessesSpawned == 2
+
+    // The new structural counter is additive within schema v1. A base CLI from before that field
+    // still has valid counters and can be measured with the same --stats overhead.
+    olderLine := line.Replace(",\"frameworkReferenceBytesHashed\":0", "")
+    olderCounters := AgentLoopParseStatsCounters(olderLine) ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1, -1)
+    assert olderCounters.FilesParsed == 40
+    assert olderCounters.FrameworkReferenceBytesHashed == 0
+    assert olderCounters.ProcessesSpawned == 2
 
     assert AgentLoopParseStatsCounters("") == null
     assert AgentLoopParseStatsCounters("not json") == null
@@ -294,7 +303,7 @@ test "agent-loop bench: a baseline with no rows, an unknown schema or unmeasured
     assert AgentLoopBaselineRefusal(missingDaemonWarm).Contains("missing daemon-warm")
 
     unmeasured := AgentLoopTestBaseline()
-    unmeasured.Rows[0].Counters = new AgentLoopCounters(-1, -1, -1, -1, -1, -1)
+    unmeasured.Rows[0].Counters = new AgentLoopCounters(-1, -1, -1, -1, -1, -1, -1)
     assert AgentLoopBaselineRefusal(unmeasured).Contains("no measured counters")
 }
 
@@ -331,6 +340,18 @@ test "agent-loop bench: equal counters pass, fewer must be ratcheted in, more ar
     failed[0].ExitCode = 1
     failed[0].Failure = "error NL012"
     assert AgentLoopCounterFailures(baseline, failed)[0].Contains("exited 1 - error NL012")
+}
+
+test "agent-loop bench: no-op build rows reject framework reference content hashing" {
+    baseline := AgentLoopTestBaseline()
+    rows := AgentLoopTestObserved(40, 1000)
+    rows[0].Scenario = "no-op build"
+    counters := rows[0].Counters ?? AgentLoopZeroCounters()
+    rows[0].Counters = new AgentLoopCounters(counters.FilesParsed, counters.EmitParses, counters.FilesAnalyzed, counters.AssembliesEmitted, counters.ReferenceAssembliesLoaded, 4096, counters.ProcessesSpawned)
+
+    failures := AgentLoopCounterFailures(baseline, rows)
+    assert failures.Count == 1
+    assert failures[0].Contains("frameworkReferenceBytesHashed must be 0")
 }
 
 test "agent-loop bench: the ratchet lowers counters, refuses a rise, and never touches a wall time" {
@@ -500,7 +521,7 @@ test "agent-loop bench: the table states every counter and puts a compared value
     observed := AgentLoopTestObserved(8, 500)
     table := AgentLoopRenderTable(observed, AgentLoopTestBaseline().Rows, "the baseline")
     assert table.Contains("Parenthesised values are the baseline")
-    assert table.Contains("| parsed | emit parses | analyzed | emitted | refs loaded | spawned |")
+    assert table.Contains("| parsed | emit parses | analyzed | emitted | refs loaded | framework bytes hashed | spawned |")
     assert table.Contains("| 500 |")
     assert table.Contains("| 8 (40) |")
     assert table.Contains("| 684 |")

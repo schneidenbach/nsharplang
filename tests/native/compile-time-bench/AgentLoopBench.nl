@@ -36,7 +36,7 @@ import System.Text.Json
 // `/usr/bin/time` around the CLI process and are retained in the run artifact. Structural counters
 // are read from the CLI's `--stats=<path>` line (`CompilerWorkCounters` in Compiler.Model, schema
 // `nsharp.cli-stats` v1): files parsed, columnar emit parses, files analyzed, assemblies emitted,
-// reference images loaded and child processes spawned. Those counters are the machine-independent
+// reference images loaded, framework-reference bytes hashed and child processes spawned. Those counters are the machine-independent
 // gate and must equal the baseline exactly.
 //
 // The relative timing gate alternates base and head samples for each row, then takes the median of
@@ -467,25 +467,27 @@ class AgentLoopCounters {
     FilesAnalyzed: long
     AssembliesEmitted: long
     ReferenceAssembliesLoaded: long
+    FrameworkReferenceBytesHashed: long
     ProcessesSpawned: long
 
-    constructor(filesParsed: long, emitParses: long, filesAnalyzed: long, assembliesEmitted: long, referenceAssembliesLoaded: long, processesSpawned: long) {
+    constructor(filesParsed: long, emitParses: long, filesAnalyzed: long, assembliesEmitted: long, referenceAssembliesLoaded: long, frameworkReferenceBytesHashed: long, processesSpawned: long) {
         FilesParsed = filesParsed
         EmitParses = emitParses
         FilesAnalyzed = filesAnalyzed
         AssembliesEmitted = assembliesEmitted
         ReferenceAssembliesLoaded = referenceAssembliesLoaded
+        FrameworkReferenceBytesHashed = frameworkReferenceBytesHashed
         ProcessesSpawned = processesSpawned
     }
 }
 
 // The stand-in an unwrap needs after a null check has already ruled null out.
 func AgentLoopZeroCounters(): AgentLoopCounters {
-    return new AgentLoopCounters(0, 0, 0, 0, 0, 0)
+    return new AgentLoopCounters(0, 0, 0, 0, 0, 0, 0)
 }
 
 func AgentLoopCountersEqual(left: AgentLoopCounters, right: AgentLoopCounters): bool {
-    return left.FilesParsed == right.FilesParsed && left.EmitParses == right.EmitParses && left.FilesAnalyzed == right.FilesAnalyzed && left.AssembliesEmitted == right.AssembliesEmitted && left.ReferenceAssembliesLoaded == right.ReferenceAssembliesLoaded && left.ProcessesSpawned == right.ProcessesSpawned
+    return left.FilesParsed == right.FilesParsed && left.EmitParses == right.EmitParses && left.FilesAnalyzed == right.FilesAnalyzed && left.AssembliesEmitted == right.AssembliesEmitted && left.ReferenceAssembliesLoaded == right.ReferenceAssembliesLoaded && left.FrameworkReferenceBytesHashed == right.FrameworkReferenceBytesHashed && left.ProcessesSpawned == right.ProcessesSpawned
 }
 
 func AgentLoopCountersMeasured(counters: AgentLoopCounters?): bool {
@@ -494,11 +496,11 @@ func AgentLoopCountersMeasured(counters: AgentLoopCounters?): bool {
     }
 
     value := counters ?? AgentLoopZeroCounters()
-    return value.FilesParsed >= 0 && value.EmitParses >= 0 && value.FilesAnalyzed >= 0 && value.AssembliesEmitted >= 0 && value.ReferenceAssembliesLoaded >= 0 && value.ProcessesSpawned >= 0
+    return value.FilesParsed >= 0 && value.EmitParses >= 0 && value.FilesAnalyzed >= 0 && value.AssembliesEmitted >= 0 && value.ReferenceAssembliesLoaded >= 0 && value.FrameworkReferenceBytesHashed >= 0 && value.ProcessesSpawned >= 0
 }
 
 func AgentLoopCountersText(counters: AgentLoopCounters): string {
-    return "filesParsed=" + BenchLongText(counters.FilesParsed) + " emitParses=" + BenchLongText(counters.EmitParses) + " filesAnalyzed=" + BenchLongText(counters.FilesAnalyzed) + " assembliesEmitted=" + BenchLongText(counters.AssembliesEmitted) + " referenceAssembliesLoaded=" + BenchLongText(counters.ReferenceAssembliesLoaded) + " processesSpawned=" + BenchLongText(counters.ProcessesSpawned)
+    return "filesParsed=" + BenchLongText(counters.FilesParsed) + " emitParses=" + BenchLongText(counters.EmitParses) + " filesAnalyzed=" + BenchLongText(counters.FilesAnalyzed) + " assembliesEmitted=" + BenchLongText(counters.AssembliesEmitted) + " referenceAssembliesLoaded=" + BenchLongText(counters.ReferenceAssembliesLoaded) + " frameworkReferenceBytesHashed=" + BenchLongText(counters.FrameworkReferenceBytesHashed) + " processesSpawned=" + BenchLongText(counters.ProcessesSpawned)
 }
 
 func AgentLoopJsonLong(element: JsonElement, name: string): long {
@@ -506,12 +508,19 @@ func AgentLoopJsonLong(element: JsonElement, name: string): long {
 }
 
 func AgentLoopCountersFromElement(element: JsonElement): AgentLoopCounters {
+    frameworkReferenceBytesHashed: long = 0
+    frameworkBytesElement: JsonElement = new JsonElement()
+    if element.TryGetProperty("frameworkReferenceBytesHashed", out frameworkBytesElement) {
+        frameworkReferenceBytesHashed = frameworkBytesElement.GetInt64()
+    }
+
     return new AgentLoopCounters(
         AgentLoopJsonLong(element, "filesParsed"),
         AgentLoopJsonLong(element, "emitParses"),
         AgentLoopJsonLong(element, "filesAnalyzed"),
         AgentLoopJsonLong(element, "assembliesEmitted"),
         AgentLoopJsonLong(element, "referenceAssembliesLoaded"),
+        frameworkReferenceBytesHashed,
         AgentLoopJsonLong(element, "processesSpawned")
     )
 }
@@ -1218,7 +1227,8 @@ func AgentLoopDiscardRelativeWarmupPair(
 
 // For each scenario, take nearby base/head samples. Cold rows use the in-process path; daemon-warm
 // rows measure the second request after the edit with a daemon serving the workspace. Each pair
-// alternates head/base then base/head, keeping machine load shared by both measurements.
+// alternates head/base then base/head, keeping machine load shared by both measurements. Stats are
+// enabled on both sides when the base supports them, so counter collection does not bias the ratio.
 func AgentLoopMeasureRelativeMatrix(
     headCliDll: string,
     baseCliDll: string,
@@ -1241,6 +1251,7 @@ func AgentLoopMeasureRelativeMatrix(
     if maximumPairs < minimumPairs {
         maximumPairs = minimumPairs
     }
+    baseSupportsStats := AgentLoopCliSupportsStats(baseCliDll)
     sizeIndex := 0
     while sizeIndex < sizeNames.Count {
         size := AgentLoopFindSize(sizeNames[sizeIndex])
@@ -1270,9 +1281,9 @@ func AgentLoopMeasureRelativeMatrix(
                 baseRows := new List<AgentLoopRow>()
                 if headFirst {
                     headRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, true, false, "head")
-                    baseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, false, false, "base")
+                    baseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, baseSupportsStats, false, "base")
                 } else {
-                    baseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, false, false, "base")
+                    baseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, baseSupportsStats, false, "base")
                     headRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, true, false, "head")
                 }
 
@@ -1292,11 +1303,11 @@ func AgentLoopMeasureRelativeMatrix(
                 daemonHeadRows := new List<AgentLoopRow>()
                 daemonBaseRows := new List<AgentLoopRow>()
                 if headFirst {
-                    daemonBaseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, false, true, "base")
+                    daemonBaseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, baseSupportsStats, true, "base")
                     daemonHeadRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, true, true, "head")
                 } else {
                     daemonHeadRows = AgentLoopMeasureScenario(headCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, true, true, "head")
-                    daemonBaseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, false, true, "base")
+                    daemonBaseRows = AgentLoopMeasureScenario(baseCliDll, repositoryRoot, size ?? new AgentLoopSize("", "", 0, 0), scenario, 1, baseSupportsStats, true, "base")
                 }
 
                 daemonFailure := AgentLoopRowsHaveFailure(daemonHeadRows)
@@ -1487,13 +1498,14 @@ func AgentLoopBaselineJson(baseline: AgentLoopBaseline): string {
         AgentLoopAppendField(builder, "      ", "mode", AgentLoopJsonString(row.Mode), false)
         AgentLoopAppendField(builder, "      ", "sourceLines", BenchLongText(row.SourceLines), false)
         AgentLoopAppendField(builder, "      ", "exitCode", BenchIntText(row.ExitCode), false)
-        counters := row.Counters ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1)
+        counters := row.Counters ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1, -1)
         builder.Append("      \"counters\": {")
         builder.Append("\"filesParsed\": " + BenchLongText(counters.FilesParsed))
         builder.Append(", \"emitParses\": " + BenchLongText(counters.EmitParses))
         builder.Append(", \"filesAnalyzed\": " + BenchLongText(counters.FilesAnalyzed))
         builder.Append(", \"assembliesEmitted\": " + BenchLongText(counters.AssembliesEmitted))
         builder.Append(", \"referenceAssembliesLoaded\": " + BenchLongText(counters.ReferenceAssembliesLoaded))
+        builder.Append(", \"frameworkReferenceBytesHashed\": " + BenchLongText(counters.FrameworkReferenceBytesHashed))
         builder.Append(", \"processesSpawned\": " + BenchLongText(counters.ProcessesSpawned))
         builder.Append("}\n")
         builder.Append("    }")
@@ -1635,6 +1647,7 @@ func AgentLoopCounterChanges(baseline: AgentLoopCounters, observed: AgentLoopCou
     AgentLoopAppendChange(changes, AgentLoopCounterChange("filesAnalyzed", baseline.FilesAnalyzed, observed.FilesAnalyzed))
     AgentLoopAppendChange(changes, AgentLoopCounterChange("assembliesEmitted", baseline.AssembliesEmitted, observed.AssembliesEmitted))
     AgentLoopAppendChange(changes, AgentLoopCounterChange("referenceAssembliesLoaded", baseline.ReferenceAssembliesLoaded, observed.ReferenceAssembliesLoaded))
+    AgentLoopAppendChange(changes, AgentLoopCounterChange("frameworkReferenceBytesHashed", baseline.FrameworkReferenceBytesHashed, observed.FrameworkReferenceBytesHashed))
     AgentLoopAppendChange(changes, AgentLoopCounterChange("processesSpawned", baseline.ProcessesSpawned, observed.ProcessesSpawned))
     return changes
 }
@@ -1661,7 +1674,9 @@ func AgentLoopCounterFailures(baseline: AgentLoopBaseline, observed: List<AgentL
             } else {
                 baselineRow := expected ?? row
                 changes := AgentLoopCounterChanges(baselineRow.Counters ?? AgentLoopZeroCounters(), observedCounters ?? AgentLoopZeroCounters())
-                if changes.Count > 0 {
+                if row.Scenario == "no-op build" && (observedCounters ?? AgentLoopZeroCounters()).FrameworkReferenceBytesHashed != 0 {
+                    failures.Add(key + ": frameworkReferenceBytesHashed must be 0 on a no-op build, observed " + BenchLongText((observedCounters ?? AgentLoopZeroCounters()).FrameworkReferenceBytesHashed))
+                } else if changes.Count > 0 {
                     failures.Add(key + ": " + String.Join("; ", changes))
                 }
             }
@@ -1674,7 +1689,7 @@ func AgentLoopCounterFailures(baseline: AgentLoopBaseline, observed: List<AgentL
 }
 
 func AgentLoopCounterNotAbove(baseline: AgentLoopCounters, observed: AgentLoopCounters): bool {
-    return observed.FilesParsed <= baseline.FilesParsed && observed.EmitParses <= baseline.EmitParses && observed.FilesAnalyzed <= baseline.FilesAnalyzed && observed.AssembliesEmitted <= baseline.AssembliesEmitted && observed.ReferenceAssembliesLoaded <= baseline.ReferenceAssembliesLoaded && observed.ProcessesSpawned <= baseline.ProcessesSpawned
+    return observed.FilesParsed <= baseline.FilesParsed && observed.EmitParses <= baseline.EmitParses && observed.FilesAnalyzed <= baseline.FilesAnalyzed && observed.AssembliesEmitted <= baseline.AssembliesEmitted && observed.ReferenceAssembliesLoaded <= baseline.ReferenceAssembliesLoaded && observed.FrameworkReferenceBytesHashed <= baseline.FrameworkReferenceBytesHashed && observed.ProcessesSpawned <= baseline.ProcessesSpawned
 }
 
 // THE RATCHET (`--ratchet`). Copy each measured row's counters into the baseline when NONE of them
@@ -1738,8 +1753,8 @@ func AgentLoopRenderTable(rows: List<AgentLoopRow>, compare: List<AgentLoopRow>?
         BenchAppendLine(builder, "")
     }
 
-    BenchAppendLine(builder, "| size | lines | scenario | mode | exit | wall ms | cpu ms | peak RSS MB | parsed | emit parses | analyzed | emitted | refs loaded | spawned |")
-    BenchAppendLine(builder, "|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    BenchAppendLine(builder, "| size | lines | scenario | mode | exit | wall ms | cpu ms | peak RSS MB | parsed | emit parses | analyzed | emitted | refs loaded | framework bytes hashed | spawned |")
+    BenchAppendLine(builder, "|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     i := 0
     while i < rows.Count {
         row := rows[i]
@@ -1750,8 +1765,8 @@ func AgentLoopRenderTable(rows: List<AgentLoopRow>, compare: List<AgentLoopRow>?
 
         hasCompare := compareRow != null
         other := compareRow ?? row
-        counters := row.Counters ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1)
-        otherCounters := other.Counters ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1)
+        counters := row.Counters ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1, -1)
+        otherCounters := other.Counters ?? new AgentLoopCounters(-1, -1, -1, -1, -1, -1, -1)
         builder.Append("| " + row.Size + " | " + BenchLongText(row.SourceLines) + " | " + row.Scenario + " | " + row.Mode + " | " + BenchIntText(row.ExitCode))
         builder.Append(" | " + BenchLongText(row.MedianWallMs))
         builder.Append(" | " + BenchLongText(row.MedianCpuMs))
@@ -1761,6 +1776,7 @@ func AgentLoopRenderTable(rows: List<AgentLoopRow>, compare: List<AgentLoopRow>?
         builder.Append(" | " + AgentLoopCounterCell(counters.FilesAnalyzed, otherCounters.FilesAnalyzed, hasCompare))
         builder.Append(" | " + AgentLoopCounterCell(counters.AssembliesEmitted, otherCounters.AssembliesEmitted, hasCompare))
         builder.Append(" | " + AgentLoopCounterCell(counters.ReferenceAssembliesLoaded, otherCounters.ReferenceAssembliesLoaded, hasCompare))
+        builder.Append(" | " + AgentLoopCounterCell(counters.FrameworkReferenceBytesHashed, otherCounters.FrameworkReferenceBytesHashed, hasCompare))
         builder.Append(" | " + AgentLoopCounterCell(counters.ProcessesSpawned, otherCounters.ProcessesSpawned, hasCompare))
         BenchAppendLine(builder, " |")
         i = i + 1

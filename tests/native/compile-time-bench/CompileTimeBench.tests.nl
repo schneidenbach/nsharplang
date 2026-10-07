@@ -50,7 +50,7 @@ func BenchTestStageText(): string {
 }
 
 func BenchTestPlaceholderBaselineJson(): string {
-    counters := "\"filesParsed\":1,\"emitParses\":1,\"filesAnalyzed\":1,\"assembliesEmitted\":1,\"referenceAssembliesLoaded\":1,\"processesSpawned\":0"
+    counters := "\"filesParsed\":1,\"emitParses\":1,\"filesAnalyzed\":1,\"assembliesEmitted\":1,\"referenceAssembliesLoaded\":1,\"frameworkReferenceBytesHashed\":0,\"processesSpawned\":0"
     return "{\"schemaVersion\":3,\"project\":\"src/NSharpLang.Compiler.Core\",\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":0,\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\",\"coreCounters\":{" + counters + "},\"emitCounters\":{" + counters + "}}"
 }
 
@@ -396,9 +396,9 @@ test "compile-time relative gate: negative ratio sentinels render as readable si
 }
 
 test "compile-time structural gate: CompilerWorkCounters must equal the baseline exactly" {
-    expected := new AgentLoopCounters(468, 278, 278, 3, 479, 0)
+    expected := new AgentLoopCounters(468, 278, 278, 3, 479, 0, 0)
     assert BenchCoreCounterFailure("Core", expected, expected) == ""
-    changed := new AgentLoopCounters(468, 278, 279, 3, 479, 0)
+    changed := new AgentLoopCounters(468, 278, 279, 3, 479, 0, 0)
     assert BenchCoreCounterFailure("Core", expected, changed).Contains("fix increases")
     assert BenchCoreCounterFailure("Core", expected, null).Contains("did not write nsharp.cli-stats")
 }

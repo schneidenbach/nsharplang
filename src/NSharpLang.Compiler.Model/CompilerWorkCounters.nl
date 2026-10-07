@@ -25,6 +25,8 @@ import System.Threading
 //     not counted; they are a by-product of an emitted image).
 //   * ReferenceAssembliesLoaded: one reference image opened from a path -- a MetadataLoadContext
 //     load or an exact-identity executable load. One file opened by two contexts counts twice.
+//   * FrameworkReferenceBytesHashed: bytes read and hashed from the installed `shared/` or `packs/`
+//     tree by incremental input validation. An up-to-date build must keep this at zero.
 //   * ProcessesSpawned: one child process this process started.
 //
 // The fields are INSTANCE fields of one shared object, not static fields, because
@@ -38,6 +40,7 @@ class CompilerWorkCounters {
     filesAnalyzed: long = 0
     assembliesEmitted: long = 0
     referenceAssembliesLoaded: long = 0
+    frameworkReferenceBytesHashed: long = 0
     processesSpawned: long = 0
 
     static Shared: CompilerWorkCounters => s_shared
@@ -62,6 +65,10 @@ class CompilerWorkCounters {
         Interlocked.Increment(ref referenceAssembliesLoaded)
     }
 
+    func CountFrameworkReferenceBytesHashed(bytes: long) {
+        Interlocked.Add(ref frameworkReferenceBytesHashed, bytes)
+    }
+
     func CountProcessSpawned() {
         Interlocked.Increment(ref processesSpawned)
     }
@@ -73,6 +80,7 @@ class CompilerWorkCounters {
             Interlocked.Read(ref filesAnalyzed),
             Interlocked.Read(ref assembliesEmitted),
             Interlocked.Read(ref referenceAssembliesLoaded),
+            Interlocked.Read(ref frameworkReferenceBytesHashed),
             Interlocked.Read(ref processesSpawned)
         )
     }
@@ -84,6 +92,7 @@ record CompilerWorkCounterSnapshot(
     FilesAnalyzed: long,
     AssembliesEmitted: long,
     ReferenceAssembliesLoaded: long,
+    FrameworkReferenceBytesHashed: long,
     ProcessesSpawned: long
 ) {
 
@@ -95,6 +104,7 @@ record CompilerWorkCounterSnapshot(
             FilesAnalyzed - earlier.FilesAnalyzed,
             AssembliesEmitted - earlier.AssembliesEmitted,
             ReferenceAssembliesLoaded - earlier.ReferenceAssembliesLoaded,
+            FrameworkReferenceBytesHashed - earlier.FrameworkReferenceBytesHashed,
             ProcessesSpawned - earlier.ProcessesSpawned
         )
     }

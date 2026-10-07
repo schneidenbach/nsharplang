@@ -64,12 +64,8 @@ func CliRootCheckWorkspaceFailureText(projects: JsonElement): string {
             if diagnosticCount >= 3 {
                 break
             }
-            location := TextOf(diagnostic.GetProperty("file")) + ":" +
-                diagnostic.GetProperty("line").GetInt32().ToString() + ":" +
-                diagnostic.GetProperty("column").GetInt32().ToString()
-            failures = failures + "\n  " + TextOf(diagnostic.GetProperty("code")) + " " +
-                TextOf(diagnostic.GetProperty("severity")) + " " + location + ": " +
-                TextOf(diagnostic.GetProperty("message"))
+            location := TextOf(diagnostic.GetProperty("file")) + ":" + diagnostic.GetProperty("line").GetInt32().ToString() + ":" + diagnostic.GetProperty("column").GetInt32().ToString()
+            failures = failures + "\n  " + TextOf(diagnostic.GetProperty("code")) + " " + TextOf(diagnostic.GetProperty("severity")) + " " + location + ": " + TextOf(diagnostic.GetProperty("message"))
             diagnosticCount = diagnosticCount + 1
         }
 

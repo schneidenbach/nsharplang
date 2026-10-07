@@ -12,6 +12,7 @@
     "filesAnalyzed": 279,
     "assembliesEmitted": 3,
     "referenceAssembliesLoaded": 129,
+    "frameworkReferenceBytesHashed": 0,
     "processesSpawned": 0
   },
   "emitCounters": {
@@ -20,6 +21,7 @@
     "filesAnalyzed": 160,
     "assembliesEmitted": 1,
     "referenceAssembliesLoaded": 36,
+    "frameworkReferenceBytesHashed": 0,
     "processesSpawned": 0
   }
 }

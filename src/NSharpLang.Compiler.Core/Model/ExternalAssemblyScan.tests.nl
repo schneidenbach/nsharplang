@@ -236,6 +236,21 @@ test "runtime reference contexts are reused only for the same ordered file closu
     assert !distinct.IsCollectible
 }
 
+test "runtime reference closure keys do not read framework image contents" {
+    frameworkPath := typeof(object).get_Assembly().get_Location()
+    paths := new List<string>()
+    paths.Add(frameworkPath)
+    roots := AnalyzerMetadataLoadPolicy.InstalledRuntimeReferenceRoots(RuntimeEnvironment.GetRuntimeDirectory())
+    assert AnalyzerMetadataLoadPolicy.IsInstalledRuntimePath(Path.GetFullPath(frameworkPath), roots)
+
+    before := CompilerWorkCounters.Shared.Snapshot()
+    key := ExternalAssemblyScan.RuntimeReferenceSetKey(paths)
+    delta := CompilerWorkCounters.Shared.Snapshot().Since(before)
+
+    assert key.Length > frameworkPath.Length
+    assert delta.FrameworkReferenceBytesHashed == 0
+}
+
 test "external reference paths select DLLs normalize project-relative paths and remove duplicates" {
     dependencies := new List<Reference>()
     packageReference := new Reference()

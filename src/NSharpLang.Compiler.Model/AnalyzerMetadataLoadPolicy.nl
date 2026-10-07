@@ -108,6 +108,39 @@ class AnalyzerMetadataLoadPolicy {
         return null
     }
 
+    // The installed shared frameworks and targeting packs are immutable within their versioned
+    // directories. A reference below one of these roots can therefore use its full path and file
+    // size/mtime as its runtime identity without opening the assembly image. The caller carries the
+    // exact ordered file paths in its closure key; these roots only decide which fingerprint rule is
+    // safe for a file.
+    static func InstalledRuntimeReferenceRoots(runtimeDirectory: string?): string[] {
+        roots := new List<string>()
+        sharedRoot := SharedRootFromRuntimeDirectory(runtimeDirectory)
+        if sharedRoot == null {
+            return roots.ToArray()
+        }
+
+        roots.Add(Path.GetFullPath(sharedRoot) + Path.DirectorySeparatorChar.ToString())
+        dotnetRoot := Path.GetDirectoryName(sharedRoot)
+        if dotnetRoot != null {
+            roots.Add(Path.GetFullPath(Path.Combine(dotnetRoot, "packs")) + Path.DirectorySeparatorChar.ToString())
+        }
+
+        return roots.ToArray()
+    }
+
+    static func IsInstalledRuntimePath(fullPath: string, roots: IReadOnlyList<string>): bool {
+        index := 0
+        while index < roots.Count {
+            if fullPath.StartsWith(roots[index], StringComparison.Ordinal) {
+                return true
+            }
+            index = index + 1
+        }
+
+        return false
+    }
+
     // BOTH SHIPPED FRAMEWORKS, ASP.NET FIRST. The order decides which copy of a type that both
     // frameworks carry is registered first, and a first-loaded-wins registry makes that visible.
     static func SharedFrameworkDirectoryNames(): string[] {

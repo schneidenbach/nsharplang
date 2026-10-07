@@ -120,6 +120,7 @@ class CliStatsKernels {
         counterObject["filesAnalyzed"] = counters.FilesAnalyzed
         counterObject["assembliesEmitted"] = counters.AssembliesEmitted
         counterObject["referenceAssembliesLoaded"] = counters.ReferenceAssembliesLoaded
+        counterObject["frameworkReferenceBytesHashed"] = counters.FrameworkReferenceBytesHashed
         counterObject["processesSpawned"] = counters.ProcessesSpawned
 
         envelope := new Dictionary<string, object?>()
