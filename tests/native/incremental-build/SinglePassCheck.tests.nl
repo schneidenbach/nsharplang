@@ -28,24 +28,24 @@ test "validating the emission of the analysis already run produces a fresh compi
     try {
         IncrementalWriteProject(scratch)
         filesBefore := SinglePassFilesUnder(scratch)
-        emittedBefore := CompilerWorkCounters.Shared.Snapshot().AssembliesEmitted
         config := ProjectFileParser.Parse(Path.Combine(scratch, "project.yml"))
         analysed := new MultiFileCompiler(scratch, config, null, true)
         analysed.CompileForAnalysis()
         validated := analysed.ValidateAnalyzedEmission("Lib")
-        assert SinglePassFilesUnder(scratch) == filesBefore
-        assert CompilerWorkCounters.Shared.Snapshot().AssembliesEmitted == emittedBefore
-        assert validated.OutputAssemblyPath == null
+        assert SinglePassFilesUnder(scratch) == filesBefore, "validation wrote files into the project tree"
+        // Work counters are process-wide and xUnit runs other test classes in parallel. The isolated
+        // output path and scratch-tree checks below attribute this no-write contract to this compiler.
+        assert validated.OutputAssemblyPath == null, "validation unexpectedly reported an output assembly path"
 
         fresh := new MultiFileCompiler(scratch, config, null, true)
         full := fresh.CompileToIlAssembly("Lib", Path.Combine(scratch, "b", "Lib.dll"), false, true)
 
         assert validated.Success, SinglePassRender(validated)
-        assert full.Success
-        assert SinglePassRender(validated) == SinglePassRender(full)
+        assert full.Success, SinglePassRender(full)
+        assert SinglePassRender(validated) == SinglePassRender(full), "validation diagnostics differ from a fresh emission"
         image := analysed.EmittedImage
-        assert image != null
-        assert ContentHash.OfBytes(image ?? new byte[](0)) == ContentHash.OfFileOrMissing(Path.Combine(scratch, "b", "Lib.dll"))
+        assert image != null, "validation did not retain its emitted image"
+        assert ContentHash.OfBytes(image ?? new byte[](0)) == ContentHash.OfFileOrMissing(Path.Combine(scratch, "b", "Lib.dll")), "validation image differs from a fresh emission"
     } finally {
         IncrementalCleanup(scratch)
     }
