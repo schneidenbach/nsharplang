@@ -187,7 +187,7 @@ class ExternalAssemblyScan {
                 continue
             }
 
-            fullPath: string
+            fullPath := path
             try {
                 fullPath = Path.GetFullPath(path)
             } catch {
