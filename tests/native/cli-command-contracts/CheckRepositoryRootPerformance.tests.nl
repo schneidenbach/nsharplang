@@ -532,6 +532,122 @@ func CliRootCheckWriteGateRecord(repositoryRoot: string, line: string): bool {
     }
 }
 
+func CliRootCheckRunJson(projectRoot: string): CliRun {
+    startInfo := new ProcessStartInfo {
+        FileName: "dotnet",
+        Arguments: "\"" + CliDll() + "\" check --project \"" + projectRoot + "\" --json",
+        WorkingDirectory: projectRoot
+    }
+    startInfo.RedirectStandardOutput = true
+    startInfo.RedirectStandardError = true
+    startInfo.UseShellExecute = false
+    startInfo.Environment["NLC_NO_DAEMON"] = "1"
+
+    process := new Process { StartInfo: startInfo }
+    process.Start()
+    stdoutTask := process.StandardOutput.ReadToEndAsync()
+    stderrTask := process.StandardError.ReadToEndAsync()
+    if !process.WaitForExit(CliRootCheckHangTimeoutMs()) {
+        process.Kill(true)
+        process.WaitForExit()
+        process.Dispose()
+        throw new TimeoutException("nlc check --project " + projectRoot + " --json exceeded the 900000 ms hang detector.")
+    }
+
+    exitCode := process.ExitCode
+    stdout := stdoutTask.Result
+    stderr := stderrTask.Result
+    process.Dispose()
+    return new CliRun(exitCode, stdout, stderr)
+}
+
+func CliRootCheckDiagnosticSet(stdout: string): string {
+    document := JsonDocument.Parse(stdout)
+    diagnostics := new List<string>()
+    root := document.RootElement
+    projects := new JsonElement()
+    if root.TryGetProperty("projects", out projects) {
+        for project in projects.EnumerateArray() {
+            projectRoot := TextOf(project.GetProperty("projectRoot"))
+            for diagnostic in project.GetProperty("results").EnumerateArray() {
+                diagnostics.Add(projectRoot + "\n" + diagnostic.GetRawText())
+            }
+        }
+    } else {
+        projectRoot := TextOf(root.GetProperty("projectRoot"))
+        for diagnostic in root.GetProperty("results").EnumerateArray() {
+            diagnostics.Add(projectRoot + "\n" + diagnostic.GetRawText())
+        }
+    }
+    diagnostics.Sort(StringComparer.Ordinal)
+    result := string.Join("\n---\n", diagnostics)
+    document.Dispose()
+    return result
+}
+
+func CliRootCheckJoinDiagnosticSets(first: string, second: string): string {
+    if first.Length == 0 {
+        return second
+    }
+    if second.Length == 0 {
+        return first
+    }
+    return first + "\n---\n" + second
+}
+
+func CliRootCheckWriteVersionedDependencyProject(directory: string, name: string, packageVersion: string) {
+    Directory.CreateDirectory(directory)
+    WriteProjectYml(
+        directory,
+        "name: " + name + "\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - nuget: Microsoft.Extensions.DependencyInjection.Abstractions\n    version: " + packageVersion + "\n"
+    )
+    File.WriteAllText(
+        Path.Combine(directory, "DependencyVersionProbe.nl"),
+        "import Microsoft.Extensions.DependencyInjection\n\nclass DependencyVersionProbe {\n    services: IServiceCollection\n}\n"
+    )
+}
+
+test "repository-root workspace diagnostics agree across consecutive checks" {
+    repositoryRoot := CliRepositoryRoot()
+    first := CliRootCheckRunJson(repositoryRoot)
+    second := CliRootCheckRunJson(repositoryRoot)
+
+    assert first.ExitCode == second.ExitCode, "consecutive workspace checks returned different exit codes"
+    assert first.Stderr.Length == 0, first.Stderr
+    assert second.Stderr.Length == 0, second.Stderr
+    assert CliRootCheckDiagnosticSet(first.Stdout) == CliRootCheckDiagnosticSet(second.Stdout), "consecutive repository-root workspace checks returned different diagnostic sets"
+}
+
+test "workspace check matches each dependency-version member alone in both member orders" {
+    directory := NewTempDirectory("nlc-check-workspace-reference-versions")
+    firstMember := Path.Combine(directory, "a")
+    secondMember := Path.Combine(directory, "b")
+    try {
+        CliRootCheckWriteVersionedDependencyProject(firstMember, "DependencyVersionA", "10.0.0")
+        CliRootCheckWriteVersionedDependencyProject(secondMember, "DependencyVersionB", "10.0.9")
+
+        firstSingle := CliRootCheckRunJson(firstMember)
+        secondSingle := CliRootCheckRunJson(secondMember)
+        firstWorkspace := CliRootCheckRunJson(directory)
+        assert firstSingle.ExitCode == 0, firstSingle.Stdout + firstSingle.Stderr
+        assert secondSingle.ExitCode == 0, secondSingle.Stdout + secondSingle.Stderr
+        assert firstWorkspace.ExitCode == 0, firstWorkspace.Stdout + firstWorkspace.Stderr
+        assert CliRootCheckDiagnosticSet(firstWorkspace.Stdout) == CliRootCheckJoinDiagnosticSets(CliRootCheckDiagnosticSet(firstSingle.Stdout), CliRootCheckDiagnosticSet(secondSingle.Stdout)), "the 10.0.0 / 10.0.9 workspace result differs from its single-member results"
+
+        CliRootCheckWriteVersionedDependencyProject(firstMember, "DependencyVersionA", "10.0.9")
+        CliRootCheckWriteVersionedDependencyProject(secondMember, "DependencyVersionB", "10.0.0")
+        firstSingle = CliRootCheckRunJson(firstMember)
+        secondSingle = CliRootCheckRunJson(secondMember)
+        secondWorkspace := CliRootCheckRunJson(directory)
+        assert firstSingle.ExitCode == 0, firstSingle.Stdout + firstSingle.Stderr
+        assert secondSingle.ExitCode == 0, secondSingle.Stdout + secondSingle.Stderr
+        assert secondWorkspace.ExitCode == 0, secondWorkspace.Stdout + secondWorkspace.Stderr
+        assert CliRootCheckDiagnosticSet(secondWorkspace.Stdout) == CliRootCheckJoinDiagnosticSets(CliRootCheckDiagnosticSet(firstSingle.Stdout), CliRootCheckDiagnosticSet(secondSingle.Stdout)), "the reversed 10.0.9 / 10.0.0 workspace result differs from its single-member results"
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 test "nlc check checks each repository project once, keeps Core clean, and pins workspace work while load judges wall time" {
     repositoryRoot := CliRepositoryRoot()
     load := CliRootCheckReadMachineLoad()
