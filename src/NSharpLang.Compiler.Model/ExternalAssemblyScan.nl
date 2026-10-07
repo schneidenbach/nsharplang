@@ -252,7 +252,8 @@ class ExternalAssemblyScan {
                 writeTicks = file.LastWriteTimeUtc.Ticks
             }
         } catch {
-            // The path remains represented even when it has no readable file.
+            // The path remains represented even when its file metadata cannot be read.
+            return "unreadable:" + path.Length.ToString() + ":" + path
         }
 
         fileVersion := path.Length.ToString() + ":" + path + length.ToString() + ":" + writeTicks.ToString()
