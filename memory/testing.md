@@ -1288,6 +1288,22 @@ decrease is reviewed and ratcheted with
 `--agent-loop --sizes all --ratchet`; a counter increase refuses the update. Load remains report
 metadata and does not change the sample count.
 
+**Measured on `speed/agent-loop-2` (2026-10-06, `--runs 3`, base `28dfd91b2` against head, load ~4-5
+on 10 cores; wall ms, in-process CPU ms, reference images).** Body edit; daemon rows are the first
+request after the edit (`--daemon` "cold") and the same request again (`daemon-warm`):
+
+| size | check cold | build cold | daemon check after edit | daemon check again | daemon build after edit |
+|---|---|---|---|---|---|
+| small | 765 / 740 / 501 -> 754 / 730 / 323 | 764 / 730 / 493 -> 752 / 720 / 319 | 152 -> 133 | 140 -> 71 | 149 -> 134 |
+| medium | 762 / 730 / 77 -> 719 / 700 / 40 | 749 / 720 / 69 -> 705 / 680 / 36 | 287 -> 206 | 276 -> 86 | 285 -> 195 |
+| large | 3,520 / 5,160 / 151 -> 2,360 / 3,760 / 40 | 3,645 / 5,220 / 141 -> 2,330 / 3,540 / 36 | 2,169 -> 821 | 2,126 -> 206 | 2,297 -> 735 |
+
+A check now emits nothing (`assembliesEmitted` 0), daemon-warm checks parse nothing for the back end
+(`emitParses` 0) and open no reference image. The paired gate (small and medium) passed against the
+same base. What moved each row is in the five commits' messages: in-memory check validation, the IL
+walk's rescans, one reference metadata context per compilation, the incremental back end with the
+grouped binding-map merge, and the language server's reference reload.
+
 ### 9. The Installed Toolchain (`tests/native/installed-toolchain-integration`)
 
 **This is the only place anything asserts what a USER's first command does.** Every other project in
