@@ -72,12 +72,6 @@ class SharedReferenceMetadata {
         }
     }
 
-    func RuntimeContextOrDefault(): AssemblyLoadContext {
-        lock Gate {
-            return RuntimeContext ?? ExternalAssemblyScan.ExactIdentityLoadContext()
-        }
-    }
-
     // The assembly this context already read from exactly `path`, or null. The comparison is on the
     // full path, ordinally: a different file of the same identity is a different image.
     func LoadedFrom(path: string): Assembly? {

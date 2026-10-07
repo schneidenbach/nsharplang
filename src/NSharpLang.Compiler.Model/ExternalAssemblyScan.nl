@@ -331,13 +331,12 @@ class ExternalAssemblyScan {
     // later. Under the standalone CLI the default context carries nothing but the compiler, so every
     // reference was consistent and the same program built -- which is the whole of the parity gap.
     //
-    // So: THE DEFAULT CONTEXT IS CONSULTED ONLY FOR AN IDENTITY IT ALREADY ANSWERS FOR, AND IS NEVER
-    // ASKED TO TAKE THE PROJECT'S FILE. That is the same first question `Assembly.LoadFrom` asked --
-    // a build the host already owns still wins when its identity is exactly the requested one, so
-    // the framework, the compiler's own assemblies under the CLI, and every host dependency bind
-    // exactly as before. What changes is the answer for a file the default context did NOT already
-    // have: it goes into the ONE owned context rather than being placed in the default one, so the
-    // rest of the project's closure resolves it out of that context's own cache.
+    // A compilation-owned lookup never asks the default context to answer a project package path.
+    // Its exact reference closure supplies that file, with two deliberate shared boundaries:
+    // compiler-referenced dependencies use the compiler's handle, and framework-pack contracts use
+    // their shared-framework implementation. Callers without an owner retain the exact-identity
+    // host fallback below. This prevents a member from inheriting the same identity another member
+    // loaded from a different package path.
     //
     // THE CONTEXT THE DEFAULT ONE IS **NOT** ALLOWED TO STAND IN FOR IS THE COMPILER'S OWN. Under
     // MSBuild the build task IS `NSharpLang.Compiler.Driver.dll`, loaded into MSBuild's task context,
@@ -367,11 +366,11 @@ class ExternalAssemblyScan {
     }
 
     static func TryLoadExactIdentityAssemblyInCompilation(path: string, identity: string, runtimeContext: AssemblyLoadContext?): Assembly? {
-        carried := DefaultContextAssemblyForIdentity(identity)
-        if carried != null {
-            return carried
-        }
-
+        // Compiler dependencies are the one deliberate cross-context binding: the compiler's
+        // own code and a referenced contract must agree on the same Type handles. A project
+        // reference with the same CLR identity is different: when a compilation has an owner,
+        // load the requested path into that owner's context instead of accepting whichever file
+        // the process default context happened to bind first.
         compilerBound := CompilerBoundAssemblyForReferencedIdentity(identity)
         if compilerBound != null {
             return compilerBound
@@ -381,6 +380,15 @@ class ExternalAssemblyScan {
         alreadyOwned := OwnedAssemblyLoadedFromInCompilation(path, identity, selectedContext)
         if alreadyOwned != null {
             return alreadyOwned
+        }
+
+        // Callers without a compilation closure retain the host's exact-identity fallback. A
+        // workspace member always supplies its closure context and never takes this path.
+        if runtimeContext == null {
+            carried := DefaultContextAssemblyForIdentity(identity)
+            if carried != null {
+                return carried
+            }
         }
 
         try {
@@ -419,8 +427,8 @@ class ExternalAssemblyScan {
         return null
     }
 
-    // THE ONE QUESTION THE DEFAULT CONTEXT IS ASKED: "do you already answer for this exact
-    // identity?". `LoadFromAssemblyName` is the same binder call `Assembly.LoadFrom` made before it
+    // THE UNOWNED CALLER'S ONE QUESTION THE DEFAULT CONTEXT IS ASKED: "do you already answer for this
+    // exact identity?". `LoadFromAssemblyName` is the same binder call `Assembly.LoadFrom` made before it
     // touched the file, so a name the host publishes still binds to the host's copy and a name it
     // does not publish raises rather than pulling the project's file in. The answer is accepted only
     // when the identity matches byte-for-byte AND the assembly really is the default context's, so a
@@ -484,9 +492,11 @@ class ExternalAssemblyScan {
         return loaded.ToArray()
     }
 
-    // A compilation can use the context for its exact reference closure, the host's default context
-    // and the compiler's own context. Assemblies from a different closure are deliberately absent:
-    // they can have the same CLR identity but a different image or dependency closure.
+    // A compilation can use the context for its exact reference closure, the compiler's own context,
+    // and the host's default context. Keep that order deliberate: a same-identity assembly from the
+    // member's closure wins, then compiler-owned dependencies, then host assemblies. Assemblies from
+    // a different closure are deliberately absent because they can have the same CLR identity but a
+    // different image or dependency closure.
     static func RuntimeAssembliesInScope(runtimeContext: AssemblyLoadContext? = null): Assembly[] {
         if runtimeContext == null {
             return Loaded()
@@ -494,24 +504,30 @@ class ExternalAssemblyScan {
 
         compilerContext := CompilerLoadContext()
         loaded := new List<Assembly>()
-        for assembly in LoadedAcrossContexts() {
-            if assembly.IsDynamic {
-                continue
-            }
-
-            assemblyContext := AssemblyLoadContext.GetLoadContext(assembly)
-            if Object.ReferenceEquals(assemblyContext, AssemblyLoadContext.Default) || Object.ReferenceEquals(assemblyContext, compilerContext) || Object.ReferenceEquals(assemblyContext, runtimeContext) {
-                loaded.Add(assembly)
-            }
+        seen := new HashSet<Assembly>()
+        AddRuntimeContextAssemblies(loaded, seen, runtimeContext)
+        if compilerContext != null {
+            AddRuntimeContextAssemblies(loaded, seen, compilerContext)
         }
+        AddRuntimeContextAssemblies(loaded, seen, AssemblyLoadContext.Default)
 
         return loaded.ToArray()
     }
 
-    // The same snapshot `Loaded` returns, keyed by assembly full name in load order so an exact
+    private static func AddRuntimeContextAssemblies(loaded: List<Assembly>, seen: HashSet<Assembly>, context: AssemblyLoadContext): void {
+        for assembly in context.Assemblies {
+            if assembly.IsDynamic || !seen.Add(assembly) {
+                continue
+            }
+
+            loaded.Add(assembly)
+        }
+    }
+
+    // The same scope `RuntimeAssembliesInScope` returns, keyed by assembly full name so an exact
     // identity is one hash lookup instead of a walk of every loaded assembly per reference path.
-    // FIRST WINS, exactly as the walk's first match did; an assembly whose name cannot be read is
-    // skipped, exactly as the walk's per-assembly catch skipped it.
+    // FIRST WINS in the scope's closure/compiler/host order; an assembly whose name cannot be read
+    // is skipped, exactly as the walk's per-assembly catch skipped it.
     static func LoadedByIdentity(): Dictionary<string, Assembly> {
         return LoadedByIdentityInCompilation(null)
     }
@@ -1083,10 +1099,14 @@ class ExternalAssemblyScan {
             }
         }
 
-        return SelectRuntimeAssemblyByMetadata(candidates, metadataAssembly, identity, metadataPath)
+        return SelectRuntimeAssemblyByMetadataInCompilation(candidates, metadataAssembly, identity, metadataPath, runtimeContext)
     }
 
     static func SelectRuntimeAssemblyByMetadata(candidates: IReadOnlyList<Assembly>, metadataAssembly: Assembly, identity: string, metadataPath: string): Assembly? {
+        return SelectRuntimeAssemblyByMetadataInCompilation(candidates, metadataAssembly, identity, metadataPath, null)
+    }
+
+    static func SelectRuntimeAssemblyByMetadataInCompilation(candidates: IReadOnlyList<Assembly>, metadataAssembly: Assembly, identity: string, metadataPath: string, runtimeContext: AssemblyLoadContext?): Assembly? {
         if candidates == null || metadataAssembly == null || identity == null || identity.Length == 0 {
             return null
         }
@@ -1101,7 +1121,7 @@ class ExternalAssemblyScan {
             index = 0
             while index < candidates.Count {
                 candidate := candidates[index]
-                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyPathMatches(candidate, pairedRuntimePath) {
+                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyPathMatches(candidate, pairedRuntimePath) && RuntimeAssemblyCanSatisfyCompilation(candidate, identity, runtimeContext) {
                     return candidate
                 }
 
@@ -1119,7 +1139,7 @@ class ExternalAssemblyScan {
             index = 0
             while index < candidates.Count {
                 candidate := candidates[index]
-                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyPathMatches(candidate, runtimePath) {
+                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyPathMatches(candidate, runtimePath) && RuntimeAssemblyCanSatisfyCompilation(candidate, identity, runtimeContext) {
                     return candidate
                 }
 
@@ -1150,21 +1170,26 @@ class ExternalAssemblyScan {
             index = 0
             while index < candidates.Count {
                 candidate := candidates[index]
-                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId && RuntimeAssemblyPathMatches(candidate, metadataPath) {
+                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId && RuntimeAssemblyPathMatches(candidate, metadataPath) && RuntimeAssemblyCanSatisfyCompilation(candidate, identity, runtimeContext) {
                     return candidate
                 }
 
                 index = index + 1
             }
 
-            index = 0
-            while index < candidates.Count {
-                candidate := candidates[index]
-                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId {
-                    return candidate
-                }
+            // Without a compilation owner, MVID is the only available way to distinguish two
+            // same-identity builds. A member with an owner must use its own path closure instead;
+            // a matching MVID from another path does not carry that closure's dependency binding.
+            if runtimeContext == null {
+                index = 0
+                while index < candidates.Count {
+                    candidate := candidates[index]
+                    if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId {
+                        return candidate
+                    }
 
-                index = index + 1
+                    index = index + 1
+                }
             }
         }
 
@@ -1224,6 +1249,19 @@ class ExternalAssemblyScan {
         } catch {
             return false
         }
+    }
+
+    // A runtime image selected for a member must belong to that member's load context, the
+    // compiler's explicitly shared dependency context, or the shared framework. The default
+    // context is not an owner for a package path merely because it already loaded that identity.
+    static func RuntimeAssemblyCanSatisfyCompilation(assembly: Assembly?, identity: string, runtimeContext: AssemblyLoadContext?): bool {
+        if assembly == null || !RuntimeAssemblyHasIdentity(assembly, identity) {
+            return false
+        }
+        if runtimeContext == null || Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(assembly), runtimeContext) {
+            return true
+        }
+        return IsCompilerBoundRuntimeAssembly(assembly, identity) || IsSharedFrameworkAssembly(assembly)
     }
 
     static func RuntimeAssemblyModuleVersionId(assembly: Assembly?): string {
@@ -1891,22 +1929,29 @@ class ExternalAssemblyScan {
                 return null
             }
 
-            if path == null || path.Length == 0 || RuntimeAssemblyPathMatches(selected, path) {
+            if (path == null || path.Length == 0) {
+                if RuntimeAssemblyCanSatisfyCompilation(selected, identity, runtimeContext) {
+                    return selected
+                }
+                return null
+            }
+
+            if RuntimeAssemblyPathMatches(selected, path) && RuntimeAssemblyCanSatisfyCompilation(selected, identity, runtimeContext) {
                 return selected
             }
 
             if !File.Exists(path) {
-                if IsProjectReferenceAssemblyPath(path) {
+                if runtimeContext != null || IsProjectReferenceAssemblyPath(path) {
                     return null
                 }
 
                 return selected
             }
 
-            selectedModuleVersionId := RuntimeAssemblyModuleVersionId(selected)
+            selectedModuleVersionId := runtimeContext == null ? RuntimeAssemblyModuleVersionId(selected) : ""
             loadedAssemblies := RuntimeAssembliesInScope(runtimeContext)
             for loaded in loadedAssemblies {
-                if RuntimeAssemblyHasIdentity(loaded, identity) && RuntimeAssemblyPathMatches(loaded, path) {
+                if RuntimeAssemblyHasIdentity(loaded, identity) && RuntimeAssemblyPathMatches(loaded, path) && RuntimeAssemblyCanSatisfyCompilation(loaded, identity, runtimeContext) {
                     if !IsCompilerProductAssembly(selected) && selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(loaded) == selectedModuleVersionId {
                         return selected
                     }

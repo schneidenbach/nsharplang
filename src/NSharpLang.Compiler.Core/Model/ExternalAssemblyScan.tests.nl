@@ -251,6 +251,35 @@ test "runtime reference closure keys do not read framework image contents" {
     assert delta.FrameworkReferenceBytesHashed == 0
 }
 
+test "a reference closure keeps its own file when the default context carries the same identity" {
+    sourcePath := typeof(ExternalAssemblyScan).Assembly.Location
+    identity := AssemblyName.GetAssemblyName(sourcePath).FullName
+    directory := Path.Combine(Path.GetTempPath(), "nsharp-reference-closure-path-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(directory)
+    copyPath := Path.Combine(directory, Path.GetFileName(sourcePath))
+    File.Copy(sourcePath, copyPath)
+    context := new AssemblyLoadContext("nsharp-reference-closure-path-" + Guid.NewGuid().ToString("N"), true)
+    try {
+        defaultAssembly := ExternalAssemblyScan.DefaultContextAssemblyForIdentity(identity)
+        assert defaultAssembly != null, "The fixture must begin with this exact identity loaded in the process default context."
+        assert ExternalAssemblyScan.RuntimeAssemblyPathMatches(defaultAssembly, sourcePath), defaultAssembly.Location
+
+        loaded := ExternalAssemblyScan.TryLoadExactIdentityAssemblyInCompilation(copyPath, identity, context)
+
+        assert loaded != null
+        assert ExternalAssemblyScan.RuntimeAssemblyHasIdentity(loaded, identity)
+        assert ExternalAssemblyScan.RuntimeAssemblyPathMatches(loaded, copyPath), loaded.Location
+        assert Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(loaded), context)
+
+        byIdentity := ExternalAssemblyScan.LoadedByIdentityInCompilation(context)
+        assert byIdentity.ContainsKey(identity)
+        assert ExternalAssemblyScan.RuntimeAssemblyPathMatches(byIdentity[identity], copyPath), byIdentity[identity].Location
+    } finally {
+        context.Unload()
+        Directory.Delete(directory, true)
+    }
+}
+
 test "external reference paths select DLLs normalize project-relative paths and remove duplicates" {
     dependencies := new List<Reference>()
     packageReference := new Reference()

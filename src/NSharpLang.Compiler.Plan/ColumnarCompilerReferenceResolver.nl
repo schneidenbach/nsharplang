@@ -47,7 +47,7 @@ class ColumnarCompilerReferenceResolver {
                         continue
                     }
                     loadedType: Type = null
-                    if TryLoadTypeFromReferencePathInCompilation(referencePath, fullTypeName, out loadedType, referenceMetadata) {
+                    if TryLoadTypeFromReferencePathInCompilation(referencePath, fullTypeName, out loadedType, referenceMetadata, referenceAssemblyPaths) {
                         return loadedType
                     }
                 }
@@ -116,7 +116,7 @@ class ColumnarCompilerReferenceResolver {
                     continue
                 }
                 loadedType: Type = null
-                if TryLoadTypeFromReferencePathInCompilation(referencePath, fullTypeName, out loadedType, referenceMetadata) {
+                if TryLoadTypeFromReferencePathInCompilation(referencePath, fullTypeName, out loadedType, referenceMetadata, referenceAssemblyPaths) {
                     result = loadedType
                     return true
                 }
@@ -163,16 +163,12 @@ class ColumnarCompilerReferenceResolver {
             return false
         }
 
-        // The same snapshot the owner reads, rather than a fourth walk of the process's assemblies:
-        // membership and order are identical to the `AppDomain` call this replaced, so which type a
-        // program binds here is unchanged.
+        // The same compilation-owned scope the external assembly scan reads: its closure comes
+        // first, then compiler-owned dependencies and host assemblies. Other member closures are
+        // absent, so same-name type lookup cannot depend on which workspace member ran first.
         runtimeContext: AssemblyLoadContext? = null
         if referenceMetadata != null {
-            if referenceAssemblyPaths != null {
-                runtimeContext = referenceMetadata.RuntimeContextFor(referenceAssemblyPaths)
-            } else {
-                runtimeContext = referenceMetadata.RuntimeContextOrDefault()
-            }
+            runtimeContext = referenceMetadata.RuntimeContextFor(referenceAssemblyPaths)
         }
         assemblies := referenceMetadata == null ? ExternalAssemblyScan.LoadedAcrossContexts() : ExternalAssemblyScan.RuntimeAssembliesInScope(runtimeContext)
         assemblyIndex := 0
@@ -212,16 +208,16 @@ class ColumnarCompilerReferenceResolver {
     // Asking the owner costs one `AssemblyName.GetAssemblyName` and answers with whatever context
     // already holds that exact identity, so this walk and the scan can no longer disagree.
     static func TryLoadTypeFromReferencePath(referencePath: string, fullTypeName: string, out result: Type): bool {
-        return TryLoadTypeFromReferencePathInCompilation(referencePath, fullTypeName, out result, null)
+        return TryLoadTypeFromReferencePathInCompilation(referencePath, fullTypeName, out result, null, null)
     }
 
-    static func TryLoadTypeFromReferencePathInCompilation(referencePath: string, fullTypeName: string, out result: Type, referenceMetadata: SharedReferenceMetadata?): bool {
+    static func TryLoadTypeFromReferencePathInCompilation(referencePath: string, fullTypeName: string, out result: Type, referenceMetadata: SharedReferenceMetadata?, referenceAssemblyPaths: IReadOnlyList<string>?): bool {
         result = null
         try {
             identity := AssemblyName.GetAssemblyName(referencePath).FullName
             runtimeContext: AssemblyLoadContext? = null
             if referenceMetadata != null {
-                runtimeContext = referenceMetadata.RuntimeContextOrDefault()
+                runtimeContext = referenceMetadata.RuntimeContextFor(referenceAssemblyPaths)
             }
             loadedAssembly := ExternalAssemblyScan.TryLoadExactIdentityAssemblyInCompilation(referencePath, identity, runtimeContext)
             if loadedAssembly == null {

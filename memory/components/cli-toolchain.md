@@ -205,7 +205,13 @@ Undefined identifier 'unknownVar'
   checked as the root program too. Discovery and source walking skip `bin/`, `obj/`, `.git/`, nested
   Git worktrees, `node_modules/` and `bootstrap/`. Member project-reference graphs are resolved into
   one shared context before bounded concurrent member analysis; this avoids incomplete external
-  member views during concurrent reference loads. Text output groups diagnostics by project. JSON workspace output uses
+  member views during concurrent reference loads. Runtime assembly handles are isolated by each
+  compilation's ordered reference-file closure: `ExternalAssemblyScan` reuses a load context only
+  for the same closure and its file fingerprints, checks that closure before compiler and host
+  assemblies, and never answers a member's package path with a same-identity assembly loaded from a
+  different path or closure. Compiler-bound dependencies and shared-framework implementations remain
+  the explicit shared cases. This keeps concurrent workspace checks independent of which member
+  first loaded a package with a shared CLR identity. Text output groups diagnostics by project. JSON workspace output uses
   `schemaVersion: 2`: the top-level `projects` array contains each project's `projectRoot`,
   `checkedFiles`, `ok`, `results` and `summary`, with an optional `error` for a failed project and an
   optional `systemsReport` when requested; top-level `checkedFiles` and `summary` aggregate the
