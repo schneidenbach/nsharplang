@@ -8479,7 +8479,7 @@ sealed class ColumnarIlEmitter {
                 _tupleNamesByVariable,
                 _labeledTypeByVariable,
                 _enclosingBindingNames,
-                _siblings.Keys,
+                SiblingNames(),
                 _visibleLocalFuncs,
                 _typeParameters,
                 ExactSourceTypesForBody(),
@@ -13444,6 +13444,11 @@ sealed class ColumnarIlEmitter {
     // Route the sibling signature facts to the N# planner. This is pure projection of _siblings —
     // the planner alone decides which siblings it may own — cached so a body's many expressions
     // share one dictionary.
+    // The sibling names as a set the planners can probe without walking the view.
+    private func SiblingNames(): HashSet<string> {
+        return ColumnarSiblingViewProjections.NamesFor(_siblings)
+    }
+
     private func SiblingCallFacts(): Dictionary<string, ColumnarSiblingCallFacts> {
         if (_siblingCallFacts != null) {
             return _siblingCallFacts
@@ -13492,7 +13497,7 @@ sealed class ColumnarIlEmitter {
             _tupleNamesByVariable,
             _labeledTypeByVariable,
             _enclosingBindingNames,
-            _siblings.Keys,
+            SiblingNames(),
             _visibleLocalFuncs,
             _typeParameters,
             ExactSourceTypesForBody(),
@@ -23239,7 +23244,7 @@ sealed class ColumnarIlEmitter {
             _tupleNamesByVariable,
             _labeledTypeByVariable,
             _enclosingBindingNames,
-            _siblings.Keys,
+            SiblingNames(),
             _visibleLocalFuncs,
             _typeParameters,
             ExactSourceTypesForBody(),

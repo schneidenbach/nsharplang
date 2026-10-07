@@ -877,6 +877,13 @@ func BenchPrepareBaseCliProject(sourceDirectory: string): string {
 // The launcher dependency closure is deliberately shared with the compiler currently under test.
 // Base CLI/compiler assemblies still come from the base commit; the runtime manifest and package
 // DLLs are normalized so both CLIs resolve the same dependency set while measuring compiler behavior.
+// `Compiler.dll` is a compiler assembly too (src/NSharpLang.Compiler, the command layer): copying the
+// head's over the base's paired head commands with base slices, and the first head command that
+// called a slice member the base did not have failed every base run with `Method not found`.
+func BenchIsCompilerProductAssembly(fileName: string): bool {
+    return fileName == "Cli.dll" || fileName == "Compiler.dll" || fileName.StartsWith("NSharpLang.", StringComparison.Ordinal)
+}
+
 func BenchApplyHeadCliDependencyClosure(repositoryRoot: string, baseCliDll: string): string {
     headCliDll := BenchDefaultCliDll(repositoryRoot)
     headCliDirectory := Path.GetDirectoryName(headCliDll) ?? ""
@@ -895,7 +902,7 @@ func BenchApplyHeadCliDependencyClosure(repositoryRoot: string, baseCliDll: stri
         File.Copy(headDeps, baseDeps, true)
         for dependencyPath in Directory.GetFiles(headCliDirectory, "*.dll", SearchOption.TopDirectoryOnly) {
             dependencyName := Path.GetFileName(dependencyPath)
-            if dependencyName == "Cli.dll" || dependencyName.StartsWith("NSharpLang.", StringComparison.Ordinal) {
+            if BenchIsCompilerProductAssembly(dependencyName) {
                 continue
             }
 

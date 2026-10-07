@@ -70,6 +70,9 @@ class ColumnarFreeFunctionScope {
     viewsByFile: Dictionary<int, Dictionary<string, ColumnarSiblingMethodDefinition>>
     overloadsByFile: Dictionary<int, Dictionary<string, List<ColumnarSiblingMethodDefinition>>>
     labeledViewsByFile: Dictionary<int, Dictionary<string, string>>
+    // The file whose views were built for each distinct view key (`ViewKey`): files that reach the
+    // same declarations at the same ranks share one set of views.
+    viewOwnersByKey: Dictionary<string, int>
     // Every (namespace, name, source parameter signature) declared so far. A second name joins its
     // overload group; only a repeated signature is refused.
     declaredSignatures: HashSet<string>
@@ -89,6 +92,7 @@ class ColumnarFreeFunctionScope {
         viewsByFile = new Dictionary<int, Dictionary<string, ColumnarSiblingMethodDefinition>>()
         overloadsByFile = new Dictionary<int, Dictionary<string, List<ColumnarSiblingMethodDefinition>>>()
         labeledViewsByFile = new Dictionary<int, Dictionary<string, string>>()
+        viewOwnersByKey = new Dictionary<string, int>(StringComparer.Ordinal)
         declaredSignatures = new HashSet<string>(StringComparer.Ordinal)
         externalDefinitionsByHolder = new Dictionary<Type, List<ColumnarSiblingMethodDefinition>>()
     }
@@ -268,18 +272,37 @@ class ColumnarFreeFunctionScope {
         return labeledViewsByFile[sourceFileId]
     }
 
+    // ONE SET OF VIEWS PER DISTINCT VIEW KEY, NOT PER FILE. A file's views are a function of three
+    // things only: its namespace, its ranked candidate namespaces (`NamespaceRanks`) and its ranked
+    // file imports (`FileImportRanks`). The caller's own file needs no fourth input: every function it
+    // declares sits in its own namespace, and a same-namespace declaration already takes the own-file
+    // rank, so "declared here" and "declared beside here" are the same answer. Files that agree on the
+    // three — every file of a namespace with the same imports, which is most of a project — therefore
+    // share the first one's dictionaries instead of each rebuilding a view of every function in the
+    // program, which made a project's sibling views (and the call facts projected from each,
+    // `ColumnarSiblingViewProjections`, cached per view object) quadratic in its file count. The
+    // views are never written after this function returns, so sharing them is unobservable.
     func BuildViews(sourceFileId: int) {
         cachedView: Dictionary<string, ColumnarSiblingMethodDefinition>? = null
         if viewsByFile.TryGetValue(sourceFileId, out cachedView) {
             return
         }
 
-        view := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
-        overloads := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
-        labeled := new Dictionary<string, string>(StringComparer.Ordinal)
         callerNamespace := program.NamespaceNameForFile(sourceFileId)
         ranks := NamespaceRanks(sourceFileId)
         fileRanks := FileImportRanks(sourceFileId)
+        viewKey := ViewKey(callerNamespace, ranks, fileRanks)
+        owner := 0
+        if viewOwnersByKey.TryGetValue(viewKey, out owner) {
+            viewsByFile[sourceFileId] = viewsByFile[owner]
+            overloadsByFile[sourceFileId] = overloadsByFile[owner]
+            labeledViewsByFile[sourceFileId] = labeledViewsByFile[owner]
+            return
+        }
+
+        view := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
+        overloads := new Dictionary<string, List<ColumnarSiblingMethodDefinition>>(StringComparer.Ordinal)
+        labeled := new Dictionary<string, string>(StringComparer.Ordinal)
         bestRanks := new Dictionary<string, int>(StringComparer.Ordinal)
         index := 0
         while index < names.Count {
@@ -381,6 +404,35 @@ class ColumnarFreeFunctionScope {
         viewsByFile[sourceFileId] = view
         overloadsByFile[sourceFileId] = overloads
         labeledViewsByFile[sourceFileId] = labeled
+        viewOwnersByKey[viewKey] = sourceFileId
+    }
+
+    // The three inputs a file's views are computed from, as one length-prefixed string: the namespace,
+    // the ranked namespaces in rank order, and the ranked file imports in file order.
+    static func ViewKey(callerNamespace: string, ranks: Dictionary<string, int>, fileRanks: Dictionary<int, int>): string {
+        builder := new StringBuilder()
+        builder.Append(callerNamespace.Length.ToString())
+        builder.Append(":")
+        builder.Append(callerNamespace)
+        builder.Append("|")
+        for rankedNamespace in ranks {
+            builder.Append(rankedNamespace.Key.Length.ToString())
+            builder.Append(":")
+            builder.Append(rankedNamespace.Key)
+            builder.Append("=")
+            builder.Append(rankedNamespace.Value.ToString())
+            builder.Append(";")
+        }
+        builder.Append("|")
+        importedFiles := new List<int>(fileRanks.Keys)
+        importedFiles.Sort()
+        for importedFile in importedFiles {
+            builder.Append(importedFile.ToString())
+            builder.Append("=")
+            builder.Append(fileRanks[importedFile].ToString())
+            builder.Append(";")
+        }
+        return builder.ToString()
     }
 
     // A holder's definitions are read once per compilation, however many files reach it.

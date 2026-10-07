@@ -564,7 +564,15 @@ class ColumnarFragmentBindings {
         return ColumnarRuntimeInstanceMemberResolver.TrySelect(inheritedBase, name, true, out inheritedSelection)
     }
 
+    // A set built on ordinal string equality answers the same question in constant time; the
+    // emitter hands one in for a body's sibling names (`ColumnarSiblingViewProjections.NamesFor`),
+    // which hold every free function the body's file can see.
     static func ContainsName(values: IEnumerable<string>, name: string): bool {
+        names := values as HashSet<string>
+        if names != null && (Object.ReferenceEquals(names.Comparer, StringComparer.Ordinal) || Object.ReferenceEquals(names.Comparer, EqualityComparer<string>.Default)) {
+            return names.Contains(name)
+        }
+
         for value in values {
             if String.Equals(value, name, StringComparison.Ordinal) {
                 return true

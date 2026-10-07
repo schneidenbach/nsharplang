@@ -37,7 +37,18 @@ class ColumnarRangeIndexHandles {
         ValidateGetSubArrayDefinition(GetSubArrayDefinition)
     }
 
+    // THE HANDLES ARE THE PROCESS'S, SO THEY ARE RESOLVED ONCE. Every one is a member of a runtime
+    // type (`System.Index`, `System.Range`, `string`, `ValueTuple<int, int>`, `RuntimeHelpers`), the
+    // same objects on every call, and the planners ask for them at nearly every expression they plan:
+    // resolving them per call made reflection lookups a measurable share of the IL walk. `Lazy` keeps
+    // the first call's outcome -- the handles, or the refusal -- for every later one.
+    private static readonly s_resolved: Lazy<ColumnarRangeIndexHandles> = new Lazy<ColumnarRangeIndexHandles>(() => ColumnarRangeIndexHandles.ResolveUncached())
+
     static func Resolve(): ColumnarRangeIndexHandles {
+        return s_resolved.Value
+    }
+
+    private static func ResolveUncached(): ColumnarRangeIndexHandles {
         intBool := new Type[](2)
         intBool[0] = typeof(int)
         intBool[1] = typeof(bool)

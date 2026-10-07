@@ -777,7 +777,9 @@ test "compile-time bench: base cache reuses head package dependencies and preser
     File.WriteAllText(Path.ChangeExtension(headCliDll, ".deps.json"), "head dependency manifest")
     File.WriteAllText(Path.Combine(headCliDirectory, "Microsoft.Build.Framework.dll"), "head package")
     File.WriteAllText(Path.Combine(headCliDirectory, "NSharpLang.Compiler.Emit.dll"), "head compiler")
+    File.WriteAllText(Path.Combine(headCliDirectory, "Compiler.dll"), "head command layer")
     File.WriteAllText(baseCliDll, "base cli")
+    File.WriteAllText(Path.Combine(baseCliDirectory, "Compiler.dll"), "base command layer")
     File.WriteAllText(Path.ChangeExtension(baseCliDll, ".deps.json"), "base dependency manifest")
     File.WriteAllText(Path.Combine(baseCliDirectory, "NSharpLang.Compiler.Emit.dll"), "base compiler")
     File.WriteAllText(Path.Combine(baseCliDirectory, "Microsoft.Build.Framework.dll"), "old package")
@@ -787,6 +789,7 @@ test "compile-time bench: base cache reuses head package dependencies and preser
     assert File.ReadAllText(Path.ChangeExtension(baseCliDll, ".deps.json")) == "head dependency manifest"
     assert File.ReadAllText(Path.Combine(baseCliDirectory, "Microsoft.Build.Framework.dll")) == "head package"
     assert File.ReadAllText(Path.Combine(baseCliDirectory, "NSharpLang.Compiler.Emit.dll")) == "base compiler"
+    assert File.ReadAllText(Path.Combine(baseCliDirectory, "Compiler.dll")) == "base command layer"
     assert File.ReadAllText(baseCliDll) == "base cli"
     BenchDeleteDirectory(root)
 }

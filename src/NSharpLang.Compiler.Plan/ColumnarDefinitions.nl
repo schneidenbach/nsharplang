@@ -243,6 +243,7 @@ class ColumnarSiblingViewProjections {
     SiblingCount: int
     CallFacts: Dictionary<string, ColumnarSiblingCallFacts>?
     Overloads: Dictionary<string, List<ColumnarSiblingMethodDefinition>>?
+    Names: HashSet<string>?
 
     private static readonly byView: ConditionalWeakTable<object, ColumnarSiblingViewProjections> = new ConditionalWeakTable<object, ColumnarSiblingViewProjections>()
 
@@ -250,6 +251,7 @@ class ColumnarSiblingViewProjections {
         SiblingCount = siblingCount
         CallFacts = null
         Overloads = null
+        Names = null
     }
 
     static func For(siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>): ColumnarSiblingViewProjections {
@@ -291,6 +293,23 @@ class ColumnarSiblingViewProjections {
         }
         projections.CallFacts = facts
         return facts
+    }
+
+    // The view's names as an ordinal set, so a planner's "is this name a callable sibling" is a lookup
+    // instead of a walk of every free function the file can see (`ColumnarFragmentBindings.ContainsName`).
+    static func NamesFor(siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>): HashSet<string> {
+        projections := ColumnarSiblingViewProjections.For(siblings)
+        existing := projections.Names
+        if existing != null {
+            return existing
+        }
+
+        names := new HashSet<string>(StringComparer.Ordinal)
+        for entry in siblings {
+            names.Add(entry.Key)
+        }
+        projections.Names = names
+        return names
     }
 
     // The view grouped as one-entry overload lists, the shape a member body's context reads.
