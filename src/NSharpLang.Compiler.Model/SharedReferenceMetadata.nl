@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Runtime.Loader
 
 // ONE LOADED REFERENCE SET PER COMPILATION.
 //
@@ -35,6 +36,7 @@ import System.Reflection
 // it did before.
 class SharedReferenceMetadata {
     Context: MetadataLoadContext
+    RuntimeContext: AssemblyLoadContext
     Gate: object
     SearchDirectories: List<string>
     PinnedPackageVersions: Dictionary<string, string>
@@ -42,10 +44,20 @@ class SharedReferenceMetadata {
 
     constructor(context: MetadataLoadContext, gate: object, searchDirectories: List<string>, pinnedPackageVersions: Dictionary<string, string>, resolverFailures: Dictionary<string, string>) {
         Context = context
+        // Runtime references have the same compilation boundary as metadata references. A process-
+        // wide AssemblyLoadContext can keep only one version of a simple name, so whichever
+        // workspace project loads first would otherwise decide what every later project can emit.
+        RuntimeContext = new ExactIdentityReferenceLoadContext("nsharp-compilation-" + Guid.NewGuid().ToString("N"), true)
         Gate = gate
         SearchDirectories = searchDirectories
         PinnedPackageVersions = pinnedPackageVersions
         ResolverFailures = resolverFailures
+    }
+
+    func ReleaseRuntimeContext() {
+        if RuntimeContext.IsCollectible {
+            RuntimeContext.Unload()
+        }
     }
 
     // The assembly this context already read from exactly `path`, or null. The comparison is on the

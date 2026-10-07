@@ -94,6 +94,31 @@ func ResolverRunCli(arguments: string, workingDirectory: string): ResolverRun {
     return ResolverRunProcess("dotnet", ResolverQuote(ResolverCliDll()) + " " + arguments, workingDirectory)
 }
 
+func ResolverRunCliWithWorkers(arguments: string, workingDirectory: string, workers: int): ResolverRun {
+    startInfo := new ProcessStartInfo("dotnet", ResolverQuote(ResolverCliDll()) + " " + arguments)
+    startInfo.WorkingDirectory = workingDirectory
+    startInfo.UseShellExecute = false
+    startInfo.RedirectStandardOutput = true
+    startInfo.RedirectStandardError = true
+    startInfo.Environment["NSHARP_COMPILER_WORKERS"] = workers.ToString()
+    startInfo.Environment["NLC_NO_DAEMON"] = "1"
+    process := Process.Start(startInfo)
+    if process == null {
+        throw new InvalidOperationException("The N# CLI did not start.")
+    }
+    stdoutTask := process.StandardOutput.ReadToEndAsync()
+    stderrTask := process.StandardError.ReadToEndAsync()
+    if !process.WaitForExit(300000) {
+        process.Kill(true)
+        process.WaitForExit()
+        process.Dispose()
+        throw new TimeoutException("The N# CLI did not finish within 300 s: " + arguments)
+    }
+    exitCode := process.ExitCode
+    process.Dispose()
+    return new ResolverRun(exitCode, stdoutTask.Result, stderrTask.Result)
+}
+
 // The CLI with `NUGET_PACKAGES` pointed at `packagesRoot` in ITS environment block only. The child
 // reads the variable at its own entry point; setting it on this process instead would point every
 // other resolution this process runs at the throwaway cache for as long as the build took.
@@ -288,6 +313,49 @@ func ResolverWriteWebFixture(projectRoot: string) {
     sourceRoot := Path.Combine(Path.Combine(ResolverRepositoryRoot(), "examples"), "14-minimal-api")
     File.Copy(Path.Combine(sourceRoot, "project.yml"), Path.Combine(projectRoot, "project.yml"), true)
     File.Copy(Path.Combine(sourceRoot, "Program.nl"), Path.Combine(projectRoot, "Program.nl"), true)
+}
+
+func ResolverWriteSharedIdentityWorkspace(scratch: string): string {
+    root := Path.Combine(scratch, "workspace")
+    firstLibrary := Path.Combine(root, "library-v1")
+    secondLibrary := Path.Combine(root, "library-v2")
+    firstConsumer := Path.Combine(root, "consumer-v1")
+    secondConsumer := Path.Combine(root, "consumer-v2")
+    firstOutput := Path.Combine(firstLibrary, "out")
+    secondOutput := Path.Combine(secondLibrary, "out")
+    Directory.CreateDirectory(root)
+    Directory.CreateDirectory(firstLibrary)
+    Directory.CreateDirectory(secondLibrary)
+    Directory.CreateDirectory(firstConsumer)
+    Directory.CreateDirectory(secondConsumer)
+
+    ResolverWrite(Path.Combine(root, "project.yml"), "name: DeterminismWorkspace\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+    ResolverWrite(Path.Combine(firstLibrary, "project.yml"), "name: SharedTwin\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+    ResolverWrite(Path.Combine(firstLibrary, "Library.nl"), "namespace SharedTwin\n\npublic class Api {\n    public static func Value(): int {\n        return 1\n    }\n}\n")
+    ResolverWrite(Path.Combine(secondLibrary, "project.yml"), "name: SharedTwin\nversion: 2.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+    ResolverWrite(Path.Combine(secondLibrary, "Library.nl"), "namespace SharedTwin\n\npublic class Api {\n    public static func Value(): int {\n        return 2\n    }\n}\n")
+
+    ResolverWrite(
+        Path.Combine(firstConsumer, "project.yml"),
+        "name: ConsumerV1\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - dll: " + firstOutput + "/SharedTwin.dll\n"
+    )
+    ResolverWrite(Path.Combine(firstConsumer, "Consumer.nl"), "namespace ConsumerV1\n\nimport SharedTwin\n\npublic static func Probe(): int {\n    return Api.Value()\n}\n")
+    ResolverWrite(
+        Path.Combine(secondConsumer, "project.yml"),
+        "name: ConsumerV2\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - dll: " + secondOutput + "/SharedTwin.dll\n"
+    )
+    ResolverWrite(Path.Combine(secondConsumer, "Consumer.nl"), "namespace ConsumerV2\n\nimport SharedTwin\n\npublic static func Probe(): int {\n    return Api.Value()\n}\n")
+
+    firstBuild := ResolverRunCli("build --project " + ResolverQuote(firstLibrary) + " --backend il -o " + ResolverQuote(firstOutput), firstLibrary)
+    if firstBuild.ExitCode != 0 {
+        throw new InvalidOperationException("Could not build first SharedTwin version: " + firstBuild.Stdout + firstBuild.Stderr)
+    }
+    secondBuild := ResolverRunCli("build --project " + ResolverQuote(secondLibrary) + " --backend il -o " + ResolverQuote(secondOutput), secondLibrary)
+    if secondBuild.ExitCode != 0 {
+        throw new InvalidOperationException("Could not build second SharedTwin version: " + secondBuild.Stdout + secondBuild.Stderr)
+    }
+
+    return root
 }
 
 func ResolverSetObject(values: object?[], index: int, value: object?) {

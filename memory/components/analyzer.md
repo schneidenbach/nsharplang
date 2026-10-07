@@ -2301,9 +2301,18 @@ it asks, in order:
 1. the project's own output, for an `obj/**/ref` or `obj/**/refint` input — and nothing else, ever;
 2. the contract's own runtime asset (`lib/<tfm>` beside a `ref/<tfm>`, or the shared framework file
    behind a `packs/*.Ref` image) if that exact file is loaded;
-3. a loaded assembly with the same identity AND the same module identity, i.e. the same build from
-   another file;
+3. a loaded assembly in the default host context, the compiler context, or this compilation's
+   runtime reference context with the same identity AND module identity;
 4. the assembly the compiler's OWN LOAD CONTEXT BINDS for that identity.
+
+Each `SharedReferenceMetadata` owns a collectible runtime reference context alongside its one
+`MetadataLoadContext`. Workspace checks run project analyses concurrently, and a warm preflight can
+skip loading a project reference that a cold preflight built. A process-wide runtime reference context
+therefore let whichever project loaded first determine the executable handle for later projects. The
+scan and the backend's special reference-path resolvers now use the current compilation's context;
+assemblies from another workspace member's collectible context are not candidates. The metadata
+owner unloads the runtime context when it closes, after the backend has finished validating that
+compilation.
 
 Step 4 is not a fallback for untidy inputs, it is the normal answer whenever the compiler runs inside
 a host that already owns an implementation of the identity — MSBuild's `Microsoft.Build.*`, or the

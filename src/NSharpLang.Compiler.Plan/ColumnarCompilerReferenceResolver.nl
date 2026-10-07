@@ -5,6 +5,7 @@ import System.Collections
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Runtime.Loader
 
 // Owns the compiler's runtime reference lookup order. Reference-path walks use the inherited
 // IEnumerable<string> enumerator explicitly so early success and every failure still run Dispose.
@@ -14,7 +15,20 @@ class ColumnarCompilerReferenceResolver {
         referenceAssemblyPaths: IReadOnlyList<string>?,
         assemblyNames: string[]
     ): Type {
-        loadedAssemblies := ExternalAssemblyScan.Loaded()
+        return ResolveTestFrameworkTypeInCompilation(fullTypeName, referenceAssemblyPaths, assemblyNames, null)
+    }
+
+    static func ResolveTestFrameworkTypeInCompilation(
+        fullTypeName: string,
+        referenceAssemblyPaths: IReadOnlyList<string>?,
+        assemblyNames: string[],
+        referenceMetadata: SharedReferenceMetadata?
+    ): Type {
+        runtimeContext: AssemblyLoadContext? = null
+        if referenceMetadata != null {
+            runtimeContext = referenceMetadata.RuntimeContext
+        }
+        loadedAssemblies := ExternalAssemblyScan.RuntimeAssembliesInScope(runtimeContext)
         for loadedAssembly in loadedAssemblies {
             loadedType := loadedAssembly.GetType(fullTypeName, false)
             if loadedType != null {
@@ -33,7 +47,7 @@ class ColumnarCompilerReferenceResolver {
                         continue
                     }
                     loadedType: Type = null
-                    if TryLoadTypeFromReferencePath(referencePath, fullTypeName, out loadedType) {
+                    if TryLoadTypeFromReferencePathInCompilation(referencePath, fullTypeName, out loadedType, referenceMetadata) {
                         return loadedType
                     }
                 }
@@ -74,6 +88,16 @@ class ColumnarCompilerReferenceResolver {
         fullTypeName: string,
         out result: Type
     ): bool {
+        return TryResolveReferencedTypeInCompilation(referenceAssemblyPaths, assemblySimpleName, fullTypeName, out result, null)
+    }
+
+    static func TryResolveReferencedTypeInCompilation(
+        referenceAssemblyPaths: IReadOnlyList<string>?,
+        assemblySimpleName: string,
+        fullTypeName: string,
+        out result: Type,
+        referenceMetadata: SharedReferenceMetadata?
+    ): bool {
         result = null
         if referenceAssemblyPaths == null {
             return false
@@ -88,7 +112,7 @@ class ColumnarCompilerReferenceResolver {
                     continue
                 }
                 loadedType: Type = null
-                if TryLoadTypeFromReferencePath(referencePath, fullTypeName, out loadedType) {
+                if TryLoadTypeFromReferencePathInCompilation(referencePath, fullTypeName, out loadedType, referenceMetadata) {
                     result = loadedType
                     return true
                 }
@@ -104,6 +128,10 @@ class ColumnarCompilerReferenceResolver {
     }
 
     static func TryResolveLoadedExternalType(canonical: string, out result: Type): bool {
+        return TryResolveLoadedExternalTypeInCompilation(canonical, out result, null)
+    }
+
+    static func TryResolveLoadedExternalTypeInCompilation(canonical: string, out result: Type, referenceMetadata: SharedReferenceMetadata?): bool {
         result = null
         fullName: string? = null
         if canonical == "WebApplication" {
@@ -130,7 +158,11 @@ class ColumnarCompilerReferenceResolver {
         // The same snapshot the owner reads, rather than a fourth walk of the process's assemblies:
         // membership and order are identical to the `AppDomain` call this replaced, so which type a
         // program binds here is unchanged.
-        assemblies := ExternalAssemblyScan.LoadedAcrossContexts()
+        runtimeContext: AssemblyLoadContext? = null
+        if referenceMetadata != null {
+            runtimeContext = referenceMetadata.RuntimeContext
+        }
+        assemblies := referenceMetadata == null ? ExternalAssemblyScan.LoadedAcrossContexts() : ExternalAssemblyScan.RuntimeAssembliesInScope(runtimeContext)
         assemblyIndex := 0
         while assemblyIndex < assemblies.Length {
             assembly := assemblies[assemblyIndex]
@@ -168,10 +200,18 @@ class ColumnarCompilerReferenceResolver {
     // Asking the owner costs one `AssemblyName.GetAssemblyName` and answers with whatever context
     // already holds that exact identity, so this walk and the scan can no longer disagree.
     static func TryLoadTypeFromReferencePath(referencePath: string, fullTypeName: string, out result: Type): bool {
+        return TryLoadTypeFromReferencePathInCompilation(referencePath, fullTypeName, out result, null)
+    }
+
+    static func TryLoadTypeFromReferencePathInCompilation(referencePath: string, fullTypeName: string, out result: Type, referenceMetadata: SharedReferenceMetadata?): bool {
         result = null
         try {
             identity := AssemblyName.GetAssemblyName(referencePath).FullName
-            loadedAssembly := ExternalAssemblyScan.TryLoadExactIdentityAssembly(referencePath, identity)
+            runtimeContext: AssemblyLoadContext? = null
+            if referenceMetadata != null {
+                runtimeContext = referenceMetadata.RuntimeContext
+            }
+            loadedAssembly := ExternalAssemblyScan.TryLoadExactIdentityAssemblyInCompilation(referencePath, identity, runtimeContext)
             if loadedAssembly == null {
                 return false
             }
@@ -196,23 +236,43 @@ class ColumnarCompilerReferenceResolver {
         fullTypeName: string,
         out result: Type
     ): bool {
-        return TryResolveReferencedType(referenceAssemblyPaths, assemblySimpleName, fullTypeName, out result) || TryResolveLoadedExternalType(fullTypeName, out result)
+        return TryResolveAspNetReferencedTypeInCompilation(referenceAssemblyPaths, assemblySimpleName, fullTypeName, out result, null)
+    }
+
+    static func TryResolveAspNetReferencedTypeInCompilation(
+        referenceAssemblyPaths: IReadOnlyList<string>?,
+        assemblySimpleName: string,
+        fullTypeName: string,
+        out result: Type,
+        referenceMetadata: SharedReferenceMetadata?
+    ): bool {
+        return TryResolveReferencedTypeInCompilation(referenceAssemblyPaths, assemblySimpleName, fullTypeName, out result, referenceMetadata) || TryResolveLoadedExternalTypeInCompilation(fullTypeName, out result, referenceMetadata)
     }
 
     static func TryResolveAspNetHttpContextType(
         referenceAssemblyPaths: IReadOnlyList<string>?,
         out result: Type
     ): bool {
-        return TryResolveAspNetReferencedType(
+        return TryResolveAspNetHttpContextTypeInCompilation(referenceAssemblyPaths, out result, null)
+    }
+
+    static func TryResolveAspNetHttpContextTypeInCompilation(
+        referenceAssemblyPaths: IReadOnlyList<string>?,
+        out result: Type,
+        referenceMetadata: SharedReferenceMetadata?
+    ): bool {
+        return TryResolveAspNetReferencedTypeInCompilation(
             referenceAssemblyPaths,
             "Microsoft.AspNetCore.Http.Abstractions",
             "Microsoft.AspNetCore.Http.HttpContext",
-            out result
-        ) || TryResolveAspNetReferencedType(
+            out result,
+            referenceMetadata
+        ) || TryResolveAspNetReferencedTypeInCompilation(
             referenceAssemblyPaths,
             "Microsoft.AspNetCore.Http",
             "Microsoft.AspNetCore.Http.HttpContext",
-            out result
+            out result,
+            referenceMetadata
         )
     }
 }

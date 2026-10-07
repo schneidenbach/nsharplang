@@ -137,6 +137,32 @@ test "Web SDK framework resolution feeds a clean check without analyzer errors" 
     }
 }
 
+test "workspace check is byte-identical across repeated worker counts when two projects use different builds of one assembly identity" {
+    scratch := ResolverNewTempDirectory("workspace-runtime-determinism")
+    try {
+        workspaceRoot := ResolverWriteSharedIdentityWorkspace(scratch)
+        workerCounts := [1, 4, 1, 4, 1, 4]
+        expectedJson: string? = null
+        for workers in workerCounts {
+            check := ResolverRunCliWithWorkers(
+                "check --project " + ResolverQuote(workspaceRoot) + " --json",
+                workspaceRoot,
+                workers
+            )
+            assert check.ExitCode == 0, check.Stdout + check.Stderr
+            assert check.Stderr.Trim().Length == 0, check.Stderr
+            assert !ResolverJsonWorkspaceDiagnosticContains(check.Stdout, "NL103", "Columnar"), check.Stdout
+            if expectedJson == null {
+                expectedJson = check.Stdout
+            } else {
+                assert check.Stdout == expectedJson, "A workspace check changed its JSON across runs or worker counts."
+            }
+        }
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
 test "build and check retain the exact child AOT diagnostic and produce no child output" {
     scratch := ResolverNewTempDirectory("aot-child")
     try {

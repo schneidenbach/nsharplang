@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection.Emit
+import NSharpLang.Compiler
 
 
 // THE EMIT SESSION'S AMBIENT ENVIRONMENT, OWNED ONCE PER ASSEMBLY PASS.
@@ -33,6 +34,7 @@ sealed class ColumnarEmitContext {
     TypeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>?
     TypeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>?
     ReferenceAssemblyPaths: IReadOnlyList<string>?
+    ReferenceMetadata: SharedReferenceMetadata?
     GenericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>?
     ModifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?
     LambdaCounter: int[]?
@@ -48,7 +50,7 @@ sealed class ColumnarEmitContext {
     private freeFunctions: ColumnarFreeFunctionScope?
     private holders: ColumnarFreeFunctionHolders?
 
-    constructor(enums: Dictionary<string, ColumnarEnumDef>, structs: IReadOnlyDictionary<string, ColumnarStructDef>, unions: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCases: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, freeFunctionScope: ColumnarFreeFunctionScope? = null, freeFunctionHolders: ColumnarFreeFunctionHolders? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null) {
+    constructor(enums: Dictionary<string, ColumnarEnumDef>, structs: IReadOnlyDictionary<string, ColumnarStructDef>, unions: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCases: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, freeFunctionScope: ColumnarFreeFunctionScope? = null, freeFunctionHolders: ColumnarFreeFunctionHolders? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null, referenceMetadata: SharedReferenceMetadata? = null) {
         Enums = enums
         Structs = structs
         Unions = unions
@@ -58,6 +60,7 @@ sealed class ColumnarEmitContext {
         LambdaCounter = lambdaCounter
         DisplayClasses = displayClasses
         ReferenceAssemblyPaths = referenceAssemblyPaths
+        ReferenceMetadata = referenceMetadata
         GenericInterfaceConstraints = genericInterfaceConstraints
         ModifiedMemberReferences = modifiedMemberReferences
         TypeResolutionEnums = null
@@ -71,7 +74,7 @@ sealed class ColumnarEmitContext {
     }
 
     private func Copy(): ColumnarEmitContext {
-        clone := new ColumnarEmitContext(Enums, Structs, Unions, UnionCases, freeFunctions, holders, LambdaCounter, DisplayClasses, ReferenceAssemblyPaths, GenericInterfaceConstraints, ModifiedMemberReferences)
+        clone := new ColumnarEmitContext(Enums, Structs, Unions, UnionCases, freeFunctions, holders, LambdaCounter, DisplayClasses, ReferenceAssemblyPaths, GenericInterfaceConstraints, ModifiedMemberReferences, ReferenceMetadata)
         clone.TypeResolutionEnums = TypeResolutionEnums
         clone.TypeResolutionStructs = TypeResolutionStructs
         clone.TypeResolutionUnions = TypeResolutionUnions
