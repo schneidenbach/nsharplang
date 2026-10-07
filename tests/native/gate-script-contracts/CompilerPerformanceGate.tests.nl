@@ -18,7 +18,9 @@ test "compiler performance base selection uses merge-base for branches and HEAD 
     assert runner.Contains("BenchApplyHeadCliDependencyClosure"), "The base CLI must use the head runtime dependency closure so both measured compilers resolve the same packages."
     assert runner.Contains("File.Copy(headDeps, baseDeps, true)"), "The dependency manifest must be refreshed for both new and cached base CLI builds."
     assert runner.Contains("Directory.GetFiles(headCliDirectory, \"*.dll\", SearchOption.TopDirectoryOnly)"), "The head package assemblies must be available to the cached base CLI."
-    assert runner.Contains("dependencyName.StartsWith(\"NSharpLang.\""), "Refreshing package dependencies must preserve the base compiler's N# assemblies."
+    assert runner.Contains("if BenchIsCompilerProductAssembly(dependencyName) {"), "Refreshing package dependencies must preserve the base compiler's N# assemblies."
+    assert runner.Contains("fileName.StartsWith(\"NSharpLang.\", StringComparison.Ordinal)"), "Refreshing package dependencies must preserve the base compiler's N# assemblies."
+    assert runner.Contains("fileName == \"Compiler.dll\""), "Refreshing package dependencies must preserve the base compiler's command layer, which is not named NSharpLang.*."
     assert runner.Contains("--disable-build-servers -nr:false"), "The cached base CLI must use the product gate's stable MSBuild flags."
     assert runner.Contains("\"NSharpLang.Cli\"") && runner.Contains("\"Cli.csproj\""), "The cached base compiler must be a built CLI."
 }

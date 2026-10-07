@@ -1155,7 +1155,10 @@ the current Core build and a deterministic Core-scale project that reaches IL em
 head builds Core through emit; its base predecessor can still stop before emit when Core has
 diagnostics. Core's stage and counters are checked on the head build. The generated
 80,960-line/160-file project covers the emit path. Counter checks are exact and machine-independent.
-A decrease must be reviewed and ratcheted; an increase is a regression to fix.
+A decrease must be reviewed and ratcheted; an increase is a regression to fix. (A new source file in
+the Core build's closure is not a regression: `speed/agent-loop-2` added `SharedReferenceMetadata.nl`
+to Model and moved Core's files parsed/emit-parsed/analysed 468/278/278 -> 469/279/279 in the same
+commit that took its reference images 479 -> 129 and the Core-scale emit's 141 -> 36.)
 
 **Exact structural behavior is always gated; timing runs only when product inputs changed.** Both
 relative gates run `git diff base..head` and time only if it touches a compiler/runtime/CLI product
@@ -1179,7 +1182,8 @@ minimum, 350 ms work target and 17-pair cap. The first base build archives and b
 and compiler project graph in about **38 seconds** on the measured M4; repeated runs reuse the
 commit-keyed cache. The C# CLI project declares Compiler.Model and Runtime references and a Mono.Cecil
 package reference so its clean runtime dependency closure includes the N# entry point, runtime and
-emitter. The cached base CLI keeps its base-built `NSharpLang.*` assemblies while refreshing its
+emitter. The cached base CLI keeps its base-built `NSharpLang.*` assemblies and `Compiler.dll` (the command
+layer: copying the head's paired head commands with base slices) while refreshing its
 `.deps.json` and package DLLs from the head CLI output, so both sides resolve the same runtime package
 closure.
 
