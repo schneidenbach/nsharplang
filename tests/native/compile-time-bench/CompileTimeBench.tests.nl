@@ -830,6 +830,9 @@ test "compile-time gate: exact Core counters and phase contract accompany change
 
     headCli := BenchDefaultCliDll(repositoryRoot)
     assert File.Exists(headCli), "compile-time gate: head CLI was not found at " + headCli + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug"
+    // Closure isolation can raise referenceAssembliesLoaded when the CLI host carries the same
+    // identity from another file. Count the project's selected image; an identity-only host match
+    // is not interchangeable with its reference path.
     loadAtStart := BenchReadMachineLoad()
     gateStarted := DateTime.UtcNow.Ticks
     gitRoot := BenchCompilerPerfGitRoot(repositoryRoot)
