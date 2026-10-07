@@ -85,8 +85,9 @@ class ExternalAssemblyCatalogEntry {
 // THE COMPILATION'S OWNED RUNTIME REFERENCE CONTEXT, and the one rule it adds to the default fallback.
 //
 // A reference loaded here resolves its OWN dependencies through this context, and an identity it does
-// not carry falls back to the default context. Each compilation gets a collectible instance of this
-// context so another workspace member cannot choose its same-name assembly winner. Under MSBuild,
+// not carry falls back to the default context. Each exact ordered reference closure gets a cached,
+// non-collectible instance, so another workspace member cannot choose its same-name assembly winner
+// and repeated incremental builds do not create finalizable contexts. Under MSBuild,
 // the build task runs in a context of its own, and
 // the compilation's executable handles for the identities the COMPILER itself references come from
 // THAT context (`PreferEmissionRuntimeAssemblies`, `IsCompilerBoundRuntimeAssembly`). A referenced
@@ -107,7 +108,7 @@ class ExternalAssemblyCatalogEntry {
 // into this context (see there), or that file -- not the compiler's handle -- would answer every
 // dependency edge of every reference loaded here.
 class ExactIdentityReferenceLoadContext: AssemblyLoadContext {
-    constructor(name: string, collectible: bool): base(name, collectible) {
+    constructor(name: string): base(name, false) {
     }
 
     protected override func Load(assemblyName: AssemblyName): Assembly? {
@@ -138,6 +139,14 @@ class ExternalAssemblyScanResult {
 // semantic order, and a broken later slot cannot invalidate an earlier winner.
 class ExternalAssemblyScan {
 
+    // Non-collectible CLR contexts have process lifetime. Reuse one only when the ordered reference
+    // paths and each file's assembly identity, module id, length and write time all agree. Different
+    // workspace projects therefore never race to pick a same-name reference, while repeated and
+    // incremental compilations of the same closure do not create unbounded finalizable contexts.
+    private static readonly runtimeReferenceContexts: Dictionary<string, AssemblyLoadContext> = new Dictionary<string, AssemblyLoadContext>(StringComparer.Ordinal)
+    private static readonly runtimeReferenceFileFingerprints: Dictionary<string, string> = new Dictionary<string, string>(StringComparer.Ordinal)
+    private static readonly runtimeReferenceContextsGate: object = new object()
+
     // WHY THE COMPILER OWNS A LOAD CONTEXT OF ITS OWN.
     //
     // `Assembly.LoadFrom` binds into the DEFAULT load context, and the default context holds at
@@ -153,14 +162,122 @@ class ExternalAssemblyScan {
     // SDK and emits through the CLI; the same field from the 10.0.0 package, whose identity is the
     // one the host already holds, emits through both.
     //
-    // A per-compilation context gives the requested FILE an executable handle without displacing the
-    // host's or another compilation's assemblies. Unresolved dependencies still fall back to the
-    // default context, so it keeps binding `System.Runtime` and friends exactly as before.
+    // A context cached by the complete reference closure gives the requested FILE an executable handle
+    // without displacing the host's or another closure's assemblies. Unresolved dependencies still
+    // fall back to the default context, so it keeps binding `System.Runtime` and friends as before.
     // The static context below remains the fallback for callers without a compilation owner.
-    private static readonly s_exactIdentityReferences: AssemblyLoadContext = new ExactIdentityReferenceLoadContext("nsharp-exact-identity-references", false)
+    private static readonly s_exactIdentityReferences: AssemblyLoadContext = new ExactIdentityReferenceLoadContext("nsharp-exact-identity-references")
 
     static func ExactIdentityLoadContext(): AssemblyLoadContext {
         return s_exactIdentityReferences
+    }
+
+    static func RuntimeReferenceSetKey(referenceAssemblyPaths: IReadOnlyList<string>?): string {
+        if referenceAssemblyPaths == null {
+            return "0:"
+        }
+
+        key := referenceAssemblyPaths.Count.ToString() + ":"
+        index := 0
+        while index < referenceAssemblyPaths.Count {
+            path := referenceAssemblyPaths[index]
+            if string.IsNullOrEmpty(path) {
+                key = key + "0:"
+                index = index + 1
+                continue
+            }
+
+            fullPath: string
+            try {
+                fullPath = Path.GetFullPath(path)
+            } catch {
+                fullPath = path
+            }
+
+            fingerprint := RuntimeReferenceFileFingerprint(fullPath)
+            key = key + fullPath.Length.ToString() + ":" + fullPath + fingerprint.Length.ToString() + ":" + fingerprint
+            index = index + 1
+        }
+
+        return key
+    }
+
+    static func GetOrCreateRuntimeReferenceContext(key: string): AssemblyLoadContext {
+        lock runtimeReferenceContextsGate {
+            context: AssemblyLoadContext? = null
+            if runtimeReferenceContexts.TryGetValue(key, out context) && context != null {
+                return context
+            }
+
+            // This cache is keyed by an immutable reference closure, so the context's first-loaded
+            // assembly for a simple name cannot depend on a concurrent project's scheduling.
+            context = new ExactIdentityReferenceLoadContext("nsharp-reference-set")
+            runtimeReferenceContexts[key] = context
+            return context
+        }
+    }
+
+    private static func RuntimeModuleVersionId(path: string): string {
+        stream: FileStream? = null
+        pe: PEReader? = null
+        try {
+            stream = File.OpenRead(path)
+            pe = new PEReader(stream)
+            if !pe.HasMetadata {
+                return ""
+            }
+
+            reader := pe.GetMetadataReader()
+            module := reader.GetModuleDefinition()
+            return reader.GetGuid(module.Mvid).ToString("N")
+        } catch {
+            return ""
+        } finally {
+            if pe != null {
+                pe.Dispose()
+            }
+            if stream != null {
+                stream.Dispose()
+            }
+        }
+    }
+
+    private static func RuntimeReferenceFileFingerprint(path: string): string {
+        length := -1L
+        writeTicks := 0L
+        try {
+            file := new FileInfo(path)
+            if file.Exists {
+                length = file.Length
+                writeTicks = file.LastWriteTimeUtc.Ticks
+            }
+        } catch {
+            // The path remains represented even when it has no readable file.
+        }
+
+        fileVersion := path.Length.ToString() + ":" + path + length.ToString() + ":" + writeTicks.ToString()
+        lock runtimeReferenceContextsGate {
+            fingerprint: string? = null
+            if runtimeReferenceFileFingerprints.TryGetValue(fileVersion, out fingerprint) && fingerprint != null {
+                return fingerprint
+            }
+        }
+
+        identityName := TryReadAssemblyName(path)
+        identity := identityName == null ? "" : identityName.FullName
+        moduleVersionId := RuntimeModuleVersionId(path)
+        fingerprint := identity.Length.ToString() + ":" + identity + moduleVersionId.Length.ToString() + ":" + moduleVersionId
+        lock runtimeReferenceContextsGate {
+            if !runtimeReferenceFileFingerprints.ContainsKey(fileVersion) {
+                runtimeReferenceFileFingerprints[fileVersion] = fingerprint
+            }
+            cached: string? = null
+            if runtimeReferenceFileFingerprints.TryGetValue(fileVersion, out cached) && cached != null {
+                return cached
+            }
+        }
+
+        return fingerprint
     }
 
     // ── THE ONE OWNER OF "WHAT DOES THIS REFERENCE PATH LOAD" ────────────────────────────────────
@@ -342,8 +459,8 @@ class ExternalAssemblyScan {
         return loaded.ToArray()
     }
 
-    // A compilation can use its own collectible reference context, the host's default context and
-    // the compiler's own context. Assemblies loaded by other compilations are deliberately absent:
+    // A compilation can use the context for its exact reference closure, the host's default context
+    // and the compiler's own context. Assemblies from a different closure are deliberately absent:
     // they can have the same CLR identity but a different image or dependency closure.
     static func RuntimeAssembliesInScope(runtimeContext: AssemblyLoadContext? = null): Assembly[] {
         if runtimeContext == null {
@@ -461,7 +578,7 @@ class ExternalAssemblyScan {
 
         runtimeContext: AssemblyLoadContext? = null
         if shared != null {
-            runtimeContext = shared.RuntimeContext
+            runtimeContext = shared.RuntimeContextFor(referenceAssemblyPaths)
         }
         runtimeAssemblies := LoadedForEmissionByIdentityInCompilation(runtimeContext)
         if referenceAssemblyPaths != null {

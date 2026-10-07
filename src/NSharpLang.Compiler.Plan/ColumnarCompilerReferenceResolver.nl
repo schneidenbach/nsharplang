@@ -26,7 +26,7 @@ class ColumnarCompilerReferenceResolver {
     ): Type {
         runtimeContext: AssemblyLoadContext? = null
         if referenceMetadata != null {
-            runtimeContext = referenceMetadata.RuntimeContext
+            runtimeContext = referenceMetadata.RuntimeContextFor(referenceAssemblyPaths)
         }
         loadedAssemblies := ExternalAssemblyScan.RuntimeAssembliesInScope(runtimeContext)
         for loadedAssembly in loadedAssemblies {
@@ -103,6 +103,10 @@ class ColumnarCompilerReferenceResolver {
             return false
         }
 
+        if referenceMetadata != null {
+            referenceMetadata.RuntimeContextFor(referenceAssemblyPaths)
+        }
+
         referenceEnumerator := GetReferencePathEnumerator(referenceAssemblyPaths)
         referenceMovement := referenceEnumerator as IEnumerator
         try {
@@ -132,6 +136,10 @@ class ColumnarCompilerReferenceResolver {
     }
 
     static func TryResolveLoadedExternalTypeInCompilation(canonical: string, out result: Type, referenceMetadata: SharedReferenceMetadata?): bool {
+        return TryResolveLoadedExternalTypeInCompilation(canonical, out result, referenceMetadata, null)
+    }
+
+    static func TryResolveLoadedExternalTypeInCompilation(canonical: string, out result: Type, referenceMetadata: SharedReferenceMetadata?, referenceAssemblyPaths: IReadOnlyList<string>?): bool {
         result = null
         fullName: string? = null
         if canonical == "WebApplication" {
@@ -160,7 +168,11 @@ class ColumnarCompilerReferenceResolver {
         // program binds here is unchanged.
         runtimeContext: AssemblyLoadContext? = null
         if referenceMetadata != null {
-            runtimeContext = referenceMetadata.RuntimeContext
+            if referenceAssemblyPaths != null {
+                runtimeContext = referenceMetadata.RuntimeContextFor(referenceAssemblyPaths)
+            } else {
+                runtimeContext = referenceMetadata.RuntimeContextOrDefault()
+            }
         }
         assemblies := referenceMetadata == null ? ExternalAssemblyScan.LoadedAcrossContexts() : ExternalAssemblyScan.RuntimeAssembliesInScope(runtimeContext)
         assemblyIndex := 0
@@ -209,7 +221,7 @@ class ColumnarCompilerReferenceResolver {
             identity := AssemblyName.GetAssemblyName(referencePath).FullName
             runtimeContext: AssemblyLoadContext? = null
             if referenceMetadata != null {
-                runtimeContext = referenceMetadata.RuntimeContext
+                runtimeContext = referenceMetadata.RuntimeContextOrDefault()
             }
             loadedAssembly := ExternalAssemblyScan.TryLoadExactIdentityAssemblyInCompilation(referencePath, identity, runtimeContext)
             if loadedAssembly == null {
@@ -246,7 +258,7 @@ class ColumnarCompilerReferenceResolver {
         out result: Type,
         referenceMetadata: SharedReferenceMetadata?
     ): bool {
-        return TryResolveReferencedTypeInCompilation(referenceAssemblyPaths, assemblySimpleName, fullTypeName, out result, referenceMetadata) || TryResolveLoadedExternalTypeInCompilation(fullTypeName, out result, referenceMetadata)
+        return TryResolveReferencedTypeInCompilation(referenceAssemblyPaths, assemblySimpleName, fullTypeName, out result, referenceMetadata) || TryResolveLoadedExternalTypeInCompilation(fullTypeName, out result, referenceMetadata, referenceAssemblyPaths)
     }
 
     static func TryResolveAspNetHttpContextType(

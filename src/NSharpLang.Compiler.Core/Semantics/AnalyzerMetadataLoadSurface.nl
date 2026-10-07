@@ -226,10 +226,6 @@ class AnalyzerMetadataLoadSurface {
         loadContext := Context
         if loadContext != null && ownsContext {
             loadContext.Dispose()
-            shared := ReferenceMetadata
-            if shared != null {
-                shared.ReleaseRuntimeContext()
-            }
         }
 
         Context = null

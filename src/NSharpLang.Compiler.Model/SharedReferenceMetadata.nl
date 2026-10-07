@@ -36,7 +36,8 @@ import System.Runtime.Loader
 // it did before.
 class SharedReferenceMetadata {
     Context: MetadataLoadContext
-    RuntimeContext: AssemblyLoadContext
+    RuntimeContext: AssemblyLoadContext?
+    RuntimeReferenceKey: string?
     Gate: object
     SearchDirectories: List<string>
     PinnedPackageVersions: Dictionary<string, string>
@@ -44,19 +45,36 @@ class SharedReferenceMetadata {
 
     constructor(context: MetadataLoadContext, gate: object, searchDirectories: List<string>, pinnedPackageVersions: Dictionary<string, string>, resolverFailures: Dictionary<string, string>) {
         Context = context
-        // Runtime references have the same compilation boundary as metadata references. A process-
-        // wide AssemblyLoadContext can keep only one version of a simple name, so whichever
-        // workspace project loads first would otherwise decide what every later project can emit.
-        RuntimeContext = new ExactIdentityReferenceLoadContext("nsharp-compilation-" + Guid.NewGuid().ToString("N"), true)
+        // Runtime references have the same compilation boundary as metadata references. The
+        // non-collectible runtime context is assigned on the first complete reference scan and is
+        // shared only with compilations whose exact ordered file closure has the same key.
+        RuntimeContext = null
+        RuntimeReferenceKey = null
         Gate = gate
         SearchDirectories = searchDirectories
         PinnedPackageVersions = pinnedPackageVersions
         ResolverFailures = resolverFailures
     }
 
-    func ReleaseRuntimeContext() {
-        if RuntimeContext.IsCollectible {
-            RuntimeContext.Unload()
+    func RuntimeContextFor(referenceAssemblyPaths: IReadOnlyList<string>?): AssemblyLoadContext {
+        key := ExternalAssemblyScan.RuntimeReferenceSetKey(referenceAssemblyPaths)
+        lock Gate {
+            if RuntimeReferenceKey != null && !string.Equals(RuntimeReferenceKey, key, StringComparison.Ordinal) {
+                throw new InvalidOperationException("A compilation cannot use more than one runtime reference closure.")
+            }
+
+            if RuntimeContext == null {
+                RuntimeContext = ExternalAssemblyScan.GetOrCreateRuntimeReferenceContext(key)
+                RuntimeReferenceKey = key
+            }
+
+            return RuntimeContext
+        }
+    }
+
+    func RuntimeContextOrDefault(): AssemblyLoadContext {
+        lock Gate {
+            return RuntimeContext ?? ExternalAssemblyScan.ExactIdentityLoadContext()
         }
     }
 

@@ -216,6 +216,26 @@ test "external assembly scan resolves an MSBuild reference-only path to its proj
     }
 }
 
+test "runtime reference contexts are reused only for the same ordered file closure" {
+    referencePath := ExternalHostReferenceImagePath()
+    runtimePath := ExternalHostAssembly().get_Location()
+    paths := new List<string>()
+    paths.Add(referencePath)
+    paths.Add(runtimePath)
+
+    first := ExternalAssemblyScan.GetOrCreateRuntimeReferenceContext(ExternalAssemblyScan.RuntimeReferenceSetKey(paths))
+    repeated := ExternalAssemblyScan.GetOrCreateRuntimeReferenceContext(ExternalAssemblyScan.RuntimeReferenceSetKey(paths))
+    reversed := new List<string>()
+    reversed.Add(runtimePath)
+    reversed.Add(referencePath)
+    distinct := ExternalAssemblyScan.GetOrCreateRuntimeReferenceContext(ExternalAssemblyScan.RuntimeReferenceSetKey(reversed))
+
+    assert Object.ReferenceEquals(first, repeated)
+    assert !Object.ReferenceEquals(first, distinct)
+    assert !first.IsCollectible
+    assert !distinct.IsCollectible
+}
+
 test "external reference paths select DLLs normalize project-relative paths and remove duplicates" {
     dependencies := new List<Reference>()
     packageReference := new Reference()
