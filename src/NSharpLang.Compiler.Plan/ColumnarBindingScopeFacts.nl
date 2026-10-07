@@ -188,7 +188,7 @@ class ColumnarExternalTypeCatalog {
         return selection.IsSelected
     }
 
-    func Prepare(referenceAssemblyPaths: IReadOnlyList<string>?, sourceFactsById: Dictionary<int, ColumnarSourceBindingFacts>) {
+    func Prepare(referenceAssemblyPaths: IReadOnlyList<string>?, sourceFactsById: Dictionary<int, ColumnarSourceBindingFacts>, referenceMetadata: SharedReferenceMetadata? = null) {
         resolvedOwners.Clear()
         holdersByNamespace.Clear()
         fileFactsById = sourceFactsById
@@ -208,7 +208,7 @@ class ColumnarExternalTypeCatalog {
         // implementation is admitted up front, and KEEP it: owner lookup stays lazy and cached,
         // but it now reads this scan instead of rebuilding an identical one per cache miss.
         previousScan := preparedScan
-        preparedScan = ExternalAssemblyScan.OpenWithReferences(this.referenceAssemblyPaths)
+        preparedScan = ExternalAssemblyScan.OpenWithReferences(this.referenceAssemblyPaths, referenceMetadata)
         if previousScan != null {
             previousScan.Dispose()
         }
@@ -800,8 +800,8 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
         return view
     }
 
-    func PrepareExternalTypeBindings(referenceAssemblyPaths: IReadOnlyList<string>?) {
-        assemblyCatalog.Prepare(referenceAssemblyPaths, fileFactsById)
+    func PrepareExternalTypeBindings(referenceAssemblyPaths: IReadOnlyList<string>?, referenceMetadata: SharedReferenceMetadata? = null) {
+        assemblyCatalog.Prepare(referenceAssemblyPaths, fileFactsById, referenceMetadata)
         ReselectClassBasesWithMetadata()
     }
 

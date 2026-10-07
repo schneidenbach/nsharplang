@@ -395,7 +395,12 @@ class ExternalAssemblyScan {
         return byIdentity
     }
 
-    static func OpenWithReferences(referenceAssemblyPaths: IReadOnlyList<string>?): ExternalAssemblyScanResult {
+    // READ THE COMPILATION'S CONTEXT WHEN IT IS THE CONTEXT THE SCAN WOULD HAVE BUILT. With `shared`
+    // (the analyzer's context, `SharedReferenceMetadata`), the scan reads each entry from that context
+    // instead of opening its own and reading the same files again -- but only when doing so cannot
+    // change a single answer (`TryAttachSharedMetadata`), and it then adds nothing to a context it does
+    // not own. Otherwise it opens a context of its own, exactly as without `shared`.
+    static func OpenWithReferences(referenceAssemblyPaths: IReadOnlyList<string>?, shared: SharedReferenceMetadata? = null): ExternalAssemblyScanResult {
         entries := new List<ExternalAssemblyCatalogEntry>()
         searchDirectories := CommonAssemblySearchDirectories(referenceAssemblyPaths)
         commonNames := CommonAssemblyNames()
@@ -467,6 +472,11 @@ class ExternalAssemblyScan {
 
         AddForwardTargetPaths(resolverPaths, resolverNames, searchDirectories)
 
+        if shared != null && TryAttachSharedMetadata(entries, shared, resolverPaths) {
+            ReconcileRuntimeAssemblies(entries, runtimeAssemblies)
+            return new ExternalAssemblyScanResult(entries.ToArray(), null)
+        }
+
         context := TryCreateMetadataLoadContext(resolverPaths.ToArray())
         if context == null {
             entryIndex = 0
@@ -497,6 +507,65 @@ class ExternalAssemblyScan {
         ReconcileRuntimeAssemblies(entries, runtimeAssemblies)
 
         return new ExternalAssemblyScanResult(entries.ToArray(), context)
+    }
+
+    // Every inspectable entry's metadata from the shared context, or nothing attached at all. The scan's
+    // own context resolves a dependency by SIMPLE NAME among `resolverPaths`, and the shared context by
+    // the assemblies it already holds, so the two can read a type identically only when the shared
+    // context holds every entry from exactly the entry's path, holds no simple name twice (a second
+    // version would answer some dependency edges and not others -- measured: a package closure
+    // carrying two `Microsoft.Extensions.Logging.Abstractions` versions refused `ILogger<T>` fields),
+    // and holds no simple name from a different file than the one the scan would resolve it to.
+    static func TryAttachSharedMetadata(entries: List<ExternalAssemblyCatalogEntry>, shared: SharedReferenceMetadata, resolverPaths: List<string>): bool {
+        found := new Assembly[](entries.Count)
+        lock shared.Gate {
+            resolverPathsByName := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            for resolverPath in resolverPaths {
+                resolverName := Path.GetFileNameWithoutExtension(resolverPath)
+                if !resolverPathsByName.ContainsKey(resolverName) {
+                    resolverPathsByName[resolverName] = Path.GetFullPath(resolverPath)
+                }
+            }
+            heldNames := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            for held in shared.Context.GetAssemblies() {
+                heldName := held.GetName().Name ?? ""
+                if !heldNames.Add(heldName) {
+                    return false
+                }
+                expectedPath := ""
+                if resolverPathsByName.TryGetValue(heldName, out expectedPath) {
+                    heldLocation := held.Location
+                    if heldLocation == null || heldLocation.Length == 0 || !string.Equals(Path.GetFullPath(heldLocation), expectedPath, StringComparison.Ordinal) {
+                        return false
+                    }
+                }
+            }
+
+            entryIndex := 0
+            while entryIndex < entries.Count {
+                entry := entries[entryIndex]
+                if entry.IsInspectable {
+                    if entry.MetadataPath.Length == 0 {
+                        return false
+                    }
+                    loaded := shared.LoadedFrom(entry.MetadataPath)
+                    if loaded == null || entry.IdentityName == null || !AssemblyName.ReferenceMatchesDefinition(entry.IdentityName, loaded.GetName()) {
+                        return false
+                    }
+                    found[entryIndex] = loaded
+                }
+                entryIndex = entryIndex + 1
+            }
+        }
+
+        entryIndex := 0
+        while entryIndex < entries.Count {
+            if entries[entryIndex].IsInspectable {
+                entries[entryIndex].AttachMetadataAssembly(found[entryIndex])
+            }
+            entryIndex = entryIndex + 1
+        }
+        return true
     }
 
     // WHERE A COMMON ASSEMBLY'S METADATA IS, FOUND ON DISK RATHER THAN READ OFF A LOADED ASSEMBLY.

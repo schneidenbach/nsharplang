@@ -1470,7 +1470,22 @@ the synthetic 80k project 71.0 / 79.0 s against 6.6 / 7.8 s (1,070 -> 11,100 lin
 `NSHARP_COMPILER_WORKERS` or `MultiFileCompiler.Workers` override):
 
 - *Analysis.* Worker 0 is the shared analyzer; every other worker builds its own `Analyzer` the one
-  way (`CreateAnalyzer`), so no analyzer, metadata load context or cache is shared. Workers take file
+  way (`CreateAnalyzer`), so no analyzer or analyzer cache is shared. Since `speed/agent-loop-2` the
+  METADATA LOAD CONTEXT is: a worker's analyzer attaches to the shared analyzer's context
+  (`SharedReferenceMetadata`, `AnalyzerMetadataLoadSurface.Attach`) instead of re-reading the whole
+  reference closure, keeping its own registry (so it resolves against exactly the assemblies its own
+  loads registered, in their order) and its own failure table; every load, resolver probe and write to
+  the context's directories, pins and resolver failures goes through the context's gate, and the
+  `MetadataLoadContext` itself is concurrent by construction (`ConcurrentDictionary` load/bind tables
+  filled with `GetOrAdd`, volatile lazies on its type objects, immutable metadata readers; it calls the
+  resolver without holding a lock). The IL back end's external type scan attaches to the same context
+  when it already holds every file the scan wants from exactly that path
+  (`ExternalAssemblyScan.OpenWithReferences`), and opens its own otherwise. Reference images opened per
+  agent-loop row: large check 151 -> 40, medium 77 -> 40, small (ASP.NET) 501 -> 323; daemon-warm rows
+  open none (the scan reads the retained analyzer's context). Pinned by the Driver rows "parallel
+  workers open no reference image the shared analyzer already opened", "validating the emission of an
+  analysed program opens no reference image" and "eight workers sharing one reference context reproduce
+  the serial compilation every time". Workers take file
   indices from a FIFO queue in increasing order and, before each file, replay the import-triggered
   assembly loads of every earlier file they skipped (`Analyzer.PreloadImportedAssemblies`), so each
   file is analysed against the serial run's loaded-assembly list. The driver's parsed units are shared

@@ -44,11 +44,15 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
     searchDirectories: List<string>
     pinnedPackageVersions: Dictionary<string, string>
     failures: Dictionary<string, string>
+    // The load surface's gate (`SharedReferenceMetadata`): the context may ask this resolver from any
+    // reader's thread, and the three tables above are written by those readers too.
+    gate: object
 
-    constructor(directories: List<string>, pinnedVersions: Dictionary<string, string>, loadFailures: Dictionary<string, string>) {
+    constructor(directories: List<string>, pinnedVersions: Dictionary<string, string>, loadFailures: Dictionary<string, string>, loadGate: object) {
         searchDirectories = directories
         pinnedPackageVersions = pinnedVersions
         failures = loadFailures
+        gate = loadGate
     }
 
     func RecordLoadFailure(path: string, error: Exception) {
@@ -124,6 +128,12 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
     }
 
     override func Resolve(context: MetadataLoadContext, assemblyName: AssemblyName): Assembly? {
+        lock gate {
+            return ResolveUnderGate(context, assemblyName)
+        }
+    }
+
+    func ResolveUnderGate(context: MetadataLoadContext, assemblyName: AssemblyName): Assembly? {
         simpleName := assemblyName.Name
         if simpleName == null {
             return null

@@ -1002,7 +1002,7 @@ class Analyzer: IDisposable {
         }
 
         PopScope()
-        ReferenceLoadReport.Report(MetadataLoadSurface.ResolverFailures)
+        ReferenceLoadReport.Report(MetadataLoadSurface.ResolverFailureSnapshot())
 
         // THE GATE NL010 ASKS BEFORE IT SPEAKS. Reaching here means every declaration in the file was
         // walked, so the ledger is complete; a walk that threw part-way leaves it false, and an
@@ -2316,7 +2316,23 @@ class Analyzer: IDisposable {
     }
     func LoadSystemAssemblies() {
         MetadataLoadSurface.Open()
+        LoadSystemAssembliesIntoSurface()
+    }
 
+    // THE SAME REFERENCE UNIVERSE WITHOUT READING IT AGAIN. A parallel analysis worker of a
+    // compilation reads the metadata its shared analyzer already opened (`SharedReferenceMetadata`)
+    // instead of a context of its own; its own registry still fills in its own load order, so it
+    // resolves against exactly the assemblies it would have loaded itself.
+    func LoadSystemAssemblies(shared: SharedReferenceMetadata) {
+        MetadataLoadSurface.Attach(shared)
+        LoadSystemAssembliesIntoSurface()
+    }
+
+    // The context this analyzer reads references through, as other readers of the compilation
+    // attach to it; null until `LoadSystemAssemblies` and after `Dispose`.
+    ReferenceMetadata: SharedReferenceMetadata? => MetadataLoadSurface.ReferenceMetadata
+
+    private func LoadSystemAssembliesIntoSurface() {
         assemblyNames := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
         for assemblyName in assemblyNames {
             MetadataLoadSurface.LoadByName(assemblyName)

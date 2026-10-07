@@ -61,8 +61,10 @@ class MultiFileCompiler {
         // Set when the worker could not even build its analyzer; its share of the queue is then
         // left to the others.
         Failure: Exception?
+        // The shared analyzer's reference metadata, which a worker's own analyzer reads.
+        ReferenceMetadata: SharedReferenceMetadata?
 
-        constructor(analyzer: Analyzer?, files: List<string>, units: List<CompilationUnit>, outcomes: MultiFileCompilerFileAnalysis[], queue: ConcurrentQueue<int>, projectNamespaces: HashSet<string>) {
+        constructor(analyzer: Analyzer?, files: List<string>, units: List<CompilationUnit>, outcomes: MultiFileCompilerFileAnalysis[], queue: ConcurrentQueue<int>, projectNamespaces: HashSet<string>, referenceMetadata: SharedReferenceMetadata?) {
             Analyzer = analyzer
             Files = files
             Units = units
@@ -70,6 +72,7 @@ class MultiFileCompiler {
             Queue = queue
             ProjectNamespaces = projectNamespaces
             Failure = null
+            ReferenceMetadata = referenceMetadata
         }
     }
 
@@ -329,7 +332,7 @@ class MultiFileCompiler {
         }
 
         loadMark := CompilerPhaseTimings.Begin(_phaseProject, "load-references")
-        analyzer := CreateAnalyzer()
+        analyzer := CreateAnalyzer(null)
         CompilerPhaseTimings.End(loadMark)
         _sharedAnalyzerValue = analyzer
         if state != null {
@@ -340,11 +343,17 @@ class MultiFileCompiler {
 
     // An analyzer for this compilation, built the one way: the shared analyzer and every parallel
     // analysis worker's come from here, so they cannot disagree about the assemblies, the project
-    // references, the SoA gate or the one-program rule they analyse under.
-    private func CreateAnalyzer(): Analyzer {
+    // references, the SoA gate or the one-program rule they analyse under. A worker passes the shared
+    // analyzer's reference metadata and reads the files that analyzer already loaded instead of
+    // opening the whole reference closure again (`SharedReferenceMetadata`).
+    private func CreateAnalyzer(shared: SharedReferenceMetadata?): Analyzer {
         analyzer := new Analyzer()
         analyzer.SoaEnabled = _soaEnabled
-        analyzer.LoadSystemAssemblies()
+        if shared != null {
+            analyzer.LoadSystemAssemblies(shared)
+        } else {
+            analyzer.LoadSystemAssemblies()
+        }
         analyzer.LoadFromProjectConfig(EffectiveConfig(), _projectRoot)
         // A caller that hands over a project configuration compiles these files into ONE assembly —
         // a parsed `project.yml`, or a virtual project like the playground's. A caller with none (a
@@ -782,7 +791,7 @@ class MultiFileCompiler {
             if worker == 0 {
                 workerAnalyzer = sharedAnalyzer
             }
-            state := new MultiFileCompiler.MultiFileCompilerAnalysisWorker(workerAnalyzer, files, units, outcomes, queue, projectNamespaces)
+            state := new MultiFileCompiler.MultiFileCompilerAnalysisWorker(workerAnalyzer, files, units, outcomes, queue, projectNamespaces, sharedAnalyzer.ReferenceMetadata)
             states.Add(state)
             work: ThreadStart = () => RunAnalysisWorker(state)
             thread := new Thread(work, 64 * 1024 * 1024)
@@ -823,7 +832,7 @@ class MultiFileCompiler {
         resolved: Analyzer? = state.Analyzer
         try {
             if resolved == null {
-                created := CreateAnalyzer()
+                created := CreateAnalyzer(state.ReferenceMetadata)
                 created.SetProjectSourceTexts(_sourceTexts)
                 created.SeedProjectParses(_reusableParses)
                 created.SeedProjectNamespaces(_projectRoot, state.ProjectNamespaces)
@@ -1345,6 +1354,12 @@ class MultiFileCompiler {
             return false
         }
         CompilerPhaseTimings.End(emitParseMark)
+        // ONE LOADED REFERENCE SET PER COMPILATION: the back end's external type scan reads the
+        // shared analyzer's context (`SharedReferenceMetadata`) rather than reading the same files again.
+        sharedAnalyzer := _sharedAnalyzerValue
+        if sharedAnalyzer != null {
+            program.ReferenceMetadata = sharedAnalyzer.ReferenceMetadata
+        }
         // Call-site overload selection belongs to the analyzer's BindNSharpCall walk. Carry each
         // analyzed file's semantic model into emission so a free-function call can target the exact
         // declaration BindNSharpCall selected instead of re-ranking the group's CLR signatures.

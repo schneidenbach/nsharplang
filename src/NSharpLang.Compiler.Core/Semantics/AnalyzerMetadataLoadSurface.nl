@@ -54,6 +54,14 @@ import System.Runtime.InteropServices
 //      so the second copy of a stale-beside-restored NuGet extraction would be recorded as a load
 //      FAILURE instead of resolving. The already-loaded copy is adopted into the registry instead.
 //
+// ONE CONTEXT PER COMPILATION, NOT PER ANALYZER (`SharedReferenceMetadata`). The surface that `Open`s a
+// context owns it and publishes it as `ReferenceMetadata`; a parallel analysis worker's analyzer
+// `Attach`es to that one instead of opening its own, and the IL back end reads it too. Attached
+// surfaces share the context, its resolver's directories, pins and failure table, and the gate that
+// serialises their writes; each keeps its OWN registry and failure table, so what an analysis can
+// resolve against is still exactly the assemblies its own loads registered, in their order. Only the
+// owner disposes the context.
+//
 // A FAILED LOAD IS RECORDED, NEVER THROWN. Reference probing is best-effort: the analyzer tries
 // paths that legitimately miss, and one bad reference must not end the analysis. The failure joins
 // the table `AnalyzerReferenceLoadReport` pairs against unresolved-type errors, first failure per
@@ -82,6 +90,17 @@ class AnalyzerMetadataLoadSurface {
     // `AnalyzerReferenceLoadReport` merges the two with the analyzer's winning.
     ResolverFailures: Dictionary<string, string>
 
+    // The context and its shared state as other readers of the compilation attach to it; null before
+    // `Open`/`Attach` and after `Close`.
+    ReferenceMetadata: SharedReferenceMetadata?
+
+    // Whether this surface opened the context (and so disposes it), or attached to another's.
+    ownsContext: bool
+
+    // Serialises every load, resolver probe and table write against the context (see
+    // `SharedReferenceMetadata`); an attached surface takes the owner's.
+    gate: object
+
     constructor(loadedAssemblies: List<Assembly>, referenceLoadFailures: Dictionary<string, string>) {
         Context = null
         assemblies = loadedAssemblies
@@ -89,6 +108,9 @@ class AnalyzerMetadataLoadSurface {
         SearchDirectories = new List<string>()
         PinnedPackageVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         ResolverFailures = new Dictionary<string, string>(StringComparer.Ordinal)
+        ReferenceMetadata = null
+        ownsContext = false
+        gate = new object()
     }
 
     // A NEW RESOLVER IS BEING BUILT, which means a new load context is beginning. The directories
@@ -111,7 +133,9 @@ class AnalyzerMetadataLoadSurface {
 
     // The last write wins, which is what a project that names one version twice means.
     func PinPackageVersion(packageName: string, version: string) {
-        PinnedPackageVersions[packageName] = version
+        lock gate {
+            PinnedPackageVersions[packageName] = version
+        }
     }
 
     // THE RESOLVER MUST BE ABLE TO ANSWER BEFORE THE CONTEXT EXISTS, which is why this is one door
@@ -125,7 +149,8 @@ class AnalyzerMetadataLoadSurface {
         resolver := new AnalyzerMetadataAssemblyResolver(
             BeginResolverDirectories(),
             BeginResolverPinnedVersions(),
-            BeginResolverFailures()
+            BeginResolverFailures(),
+            gate
         )
 
         runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
@@ -148,7 +173,31 @@ class AnalyzerMetadataLoadSurface {
             }
         }
 
-        Context = new MetadataLoadContext(resolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
+        opened := new MetadataLoadContext(resolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
+        Context = opened
+        ReferenceMetadata = new SharedReferenceMetadata(opened, gate, SearchDirectories, PinnedPackageVersions, ResolverFailures)
+        ownsContext = true
+    }
+
+    // READ ANOTHER SURFACE'S CONTEXT INSTEAD OF OPENING ONE: the same files, resolver, directories,
+    // pins and failure table, behind the same gate. This surface's registry and failure table stay its
+    // own, and `Close` leaves the context to its owner.
+    func Attach(shared: SharedReferenceMetadata) {
+        Context = shared.Context
+        gate = shared.Gate
+        SearchDirectories = shared.SearchDirectories
+        PinnedPackageVersions = shared.PinnedPackageVersions
+        ResolverFailures = shared.ResolverFailures
+        ReferenceMetadata = shared
+        ownsContext = false
+    }
+
+    // The resolver's failures as of now, copied under the gate: other readers of a shared context may
+    // still be probing while this surface reports.
+    func ResolverFailureSnapshot(): Dictionary<string, string> {
+        lock gate {
+            return new Dictionary<string, string>(ResolverFailures, StringComparer.Ordinal)
+        }
     }
 
     // EVERY FILE THIS CONTEXT READ METADATA FROM, including the assemblies the resolver pulled in
@@ -175,11 +224,13 @@ class AnalyzerMetadataLoadSurface {
     // The analyzer is being disposed. The context is released and nothing may be loaded afterwards.
     func Close() {
         loadContext := Context
-        if loadContext != null {
+        if loadContext != null && ownsContext {
             loadContext.Dispose()
         }
 
         Context = null
+        ReferenceMetadata = null
+        ownsContext = false
     }
 
     // EVERY `int`, `string` and `object` A REFERENCED ASSEMBLY NAMES resolves through the context's
@@ -214,8 +265,10 @@ class AnalyzerMetadataLoadSurface {
     }
 
     func AddSearchDirectory(directory: string) {
-        if AnalyzerMetadataLoadPolicy.ShouldAddSearchDirectory(directory, Directory.Exists(directory), SearchDirectories) {
-            SearchDirectories.Add(directory)
+        lock gate {
+            if AnalyzerMetadataLoadPolicy.ShouldAddSearchDirectory(directory, Directory.Exists(directory), SearchDirectories) {
+                SearchDirectories.Add(directory)
+            }
         }
     }
 
@@ -297,6 +350,12 @@ class AnalyzerMetadataLoadSurface {
             return
         }
 
+        lock gate {
+            LoadByPathUnderGate(loadContext, assemblyPath)
+        }
+    }
+
+    private func LoadByPathUnderGate(loadContext: MetadataLoadContext, assemblyPath: string) {
         try {
             fullPath := Path.GetFullPath(assemblyPath)
             directory := Path.GetDirectoryName(fullPath)
@@ -337,10 +396,12 @@ class AnalyzerMetadataLoadSurface {
             return
         }
 
-        try {
-            Register(loadContext.LoadFromAssemblyName(simpleName))
-        } catch error: Exception {
-            RecordExceptionFailure(simpleName, error)
+        lock gate {
+            try {
+                Register(loadContext.LoadFromAssemblyName(simpleName))
+            } catch error: Exception {
+                RecordExceptionFailure(simpleName, error)
+            }
         }
     }
 }

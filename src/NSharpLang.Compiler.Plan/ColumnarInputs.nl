@@ -575,6 +575,10 @@ class ColumnarProgramInput {
     Interfaces: IReadOnlyList<ColumnarInterfaceInput>
     Tests: IReadOnlyList<ColumnarTestInput>?
     SemanticModelsByFileId: Dictionary<int, SemanticModel>
+    // THE COMPILATION'S LOADED REFERENCES, when the caller has them (`MultiFileCompiler`: its shared
+    // analyzer's). The external type scan reads them instead of opening the reference set again
+    // (`ExternalAssemblyScan.OpenWithReferences`); null opens a context of the scan's own.
+    ReferenceMetadata: SharedReferenceMetadata?
 
     static func CreateSingleSource(source: string, functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
         return new ColumnarProgramInput(source, functions, enums, structs, unions, interfaces, BuildSingleSourceFiles(source), tests, null)
@@ -636,13 +640,14 @@ class ColumnarProgramInput {
         Interfaces = interfaces
         Tests = tests
         SemanticModelsByFileId = new Dictionary<int, SemanticModel>()
+        ReferenceMetadata = null
         bindingScope = ColumnarBindingScopeFacts.Create(Sources, Enums, Structs, Unions, Interfaces, ProjectRoot)
 
         StampBindingContexts(bindingScope)
     }
 
     func PrepareExternalTypeBindings(referenceAssemblyPaths: IReadOnlyList<string>?) {
-        bindingScope.PrepareExternalTypeBindings(referenceAssemblyPaths)
+        bindingScope.PrepareExternalTypeBindings(referenceAssemblyPaths, ReferenceMetadata)
     }
 
     // The referenced assemblies' free-function holders in one namespace (`""` is the global one) --

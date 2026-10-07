@@ -50,7 +50,8 @@ func ResolverProbeSurfaceless(directories: List<string>): AnalyzerMetadataAssemb
     return new AnalyzerMetadataAssemblyResolver(
         directories,
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-        new Dictionary<string, string>(StringComparer.Ordinal)
+        new Dictionary<string, string>(StringComparer.Ordinal),
+        new object()
     )
 }
 
@@ -146,7 +147,8 @@ test "stage 1 returns the already-loaded copy even when stage 2 would find a dif
     resolver := new AnalyzerMetadataAssemblyResolver(
         ResolverProbeTwoDirectories(referenceDirectory, frameworkDirectory),
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-        failures
+        failures,
+        new object()
     )
     context := new MetadataLoadContext(resolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
 
@@ -186,7 +188,8 @@ test "a file that exists but will not load is recorded and the next directory st
     resolver := new AnalyzerMetadataAssemblyResolver(
         ResolverProbeTwoDirectories(poisoned, frameworkDirectory),
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-        failures
+        failures,
+        new object()
     )
 
     context := new MetadataLoadContext(resolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
