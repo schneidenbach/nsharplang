@@ -90,7 +90,7 @@ test "a delivery row cannot carry a ceiling and a code row cannot drop one" {
     debtState := deliveryManifest.Replace("\"state\":\"reviewed\"", "\"state\":\"existing-debt\"")
     assert OwnershipAudit.AuditSnapshot(debtState, deliveryObserved, false).HasCode("OWN001")
 
-    codePath := "src/NSharpLang.Compiler/Parser.cs"
+    codePath := "tests/Parser.cs"
     codeText := "class Parser {}\n"
     codeManifest := OwnershipFixtureOne(codePath, codeText, 0)
     codeObserved := OwnershipFixtureObservedList(codePath, codeText)

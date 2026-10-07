@@ -255,8 +255,24 @@ class OwnershipPolicy {
 
     static CodeEpochFileCount: int => 223
     static CodeEpochPathFingerprint: string => "pathset-v2:fbda7fc3d5053525"
-    static CodeEpochFactFingerprint: string => "epochfacts-v2:05f608333cab8ef7"
-    static ReviewedHeadFingerprint: string => "head-v2:3f12ee31744cff12"
+    static CodeEpochFactFingerprint: string => "epochfacts-v2:e9d97310d85a20be"
+    static ReviewedHeadFingerprint: string => "head-v2:1a71176eea88e529"
+
+    static func IsPermanentBoundaryPath(path: string): bool {
+        normalized := NormalizeRelativePath(path)
+        return normalized == "src/NSharpLang.Runtime/NSharpEventSubscription.cs" || normalized == "src/NSharpLang.Runtime/Result.cs" || normalized == "src/NSharpLang.Runtime/SimdReductions.cs" || normalized == "src/NSharpLang.Runtime/Union.cs" || normalized == "src/NSharpLang.Playground.Wasm/PlaygroundExports.cs" || normalized == "src/NSharpLang.Playground.Wasm/Program.cs" || normalized == "src/NSharpLang.Cli/Program.cs"
+    }
+
+    static func IsRecordedVisualStudioHostPath(path: string): bool {
+        normalized := NormalizeRelativePath(path)
+        return normalized == "editors/visualstudio/NSharp.VisualStudio/Editor/NSharpClassifier.cs" || normalized == "editors/visualstudio/NSharp.VisualStudio/Editor/NSharpClassifierProvider.cs" || normalized == "editors/visualstudio/NSharp.VisualStudio/LanguageServer/NSharpLanguageClient.cs" || normalized == "editors/visualstudio/NSharp.VisualStudio/NSharpPackage.cs"
+    }
+
+    static func IsProductionCSharpPath(path: string): bool {
+        normalized := NormalizeRelativePath(path)
+        lower := normalized.ToLowerInvariant()
+        return lower.EndsWith(".cs", StringComparison.Ordinal) && (lower.StartsWith("src/", StringComparison.Ordinal) || lower.StartsWith("editors/", StringComparison.Ordinal))
+    }
 
     static func Classify(path: string): OwnershipClassification {
         normalized := NormalizeRelativePath(path)
@@ -407,7 +423,8 @@ class OwnershipPolicy {
     static func ShouldSkipDirectory(path: string): bool {
         normalized := NormalizeRelativePath(path)
         name := Path.GetFileName(normalized) ?? ""
-        if name == ".git" || name == "bin" || name == "obj" || name == "node_modules" || name == ".vscode-test" || name == ".nsharp" || name == "BenchmarkDotNet.Artifacts" {
+        // CLI daemon state is generated during `nlc test`, including the live audit itself.
+        if name == ".git" || name == "bin" || name == "obj" || name == "node_modules" || name == ".vscode-test" || name == ".nsharp" || name == ".nlc" || name == "BenchmarkDotNet.Artifacts" {
             return true
         }
 
@@ -525,6 +542,12 @@ class OwnershipPolicy {
     }
 
     static func SurfaceFor(path: string): string {
+        if path == "src/NSharpLang.Cli/Program.cs" {
+            return "cli-entry-point"
+        }
+        if path.StartsWith("src/NSharpLang.Playground.Wasm/", StringComparison.Ordinal) && path.EndsWith(".cs", StringComparison.Ordinal) {
+            return "playground-wasm-host"
+        }
         if path.StartsWith("src/NSharpLang.Runtime/", StringComparison.Ordinal) {
             return "runtime"
         }
@@ -571,6 +594,9 @@ class OwnershipPolicy {
     }
 
     static func CampaignScopeFor(path: string): string {
+        if IsPermanentBoundaryPath(path) {
+            return "permanent-boundary"
+        }
         if path.StartsWith("src/NSharpLang.Runtime/", StringComparison.Ordinal) || path.StartsWith("tests/native-benchmarks/", StringComparison.Ordinal) || path.StartsWith("tests/benchmarks/native/", StringComparison.Ordinal) || path.StartsWith("benchmarks/native-comparison/", StringComparison.Ordinal) {
             return "separate-campaign"
         }
@@ -1211,8 +1237,26 @@ class OwnershipAudit {
                 if entry.State != "reviewed" && entry.State != "removed" {
                     result.Add("OWN001", entry.Path, "a delivery row state must be 'reviewed' or 'removed'")
                 }
+            } else if entry.State == "permanent-boundary" {
+                if entry.Language != "csharp" || !OwnershipPolicy.IsPermanentBoundaryPath(entry.Path) {
+                    result.Add("OWN001", entry.Path, "state 'permanent-boundary' is reserved for the exact Runtime, Playground.Wasm, and CLI entry-point C# paths")
+                }
             } else if entry.State != "existing-debt" && entry.State != "removed" {
-                result.Add("OWN001", entry.Path, "a code row state must be 'existing-debt' or 'removed'; survivor verdicts are forbidden before H8")
+                result.Add("OWN001", entry.Path, "a code row state must be 'existing-debt', 'permanent-boundary' on a named C# boundary, or 'removed'")
+            }
+
+            if entry.Language == "csharp" && OwnershipPolicy.IsProductionCSharpPath(entry.Path) {
+                if OwnershipPolicy.IsPermanentBoundaryPath(entry.Path) {
+                    if entry.State != "permanent-boundary" && entry.State != "removed" {
+                        result.Add("OWN001", entry.Path, "a live permanent production C# boundary must use state 'permanent-boundary'")
+                    }
+                } else if OwnershipPolicy.IsRecordedVisualStudioHostPath(entry.Path) {
+                    if entry.State != "existing-debt" && entry.State != "removed" {
+                        result.Add("OWN001", entry.Path, "the separate Visual Studio IDE host must remain an existing-debt or removed row")
+                    }
+                } else if entry.State != "removed" {
+                    result.Add("OWN001", entry.Path, "active production C# is forbidden outside the named permanent boundaries and the recorded Visual Studio IDE host")
+                }
             }
             ValidateMetrics(entry, result)
             i = i + 1

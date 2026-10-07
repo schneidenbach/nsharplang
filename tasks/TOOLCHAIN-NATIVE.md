@@ -1,6 +1,6 @@
 # Managed toolchain conversion and census closeout
 
-## Census wave 20 — current status (2026-10-05 → 2026-10-06)
+## Census wave 20 — current status (2026-10-05 → 2026-10-07)
 
 The source range is `50816f3c8..28dfd91b2` (**102 non-merge commits**, from
 `git log --no-merges --format='%h %ad %s' --date=short 50816f3c8..28dfd91b2`). Product tip:
@@ -158,21 +158,26 @@ Tooling 365; Driver 722. The head gate logs show ownership-audit **25/25**.
 Step 2d's observed ceilings are Model 0, Syntax 0, Core 355, Plan 0, Emit 0, CodeIntel 0, Tooling 0,
 Driver 0, Compiler 5, Playground 0 and Build.Tasks 0. Core's **355 → 0** is still owed.
 
-| Remaining C# owner | C# lines | Files |
+| Production C# boundary / separate host | C# lines | Files |
 |---|---:|---:|
-| `src/NSharpLang.Runtime` | 861 | 4 |
-| `src/NSharpLang.Playground.Wasm` | 71 | 2 |
-| `src/NSharpLang.Cli` | 25 | 1 |
-| **Compiler/toolchain total** | **957** | **7** |
-| `editors/visualstudio` (separate IDE host) | 359 | 4 |
-| **All listed owners** | **1,316** | **11** |
+| `src/NSharpLang.Runtime` (permanent low-level runtime boundary) | 861 | 4 |
+| `src/NSharpLang.Playground.Wasm` (permanent browser/WebAssembly host bridge) | 71 | 2 |
+| `src/NSharpLang.Cli/Program.cs` (permanent irreducible entry point) | 25 | 1 |
+| **Permanent production boundaries** | **957** | **7** |
+| `editors/visualstudio` (separate, low-priority IDE host; outside this decision) | 359 | 4 |
+| **All listed production C#** | **1,316** | **11** |
 
 The C# count uses the existing `find <project> -name '*.cs' -not -path '*/obj/*' -not -path
 '*/bin/*' | xargs wc -l` procedure.
 
-**Still owed:** rendered visual VS Code proof (computer-use was unavailable or timed out); the
-Runtime / Playground.Wasm ownership-boundary decision; deletion of 16 landed `origin/claude/*` refs,
-awaiting the owner; and Core's front door from 355 to zero.
+**Owner decision 2026-10-07:** Runtime, Playground.Wasm and `Cli/Program.cs` are documented,
+permanent boundaries. Their files may shrink but never grow, and they must not take on compiler or
+tooling logic. The ownership audit records their exact rows with `state: permanent-boundary` and
+rejects any other active production C# path. `editors/visualstudio` remains a separate low-priority
+IDE host outside this decision.
+
+**Still owed:** rendered visual VS Code proof (computer-use was unavailable or timed out); deletion
+of 16 landed `origin/claude/*` refs, awaiting the owner; and Core's front door from 355 to zero.
 
 ## Census wave 18 — history (superseded 2026-10-05)
 

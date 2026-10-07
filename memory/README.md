@@ -24,6 +24,12 @@ current compiler-wide completion. CLI/editor features and broader branch work st
 recorded; SDK/tooling changes are in scope only as demonstrated compiler migration dependencies.
 Do not preserve fallback emitters or expand `*DogfoodAdapter` layers into product architecture.
 
+The owner decision of 2026-10-07 records exactly three permanent production C# boundaries:
+`src/NSharpLang.Runtime`, `src/NSharpLang.Playground.Wasm`, and `src/NSharpLang.Cli/Program.cs`.
+They may shrink, never grow, and must not take on compiler/tooling logic. `editors/visualstudio`
+remains a separate low-priority IDE host. The ownership policy rejects any other active production
+C# path; see [the boundary decision and ratchet](architecture.md#permanent-production-csharp-boundaries).
+
 Compiler-service kernels are statically compiled through `NSharpLang.Compiler.Core`;
 product paths must not use `Assembly.Load`/delegate reflection for N# compiler services. Because
 Compiler Core is built by the pinned stage-0 SDK, any kernel that uses a tip-only language or

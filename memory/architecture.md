@@ -620,9 +620,30 @@ and deletion. Do not preserve it because an older doc called it an inspection su
 
 ## Non-N# survivors
 
-This is the durable location for the final closeout allowlist. During the migration, absence from
-this section does not make a non-N# file acceptable; it remains product-ownership debt until its
-N# replacement is in the product path or the final audit proves it is mechanical integration.
+This is the durable location for permanent boundaries and the final closeout allowlist. During the
+migration, absence from this section does not make a non-N# file acceptable; it remains
+product-ownership debt until its N# replacement is in the product path or the final audit proves it
+is mechanical integration.
+
+<a id="permanent-production-csharp-boundaries"></a>
+
+### Permanent production C# boundaries — owner decision 2026-10-07
+
+The owner decided these three production C# owners are permanent language/runtime boundaries. Their
+code may shrink but must never grow, and none may take on compiler or tooling logic. The audit marks
+their rows `state: "permanent-boundary"`, derives a boundary-specific surface and
+`campaignScope: "permanent-boundary"`, and applies the ordinary immutable code epoch ceiling. Any
+other active production C# row is rejected; an unlisted C# file is rejected as a new code file.
+
+| Boundary | Responsibility | Current ratchet size |
+|---|---|---:|
+| `src/NSharpLang.Runtime` | Low-level runtime support library that N# programs execute against; C# is the natural BCL-adjacent, performance-sensitive owner | 861 lines / 4 files |
+| `src/NSharpLang.Playground.Wasm` | Thin browser/WebAssembly host bridge for the web playground | 71 lines / 2 files |
+| `src/NSharpLang.Cli/Program.cs` | Irreducible CLI entry point | 25 lines / 1 file |
+
+`editors/visualstudio` remains a separate, low-priority IDE host at 359 lines across 4 files; it is
+outside this owner decision. Its four existing files remain explicitly visible to the audit. The
+ownership policy does not admit additional active production C# paths under `src/` or `editors/`.
 
 ### Current compiler boundary, 2026-09-09
 
@@ -739,12 +760,13 @@ comparable programs; it retires when the playground runs emitted IL in the brows
 sentences and 7 ordering sites — and retires with the same Playground task.
 
 The ratchet at `tests/native/ownership-audit/non-nsharp-growth-ratchet.v2.json` enforces this
-allowlist mechanically. Since the E1 epoch it holds two row classes: CODE rows (C#, TypeScript,
-JavaScript, Python, and the other implementation languages) may not grow past their epoch ceiling
-(`OWN004`), and a new code file is refused outright (`OWN003` — *"new unclassified non-N# file;
-implement this behavior in N# or remove the file"*); DELIVERY rows (config, MSBuild, shell and
-binary surfaces) carry no ceiling but an exact reviewed fingerprint, so any drift is reported
-(`OWN005`) and a new delivery file is admitted only by adding its row in a reviewed repin. `tasks/README.md` is the ordered vertical ownership queue and
+allowlist mechanically. Since the E1 epoch it holds CODE rows (implementation languages) under
+immutable growth ceilings (`OWN004`); new code files are refused outright (`OWN003`). The
+`permanent-boundary` state is accepted only for the exact seven Runtime, Playground.Wasm and CLI
+source paths above, while all other active production C# paths fail policy validation. DELIVERY rows
+(config, MSBuild, shell and binary surfaces) carry no ceiling but an exact reviewed fingerprint, so
+any drift is reported (`OWN005`) and a new delivery file is admitted only by adding its row in a
+reviewed repin. `tasks/README.md` is the ordered vertical ownership queue and
 `systems-language-closeout/STATUS.md` is its cursor/evidence ledger.
 
 ## Build And Test Commands

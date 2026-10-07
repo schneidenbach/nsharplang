@@ -448,12 +448,13 @@ test "ownership policy rejects noncanonical paths and unknown product code" {
     assert OwnershipPolicy.ShouldSkipDirectory("editors/vscode/out")
     assert OwnershipPolicy.ShouldSkipDirectory("examples/demo/.nsharp")
     assert OwnershipPolicy.ShouldSkipDirectory(".claude")
+    assert OwnershipPolicy.ShouldSkipDirectory(".nlc")
     assert !OwnershipPolicy.ShouldSkipDirectory("src/NSharpLang.Compiler/out")
     assert !OwnershipPolicy.ShouldSkipDirectory("src/NSharpLang.Compiler/server")
 }
 
 test "strict schema accepts unchanged files and reviewed reductions" {
-    path := "src/NSharpLang.Compiler/Parser.cs"
+    path := "tests/Parser.cs"
     text := "class Parser {}\n"
     unchanged := OwnershipAudit.AuditSnapshot(
         OwnershipFixtureOne(path, text, 0),
@@ -615,6 +616,92 @@ test "growth ratchet rejects new files metric growth assertion growth and finger
     assert drift.HasCode("OWN005")
 }
 
+test "permanent production C# boundaries are exact allowlisted shrink-only owners" {
+    runtimePath := "src/NSharpLang.Runtime/Result.cs"
+    runtime := OwnershipPolicy.Classify(runtimePath)
+    assert runtime.Surface == "runtime"
+    assert runtime.CampaignScope == "permanent-boundary"
+    assert OwnershipPolicy.IsPermanentBoundaryPath(runtimePath)
+
+    wasmPath := "src/NSharpLang.Playground.Wasm/PlaygroundExports.cs"
+    wasm := OwnershipPolicy.Classify(wasmPath)
+    assert wasm.Surface == "playground-wasm-host"
+    assert wasm.CampaignScope == "permanent-boundary"
+    assert OwnershipPolicy.IsPermanentBoundaryPath(wasmPath)
+
+    cliPath := "src/NSharpLang.Cli/Program.cs"
+    cli := OwnershipPolicy.Classify(cliPath)
+    assert cli.Surface == "cli-entry-point"
+    assert cli.CampaignScope == "permanent-boundary"
+    assert OwnershipPolicy.IsPermanentBoundaryPath(cliPath)
+    assert !OwnershipPolicy.IsPermanentBoundaryPath("src/NSharpLang.Runtime/Future.cs")
+    assert OwnershipPolicy.IsProductionCSharpPath("SRC/NSharpLang.Compiler/Future.cs")
+
+    currentText := "class Result {}\n"
+    observed := OwnershipFixtureObserved(runtimePath, currentText)
+    boundaryEntries := new List<OwnershipFixtureEntryValue>()
+    boundaryEntries.Add(OwnershipFixtureEntry(
+        observed,
+        "permanent-boundary",
+        observed.Lines + 1,
+        observed.NonBlankLines + 1,
+        observed.AssertionMarkers,
+        observed.Lines,
+        observed.NonBlankLines,
+        observed.AssertionMarkers,
+        0,
+        0,
+        observed.Fingerprint
+    ))
+    boundaryManifest := OwnershipFixtureManifest(boundaryEntries, 2, "growth-ratchet", 0, "")
+    assert OwnershipAudit.AuditSnapshot(boundaryManifest, OwnershipFixtureObservedList(runtimePath, currentText), false).Succeeded
+
+    expandedText := currentText + "class More {}\n"
+    growth := OwnershipAudit.AuditSnapshot(
+        boundaryManifest,
+        OwnershipFixtureObservedList(runtimePath, expandedText),
+        false
+    )
+    assert growth.HasCode("OWN004")
+
+    futurePath := "src/NSharpLang.Compiler/FutureOwner.cs"
+    futureText := "class FutureOwner {}\n"
+    futureEntries := new List<OwnershipFixtureEntryValue>()
+    futureEntries.Add(OwnershipFixtureExistingEntry(futurePath, futureText, 0))
+    futureManifest := OwnershipFixtureManifest(futureEntries, 2, "growth-ratchet", 0, "")
+    future := OwnershipAudit.AuditSnapshot(futureManifest, OwnershipFixtureObservedList(futurePath, futureText), false)
+    assert future.HasCode("OWN001")
+
+    futureObserved := OwnershipFixtureObserved(futurePath, futureText)
+    falseBoundaryEntries := new List<OwnershipFixtureEntryValue>()
+    falseBoundaryEntries.Add(OwnershipFixtureEntry(
+        futureObserved,
+        "permanent-boundary",
+        futureObserved.Lines,
+        futureObserved.NonBlankLines,
+        futureObserved.AssertionMarkers,
+        futureObserved.Lines,
+        futureObserved.NonBlankLines,
+        futureObserved.AssertionMarkers,
+        0,
+        0,
+        futureObserved.Fingerprint
+    ))
+    falseBoundaryManifest := OwnershipFixtureManifest(falseBoundaryEntries, 2, "growth-ratchet", 0, "")
+    assert OwnershipAudit.AuditSnapshot(
+        falseBoundaryManifest,
+        OwnershipFixtureObservedList(futurePath, futureText),
+        false
+    ).HasCode("OWN001")
+
+    unlisted := OwnershipAudit.AuditSnapshot(
+        boundaryManifest,
+        OwnershipFixtureObservedList(futurePath, futureText),
+        false
+    )
+    assert unlisted.HasCode("OWN003")
+}
+
 test "active debt must become removed and removed paths can never reappear" {
     path := "src/NSharpLang.Compiler/Parser.cs"
     text := "class Parser {}\n"
@@ -658,7 +745,7 @@ test "epoch count and path-set fingerprint are immutable facts" {
 }
 
 test "reviewed policy constants prevent manifest-only epoch and head rebaselines" {
-    path := "src/NSharpLang.Compiler/Parser.cs"
+    path := "tests/Parser.cs"
     originalText := "class Parser {}\n"
 
     originalEntries := new List<OwnershipFixtureEntryValue>()
@@ -782,15 +869,15 @@ test "runtime and native-reference surfaces are explicit campaign exclusions not
 }
 
 test "multi-error reports are deterministic complete and actionable" {
-    firstPath := "src/NSharpLang.Compiler/A.cs"
-    secondPath := "src/NSharpLang.Compiler/B.cs"
+    firstPath := "tests/native-fixtures/A.cs"
+    secondPath := "tests/native-fixtures/B.cs"
     manifest := OwnershipFixtureOne(firstPath, "class A {}\n", 0)
     result := OwnershipAudit.AuditSnapshot(
         manifest,
         OwnershipFixtureObservedList(secondPath, "class B {}\n"),
         false
     )
-    expected := "N# ownership growth audit failed with 2 violation(s):\n" + "  OWN006 [src/NSharpLang.Compiler/A.cs]: active debt entry disappeared; mark it removed in the same deletion commit\n" + "  OWN003 [src/NSharpLang.Compiler/B.cs]: new unclassified non-N# file; implement this behavior in N# or remove the file. Do not add it to the E1 code epoch\n"
+    expected := "N# ownership growth audit failed with 2 violation(s):\n" + "  OWN006 [tests/native-fixtures/A.cs]: active debt entry disappeared; mark it removed in the same deletion commit\n" + "  OWN003 [tests/native-fixtures/B.cs]: new unclassified non-N# file; implement this behavior in N# or remove the file. Do not add it to the E1 code epoch\n"
     assert result.Report() == expected
 }
 

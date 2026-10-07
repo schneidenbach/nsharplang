@@ -33,6 +33,13 @@ as product architecture.
 Current legacy compiler-core and tooling code is deletion debt. Replace it with N# and remove the old
 owner. A slice that routes through N# but leaves the legacy owner required is not done.
 
+The only permanent production C# boundaries are `src/NSharpLang.Runtime` (the low-level runtime
+support library N# programs execute against), `src/NSharpLang.Playground.Wasm` (the browser/WebAssembly
+host bridge), and `src/NSharpLang.Cli/Program.cs` (the irreducible CLI entry point). Their files may
+shrink but must never grow, and these boundaries must not take on compiler or tooling logic. The
+`editors/visualstudio` C# host remains a separate, low-priority IDE host outside this decision. Any
+other production C# owner remains deletion debt; the ownership audit must reject its appearance.
+
 Treat `*DogfoodAdapter` types as temporary transition boundaries, not product architecture. Do not
 expand them into permanent service layers; shrink or remove them as accepted N# slices are routed
 directly into production paths.

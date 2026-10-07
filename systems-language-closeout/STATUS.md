@@ -31,13 +31,14 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-### Census wave 20 — current closeout cursor (2026-10-05 → 2026-10-06)
+### Census wave 20 — current closeout cursor (2026-10-05 → 2026-10-07)
 
 **Tip.** Product history `50816f3c8..28dfd91b2`; the five agent-latency branches integrated at
 `320cd5f92`. The compiler-performance gate then moved to exact counters and paired base/head timing
 (`d4fd32072..3869876eb`). Full receipts and measurements are in `tasks/TOOLCHAIN-NATIVE.md`;
 the one-owner integration is in `memory/architecture.md`, and measured agent-loop rows are in
-`memory/testing.md` §8a.
+`memory/testing.md` §8a. The owner decision for the remaining production C# boundaries was recorded
+2026-10-07.
 
 | Current item | State at `28dfd91b2` | Receipt |
 |---|---|---|
@@ -46,11 +47,14 @@ the one-owner integration is in `memory/architecture.md`, and measured agent-loo
 | Repository-root check | **STRUCTURAL**; discovered members/files and parse/reference budgets gate; references pre-resolve before concurrent analysis | `23eb67c1a..d4f10f232` |
 | Self-host front door | **0 / 0 across all eleven projects**; Core **355 → 0**, Compiler **5 → 0** | `28dfd91b2`; `combined-28dfd91b2/gate-nonvs.log` |
 | Latest gate | non-VS **PASS**, **154 projects / 5,382 tests: 5,381 passed, 0 failed, 1 skipped**; `GATE EXIT 0` | `combined-28dfd91b2/gate-nonvs.log` |
-| Ownership audit | **25/25**, run after the documentation edits | `tests/native/ownership-audit`; wave-20 gate evidence |
+| Production C# boundary decision | **DECIDED 2026-10-07**; Runtime, Playground.Wasm and CLI entry point are permanent, shrink-only boundaries; Visual Studio remains a separate low-priority host | `AGENTS.md`; `memory/architecture.md`; `tasks/TOOLCHAIN-NATIVE.md` |
+| Ownership audit | **26/26**; permanent-boundary state is pinned to the seven named source files and other active production C# fails policy | `tests/native/ownership-audit`; current worktree run |
 
-**Still owed:** rendered visual VS Code proof; the remaining-C# boundary decision (Runtime **861**,
-Playground.Wasm **71**, CLI **25**, Visual Studio editor **359** lines); deletion of **16** landed
-`origin/claude/*` refs, awaiting the owner.
+**Still owed:** rendered visual VS Code proof and deletion of **16** landed `origin/claude/*` refs,
+awaiting the owner. The permanent C# boundary census is Runtime **861** lines / 4 files,
+Playground.Wasm **71** / 2, CLI entry point **25** / 1; the separate Visual Studio IDE host is
+**359** / 4. The three production boundaries may shrink but never grow and may not own compiler or
+tooling logic; the ownership audit rejects any other active production C# path.
 
 **Next:** agent-loop part 2 — check without emit, one shared reference-metadata context across
 analyzer/emitter/workers, incremental emit, and LanguageServer stale-library handling. Then full
