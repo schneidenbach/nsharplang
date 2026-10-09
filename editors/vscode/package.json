@@ -22,6 +22,9 @@
     "Formatters"
   ],
   "icon": "icon.png",
+  "config": {
+    "vscodeTestVersion": "1.138.0"
+  },
   "keywords": [
     "nsharp",
     "n#",
@@ -155,7 +158,7 @@
     "pretest": "npm run build-server && npm run compile",
     "test": "npm run test:launch-policy && node ./out/test/runTest.js",
     "test:headless": "npm run test:launch-policy && node ./out/src/test/runTest.js",
-    "test:launch-policy": "npm run compile && node --test test/vscodeTestLaunchPolicy.test.cjs",
+    "test:launch-policy": "npm run compile && nlc test --project ../../tests/native/vscode-launch-policy --filter \"VS Code launch policy\"",
     "test:smoke": "npm run test:launch-policy && TEST_SUITE=extension,diagnostics,hover,completion node ./out/test/runTest.js"
   },
   "dependencies": {

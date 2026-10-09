@@ -146,10 +146,8 @@ echo -e "${GREEN}✓ Server published${NC}"
 
 echo
 echo -e "${YELLOW}Step 4: Compiling TypeScript${NC}"
-npm run compile
-echo -e "${GREEN}✓ TypeScript compiled${NC}"
-node --test test/vscodeTestLaunchPolicy.test.cjs
-echo -e "${GREEN}✓ VS Code launch policy guard passed${NC}"
+npm run test:launch-policy
+echo -e "${GREEN}✓ TypeScript compiled and VS Code launch policy guards passed${NC}"
 
 echo
 echo -e "${YELLOW}Step 5: Running VS Code Integration Tests${NC}"
@@ -160,7 +158,7 @@ echo "(This will download VS Code if needed and may take a minute...)"
 echo
 
 VSCODE_TEST_CACHE="${NSHARP_VSCODE_TEST_CACHE:-${NSHARP_VSCODE_CACHE_PATH:-.vscode-test}}"
-VSCODE_TEST_VERSION="$(cat test/vscode-test-version)"
+VSCODE_TEST_VERSION="$(node -p "require('./package.json').config.vscodeTestVersion")"
 echo -e "${GREEN}✓ Using pinned VS Code $VSCODE_TEST_VERSION for test-electron${NC}"
 
 # @vscode/test-electron reuses editors/vscode/.vscode-test between runs. If a

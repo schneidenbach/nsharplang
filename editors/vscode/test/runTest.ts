@@ -1,21 +1,20 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import * as childProcess from 'child_process';
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
-import {
-    createVSCodeTestLaunchArgs,
-    removeMacQuarantineFromVSCode,
-    resolveVSCodeTestCachePath,
-    vscodeTestVersion,
-    writeVSCodeTestSettings
-} from './vscodeTestLaunchPolicy';
 
 async function main() {
     let profileRoot: string | undefined;
     try {
         const extensionDevelopmentPath = path.resolve(__dirname, '../../');
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
-        const vscodeCachePath = resolveVSCodeTestCachePath(extensionDevelopmentPath);
+        const vscodeCachePath = process.env.NSHARP_VSCODE_TEST_CACHE?.trim()
+            || process.env.NSHARP_VSCODE_CACHE_PATH?.trim()
+            || path.join(extensionDevelopmentPath, '.vscode-test');
+        const vscodeTestVersion = (require(path.join(extensionDevelopmentPath, 'package.json')) as {
+            config: { vscodeTestVersion: string }
+        }).config.vscodeTestVersion;
         const profileParent = process.env.NSHARP_VSCODE_PROFILE_ROOT?.trim() || os.tmpdir();
 
         // Default to the simple fixture workspace
@@ -32,14 +31,31 @@ async function main() {
         const extensionsDir = path.join(profileRoot, 'extensions');
         fs.mkdirSync(userDataDir, { recursive: true });
         fs.mkdirSync(extensionsDir, { recursive: true });
-        writeVSCodeTestSettings(userDataDir);
+        const settingsPath = path.join(userDataDir, 'User', 'settings.json');
+        fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+        fs.writeFileSync(settingsPath, JSON.stringify({
+            'update.mode': 'none',
+            'update.showReleaseNotes': false,
+            'extensions.autoUpdate': 'off',
+            'extensions.autoCheckUpdates': false,
+            'telemetry.telemetryLevel': 'off',
+            'security.workspace.trust.enabled': false,
+            'workbench.startupEditor': 'none'
+        }, null, 2));
 
         const vscodeExecutablePath = await downloadAndUnzipVSCode({
             version: vscodeTestVersion,
             cachePath: vscodeCachePath,
             extensionDevelopmentPath
         });
-        await removeMacQuarantineFromVSCode(vscodeExecutablePath);
+        if (process.platform === 'darwin') {
+            const appBundle = vscodeExecutablePath.match(/^(.*?\.app)(?:\/|$)/)?.[1];
+            if (!appBundle) throw new Error(`VS Code executable is outside an app bundle: ${vscodeExecutablePath}`);
+            const attributes = childProcess.execFileSync('xattr', ['-lr', appBundle], { encoding: 'utf8' });
+            if (attributes.includes('com.apple.quarantine')) {
+                childProcess.execFileSync('xattr', ['-dr', 'com.apple.quarantine', appBundle], { stdio: 'ignore' });
+            }
+        }
 
         console.log('=== N# VS Code Integration Tests ===');
         console.log(`Extension: ${extensionDevelopmentPath}`);
@@ -67,7 +83,19 @@ async function main() {
             extensionTestsEnv,
             vscodeExecutablePath,
             launchArgs: [
-                ...createVSCodeTestLaunchArgs(testWorkspace, userDataDir, extensionsDir),
+                testWorkspace,
+                '--disable-updates',
+                '--disable-telemetry',
+                '--skip-welcome',
+                '--skip-release-notes',
+                '--disable-workspace-trust',
+                '--disable-experiments',
+                '--use-inmemory-secretstorage',
+                '--disable-gpu',
+                ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
+                ...(process.platform === 'linux' ? ['--password-store=basic'] : []),
+                `--user-data-dir=${userDataDir}`,
+                `--extensions-dir=${extensionsDir}`,
                 '--disable-extension',
                 'vscode.git',
                 '--disable-extension',

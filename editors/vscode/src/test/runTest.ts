@@ -1,14 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as childProcess from 'child_process';
 import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
-import {
-    createVSCodeTestLaunchArgs,
-    removeMacQuarantineFromVSCode,
-    resolveVSCodeTestCachePath,
-    vscodeTestVersion,
-    writeVSCodeTestSettings
-} from '../../test/vscodeTestLaunchPolicy';
 
 async function main(): Promise<void> {
     const extensionDevelopmentPath = path.resolve(__dirname, '../../..');
@@ -17,7 +11,12 @@ async function main(): Promise<void> {
         ?? path.join(repoRoot, '.context', 'vscode-headless-report.json');
     const serverPath = process.env.NSHARP_VSCODE_SERVER_PATH
         ?? path.join(repoRoot, 'src', 'NSharpLang.LanguageServer', 'bin', 'Release', 'net10.0', 'LanguageServer.dll');
-    const vscodeCachePath = resolveVSCodeTestCachePath(extensionDevelopmentPath);
+    const vscodeCachePath = process.env.NSHARP_VSCODE_TEST_CACHE?.trim()
+        || process.env.NSHARP_VSCODE_CACHE_PATH?.trim()
+        || path.join(extensionDevelopmentPath, '.vscode-test');
+    const vscodeTestVersion = (require(path.join(extensionDevelopmentPath, 'package.json')) as {
+        config: { vscodeTestVersion: string }
+    }).config.vscodeTestVersion;
 
     if (!fs.existsSync(serverPath)) {
         throw new Error(`Language server binary not found: ${serverPath}`);
@@ -29,9 +28,18 @@ async function main(): Promise<void> {
     const userDataDir = path.join(profileRoot, 'user-data');
     const extensionsDir = path.join(profileRoot, 'extensions');
 
-    fs.mkdirSync(userDataDir, { recursive: true });
-    fs.mkdirSync(extensionsDir, { recursive: true });
-    writeVSCodeTestSettings(userDataDir);
+    for (const directory of [userDataDir, extensionsDir]) fs.mkdirSync(directory, { recursive: true });
+    const settingsPath = path.join(userDataDir, 'User', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({
+        'update.mode': 'none',
+        'update.showReleaseNotes': false,
+        'extensions.autoUpdate': 'off',
+        'extensions.autoCheckUpdates': false,
+        'telemetry.telemetryLevel': 'off',
+        'security.workspace.trust.enabled': false,
+        'workbench.startupEditor': 'none'
+    }, null, 2));
 
     process.env.NSHARP_VSCODE_FIXTURE_ROOT = workspaceRoot;
     process.env.NSHARP_VSCODE_REPORT_PATH = reportPath;
@@ -43,7 +51,12 @@ async function main(): Promise<void> {
             cachePath: vscodeCachePath,
             extensionDevelopmentPath
         });
-        await removeMacQuarantineFromVSCode(vscodeExecutablePath);
+        if (process.platform === 'darwin') {
+            const appBundle = vscodeExecutablePath.match(/^(.*?\.app)(?:\/|$)/)?.[1];
+            if (!appBundle) throw new Error(`VS Code executable is outside an app bundle: ${vscodeExecutablePath}`);
+            const attributes = childProcess.execFileSync('xattr', ['-lr', appBundle], { encoding: 'utf8' });
+            if (attributes.includes('com.apple.quarantine')) childProcess.execFileSync('xattr', ['-dr', 'com.apple.quarantine', appBundle], { stdio: 'ignore' });
+        }
 
         await runTests({
             extensionDevelopmentPath,
@@ -55,7 +68,19 @@ async function main(): Promise<void> {
                 NSHARP_VSCODE_SERVER_PATH: serverPath
             },
             launchArgs: [
-                ...createVSCodeTestLaunchArgs(workspaceRoot, userDataDir, extensionsDir),
+                workspaceRoot,
+                '--disable-updates',
+                '--disable-telemetry',
+                '--skip-welcome',
+                '--skip-release-notes',
+                '--disable-workspace-trust',
+                '--disable-experiments',
+                '--use-inmemory-secretstorage',
+                '--disable-gpu',
+                ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
+                ...(process.platform === 'linux' ? ['--password-store=basic'] : []),
+                `--user-data-dir=${userDataDir}`,
+                `--extensions-dir=${extensionsDir}`,
                 '--disable-extension',
                 'vscode.git',
                 '--disable-extension',

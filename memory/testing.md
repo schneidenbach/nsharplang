@@ -1592,12 +1592,12 @@ content-hashed outputs; source or dependency changes still rebuild the required 
 - Headless VS Code extension-host smoke tests live under `editors/vscode/src/test`
 - `./scripts/test-vscode-headless.sh` builds the release server, launches VS Code in extension-host mode, exercises diagnostics/completions/hover/definition/references/code actions, and writes `.context/vscode-headless-report.json`; the implementation lives under `tests/scripts/`
 
-VS Code integration and headless test launches use a pinned version from
-`editors/vscode/test/vscode-test-version`, isolated user data and extension directories, and
+VS Code integration and headless test launches use the pinned `config.vscodeTestVersion` in
+`editors/vscode/package.json`, isolated user data and extension directories, and
 settings that disable updates, release notes, extension update checks, telemetry, workspace trust,
 and the startup editor. On macOS they remove `com.apple.quarantine` from the downloaded app before
-launch and pass `--use-mock-keychain`; on Linux they use `--password-store=basic`. The launch policy
-has a no-GUI Node test and is included in `npm run test:smoke` and the shell integration harness.
+launch and pass `--use-mock-keychain`; on Linux they use `--password-store=basic`. Five no-GUI Node
+contract tests guard the launch policy and run from `npm run test:smoke` and the shell integration harness.
 Do not reuse the developer's installed VS Code binary or profile for test runs.
 
 ### Code Intelligence Tests (CLI Toolchain)
