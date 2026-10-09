@@ -13,7 +13,7 @@ SAMPLE_PROJECT="${NSHARP_VSCODE_SAMPLE_PROJECT:-$NSHARP_REPO_ROOT/examples/01-he
 for required in dotnet npm npx code; do nsharp_require_command "$required"; done
 
 printf '%s\n' "N# VS Code Extension Quick Reload" "=================================" ""
-echo "1. Killing VS Code and waiting for it to exit..."
+echo "1. Quitting VS Code gracefully and waiting for it to exit..."
 nsharp_kill_vscode
 
 echo "2. Building language server and packaging VSIX..."
@@ -23,13 +23,16 @@ VSIX_FILE="$(nsharp_latest_vscode_vsix)"; echo "   Created: $VSIX_FILE"
 echo "3. Installing extension..."
 nsharp_run code --install-extension "$VSIX_FILE" --force
 
-echo "4. Opening sample project: $SAMPLE_PROJECT"
-nsharp_run code "$SAMPLE_PROJECT"
+echo "4. Relaunching VS Code and restoring its previous windows..."
+nsharp_relaunch_vscode_restoring_windows
+
+echo "5. Opening sample project in a new window: $SAMPLE_PROJECT"
+nsharp_open_vscode_sample_in_new_window "$SAMPLE_PROJECT"
 
 # THE PROOF LINE. `pgrep -f 'LanguageServer.dll' | head -n 1` proved nothing: `head -n 1` takes the LOWEST pid, which is a stale orphan
 # (every orphan has ppid 1), and `-n` alone names the .NET Roslyn server, whose own command line carries the ERE in an
 # `--extension .../Microsoft.VisualStudio.Copilot.Roslyn.LanguageServer.dll` argument. The newest plugin host's CHILD cannot be either.
-echo "5. Language server under test:"
+echo "6. Language server under test:"
 for _ in $(seq 0 60); do
     HELPER_PID="$(pgrep -n -f 'Code Helper \(Plugin\)' || true)"
     SERVER_PID="$(pgrep -n -P "$HELPER_PID" -f 'server/LanguageServer\.dll --stdio' 2>/dev/null || true)"

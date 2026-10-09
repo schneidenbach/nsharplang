@@ -7,8 +7,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/NewCLILang"
+    "url": "https://github.com/schneidenbach/nsharplang"
   },
+  "bugs": {
+    "url": "https://github.com/schneidenbach/nsharplang/issues"
+  },
+  "homepage": "https://schneidenbach.github.io/nsharplang",
   "engines": {
     "vscode": "^1.75.0"
   },

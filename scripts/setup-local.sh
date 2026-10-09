@@ -287,7 +287,8 @@ deploy_local_toolset() {
         nsharp_run code --install-extension "$vscode_vsix" --force
 
         if [[ "$RESTART_VSCODE" -eq 1 ]]; then
-            nsharp_run code "$SAMPLE_PROJECT"
+            nsharp_relaunch_vscode_restoring_windows
+            nsharp_open_vscode_sample_in_new_window "$SAMPLE_PROJECT"
         fi
     fi
 
