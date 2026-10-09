@@ -153,15 +153,16 @@
     "watch": "node ./node_modules/typescript/lib/tsc.js -watch -p ./",
     "package": "npm run build-server && vsce package",
     "pretest": "npm run build-server && npm run compile",
-    "test": "node ./out/test/runTest.js",
-    "test:headless": "node ./out/src/test/runTest.js",
-    "test:smoke": "TEST_SUITE=extension,diagnostics,hover,completion node ./out/test/runTest.js"
+    "test": "npm run test:launch-policy && node ./out/test/runTest.js",
+    "test:headless": "npm run test:launch-policy && node ./out/src/test/runTest.js",
+    "test:launch-policy": "npm run compile && node --test test/vscodeTestLaunchPolicy.test.cjs",
+    "test:smoke": "npm run test:launch-policy && TEST_SUITE=extension,diagnostics,hover,completion node ./out/test/runTest.js"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
-    "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-electron": "3.1.0",
     "@types/mocha": "^10.0.7",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",

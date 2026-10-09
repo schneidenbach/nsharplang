@@ -1,7 +1,14 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { runTests } from '@vscode/test-electron';
+import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
+import {
+    createVSCodeTestLaunchArgs,
+    removeMacQuarantineFromVSCode,
+    resolveVSCodeTestCachePath,
+    vscodeTestVersion,
+    writeVSCodeTestSettings
+} from '../../test/vscodeTestLaunchPolicy';
 
 async function main(): Promise<void> {
     const extensionDevelopmentPath = path.resolve(__dirname, '../../..');
@@ -10,9 +17,7 @@ async function main(): Promise<void> {
         ?? path.join(repoRoot, '.context', 'vscode-headless-report.json');
     const serverPath = process.env.NSHARP_VSCODE_SERVER_PATH
         ?? path.join(repoRoot, 'src', 'NSharpLang.LanguageServer', 'bin', 'Release', 'net10.0', 'LanguageServer.dll');
-    const vscodeExecutablePath = resolveMachineVSCodeExecutable();
-    const vscodeCachePath = process.env.NSHARP_VSCODE_CACHE_PATH
-        ?? path.join(resolveCacheRoot(), 'NSharpLang', 'vscode-test');
+    const vscodeCachePath = resolveVSCodeTestCachePath(extensionDevelopmentPath);
 
     if (!fs.existsSync(serverPath)) {
         throw new Error(`Language server binary not found: ${serverPath}`);
@@ -26,29 +31,31 @@ async function main(): Promise<void> {
 
     fs.mkdirSync(userDataDir, { recursive: true });
     fs.mkdirSync(extensionsDir, { recursive: true });
+    writeVSCodeTestSettings(userDataDir);
 
     process.env.NSHARP_VSCODE_FIXTURE_ROOT = workspaceRoot;
     process.env.NSHARP_VSCODE_REPORT_PATH = reportPath;
     process.env.NSHARP_VSCODE_SERVER_PATH = serverPath;
 
     try {
+        const vscodeExecutablePath = await downloadAndUnzipVSCode({
+            version: vscodeTestVersion,
+            cachePath: vscodeCachePath,
+            extensionDevelopmentPath
+        });
+        await removeMacQuarantineFromVSCode(vscodeExecutablePath);
+
         await runTests({
             extensionDevelopmentPath,
             extensionTestsPath,
+            vscodeExecutablePath,
             extensionTestsEnv: {
                 NSHARP_VSCODE_FIXTURE_ROOT: workspaceRoot,
                 NSHARP_VSCODE_REPORT_PATH: reportPath,
                 NSHARP_VSCODE_SERVER_PATH: serverPath
             },
-            ...(vscodeExecutablePath ? { vscodeExecutablePath } : { cachePath: vscodeCachePath }),
-            reuseMachineInstall: true,
             launchArgs: [
-                workspaceRoot,
-                '--disable-workspace-trust',
-                '--skip-welcome',
-                '--skip-release-notes',
-                '--disable-gpu',
-                '--password-store=basic',
+                ...createVSCodeTestLaunchArgs(workspaceRoot, userDataDir, extensionsDir),
                 '--disable-extension',
                 'vscode.git',
                 '--disable-extension',
@@ -62,48 +69,13 @@ async function main(): Promise<void> {
                 '--disable-extension',
                 'github.copilot',
                 '--disable-extension',
-                'github.copilot-chat',
-                `--user-data-dir=${userDataDir}`,
-                `--extensions-dir=${extensionsDir}`
+                'github.copilot-chat'
             ]
         });
     } finally {
         fs.rmSync(profileRoot, { recursive: true, force: true });
         fs.rmSync(workspaceRoot, { recursive: true, force: true });
     }
-}
-
-function resolveMachineVSCodeExecutable(): string | undefined {
-    const explicit = process.env.NSHARP_VSCODE_EXECUTABLE_PATH;
-    if (explicit && fs.existsSync(explicit)) {
-        return explicit;
-    }
-
-    if (process.platform === 'darwin') {
-        for (const candidate of [
-            '/Applications/Visual Studio Code.app/Contents/MacOS/Code',
-            '/Applications/Visual Studio Code.app/Contents/MacOS/Electron'
-        ]) {
-            if (fs.existsSync(candidate)) {
-                return candidate;
-            }
-        }
-    }
-
-    return undefined;
-}
-
-function resolveCacheRoot(): string {
-    if (process.env.XDG_CACHE_HOME) {
-        return process.env.XDG_CACHE_HOME;
-    }
-    if (process.platform === 'darwin') {
-        return path.join(os.homedir(), 'Library', 'Caches');
-    }
-    if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
-        return process.env.LOCALAPPDATA;
-    }
-    return path.join(os.homedir(), '.cache');
 }
 
 function createFixtureWorkspace(serverPath: string): string {

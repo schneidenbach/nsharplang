@@ -67,13 +67,37 @@ nsharp_kill_vscode() {
 }
 
 nsharp_relaunch_vscode_restoring_windows() {
+    local -a launch_args=(
+        --disable-updates
+        --disable-telemetry
+        --skip-welcome
+        --skip-release-notes
+    )
+
     if [[ "$(uname -s)" == "Darwin" ]]; then
-        nsharp_run open -a "Visual Studio Code"
+        launch_args+=(--use-mock-keychain)
+        nsharp_run open -a "Visual Studio Code" --args "${launch_args[@]}"
     else
-        nsharp_run code
+        if [[ "$(uname -s)" == "Linux" ]]; then
+            launch_args+=(--password-store=basic)
+        fi
+        nsharp_run code "${launch_args[@]}"
     fi
 }
 
 nsharp_open_vscode_sample_in_new_window() {
-    nsharp_run code -n "$1"
+    local -a launch_args=(
+        --disable-updates
+        --disable-telemetry
+        --skip-welcome
+        --skip-release-notes
+    )
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        launch_args+=(--use-mock-keychain)
+    elif [[ "$(uname -s)" == "Linux" ]]; then
+        launch_args+=(--password-store=basic)
+    fi
+
+    nsharp_run code "${launch_args[@]}" -n "$1"
 }

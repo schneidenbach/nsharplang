@@ -1155,9 +1155,6 @@ if [ "$VSCODE_TEST_MODE" = "skip" ]; then
 else
     # Check prerequisites
     VSCODE_SKIP_REASON=""
-    if ! command -v code >/dev/null 2>&1; then
-        VSCODE_SKIP_REASON="VS Code ('code' command) not found on PATH"
-    fi
     if ! command -v node >/dev/null 2>&1; then
         VSCODE_SKIP_REASON="Node.js ('node' command) not found on PATH"
     fi
@@ -1165,9 +1162,8 @@ else
     if [ -n "$VSCODE_SKIP_REASON" ]; then
         echo -e "${RED}ERROR: $VSCODE_SKIP_REASON${NC}"
         echo "VS Code integration tests require:"
-        echo "  - VS Code: https://code.visualstudio.com/"
         echo "  - Node.js: https://nodejs.org/"
-        echo "  - 'code' CLI: VS Code > Cmd+Shift+P > 'Shell Command: Install code command'"
+        echo "  - .NET SDK: https://dotnet.microsoft.com/download"
         handle_error "VS Code integration tests (missing prerequisites)"
     else
         VSCODE_OUTPUT=$(mktemp)
