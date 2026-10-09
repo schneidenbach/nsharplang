@@ -46,12 +46,22 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
     // The load surface's gate (`SharedReferenceMetadata`): the context may ask this resolver from any
     // reader's thread, and the three tables above are written by those readers too.
     gate: object
+    images: ReferenceImageSnapshotStore
 
     constructor(directories: List<string>, pinnedVersions: Dictionary<string, string>, loadFailures: Dictionary<string, string>, loadGate: object) {
         searchDirectories = directories
         pinnedPackageVersions = pinnedVersions
         failures = loadFailures
         gate = loadGate
+        images = new ReferenceImageSnapshotStore(loadGate)
+    }
+
+    constructor(directories: List<string>, pinnedVersions: Dictionary<string, string>, loadFailures: Dictionary<string, string>, loadGate: object, snapshots: ReferenceImageSnapshotStore) {
+        searchDirectories = directories
+        pinnedPackageVersions = pinnedVersions
+        failures = loadFailures
+        gate = loadGate
+        images = snapshots
     }
 
     func RecordLoadFailure(path: string, error: Exception) {
@@ -116,10 +126,11 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
     // written once rather than at each of the three probe stages that can hit a bad file.
     func TryLoadFromPath(context: MetadataLoadContext, assemblyPath: string): Assembly? {
         try {
-            loaded := context.LoadFromAssemblyPath(assemblyPath)
+            loaded := images.LoadFromPath(context, assemblyPath)
             CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
             return loaded
         } catch loadError: Exception {
+            images.Forget(assemblyPath)
             RecordLoadFailure(assemblyPath, loadError)
         }
 

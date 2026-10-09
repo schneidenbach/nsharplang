@@ -52,7 +52,7 @@ class ColumnarSplitTypeIdentityFacts {
             if assembly.IsDynamic {
                 return ""
             }
-            return assembly.Location ?? ""
+            return ReferenceImageSnapshotStore.OriginalPathOf(assembly) ?? ""
         } catch {
             // A type whose assembly cannot answer still has a name; say what is known.
             return ""

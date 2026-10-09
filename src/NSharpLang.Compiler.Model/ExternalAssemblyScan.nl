@@ -219,11 +219,12 @@ class ExternalAssemblyScan {
     }
 
     private static func RuntimeModuleVersionId(path: string): string {
-        stream: FileStream? = null
         pe: PEReader? = null
+        stream: MemoryStream? = null
         try {
-            stream = File.OpenRead(path)
-            pe = new PEReader(stream)
+            images := new ReferenceImageSnapshotStore()
+            stream = new MemoryStream(images.Capture(path), false)
+            pe = new PEReader(stream, PEStreamOptions.PrefetchMetadata)
             if !pe.HasMetadata {
                 return ""
             }
@@ -287,7 +288,7 @@ class ExternalAssemblyScan {
         } else {
             // User and package references are mutable. Preserve their exact assembly identity and
             // MVID so equal-size/same-timestamp replacements cannot reuse the wrong runtime context.
-            identityName := TryReadAssemblyName(path)
+            identityName := TryReadAssemblyName(path, null)
             identity := identityName == null ? "" : identityName.FullName
             moduleVersionId := RuntimeModuleVersionId(path)
             fingerprint = identity.Length.ToString() + ":" + identity + moduleVersionId.Length.ToString() + ":" + moduleVersionId
@@ -602,6 +603,8 @@ class ExternalAssemblyScan {
     // change a single answer (`TryAttachSharedMetadata`), and it then adds nothing to a context it does
     // not own. Otherwise it opens a context of its own, exactly as without `shared`.
     static func OpenWithReferences(referenceAssemblyPaths: IReadOnlyList<string>?, shared: SharedReferenceMetadata? = null): ExternalAssemblyScanResult {
+        metadataGate := new object()
+        referenceImages := new ReferenceImageSnapshotStore(metadataGate)
         entries := new List<ExternalAssemblyCatalogEntry>()
         searchDirectories := CommonAssemblySearchDirectories(referenceAssemblyPaths)
         commonNames := CommonAssemblyNames()
@@ -633,7 +636,7 @@ class ExternalAssemblyScan {
                     continue
                 }
 
-                identityName := TryReadAssemblyName(path)
+                identityName := TryReadAssemblyName(path, referenceImages)
                 if identityName == null {
                     entries.Add(new ExternalAssemblyCatalogEntry(null, "unresolved-path:" + path, "", null, false))
 
@@ -682,7 +685,7 @@ class ExternalAssemblyScan {
             return new ExternalAssemblyScanResult(entries.ToArray(), null)
         }
 
-        context := TryCreateMetadataLoadContext(resolverPaths.ToArray())
+        context := TryCreateMetadataLoadContext(resolverPaths.ToArray(), referenceImages, metadataGate)
         if context == null {
             entryIndex = 0
             while entryIndex < entries.Count {
@@ -698,10 +701,11 @@ class ExternalAssemblyScan {
             entry := entries[entryIndex]
             if entry.IsInspectable {
                 try {
-                    metadataAssembly := context.LoadFromAssemblyPath(entry.MetadataPath)
+                    metadataAssembly := referenceImages.LoadFromPath(context, entry.MetadataPath)
                     CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
                     entry.AttachMetadataAssembly(metadataAssembly)
                 } catch {
+                    referenceImages.Forget(entry.MetadataPath)
                     entry.MarkUninspectable()
                 }
             }
@@ -739,7 +743,7 @@ class ExternalAssemblyScan {
                 }
                 expectedPath := ""
                 if resolverPathsByName.TryGetValue(heldName, out expectedPath) {
-                    heldLocation := held.Location
+                    heldLocation := ReferenceImageSnapshotStore.OriginalPathOf(held)
                     if heldLocation == null || heldLocation.Length == 0 || !string.Equals(Path.GetFullPath(heldLocation), expectedPath, StringComparison.Ordinal) {
                         return false
                     }
@@ -1424,7 +1428,7 @@ class ExternalAssemblyScan {
             if assembly.IsDynamic {
                 return true
             }
-            location = assembly.Location
+            location = ReferenceImageSnapshotStore.OriginalPathOf(assembly) ?? ""
         } catch {
             return true
         }
@@ -1721,9 +1725,10 @@ class ExternalAssemblyScan {
         }
 
         try {
-            stream := File.OpenRead(path)
+            images := new ReferenceImageSnapshotStore()
+            stream := new MemoryStream(images.Capture(path), false)
             try {
-                pe := new PEReader(stream)
+                pe := new PEReader(stream, PEStreamOptions.PrefetchMetadata)
                 try {
                     if !pe.HasMetadata {
                         return null
@@ -2055,9 +2060,10 @@ class ExternalAssemblyScan {
     // remaining call shape that could not survive the universe this task is moving the catalog to.
     // The identity a path's image declares, or null when the file is not an assembly that can be
     // read at all.
-    static func TryReadAssemblyName(path: string): AssemblyName? {
+    static func TryReadAssemblyName(path: string, images: ReferenceImageSnapshotStore? = null): AssemblyName? {
         try {
-            return AssemblyName.GetAssemblyName(path)
+            store := images ?? new ReferenceImageSnapshotStore()
+            return store.AssemblyNameForPath(path)
         } catch {
             return null
         }
@@ -2066,15 +2072,30 @@ class ExternalAssemblyScan {
     // The metadata context over `paths`, or null when one cannot be built over them.
     static func TryCreateMetadataLoadContext(paths: string[]): MetadataLoadContext? {
         try {
-            return CreateMetadataLoadContext(paths)
+            images := new ReferenceImageSnapshotStore()
+            metadataGate := new object()
+            return ReferenceImageMetadataContext.Create(paths, images, metadataGate)
+        } catch {
+            return null
+        }
+    }
+
+    static func TryCreateMetadataLoadContext(paths: string[], images: ReferenceImageSnapshotStore, metadataGate: object): MetadataLoadContext? {
+        try {
+            return ReferenceImageMetadataContext.Create(paths, images, metadataGate)
         } catch {
             return null
         }
     }
 
     static func CreateMetadataLoadContext(paths: string[]): MetadataLoadContext {
-        resolver := new PathAssemblyResolver(paths)
-        return new MetadataLoadContext(resolver, "System.Runtime")
+        images := new ReferenceImageSnapshotStore()
+        metadataGate := new object()
+        return ReferenceImageMetadataContext.Create(paths, images, metadataGate)
+    }
+
+    static func CreateMetadataLoadContext(paths: string[], images: ReferenceImageSnapshotStore, metadataGate: object): MetadataLoadContext {
+        return ReferenceImageMetadataContext.Create(paths, images, metadataGate)
     }
 
     // A TYPE FORWARDER MUST BE ABLE TO LAND, AND THAT IS WHY A NAME LIST CANNOT BE THE CATALOG.

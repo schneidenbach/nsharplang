@@ -93,6 +93,7 @@ class AnalyzerMetadataLoadSurface {
     // The context and its shared state as other readers of the compilation attach to it; null before
     // `Open`/`Attach` and after `Close`.
     ReferenceMetadata: SharedReferenceMetadata?
+    private ReferenceImages: ReferenceImageSnapshotStore?
 
     // Whether this surface opened the context (and so disposes it), or attached to another's.
     ownsContext: bool
@@ -109,6 +110,7 @@ class AnalyzerMetadataLoadSurface {
         PinnedPackageVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         ResolverFailures = new Dictionary<string, string>(StringComparer.Ordinal)
         ReferenceMetadata = null
+        ReferenceImages = null
         ownsContext = false
         gate = new object()
     }
@@ -146,11 +148,14 @@ class AnalyzerMetadataLoadSurface {
     // framework's version ladder; WHICH directories is the policy owner's answer, walking them is
     // mechanism and is here.
     func Open() {
+        images := new ReferenceImageSnapshotStore(gate)
+        ReferenceImages = images
         resolver := new AnalyzerMetadataAssemblyResolver(
             BeginResolverDirectories(),
             BeginResolverPinnedVersions(),
             BeginResolverFailures(),
-            gate
+            gate,
+            images
         )
 
         runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
@@ -175,7 +180,7 @@ class AnalyzerMetadataLoadSurface {
 
         opened := new MetadataLoadContext(resolver, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
         Context = opened
-        ReferenceMetadata = new SharedReferenceMetadata(opened, gate, SearchDirectories, PinnedPackageVersions, ResolverFailures)
+        ReferenceMetadata = new SharedReferenceMetadata(opened, images, gate, SearchDirectories, PinnedPackageVersions, ResolverFailures)
         ownsContext = true
     }
 
@@ -184,6 +189,7 @@ class AnalyzerMetadataLoadSurface {
     // own, and `Close` leaves the context to its owner.
     func Attach(shared: SharedReferenceMetadata) {
         Context = shared.Context
+        ReferenceImages = shared.ReferenceImages
         gate = shared.Gate
         SearchDirectories = shared.SearchDirectories
         PinnedPackageVersions = shared.PinnedPackageVersions
@@ -212,7 +218,7 @@ class AnalyzerMetadataLoadSurface {
         }
 
         for assembly in loadContext.GetAssemblies() {
-            location := assembly.Location
+            location := ReferenceImageSnapshotStore.OriginalPathOf(assembly)
             if !string.IsNullOrEmpty(location) {
                 locations.Add(location)
             }
@@ -230,6 +236,7 @@ class AnalyzerMetadataLoadSurface {
 
         Context = null
         ReferenceMetadata = null
+        ReferenceImages = null
         ownsContext = false
     }
 
@@ -323,8 +330,8 @@ class AnalyzerMetadataLoadSurface {
     func IsPathLoaded(assemblyPath: string): bool {
         normalizedPath := Path.GetFullPath(assemblyPath)
         for assembly in assemblies {
-            location := assembly.Location
-            if AnalyzerMetadataLoadPolicy.IsSameAssemblyPath(Path.GetFullPath(location), normalizedPath) {
+            location := ReferenceImageSnapshotStore.OriginalPathOf(assembly)
+            if location != null && location.Length > 0 && AnalyzerMetadataLoadPolicy.IsSameAssemblyPath(Path.GetFullPath(location), normalizedPath) {
                 return true
             }
         }
@@ -358,6 +365,10 @@ class AnalyzerMetadataLoadSurface {
     private func LoadByPathUnderGate(loadContext: MetadataLoadContext, assemblyPath: string) {
         try {
             fullPath := Path.GetFullPath(assemblyPath)
+            images := ReferenceImages
+            if images == null {
+                return
+            }
             directory := Path.GetDirectoryName(fullPath)
             if directory != null {
                 AddSearchDirectory(directory)
@@ -367,7 +378,8 @@ class AnalyzerMetadataLoadSurface {
                 return
             }
 
-            identity := AssemblyName.GetAssemblyName(fullPath)
+            identity := images.AssemblyNameForPath(fullPath)
+            image := images.Capture(fullPath)
             if IsIdentityLoaded(identity) {
                 return
             }
@@ -378,10 +390,14 @@ class AnalyzerMetadataLoadSurface {
                 return
             }
 
-            loaded := loadContext.LoadFromAssemblyPath(fullPath)
+            loaded := images.LoadFromImage(loadContext, fullPath, image)
             CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
             Register(loaded)
         } catch error: Exception {
+            images := ReferenceImages
+            if images != null {
+                images.Forget(assemblyPath)
+            }
             RecordExceptionFailure(assemblyPath, error)
         }
     }

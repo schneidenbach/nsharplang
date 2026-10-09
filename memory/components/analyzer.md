@@ -2326,6 +2326,22 @@ The current metadata resolver is N#-owned in
 NL103 report about an external abstract override are historical migration notes, not the current
 ownership boundary.
 
+`ReferenceImageSnapshotStore` (`src/NSharpLang.Compiler.Model/ReferenceImageSnapshotStore.nl`) owns
+the bytes supplied to every compiler `MetadataLoadContext`. It copies a reference through a
+read-only shared-read handle, checks that the path stayed stable while copying, and caches the byte
+image and assembly identity together for that path and compilation. `MetadataLoadContext` receives
+the captured image through `LoadFromByteArray`; the external scan's PE readers use a `MemoryStream`
+over the same owned bytes with `PEStreamOptions.PrefetchMetadata`. Metadata readers must not retain a
+lazy view over a build output under `bin/`, because another `dotnet build` may replace it while a
+parallel workspace check is resolving declaring types. An image that cannot be copied or parsed is
+retried and then reported as an ordinary reference-load failure. The resolver preserves the original
+path separately because assemblies loaded from bytes have an empty `Assembly.Location`.
+
+The regression in `ReferenceImageSnapshotStore.tests.nl` captures a framework reference, truncates
+its path before reflection, then verifies that the nested type and its declaring type still resolve
+from the captured bytes. It also compares parsed assembly identities with `AssemblyName` and checks
+that compiler Model/Syntax types remain visible through both metadata resolvers.
+
 Full-compiler NativeAOT remains future work after merge. The analyzer's external type model still uses
 reflection objects such as `Type`, `Assembly` and `MethodInfo`; moving emission off live runtime types
 is part of that work, not a completed host swap.

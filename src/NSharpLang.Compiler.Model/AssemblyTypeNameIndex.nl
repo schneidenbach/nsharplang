@@ -79,7 +79,7 @@ class AssemblyTypeNameIndex {
         location := ""
         if !assembly.IsDynamic {
             try {
-                location = assembly.Location
+                location = ReferenceImageSnapshotStore.OriginalPathOf(assembly) ?? ""
             } catch locationFailure: Exception {
                 location = ""
             }

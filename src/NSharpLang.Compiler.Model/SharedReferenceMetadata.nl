@@ -36,6 +36,7 @@ import System.Runtime.Loader
 // it did before.
 class SharedReferenceMetadata {
     Context: MetadataLoadContext
+    ReferenceImages: ReferenceImageSnapshotStore
     RuntimeContext: AssemblyLoadContext?
     RuntimeReferenceKey: string?
     Gate: object
@@ -43,8 +44,9 @@ class SharedReferenceMetadata {
     PinnedPackageVersions: Dictionary<string, string>
     ResolverFailures: Dictionary<string, string>
 
-    constructor(context: MetadataLoadContext, gate: object, searchDirectories: List<string>, pinnedPackageVersions: Dictionary<string, string>, resolverFailures: Dictionary<string, string>) {
+    constructor(context: MetadataLoadContext, referenceImages: ReferenceImageSnapshotStore, gate: object, searchDirectories: List<string>, pinnedPackageVersions: Dictionary<string, string>, resolverFailures: Dictionary<string, string>) {
         Context = context
+        ReferenceImages = referenceImages
         // Runtime references have the same compilation boundary as metadata references. The
         // non-collectible runtime context is assigned on the first complete reference scan and is
         // shared only with compilations whose exact ordered file closure has the same key.
@@ -81,7 +83,7 @@ class SharedReferenceMetadata {
 
         fullPath := Path.GetFullPath(path)
         for assembly in Context.GetAssemblies() {
-            location := assembly.Location
+            location := ReferenceImageSnapshotStore.OriginalPathOf(assembly)
             if location != null && location.Length > 0 && string.Equals(Path.GetFullPath(location), fullPath, StringComparison.Ordinal) {
                 return assembly
             }

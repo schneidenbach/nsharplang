@@ -124,7 +124,7 @@ func MetadataLoadSurfaceNew(assemblies: List<Assembly>, failures: Dictionary<str
 }
 
 func MetadataLoadSurfaceLocationOf(assemblies: List<Assembly>, position: int): string {
-    return Path.GetFullPath(assemblies[position].get_Location())
+    return Path.GetFullPath(ReferenceImageSnapshotStore.OriginalPathOf(assemblies[position]) ?? "")
 }
 
 func MetadataLoadSurfaceHolds(directories: List<string>, value: string): bool {

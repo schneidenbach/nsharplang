@@ -80,7 +80,7 @@ func ResolverProbeTwoDirectories(first: string, second: string): List<string> {
 }
 
 func ResolverProbeCameFrom(assembly: Assembly, directory: string): bool {
-    return Path.GetFullPath(assembly.get_Location()) == Path.GetFullPath(Path.Combine(directory, "System.Console.dll"))
+    return Path.GetFullPath(ReferenceImageSnapshotStore.OriginalPathOf(assembly) ?? "") == Path.GetFullPath(Path.Combine(directory, "System.Console.dll"))
 }
 
 func ResolverProbeConsoleIdentity(): AssemblyName {
