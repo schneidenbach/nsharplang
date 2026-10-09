@@ -528,8 +528,9 @@ func MemberIteratorControlsBodyFacts(definition: ColumnarStructDef, resolution: 
     )
 }
 
-// Async and non-null empty generic maps return before any source-program or helper-local IL read.
-// The static path instead advances its ordinal before attempting that helper-local GetILGenerator.
+// Async members still return before source facts or helper-local IL reads. A synchronous member
+// requires its source row even when the enclosing definition is generic. The static path instead
+// advances its ordinal before attempting that helper-local GetILGenerator.
 test "member iterator retains early rejection and static ordinal before its own IL acquisition" {
     syncSource := "func* Gen(): IEnumerable<int> { yield 1 }"
     syncProbe := new EmitFixtureIteratorShapeProbe(
@@ -610,7 +611,7 @@ test "member iterator retains early rejection and static ordinal before its own 
     )
     assert !genericResult.Succeeded
     assert genericResult.DeclineSite == "emit.iterator.instance-unsupported"
-    assert genericResult.DeclineMessage == "generic instance iterator methods are not yet lowered"
+    assert genericResult.DeclineMessage == "enclosing type facts are unavailable for 'MemberIteratorEarlyHost.Gen'"
     assert genericResult.DeclineMember == "MemberIteratorEarlyHost.Gen"
     assert genericTypes.Count == 0
     assert genericOrdinal[0] == 13

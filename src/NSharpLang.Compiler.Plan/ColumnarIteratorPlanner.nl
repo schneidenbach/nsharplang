@@ -400,9 +400,6 @@ class ColumnarIteratorPlanner {
         if isInstance && receiverCanonical == "" {
             return Declined("emit.iterator.instance-unsupported", "iterator methods with an instance receiver are not yet lowered")
         }
-        if isInstance && typeParamNames.Length > 0 {
-            return Declined("emit.iterator.instance-unsupported", "generic instance iterator methods are not yet lowered")
-        }
         if isAsync && isInstance {
             return Declined("emit.iterator.async-unsupported", "async iterator methods with an instance receiver are not yet lowered")
         }
@@ -2868,12 +2865,17 @@ class ColumnarIteratorBodyPlanner {
         while i < context.Shape.FieldRoles.Length {
             if context.Shape.FieldRoles[i] == ColumnarIteratorPlanner.CapturedParameterFieldRole() {
                 fieldType := context.Fields[i].FieldType
-                argTypePool := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(fieldType), context.StructuralTypeReferences)
+                capturesReceiver := ordinal == 0 && context.FieldNames[i] == "<>__this"
+                argumentType := fieldType
+                if capturesReceiver && context.EnclosingType != null {
+                    argumentType = context.EnclosingType
+                }
+                argTypePool := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(argumentType), context.StructuralTypeReferences)
                 // A STRUCT's `this` IS AN ADDRESS, and the machine outlives the call that made it, so
                 // the receiver it captures is a COPY of the value — C#'s own rule for a struct
                 // iterator — never the pointer, whose bits a `stfld` of the struct type would store as
                 // the struct's first field.
-                capturesValueReceiver := ordinal == 0 && context.FieldNames[i] == "<>__this" && fieldType.IsValueType
+                capturesValueReceiver := capturesReceiver && argumentType.IsValueType
                 argPool := plan.AddArgument(ordinal, argTypePool, capturesValueReceiver)
                 fieldPool := plan.AddField(context.Fields[i])
                 plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())

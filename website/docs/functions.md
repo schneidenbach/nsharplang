@@ -1591,6 +1591,11 @@ it, so a member whose result changes between calls is read afresh on every resum
 declared in a **struct** runs on a copy of the value it was called on, as in C#: writes to the
 original after the call are not seen by the sequence.
 
+Synchronous member generators also work in a generic class or struct, and an instance generator may
+declare its own type parameters. The generated machine carries the declaring type's parameters first,
+then the method's parameters, so captured members, parameters and yielded values keep their declared
+types.
+
 ### Subscribing with `on` / `off` inside a generator
 
 `on` and `off` work inside a `func*` exactly as they do anywhere else, and the point of writing them
@@ -1727,8 +1732,13 @@ func* ticks(log: List<string>): IEnumerable<int> {
 `async func*` returns `IAsyncEnumerable<T>` and is consumed with `await foreach`. The same
 ordinary-expression surface applies.
 
-Generic async iterator methods are not yet lowered. This is separate from using a generic value in a
-non-generic async iterator and from yielding an async lambda from an ordinary generator.
+Async member iterators are not yet lowered. The member emitter rejects them before collecting the
+receiver and enclosing-type fields, and the shared shape planner also rejects async instance receivers.
+Supporting them requires those captured receiver and enclosing generic-type facts to flow through async
+planning and state-machine emission. Generic async iterator methods are separately rejected by the
+shape planner because method type parameters are not carried into async state-machine types. This is
+separate from using a generic value in a non-generic async iterator and from yielding an async lambda
+from an ordinary generator.
 
 An `await` inside one may be a statement, or the whole value of a declaration, an assignment or a
 `yield`:

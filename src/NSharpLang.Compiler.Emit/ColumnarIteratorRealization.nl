@@ -101,14 +101,9 @@ class ColumnarIteratorRealization {
                 staticEnclosingParameters
             )
         }
-        if structDef.GenericParameters != null || method.TypeParamNames.Length > 0 {
-            return Declined(
-                "emit.iterator.instance-unsupported",
-                "generic instance iterator methods are not yet lowered",
-                memberLabel
-            )
-        }
-
+        // Synchronous instance machines carry the declaring type's parameters followed by the method's
+        // own parameters, just like static machines. The source row supplies the receiver and field facts
+        // that let the same state-machine builder capture `this` and plan the body as an ordinary member.
         input := StructInputFor(program, structDef)
         if input == null {
             return Declined(
@@ -181,7 +176,21 @@ class ColumnarIteratorRealization {
         }
 
         factoryIl := builder.GetILGenerator()
-        emptyTypeParameters: Type[] = System.Type.EmptyTypes
+        enclosingTypeParameters := System.Type.EmptyTypes
+        if enclosingBuilder.IsGenericTypeDefinition {
+            enclosingTypeParameters = enclosingBuilder.GetGenericArguments()
+        }
+        methodTypeParameters := System.Type.EmptyTypes
+        if builder.IsGenericMethodDefinition {
+            methodTypeParameters = builder.GetGenericArguments()
+        }
+        if methodTypeParameters.Length != method.TypeParamNames.Length {
+            return Declined(
+                "emit.iterator.generic-arity",
+                "the declared method '" + memberLabel + "' has " + methodTypeParameters.Length.ToString() + " type parameter(s) but its generator body names " + method.TypeParamNames.Length.ToString(),
+                memberLabel
+            )
+        }
         enclosingType: Type = structDef.Builder
         realizedFieldNames := fieldNames.ToArray()
         realizedFieldHandles := fieldHandles.ToArray()
@@ -194,7 +203,7 @@ class ColumnarIteratorRealization {
             typeResolution,
             factoryIl,
             synthesizedTypes,
-            emptyTypeParameters,
+            methodTypeParameters,
             shape,
             memberLabel,
             enclosingType,
@@ -203,7 +212,7 @@ class ColumnarIteratorRealization {
             realizedFieldCanonicals,
             bodyFacts,
             structDef.Builder,
-            null
+            enclosingTypeParameters
         )
     }
 
@@ -222,9 +231,12 @@ class ColumnarIteratorRealization {
         return module.DefineType(name, TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed)
     }
 
-    // The source row a definition was built from: the first whose name is the definition's declared
-    // name or its unqualified tail.
+    // The source row a definition was built from: exact semantic identity or its metadata/simple tail.
+    // Keep the first-match walk because observed input wrappers may be enumerable protocol objects.
     static func StructInputFor(program: ColumnarProgramInput, definition: ColumnarStructDef): ColumnarStructInput? {
+        if program == null || definition == null {
+            return null
+        }
         input: ColumnarStructInput? = null
         structEnumerator := StructInputEnumerator(program.Structs)
         structMovement := structEnumerator as IEnumerator
@@ -234,7 +246,16 @@ class ColumnarIteratorRealization {
             }
             while structMovement.MoveNext() {
                 candidate := structEnumerator.get_Current()
-                if candidate.Name == definition.DeclaredTypeName || definition.DeclaredTypeName.EndsWith("." + candidate.Name, StringComparison.Ordinal) {
+                candidateArity := 0
+                if candidate.TypeParamNames != null {
+                    candidateArity = candidate.TypeParamNames.Length
+                }
+                candidateMetadataName := TypeArityNames.Key(candidate.Name, candidateArity)
+                candidateMatches := program.ExactStructTypeName(candidate) == definition.DeclaredTypeName
+                if !candidateMatches {
+                    candidateMatches = candidateMetadataName == definition.DeclaredTypeName || definition.DeclaredTypeName.EndsWith("." + candidateMetadataName, StringComparison.Ordinal) || definition.DeclaredTypeName.EndsWith("+" + candidateMetadataName, StringComparison.Ordinal) || candidate.Name == definition.DeclaredTypeName || definition.DeclaredTypeName.EndsWith("." + candidate.Name, StringComparison.Ordinal) || definition.DeclaredTypeName.EndsWith("+" + candidate.Name, StringComparison.Ordinal)
+                }
+                if candidateMatches {
                     input = candidate
                     break
                 }
@@ -596,6 +617,13 @@ class ColumnarIteratorRealization {
                 i = i + 1
             }
             factoryCtor := TypeBuilder.GetConstructor(factorySmType, ctor)
+            factoryEnclosingType := enclosingType
+            if enclosingType != null && declaringType != null {
+                // The factory's receiver is the declaring generic type's self-instantiation. In
+                // particular, a struct receiver must be copied from `&Owner<!0>` with an ldobj token
+                // for that same constructed type, not the open `Owner` definition.
+                factoryEnclosingType = ColumnarSourceSelfInstantiation.Of(declaringType)
+            }
             factoryContext = new ColumnarIteratorEmitContext(
                 fn.BodyNodes,
                 functionSource,
@@ -606,7 +634,8 @@ class ColumnarIteratorRealization {
                 shape.FieldNames,
                 factoryFields,
                 table,
-                factoryCtor
+                factoryCtor,
+                factoryEnclosingType
             )
         }
         factoryPlan := ColumnarIteratorBodyPlanner.BuildFactoryPlan(factoryContext)
