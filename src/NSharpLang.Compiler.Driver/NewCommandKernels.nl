@@ -436,7 +436,7 @@ class NewCommandKernels {
             }
 
             if template == "systems-cli" {
-                return "namespace SystemsTemplate\n" + "\n" + "import System\n" + "import System.Buffers.Binary\n" + "\n" + "enum ParseError {\n" + "    Short\n" + "}\n" + "\n" + "[hot]\n" + "func ParseLength(buf: ReadOnlySpan<byte>): Result<uint, ParseError> {\n" + "    if buf.Length < 4 {\n" + "        return Err(ParseError.Short)\n" + "    }\n" + "\n" + "    return Ok(BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(0, 4)))\n" + "}\n" + "\n" + "[boundary]\n" + "func Run(): Result<int, ParseError> {\n" + "    allow(alloc, reason: \"CLI startup allocates outside the hot parser\") {\n" + "        print \"Systems N# template\"\n" + "    }\n" + "\n" + "    return Ok(0)\n" + "}\n" + "\n" + "func Warmup(): void {\n" + "}\n" + "\n" + "func main(): void {\n" + "    _ := Run()\n" + "}\n"
+                return "namespace SystemsTemplate\n" + "\n" + "import System\n" + "import System.Buffers.Binary\n" + "\n" + "enum ParseError {\n" + "    Short\n" + "}\n" + "\n" + "[hot]\n" + "func ParseLength(buf: ReadOnlySpan<byte>): Result<uint, ParseError> {\n" + "    if buf.Length < 4 {\n" + "        return Err(ParseError.Short)\n" + "    }\n" + "\n" + "    return Ok(BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(0, 4)))\n" + "}\n" + "\n" + "[boundary]\n" + "func Run(): Result<int, ParseError> {\n" + "    return Ok(0)\n" + "}\n" + "\n" + "func Warmup(): void {\n" + "}\n" + "\n" + "func main(): void {\n" + "    allow(alloc, reason: \"Cold CLI startup message\") {\n" + "        print \"Systems N# template\"\n" + "    }\n" + "\n" + "    _ := Run()\n" + "}\n"
             }
 
             return "func main() {\n" + "    print \"Hello, N#!\"\n" + "}\n"

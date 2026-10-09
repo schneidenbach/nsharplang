@@ -1,5 +1,7 @@
 namespace NSharpLang.Cli
 
+import System
+import System.IO
 import NSharpLang.Compiler
 
 // THE `nlc new` ARGUMENT, TEMPLATE-RESOLUTION, MESSAGE AND FILE-TEXT KERNELS.
@@ -14,6 +16,24 @@ import NSharpLang.Compiler
 // being positional after index 0, the four `ShouldShow*` predicates read directly, and the
 // `GetEffectiveProjectName` / `GetEffectiveRequestedTemplate` pair that is the actual policy behind
 // `nlc new systems-cli PacketTool`.
+func NewCommandRepositoryRoot(): string {
+    current: string? = AppContext.BaseDirectory
+    while current != null {
+        directory := current ?? ""
+        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "templates")) {
+            return directory
+        }
+
+        parent := Path.GetDirectoryName(directory)
+        if parent == null || parent == "" || parent == directory {
+            current = null
+        } else {
+            current = parent
+        }
+    }
+
+    throw new InvalidOperationException("Could not locate the N# repository root above the native test output.")
+}
 
 // ── the argument summary ──────────────────────────────────────────────────────
 test "the new argument summary reads the template option, the systems flag and the help flag" {
@@ -344,10 +364,17 @@ test "the webapi template writes a minimal host and an attribute-routed controll
 test "the systems-cli Program.nl carries an allow() with a reason and a void main" {
     systemsCliSource := NewCommandKernels.GetTemplateSourceText("systems-cli", NewTemplateSourceFileKind.Program)
 
-    assert systemsCliSource.Contains("allow(alloc, reason: \"CLI startup allocates outside the hot parser\")")
+    assert systemsCliSource.Contains("allow(alloc, reason: \"Cold CLI startup message\")")
     assert systemsCliSource.Contains("func main(): void")
     assert systemsCliSource.Contains("[hot]\n")
     assert systemsCliSource.Contains("[boundary]\n")
+}
+
+test "nlc new and dotnet new use identical systems-cli Program.nl sources" {
+    generatedSource := NewCommandKernels.GetTemplateSourceText("systems-cli", NewTemplateSourceFileKind.Program)
+    dotnetTemplateSource := File.ReadAllText(Path.Combine(NewCommandRepositoryRoot(), "templates/nsharp-systems-cli/Program.nl"))
+
+    assert generatedSource == dotnetTemplateSource
 }
 
 test "the systems-lib PacketCore.nl exports a Result-returning boundary and has NO main" {
