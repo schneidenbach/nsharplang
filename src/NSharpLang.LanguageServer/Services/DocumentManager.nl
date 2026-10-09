@@ -43,6 +43,7 @@ class DocumentManager {
     readonly codeIntelligenceService: CodeIntelligenceService
     readonly loadedProjectDirs: HashSet<string>
     readonly resolvedProjectConfigs: Dictionary<string, CachedResolvedProjectConfig>
+    readonly projectSourcePathCache: ConcurrentDictionary<string, CachedProjectSourcePaths>
     readonly analyzerLock: object
     readonly projectSnapshotLock: object
     readonly projectSnapshots: ConcurrentDictionary<string, CachedProjectSnapshot>
@@ -60,6 +61,7 @@ class DocumentManager {
         codeIntelligenceService = new CodeIntelligenceService()
         loadedProjectDirs = new HashSet<string>()
         resolvedProjectConfigs = new Dictionary<string, CachedResolvedProjectConfig>(StringComparer.OrdinalIgnoreCase)
+        projectSourcePathCache = new ConcurrentDictionary<string, CachedProjectSourcePaths>(StringComparer.OrdinalIgnoreCase)
         analyzerLock = new object()
         projectSnapshotLock = new object()
         projectSnapshots = new ConcurrentDictionary<string, CachedProjectSnapshot>()
@@ -218,6 +220,10 @@ class DocumentManager {
 
         try {
             text := File.ReadAllText(fullPath)
+            // A watcher event may be the first time this file is tracked, so UpdateDocument cannot
+            // compare it with an earlier buffer to decide whether the cached project changed.
+            invalidateProjectSnapshot(fullPath)
+            invalidateProjectSourcePaths(fullPath)
             UpdateDocument(uri, text, 0)
             return uri
         } catch reloadFailure: Exception {
@@ -249,6 +255,9 @@ class DocumentManager {
             return null
         }
 
+        invalidateProjectSnapshot(fullPath)
+        invalidateProjectSourcePaths(fullPath)
+
         if documents.ContainsKey(uri) {
             CloseDocument(uri)
             return uri
@@ -259,6 +268,18 @@ class DocumentManager {
 
     // Returns whether a URI is currently tracked by the document manager.
     func HasDocument(uri: string): bool => documents.ContainsKey(uri)
+
+    // A project snapshot depends on effective source text, not on the act of opening a document.
+    // An existing buffer changes that input only when its text changes. A newly tracked buffer
+    // changes it only when it differs from the disk file already included in the project snapshot.
+    func shouldInvalidateProjectSnapshot(uri: string, filePath: string, text: string): bool {
+        existing: DocumentState? = null
+        if documents.TryGetValue(uri, out existing) && existing != null {
+            return existing.Text != text
+        }
+
+        return EditorWorkspaceFacts.SourceTextDiffersFromDisk(filePath, text)
+    }
 
     func UpdateDocument(uri: string, text: string, version: int) {
         try {
@@ -282,7 +303,9 @@ class DocumentManager {
 
             state := new DocumentState(uri, text, version)
             filePath := EditorWorkspaceFacts.UriToFilePath(uri)
-            invalidateProjectSnapshot(filePath)
+            if shouldInvalidateProjectSnapshot(uri, filePath, text) {
+                invalidateProjectSnapshot(filePath)
+            }
 
             // Parse the document using the real filesystem path so downstream
             // import resolution never sees a file:/// URI as the current file.
@@ -303,9 +326,31 @@ class DocumentManager {
             projectDir := Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory
             projectRoot := EditorWorkspaceFacts.FindProjectRoot(filePath)
             hasProjectConfig := File.Exists(Path.Combine(projectRoot, "project.yml"))
+            isExcludedFromProject := false
+            if hasProjectConfig && EditorWorkspaceFacts.ContainingWorkspaceRoot(filePath, workspaceRoots.Keys) == null {
+                // Preserve the existing project-config error path below. A malformed config is
+                // not evidence that this editor buffer is intentionally excluded.
+                try {
+                    includeTests := filePath.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)
+                    configuredSources := ProjectSourcePathsFor(
+                        projectRoot,
+                        ProjectConfigFileStamp(Path.Combine(projectRoot, "project.yml")),
+                        includeTests
+                    )
+                    isExcludedFromProject = !configuredSources.Contains(Path.GetFullPath(filePath))
+                    if isExcludedFromProject {
+                        hasProjectConfig = false
+                    }
+                } catch sourcePathFailure: Exception {
+                }
+            }
+
             referenceRoot := projectDir
             projectConfig := ProjectFileParser.ParseFromDirectoryOrDefault(projectDir)
             analysisProjectRoot := EditorWorkspaceFacts.AnalysisProjectRoot(projectDir)
+            if isExcludedFromProject {
+                analysisProjectRoot = null
+            }
 
             // Load assemblies from project configuration ONCE per project directory -- and again after
             // a reference the analyzer read changed on disk (`RefreshStaleReferences`).
@@ -388,7 +433,16 @@ class DocumentManager {
     }
 
     func CloseDocument(uri: string) {
-        invalidateProjectSnapshot(EditorWorkspaceFacts.UriToFilePath(uri))
+        filePath := EditorWorkspaceFacts.UriToFilePath(uri)
+        existing: DocumentState? = null
+        shouldInvalidate := !File.Exists(filePath)
+        if documents.TryGetValue(uri, out existing) && existing != null {
+            shouldInvalidate = EditorWorkspaceFacts.SourceTextDiffersFromDisk(filePath, existing.Text)
+        }
+        if shouldInvalidate {
+            invalidateProjectSnapshot(filePath)
+        }
+
         removedState: DocumentState? = null
         removedTime: DateTime = DateTime.MinValue
         documents.TryRemove(uri, out removedState)
@@ -536,8 +590,22 @@ class DocumentManager {
 
         RefreshStaleReferences()
 
+        projectFile := Path.Combine(projectRoot, "project.yml")
+        projectConfigFileStamp := ProjectConfigFileStamp(projectFile)
+        projectSourcePaths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        try {
+            projectSourcePaths = ProjectSourcePathsFor(projectRoot, projectConfigFileStamp, false)
+        } catch sourcePathFailure: Exception {
+            logProjectSnapshotDegradedWith(EditorWorkspaceFacts.LoadFailedRefusal(projectRoot, sourcePathFailure.Message), sourcePathFailure)
+            return null
+        }
+        if !projectSourcePaths.Contains(Path.GetFullPath(filePath)) && EditorWorkspaceFacts.ContainingWorkspaceRoot(filePath, workspaceRoots.Keys) == null {
+            return null
+        }
+
         sourceTextOverrides := buildOpenBufferSourceTextOverrides(projectRoot)
-        stamp := EditorWorkspaceFacts.ProjectSnapshotStamp(projectRoot, sourceTextOverrides)
+        stampSourceTextOverrides := buildSnapshotStampSourceTextOverrides(sourceTextOverrides, projectSourcePaths)
+        stamp := EditorWorkspaceFacts.ProjectSnapshotStamp(projectRoot, stampSourceTextOverrides)
         if stamp == null {
             logProjectSnapshotDegraded(EditorWorkspaceFacts.NoSourceFilesRefusal(projectRoot))
             return null
@@ -545,18 +613,20 @@ class DocumentManager {
 
         lock projectSnapshotLock {
             cached: CachedProjectSnapshot? = null
-            if projectSnapshots.TryGetValue(projectRoot, out cached) && EditorDocumentCacheFacts.SnapshotCacheHit(cached.Stamp, stamp) {
+            if projectSnapshots.TryGetValue(projectRoot, out cached) && cached.ProjectConfigFileStamp == projectConfigFileStamp && EditorDocumentCacheFacts.SnapshotCacheHit(cached.Stamp, stamp) {
                 return new ProjectSnapshotBinding(projectRoot, filePath, cached.Snapshot)
             }
 
             try {
                 projectConfig: ProjectConfig? = null
-                if File.Exists(Path.Combine(projectRoot, "project.yml")) {
+                if File.Exists(projectFile) {
                     projectConfig = ResolvedProjectConfig(projectRoot)
                 }
 
                 loaded := codeIntelligenceService.LoadProject(projectRoot, projectConfig, sourceTextOverrides)
-                projectSnapshots[projectRoot] = new CachedProjectSnapshot(stamp, loaded)
+                loadedStampOverrides := buildSnapshotStampSourceTextOverrides(sourceTextOverrides, projectSourcePaths)
+                loadedStamp := EditorWorkspaceFacts.ProjectSnapshotStamp(projectRoot, loadedStampOverrides)
+                projectSnapshots[projectRoot] = new CachedProjectSnapshot(loadedStamp ?? stamp, projectConfigFileStamp, loaded)
                 logger.LogDebug(
                     "Loaded semantic project snapshot for {ProjectRoot} with {OpenBufferCount} open-buffer overrides",
                     projectRoot,
@@ -574,6 +644,15 @@ class DocumentManager {
         for projectRoot in EditorWorkspaceFacts.PossibleSemanticProjectRoots(filePath, workspaceRoots.Keys) {
             removed: CachedProjectSnapshot? = null
             projectSnapshots.TryRemove(projectRoot, out removed)
+        }
+    }
+
+    func invalidateProjectSourcePaths(filePath: string) {
+        for projectRoot in EditorWorkspaceFacts.PossibleSemanticProjectRoots(filePath, workspaceRoots.Keys) {
+            removed: CachedProjectSourcePaths? = null
+            projectSourcePathCache.TryRemove(projectRoot, out removed)
+            removed = null
+            projectSourcePathCache.TryRemove(projectRoot + "\u0000tests", out removed)
         }
     }
 
@@ -611,6 +690,27 @@ class DocumentManager {
         return info.LastWriteTimeUtc.Ticks.ToString() + ":" + info.Length.ToString()
     }
 
+    func ProjectSourcePathsFor(projectRoot: string, projectConfigFileStamp: string, includeTests: bool = false): HashSet<string> {
+        cacheKey := projectRoot
+        if includeTests {
+            cacheKey = projectRoot + "\u0000tests"
+        }
+
+        cached: CachedProjectSourcePaths? = null
+        if projectSourcePathCache.TryGetValue(cacheKey, out cached) && cached != null && cached.ProjectConfigFileStamp == projectConfigFileStamp {
+            return cached.Paths
+        }
+
+        config := ProjectFileParser.ParseFromDirectoryOrDefault(projectRoot)
+        paths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        for sourcePath in config.GetSourceFiles(projectRoot, includeTests) {
+            paths.Add(Path.GetFullPath(sourcePath))
+        }
+
+        projectSourcePathCache[cacheKey] = new CachedProjectSourcePaths(projectConfigFileStamp, paths)
+        return paths
+    }
+
     func buildOpenBufferSourceTextOverrides(projectRoot: string): Dictionary<string, string> {
         overrides := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 
@@ -625,10 +725,28 @@ class DocumentManager {
                 continue
             }
 
-            overrides[Path.GetFullPath(documentPath)] = document.Text
+            fullDocumentPath := Path.GetFullPath(documentPath)
+            overrides[fullDocumentPath] = document.Text
         }
 
         return overrides
+    }
+
+    // THE SNAPSHOT CACHE KEY tracks effective source changes, while project loading still receives
+    // every open buffer. That preserves the compiler's established input path and keeps excluded or
+    // loose editor files in the snapshot. An unchanged buffer already in the configured source set
+    // contributes no distinct input and must not churn the cache stamp on open/close.
+    func buildSnapshotStampSourceTextOverrides(sourceTextOverrides: Dictionary<string, string>, projectSourcePaths: HashSet<string>): Dictionary<string, string> {
+        stampOverrides := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        for entry in sourceTextOverrides {
+            if projectSourcePaths.Contains(entry.Key) && !EditorWorkspaceFacts.SourceTextDiffersFromDisk(entry.Key, entry.Value) {
+                continue
+            }
+
+            stampOverrides[entry.Key] = entry.Value
+        }
+
+        return stampOverrides
     }
 
     func logProjectSnapshotDegraded(state: EditorProjectSnapshotRefusal) {
@@ -753,7 +871,10 @@ class DocumentManager {
 record ProjectSnapshotBinding(ProjectRoot: string, FilePath: string, Snapshot: ProjectSnapshot) {
 }
 
-record CachedProjectSnapshot(Stamp: string, Snapshot: ProjectSnapshot) {
+record CachedProjectSnapshot(Stamp: string, ProjectConfigFileStamp: string, Snapshot: ProjectSnapshot) {
+}
+
+record CachedProjectSourcePaths(ProjectConfigFileStamp: string, Paths: HashSet<string>) {
 }
 
 record CachedResolvedProjectConfig(ProjectFileStamp: string, Config: ProjectConfig) {

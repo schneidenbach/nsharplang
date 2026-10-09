@@ -198,6 +198,18 @@ test "EditorWorkspaceFacts changes the stamp when an unsaved buffer changes" {
     Directory.Delete(root, true)
 }
 
+test "EditorWorkspaceFacts distinguishes unchanged, edited and missing file buffers" {
+    root := EwfTempRoot("buffer-disk")
+    source := Path.Combine(root, "Program.nl")
+    EwfWrite(source, "namespace Probe\n")
+
+    assert !EditorWorkspaceFacts.SourceTextDiffersFromDisk(source, "namespace Probe\n")
+    assert EditorWorkspaceFacts.SourceTextDiffersFromDisk(source, "namespace Edited\n")
+    assert EditorWorkspaceFacts.SourceTextDiffersFromDisk(Path.Combine(root, "Missing.nl"), "namespace Probe\n")
+
+    Directory.Delete(root, true)
+}
+
 test "EditorWorkspaceFacts refuses a buffer with no project and no workspace" {
     root := EwfTempRoot("refuse-none")
     source := Path.Combine(root, "Program.nl")

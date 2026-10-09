@@ -1,5 +1,6 @@
 namespace NSharpLang.LanguageServerDiagnostics.Tests
 
+import System
 import System.IO
 import Microsoft.Extensions.Logging.Abstractions
 import NSharpLang.LanguageServer.Services
@@ -116,6 +117,88 @@ func Helper() {
 
         // Program.nl is still tracked, from the editor open.
         assert manager.HasDocument(programUri)
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "opening and closing an unchanged buffer reuses the project snapshot" {
+    root := LscNewWorkspaceRoot()
+    try {
+        programText := LsdDecodedSource(
+            """
+func Main() {
+}
+"""
+        )
+        programPath := Path.Combine(root, "Program.nl")
+        LsdWriteFile(root, "Program.nl", programText)
+        programUri := LsdFileUri(programPath)
+
+        manager := LsdNewDocumentManager()
+        ignoredScan := LsdInvokeStringArgument(manager, "ScanWorkspaceDirectory", root)
+        _ = ignoredScan
+
+        diskBinding := LsdInvokeStringArgument(manager, "SynchronizedProjectSnapshot", programUri)
+        if diskBinding == null {
+            throw new InvalidOperationException("The disk project snapshot was not created.")
+        }
+        diskSnapshot := LsdRequiredProperty(diskBinding, "Snapshot")
+
+        ignoredOpen := LsdInvokeStringArgument(manager, "MarkEditorOpen", programUri)
+        _ = ignoredOpen
+        LsdUpdateDocument(manager, programUri, programText)
+        openBinding := LsdInvokeStringArgument(manager, "SynchronizedProjectSnapshot", programUri)
+        if openBinding == null {
+            throw new InvalidOperationException("The open-buffer project snapshot was not created.")
+        }
+        openSnapshot := LsdRequiredProperty(openBinding, "Snapshot")
+        if !Object.ReferenceEquals(diskSnapshot, openSnapshot) {
+            throw new InvalidOperationException("Opening the unchanged buffer replaced the project snapshot.")
+        }
+
+        closedUri := LsdInvokeStringArgument(manager, "HandleEditorClose", programUri)
+        if closedUri == null || closedUri.ToString() != programUri {
+            throw new InvalidOperationException("Closing the document did not return its URI.")
+        }
+        closedBinding := LsdInvokeStringArgument(manager, "SynchronizedProjectSnapshot", programUri)
+        if closedBinding == null {
+            throw new InvalidOperationException("The closed-buffer project snapshot was not created.")
+        }
+        closedSnapshot := LsdRequiredProperty(closedBinding, "Snapshot")
+        if !Object.ReferenceEquals(diskSnapshot, closedSnapshot) {
+            throw new InvalidOperationException("Closing the unchanged buffer replaced the project snapshot.")
+        }
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a source excluded by project configuration does not join its semantic snapshot" {
+    root := LscNewWorkspaceRoot()
+    try {
+        LsdWriteFile(root, "project.yml", "name: Product\nexclude:\n  - examples/**\n")
+        LsdWriteFile(root, "Program.nl", "func Main() {}")
+        examplePath := Path.Combine(root, "examples", "Example.nl")
+        exampleDirectory := must Path.GetDirectoryName(examplePath)
+        Directory.CreateDirectory(exampleDirectory)
+        File.WriteAllText(examplePath, "func Main() {}")
+        File.WriteAllText(Path.Combine(exampleDirectory, "Other.nl"), "func Main() {}")
+
+        manager := LsdNewDocumentManager()
+        exampleUri := LsdFileUri(examplePath)
+        ignoredOpen := LsdInvokeStringArgument(manager, "MarkEditorOpen", exampleUri)
+        _ = ignoredOpen
+        LsdUpdateDocument(manager, exampleUri, "func Main() {}")
+
+        snapshot := LsdInvokeStringArgument(manager, "SynchronizedProjectSnapshot", exampleUri)
+        assert snapshot == null
+
+        document := LsdGetDocument(manager, exampleUri)
+        diagnostics := LsdCopyCompilerErrors(LsdRequiredProperty(document, "Diagnostics"))
+        for diagnostic in diagnostics {
+            assert !diagnostic.Message.Contains("same parameter signature", StringComparison.Ordinal)
+        }
     } finally {
         Directory.Delete(root, true)
     }

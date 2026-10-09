@@ -314,6 +314,23 @@ class EditorWorkspaceFacts {
         return diskStamp.ToString() + ":" + keys.Count.ToString() + ":" + hash.ToHashCode().ToString()
     }
 
+    // WHETHER AN EDITOR BUFFER ADDS SOURCE CONTENT THE DISK PROJECT DOES NOT ALREADY HAVE. Opening
+    // an unchanged file must not create a distinct snapshot input; otherwise every open/close
+    // cycles the cache between the disk-only stamp and a one-file override stamp. If the file has
+    // disappeared or cannot be read, keep the buffer as an override so a live editor document
+    // still participates in analysis.
+    static func SourceTextDiffersFromDisk(filePath: string, sourceText: string): bool {
+        if !File.Exists(filePath) {
+            return true
+        }
+
+        try {
+            return File.ReadAllText(filePath) != sourceText
+        } catch readFailure: Exception {
+            return true
+        }
+    }
+
     // ── Refusals ─────────────────────────────────────────────────────────
 
     // THE TWO REASONS A BUFFER HAS NO PROJECT TO ASK, in the order they are asked. A buffer with
