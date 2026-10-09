@@ -6,6 +6,7 @@ import System.Collections.Generic
 import System.IO
 import System.Linq
 import Microsoft.Extensions.Logging
+import NSharpLang.Cli
 import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
 import NSharpLang.Compiler.Columnar
@@ -41,6 +42,7 @@ class DocumentManager {
     SharedAnalyzer: Analyzer
     readonly codeIntelligenceService: CodeIntelligenceService
     readonly loadedProjectDirs: HashSet<string>
+    readonly resolvedProjectConfigs: Dictionary<string, CachedResolvedProjectConfig>
     readonly analyzerLock: object
     readonly projectSnapshotLock: object
     readonly projectSnapshots: ConcurrentDictionary<string, CachedProjectSnapshot>
@@ -57,6 +59,7 @@ class DocumentManager {
         lastAccessTimes = new ConcurrentDictionary<string, DateTime>()
         codeIntelligenceService = new CodeIntelligenceService()
         loadedProjectDirs = new HashSet<string>()
+        resolvedProjectConfigs = new Dictionary<string, CachedResolvedProjectConfig>(StringComparer.OrdinalIgnoreCase)
         analyzerLock = new object()
         projectSnapshotLock = new object()
         projectSnapshots = new ConcurrentDictionary<string, CachedProjectSnapshot>()
@@ -88,6 +91,7 @@ class DocumentManager {
             fresh.LoadSystemAssemblies()
             SharedAnalyzer = fresh
             loadedProjectDirs.Clear()
+            resolvedProjectConfigs.Clear()
             referenceVersions.Clear()
             typeCatalog = null
         }
@@ -292,8 +296,14 @@ class DocumentManager {
             // Start with parse errors
             diagnostics := new List<CompilerError>(parseResult.Errors)
 
-            // Try to find and load project configuration
+            // Resolve the nearest declared project once through the same N# reference resolver the
+            // CLI uses. Looking only in the file's immediate directory missed parent project.yml
+            // files, and loading Analyzer references directly left framework references such as
+            // Microsoft.AspNetCore.App without their full shared-framework closure.
             projectDir := Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory
+            projectRoot := EditorWorkspaceFacts.FindProjectRoot(filePath)
+            hasProjectConfig := File.Exists(Path.Combine(projectRoot, "project.yml"))
+            referenceRoot := projectDir
             projectConfig := ProjectFileParser.ParseFromDirectoryOrDefault(projectDir)
             analysisProjectRoot := EditorWorkspaceFacts.AnalysisProjectRoot(projectDir)
 
@@ -301,13 +311,19 @@ class DocumentManager {
             // a reference the analyzer read changed on disk (`RefreshStaleReferences`).
             // Use lock to ensure thread-safe access to shared analyzer and loaded projects cache
             RefreshStaleReferences()
+            if hasProjectConfig {
+                referenceRoot = projectRoot
+                projectConfig = ResolvedProjectConfig(projectRoot)
+                analysisProjectRoot = projectRoot
+            }
+
             analyzer := SharedAnalyzer
             lock analyzerLock {
                 analyzer = SharedAnalyzer
-                if !loadedProjectDirs.Contains(projectDir) {
-                    logger.LogInformation("Loading assemblies for new project directory: {ProjectDir}", projectDir)
-                    analyzer.LoadFromProjectConfig(projectConfig, projectDir)
-                    loadedProjectDirs.Add(projectDir)
+                if !loadedProjectDirs.Contains(referenceRoot) {
+                    logger.LogInformation("Loading assemblies for project root: {ProjectDir}", referenceRoot)
+                    analyzer.LoadFromProjectConfig(projectConfig, referenceRoot)
+                    loadedProjectDirs.Add(referenceRoot)
                 }
             }
 
@@ -534,7 +550,12 @@ class DocumentManager {
             }
 
             try {
-                loaded := codeIntelligenceService.LoadProject(projectRoot, sourceTextOverrides)
+                projectConfig: ProjectConfig? = null
+                if File.Exists(Path.Combine(projectRoot, "project.yml")) {
+                    projectConfig = ResolvedProjectConfig(projectRoot)
+                }
+
+                loaded := codeIntelligenceService.LoadProject(projectRoot, projectConfig, sourceTextOverrides)
                 projectSnapshots[projectRoot] = new CachedProjectSnapshot(stamp, loaded)
                 logger.LogDebug(
                     "Loaded semantic project snapshot for {ProjectRoot} with {OpenBufferCount} open-buffer overrides",
@@ -554,6 +575,40 @@ class DocumentManager {
             removed: CachedProjectSnapshot? = null
             projectSnapshots.TryRemove(projectRoot, out removed)
         }
+    }
+
+    // The resolved config is shared by the per-document analyzer and the project snapshot. Keeping
+    // it here avoids repeating framework, package and project-reference resolution on every edit;
+    // the project file is also tracked as a reference input so a changed config replaces this cache.
+    func ResolvedProjectConfig(projectRoot: string): ProjectConfig {
+        fullRoot := Path.GetFullPath(projectRoot)
+        projectFile := Path.Combine(fullRoot, "project.yml")
+        projectFileStamp := ProjectConfigFileStamp(projectFile)
+
+        lock analyzerLock {
+            cached: CachedResolvedProjectConfig? = null
+            if resolvedProjectConfigs.TryGetValue(fullRoot, out cached) && cached.ProjectFileStamp == projectFileStamp {
+                return cached.Config
+            }
+
+            config := ProjectFileParser.ParseFromDirectoryOrDefault(fullRoot)
+            options := new ReferenceResolutionOptions()
+            options.IncludeTests = true
+            options.Quiet = true
+            CompilationReferenceResolver.AddResolvedDllReferences(fullRoot, config, options)
+            resolvedProjectConfigs[fullRoot] = new CachedResolvedProjectConfig(projectFileStamp, config)
+            referenceVersions.Record(projectFile)
+            return config
+        }
+    }
+
+    static func ProjectConfigFileStamp(projectFile: string): string {
+        if !File.Exists(projectFile) {
+            return "missing"
+        }
+
+        info := new FileInfo(projectFile)
+        return info.LastWriteTimeUtc.Ticks.ToString() + ":" + info.Length.ToString()
     }
 
     func buildOpenBufferSourceTextOverrides(projectRoot: string): Dictionary<string, string> {
@@ -699,6 +754,9 @@ record ProjectSnapshotBinding(ProjectRoot: string, FilePath: string, Snapshot: P
 }
 
 record CachedProjectSnapshot(Stamp: string, Snapshot: ProjectSnapshot) {
+}
+
+record CachedResolvedProjectConfig(ProjectFileStamp: string, Config: ProjectConfig) {
 }
 
 // Diagnostics payload returned by DocumentManager for publication.
