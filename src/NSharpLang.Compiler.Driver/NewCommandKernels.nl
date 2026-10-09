@@ -402,7 +402,7 @@ class NewCommandKernels {
         }
 
         if template == "systems-cli" {
-            return "name: " + projectName + "\n" + "version: 1.0.0\n" + "entry: Program.nl\n" + "backend: il\n" + "outputType: exe\n" + "targetFramework: net10.0\n" + "\n" + "language:\n" + "  profile: systems\n" + "  asyncDefaultType: ValueTask\n" + "  systems:\n" + "    mode: strict\n" + "    unknownExternalCalls: warn\n" + "    aotTarget: nativeaot\n" + "    stackBudgetBytes: 4096\n" + "    warmup:\n" + "      - Warmup\n"
+            return "name: " + projectName + "\n" + "version: 1.0.0\n" + "entry: Program.nl\n" + "backend: il\n" + "outputType: exe\n" + "targetFramework: net10.0\n" + "\n" + "language:\n" + "  profile: systems\n" + "  asyncDefaultType: ValueTask\n" + "  systems:\n" + "    mode: strict\n" + "    # Console output is cold startup work; hot and boundary policy checks remain active.\n" + "    unknownExternalCalls: allow\n" + "    aotTarget: nativeaot\n" + "    stackBudgetBytes: 4096\n" + "    warmup:\n" + "      - Warmup\n"
         }
 
         if template == "systems-lib" {

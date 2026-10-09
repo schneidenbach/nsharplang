@@ -289,14 +289,16 @@ test "the webapi project.yml carries the Web SDK and its three dependencies" {
 
 test "the systems-cli project.yml is an exe under the strict systems profile" {
     systemsCliYaml := NewCommandKernels.GetProjectYamlText("PacketTool", "systems-cli")
+    dotnetTemplateYaml := File.ReadAllText(Path.Combine(NewCommandRepositoryRoot(), "templates/nsharp-systems-cli/project.yml"))
 
     assert systemsCliYaml.Contains("entry: Program.nl\n")
     assert systemsCliYaml.Contains("outputType: exe\n")
     assert systemsCliYaml.Contains("  profile: systems\n")
     assert systemsCliYaml.Contains("    warmup:\n      - Warmup\n")
-    // the four systems settings the deleted body never read
+    assert systemsCliYaml == dotnetTemplateYaml.Replace("name: SystemsApp\n", "name: PacketTool\n")
+    // The strict profile lets the cold startup message call Console without a warning.
     assert systemsCliYaml.Contains("    mode: strict\n")
-    assert systemsCliYaml.Contains("    unknownExternalCalls: warn\n")
+    assert systemsCliYaml.Contains("    unknownExternalCalls: allow\n")
     assert systemsCliYaml.Contains("    aotTarget: nativeaot\n")
     assert systemsCliYaml.Contains("    stackBudgetBytes: 4096\n")
 }
