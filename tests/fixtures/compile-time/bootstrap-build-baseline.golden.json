@@ -5,13 +5,13 @@
   "stage": "parse, analysis and emit",
   "expectedExitCode": 0,
   "phaseContract": "analysis-before-strict-lint/v1",
-  "phaseDiagnosticMultiset": "NL011 \u00d71, NL202 \u00d71",
+  "phaseDiagnosticMultiset": "NL011 ×1, NL202 ×1",
   "coreCounters": {
     "filesParsed": 469,
     "emitParses": 279,
     "filesAnalyzed": 279,
     "assembliesEmitted": 3,
-    "referenceAssembliesLoaded": 129,
+    "referenceAssembliesLoaded": 139,
     "frameworkReferenceBytesHashed": 0,
     "processesSpawned": 0
   },
