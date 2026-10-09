@@ -5,7 +5,8 @@ title: CLI Reference
 
 # N# CLI Reference
 
-Updated: 2026-06-01
+Command names follow `src/NSharpLang.Compiler.Driver/CommandRegistry.nl`; command-specific options
+are maintained against the CLI command kernels.
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -18,28 +19,28 @@ Updated: 2026-06-01
 
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
-| `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--output`, `--define` | `nlc build` |
-| `nlc run [file]` | Build and run a project or single file | `--define` | `nlc run` |
-| `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`, `systems-cli`, `systems-lib`), `--systems` | `nlc new MyApp --template console` |
-| `nlc init` | Initialize N# in the current directory | none | `nlc init` |
-| `nlc test` | Run `.tests.nl` suites through the xUnit/NUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
+| `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--aot`, `--stats`, `--output`, `--define`, `--color` | `nlc build --timings` |
+| `nlc run [file]` | Build and run a project or single file | `--backend`, `--define`, `--color` | `nlc run` |
+| `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`, `systems-cli`, `systems-lib`), `--type` alias, `--systems` | `nlc new MyApp --template console` |
+| `nlc init` | Initialize N# in the current directory | `--name`, `--type`, `--force` | `nlc init --type library` |
+| `nlc test` | Run `.tests.nl` suites through the N# test runner | `--project`, `--filter`, `--verbose`, `--json`, `--timings` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
 | `nlc clean` | Remove local build artifacts | `--project`, `--all` | `nlc clean --all` |
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `--project`, `--debounce-ms`, `--max-runs` | `nlc watch check` |
 | `nlc doc` | Generate HTML API docs | `--project`, `--output`, `--open`, `--json` | `nlc doc --open` |
 | `nlc completion <shell>` | Generate shell completion scripts | `bash`, `zsh`, `fish` | `nlc completion zsh` |
-| `nlc check` | Fast parse + analyze without building | `--project`, `--text`, `--json`, `--use-built-references` | `nlc check --text` |
-| `nlc fix` | Auto-apply code fixes | `--project`, `--file`, `--dry-run`, `--text`, `--json` | `nlc fix --dry-run` |
-| `nlc query <subcommand>` | Code intelligence for humans and tools | global `--project`, `--file`, `--pos`, `--text`, `--json`, `--no-daemon` | `nlc query def --file Program.nl --pos 12:4` |
+| `nlc check` | Fast parse + analyze without emitting the program assembly | `--project`, `--text`, `--json`, `--aot`, `--systems-report`, `--stats`, `--use-built-references` | `nlc check --text` |
+| `nlc fix` | Auto-apply code fixes | `--project`, `--file`, `--dry-run`, `--include-review-needed`, `--text`, `--json` | `nlc fix --dry-run` |
+| `nlc query <subcommand>` | Code intelligence for humans and tools | global `--project`, `--file`, `--pos`, `--text`, `--json`, `--no-daemon`; `inspect --compact`; `diagnostics --clusters` | `nlc query def --file Program.nl --pos 12:4` |
 | `nlc daemon <subcommand>` | Manage the warm workspace server that `check`/`build`/`test`/`run`/`format`/`lint`/`fix` use automatically | `--project` | `nlc daemon status` |
-| `nlc add <package>` | Add a NuGet dependency to `project.yml` | package spec | `nlc add Serilog@3.1.0` |
-| `nlc tidy` | Identify and remove unused dependencies | `--project` | `nlc tidy` |
+| `nlc add <package>` | Add a NuGet, framework, or local project reference to `project.yml` | `--version`, `--prerelease`, `--framework`, `--path` | `nlc add Serilog@3.1.0` |
+| `nlc tidy` | Identify and remove unused dependencies | `--project`, `--fix`, `--json` | `nlc tidy` |
 | `nlc remove <package>` | Remove a dependency from `project.yml` | package name | `nlc remove Serilog` |
-| `nlc update [package]` | Update dependencies | optional package name | `nlc update` |
+| `nlc update [package]` | Update dependencies | optional package name, `--dry-run` | `nlc update --dry-run` |
 | `nlc publish` | Publish framework-dependent deployment artifacts | `--project`, `--configuration`, `--output`, current-host `--runtime` | `nlc publish -c Release --output ./dist` |
 | `nlc tree` | Show dependency tree | `--project`, `--depth`, `--json` | `nlc tree --json` |
-| `nlc audit` | Check dependencies for known vulnerabilities | `--project` | `nlc audit` |
+| `nlc audit` | Check dependencies for known vulnerabilities | `--project`, `--json` | `nlc audit` |
 | `nlc env` | Show environment and toolchain info | `--json` | `nlc env --json` |
 | `nlc doctor` | Verify CLI, templates/SDK restore, language server, and VS Code extension availability | `--json`, `--require-vscode`, `--skip-vscode` | `nlc doctor --require-vscode` |
 | `nlc restore` | Generate MSBuild compatibility config from `project.yml` | `--project` | `nlc restore` |
@@ -50,8 +51,8 @@ Updated: 2026-06-01
 
 `nlc check`, `build`, `test`, `run`, `format`, `lint` and `fix` are executed by a **warm server per
 workspace** whenever one is available. Nothing has to be started by hand: the first such command in
-a workspace runs in-process as usual and starts the server in the background; every later command
-finds it warm (compiler JIT-compiled, reference metadata indexed) and is typically 3-5x faster.
+a workspace runs in-process as usual and starts the server in the background; later commands can
+reuse the warm compiler and reference metadata. The speedup depends on the project and command.
 
 ```bash
 nlc check            # first command: in-process, starts the server in the background

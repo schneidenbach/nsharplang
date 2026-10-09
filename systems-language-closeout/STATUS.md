@@ -31,35 +31,27 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-### Census wave 20 — current closeout cursor (2026-10-05 → 2026-10-07)
+### Census wave 21 — current closeout cursor (2026-10-09)
 
-**Tip.** Product history `50816f3c8..28dfd91b2`; the five agent-latency branches integrated at
-`320cd5f92`. The compiler-performance gate then moved to exact counters and paired base/head timing
-(`d4fd32072..3869876eb`). Full receipts and measurements are in `tasks/TOOLCHAIN-NATIVE.md`;
-the one-owner integration is in `memory/architecture.md`, and measured agent-loop rows are in
-`memory/testing.md` §8a. The owner decision for the remaining production C# boundaries was recorded
-2026-10-07.
+**Tip.** `b30cbefac` on `systems-language`. Agent-loop part 2 and the workspace-reference
+determinism work are landed. The current front-door check and latest non-VS gate are recorded below;
+do not carry forward the superseded wave-20 cursor.
 
-| Current item | State at `28dfd91b2` | Receipt |
+| Current item | State at `b30cbefac` | Receipt |
 |---|---|---|
-| Agent-loop speed program | **DONE**; incremental compilation, daemon-first CLI, compiler throughput, `nlc --stats`, NativeAOT front door and ReadyToRun host integrated | `320cd5f92`; `memory/architecture.md` |
-| Compiler performance gate | **DONE**; exact work counters always gate; timing pairs only when compiler inputs change | `3869876eb`; `memory/testing.md` §8–8a |
-| Repository-root check | **STRUCTURAL**; discovered members/files and parse/reference budgets gate; references pre-resolve before concurrent analysis | `23eb67c1a..d4f10f232` |
-| Self-host front door | **0 / 0 across all eleven projects**; Core **355 → 0**, Compiler **5 → 0** | `28dfd91b2`; `combined-28dfd91b2/gate-nonvs.log` |
-| Latest gate | non-VS **PASS**, **154 projects / 5,382 tests: 5,381 passed, 0 failed, 1 skipped**; `GATE EXIT 0` | `combined-28dfd91b2/gate-nonvs.log` |
-| Production C# boundary decision | **DECIDED 2026-10-07**; Runtime, Playground.Wasm and CLI entry point are permanent, shrink-only boundaries; Visual Studio remains a separate low-priority host | `AGENTS.md`; `memory/architecture.md`; `tasks/TOOLCHAIN-NATIVE.md` |
-| Ownership audit | **26/26**; permanent-boundary state is pinned to the seven named source files and other active production C# fails policy | `tests/native/ownership-audit`; current worktree run |
+| Agent-loop part 2 | **DONE**; check without emit, incremental emit, and stale-library handling landed; no-op fingerprint fix included | `c28638de6`; agent-loop part 2 commits |
+| Workspace reference behavior | **DONE**; workspace reference isolation and deterministic results landed | `b6d1b0300..b30cbefac` |
+| Self-host front door | **0 diagnostics across all eleven checked projects** | `b30cbefac`; `tests/scripts/test-all-core.sh` Step 2d |
+| Latest gate | non-VS **PASS**, **155 native projects / 5,392 tests, 0 failed, 1 skipped** | latest non-VS gate at `b30cbefac` |
+| `origin/claude/*` refs | **DONE**; 16 refs deleted with owner approval | owner-approved cleanup |
+| Ownership audit | **26/26** | `tests/native/ownership-audit` |
 
-**Still owed:** rendered visual VS Code proof and deletion of **16** landed `origin/claude/*` refs,
-awaiting the owner. The permanent C# boundary census is Runtime **861** lines / 4 files,
-Playground.Wasm **71** / 2, CLI entry point **25** / 1; the separate Visual Studio IDE host is
-**359** / 4. The three production boundaries may shrink but never grow and may not own compiler or
-tooling logic; the ownership audit rejects any other active production C# path.
+**Still owed before `main`:** Language Server reference-resolution fix on
+`fix/lsp-aspnet-extension-members` and its VS Code-enabled gate; a visual VS Code pass including
+end-to-end rename; and the NL103 re-census of examples.
 
-**Next:** agent-loop part 2 — check without emit, one shared reference-metadata context across
-analyzer/emitter/workers, incremental emit, and LanguageServer stale-library handling. Then full
-compiler NativeAOT: move emission off live runtime types and its approximately **3,400** `typeof`
-sites.
+**Next after merge:** full-compiler NativeAOT. The compiler emission path must move off live runtime
+types before that work is complete.
 
 ### Census wave 19 — superseded cursor (2026-09-24 → 2026-10-05)
 

@@ -10,8 +10,7 @@ import System.Reflection
 //
 // A `MetadataLoadContext` resolves nothing by itself: every reference an assembly names comes back
 // here, and whatever this returns is what the analyzer's type universe contains. It is therefore not
-// a helper. It is the outer boundary of the whole external type model, and it is the LAST thing in
-// the compiler's C# that named `MetadataLoadContext`.
+// a helper. It is the outer boundary of the whole external type model and is implemented in N#.
 //
 // D3 — THE FOUR-STAGE PROBE ORDER, AND WHY IT IS THAT ORDER. Like D1 and D2 (022/3b-4a) this decision
 // carries no literal, so nothing could pin it while it lived beside the IO that performs it:

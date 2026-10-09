@@ -2,7 +2,7 @@
 
 ## Test Suite
 
-**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/<slice>/*.tests.nl` and the carved `src/NSharpLang.Compiler.Syntax/*.tests.nl`, `src/NSharpLang.Compiler.Plan/*.tests.nl`, `src/NSharpLang.Compiler.Emit/*.tests.nl`, `src/NSharpLang.Compiler.CodeIntel/*.tests.nl`, `src/NSharpLang.Compiler.Tooling/*.tests.nl` and `src/NSharpLang.Compiler.Driver/*.tests.nl`, each run through its own project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
+**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/Model/*.tests.nl`, `src/NSharpLang.Compiler.Core/Semantics/*.tests.nl`, and the `*.tests.nl` files in `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Plan`, `src/NSharpLang.Compiler.Emit`, `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling` and `src/NSharpLang.Compiler.Driver`, each run through its own project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
 
 ## Test Organization
 

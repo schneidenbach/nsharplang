@@ -1,6 +1,6 @@
 # Analyzer Component
 
-**Files:** `src/NSharpLang.Compiler/Analyzer.cs`,
+**Files:** `src/NSharpLang.Compiler.Core/Semantics/Analyzer.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerDeclarationContext.nl`,
 `src/NSharpLang.Compiler.Model/TypeInfoIdentityFacts.nl`,
 `src/NSharpLang.Compiler.Model/AnalyzerConversionFacts.nl`,
@@ -25,15 +25,14 @@
 
 Performs semantic analysis, type checking, and name resolution on the AST.
 
-`Analyzer.cs` is the diagnostic/scope shell. `AnalyzerDeclarationContext.nl` is the N# owner for
-the project declaration catalog, case-sensitive canonical source-type identity, file and namespace
-imports, declared-alias identity and alias resolution, alias-cycle handling, owner-open generic
-substitution, lexical nested-type lookup, and
-source member projection. The shell
-loads parsed project units into that owner at the start of analysis and routes declaration/member
-queries through it; do not recreate those policies as C# caches or fallback resolvers.
+`Analyzer.nl` and the supporting semantic modules are the N# analyzer implementation. The former
+C# `Analyzer` owner has been deleted. `AnalyzerDeclarationContext.nl` owns the project declaration
+catalog, case-sensitive canonical source-type identity, file and namespace imports, declared-alias
+identity and alias resolution, alias-cycle handling, owner-open generic substitution, lexical
+nested-type lookup, and source member projection. Do not recreate those policies as caches or
+fallback resolvers.
 Project candidates across every visible namespace import are exhausted before CLR candidates;
-bare CLR names use the same case-sensitive exported-type assembly scan as the analyzer shell.
+bare CLR names use the same case-sensitive exported-type assembly scan in `ExternalAssemblyScan.nl`.
 `TypeInfoIdentityFacts.nl` owns exact structural identity for composed types and exact CLR metadata
 identity; nominal source types compare through the canonical declaration handles supplied by the
 declaration context. Tuple element labels are metadata rather than type identity, while dynamic
@@ -115,10 +114,8 @@ read and absorbs a missing runtime assembly.
   cannot produce trustworthy diagnostics. Optional types stay null and every consumer tolerates it.
 - Each name is probed in the core assembly first and then in `System.Private.CoreLib`, because a
   reference set can split the framework across facades and implementations.
-- The core assembly is PASSED IN rather than read off the context: `MetadataLoadContext.CoreAssembly`
-  is not on the columnar front end's external binding surface, and extending that surface is a
-  compiler-capability change requiring a two-stage bootstrap. The single C# construction site reads
-  it and hands it over.
+- The core assembly is passed in rather than read off the context: `MetadataLoadContext.CoreAssembly`
+  is not on the columnar front end's external binding surface. Its caller supplies the handle.
 - The lazy accessors are METHODS, not properties, because the `.nl` surface has no block-bodied
   property. The first read decides and the answer never changes for the rest of the analysis.
 
@@ -228,12 +225,11 @@ The well-known-type bag is NULLABLE and that state is live: until the analyzer h
 `AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType`, which answers with the COMPILER's own runtime
 types and resolves no aliases as it descends (the top-level alias is still resolved — that happens
 before the facts are consulted). Because the bag is built and torn down over an analyzer's lifetime,
-`Analyzer.cs` REBUILDS the owner at those two points rather than mutating it; the owner's own fields
-never change after construction. Do not give the owner a setter, and do not reintroduce any of this
-in C#.
+`Analyzer.nl` rebuilds the owner at those two points rather than mutating it; the owner's own fields
+never change after construction. Do not give the owner a setter.
 
 `ResolveType(TypeReference)` — the diagnostic-reporting, semantic-model-recording, MLC-probing
-type-REFERENCE engine — is a different thing and remains the analyzer shell's own. It is not a
+type-reference engine — is separate from the type-conversion funnel. It is not a
 dependency of the funnel.
 
 ### The assignability shape decisions
@@ -279,8 +275,8 @@ assignability the caller must answer, the relation holding exactly when every pa
 directions a function type hands back: a parameter pair is source ← target while the return pair is
 target ← source, and an inferred (unknown) source parameter is ACCEPTED without a pair rather than
 rejected, because a lambda still being inferred must not be pre-judged. The protocol's other half is
-now `AnalyzerAssignability` (below) rather than a C# shell: the two shells in `Analyzer.cs` are
-DELETED and the recursion they expressed is simply a call.
+`AnalyzerAssignability` (below); the former C# shells were deleted and the recursion they expressed
+is now a call within the N# owner.
 
 ### The assignability decision itself
 
@@ -472,19 +468,11 @@ two types alone, and they are kept out of `AnalyzerAssignabilityFacts` so that c
   referenced-assembly probe actually finds `Microsoft.AspNetCore.Mvc.ActionResult` — so it is inert
   in a project that does not reference ASP.NET Core.
 
-`IsAssignable` itself, and the arms that re-enter it, remain in `Analyzer.cs` for ONE measured
-reason, and it is no longer the duck arm, the metadata probe, or the columnar surface: the
-capability landed in slice 12 stage A (five type rows in `ColumnarExternalBindingPlans`, the two
-computed closed-`IList<T>` identities their attribute sequences answer with, and one enum
-static-member row — **no call plan, because a supported plan would PRE-EMPT
-`ColumnarOrdinaryRuntimeDirectCallResolver` terminally and a value receiver like
-`CustomAttributeTypedArgument` cannot survive that**), and stage B then N#-owned the reader itself.
-That was the last blocker, and the SCC has since landed WHOLE. `IsAssignable`'s callable-reference
-arm builds a runtime delegate's signature through `AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate`,
-and every other member of the closure (`IsSubtypeOf`, `HasImplicitConversion`, the delegate scorers,
-the lambda arm and the two former protocol shells) lives beside it in `AnalyzerAssignability` — no
-sub-cut of the interior exists, so the whole component moved in one cut, with no callback, no
-fallback and no protocol left.
+`AnalyzerAssignability.nl` owns the whole assignability component: `IsAssignable`, `IsSubtypeOf`,
+`HasImplicitConversion`, the delegate scorers, the lambda arm and the pending-pair protocol. The
+component moved as one N# owner because its members re-enter `IsAssignable`; it has no callback or
+fallback boundary. The callable-reference arm builds runtime delegate signatures through
+`AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate`.
 
 ### The nullability metadata reader
 
@@ -1251,9 +1239,9 @@ mean in the file being analysed".
 
 `AnalyzerTypeResolver` (`AnalyzerTypeResolver.nl`) is the SOLE authority for turning a `TypeReference`
 into a `TypeInfo`, for every diagnostic that walk reports, and for every semantic-model and
-binding-map record it writes. `Analyzer.cs` holds no resolution policy: it constructs the resolver
-once, tells it which file an analysis is about, and calls it. The owners below are the decision tables
-the walk consults; they are handed to it by argument, so nothing in the walk names the shell.
+binding-map record it writes. `Analyzer.nl` constructs the resolver, tells it which file an analysis
+is about, and calls it. The owners below are the decision tables the walk consults; they are handed
+to it by argument.
 
 `AnalyzerExternalTypeProbe.nl` is the N# owner for every question answered by looking at referenced
 assembly metadata. It is constructed ONCE per analyzer, holds the resolution cache, and is never
@@ -2284,7 +2272,7 @@ N# resolution. Static field/property selection and emitted-plan validation are N
 2. `ColumnarBindingScopeFacts.nl` exports reusable source/import/type facts and applies lexical
    shadowing, accessibility, package precedence, and ordered namespace lookup for short owners.
 3. `ExternalQualifiedTypeResolver.nl` resolves complete dotted CLR type receivers, including nested
-   types; `Analyzer.cs` only supplies its existing scope barriers and wraps the resolved `Type`.
+   types; the analyzer supplies the scope barriers and wraps the resolved `Type`.
 4. `ColumnarExternalStaticMemberPlanner.nl` validates the exact field/property handle and builds a
    persisted schema-v3 plan. `ColumnarCodePlanExecutor.nl` validates and emits that plan directly.
 
@@ -2329,35 +2317,24 @@ objects: MSBuild loads the build task and Compiler.Core into a context of its ow
 the host's own implementation foreign. It stays exact in both directions — the binder must answer with
 THAT assembly, so a same-identity build sitting in an unrelated load context is still refused.
 
-### MetadataLoadContext Host Verdict
+### MetadataLoadContext host
 
-Compiler Core carries the `System.Reflection.MetadataLoadContext` 10.0.5 dependency, but the N#
-columnar backend declines a minimal external abstract override probe:
+The current metadata resolver is N#-owned in
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerMetadataAssemblyResolver.nl`. It subclasses
+`MetadataAssemblyResolver` and performs reference probes through `MetadataLoadContext`;
+`AnalyzerMetadataLoadPolicy.nl` owns the reusable decisions. The former C# metadata host and the old
+NL103 report about an external abstract override are historical migration notes, not the current
+ownership boundary.
 
-`AnalyzerMetadataResolverProbe: MetadataAssemblyResolver` with
-`override func Resolve(context: MetadataLoadContext, assemblyName: AssemblyName): Assembly`.
-
-Exact build result:
-`error NL103: Columnar emission is required for 'NSharpLang.Compiler.Core', but the columnar backend declined.`
-
-So `NSharpMetadataResolver` stays as a bounded mechanical C# host until the columnar backend
-supports overriding external abstract members: the C# shell hosts the `Resolve` override and the
-`MetadataLoadContext` integration boundary, and **nothing else**. Every policy decision it used to
-make now lives in `AnalyzerMetadataLoadPolicy.nl` — see below.
-
-The AOT successor is a different question and it is currently shut. `MetadataReader` is not
-spellable from the estate in any form: as a type annotation it reports `NL201`, its
-`System.Reflection.PortableExecutable` namespace reports `NL704` without a `nuget:` dependency, and
-with one every direct spelling declines at columnar emit (`emit.local.initializer`). Beyond that,
-the analyzer's whole external type model is `System.Reflection`'s object model — `Type`, `Assembly`,
-`MethodInfo` — across the N# owners, so replacing the load context with a metadata reader is a
-type-model replacement, not a host swap.
+Full-compiler NativeAOT remains future work after merge. The analyzer's external type model still uses
+reflection objects such as `Type`, `Assembly` and `MethodInfo`; moving emission off live runtime types
+is part of that work, not a completed host swap.
 
 ### AnalyzerMetadataLoadPolicy.nl — every decision the loading surface makes
 
-`AnalyzerMetadataLoadPolicy.nl` is the N# owner for the metadata-loading surface's DECISIONS. Its
-functions are pure: strings, paths and version spellings in, an answer out. The C# performs the IO
-and drives the load context; it decides nothing.
+`AnalyzerMetadataLoadPolicy.nl` is the N# owner for the metadata-loading surface's reusable
+decisions. Its policy functions are pure: strings, paths and version spellings in, an answer out.
+The N# resolver performs the IO and drives the load context.
 
 - **Which assemblies are pre-loaded**: `CommonAssemblyNames()` is DEFINED FROM
   `ExternalAssemblyScan.CommonAssemblyNames()`, so the analyzer and the columnar scan share one
@@ -2417,7 +2394,7 @@ truth and dedupes everything else against them:
   when no restore output exists does it fall back to the highest cached version, ordered by
   SemVer precedence (`AnalyzerMetadataLoadPolicy.CompareVersionSpellings`), never by ordinal string
   comparison (which ranks `0.1.0-anything` above `0.1.0` and `0.9` above `0.10`).
-- `NSharpMetadataResolver.Resolve` first unifies on an already-loaded assembly with the same
+- `AnalyzerMetadataAssemblyResolver.Resolve` first unifies on an already-loaded assembly with the same
   simple name, so later binds can never pull a second copy of a different version out of the
   NuGet cache; its cache scans honor the pinned restored versions.
 - `LoadReferencedAssembly` dedupes against `MetadataLoadContext.GetAssemblies()` (not just the
@@ -3820,13 +3797,13 @@ Skipped when:
 
 ### Pattern ownership
 
-Every pattern DECISION is N#-owned. `Analyzer.cs` keeps one zero-policy driver, `AnalyzePattern`,
-which is a request loop over the N# walk plus a five-case switch; each case performs exactly one
-pre-existing analyzer operation (the expression walk, a symbol declaration, or one of the two SoA
-escape reporters) with operands the walk supplied, and hands the answer back. The walk suspends and
-resumes with that answer because a literal pattern's escape report is passed the type the analysis
-before it produced, and a relational pattern's two escape reports are joined by `&&`, so the first
-answer decides whether the second step and the comparability judgement happen at all.
+Every pattern decision is N#-owned. `Analyzer.nl` and the pattern-analysis modules perform the
+request walk and its five-case dispatch; each case performs the analyzer operation (the expression
+walk, a symbol declaration, or one of the two SoA escape reporters) with operands supplied by the
+walk. The walk suspends and resumes with that answer because a literal pattern's escape report is
+passed the type the analysis before it produced, and a relational pattern's two escape reports are
+joined with `&&`, so the first answer decides whether the second step and the comparability judgement
+happen at all.
 
 The six N# owners:
 
@@ -3852,7 +3829,7 @@ The analyzer still has a shallow per-file guard in `ProcessFileImport` for direc
 ## Error Reporting
 
 Analyzer emits `CompilerError` records with:
-- **Error code**: `NL001`-`NL999` (see `ErrorReporting.cs`)
+- **Error code**: `NL001`-`NL999` (catalogued by `src/NSharpLang.Compiler.Model/DiagnosticCatalog.nl`)
 - **Message**: Human-readable description
 - **Location**: File, line, column
 - **Suggestions**: Helpful hints (e.g., "Did you mean X?")
@@ -3866,12 +3843,9 @@ Analyzer coverage is split deliberately across:
   projections.
 - `src/NSharpLang.Compiler.Core/Model/TypeInfoIdentityFacts.tests.nl` for nominal,
   structural, runtime, and metadata-only identity and conversion rules.
-- `tests/native/analyzer-identifier-binding` for what the analyzer BINDS an identifier to at an
-  incomplete member access — the bound `ClassTypeInfo`, its name and anchor, its whole declared-member
-  census in declaration order, and the analysis diagnostic census. This is a native N# project rather
-  than an estate contract because `Analyzer` is the C# class in `Compiler.dll`, and `Compiler.dll`
-  depends on Compiler Core; every other type on that route (`SemanticModel`, `ClassTypeInfo`,
-  `DeclaredMemberInfo`, `AnalysisResult`) is already N# in the estate.
+- `tests/native/analyzer-identifier-binding` for what the analyzer binds an identifier to at an
+  incomplete member access — the bound `ClassTypeInfo`, its name and anchor, its declared-member
+  census in declaration order, and the analysis diagnostic census.
 - `tests/native/analyzer-event-subscription` for the `on` / `off` event diagnostics end to end —
   `NL317` on `+=` and `-=` over a real .NET event, `NL318` on `off` over a non-subscription, each
   with its whole message and suggestion, and the WHOLE diagnostic census rather than one code. It is
@@ -3964,13 +3938,12 @@ Analyzer coverage is split deliberately across:
   The analyzer reports `NL312:UnreachableStatement@7:5+1`; the linter reports NOTHING, while it does
   report `NL006` for the other three terminators. The empty linter census is pinned deliberately, so
   closing the divergence is a decision rather than an accident (task 020 slice 25).
-- `tests/native/analyzer-semantic-model` for what ANALYSIS PUTS INTO `AnalysisResult.SemanticModel`
+- `tests/native/analyzer-semantic-model` for what analysis puts into `AnalysisResult.SemanticModel`
   — every flat table (`Variables`, `Functions`, `Properties`, `Fields`, `Types`), `TypeMembers`,
   both POSITION tables (`ExpressionTypes` and `TypeReferenceTypes`, pinned separately so a row in
   the wrong one is a visible change), the whole scope list with both bounds, and the model's own
-  queries at the positions the deleted methods probed. Same native route and same reason: the model
-  is N# in the estate, but only `Analyzer` — C# in `Compiler.dll` — populates it, so
-  `SemanticModel.tests.nl` owns the ALGEBRA and this project owns the POPULATION (task 020 slice 26).
+  queries at the positions the deleted methods probed. The N# estate tests model queries and this
+  native project covers the model populated through the product analysis path (task 020 slice 26).
   It states what nothing had: a function looks up as its RETURN type while the table it comes from
   holds a `FunctionTypeInfo`; the flat tables COLLIDE across scopes (two functions with a parameter
   of the same name leave ONE row); `GetVisibleVariablesAtPosition` answers FUNCTIONS too; every

@@ -5,18 +5,20 @@ only when they match product-path behavior.
 
 ## Compiler Ownership Rule
 
-The compiler-only ownership objective is complete at the verified `0cc84110` checkpoint;
-final acceptance (`2026-09-09-compiler-only-ownership-complete.md`). Sole N# compiler behavior and canonical assertions remain required;
-see [the execution contract](../tasks/README.md) and [current cursor](../systems-language-closeout/STATUS.md).
+The compiler-only ownership objective was recorded complete at the verified `0cc84110` checkpoint
+and accepted in `2026-09-09-compiler-only-ownership-complete.md`. Sole N# compiler behavior and
+canonical assertions remain required; see [the execution contract](../tasks/README.md) and
+[current cursor](../systems-language-closeout/STATUS.md).
 The complete Analyzer and SystemsAnalyzer are N#-owned in Compiler Core; both C# classes are
 deleted and verified through installed SDK self-hosting. The complete ColumnarProgramInputBuilder
 is also N#-owned, with its C# class deleted and canonical/package/self-host verification accepted.
 The complete ColumnarIlEmitter is N#-owned and its C# class is deleted, with canonical, installed
 SDK self-host and IDE verification accepted. Complete MultiFileCompiler ownership and its ten
 recovery canonicals are accepted at `27b1a8a1b`, including installed SDK self-host and real unsaved
-editor verification. Complete recursive compiler reference resolution is now N#-owned in the working
-branch, with its C# class deleted and seven direct plus four command-level N# canonicals integrated;
-its fresh gate and installed SDK verification are accepted at `a20dc98af`. The complete SDK task,
+editor verification. Complete recursive compiler reference resolution was accepted as N#-owned at
+`a20dc98af`, with its C# class deleted and seven direct plus four
+command-level N# canonicals integrated; its fresh gate and installed SDK verification were accepted
+at that checkpoint. The complete SDK task,
 including reference-assembly scan/rewrite, is now N#-owned in `EmitIlAssembly.nl`; its C# class is
 deleted and SDK routing is direct. Fresh integration and installed self-host verification pass at
 `b13cc7622`; see SDK task acceptance (`2026-09-09-complete-sdk-emit-task-ownership.md`). Historical allowlist labels do not prove
@@ -38,19 +40,18 @@ kernel shape.
 
 ## Self-Host: the front door and the seed
 
-Two different compilers touch `src/NSharpLang.Compiler.Core` and they do not see the same program.
+The seed build and the tip compiler front door are different checks. The pinned stage-0 SDK in
+`bootstrap/` compiles Compiler Core through its emit-only path, which skips analysis and lint. The
+gate also runs `nlc check` through the tip compiler on all eleven front-door projects. At
+`b30cbefac`, that check reports **zero diagnostics across all eleven projects**. Historical
+measurements below document past defects and counts; they are not the current diagnostic backlog.
 
-**The seed compiles it without analysis.** Every build and every gate step compiles Core with the
-PINNED stage-0 SDK in `bootstrap/`, through the SDK's emit-only path, which skips analysis and lint
-entirely. **The tip compiler's front door (`nlc check` / `nlc build --project`) runs the whole
-pipeline.** So the tip compiler can stop being able to compile the compiler's own source and nothing
-in the gate notices. That is not hypothetical: four `while true { ... return ... }` loops in Core
-carried a dead trailing `return` that the old seed accepted and the tip refuses
-(`emit.statement.unreachable-after-transfer`, NL312), and it surfaced only during a hand republish of
-the seed.
+Several seed-hidden defects were found and fixed during the migration. For example, trailing returns
+after `while true` loops were once accepted by the seed but rejected by the tip compiler with NL312;
+the fix was made in source rather than preserving seed-only behavior.
 
-It has happened twice. The second time (2026-09-19, found by `./scripts/reseed.sh` at `9b4c46174`) it
-was not the source: `compilationUnit.FileImports.OfType<FileImport>()` in `MultiFileCompiler.nl`
+Another 2026-09-19 seed-hidden defect (found by `./scripts/reseed.sh` at `9b4c46174`) was in the
+extension lookup: `compilationUnit.FileImports.OfType<FileImport>()` in `MultiFileCompiler.nl`
 declined at `emit.call.generic-unresolved` because the wave-12 change that replaced the emitter's
 hard-coded `Cast`/`OfType` table with the ordinary extension index matched the receiver against the
 candidate's closed slot — and that slot is the NON-GENERIC `System.Collections.IEnumerable`, which
@@ -75,15 +76,13 @@ emitted assembly for empty holders. **So the republish is not green when step 8 
 C# consumer of the self-compiled assemblies (`Cli`, `Build.Tasks`, `LanguageServer`, `Playground`)
 against the stage-2 seed before believing it.**
 
-`Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
-`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler.Plan`, `src/NSharpLang.Compiler.Emit`, `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling`, `src/NSharpLang.Compiler.Driver`, `src/NSharpLang.Compiler`,
-`src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and
-fails on any INCREASE over the committed ceilings. **The ceilings are a backlog, not a target**: the
-front door reports diagnostics on Core's own source that the emit-only path never asked about
-(missing and unused imports, nullable arguments passed to non-nullable parameters, definite-assignment
-holes, ambiguous simple names). They exist to be driven to zero and must never be raised. The step is
-inside the validated step cache on the UNIT input set, so it runs only when the compiler's own
-sources move.
+`Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` checks
+`src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`,
+`src/NSharpLang.Compiler.Plan`, `src/NSharpLang.Compiler.Emit`, `src/NSharpLang.Compiler.CodeIntel`,
+`src/NSharpLang.Compiler.Tooling`, `src/NSharpLang.Compiler.Driver`, `src/NSharpLang.Compiler`,
+`src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI built by the gate. The
+current ceilings are zero. The dated measurements that follow are retained as migration history,
+not as descriptions of current compiler diagnostics.
 
 **Measured 2026-09-14 after the wave-12 source repair** (`388a6b9e6`): Core reports
 **1,342 diagnostics across 946 files** (1,329 errors and 13 warnings). Comparing diagnostic identities
@@ -234,11 +233,11 @@ NL001 1, NL012 1). BLOCKED is left for the one case a check truly cannot run -- 
 did not build, or built from older sources -- and there it FAILS the step, naming the dependency.
 Pinned by `tests/native/gate-script-contracts/SelfHostFrontDoor.tests.nl`.
 
-The remaining backlog, measured at `5de55561b`, is NL905 (424 possible null dereferences), NL202 (352
-argument type mismatches), NL002 (239 missing imports), NL010 (165 unused imports), and 96
-NL012/NL011/NL304 findings (unused parameters, empty catches and definite-assignment holes), with 42
-NL907/NL001/NL209/NL303/NL301/NL402 behind them. The source cleanup campaign remains
-open; a successful seed build through the emit-only path does not prove that this front door is clean.
+At the historical `5de55561b` snapshot, the measured backlog was NL905 (424 possible null
+dereferences), NL202 (352 argument type mismatches), NL002 (239 missing imports), NL010 (165 unused
+imports), and other findings. That backlog has since been resolved: the current front door is zero
+diagnostics across all eleven projects. A successful seed build through the emit-only path remains a
+separate check from the tip compiler's front door.
 
 ### Republishing the seed
 

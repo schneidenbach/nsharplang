@@ -95,14 +95,10 @@ Existing C# policy tests should remain until their own N# successors are verifie
 delete coverage or start CLI implementation as a compiler prerequisite. The audit's compiler-facing
 visibility and diagnostic gaps are tracked in task 021 instead.
 
-## Standalone compiler facade package dependency (2026-09-09)
+## Standalone compiler facade package (corrected at `b30cbefac`)
 
-The `NSharpLang.Compiler` NuGet package declares a dependency on the compiler project package,
-while `scripts/lib/packages.sh` publishes only SDK, Runtime, Templates and Compiler. Before the
-compiler assembly rename, its nuspec required unpublished `NSharpLang.Compiler.BootstrapServices`;
-afterward the same project reference names `NSharpLang.Compiler.Core`. This is existing standalone
-facade-package distribution debt, separate from the SDK's directly bundled compiler tool payloads.
-Do not claim the standalone Compiler package is usable on the strength of SDK integration checks.
-Resolve the intended package distribution contract in the broader packaging lane. Baseline nuspec,
-feed inventory and a corroborating isolated restore probe are preserved in
-`/private/tmp/nsharp-compiler-core-name-review-20260909/baseline-compiler-package-restore`.
+The earlier claim that `NSharpLang.Compiler` depended on an unpublished Core package is stale.
+`src/NSharpLang.Compiler/project.yml` references `NSharpLang.Compiler.Driver`, and
+`scripts/lib/packages.sh` includes the facade, Driver, Core, and the other compiler slice packages in
+the release package set. The old scratch restore probe described the pre-split package set and is not
+evidence of a current packaging defect.

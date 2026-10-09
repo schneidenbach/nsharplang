@@ -1,16 +1,16 @@
 # N# CLI Toolchain (`nlc`)
 
 **Status:** Active pre-release CLI with code intelligence, auto-fix, and daemon mode. Verify release claims with current help/completion output and test logs.
-**Test count:** Do not hard-code; run `./scripts/dev.sh --estate` (the compiler-service estate) plus `nlc test --project tests/native/<dir>` for the native projects, or `./scripts/test-all.sh`, for current evidence. There is no C# unit suite — `tests/*.cs` and `tests/Tests.csproj` are retired.
+**Test count:** Do not hard-code; run `./scripts/dev.sh --estate` (the compiler-service estate) plus `nlc test --project tests/native/<dir>` for the native projects, or `./scripts/test-all.sh`, for current evidence. No C# unit-test suite remains; coverage lives in the compiler-service estate and native projects.
 
-The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, `nlc fix`, and `nlc lint` all output structured JSON by default with a versioned envelope. `check`, `fix`, and `lint` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output. `nlc --version` prints the installed version.
+The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. Query data commands, `nlc check`, `nlc fix`, and `nlc lint` output structured JSON by default with a versioned envelope; `nlc query help` prints usage text. `check`, `fix`, and `lint` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output. `nlc --version` prints the installed version.
 
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
 `project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`.
 
-CLI command decision kernels live in `NSharpLang.Compiler.Core` and are statically
+CLI command decision kernels live in `NSharpLang.Compiler.Driver` and are statically
 referenced by the CLI. Do not add product-path `Assembly.Load` or delegate-reflection binding for
 compiler-service kernels. New kernel shapes must compile under the pinned stage-0 SDK; repin with
 `./scripts/setup-local.sh` before relying on tip-only language/backend support inside kernels.
@@ -78,7 +78,7 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 
 ### Code Intelligence (`nlc query`)
 
-All query commands output **JSON by default** with a versioned envelope (`schemaVersion: 1`). Add `--text` for human-readable output. When a workspace server of the same `nlc` build is already running (one starts automatically on the first `check`/`build`/`test`/...; see [Workspace Server](#workspace-server-daemon-first-cli)), JSON query commands reuse it for any project in its workspace; add `--no-daemon` to force in-process analysis.
+Query data commands output **JSON by default** with a versioned envelope (`schemaVersion: 1`); `nlc query help` prints usage text. Add `--text` for human-readable output. When a workspace server of the same `nlc` build is already running (one starts automatically on the first `check`/`build`/`test`/...; see [Workspace Server](#workspace-server-daemon-first-cli)), JSON query commands reuse it for any project in its workspace; add `--no-daemon` to force in-process analysis.
 
 | Command | Purpose | Example |
 |---------|---------|---------|
@@ -1451,7 +1451,7 @@ of `check`/`build` measured within noise of each other. ReadyToRun is what remov
 
 ```
 nlc query <cmd>
-  → QueryCommand.cs (CLI dispatch)
+  → `src/NSharpLang.Compiler.Driver/QueryCommand.nl` and `QueryCommandKernels.nl` (N# dispatch and argument decisions)
     → CodeIntelligenceService (shared engine)
       → MultiFileCompiler.CompileForAnalysis()
         → Lexer → Parser → Analyzer
@@ -1464,39 +1464,20 @@ nlc query <cmd>
 
 | File | Purpose |
 |------|---------|
-| `src/NSharpLang.Cli/Program.cs` | The CLI entry point, and nothing else: `Main` plus `GetVersion`. The version read cannot move — `nlc --version` and the help header must report `Cli.dll`'s own `AssemblyInformationalVersion`, and `typeof(Program).Assembly` is the only spelling that names it from inside it — so `Main` reads it and hands it to the pipeline as a value |
-| `src/NSharpLang.TestHost/CliPipeline.nl` | The 26-arm command dispatch: `ProgramCommandKernels.GetCommandKind` turns the argument vector into a command number, and this is the one place that number becomes a call (N#-owned; replaced `Program.Execute`) |
-| `src/NSharpLang.TestHost/TestCommandHost.nl` | `nlc test` whole: the preflight refusals, the incremental build, the choice of runner and the two output shapes (N#-owned; replaced `Program.Testing.cs`) |
-| `src/NSharpLang.TestHost/XunitTestRunner.nl` | The DEFAULT runner: the two assembly-resolution hooks, xunit's front controller and the message sink that turns its messages into `NativeTestResult` rows. NOT isolated — the emitted assembly lands in the default context, which `tests/native/test-assembly-load-contexts` records |
-| `src/NSharpLang.TestHost/ReflectionTestRunner.nl` | The NUnit-shaped runner, which IS isolated: it loads the emitted assembly into a private collectible `NativeTestLoadContext` and unloads it in a `finally` |
-| `src/NSharpLang.TestHost/WatchCommandHost.nl` | `nlc watch`: the `FileSystemWatcher`, the debounce loop and the re-entry into `CliPipeline` (N#-owned; replaced `Commands/WatchCommand.cs`) |
-| `src/NSharpLang.Compiler/CliIlBackend.nl` | The whole project/single-file route to an emitted IL assembly, and the two `run` routes that execute it. `build`, `run`, `publish`, `test` and `pack` all arrive here (N#-owned; replaced `Program.Backends.cs`) |
-| `src/NSharpLang.Compiler/CliError.nl` | The one-line `Error: …` failure report — STDERR, exit 1 — shared by every command (N#-owned) |
-| `src/NSharpLang.Compiler/PackCommand.nl` | `nlc pack`: metadata, build, nuspec and archive (N#-owned) |
-| `src/NSharpLang.Compiler/CheckCommand.nl`, `FixCommand.nl`, `LintCommand.nl`, `DocCommand.nl` | `nlc check` / `fix` / `lint` / `doc` (N#-owned) |
-| `src/NSharpLang.Cli/Commands/QueryCommand.cs` | All `nlc query` subcommands |
-| `src/NSharpLang.Compiler.Driver/DaemonCommand.nl`, `DaemonCommandKernels.nl` | `nlc daemon start/stop/status/run` (N#-owned) |
-| `src/NSharpLang.Compiler.Driver/DaemonProtocol.nl` | The JSON-RPC 2.0 wire types and the constants reader `DaemonConstants` (N#-owned) |
-| `src/NSharpLang.Compiler.Driver/DaemonServer.nl` | The workspace server: singleton lock, accept loop, query snapshots, idle/liveness/caps, warm-up (N#-owned) |
-| `src/NSharpLang.Compiler.Driver/DaemonClient.nl` | JSON-RPC client: ping/status/shutdown, `nlc daemon start`, queries (N#-owned) |
-| `src/NSharpLang.Compiler.Driver/DaemonExecKernels.nl` | Every daemon-first decision as a pure function: routed commands, switches, workspace rule, build identity, launch command, wire constants, timings (N#-owned; pinned by `DaemonExecKernels.tests.nl`) |
-| `src/NSharpLang.Compiler.Driver/DaemonExecClient.nl` | The client half: route, connect, stream frames, stdin pump, `run` launch, fallback, auto-start (N#-owned) |
-| `src/NSharpLang.Compiler.Driver/DaemonExecHost.nl` | The server half: one command per request in the client's cwd/env/culture/console (N#-owned) |
-| `src/NSharpLang.Compiler.Driver/DaemonExecWire.nl` | The exec wire: frames and the binary request encoding (N#-owned) |
-| `src/NSharpLang.Compiler.Driver/DaemonLoadedReferenceGuard.nl` | Retires a server whose loaded references changed on disk (N#-owned) |
-| `src/NSharpLang.Compiler.Driver/DaemonWorkspace.nl`, `DaemonWarmup.nl` | Workspace resolution + build identity; the warm-up project (N#-owned) |
-| `src/NSharpLang.TestHost/TestWorkerHost.nl` | Isolated single-use test workers for server-run `nlc test` (N#-owned) |
-| `src/NSharpLang.Compiler.Model/CliInvocationContext.nl` | The remote-invocation scope: client command line, stderr-is-terminal, `run` launcher, cancellation, termination (N#-owned) |
-| `src/NSharpLang.Compiler.Model/WarmStateRegistry.nl` | The seam caches use to live in a long-lived host: change/trim/describe hooks (N#-owned) |
-| `src/NSharpLang.Compiler.Model/AssemblyTypeNameIndex.nl` | Reference assemblies' top-level type and forwarder names, per assembly object and per file version; lets every type probe skip impossible MLC lookups (N#-owned; the one owner since speed/integration) |
-| `src/NSharpLang.Compiler.Driver/WarmIncrementalSessions.nl` | The workspace server's incremental sessions, one per compilation identity (N#-owned) |
-| `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` | Shared analysis engine |
-| `src/NSharpLang.Compiler/CodeIntelligence/CompletionEngine.nl` | LLM-optimized completions (snapshot plumbing; policy lives in `NSharpLang.Compiler.CodeIntel/CompletionEngineKernels.nl`) |
-| `src/NSharpLang.Compiler/CodeIntelligence/SignatureHelpEngine.nl` | Overload signatures for a call being typed (snapshot plumbing; policy lives in `NSharpLang.Compiler.CodeIntel/SignatureHelpOverloadFacts.nl`). It resolves through the PROJECT SNAPSHOT, the same program completion asks, so an external instance or static method, a whole overload set and a type declared in another file all answer — the current document's own declaration table, which is all `textDocument/signatureHelp` used to read, could answer none of them |
-| `src/NSharpLang.Compiler/CodeIntelligence/OutputFormatter.cs` | JSON + Elm-style formatters |
-| `src/NSharpLang.Compiler/CodeIntelligence/FixApplicator.cs` | TextEdit application |
-| `src/NSharpLang.Compiler.CodeIntel/CodeIntelligenceModels.nl` | Result types (SymbolResult, etc.) |
-| `src/NSharpLang.Compiler.CodeIntel/CodeFix.nl` | TextEdit, CodeAction, CodeFixProviders |
+| `src/NSharpLang.Cli/Program.cs` | The irreducible CLI entry point; it delegates command behavior to the N# toolchain |
+| `src/NSharpLang.Compiler.Driver/CommandRegistry.nl` | Registered top-level and `query` command names |
+| `src/NSharpLang.Compiler.Driver/ProgramCommandKernels.nl` | Top-level dispatch and help text |
+| `src/NSharpLang.Compiler.Driver/QueryCommand.nl`, `QueryCommandKernels.nl` | `nlc query` dispatch, arguments, output selection and subcommand help |
+| `src/NSharpLang.Compiler.Driver/BuildCommandKernels.nl`, `TestCommandKernels.nl`, `FixCommandKernels.nl` | Build, test and fix command decisions |
+| `src/NSharpLang.Compiler.Driver/FrontDoor.nl` | NativeAOT executable front door and handoff to the managed CLI host |
+| `src/NSharpLang.TestHost/CliPipeline.nl`, `TestCommandHost.nl` | Managed command pipeline and `nlc test` orchestration |
+| `src/NSharpLang.Compiler.Driver/MultiFileCompiler.nl` | Multi-file project compilation |
+| `src/NSharpLang.Compiler.Driver/CompilationReferenceResolver.nl`, `ProjectReferenceResolver.nl` | Compiler and project reference resolution |
+| `src/NSharpLang.Compiler.Driver/OutputFormatterJsonKernels.nl`, `OutputFormatterTextBuilders.nl` | Versioned JSON envelopes and human-readable diagnostics |
+| `src/NSharpLang.Compiler.Driver/IncrementalProjectSession.nl`, `WarmIncrementalSessions.nl` | Warm-process incremental analysis sessions |
+| `src/NSharpLang.Compiler.Driver/DaemonExecClient.nl`, `DaemonExecHost.nl`, `DaemonLoadedReferenceGuard.nl` | Daemon routing, command execution and stale-reference retirement |
+| `src/NSharpLang.Compiler.CodeIntel/CompletionEngineKernels.nl`, `SignatureHelpOverloadFacts.nl` | Completion and signature-help decisions |
+| `src/NSharpLang.Compiler.CodeIntel/CodeFix.nl`, `FixApplicatorCore.nl` | Code-fix selection and text-edit application |
 | `src/NSharpLang.Compiler.Core/Semantics/BindingMap.nl` | Semantic symbol resolution |
 
 ### Testing
@@ -1513,7 +1494,7 @@ nlc query <cmd>
 | `tests/native/systems-analysis-census` | The systems policy corpus answered by a SPAWNED `nlc check --project … --systems-report`: 54 fixture projects written, checked and deleted per block, plus `build --perf-report`, `query perf` and `query trusted` on temporary projects. Whole envelopes, whole finding rows, whole function summaries and the diagnostic census |
 | `tests/native/systems-gauntlet-facts` | The ten `tests/fixtures/systems-gauntlet` cases against their four goldens each, plus the facts no CLI surface exposes: return lifetimes, scoped parameters, ref-struct-ness and the `Result<T, E>` runtime ABI |
 | `tests/native/cli-command-contracts` | The shipped CLI's own contracts, SPAWNED as real processes: `--help` for FOURTEEN commands (`tree`/`clean`/`env`/`audit`/`doctor`/`daemon` plus `check`/`fix`/`lint`/`watch`/`format`/`tidy`/`doc`/`completion`), the `nlc tree` and `nlc env` JSON envelopes, the missing-project stderr routes for `check`/`fix`/`lint`/`doc`/`watch` and the argument refusals for `watch`/`format`/`test`/`completion` (which double as the anti-vacuity controls for every silence claim), the `nlc test --timeout` refusal on BOTH the text and the JSON route, **the whole `nlc query batch` envelope** (per-item results with the request echoed back, each response its own versioned envelope, the five per-request validation refusals with their codes, position parsing, and all four requests-file failures as top-level `invalidRequestsFile` errors), **the command registry's sync with `nlc help` / `nlc query help` / the generated zsh script / `website/docs/cli-reference.md`**, and top-level dispatch (`nlc help`, `--version`, an UPPERCASE command, an unknown command, `query help` / `query wat`), **and the six dependency/housekeeping commands proven as PROCESSES** — `nlc add` (help vs failure usage, the missing-project remedy, inline insertion with its indentation, both duplicate arms), `nlc update` and `nlc remove` (help, missing project.yml, missing package — the same sentence word for word), `nlc tidy` (help, the text and JSON missing-project sentences which DIFFER, the three-status classification, and the `ok`-vs-exit-code split), `nlc clean` (the ordered removal listing) and `nlc completion bash` (the script shape and all 27 command names). **Since 021/7 it also pins the two decisions that RETIRE WITH A C# SUBJECT** — `nlc query ast`'s compilation-unit ORDER (ordinal, so every capital sorts before every lowercase, on a fixture that separates `Ordinal` from `OrdinalIgnoreCase`, plus a stability row) and `nlc format --diff`'s git-style `a/PATH` / `b/PATH` labels (including the nested-path control, the already-formatted negative, and the invented `stdin.nl` name on both arms of `--stdin`). Both are observed through the SHIPPED BINARY, so they outlive whatever implements them |
-| `src/NSharpLang.Compiler.Core/<slice>/*CommandKernels.tests.nl` (all in `src/NSharpLang.Compiler.Driver/` but `CompletionCommandKernels`, in `src/NSharpLang.Compiler.CodeIntel/`) | The per-command option summaries, output modes and user-facing sentences, called directly in the estate: `TreeCommandKernels`, `CleanCommandKernels`, `EnvCommandKernels`, `AuditCommandKernels`, `DoctorCommandKernels`, `DaemonCommandKernels`, `RunCommandKernels`, `InitCommandKernels`, `ProgramCommandKernels`, `QueryCommandKernels` (parsing and messages), `BatchQueryKernels`, `DefineArgumentKernels`, `PositionalArgumentKernels`, `CleanArtifactDirectoryOrderer`, `TestCommandKernels`, `WatchCommandKernels`, `TidyCommandKernels`, `DocCommandKernels`, `FixCommandKernels`, `FixCommandArgumentKernels` + `CheckCommandKernels` (one file, one production file), `LintCommandKernels`, `FormatCommandKernels`, `RestoreCommandKernels`, `NewCommandKernels`, `AddCommandKernels`, `RemoveCommandKernels`, `UpdateCommandKernels`, `CompletionCommandKernels`, `CompilationBackendSelectionKernels`, `CommandRegistry`, `PackCommandKernels`, and `BuildCommandKernels` (021/6). **Since 021/6 these also carry the RUNNER and COMMAND vocabulary the CLI used to spell for itself**: `TestCommandKernels`'s outcome words and the rank table defined from them, the invariant `F3` duration and `F0` elapsed formats, the verbose classification, the ordered pre/post lifecycle names the discovery predicate is defined from, the xUnit runner-error identity, the display-name preference, the failure-message join, the test build configuration and the output-mode ordinals; `BuildCommandKernels`'s `Release`/`Debug` names (which `ShouldApplyDebugDefine` is defined from) and its build exit code; `LintCommandKernels`'s two hand-built diagnostic codes (`LINT`, `PARSE`), the error severity defined from `GetSeverityText`, the command name and the parse-error join; and `WatchCommandKernels`'s 250 ms debounce default and its change-line time format |
+| `src/NSharpLang.Compiler.Driver/*CommandKernels*.tests.nl` and `src/NSharpLang.Compiler.CodeIntel/CompletionCommandKernels.tests.nl` | Per-command option summaries, output modes and user-facing sentences called directly in the compiler-service estate. The Driver tests cover command parsing and messages; the CodeIntel test covers completion command decisions |
 | `src/NSharpLang.Compiler.Core/Model/CompilationReferenceResolverKernels.tests.nl` | The reference resolver's selection and parsing kernels: the reference-type filter, the best-score selector and its count bound, the shared-framework candidate over `Version[]`, the two NuGet version selectors, the path-segment probe, the dependency-version range normaliser, the target-framework parser and the framework compatibility score |
 | `src/NSharpLang.Compiler.Driver/CliDependencyAndSymbolFilters.tests.nl` | The three pure static filters with no command wrapper: `UpdateDependencyFilter` (all-NuGet and case-insensitive target selection), `CompilerErrorSeverityFilter` (the error/warning partition) and `QuerySymbolNameFilter` (substring, leading-star, trailing-star and interior-star glob matching, the limit, and the two non-ASCII refusals) |
 | `src/NSharpLang.Compiler.Driver/RestoreCommandGeneratedProps.tests.nl` | `nlc restore` end to end over a real two-project tree: project-reference deduplication in `obj/project.g.props`, the project's own `OutputType`/`AssemblyName`/`TargetFramework` facts, the exclusion of NuGet and framework dependencies, the recursion into a referenced project, and the exit-1 arm for a directory with no `project.yml` |
@@ -1522,7 +1503,7 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.Driver/ProjectReferenceResolver.tests.nl` | How a `project:` dependency becomes something MSBuild can reference: the four MSBuild arms in order (a `.csproj` returned unchanged, the csproj named for `name:`, a single csproj of any name, the DIRECTORY-named csproj) and the refusal when two wrongly-named candidates remain; plus the N# project-root arms. The named-vs-single order was MEASURED to be unobservable and is recorded as such |
 | `src/NSharpLang.Compiler.Core/Model/AstChildrenCore.tests.nl` | The skipped-subtree guard, as a SOURCE CENSUS rather than reflection (`Assembly.GetTypes()` declines at emit): every `class X: Expression` in `Expressions.nl` has a dispatch arm or is a declared leaf, every Expression-typed slot is named by its arm, no arm names a slot the node does not declare, and each of the five aggregates' slots is read by the helper that walks it — paired with runtime blocks over `StackAllocExpression.LengthExpression` and `NewExpression.ArrayLengthExpression`, the two children that shipped unvisited twice |
 | `src/NSharpLang.Compiler.Driver/DaemonServerAndClientKernels.tests.nl` | The daemon protocol's user-facing text: the client's four failure sentences and the server's protocol refusals, lifecycle traces, project-loading traces, file-watcher traces and malformed-parameter trace. **Since 021/7 it also carries THE WIRE ITSELF** — the twelve method names and their exact dispatch (near misses included), the five JSON-RPC error codes, the `2.0` protocol version the error envelope is built from, that envelope's exact bytes, the `daemon/status` payload's exact bytes and member order, the five status field kernels the payload is composed from, the two control results as JSON-*encoded* strings, the socket/pid file names, the three timeouts, the uptime format, and the 100-byte socket-path budget. Before that slice, **not one of the five error codes was asserted anywhere in the repository** |
-| `tests/CodeIntelligenceTests.cs` | One residual case: the culture-invariant severity fallback |
+| `src/NSharpLang.Compiler.CodeIntel/LinterConfig.tests.nl` | Severity parsing, including invariant case folding and `.editorconfig` behavior |
 | `src/NSharpLang.Compiler.CodeIntel/CodeFix.tests.nl` | `CodeFixService`, its six providers and `CodeFixActionHelpers`; every edit proved by applying it |
 | `src/NSharpLang.Compiler.CodeIntel/FixApplicatorCore.tests.nl` | Applied source as whole text; every rejection as its whole message, naming the blamed edit |
 | `src/NSharpLang.Compiler.CodeIntel/FixApplicatorTextEditOrderer.tests.nl` | The five ordering keys in isolation, plus a 200-list differential sweep against an independent oracle |
@@ -1669,7 +1650,7 @@ the client's cold path. Protocol version `1` is part of the build identity.
 Every request and response is one JSON-RPC 2.0 message, sent and then half-closed. The envelope's own
 member names — `jsonrpc`, `id`, `method`, `params`, `result`, `error`, `code`, `message`, `data` — are
 the specification's, and they live on `[JsonPropertyName]` attributes in the N#-owned
-`src/NSharpLang.Compiler/DaemonProtocol.nl`. (That file used to be C#, on the reasoning that an
+`src/NSharpLang.Compiler.Driver/DaemonProtocol.nl`. (That file used to be C#, on the reasoning that an
 attribute argument must be a compile-time constant and so could not be produced by a kernel call.
 The constraint is real; the conclusion was not. N# takes `[JsonPropertyName("jsonrpc")]` on a
 property, emits it, and `System.Text.Json` honours it in both directions — so the wire types are

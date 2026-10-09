@@ -168,7 +168,7 @@ nlc build --verbose --timings
 
 ## Current CLI Surface
 
-Current `nlc --help` lists these top-level commands:
+The command registry includes these top-level command names:
 
 ```text
 build run new init test format lint clean watch doc completion check fix query daemon add tidy remove update publish tree audit env doctor restore pack help
@@ -224,7 +224,7 @@ Run the repo gates before presenting examples as release evidence; examples are 
 
 ## Status
 
-N# is an active pre-release language/toolchain. Current strengths include a working compiler pipeline, project.yml-first SDK flow, a broad `nlc` command surface, query/diagnostic JSON for tooling, and a growing VS Code experience. Current launch caveats include full-suite reliability, IDE visual verification, packaging/public-feed proof, and feature-specific edge cases documented in `memory/limitations.md` and `docs/audits/`.
+N# is an active pre-release language/toolchain. Current strengths include a working compiler pipeline, project.yml-first SDK flow, a broad `nlc` command surface, query/diagnostic JSON for tooling, and a growing VS Code experience. The current merge cursor and outstanding evidence are tracked in [systems-language-closeout/STATUS.md](systems-language-closeout/STATUS.md); current limitations are listed in [memory/limitations.md](memory/limitations.md).
 
 Use exact command output for current counts and evidence:
 
@@ -256,7 +256,7 @@ See [CI/CD Guide](website/docs/ci-cd.md) for current setup notes.
 - **website/docs/types.md**, **functions.md**, **pattern-matching.md** - deep-dive language guides
 - **website/docs/cli-reference.md** - CLI command reference aligned to current help/completions
 - **memory/** - implementation notes, component docs, and known limitations
-- **docs/audits/** - Systems N# adversarial review + verification evidence
+- **systems-language-closeout/STATUS.md** - current branch cursor and remaining merge evidence
 - **docs/design/** - current design notes and audited systems-language documents
 - **website/docs/** - the canonical language guides (the published documentation source)
 
