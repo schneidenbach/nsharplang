@@ -66,8 +66,8 @@ class WorkspaceSymbolHandler: WorkspaceSymbolsHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: WorkspaceSymbolCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: WorkspaceSymbolCapability,
+        _clientCapabilities: ClientCapabilities
     ): WorkspaceSymbolRegistrationOptions {
         return new WorkspaceSymbolRegistrationOptions()
     }

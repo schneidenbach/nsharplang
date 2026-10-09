@@ -40,7 +40,7 @@ class CompletionHandler: CompletionHandlerBase {
         completionEngine = new NSharpLang.Compiler.CodeIntelligence.CompletionEngine()
     }
 
-    override func Handle(request: CompletionParams, cancellationToken: CancellationToken): Task<CompletionList> {
+    override func Handle(request: CompletionParams, _cancellationToken: CancellationToken): Task<CompletionList> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -347,14 +347,14 @@ class CompletionHandler: CompletionHandlerBase {
         }
     }
 
-    override func Handle(request: CompletionItem, cancellationToken: CancellationToken): Task<CompletionItem> {
+    override func Handle(request: CompletionItem, _cancellationToken: CancellationToken): Task<CompletionItem> {
         // We don't provide resolve capabilities, so just return the item as-is
         return Task.FromResult(request)
     }
 
     protected override func CreateRegistrationOptions(
-        capability: CompletionCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: CompletionCapability,
+        _clientCapabilities: ClientCapabilities
     ): CompletionRegistrationOptions {
         return new CompletionRegistrationOptions {
             DocumentSelector: new TextDocumentSelector(new TextDocumentFilter { Language: "nsharp" }),

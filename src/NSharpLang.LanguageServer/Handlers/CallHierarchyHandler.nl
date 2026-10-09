@@ -109,7 +109,7 @@ class CallHierarchyPrepareHandler: CallHierarchyPrepareHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: CallHierarchyPrepareParams, cancellationToken: CancellationToken): Task<Container<CallHierarchyItem>?> {
+    override func Handle(request: CallHierarchyPrepareParams, _cancellationToken: CancellationToken): Task<Container<CallHierarchyItem>?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -217,8 +217,8 @@ class CallHierarchyPrepareHandler: CallHierarchyPrepareHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: CallHierarchyCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: CallHierarchyCapability,
+        _clientCapabilities: ClientCapabilities
     ): CallHierarchyRegistrationOptions {
         return new CallHierarchyRegistrationOptions()
     }
@@ -235,7 +235,7 @@ class CallHierarchyIncomingHandler: CallHierarchyIncomingHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: CallHierarchyIncomingCallsParams, cancellationToken: CancellationToken): Task<Container<CallHierarchyIncomingCall>?> {
+    override func Handle(request: CallHierarchyIncomingCallsParams, _cancellationToken: CancellationToken): Task<Container<CallHierarchyIncomingCall>?> {
         item := request.Item
         uri := item.Uri.ToString()
 
@@ -304,7 +304,7 @@ class CallHierarchyOutgoingHandler: CallHierarchyOutgoingHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: CallHierarchyOutgoingCallsParams, cancellationToken: CancellationToken): Task<Container<CallHierarchyOutgoingCall>?> {
+    override func Handle(request: CallHierarchyOutgoingCallsParams, _cancellationToken: CancellationToken): Task<Container<CallHierarchyOutgoingCall>?> {
         item := request.Item
         uri := item.Uri.ToString()
         doc := documentManager.GetDocument(uri)

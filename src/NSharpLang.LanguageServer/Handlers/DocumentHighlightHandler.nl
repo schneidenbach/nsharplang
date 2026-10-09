@@ -27,7 +27,7 @@ class DocumentHighlightHandler: DocumentHighlightHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: DocumentHighlightParams, cancellationToken: CancellationToken): Task<DocumentHighlightContainer?> {
+    override func Handle(request: DocumentHighlightParams, _cancellationToken: CancellationToken): Task<DocumentHighlightContainer?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -86,8 +86,8 @@ class DocumentHighlightHandler: DocumentHighlightHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: DocumentHighlightCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: DocumentHighlightCapability,
+        _clientCapabilities: ClientCapabilities
     ): DocumentHighlightRegistrationOptions {
         return new DocumentHighlightRegistrationOptions()
     }

@@ -36,10 +36,9 @@ import NSharpLang.Compiler.Columnar
 // projects/TestExample` carries two `.nl` files and discovers ONE, because the other is a
 // `.tests.nl`; nothing anywhere said so.
 //
-// ONE OF THE NINETEEN IS COVERED BY NOTHING ELSE IN THE REPOSITORY. The gate's Step 10a walks
-// `examples/*` and keeps a directory only when it has a `project.yml` or a top-level `.nl` file;
-// `11-advanced-features` has neither (its eight sources live in eight sub-directories), so the gate
-// skips it and the deleted C# theory was its only coverage. It is stated below.
+// `11-advanced-features` is aggregated here to pin recursive source discovery, parsing and linting
+// across its directory tree. Its eleven child projects each have their own `project.yml`; product
+// gate Step 10 enumerates those files recursively and checks every child project independently.
 func EpcRepoRoot(): string {
     current: string? = AppContext.BaseDirectory
     while current != null {
@@ -57,8 +56,8 @@ func EpcExamplesRoot(): string {
     return Path.Combine(EpcRepoRoot(), "examples")
 }
 
-// `files=<n> parseErrors=<n> lint=<code@file;…>` for one example project, walked exactly the way
-// the compiler walks it. `<missing directory>` is a REPORTED answer rather than a skip.
+// `files=<n> parseErrors=<n> lint=<code@file;…>` for one example directory entry, walked exactly
+// the way the compiler walks it. `<missing directory>` is a REPORTED answer rather than a skip.
 func EpcProjectReport(relativePath: string): string {
     directory := Path.Combine(EpcExamplesRoot(), relativePath)
     if !Directory.Exists(directory) {
@@ -132,10 +131,9 @@ test "every single-directory example discovers its sources, parses clean and lin
     assert EpcProjectReport("14-minimal-api") == "files=1 parseErrors=0 lint="
 }
 
-test "11-advanced-features, THE ONE EXAMPLE THE PRODUCT GATE'S OWN FILTER SKIPS" {
-    // Eleven sources in eleven sub-directories, no top-level `.nl` and no `project.yml`, so the
-    // gate's `nlc check` sweep drops it and the deleted `[Theory]` row was the only thing that
-    // looked at it. The recursive walk finds all eleven.
+test "11-advanced-features aggregates source discovery across its nested project directories" {
+    // The configured child projects are checked independently by gate Step 10. This aggregate walk
+    // continues to pin the compiler's recursive discovery, parser and linter over all eleven files.
     assert EpcProjectReport("11-advanced-features") == "files=11 parseErrors=0 lint="
 }
 
@@ -177,7 +175,7 @@ test "17-issue-tracker/backend — the other application, stated the same way" {
 
 // ── the corpus as a whole ─────────────────────────────────────────────────────────────────────
 
-test "THE CORPUS IS NINETEEN DIRECTORIES AND EVERY ONE OF THEM IS REQUIRED TO BE THERE" {
+test "THE CORPUS HAS NINETEEN REQUIRED DIRECTORY ENTRIES" {
     // This is the assertion the deleted file could not make: it opened every one of its seventeen
     // cases by RETURNING when the directory was absent. A corpus that lost a project reported
     // seventeen passes.
@@ -193,7 +191,7 @@ test "THE CORPUS IS NINETEEN DIRECTORIES AND EVERY ONE OF THEM IS REQUIRED TO BE
 }
 
 test "the whole corpus is 80 discovered files, zero parse errors and zero lint diagnostics" {
-    // The sum is what catches a project that silently stops discovering: nineteen per-project
+    // The sum is what catches a directory that silently stops discovering: nineteen per-entry
     // equalities can all be updated one at a time, and this row makes that a visible arithmetic
     // change rather than a quiet one.
     totalFiles := 0
@@ -230,7 +228,7 @@ test "the whole corpus is 80 discovered files, zero parse errors and zero lint d
     assert census == ""
 }
 
-test "THE MISSING-DIRECTORY ANSWER IS REPORTED, WHICH IS WHAT MAKES THE NINETEEN ABOVE MEAN ANYTHING" {
+test "THE MISSING-DIRECTORY ANSWER IS REPORTED, WHICH MAKES THE NINETEEN ENTRIES MEAN SOMETHING" {
     // The control for the whole file. `EpcProjectReport` answers `<missing directory>` rather than
     // an empty, silently-passing report — so if any of the nineteen equalities above were reading a
     // directory that is not there, it would fail on this string rather than on `files=0`.

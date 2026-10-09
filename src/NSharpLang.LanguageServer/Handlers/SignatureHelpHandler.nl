@@ -31,7 +31,7 @@ class SignatureHelpHandler: SignatureHelpHandlerBase {
         signatureHelpEngine = new SignatureHelpEngine()
     }
 
-    override func Handle(request: SignatureHelpParams, cancellationToken: CancellationToken): Task<SignatureHelp?> {
+    override func Handle(request: SignatureHelpParams, _cancellationToken: CancellationToken): Task<SignatureHelp?> {
         // The current catalog, asked per request: it is rebuilt when a reference changes on disk.
         signatureHelpEngine.UseCatalog(documentManager.CurrentTypeCatalog())
         uri := request.TextDocument.Uri.ToString()
@@ -76,8 +76,8 @@ class SignatureHelpHandler: SignatureHelpHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: SignatureHelpCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: SignatureHelpCapability,
+        _clientCapabilities: ClientCapabilities
     ): SignatureHelpRegistrationOptions {
         return new SignatureHelpRegistrationOptions {
             TriggerCharacters: new Container<string>("(", ",")

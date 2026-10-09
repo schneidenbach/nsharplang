@@ -26,7 +26,7 @@ class OnTypeFormattingHandler: DocumentOnTypeFormattingHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: DocumentOnTypeFormattingParams, cancellationToken: CancellationToken): Task<TextEditContainer?> {
+    override func Handle(request: DocumentOnTypeFormattingParams, _cancellationToken: CancellationToken): Task<TextEditContainer?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -73,8 +73,8 @@ class OnTypeFormattingHandler: DocumentOnTypeFormattingHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: DocumentOnTypeFormattingCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: DocumentOnTypeFormattingCapability,
+        _clientCapabilities: ClientCapabilities
     ): DocumentOnTypeFormattingRegistrationOptions {
         return new DocumentOnTypeFormattingRegistrationOptions {
             FirstTriggerCharacter: "}",

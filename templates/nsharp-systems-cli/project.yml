@@ -10,7 +10,8 @@ language:
   asyncDefaultType: ValueTask
   systems:
     mode: strict
-    unknownExternalCalls: warn
+    # Console output is cold startup work; hot and boundary policy checks remain active.
+    unknownExternalCalls: allow
     aotTarget: nativeaot
     stackBudgetBytes: 4096
     warmup:

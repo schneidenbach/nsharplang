@@ -27,7 +27,7 @@ class InlayHintHandler: InlayHintsHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: InlayHintParams, cancellationToken: CancellationToken): Task<InlayHintContainer?> {
+    override func Handle(request: InlayHintParams, _cancellationToken: CancellationToken): Task<InlayHintContainer?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -64,14 +64,14 @@ class InlayHintHandler: InlayHintsHandlerBase {
         return Task.FromResult<InlayHintContainer?>(new InlayHintContainer(hints))
     }
 
-    override func Handle(request: InlayHint, cancellationToken: CancellationToken): Task<InlayHint> {
+    override func Handle(request: InlayHint, _cancellationToken: CancellationToken): Task<InlayHint> {
         // Resolve is not supported — return the hint as-is
         return Task.FromResult(request)
     }
 
     protected override func CreateRegistrationOptions(
-        capability: InlayHintClientCapabilities,
-        clientCapabilities: ClientCapabilities
+        _capability: InlayHintClientCapabilities,
+        _clientCapabilities: ClientCapabilities
     ): InlayHintRegistrationOptions {
         return new InlayHintRegistrationOptions {
             ResolveProvider: false

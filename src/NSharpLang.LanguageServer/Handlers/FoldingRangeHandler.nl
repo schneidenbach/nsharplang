@@ -25,7 +25,7 @@ class FoldingRangeHandler: FoldingRangeHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: FoldingRangeRequestParam, cancellationToken: CancellationToken): Task<Container<FoldingRange>?> {
+    override func Handle(request: FoldingRangeRequestParam, _cancellationToken: CancellationToken): Task<Container<FoldingRange>?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -50,8 +50,8 @@ class FoldingRangeHandler: FoldingRangeHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: FoldingRangeCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: FoldingRangeCapability,
+        _clientCapabilities: ClientCapabilities
     ): FoldingRangeRegistrationOptions {
         return new FoldingRangeRegistrationOptions()
     }

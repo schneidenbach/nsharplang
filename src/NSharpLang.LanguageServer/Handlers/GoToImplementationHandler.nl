@@ -96,8 +96,8 @@ class GoToImplementationHandler: ImplementationHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: ImplementationCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: ImplementationCapability,
+        _clientCapabilities: ClientCapabilities
     ): ImplementationRegistrationOptions {
         return new ImplementationRegistrationOptions()
     }

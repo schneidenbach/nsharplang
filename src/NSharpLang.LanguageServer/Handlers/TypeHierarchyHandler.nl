@@ -62,7 +62,7 @@ class TypeHierarchyPrepareHandler: TypeHierarchyPrepareHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: TypeHierarchyPrepareParams, cancellationToken: CancellationToken): Task<Container<TypeHierarchyItem>?> {
+    override func Handle(request: TypeHierarchyPrepareParams, _cancellationToken: CancellationToken): Task<Container<TypeHierarchyItem>?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -95,8 +95,8 @@ class TypeHierarchyPrepareHandler: TypeHierarchyPrepareHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: TypeHierarchyCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: TypeHierarchyCapability,
+        _clientCapabilities: ClientCapabilities
     ): TypeHierarchyRegistrationOptions {
         return new TypeHierarchyRegistrationOptions()
     }

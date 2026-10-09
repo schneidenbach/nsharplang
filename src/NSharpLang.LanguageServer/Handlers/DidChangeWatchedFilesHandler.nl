@@ -31,7 +31,7 @@ class DidChangeWatchedFilesHandler: DidChangeWatchedFilesHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: DidChangeWatchedFilesParams, cancellationToken: CancellationToken): Task<Unit> {
+    override func Handle(request: DidChangeWatchedFilesParams, _cancellationToken: CancellationToken): Task<Unit> {
         for change in request.Changes {
             filePath := change.Uri.GetFileSystemPath()
             if string.IsNullOrEmpty(filePath) || !filePath.EndsWith(".nl", StringComparison.OrdinalIgnoreCase) {
@@ -69,8 +69,8 @@ class DidChangeWatchedFilesHandler: DidChangeWatchedFilesHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: DidChangeWatchedFilesCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: DidChangeWatchedFilesCapability,
+        _clientCapabilities: ClientCapabilities
     ): DidChangeWatchedFilesRegistrationOptions {
         watcher := new FileSystemWatcher {
             GlobPattern: "**/*.nl",

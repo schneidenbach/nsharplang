@@ -31,7 +31,7 @@ class CodeActionHandler: CodeActionHandlerBase {
         codeFixService = new CodeFixService()
     }
 
-    override func Handle(request: CodeActionParams, cancellationToken: CancellationToken): Task<CommandOrCodeActionContainer?> {
+    override func Handle(request: CodeActionParams, _cancellationToken: CancellationToken): Task<CommandOrCodeActionContainer?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -189,14 +189,14 @@ class CodeActionHandler: CodeActionHandlerBase {
     }
 
     // Implement required Handle method from base class
-    override func Handle(request: OmniSharp.Extensions.LanguageServer.Protocol.Models.CodeAction, cancellationToken: CancellationToken): Task<OmniSharp.Extensions.LanguageServer.Protocol.Models.CodeAction> {
+    override func Handle(request: OmniSharp.Extensions.LanguageServer.Protocol.Models.CodeAction, _cancellationToken: CancellationToken): Task<OmniSharp.Extensions.LanguageServer.Protocol.Models.CodeAction> {
         // This method is called when resolving a code action - not currently used
         return Task.FromResult(request)
     }
 
     protected override func CreateRegistrationOptions(
-        capability: CodeActionCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: CodeActionCapability,
+        _clientCapabilities: ClientCapabilities
     ): CodeActionRegistrationOptions {
         return new CodeActionRegistrationOptions {
             CodeActionKinds: new Container<OmniSharp.Extensions.LanguageServer.Protocol.Models.CodeActionKind>(

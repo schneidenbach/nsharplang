@@ -1662,14 +1662,14 @@ Do not reuse the developer's installed VS Code binary or profile for test runs.
   against `int.TryParse`, because `CultureInfo` cannot be reached from this estate in either
   direction
 - **The shipped `examples/` corpus** has no C# assertion layer: `ExampleProjectCorpus.tests.nl`
-  walks all nineteen example projects through the compiler's OWN discovery
-  (`MultiFileCompilerInputBuilder.BuildFromProject`), parser and linter, pinning each project's file
-  count, zero parse errors and an empty lint census. **It REQUIRES every directory to exist**,
-  which the deleted C# theories did not — each opened with `if (!Directory.Exists(…)) return;`. One
-  of the nineteen, `11-advanced-features`, is covered by nothing else in the repository: the gate's
-  Step 10a keeps a directory only when it has a `project.yml` or a top-level `.nl` file, and that
-  one has neither. The remaining half of `nlc check` (semantic analysis and IL emission) stays with
-  Step 10a, which runs the real binary over a superset of these directories
+  walks nineteen required example directory entries through the compiler's OWN discovery
+  (`MultiFileCompilerInputBuilder.BuildFromProject`), parser and linter, pinning 80 discovered files,
+  zero parse errors and an empty lint census. **It REQUIRES every directory to exist**, which the
+  deleted C# theories did not — each opened with `if (!Directory.Exists(…)) return;`. The
+  `11-advanced-features` entry aggregates its eleven nested source files for this in-memory census;
+  product gate Step 10 now recursively enumerates `project.yml` under `examples/` and checks all
+  eleven configured child projects with the real `nlc check` command, alongside every other
+  configured example and template project.
 
 ### Known Testing Limitation
 Raw filtered `dotnet test --filter` invocations can hang in this project because of the

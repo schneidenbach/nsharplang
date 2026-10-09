@@ -6,7 +6,6 @@ import System.Threading
 import System.Threading.Tasks
 import MediatR
 import Microsoft.Extensions.Logging
-import NSharpLang.Compiler
 import NSharpLang.LanguageServer.Services
 import OmniSharp.Extensions.LanguageServer.Protocol
 import OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities
@@ -34,7 +33,7 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
         return new TextDocumentAttributes(uri, "nsharp")
     }
 
-    override func Handle(request: DidOpenTextDocumentParams, token: CancellationToken): Task<Unit> {
+    override func Handle(request: DidOpenTextDocumentParams, _token: CancellationToken): Task<Unit> {
         uri := request.TextDocument.Uri.ToString()
         text := request.TextDocument.Text
         version := request.TextDocument.Version ?? 0
@@ -48,7 +47,7 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
         return Unit.Task
     }
 
-    override func Handle(request: DidChangeTextDocumentParams, token: CancellationToken): Task<Unit> {
+    override func Handle(request: DidChangeTextDocumentParams, _token: CancellationToken): Task<Unit> {
         uri := request.TextDocument.Uri.ToString()
 
         // Full document sync - we receive the entire document content
@@ -63,7 +62,7 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
         return Unit.Task
     }
 
-    override func Handle(request: DidSaveTextDocumentParams, token: CancellationToken): Task<Unit> {
+    override func Handle(request: DidSaveTextDocumentParams, _token: CancellationToken): Task<Unit> {
         // Re-analyze on save to ensure diagnostics are up-to-date
         uri := request.TextDocument.Uri.ToString()
         logger.LogInformation("Document saved: {Uri}", uri)
@@ -76,7 +75,7 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
         return Unit.Task
     }
 
-    override func Handle(request: DidCloseTextDocumentParams, token: CancellationToken): Task<Unit> {
+    override func Handle(request: DidCloseTextDocumentParams, _token: CancellationToken): Task<Unit> {
         uri := request.TextDocument.Uri.ToString()
         logger.LogInformation("Document closed: {Uri}", uri)
 
@@ -97,8 +96,8 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: TextSynchronizationCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: TextSynchronizationCapability,
+        _clientCapabilities: ClientCapabilities
     ): TextDocumentSyncRegistrationOptions {
         // Default configuration - full sync
         return new TextDocumentSyncRegistrationOptions()

@@ -23,7 +23,7 @@ class ReferencesHandler: ReferencesHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: ReferenceParams, cancellationToken: CancellationToken): Task<LocationContainer?> {
+    override func Handle(request: ReferenceParams, _cancellationToken: CancellationToken): Task<LocationContainer?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -91,8 +91,8 @@ class ReferencesHandler: ReferencesHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: ReferenceCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: ReferenceCapability,
+        _clientCapabilities: ClientCapabilities
     ): ReferenceRegistrationOptions {
         return new ReferenceRegistrationOptions()
     }

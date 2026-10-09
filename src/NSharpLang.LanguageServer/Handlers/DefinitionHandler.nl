@@ -21,7 +21,7 @@ class DefinitionHandler: DefinitionHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: DefinitionParams, cancellationToken: CancellationToken): Task<LocationOrLocationLinks?> {
+    override func Handle(request: DefinitionParams, _cancellationToken: CancellationToken): Task<LocationOrLocationLinks?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -75,8 +75,8 @@ class DefinitionHandler: DefinitionHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: DefinitionCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: DefinitionCapability,
+        _clientCapabilities: ClientCapabilities
     ): DefinitionRegistrationOptions {
         return new DefinitionRegistrationOptions()
     }

@@ -6,7 +6,6 @@ import System.Threading
 import System.Threading.Tasks
 import Microsoft.Extensions.Logging
 import NSharpLang.Compiler.CodeIntelligence
-import NSharpLang.LanguageServer.Models
 import NSharpLang.LanguageServer.Services
 import OmniSharp.Extensions.JsonRpc.Server
 import OmniSharp.Extensions.LanguageServer.Protocol
@@ -27,7 +26,7 @@ class RenameHandler: RenameHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: RenameParams, cancellationToken: CancellationToken): Task<WorkspaceEdit?> {
+    override func Handle(request: RenameParams, _cancellationToken: CancellationToken): Task<WorkspaceEdit?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -124,8 +123,8 @@ class RenameHandler: RenameHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: RenameCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: RenameCapability,
+        _clientCapabilities: ClientCapabilities
     ): RenameRegistrationOptions {
         return new RenameRegistrationOptions {
             PrepareProvider: true

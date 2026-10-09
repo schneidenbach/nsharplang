@@ -20,7 +20,7 @@ class DocumentFormattingHandler: DocumentFormattingHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: DocumentFormattingParams, cancellationToken: CancellationToken): Task<TextEditContainer?> {
+    override func Handle(request: DocumentFormattingParams, _cancellationToken: CancellationToken): Task<TextEditContainer?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -75,8 +75,8 @@ class DocumentFormattingHandler: DocumentFormattingHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: DocumentFormattingCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: DocumentFormattingCapability,
+        _clientCapabilities: ClientCapabilities
     ): DocumentFormattingRegistrationOptions {
         return new DocumentFormattingRegistrationOptions()
     }

@@ -30,7 +30,7 @@ class DocumentSymbolHandler: DocumentSymbolHandlerBase {
 
     override func Handle(
         request: DocumentSymbolParams,
-        cancellationToken: CancellationToken
+        _cancellationToken: CancellationToken
     ): Task<SymbolInformationOrDocumentSymbolContainer?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
@@ -57,8 +57,8 @@ class DocumentSymbolHandler: DocumentSymbolHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: DocumentSymbolCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: DocumentSymbolCapability,
+        _clientCapabilities: ClientCapabilities
     ): DocumentSymbolRegistrationOptions {
         return new DocumentSymbolRegistrationOptions()
     }

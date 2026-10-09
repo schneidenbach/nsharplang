@@ -26,7 +26,7 @@ class PrepareRenameHandler: PrepareRenameHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: PrepareRenameParams, cancellationToken: CancellationToken): Task<RangeOrPlaceholderRange?> {
+    override func Handle(request: PrepareRenameParams, _cancellationToken: CancellationToken): Task<RangeOrPlaceholderRange?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -93,8 +93,8 @@ class PrepareRenameHandler: PrepareRenameHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: RenameCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: RenameCapability,
+        _clientCapabilities: ClientCapabilities
     ): RenameRegistrationOptions {
         return new RenameRegistrationOptions {
             PrepareProvider: true

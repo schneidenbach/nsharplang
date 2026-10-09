@@ -133,6 +133,8 @@ static class ReflectionTestRunner {
                 for lifecycleName in TestCommandKernels.GetPostTestLifecycleMethodNames() {
                     try {
                         InvokeLifecycle(instance, lifecycleName, timeoutMs)
+                        // A post-test lifecycle failure does not change a passing test or replace its original failure.
+                        // nlc:ignore NL011
                     } catch lifecycleError: Exception {
                     }
                 }

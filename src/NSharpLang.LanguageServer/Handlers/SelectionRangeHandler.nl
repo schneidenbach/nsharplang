@@ -28,7 +28,7 @@ class SelectionRangeHandler: SelectionRangeHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: SelectionRangeParams, cancellationToken: CancellationToken): Task<Container<SelectionRange>?> {
+    override func Handle(request: SelectionRangeParams, _cancellationToken: CancellationToken): Task<Container<SelectionRange>?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -55,8 +55,8 @@ class SelectionRangeHandler: SelectionRangeHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: SelectionRangeCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: SelectionRangeCapability,
+        _clientCapabilities: ClientCapabilities
     ): SelectionRangeRegistrationOptions {
         return new SelectionRangeRegistrationOptions()
     }

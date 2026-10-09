@@ -341,6 +341,8 @@ class DocumentManager {
                     if isExcludedFromProject {
                         hasProjectConfig = false
                     }
+                    // The next config read owns the user-facing malformed-config error.
+                    // nlc:ignore NL011
                 } catch sourcePathFailure: Exception {
                 }
             }

@@ -18,10 +18,6 @@ func ParseLength(buf: ReadOnlySpan<byte>): Result<uint, ParseError> {
 
 [boundary]
 func Run(): Result<int, ParseError> {
-    allow(alloc, reason: "CLI startup allocates outside the hot parser") {
-        print "Systems N# template"
-    }
-
     return Ok(0)
 }
 
@@ -29,5 +25,9 @@ func Warmup(): void {
 }
 
 func main(): void {
+    allow(alloc, reason: "Cold CLI startup message") {
+        print "Systems N# template"
+    }
+
     _ := Run()
 }

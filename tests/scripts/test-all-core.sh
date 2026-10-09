@@ -127,7 +127,16 @@ print_timing_summary() {
     printf '  %-46s %s\n' "Total" "$(format_duration "$total_seconds")"
 }
 
-trap print_timing_summary EXIT
+cleanup_on_exit() {
+    local exit_status=$?
+    if [ -n "${TEMP_DIR:-}" ]; then
+        rm -rf "$TEMP_DIR"
+    fi
+    print_timing_summary
+    return "$exit_status"
+}
+
+trap cleanup_on_exit EXIT
 
 handle_error() {
     echo -e "${RED}✗ FAILED: $1${NC}"
@@ -1311,7 +1320,6 @@ else
 fi
 
 cd "$REPO_ROOT"
-rm -rf "$TEMP_DIR"
 
 section "Step 8: Build Example Projects (via nlc build)"
 echo "Using up to $MAX_JOBS parallel workers for project verification..."
@@ -1467,21 +1475,21 @@ else
 fi
 
 section "Step 10: Check Examples (nlc check)"
-echo "Running nlc check on all example directories..."
-echo "This verifies the Language Server won't report false errors."
+echo "Running nlc check on every example and template project, plus loose examples and fixtures..."
+echo "Each checked project must have zero errors and zero warnings."
 
-# Check each self-contained project; skip umbrella folders with no direct .nl files or project.yml —
-# their child projects are checked separately, without allowlists that would mask bad import roots.
-CHECK_DIRS=$(find examples -mindepth 1 -maxdepth 1 -type d | sort)
-# Sub-projects in 12-multi-file-projects need individual checking
+# Check each configured project directly. The old top-level directory sweep missed the eleven
+# projects beneath examples/11-advanced-features and did not include any checked-in templates.
+CHECK_DIRS=$(find examples templates -name project.yml -type f -print | sed 's|/project.yml$||' | sort)
+# Keep the loose single-file example groups and test fixture projects in the check.
 CHECK_DIRS="$CHECK_DIRS
-$(find examples/12-multi-file-projects -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
-# Sub-projects in 17-issue-tracker (backend has its own project.yml)
-CHECK_DIRS="$CHECK_DIRS
-$(find examples/17-issue-tracker -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
-# Test fixture projects
+$(find examples -mindepth 1 -maxdepth 1 -type d | sort)"
 CHECK_DIRS="$CHECK_DIRS
 $(find tests/fixtures -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -v '\.golden' | sort)"
+# Step 6 creates these two projects from the installed templates; retain them through this check.
+CHECK_DIRS="$CHECK_DIRS
+$TEMP_DIR/TestConsoleApp
+$TEMP_DIR/TestWebApiApp"
 
 filter_check_dir() {
     local check_dir="$1"
@@ -1498,7 +1506,7 @@ while IFS= read -r check_dir; do
     filter_check_dir "$check_dir" || continue
     i=$((i + 1))
     printf '%04d|%s\n' "$i" "$check_dir"
-done <<< "$CHECK_DIRS" > "$CHECK_LIST"
+done <<< "$(printf '%s\n' "$CHECK_DIRS" | sort -u)" > "$CHECK_LIST"
 
 xargs -P "$MAX_JOBS" -I{} bash -lc '
     entry="$1"
@@ -1510,9 +1518,10 @@ xargs -P "$MAX_JOBS" -I{} bash -lc '
     result_file="$results_dir/$idx.result"
 
     result=$(dotnet "$cli_dll" check "$check_dir/" 2>/dev/null || true)
-    errors=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['\''summary'\'']['\''errors'\''])" 2>/dev/null || echo "?")
+    counts=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('summary',{}); print('%s|%s|%s|%s' % (s.get('errors',-1),s.get('warnings',-1),s.get('projectFailures',0),str(d.get('ok',False)).lower()))" 2>/dev/null || echo "?|?|?|false")
+    IFS='|' read -r errors warnings project_failures is_ok <<< "$counts"
     dir_name=$(echo "$check_dir" | sed "s|examples/||")
-    printf "%s|%s|%s\n" "$errors" "$dir_name" "$check_dir" > "$result_file"
+    printf "%s|%s|%s|%s|%s|%s\n" "$errors" "$warnings" "$project_failures" "$is_ok" "$dir_name" "$check_dir" > "$result_file"
 ' _ {} "$REPO_ROOT" "$CHECK_RESULTS_DIR" "$CLI_DLL" < "$CHECK_LIST"
 
 CHECK_FAIL=0
@@ -1520,12 +1529,15 @@ while IFS='|' read -r idx check_dir_unused; do
     result_file="$CHECK_RESULTS_DIR/$idx.result"
     [ ! -f "$result_file" ] && continue
     errors=$(cut -d'|' -f1 "$result_file")
-    dir_name=$(cut -d'|' -f2 "$result_file")
+    warnings=$(cut -d'|' -f2 "$result_file")
+    project_failures=$(cut -d'|' -f3 "$result_file")
+    is_ok=$(cut -d'|' -f4 "$result_file")
+    dir_name=$(cut -d'|' -f5 "$result_file")
 
-    if [ "$errors" = "0" ]; then
+    if [ "$errors" = "0" ] && [ "$warnings" = "0" ] && [ "$project_failures" = "0" ] && [ "$is_ok" = "true" ]; then
         echo -e "  ${GREEN}✓${NC} $dir_name"
     else
-        echo -e "  ${RED}✗${NC} $dir_name ($errors errors)"
+        echo -e "  ${RED}✗${NC} $dir_name ($errors errors, $warnings warnings, $project_failures project failures)"
         CHECK_FAIL=1
     fi
 done < "$CHECK_LIST"

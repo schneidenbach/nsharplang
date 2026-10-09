@@ -264,16 +264,36 @@ Undefined identifier 'unknownVar'
   (`ColumnarEmissionDiagnostics`). The refusals are decided while the back end walks every body (the
   planners that choose an instruction sequence are the code that hands it to the `ILGenerator`, and
   the image's metadata serialisation can refuse it last), so no cheaper pass can answer them without
-  being a second code generator. The repository corpus carries six of them under `nlc check`
-  (`examples/14-minimal-api`, `examples/17-issue-tracker/backend`, `templates/nsharp-webapi`,
-  `tests/fixtures/issue-tracker` and two census projects at the repository-root workspace check), so
-  skipping the walk would turn real failures into `ok: true`. Measured on the agent-loop `large`
-  project (80,960 lines): metadata generation and PE serialisation are ~20 ms of a ~1.5 s walk, so the
-  walk itself is the cost and the image's write was never the part worth removing; what the check no
-  longer does is create a scratch directory, write the image and count it (`--stats`
-  `assembliesEmitted` is 0 for a check). The validated image stays on the compiler
-  (`MultiFileCompiler.EmittedImage`). The repository-root workspace check's JSON was byte-identical
-  before and after (225 members, 175 errors, 162 warnings, six NL103).
+  being a second code generator. The repository-root census for base `72cd2ae60` with this slice's
+  source fixes applied (fresh CLI, `NLC_NO_DAEMON=1`) checked 1,999 source files in 228 member
+  projects and reported no NL103.
+  Its current 160 warnings are deliberate Systems-policy findings from two documented corpora: 135
+  in `benchmarks/native-comparison/nsharp-kernels` (NSYS001: 18, NSYS050: 82, NSYS060: 16,
+  NSYS070: 7, NSYS120: 12) and 25 across 15 projects under
+  `docs/design/systems-samples/proofs` (NSYS001: 9, NSYS050: 13, NSYS070: 3). The warning-bearing
+  proof projects are `26-native-device-handle`, `27-c-library-cli`, `30-cold-failure-logging`,
+  `31-hot-metrics`, `32-cache-prewarm`, `33-arraypool-file-io`, `35-async-file-hot-parser`,
+  `36-dictionary-setup-hot-read`, `37-fixed-capacity-map`, `38-unmanaged-sort-comparer`,
+  `39-hot-linq-pipeline`, `42-aot-friendly-public-api`, `44-ci-allocation-gate`,
+  `46-dapper-boundary`, and `48-effect-drift`; `tests/native/systems-proof-corpus` pins each
+  project's warning count. These are the respective boundary-allocation, unsummarised-call, cost,
+  effect, and implicit-trap findings documented as [NSYS001](../../website/docs/errors/NSYS001.md),
+  [NSYS050](../../website/docs/errors/NSYS050.md), [NSYS060](../../website/docs/errors/NSYS060.md),
+  [NSYS070](../../website/docs/errors/NSYS070.md), and [NSYS120](../../website/docs/errors/NSYS120.md).
+  Step 10 checks all 21 configured example projects, all six checked-in template projects, both
+  generated `dotnet new` applications, and the loose example/fixture groups with zero errors and
+  warnings. The systems CLI template keeps its startup banner on the cold `main` path and explicitly
+  allows unknown cold external calls; `[hot]` and `[boundary]` findings remain active.
+  The root census
+  had zero project failures and zero errors after the Language Server's protocol-only unused
+  parameters/imports were corrected and its two intentional empty catches were annotated with
+  `nlc:ignore NL011`. The older six-NL103 census predates this tree and is not reproduced by it.
+  Skipping the backend walk would still turn any future real emission failure into `ok: true`.
+  Measured on the agent-loop `large` project (80,960 lines): metadata generation and PE
+  serialisation are ~20 ms of a ~1.5 s walk, so the walk itself is the cost and the image's write was
+  never the part worth removing; what the check no longer does is create a scratch directory, write
+  the image and count it (`--stats` `assembliesEmitted` is 0 for a check). The validated image stays
+  on the compiler (`MultiFileCompiler.EmittedImage`).
 - **One analysis per file per check.** The emission proof uses the compiler that produced the
   diagnostics (`MultiFileCompiler.ValidateAnalyzedEmission`); it used to hand the project to a second
   compiler that parsed, analysed and loaded the reference closure again. On
@@ -1515,7 +1535,7 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.Core/Model/ProjectSourceFileFilter.tests.nl` | The exclude-glob engine arm by arm (`*`, `**/`, `?`, backslash normalisation, case sensitivity) and the `.tests.nl` suffix rule |
 | `src/NSharpLang.Compiler.Core/Model/Reference.tests.nl` | The four dependency kinds, their precedence, `HasValue`, and `Validate` against the disk |
 | `src/NSharpLang.Compiler.Core/Model/AssemblyVersionUtilities.tests.nl` | Package version → four-part assembly version, and the component kernel as a pinned table |
-| `src/NSharpLang.Compiler.CodeIntel/ExampleProjectCorpus.tests.nl` | All nineteen shipped `examples/` projects walked through the compiler's own discovery, parser and linter — directories REQUIRED, file counts pinned |
+| `src/NSharpLang.Compiler.CodeIntel/ExampleProjectCorpus.tests.nl` | Nineteen required `examples/` directory entries walked through compiler discovery, parsing and linting — 80 source files pinned; the `11-advanced-features` entry aggregates eleven files whose eleven configured child projects are checked individually by product gate Step 10 |
 | `src/NSharpLang.Compiler.CodeIntel/LinterFileImportUsage.tests.nl` | NL010 on a file import: resolved against the disk, spans over the quoted path, two imports tracked separately |
 | `src/NSharpLang.Compiler.CodeIntel/LinterNamespaceImportUsage.tests.nl` | NL010 on a namespace import: the credited/uncredited decision, the unanalysed and incomplete-analysis gates, and the arithmetic that turns a written spelling plus a resolved identity into the supplying namespace |
 | `tests/native/census-import-usage` | NL010 and NL002 end to end through the shipped `nlc`: every channel a name can reach an import through (type position, static receiver, attribute, extension method, declared member type, type argument, alias, inaccessible name), each paired with a removal control that builds |

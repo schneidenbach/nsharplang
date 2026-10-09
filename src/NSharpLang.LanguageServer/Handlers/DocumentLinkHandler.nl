@@ -27,7 +27,7 @@ class DocumentLinkHandler: DocumentLinkHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: DocumentLinkParams, cancellationToken: CancellationToken): Task<DocumentLinkContainer?> {
+    override func Handle(request: DocumentLinkParams, _cancellationToken: CancellationToken): Task<DocumentLinkContainer?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -58,14 +58,14 @@ class DocumentLinkHandler: DocumentLinkHandlerBase {
         return Task.FromResult<DocumentLinkContainer?>(new DocumentLinkContainer(links))
     }
 
-    override func Handle(request: DocumentLink, cancellationToken: CancellationToken): Task<DocumentLink> {
+    override func Handle(request: DocumentLink, _cancellationToken: CancellationToken): Task<DocumentLink> {
         // Links are fully resolved in the initial request; return as-is
         return Task.FromResult(request)
     }
 
     protected override func CreateRegistrationOptions(
-        capability: DocumentLinkCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: DocumentLinkCapability,
+        _clientCapabilities: ClientCapabilities
     ): DocumentLinkRegistrationOptions {
         return new DocumentLinkRegistrationOptions()
     }

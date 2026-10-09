@@ -1,6 +1,5 @@
 namespace NSharpLang.LanguageServer.Handlers
 
-import System
 import System.Threading
 import System.Threading.Tasks
 import Microsoft.Extensions.Logging
@@ -30,7 +29,7 @@ class HoverHandler: HoverHandlerBase {
         this.logger = logger
     }
 
-    override func Handle(request: HoverParams, cancellationToken: CancellationToken): Task<Hover?> {
+    override func Handle(request: HoverParams, _cancellationToken: CancellationToken): Task<Hover?> {
         uri := request.TextDocument.Uri.ToString()
         doc := documentManager.GetDocument(uri)
 
@@ -120,8 +119,8 @@ class HoverHandler: HoverHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: HoverCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: HoverCapability,
+        _clientCapabilities: ClientCapabilities
     ): HoverRegistrationOptions {
         // DocumentSelector will be set automatically
         return new HoverRegistrationOptions()

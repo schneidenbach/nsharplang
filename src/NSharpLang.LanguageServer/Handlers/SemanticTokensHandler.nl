@@ -86,8 +86,8 @@ class SemanticTokensHandler: SemanticTokensHandlerBase {
     }
 
     protected override func CreateRegistrationOptions(
-        capability: SemanticTokensCapability,
-        clientCapabilities: ClientCapabilities
+        _capability: SemanticTokensCapability,
+        _clientCapabilities: ClientCapabilities
     ): SemanticTokensRegistrationOptions {
         tokenTypes := new List<SemanticTokenType>()
         index := 0
@@ -118,8 +118,8 @@ class SemanticTokensHandler: SemanticTokensHandlerBase {
     }
 
     protected override func GetSemanticTokensDocument(
-        request: ITextDocumentIdentifierParams,
-        cancellationToken: CancellationToken
+        _request: ITextDocumentIdentifierParams,
+        _cancellationToken: CancellationToken
     ): Task<SemanticTokensDocument> {
         options := CreateRegistrationOptions(new SemanticTokensCapability(), new ClientCapabilities())
         return Task.FromResult(new SemanticTokensDocument(options))
