@@ -107,7 +107,7 @@ test "a source constructor writes a property its EXTERNAL base declares" {
     // `Skip` is declared by `Xunit.FactAttribute`, not by anything this program wrote. Both the bare
     // and the explicit-`this` spelling reach the same inherited setter.
     unavailable := new UnavailableFactAttribute()
-    assert unavailable.Skip == "the census fixture declares this prerequisite unavailable"
+    assert unavailable.Skip == "intentional skip-contract fixture: verifies an N# fact attribute can skip its test body"
 
     explicitThis := new ExplicitSkipFactAttribute()
     assert explicitThis.Skip == "written through an explicit this"

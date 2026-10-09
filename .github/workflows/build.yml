@@ -56,23 +56,65 @@ jobs:
           dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll format --project "$project" --check
         done
 
-    - name: Native compiler tests
-      run: |
-        dotnet test src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj -c Release -p:NSharpExcludeTests=false
-        dotnet test src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj -c Release -p:NSharpExcludeTests=false
-        dotnet test src/NSharpLang.Compiler.Plan/NSharpLang.Compiler.Plan.csproj -c Release -p:NSharpExcludeTests=false
-        dotnet test src/NSharpLang.Compiler.Emit/NSharpLang.Compiler.Emit.csproj -c Release -p:NSharpExcludeTests=false
-        dotnet test src/NSharpLang.Compiler.CodeIntel/NSharpLang.Compiler.CodeIntel.csproj -c Release -p:NSharpExcludeTests=false
-        dotnet test src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj -c Release -p:NSharpExcludeTests=false
-        dotnet test src/NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj -c Release -p:NSharpExcludeTests=false
-
-    - name: Compiler performance gates
+    - name: Discover and run compiler-service estate and native tests
       env:
         NSHARP_COMPILER_PERF_GIT_ROOT: ${{ github.workspace }}
         NSHARP_COMPILER_PERF_CACHE: ${{ runner.temp }}/nsharp-compiler-perf-base-cache
+        # The GitHub-hosted Ubuntu runner has Docker. Force the integration rows to run and fail
+        # if that prerequisite is unavailable, instead of allowing the suite to report them skipped.
+        NSHARP_RUN_DOCKER_INTEGRATION: '1'
       run: |
-        dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug
-        dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll test --project tests/native/compile-time-bench --no-cache
+        set -euo pipefail
+        shopt -s nullglob
+
+        # Each compiler project that owns *.tests.nl runs its complete estate. The two Core slices
+        # (Model and Semantics) share Core.csproj, so its one run covers both slices.
+        estate_projects=()
+        for project in src/NSharpLang.Compiler/*.csproj src/NSharpLang.Compiler.*/*.csproj; do
+          project_dir=${project%/*}
+          if find "$project_dir" -type f -name '*.tests.nl' \
+              -not -path '*/bin/*' -not -path '*/obj/*' -print -quit | grep -q .; then
+            estate_projects+=("$project")
+          fi
+        done
+        if [[ ${#estate_projects[@]} -eq 0 ]]; then
+          echo '::error::No compiler-service estate projects with *.tests.nl were discovered.'
+          exit 1
+        fi
+        printf 'Discovered %s compiler-service estate projects.\n' "${#estate_projects[@]}"
+        for project in "${estate_projects[@]}"; do
+          echo "Testing compiler-service estate: $project"
+          dotnet test "$project" -c Release -p:NSharpExcludeTests=false
+        done
+
+        # Every native test project has a root project.yml and at least one *.tests.nl below it.
+        # Keep this discovery open-ended so a newly added native test project joins CI automatically.
+        native_projects=(tests/native/*/project.yml)
+        if [[ ${#native_projects[@]} -eq 0 ]]; then
+          echo '::error::No native test projects were discovered.'
+          exit 1
+        fi
+        native_count=0
+        for config in "${native_projects[@]}"; do
+          native_dir=${config%/project.yml}
+          if ! find "$native_dir" -type f -name '*.tests.nl' \
+              -not -path '*/bin/*' -not -path '*/obj/*' -print -quit | grep -q .; then
+            echo "::error::Native project has no *.tests.nl files: $native_dir"
+            exit 1
+          fi
+
+          cli_dll=src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll
+          if [[ "$native_dir" == tests/native/compile-time-bench ]]; then
+            # The timing comparison requires a quiet, serial run with the Debug CLI.
+            dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug
+            cli_dll=src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll
+          fi
+
+          echo "Testing native project: $native_dir"
+          dotnet "$cli_dll" test --project "$native_dir" --no-cache
+          native_count=$((native_count + 1))
+        done
+        printf 'Ran all %s discovered native test projects.\n' "$native_count"
 
     - name: Upload compiler performance trends
       if: always()
@@ -86,18 +128,6 @@ jobs:
           artifacts/agent-loop/relative-gate.md
         if-no-files-found: warn
         retention-days: 14
-
-    - name: Ownership audit
-      run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll test --project tests/native/ownership-audit --no-cache
-
-    # The installed-toolchain rows are an N# native project (`tests/native/installed-toolchain-integration`),
-    # run by the CLI's own `nlc test` — the same Step-3a mechanism as the ownership audit above.
-    # NSHARP_RUN_DOCKER_INTEGRATION=1 makes the Docker rows REQUIRED: without it a runner with no
-    # daemon would report them skipped and this step would pass having proved nothing.
-    - name: Installed toolchain integration tests
-      env:
-        NSHARP_RUN_DOCKER_INTEGRATION: '1'
-      run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll test --project tests/native/installed-toolchain-integration --no-cache
 
     # The per-RID toolset: a ReadyToRun compiler host behind the NativeAOT `nlc` front door. The
     # publish fails on any trim/AOT warning, and the smoke run proves the native front door answers
@@ -192,7 +222,8 @@ jobs:
       contents: write
     concurrency:
       group: unofficial-${{ github.event.pull_request.number || 'main' }}
-      cancel-in-progress: false
+      # A newer PR preview supersedes the old one. Preserve the existing push queue on `main`.
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:

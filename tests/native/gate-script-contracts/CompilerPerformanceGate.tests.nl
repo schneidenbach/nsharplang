@@ -96,9 +96,15 @@ test "CI runs the paired compiler gates with git history and uploads their trend
     workflow := CompilerPerfSource(".github/workflows/build.yml")
 
     assert workflow.Contains("fetch-depth: 0"), "CI must fetch the compiler history and origin branch needed for deterministic base selection."
-    assert workflow.Contains("name: Compiler performance gates"), "CI must run the same N# compiler performance gate project as the product gate."
-    assert workflow.Contains("test --project tests/native/compile-time-bench --no-cache"), "CI must run the fresh paired timing and structural counter gates."
+    assert workflow.Contains("name: Discover and run compiler-service estate and native tests"), "CI must use the discovery-driven compiler test step."
+    assert workflow.Contains("for project in src/NSharpLang.Compiler/*.csproj src/NSharpLang.Compiler.*/*.csproj; do"), "CI must discover estate owners instead of freezing the project list."
+    assert workflow.Contains("NSharpExcludeTests=false"), "Every discovered estate project must compile its test rows."
+    assert workflow.Contains("native_projects=(tests/native/*/project.yml)"), "CI must discover every native test project."
+    assert workflow.Contains("dotnet \"$cli_dll\" test --project \"$native_dir\" --no-cache"), "Every discovered native project must run with the fresh CLI."
+    assert workflow.Contains("tests/native/compile-time-bench") && workflow.Contains("NSHARP_COMPILER_PERF_CACHE"), "The discovered performance project must keep its quiet paired timing configuration."
+    assert workflow.Contains("NSHARP_RUN_DOCKER_INTEGRATION: '1'"), "Docker rows must run as required integration tests in CI."
     assert workflow.Contains("name: Upload compiler performance trends"), "CI must upload the absolute trend artifacts."
     assert workflow.Contains("artifacts/compile-time/relative-gate.md") && workflow.Contains("artifacts/agent-loop/relative-gate.md"), "Both ratio tables must be included in the CI artifact."
     assert workflow.Contains("if-no-files-found: warn"), "A test failure before artifact creation must not hide the gate's original failure."
+    assert workflow.Contains("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"), "A newer PR preview must cancel its in-progress predecessor without cancelling push previews."
 }

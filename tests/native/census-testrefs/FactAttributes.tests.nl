@@ -24,7 +24,7 @@ sealed class SlowFactAttribute: FactAttribute {
 // from a source constructor is the write half of inherited-external member access.
 sealed class UnavailableFactAttribute: FactAttribute {
     public constructor() {
-        Skip = "the census fixture declares this prerequisite unavailable"
+        Skip = "intentional skip-contract fixture: verifies an N# fact attribute can skip its test body"
     }
 }
 

@@ -4,6 +4,13 @@
 
 **Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/Model/*.tests.nl`, `src/NSharpLang.Compiler.Core/Semantics/*.tests.nl`, and the `*.tests.nl` files in `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Plan`, `src/NSharpLang.Compiler.Emit`, `src/NSharpLang.Compiler.CodeIntel`, `src/NSharpLang.Compiler.Tooling` and `src/NSharpLang.Compiler.Driver`, each run through its own project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
 
+With Docker rows required, the one intentional skipped row in the native suite is `census-testrefs`'s
+“a test whose derived fact sets Skip is reported as skipped, never run”. Its source-declared
+`UnavailableFactAttribute` sets the reason `intentional skip-contract fixture: verifies an N# fact
+attribute can skip its test body`. The skip is the behavior under test: xUnit must report the
+generated test as skipped without running its throwing body. CI requires Docker-gated integration
+rows via `NSHARP_RUN_DOCKER_INTEGRATION=1`.
+
 ## Test Organization
 
 ### By Component
