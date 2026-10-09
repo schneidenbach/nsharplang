@@ -782,19 +782,22 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert stats.GetProperty("schemaVersion").GetInt32() == 1
     assert TextOf(stats.GetProperty("command")) == "check"
     assert stats.GetProperty("exitCode").GetInt32() == exitCode
-    assert exitCode == 1, stdout + stderr
+    assert exitCode == 0, stdout + stderr
     assert stderr.Length == 0, stderr
 
     document := JsonDocument.Parse(stdout)
     root := document.RootElement
     assert root.GetProperty("schemaVersion").GetInt32() == 2, stdout
     assert TextOf(root.GetProperty("command")) == "check"
-    assert !root.GetProperty("ok").GetBoolean()
+    assert root.GetProperty("ok").GetBoolean()
     assert EquivalentProcessPath(TextOf(root.GetProperty("projectRoot")), NormalizedFullPath(repositoryRoot))
 
     expectedRoots := CliRootCheckExpectedProjectRoots(repositoryRoot)
     expectedSourceMembers := CliRootCheckExpectedSourceMembers(repositoryRoot, expectedRoots)
     referenceBudget := CliRootCheckReferenceImageBudget(expectedRoots)
+    // The launch-policy project adds one discovered member; the strict template-check contract adds
+    // ExampleTemplateChecks.tests.nl to the existing gate-script-contracts project's checked files.
+    assert expectedRoots.Count == 229, "repository project-root census changed"
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
@@ -834,6 +837,7 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert observedRoots.Count == expectedRoots.Count, "not every discovered project root had exactly one result"
     assert foundCoreProject, "the workspace omitted Compiler.Core's result"
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
+    assert checkedFiles == 2000, "repository checked-source-file census changed"
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"
