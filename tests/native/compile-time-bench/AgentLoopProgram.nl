@@ -27,6 +27,8 @@ class AgentLoopOptions {
     Runs: int
     CliDll: string
     BaseCliDll: string
+    LanguageServerDll: string
+    BaseLanguageServerDll: string
     ScenarioId: string
     Daemon: bool
     Judge: bool
@@ -41,6 +43,8 @@ class AgentLoopOptions {
         Runs = 3
         CliDll = cliDll
         BaseCliDll = ""
+        LanguageServerDll = ""
+        BaseLanguageServerDll = ""
         ScenarioId = ""
         Daemon = false
         Judge = false
@@ -66,7 +70,7 @@ func AgentLoopRequested(args: string[]): bool {
 }
 
 func AgentLoopHelpText(): string {
-    return "N# agent-loop performance benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench --agent-loop [options]\n" + "\n" + "Measures cold and daemon-warm edit/check/build/test scenarios on small, medium and large projects.\n" + "Structural CompilerWorkCounters are gated exactly; timing uses interleaved pairs and a confidence-bound rule.\n" + "\n" + "Options:\n" + "  --sizes <list>           small, medium, large (comma-separated) or all (default small,medium)\n" + "  --runs <n>               minimum paired samples per row (default 3; relative runs use at least 9)\n" + "  --cli <path>             head Cli.dll (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --base-cli <path>        base Cli.dll measured interleaved with head\n" + "  --scenario <id>          exact scenario id to isolate in paired measurements\n" + "  --daemon                 Keep nlc daemon running for each single-CLI sample\n" + "  --judge                  Exit 1 when structural counters differ from the committed baseline\n" + "  --write-baseline <path>  Write structural counters only (the owner's re-baseline)\n" + "  --ratchet                Lower the committed counter baseline; refuses any rise\n" + "  --out <dir>              Output directory (default artifacts/agent-loop/<local date>)\n" + "  --help, -h               Show this help text"
+    return "N# agent-loop performance benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench --agent-loop [options]\n" + "\n" + "Measures nlc check/build/test and real stdio Language Server edit and query latency.\n" + "Exact compiler and project-snapshot counters are gated; paired timing uses an exact sign-test bound.\n" + "\n" + "Options:\n" + "  --sizes <list>           small, medium, large (comma-separated) or all (default small,medium)\n" + "  --runs <n>               minimum paired samples per row (default 3; relative runs use at least 9)\n" + "  --cli <path>             head Cli.dll (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --base-cli <path>        base Cli.dll measured interleaved with head\n" + "  --language-server <path> head LanguageServer.dll (default: src/NSharpLang.LanguageServer/bin/Debug/net10.0/LanguageServer.dll)\n" + "  --base-language-server <path> base LanguageServer.dll measured interleaved with head\n" + "  --scenario <id>          exact CLI scenario id, or 'test' for all nlc test rows\n" + "  --daemon                 Keep nlc daemon running for each single-CLI sample\n" + "  --judge                  Exit 1 when structural counters differ from the committed baseline\n" + "  --write-baseline <path>  Write structural counters only (the owner's re-baseline)\n" + "  --ratchet                Lower the committed counter baseline; refuses any rise\n" + "  --out <dir>              Output directory (default artifacts/agent-loop/<local date>)\n" + "  --help, -h               Show this help text"
 }
 
 func AgentLoopParseSizes(text: string): List<string> {
@@ -119,7 +123,7 @@ func AgentLoopParseOptions(args: string[], repositoryRoot: string): AgentLoopOpt
             options.Judge = true
         } else if argument == "--ratchet" {
             options.Ratchet = true
-        } else if !hasValue && (argument == "--sizes" || argument == "--runs" || argument == "--cli" || argument == "--base-cli" || argument == "--scenario" || argument == "--write-baseline" || argument == "--out") {
+        } else if !hasValue && (argument == "--sizes" || argument == "--runs" || argument == "--cli" || argument == "--base-cli" || argument == "--language-server" || argument == "--base-language-server" || argument == "--scenario" || argument == "--write-baseline" || argument == "--out") {
             options.Error = argument + " needs a value. Run with --agent-loop --help for the option list."
             return options
         } else if argument == "--sizes" {
@@ -150,10 +154,16 @@ func AgentLoopParseOptions(args: string[], repositoryRoot: string): AgentLoopOpt
         } else if argument == "--base-cli" {
             options.BaseCliDll = Path.GetFullPath(args[i + 1])
             i = i + 1
+        } else if argument == "--language-server" {
+            options.LanguageServerDll = Path.GetFullPath(args[i + 1])
+            i = i + 1
+        } else if argument == "--base-language-server" {
+            options.BaseLanguageServerDll = Path.GetFullPath(args[i + 1])
+            i = i + 1
         } else if argument == "--scenario" {
             options.ScenarioId = args[i + 1]
             if AgentLoopSelectScenarios(options.ScenarioId).Count == 0 {
-                options.Error = "--scenario needs an exact scenario id such as 'no-op build'."
+                options.Error = "--scenario needs an exact scenario id such as 'no-op build', or the test-row group 'test'."
                 return options
             }
 
@@ -207,16 +217,28 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         BenchFailHarness("The CLI under test at " + options.CliDll + " does not support --stats, so its structural counters cannot be read.")
     }
 
+    languageServerDll := options.LanguageServerDll
+    if languageServerDll == "" {
+        languageServerDll = AgentLoopDefaultLanguageServerDll(repositoryRoot)
+    }
+    if !File.Exists(languageServerDll) {
+        BenchFailHarness("The Language Server under test was not found at " + languageServerDll + ". Build src/NSharpLang.LanguageServer/LanguageServer.csproj first.")
+    }
+
     if options.BaseCliDll != "" && !File.Exists(options.BaseCliDll) {
         BenchFailHarness("The base CLI was not found at " + options.BaseCliDll + ".")
     }
 
-    if options.BaseCliDll != "" && (options.WriteBaseline != "" || options.Ratchet) {
-        BenchFailHarness("--base-cli cannot be combined with --write-baseline or --ratchet; measure the head CLI alone for structural baseline updates.")
+    if options.BaseLanguageServerDll != "" && !File.Exists(options.BaseLanguageServerDll) {
+        BenchFailHarness("The base Language Server was not found at " + options.BaseLanguageServerDll + ".")
     }
 
-    if options.ScenarioId != "" && options.BaseCliDll == "" {
-        BenchFailHarness("--scenario is available with --base-cli paired measurements only.")
+    if options.BaseCliDll != "" && options.BaseLanguageServerDll == "" {
+        BenchFailHarness("--base-cli requires --base-language-server so the Language Server rows use the same paired base/head timing model.")
+    }
+
+    if options.BaseCliDll != "" && (options.WriteBaseline != "" || options.Ratchet) {
+        BenchFailHarness("--base-cli cannot be combined with --write-baseline or --ratchet; measure the head CLI alone for structural baseline updates.")
     }
 
     Directory.CreateDirectory(options.OutputDirectory)
@@ -227,14 +249,22 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
 
     relative: AgentLoopRelativeMatrix? = null
     rows := new List<AgentLoopRow>()
+    lspRows := new List<AgentLoopLspRow>()
     if options.BaseCliDll != "" {
         print "base CLI: " + options.BaseCliDll
         relative = AgentLoopMeasureRelativeMatrix(options.CliDll, options.BaseCliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.ScenarioId)
+        lspFailure := AgentLoopMeasureLspRelativeRows(languageServerDll, options.BaseLanguageServerDll, repositoryRoot, relative ?? new AgentLoopRelativeMatrix())
+        if lspFailure != "" {
+            BenchFailHarness("Language Server paired measurements failed: " + lspFailure)
+        }
         rows = (relative ?? new AgentLoopRelativeMatrix()).HeadCounterRows
+        lspRows = (relative ?? new AgentLoopRelativeMatrix()).LspCounterRows
     } else if options.WriteBaseline != "" || options.Ratchet || options.Judge {
-        rows = AgentLoopMeasureStructuralRows(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true)
+        rows = AgentLoopMeasureStructuralRows(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.ScenarioId)
+        lspRows = AgentLoopMeasureLspStructuralRows(languageServerDll, repositoryRoot, options.Runs)
     } else {
-        rows = AgentLoopMeasureMatrix(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.Daemon, true)
+        rows = AgentLoopMeasureMatrix(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.Daemon, true, options.ScenarioId)
+        lspRows = AgentLoopMeasureLspStructuralRows(languageServerDll, repositoryRoot, options.Runs)
     }
 
     baselinePath := AgentLoopBaselinePath(repositoryRoot)
@@ -245,13 +275,14 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
 
     loadAtEnd := BenchReadMachineLoad()
     countersTable := AgentLoopRenderTable(rows, (baseline ?? new AgentLoopBaseline()).Rows, "the committed structural counter baseline " + AgentLoopBaselineRelativePath())
-    table := countersTable
+    lspTable := AgentLoopRenderLspTable(lspRows, (baseline ?? new AgentLoopBaseline()).LspRows, "the committed Language Server structural counter baseline")
+    table := countersTable + "\n\n## Language Server structural counters\n\n" + lspTable
     if relative != null {
-        table = AgentLoopRelativeTimingTable((relative ?? new AgentLoopRelativeMatrix()).Timings) + "\n\n## Head structural counters\n\n" + countersTable
+        table = AgentLoopRelativeTimingTable((relative ?? new AgentLoopRelativeMatrix()).Timings) + "\n\n## Head structural counters\n\n" + countersTable + "\n\n## Language Server structural counters\n\n" + lspTable
     }
     header := "Agent-loop benchmark, headCommit=" + environment.CliCommit + ", " + AgentLoopMachineText(environment) + ", loadAtStart=" + BenchLoadText(loadAtStart.LoadThousandths) + ", loadAtEnd=" + BenchLoadText(loadAtEnd.LoadThousandths) + " (trend metadata only), " + BenchIntText(options.Runs) + " sample(s) per scenario."
     if options.BaseCliDll != "" {
-        header = header + " Base CLI=" + options.BaseCliDll + "; baseIdentity=" + AgentLoopCliIdentity(options.BaseCliDll) + "."
+        header = header + " Base CLI=" + options.BaseCliDll + "; baseIdentity=" + AgentLoopCliIdentity(options.BaseCliDll) + "; base Language Server=" + options.BaseLanguageServerDll + "."
     }
     File.WriteAllText(Path.Combine(options.OutputDirectory, "agent-loop.md"), header + "\n\n" + table)
     print ""
@@ -261,13 +292,25 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
 
     if options.WriteBaseline != "" {
         unbaselinable := AgentLoopUnbaselinableRows(rows)
+        unbaselinable.AddRange(AgentLoopLspUnbaselinableRows(lspRows))
         if unbaselinable.Count > 0 {
             BenchFailHarness("No baseline written; these rows cannot be a budget: " + String.Join(" | ", unbaselinable))
         }
 
         written := new AgentLoopBaseline()
-        written.SchemaVersion = 2
-        written.Rows = rows
+        written.SchemaVersion = 3
+        if File.Exists(options.WriteBaseline) {
+            existing := AgentLoopParseBaseline(File.ReadAllText(options.WriteBaseline))
+            written.Rows = AgentLoopMergeRows(existing.Rows, rows)
+            written.LspRows = AgentLoopMergeLspRows(existing.LspRows, lspRows)
+        } else {
+            written.Rows = rows
+            written.LspRows = lspRows
+        }
+        refusal := AgentLoopBaselineRefusal(written)
+        if refusal != "" {
+            BenchFailHarness("No baseline written; the merged counter set is incomplete: " + refusal)
+        }
         Directory.CreateDirectory(Path.GetDirectoryName(options.WriteBaseline) ?? options.OutputDirectory)
         File.WriteAllText(options.WriteBaseline, AgentLoopBaselineJson(written))
         print "wrote baseline " + options.WriteBaseline
@@ -280,6 +323,7 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
 
         ratcheted := baseline ?? new AgentLoopBaseline()
         refusals := AgentLoopRatchetCounters(ratcheted, rows)
+        refusals.AddRange(AgentLoopRatchetLspCounters(ratcheted, lspRows))
         File.WriteAllText(baselinePath, AgentLoopBaselineJson(ratcheted))
         print "ratcheted the counters of " + AgentLoopBaselineRelativePath()
         if refusals.Count > 0 {
@@ -300,6 +344,7 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         }
 
         failures := AgentLoopCounterFailures(baseline ?? new AgentLoopBaseline(), rows)
+        failures.AddRange(AgentLoopLspCounterFailure(baseline ?? new AgentLoopBaseline(), lspRows))
         if failures.Count > 0 {
             Console.Error.WriteLine("agent-loop counters differ from " + AgentLoopBaselineRelativePath() + ":")
             j := 0
@@ -321,6 +366,7 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         }
         if options.Judge {
             failures.AddRange(AgentLoopCounterFailures(baseline ?? new AgentLoopBaseline(), rows))
+            failures.AddRange(AgentLoopLspCounterFailure(baseline ?? new AgentLoopBaseline(), (relative ?? new AgentLoopRelativeMatrix()).LspCounterRows))
         }
         relativeReport := "relative benchmark report; headCommit=" + environment.CliCommit + "; baseCli=" + options.BaseCliDll + "; baseIdentity=" + AgentLoopCliIdentity(options.BaseCliDll) + "; machine=" + AgentLoopMachineText(environment) + "; loadAtStart=" + BenchLoadText(loadAtStart.LoadThousandths) + "; loadAtEnd=" + BenchLoadText(loadAtEnd.LoadThousandths) + "; verdicts=" + BenchIntText(failures.Count)
         _ = AgentLoopWriteRelativeGateRecord(repositoryRoot, relativeReport, table)

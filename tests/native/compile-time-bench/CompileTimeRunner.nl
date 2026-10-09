@@ -127,7 +127,7 @@ func BenchIsCompilerProductPath(path: string): bool {
     }
 
     sdkTarget := normalized.StartsWith("src/NSharpLang.Sdk/Sdk/", StringComparison.Ordinal) && (normalized.EndsWith(".props", StringComparison.Ordinal) || normalized.EndsWith(".targets", StringComparison.Ordinal))
-    return normalized.StartsWith("src/NSharpLang.Compiler.", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Compiler/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Cli/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.TestHost/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Runtime/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Build.Tasks/", StringComparison.Ordinal) || sdkTarget
+    return normalized.StartsWith("src/NSharpLang.Compiler.", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Compiler/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Cli/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.TestHost/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.LanguageServer/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Runtime/", StringComparison.Ordinal) || normalized.StartsWith("src/NSharpLang.Build.Tasks/", StringComparison.Ordinal) || sdkTarget
 }
 
 // Compare the committed base/head tree, not the current working directory. A git failure is
@@ -753,13 +753,15 @@ func BenchReadCliCommit(repositoryRoot: string): string {
 class BenchBaseCompiler {
     Commit: string
     CliDll: string
+    LanguageServerDll: string
     BuildMs: long
     CacheHit: bool
     Error: string
 
-    constructor(commit: string, cliDll: string, buildMs: long, cacheHit: bool, error: string) {
+    constructor(commit: string, cliDll: string, buildMs: long, cacheHit: bool, error: string, languageServerDll: string = "") {
         Commit = commit
         CliDll = cliDll
+        LanguageServerDll = languageServerDll
         BuildMs = buildMs
         CacheHit = cacheHit
         Error = error
@@ -855,6 +857,62 @@ func BenchBaseCliProjectWithCompilerDependencies(projectText: string): string {
     return normalized
 }
 
+func BenchBaseLanguageServerDllPath(cacheRoot: string, commit: string): string {
+    return Path.Combine(
+        Path.Combine(
+            Path.Combine(
+                Path.Combine(Path.Combine(Path.Combine(cacheRoot, commit), "source"), "src"),
+                "NSharpLang.LanguageServer"
+            ),
+            "bin"
+        ),
+        "Debug/net10.0/LanguageServer.dll"
+    )
+}
+
+func BenchApplyHeadLanguageServerDependencyClosure(repositoryRoot: string, baseServerDll: string): string {
+    headServerDll := Path.Combine(Path.Combine(Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.LanguageServer"), "bin"), "Debug/net10.0/LanguageServer.dll")
+    headDirectory := Path.GetDirectoryName(headServerDll) ?? ""
+    baseDirectory := Path.GetDirectoryName(baseServerDll) ?? ""
+    if headDirectory == "" || baseDirectory == "" {
+        return "head or base Language Server has no containing directory"
+    }
+    if !File.Exists(headServerDll) || !File.Exists(Path.ChangeExtension(headServerDll, ".deps.json")) {
+        return "head Language Server build output or dependency manifest is missing at " + headServerDll
+    }
+    try {
+        File.Copy(Path.ChangeExtension(headServerDll, ".deps.json"), Path.ChangeExtension(baseServerDll, ".deps.json"), true)
+        for dependencyPath in Directory.GetFiles(headDirectory, "*.dll", SearchOption.TopDirectoryOnly) {
+            dependencyName := Path.GetFileName(dependencyPath)
+            if dependencyName == "LanguageServer.dll" || dependencyName.StartsWith("NSharpLang.", StringComparison.Ordinal) {
+                continue
+            }
+            File.Copy(dependencyPath, Path.Combine(baseDirectory, dependencyName), true)
+        }
+    } catch ex: Exception {
+        return "could not apply the head Language Server runtime dependencies to the base server: " + ex.Message
+    }
+    return ""
+}
+
+func BenchBuildBaseLanguageServer(repositoryRoot: string, sourceDirectory: string, cacheRoot: string, commit: string): BenchBaseCompiler {
+    languageServerDll := BenchBaseLanguageServerDllPath(cacheRoot, commit)
+    if !File.Exists(languageServerDll) {
+        project := Path.Combine(Path.Combine(Path.Combine(sourceDirectory, "src"), "NSharpLang.LanguageServer"), "LanguageServer.csproj")
+        run := BenchRunProcess("dotnet", "build --disable-build-servers -nr:false " + BenchQuote(project) + " --nologo -v q", sourceDirectory)
+        if run.ExitCode != 0 || !File.Exists(languageServerDll) {
+            detail := BenchTruncate(BenchStripTimeUtilityLines(run.Stderr).Trim() + " " + run.Stdout.Trim(), 1200)
+            return new BenchBaseCompiler(commit, "", 0, false, "base Language Server build failed for " + commit + ": " + detail)
+        }
+    }
+
+    dependencyError := BenchApplyHeadLanguageServerDependencyClosure(repositoryRoot, languageServerDll)
+    if dependencyError != "" {
+        return new BenchBaseCompiler(commit, "", 0, false, dependencyError)
+    }
+    return new BenchBaseCompiler(commit, "", 0, false, "", languageServerDll)
+}
+
 // Program.cs calls InternalErrorBoundary from Compiler.Model, the CLI runs the compiler with
 // NSharpLang.Runtime, and the emitter loads Mono.Cecil. Make those dependencies explicit in the
 // temporary base C# project too: a clean archive's N# project metadata does not populate the
@@ -931,7 +989,11 @@ func BenchPrepareBaseCompiler(repositoryRoot: string): BenchBaseCompiler {
         if dependencyError != "" {
             return new BenchBaseCompiler(commit, "", 0, false, dependencyError)
         }
-        return new BenchBaseCompiler(commit, cliDll, 0, true, "")
+        server := BenchBuildBaseLanguageServer(repositoryRoot, sourceDirectory, cacheRoot, commit)
+        if server.Error != "" {
+            return new BenchBaseCompiler(commit, "", 0, false, server.Error)
+        }
+        return new BenchBaseCompiler(commit, cliDll, 0, true, "", server.LanguageServerDll)
     }
 
     prepareStarted := DateTime.UtcNow.Ticks
@@ -978,7 +1040,11 @@ func BenchPrepareBaseCompiler(repositoryRoot: string): BenchBaseCompiler {
         return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, dependencyError)
     }
 
-    return new BenchBaseCompiler(commit, cliDll, (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "")
+    server := BenchBuildBaseLanguageServer(repositoryRoot, sourceDirectory, cacheRoot, commit)
+    if server.Error != "" {
+        return new BenchBaseCompiler(commit, "", (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, server.Error)
+    }
+    return new BenchBaseCompiler(commit, cliDll, (DateTime.UtcNow.Ticks - prepareStarted) / 10000, false, "", server.LanguageServerDll)
 }
 
 // ─── THE MACHINE'S LOAD ───────────────────────────────────────────────────────────────────────

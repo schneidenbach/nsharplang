@@ -1171,8 +1171,9 @@ commit that took its reference images 479 -> 129 and the Core-scale emit's 141 -
 relative gates run `git diff base..head` and time only if it touches a compiler/runtime/CLI product
 input. The source set is explicit: `.nl`, `.cs` and `project.yml` inputs under the compiler slice
 roots `src/NSharpLang.Compiler.*` and `src/NSharpLang.Compiler/`; those source/config inputs under
-`src/NSharpLang.Cli/`, `src/NSharpLang.TestHost/`, `src/NSharpLang.Runtime/` and
-`src/NSharpLang.Build.Tasks/`; and `.props`/`.targets` under `src/NSharpLang.Sdk/Sdk/`. The
+`src/NSharpLang.Cli/`, `src/NSharpLang.TestHost/`, `src/NSharpLang.LanguageServer/`,
+`src/NSharpLang.Runtime/` and `src/NSharpLang.Build.Tasks/`; and `.props`/`.targets` under
+`src/NSharpLang.Sdk/Sdk/`. The
 classifier also accepts `.props`/`.targets` within those project roots. Benchmark harness files,
 `.tests.nl`, documentation and `.csproj` files are excluded. In particular, adding a project
 reference to `Cli.csproj` to make a clean base launcher load its compiler is not a compiler behavior
@@ -1238,8 +1239,9 @@ budget.
 
 ### 8a. The Agent-Loop Latency Benchmark And Gate (`--agent-loop`, same project)
 
-An N# editing loop repeats checks, builds and tests, so this benchmark covers small and medium
-versions of those scenarios. Scenarios are no-op, body edit, signature edit and new-file edit.
+An N# editing loop repeats checks, builds and tests, so this benchmark covers small, medium and
+large versions of those scenarios. `nlc test` has no-op, production-body-edit and test-file-edit
+rows; `check` and `build` also have signature and new-file rows.
 Sizes are `small` (the issue-tracker fixture, 448 non-test lines), `medium` (10,640 generated lines,
 40 files) and `large` (80,960 generated lines, 160 files). A sample primes a fresh copy, applies an
 edit, then measures the cold command and an unchanged warm command. Daemon-warm rows measure the
@@ -1250,6 +1252,31 @@ emitted, reference assemblies loaded, bytes hashed from installed framework refe
 processes spawned. `frameworkReferenceBytesHashed` must be zero on every no-op build row. The baseline
 `tests/fixtures/agent-loop/agent-loop-baseline.golden.json` contains only these counters; wall, CPU,
 RSS, machine and load fields are not baselined.
+
+The `nlc test` edit scenarios use `--scenario test` to select all three rows together. The test-file
+edit changes an assertion in `Synth.tests.nl` (or the fixture's `Service.tests.nl`), then measures
+`nlc test` cold, warm and daemon-warm with the same `--stats` counters as the other CLI rows. No-op
+test has seven zero counters; a body edit and a test-file edit both rebuild the project test inputs.
+
+The harness also drives the built `LanguageServer.dll` directly over stdio LSP; no VS Code client
+participates. It records four operations on the medium and large synthetic projects: full-text
+`didChange` through the matching `publishDiagnostics`, completion response after an edit and its
+diagnostics have finished, hover response under the same setup, and opening unchanged workspace
+content after the initialized workspace scan. Each timing sample is a wall-clock interval around the
+named client operation. LSP structural rows in baseline schema 3 count semantic project snapshots
+from the server's `Loaded semantic project snapshot` debug event and target-document update and
+diagnostics-publication protocol activity. Completion and hover counters cover only the request
+interval. The large unchanged-`didOpen` row requires exactly zero project snapshot builds; a
+nonzero count fails the baseline gate.
+
+LSP timings follow the same paired base/head policy as CLI timings: exact structural counters always,
+paired timing only when classified compiler, CLI or Language Server inputs change, at least nine
+interleaved pairs after one discarded warm-up pair per operation, a 350 ms accumulated-work target
+and a 17-pair cap. LSP timing rows use the same
+exact two-sided sign-test 95% lower confidence bound and fail only above 1.20× with at least 30 ms
+median paired slowdown. `--base-language-server` supplies the base-side server beside `--base-cli`;
+the base build retains its base `NSharpLang.*` slices and uses the matching non-product package
+closure.
 
 **Measured counter rows at the integrated baseline** (`320cd5f92`). Counter order below is
 filesParsed / emitParses / filesAnalyzed / assembliesEmitted / referenceAssembliesLoaded /
@@ -1293,9 +1320,11 @@ dotnet tests/native/compile-time-bench/bin/Debug/net10.0/tests/NSharpLang.Compil
 ```
 
 `--sizes small,medium,large|all`, `--runs <n>` (default 3), `--cli <Cli.dll>`, `--base-cli <Cli.dll>`,
-`--scenario <exact-id>` (paired runs only), `--judge`, and `--ratchet` are supported. For example,
-`--scenario "no-op build"` isolates the cold and daemon-warm no-op build rows for a focused timing
-probe. Without `--base-cli`, `--write-baseline` and `--ratchet` collect structural rows only. A
+`--language-server <LanguageServer.dll>`, `--base-language-server <LanguageServer.dll>`,
+`--scenario <exact-id|test>`, `--judge`, and `--ratchet` are supported. For example,
+`--scenario "no-op build"` isolates the cold and daemon-warm no-op build rows and `--scenario test`
+selects all three `nlc test` rows. Without `--base-cli`, `--write-baseline` and `--ratchet` collect
+structural rows only. A
 decrease is reviewed and ratcheted with
 `--agent-loop --sizes all --ratchet`; a counter increase refuses the update. Load remains report
 metadata and does not change the sample count.
@@ -1315,6 +1344,49 @@ A check now emits nothing (`assembliesEmitted` 0), daemon-warm checks parse noth
 same base. What moved each row is in the five commits' messages: in-memory check validation, the IL
 walk's rescans, one reference metadata context per compilation, the incremental back end with the
 grouped binding-map merge, and the language server's reference reload.
+
+**New measured rows on `72cd2ae60` (2026-10-09, `--runs 3`, M4 arm64, .NET SDK 10.0.105,
+10 cores; load 4.64–5.50).** Cold `nlc test` medians are wall milliseconds; counter order is
+filesParsed / emitParses / filesAnalyzed / assembliesEmitted / referenceAssembliesLoaded /
+frameworkReferenceBytesHashed / processesSpawned. Warm and daemon-warm counters are all zero for
+these three rows at every size.
+
+| size | no-op test cold | body-edit test cold | test-file-edit test cold |
+|---|---|---|---|
+| small, 448 lines | 156 ms; `0 / 0 / 0 / 0 / 0 / 0 / 0` | 840 ms; `8 / 8 / 8 / 1 / 324 / 0 / 0` | 875 ms; `8 / 8 / 8 / 1 / 324 / 0 / 0` |
+| medium, 10,640 lines | 198 ms; `0 / 0 / 0 / 0 / 0 / 0 / 0` | 841 ms; `41 / 41 / 41 / 1 / 41 / 0 / 0` | 802 ms; `41 / 41 / 41 / 1 / 41 / 0 / 0` |
+| large, 80,960 lines | 168 ms; `0 / 0 / 0 / 0 / 0 / 0 / 0` | 2,609 ms; `161 / 161 / 161 / 1 / 41 / 0 / 0` | 2,752 ms; `161 / 161 / 161 / 1 / 41 / 0 / 0` |
+
+The real stdio LSP run recorded `didChange` → diagnostics / completion after edit / hover /
+unchanged `didOpen` at **1 / 24 / 13 / 1 ms** on medium and **749 / 6 / 50 / 1 ms** on
+large. These are medians of three real client sessions per operation; the helper rounds positive
+intervals up to whole milliseconds. For each size, the four exact
+counter triples in operation order were `0/1/1`, `0/0/0`, `0/0/0`, and `0/1/1` for project
+snapshots built / documents updated / diagnostics published. The large unchanged `didOpen` therefore
+reused the workspace without building a project snapshot.
+
+**Cold-check startup and JIT/R2R attribution.** The measurement-only check used the same generated
+40-file/10,640-line and 160-file/80,960-line projects. EventPipe (`dotnet-trace`, runtime JIT and
+ReadyToRun method events) was collected from process launch; `nlc --stats` supplied phase timings
+from the same traced command. The standalone `nlc --version` process median was 24 ms across seven
+fresh processes. In the table, “unphased” is command wall time minus the sum of compiler phase wall
+times; JIT/R2R are unions of runtime event intervals. `NSharpLang JIT` is the subset attributable to
+the compiler's own managed methods and gives an upper-bound signal for AOT work removed. “Phase
+remainder” subtracts the traced runtime intervals from the gross compiler phase sum to estimate
+non-JIT compiler work.
+
+| size | traced `nlc check` wall | gross compiler phases | unphased startup/CLI | all JIT | `NSharpLang.*` JIT | ReadyToRun | estimated phase remainder |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| medium | 808 ms | 718 ms | 90 ms | 376 ms | 257 ms | 48 ms | 294 ms |
+| large | 2,186 ms | 2,045 ms | 141 ms | 870 ms | 602 ms | 47 ms | 1,129 ms |
+
+The decomposition is an attribution estimate: the phase remainder is gross phase time less the
+whole-process JIT/R2R event union, so runtime events that fall outside a compiler phase can shift
+the split. The gross phase totals already include JIT/R2R time and must not be added to those event
+columns. The directly measured `NSharpLang.*` JIT interval was 257 ms on medium and 602 ms on large;
+that is the current evidence for how much full-compiler NativeAOT could remove from a cold check.
+It is not a NativeAOT benchmark, and it excludes runtime, framework, GC, and startup behavior that
+would still exist in an AOT process.
 
 ### 9. The Installed Toolchain (`tests/native/installed-toolchain-integration`)
 
