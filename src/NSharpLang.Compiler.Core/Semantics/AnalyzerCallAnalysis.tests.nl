@@ -1574,6 +1574,10 @@ test "call argument inference restores the enclosing target after a nested call"
     AssertCallArgumentSourceChecks("func Pick(text: string): uint {\n    return (uint)text.Substring(0, 1).Length + 4000000000\n}\n")
 }
 
+test "generic union call arguments are reanalyzed with the selected closed parameter type" {
+    AssertCallArgumentSourceChecks("union Result<T, E> {\n    Ok { value: T }\n    Error { error: E }\n}\n\nfunc Accept(result: Result<int, string>): int {\n    return match result { Result.Ok { value } => value, Result.Error { error } => -1 }\n}\n\nfunc Forward<T>(_seed: T, result: Result<T, string>): Result<T, string> { return result }\n\nfunc Run(): int {\n    forwarded := Forward(7, new Result.Ok { value: 17 })\n    return Accept(forwarded) + Accept(new Result.Ok { value: 23 })\n}\n")
+}
+
 // ---- a callee that names a VALUE, end to end ------------------------------------------------------
 //
 // The whole analyzer over a whole file, because the shapes differ in WHERE the name is found — the
@@ -1872,6 +1876,13 @@ func TypeCalleeErrors(source: string): List<CompilerError> {
     }
 
     return errors
+}
+
+test "a closed generic union argument mismatch is NL202 during analysis" {
+    source := "union Result<T, E> {\n    Ok { value: T }\n    Error { error: E }\n}\n\nfunc Accept<T>(result: Result<T, string>) {}\n\nfunc Run() {\n    Accept<int>(new Result.Ok<long, string> { value: 1L })\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.TypeMismatch, errors[0].Message
 }
 
 // One line per error: code, position, message, suggestion. A row compares the whole list, so an

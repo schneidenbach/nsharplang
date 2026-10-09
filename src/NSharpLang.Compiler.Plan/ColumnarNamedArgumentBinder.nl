@@ -246,6 +246,8 @@ class ColumnarNamedArgumentBinder {
         movedArrayLiteral := new bool[](count)
         movedArrayMinimums := new long[](count)
         movedArrayMaximums := new long[](count)
+        movedContextualUnion := new bool[](count)
+        movedContextualUnionBases := new Type?[](count)
 
         reorders := false
         written := 0
@@ -270,6 +272,8 @@ class ColumnarNamedArgumentBinder {
             movedArrayLiteral[slot] = facts.IsIntegerConstantArrayLiteral[written]
             movedArrayMinimums[slot] = facts.ArrayLiteralMinimumValues[written]
             movedArrayMaximums[slot] = facts.ArrayLiteralMaximumValues[written]
+            movedContextualUnion[slot] = facts.IsContextualGenericUnionConstruction[written]
+            movedContextualUnionBases[slot] = facts.ContextualGenericUnionBases[written]
             written = written + 1
         }
 
@@ -286,6 +290,8 @@ class ColumnarNamedArgumentBinder {
             facts.IsIntegerConstantArrayLiteral[copy] = movedArrayLiteral[copy]
             facts.ArrayLiteralMinimumValues[copy] = movedArrayMinimums[copy]
             facts.ArrayLiteralMaximumValues[copy] = movedArrayMaximums[copy]
+            facts.IsContextualGenericUnionConstruction[copy] = movedContextualUnion[copy]
+            facts.ContextualGenericUnionBases[copy] = movedContextualUnionBases[copy]
             facts.WrittenOrderSlots[copy] = slotForWrittenArgument[copy]
             copy = copy + 1
         }
@@ -510,6 +516,8 @@ class ColumnarNamedArgumentBinder {
         Array.Copy(sourceFacts.IsIntegerConstantArrayLiteral, copy.IsIntegerConstantArrayLiteral, count)
         Array.Copy(sourceFacts.ArrayLiteralMinimumValues, copy.ArrayLiteralMinimumValues, count)
         Array.Copy(sourceFacts.ArrayLiteralMaximumValues, copy.ArrayLiteralMaximumValues, count)
+        Array.Copy(sourceFacts.IsContextualGenericUnionConstruction, copy.IsContextualGenericUnionConstruction, count)
+        Array.Copy(sourceFacts.ContextualGenericUnionBases, copy.ContextualGenericUnionBases, count)
         return copy
     }
 

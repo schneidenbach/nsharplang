@@ -69,6 +69,8 @@ class ColumnarDirectCallArgumentFacts {
     IsIntegerConstantArrayLiteral: bool[]
     ArrayLiteralMinimumValues: long[]
     ArrayLiteralMaximumValues: long[]
+    IsContextualGenericUnionConstruction: bool[]
+    ContextualGenericUnionBases: Type?[]
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
 
     // THE EXPRESSION NODE THAT SUPPLIES EACH SLOT, with a `name:` wrapper already removed. Every other
@@ -107,6 +109,8 @@ class ColumnarDirectCallArgumentFacts {
         IsIntegerConstantArrayLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
         ArrayLiteralMinimumValues = new long[](isUnsuffixedIntegerLiteral.Length)
         ArrayLiteralMaximumValues = new long[](isUnsuffixedIntegerLiteral.Length)
+        IsContextualGenericUnionConstruction = new bool[](isUnsuffixedIntegerLiteral.Length)
+        ContextualGenericUnionBases = new Type?[](isUnsuffixedIntegerLiteral.Length)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
         ArgumentNodes = new int[](isUnsuffixedIntegerLiteral.Length)
         WrittenOrderSlots = new int[](isUnsuffixedIntegerLiteral.Length)
@@ -1187,6 +1191,16 @@ class ColumnarSourceDirectCallResolver {
                 continue
             }
 
+            if argumentFacts.IsContextualGenericUnionConstruction[index] {
+                unionBase := argumentFacts.ContextualGenericUnionBases[index]
+                if unionBase == null || !ColumnarConstructionPlanner.CanAdoptGenericUnionCase(unionBase, expected[index]) {
+                    return -1
+                }
+                score += 8
+                index += 1
+                continue
+            }
+
             argumentScore := argumentFacts.IsNullLiteral[index] ? (ColumnarNullableArgumentLowering.CanAdoptNull(expected[index]) ? 4 : -1) : ArgumentFlowScore(expected[index], actual[index], argumentFacts.SourceTypeDefinitions)
 
             if argumentScore < 0 && argumentFacts.IsUnsuffixedIntegerLiteral[index] && CanAdoptIntegerLiteralArgument(expected[index], argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
@@ -1250,7 +1264,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.IsContextualGenericUnionConstruction == null || argumentFacts.ContextualGenericUnionBases == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length || argumentFacts.IsContextualGenericUnionConstruction.Length != argumentTypes.Length || argumentFacts.ContextualGenericUnionBases.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 

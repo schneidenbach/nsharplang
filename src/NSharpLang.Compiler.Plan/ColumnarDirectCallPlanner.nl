@@ -549,6 +549,8 @@ class ColumnarDirectCallPlanner {
         targetFacts.IsIntegerConstantArrayLiteral[targetIndex] = sourceFacts.IsIntegerConstantArrayLiteral[sourceIndex]
         targetFacts.ArrayLiteralMinimumValues[targetIndex] = sourceFacts.ArrayLiteralMinimumValues[sourceIndex]
         targetFacts.ArrayLiteralMaximumValues[targetIndex] = sourceFacts.ArrayLiteralMaximumValues[sourceIndex]
+        targetFacts.IsContextualGenericUnionConstruction[targetIndex] = sourceFacts.IsContextualGenericUnionConstruction[sourceIndex]
+        targetFacts.ContextualGenericUnionBases[targetIndex] = sourceFacts.ContextualGenericUnionBases[sourceIndex]
     }
 
     static func TryAppendSparseNamedSiblingCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
@@ -627,6 +629,8 @@ class ColumnarDirectCallPlanner {
         copy.IsIntegerConstantArrayLiteral[0] = sourceFacts.IsIntegerConstantArrayLiteral[index]
         copy.ArrayLiteralMinimumValues[0] = sourceFacts.ArrayLiteralMinimumValues[index]
         copy.ArrayLiteralMaximumValues[0] = sourceFacts.ArrayLiteralMaximumValues[index]
+        copy.IsContextualGenericUnionConstruction[0] = sourceFacts.IsContextualGenericUnionConstruction[index]
+        copy.ContextualGenericUnionBases[0] = sourceFacts.ContextualGenericUnionBases[index]
         return copy
     }
 
@@ -2461,22 +2465,96 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        // Generic siblings, by-ref/out/params parameters, and arity mismatches are all shapes the
-        // legacy sibling arm still owns (generic inference, expanded params, by-ref argument
-        // emission, or an outright decline). Preserve the subtree for it.
-        if facts.TypeParameterCount > 0 || HasNonOrdinarySiblingParameter(facts.ParameterTypes, facts.ParameterModifierKinds) || facts.ParameterTypes.Length != argumentTypes.Length {
+        // By-ref/out/params parameters and arity mismatches remain with their dedicated owner.
+        // Generic sibling inference is handled here so an inline target-typed union case can be
+        // closed after the other arguments have supplied its method type arguments.
+        if HasNonOrdinarySiblingParameter(facts.ParameterTypes, facts.ParameterModifierKinds) || facts.ParameterTypes.Length != argumentTypes.Length {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
         }
 
-        if !AppendSiblingSelection(nodes, source, callNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, facts, out resultType, -1, null, null, null, null) {
+        selectedMethod: MethodInfo? = null
+        selectedParameterTypes: Type[]? = null
+        selectedReturnType: Type? = null
+        if facts.TypeParameterCount > 0 {
+            genericParameters := facts.Method.GetGenericArguments()
+            genericArguments := new Type[](genericParameters.Length)
+            if genericParameters.Length != facts.TypeParameterCount || !TryInferBareSiblingTypeArguments(genericParameters, facts.ParameterTypes, argumentTypes, argumentFacts, genericArguments) {
+                legacyWholeSubtreePlanning = true
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            sourceRegistry := new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal)
+            for sourceDefinition in bindings.SourceTypeDefinitions {
+                sourceRegistry[sourceDefinition.DeclaredTypeName] = sourceDefinition
+            }
+            if !ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(genericParameters, facts.TypeParameterSpecialConstraints, facts.TypeParameterBaseConstraints, facts.TypeParameterInterfaceConstraints, genericArguments, genericArguments, sourceRegistry) {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            closedParameters := new Type[](facts.ParameterTypes.Length)
+            parameterIndex := 0
+            while parameterIndex < closedParameters.Length {
+                closedParameter := typeof(object)
+                if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(genericParameters, genericArguments, facts.ParameterTypes[parameterIndex], out closedParameter) {
+                    ownership = ColumnarDirectCallOwnership.OwnedRejected
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+                closedParameters[parameterIndex] = closedParameter
+                parameterIndex += 1
+            }
+            closedReturn := typeof(object)
+            if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(genericParameters, genericArguments, facts.ReturnType, out closedReturn) {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                plan.Rollback(checkpoint)
+                return false
+            }
+            try {
+                selectedMethod = facts.Method.MakeGenericMethod(genericArguments)
+            } catch {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                plan.Rollback(checkpoint)
+                return false
+            }
+            selectedParameterTypes = closedParameters
+            selectedReturnType = closedReturn
+        }
+
+        if !AppendSiblingSelection(nodes, source, callNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, facts, out resultType, -1, null, selectedMethod, selectedParameterTypes, selectedReturnType) {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
         }
 
         ownership = ColumnarDirectCallOwnership.Planned
+        return true
+    }
+
+    static func TryInferBareSiblingTypeArguments(typeParameters: Type[], parameterTypes: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, typeArguments: Type[]): bool {
+        if typeParameters == null || parameterTypes == null || argumentTypes == null || argumentFacts == null || typeArguments == null || parameterTypes.Length != argumentTypes.Length || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || typeArguments.Length != typeParameters.Length {
+            return false
+        }
+
+        argumentIndex := 0
+        while argumentIndex < argumentTypes.Length {
+            if !argumentFacts.IsContextualGenericUnionConstruction[argumentIndex] && !argumentFacts.IsNullLiteral[argumentIndex] {
+                if !ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(typeParameters, typeArguments, parameterTypes[argumentIndex], argumentTypes[argumentIndex]) {
+                    return false
+                }
+            }
+            argumentIndex += 1
+        }
+
+        for typeArgument in typeArguments {
+            if typeArgument == null {
+                return false
+            }
+        }
         return true
     }
 
@@ -3826,6 +3904,11 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
+        if argumentFacts.IsContextualGenericUnionConstruction[index] {
+            unionBase := argumentFacts.ContextualGenericUnionBases[index]
+            return unionBase != null && ColumnarConstructionPlanner.TryAppendTargetTypedGenericUnionCase(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth + 1, parameterTypes[index], unionBase)
+        }
+
         actualType := typeof(int)
         valuePlanned := false
         if allowPrimitiveBinary {
@@ -4029,6 +4112,15 @@ class ColumnarDirectCallPlanner {
             if argumentCandidate >= 0 && nodes.Kind(argumentCandidate) == ColumnarExpressionNodeKind.NullLiteralExpression {
                 argumentTypes[index] = typeof(object)
                 argumentFacts.IsNullLiteral[index] = true
+                index += 1
+                continue
+            }
+
+            contextualUnionBase: Type? = null
+            if ColumnarConstructionPlanner.TryGetContextualGenericUnionCaseBase(nodes, source, argumentNode, bindings, out contextualUnionBase) {
+                argumentTypes[index] = typeof(object)
+                argumentFacts.IsContextualGenericUnionConstruction[index] = true
+                argumentFacts.ContextualGenericUnionBases[index] = contextualUnionBase
                 index += 1
                 continue
             }

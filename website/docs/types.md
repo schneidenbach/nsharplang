@@ -1003,6 +1003,29 @@ func divide(a: double, b: double): Result<double> {
 }
 ```
 
+### Generic union cases in typed positions
+
+A generic union case can omit its type arguments when the surrounding expression supplies a closed
+union type. This works for call and constructor arguments, returns, and collection elements:
+
+```n#
+func process(result: Result<int>): int {
+    return match result {
+        Result.Success { value } => value,
+        Result.Failure { error } => -1
+    }
+}
+
+func read(): int {
+    return process(new Result.Success { value: 42 })
+}
+```
+
+The expected type must name the same union and its closed type arguments. A case explicitly
+constructed as a different instantiation, such as `new Result.Success<long> { value: 42L }`, is a
+type mismatch when passed to a `Result<int>` parameter. When no surrounding type provides the
+generic arguments, write them after the case name, as in `new Result.Success<double> { value: 1.5 }`.
+
 ### Pattern Matching with Unions
 
 ```n#

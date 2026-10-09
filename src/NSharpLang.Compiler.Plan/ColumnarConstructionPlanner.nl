@@ -570,6 +570,10 @@ class ColumnarConstructionPlanner {
         if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
             return TryAppendTargetTypedArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType)
         }
+        unionBase: Type? = null
+        if TryGetContextualGenericUnionCaseBase(nodes, source, node, bindings, out unionBase) && unionBase != null {
+            return TryAppendTargetTypedGenericUnionCase(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, unionBase)
+        }
         // AN INTEGER CONSTANT ADOPTS THE POSITION'S TYPE (ECMA-334 §10.2.11), which at an ELEMENT
         // position is the only way `[0]` can ever be a `byte[]`: the literal has type `int`, `int` does
         // not convert to `byte`, and the conversion owner below is a type-to-type question that cannot
@@ -1101,6 +1105,10 @@ class ColumnarConstructionPlanner {
         if TryAppendTargetTypedInitializerInteger(nodes, source, candidate, expectedType, plan, fragment) {
             return true
         }
+        unionBase: Type? = null
+        if TryGetContextualGenericUnionCaseBase(nodes, source, valueNode, bindings, out unionBase) && unionBase != null {
+            return TryAppendTargetTypedGenericUnionCase(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, expectedType, unionBase)
+        }
         if !ValueSyntaxIsAdmitted(nodes, source, valueNode, bindings, handles, depth) {
             ownership = ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning = true
@@ -1334,6 +1342,166 @@ class ColumnarConstructionPlanner {
             }
         }
         return selected != null
+    }
+
+    // A generic case written without its union's type arguments has no standalone type. Record only
+    // its source union definition here; applicability against a parameter is checked later, after
+    // generic method inference and overload selection have closed that parameter.
+    static func TryGetContextualGenericUnionCaseBase(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out unionBase: Type?): bool {
+        unionBase = null
+        if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+        kind := nodes.Kind(candidate)
+        typeNode := -1
+        if kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.BareNew {
+            if nodes.ChildCount(candidate) < 1 {
+                return false
+            }
+            typeNode = nodes.Child(candidate, 0)
+        } else if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression {
+            if nodes.ChildCount(candidate) < 1 || nodes.ChildCount(candidate) % 2 != 1 {
+                return false
+            }
+            typeNode = nodes.Child(candidate, 0)
+        } else {
+            return false
+        }
+
+        canonical := ""
+        if !TryBuildTypeCanonical(nodes, source, typeNode, 0, out canonical) || canonical.IndexOf("<", StringComparison.Ordinal) >= 0 {
+            return false
+        }
+        separator := canonical.LastIndexOf(".", StringComparison.Ordinal)
+        if separator <= 0 || separator + 1 >= canonical.Length {
+            return false
+        }
+        ownerCanonical := canonical.Substring(0, separator)
+        ownerLeaf := ownerCanonical.Substring(ownerCanonical.LastIndexOf(".", StringComparison.Ordinal) + 1)
+        caseName := canonical.Substring(separator + 1)
+        suffix := "." + caseName
+        selectedUnion: ColumnarUnionDef? = null
+        selectedCase: ColumnarUnionCaseDef? = null
+        for candidateUnion in bindings.SourceUnionDefinitions {
+            if candidateUnion == null || candidateUnion.TypeParamCount == 0 || !candidateUnion.Base.IsGenericTypeDefinition {
+                continue
+            }
+            declaredName := candidateUnion.DeclaredTypeName
+            declaredDisplayName := TypeArityNames.Display(declaredName)
+            declaredLeaf := declaredDisplayName.Substring(declaredDisplayName.LastIndexOf(".", StringComparison.Ordinal) + 1)
+            ownerMatches := declaredDisplayName == ownerCanonical || declaredDisplayName.EndsWith("." + ownerCanonical, StringComparison.Ordinal) || declaredLeaf == ownerLeaf
+            if !ownerMatches {
+                continue
+            }
+
+            candidateCase: ColumnarUnionCaseDef? = null
+            for pair in candidateUnion.Cases {
+                if pair.Value != null && pair.Key.EndsWith(suffix, StringComparison.Ordinal) {
+                    if candidateCase != null && !SameObject(candidateCase, pair.Value) {
+                        return false
+                    }
+                    candidateCase = pair.Value
+                }
+            }
+            if candidateCase == null {
+                continue
+            }
+            if selectedUnion != null && !SameObject(selectedUnion, candidateUnion) {
+                return false
+            }
+            selectedUnion = candidateUnion
+            selectedCase = candidateCase
+        }
+        if selectedUnion == null || selectedCase == null || !SameObject(selectedCase.UnionBase, selectedUnion.Base) {
+            return false
+        }
+
+        unionBase = selectedUnion.Base
+        return true
+    }
+
+    static func CanAdoptGenericUnionCase(unionBase: Type, expectedType: Type): bool {
+        if unionBase == null || expectedType == null || !unionBase.IsGenericTypeDefinition || !expectedType.IsGenericType || expectedType.IsGenericTypeDefinition {
+            return false
+        }
+        return Object.ReferenceEquals(expectedType.GetGenericTypeDefinition(), unionBase)
+    }
+
+    // Emit the case directly against its declared union type. This is the construction owner used
+    // by call arguments, constructor arguments, collection elements, and nested case payloads.
+    static func TryAppendTargetTypedGenericUnionCase(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, expectedType: Type, expectedUnionBase: Type): bool {
+        if nodes == null || source == null || bindings == null || handles == null || plan == null || depth > 200 || !CanAdoptGenericUnionCase(expectedUnionBase, expectedType) {
+            return false
+        }
+
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+        actualUnionBase: Type? = null
+        if !TryGetContextualGenericUnionCaseBase(nodes, source, candidate, bindings, out actualUnionBase) || actualUnionBase == null || !Object.ReferenceEquals(actualUnionBase, expectedUnionBase) {
+            return false
+        }
+
+        typeNode := nodes.Child(candidate, 0)
+        canonical := ""
+        if !TryBuildTypeCanonical(nodes, source, typeNode, 0, out canonical) {
+            return false
+        }
+        separator := canonical.LastIndexOf(".", StringComparison.Ordinal)
+        caseName := canonical.Substring(separator + 1)
+        unionDefinition: ColumnarUnionDef? = null
+        if !TryFindSourceUnionDefinition(expectedType, bindings, out unionDefinition) || unionDefinition == null {
+            return false
+        }
+        caseDefinition: ColumnarUnionCaseDef? = null
+        suffix := "." + caseName
+        for pair in unionDefinition.Cases {
+            if pair.Key.EndsWith(suffix, StringComparison.Ordinal) {
+                if caseDefinition != null && !SameObject(caseDefinition, pair.Value) {
+                    return false
+                }
+                caseDefinition = pair.Value
+            }
+        }
+        if caseDefinition == null {
+            return false
+        }
+
+        typeArguments := expectedType.GetGenericArguments()
+        caseType: Type = caseDefinition.CaseType
+        try {
+            caseType = caseDefinition.CaseType.MakeGenericType(typeArguments)
+        } catch {
+            return false
+        }
+
+        kind := nodes.Kind(candidate)
+        ownership := ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning := false
+        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression {
+            if !TryAppendUnionCaseObjectInitializer(nodes, source, candidate, bindings, handles, plan, fragment, depth, caseDefinition, expectedType, caseType, typeArguments, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+        } else if kind == ColumnarExpressionNodeKind.NewExpression {
+            if !TryAppendUnionCasePositionalConstruction(nodes, source, candidate, bindings, handles, plan, fragment, depth, caseDefinition, expectedType, caseType, typeArguments, out ownership, out legacyWholeSubtreePlanning) {
+                return false
+            }
+        } else {
+            if nodes.ChildCount(candidate) != 1 {
+                return false
+            }
+            referenceCase := false
+            if !TryAppendUnionCaseCreation(plan, caseDefinition, expectedType, caseType, typeArguments, 0, out referenceCase) {
+                return false
+            }
+        }
+        return true
     }
 
     static func TryAppendUnionCaseObjectInitializer(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, definition: ColumnarUnionCaseDef, unionType: Type, caseType: Type, typeArguments: Type[], out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {

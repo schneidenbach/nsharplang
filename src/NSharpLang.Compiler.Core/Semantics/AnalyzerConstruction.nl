@@ -1112,6 +1112,17 @@ class AnalyzerConstruction {
             unionBase = LookupProjectUnion(node, parts[0])
         }
 
+        // The expected generic instantiation itself carries its declaration. Calls analysed from a
+        // separate test/source unit can have that closed signature in hand even when this unit's
+        // local scope has no direct union entry; use the carried declaration as the semantic lookup
+        // source rather than losing the target and later reporting the open case as a mismatch.
+        if unionBase == null {
+            expectedGeneric := ambientValue.CurrentExpectedType as GenericTypeInfo
+            if expectedGeneric != null && expectedGeneric.Name == parts[0] {
+                unionBase = expectedGeneric.GenericDefinition as UnionTypeInfo
+            }
+        }
+
         if unionBase == null {
             return
         }
@@ -1268,12 +1279,132 @@ class AnalyzerConstruction {
         }
 
         if expectedArgumentType == null {
+            expectedArgumentType = UnionCasePositionalArgumentType(state, node, state.ArgIndex)
+        }
+
+        if expectedArgumentType == null {
             expectedArgumentType = DelegateConstructorParameterType(state, node, state.ArgIndex)
+        }
+
+        if expectedArgumentType == null {
+            expectedArgumentType = DeclaredConstructorParameterType(state, node, state.ArgIndex)
         }
 
         state.Phase = 1
         state.SavedExpectedType = ambientValue.EnterExpectedTypeIfProvided(expectedArgumentType)
         return new ConstructionRequest(1, argument.Value, null)
+    }
+
+    // Positional union construction follows the case's declared payload order. Reading that member
+    // type under the closed union substitution gives nested generic cases the same expected type as
+    // their named object-initializer counterparts.
+    func UnionCasePositionalArgumentType(state: ConstructionState, node: NewExpression, index: int): TypeInfo? {
+        unionCaseName := state.UnionCaseName
+        if unionCaseName == null || node.ConstructorArguments.Count == 0 {
+            return null
+        }
+
+        unionSubstitution: Dictionary<string, TypeInfo>? = null
+        unionType := matchExhaustivenessValue.ResolveDeclaredUnionType(state.ConstructedType, out unionSubstitution)
+        if unionType == null {
+            return null
+        }
+
+        unionCase := AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionType, unionCaseName)
+        if unionCase == null || unionCase.Properties == null || index >= unionCase.Properties.Count {
+            return null
+        }
+
+        property := unionCase.Properties[index]
+        return typeSubstitutionValue.ResolveTypeForSourceOwner(property.Type, unionType, unionSubstitution)
+    }
+
+    // A constructor's declared parameter is an expected type for its argument, just like a function
+    // parameter is. Keep this lookup conservative around overloads: only use a position when every
+    // source constructor that accepts this arity agrees on the same closed parameter type. That lets
+    // target-typed generic union cases resolve before constructor overload validation without
+    // guessing between different constructor signatures.
+    func DeclaredConstructorParameterType(state: ConstructionState, node: NewExpression, index: int): TypeInfo? {
+        if node.ArrayLengthExpression != null || state.UnionCaseName != null || state.SoaConstruction != null {
+            return null
+        }
+
+        constructedType := NonNullableType(state.ConstructedType)
+        opened := declarationContextValue.ResolveDeclaredAlias(constructedType)
+        generic := opened as GenericTypeInfo
+        declarationOwner := constructedType
+        sourceSubstitution: Dictionary<string, TypeInfo>? = null
+        if generic != null {
+            if generic.GenericDefinition == null {
+                return null
+            }
+
+            opened = generic.GenericDefinition
+            sourceSubstitution = declarationContextValue.CreateGenericSubstitution(opened, generic.TypeArguments)
+        }
+
+        constructors := ConstructorsFromMembers(DeclaredMembers(opened))
+        if constructors.Count == 0 {
+            normalized := writeTargetsValue.NormalizeReflectionOwner(opened) as ReflectionTypeInfo
+            if normalized == null || AnalyzerWriteTargets.IsTypeBuilder(normalized.Type) {
+                return null
+            }
+
+            reflectedOverrides := ReflectionConstructorTypeOverrides(constructedType, normalized.Type)
+            reflectedConstructors := AnalyzerReflectionMemberProbe.ConstructorsOrEmpty(normalized.Type)
+            reflectedAgreed: TypeInfo? = null
+            reflectedFound := false
+            argumentCount := node.ConstructorArguments.Count
+            for reflectedConstructor in reflectedConstructors {
+                signature := AnalyzerFunctionTypeFactory.CreateFromReflectionConstructor(reflectedConstructor, reflectedOverrides)
+                if signature == null || signature.ParameterTypes == null || argumentCount < signature.RequiredParameterCount || (!signature.HasParamsParameter && argumentCount > signature.ParameterTypes.Count) {
+                    continue
+                }
+                if index >= signature.ParameterTypes.Count {
+                    return null
+                }
+
+                parameterType := signature.ParameterTypes[index]
+                if BuiltInTypes.IsUnknown(parameterType) {
+                    continue
+                }
+                if !reflectedFound {
+                    reflectedAgreed = parameterType
+                    reflectedFound = true
+                } else if reflectedAgreed == null || !TypeInfoIdentityFacts.AreEqual(reflectedAgreed, parameterType) {
+                    return null
+                }
+            }
+            return reflectedAgreed
+        }
+
+        argumentCount := node.ConstructorArguments.Count
+        agreed: TypeInfo? = null
+        found := false
+        for constructor in constructors {
+            if argumentCount < constructor.RequiredParameterCount || (!constructor.HasParamsParameter && argumentCount > constructor.ParameterCount) {
+                continue
+            }
+
+            if index >= constructor.ParameterCount {
+                return null
+            }
+
+            signature := functionTypeFactoryValue.CreateFromDeclaredMember(constructor, sourceSubstitution, declarationOwner)
+            parameterType := signature.ParameterTypes[index]
+            if BuiltInTypes.IsUnknown(parameterType) {
+                continue
+            }
+
+            if !found {
+                agreed = parameterType
+                found = true
+            } else if agreed == null || !TypeInfoIdentityFacts.AreEqual(agreed, parameterType) {
+                return null
+            }
+        }
+
+        return agreed
     }
 
     func ConstructorArgumentAnswered(state: ConstructionState, argumentType: TypeInfo) {

@@ -2798,6 +2798,26 @@ sealed class ColumnarIlEmitter {
         if (argCount != target.ParamTypes.Length) {
             return Decline("emit.call.generic-argument-count", "generic call argument count did not match the selected signature", callIdx)
         }
+
+        // Infer from arguments that have a standalone type before emitting target-typed arguments.
+        // A generic union case such as `new Result.Ok { value: 1 }` deliberately has no standalone
+        // type, but another argument may close T in `func Forward<T>(result: Result<T, string>, seed: T)`.
+        // Collecting those independent facts first makes adoption work regardless of argument order.
+        for inferencePosition := 1; inferencePosition <= argCount; inferencePosition++ {
+            declared := target.ParamTypes[inferencePosition - 1]
+            argNode := Child(callIdx, inferencePosition)
+            if declared.IsByRef || ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode)) {
+                continue
+            }
+
+            let preflightType: System.Type? = null
+            if TryGetPreflightExpressionType(argNode, out preflightType) {
+                if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(target.TypeParams, binding, declared, preflightType)) {
+                    return Decline("emit.call.generic-unification", "generic call argument " + inferencePosition.ToString() + " did not unify with the selected signature", argNode)
+                }
+            }
+        }
+
         for a := 1; a <= argCount; a++ {
             declared := target.ParamTypes[a - 1]
             // The same by-ref rule as the source-method arm: an address is not a value, so it is
@@ -2821,6 +2841,15 @@ sealed class ColumnarIlEmitter {
             if (TryEmitGenericSiblingDelegateArgument(callIdx, a, target, binding, declared)) {
                 continue
             }
+
+            contextualParamType: System.Type? = null
+            if (ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, declared, out contextualParamType)) {
+                if (!EmitDeclaredCallArgument(Child(callIdx, a), contextualParamType, true)) {
+                    return Decline("emit.call.generic-argument", "generic call argument " + a.ToString() + " could not be emitted against its inferred parameter type", Child(callIdx, a))
+                }
+                continue
+            }
+
             let gArgType: System.Type? = null
             if (!EmitExpression(Child(callIdx, a), out gArgType)) {
                 return Decline("emit.call.generic-argument", "generic call argument " + a.ToString() + " could not be emitted", Child(callIdx, a))
@@ -17211,21 +17240,13 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // True when `exprNode` is the expected-type ADOPTION shape for a GENERIC union case: a `new Union.Case
-    // { ... }` object-init (kind 36), brace-less `new Union.Case` (kind 42), or payload-free call-style
-    // `new Union.Case()` (kind 15) whose Simple type root names a registered case of a GENERIC union, with the
-    // expected type a CLOSED instantiation of THAT union's base (`return new Opt.None` on `(): Opt<int>`;
-    // `n: Opt<int> = new Opt.Some { value: 5 }`). The pipeline adopts the expected type's arguments at FIVE
-    // probe-pinned positions, each with an exact expected type: return statements, typed-local inits, union-case
-    // object-init FIELD VALUES, and local/param REASSIGNMENT — exactly the emitters that consult this before
-    // their normal EmitExpression call. It REJECTS call-argument adoption (NL103 — queued known defect) and `:=`
-    // (NL207, no expected type), so kind-15/36/42 nodes reaching plain EmitExpression with a generic case decline
-    // there.
+    // True when `exprNode` is an expected-type construction of a generic union case: object-init, positional,
+    // brace-less, or payload-free call-style construction whose case belongs to the closed generic union named
+    // by `expectedType`. Expression positions with a declared expected type share this check, including calls,
+    // constructors, returns, fields, and collection elements.
     private func IsAdoptableUnionConstruction(exprNode: int, expectedType: Type): bool {
+        exprNode = UnwrapParenthesizedNode(exprNode)
         if (_nodes.Kind(exprNode) != ColumnarExpressionNodeKind.NewExpression && _nodes.Kind(exprNode) != ColumnarExpressionNodeKind.ObjectInitializerExpression && _nodes.Kind(exprNode) != ColumnarExpressionNodeKind.BareNew) {
-            return false
-        }
-        if (_nodes.Kind(exprNode) == ColumnarExpressionNodeKind.NewExpression && _nodes.ChildCount(exprNode) != 1) {
             return false
         }
         if (_nodes.Kind(exprNode) == ColumnarExpressionNodeKind.ObjectInitializerExpression && (_nodes.ChildCount(exprNode) % 2) != 1) {
@@ -17250,10 +17271,14 @@ sealed class ColumnarIlEmitter {
     // type's arguments. The caller has already established applicability.
     private func EmitAdoptedUnionConstruction(exprNode: int, expectedType: Type, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
+        exprNode = UnwrapParenthesizedNode(exprNode)
         let columnarDiscard68: string = null
         let caseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
         if (!TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, Child(exprNode, 0)), out columnarDiscard68, out caseDef)) {
             return false
+        }
+        if (_nodes.Kind(exprNode) == ColumnarExpressionNodeKind.NewExpression && _nodes.ChildCount(exprNode) > 1) {
+            return TryEmitUnionCasePositionalConstruction(caseDef, expectedType.GetGenericArguments(), exprNode, _nodes.ChildCount(exprNode) - 1, out columnarResolvedType)
         }
         pairCount := _nodes.Kind(exprNode) == ColumnarExpressionNodeKind.ObjectInitializerExpression ? (_nodes.ChildCount(exprNode) - 1) / 2 : 0
         return TryEmitUnionCaseConstruction(caseDef, expectedType.GetGenericArguments(), exprNode, pairCount, out columnarResolvedType)
@@ -21960,6 +21985,9 @@ sealed class ColumnarIlEmitter {
         if (IsContextualDelegateValueNode(valueNode)) {
             return CanDeclaredCallArgumentMatch(valueNode, targetType, true)
         }
+        if (IsAdoptableUnionConstruction(valueNode, targetType)) {
+            return true
+        }
         if (_nodes.Kind(valueNode) == ColumnarExpressionNodeKind.DefaultExpression) {
             return CanEmitDefaultValueOfType(targetType)
         }
@@ -23141,6 +23169,9 @@ sealed class ColumnarIlEmitter {
             return !expectedType.IsValueType
         }
         if (CanUseTargetTypedNewAsType(argNode, expectedType)) {
+            return true
+        }
+        if (IsAdoptableUnionConstruction(argNode, expectedType)) {
             return true
         }
         if (CanAdoptIntLiteralAsType(argNode, expectedType)) {
@@ -27835,6 +27866,9 @@ sealed class ColumnarIlEmitter {
         if (CanEmitConditionalAsType(argNode, expectedParamType)) {
             return true
         }
+        if (IsAdoptableUnionConstruction(argNode, expectedParamType)) {
+            return true
+        }
         if (CanUseTargetTypedNewAsType(argNode, expectedParamType)) {
             return true
         }
@@ -27868,7 +27902,15 @@ sealed class ColumnarIlEmitter {
     // unification arm, which knows `null` and not `default`.
     private func EmitArg(callIdx: int, argPosition: int, expected: Type): bool {
         let argType: System.Type? = null
-        return (TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitCollectionLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitArrayLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitZeroLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitConditionalAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitIntLiteralAsType(Child(callIdx, argPosition), expected, out argType) || EmitExpression(Child(callIdx, argPosition), out argType)) && (TypesEquivalent(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
+        if (IsAdoptableUnionConstruction(Child(callIdx, argPosition), expected)) {
+            if (!EmitAdoptedUnionConstruction(Child(callIdx, argPosition), expected, out argType)) {
+                return false
+            }
+        } else if (!(TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitCollectionLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitArrayLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitZeroLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitConditionalAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitIntLiteralAsType(Child(callIdx, argPosition), expected, out argType) || EmitExpression(Child(callIdx, argPosition), out argType))) {
+            return false
+        }
+
+        return TypesEquivalent(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false)
     }
 
     private func EmitDeclaredCallArgument(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool): bool {
@@ -27890,6 +27932,10 @@ sealed class ColumnarIlEmitter {
         }
         if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitReceiverInstanceMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
+        }
+        let ignoredAdoptedUnionType: System.Type? = null
+        if (IsAdoptableUnionConstruction(argNode, expectedParamType)) {
+            return EmitAdoptedUnionConstruction(argNode, expectedParamType, out ignoredAdoptedUnionType)
         }
         let ignoredTargetTypedNewType: System.Type? = null
         if (TryEmitTargetTypedNewAsType(argNode, expectedParamType, out ignoredTargetTypedNewType)) {

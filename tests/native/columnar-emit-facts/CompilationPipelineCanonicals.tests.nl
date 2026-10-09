@@ -64,6 +64,37 @@ func main() {
     }
 }
 
+test "MultiFileCompiler_ReportsClosedGenericUnionArgumentMismatchAsTypeError" {
+    compilation := EmitterCanonicalCompileSingle(
+        "GenericUnionArgumentMismatch",
+        "exe",
+        """
+union Result<T, E> {
+    Ok { value: T }
+    Error { error: E }
+}
+
+func Accept<T>(result: Result<T, string>) {
+}
+
+func main() {
+    Accept<int>(new Result.Ok<long, string> { value: 1L })
+}
+"""
+    )
+    try {
+        assert !compilation.Succeeded
+        assert compilation.OutputAssemblyPath == null
+        assert !File.Exists(compilation.OutputPath)
+        assert compilation.Errors.Count == 1, EmitterCanonicalDiagnostics(compilation)
+        error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL202")
+        assert !EmitterCanonicalHasErrorText(compilation, "DiagnosticId", "NL103")
+        assert EmitterCanonicalErrorText(error, "Message").Contains("Result<long, string>", StringComparison.Ordinal)
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
 test "MultiFileCompiler_RejectsGenericCollectionFieldInitializerMismatch" {
     compilation := EmitterCanonicalCompileSingle(
         "InitializerMismatch",

@@ -427,6 +427,17 @@ class AnalyzerCallAnalysis {
             return
         }
 
+        if pending == 37 {
+            argumentIndex := state.ArgumentIndex
+            argumentType: TypeInfo = BuiltInTypes.Unknown
+            if answer != null {
+                argumentType = answer
+            }
+            state.ArgTypes[argumentIndex] = argumentType
+            state.ArgumentIndex = argumentIndex + 1
+            return
+        }
+
         if pending == 36 {
             finalizeState := state.FinalizeState
             if finalizeState != null {
@@ -2035,6 +2046,11 @@ class AnalyzerCallAnalysis {
         state.SyntheticExpectedBindings = syntheticCallWalk.InferGenericBindings(functionType, call, state.ArgTypes, state.ReceiverType)
 
         expectedArgumentType := syntheticCallValidator.GetExpectedArgumentType(functionType, call, index, expectedIndex, state.SyntheticExpectedBindings)
+        if IsUntypedGenericUnionCaseConstruction(call.Arguments[index].Value) && ExpectedTypeNamesUnionCase(expectedArgumentType, call.Arguments[index].Value) && (expectedArgumentType == null || AnalyzerSyntheticCallFacts.NarrowOpenExpectedArgumentType(expectedArgumentType, functionType.TypeParameters) == null) {
+            state.ArgTypes.Add(BuiltInTypes.Unknown)
+            state.ArgumentIndex = state.ArgumentIndex + 1
+            return null
+        }
         if expectedArgumentType == null {
             return EmitArgument(state, call.Arguments[index], null, false, false)
         }
@@ -2060,6 +2076,11 @@ class AnalyzerCallAnalysis {
         }
 
         argument := call.Arguments[index]
+        if IsUntypedGenericUnionCaseConstruction(argument.Value) && IsContextualUnionTargetInGroup(state, index) {
+            state.ArgTypes.Add(BuiltInTypes.Unknown)
+            state.ArgumentIndex = state.ArgumentIndex + 1
+            return null
+        }
         lambda := argument.Value as LambdaExpression
         if state.IsMethodGroup && lambda != null {
             // A method group's lambda argument is DELIBERATELY not analysed here — binding will
@@ -2080,6 +2101,32 @@ class AnalyzerCallAnalysis {
         state.ReflectionArgumentIsUntargeted = state.IsMethodGroup && argument.Value as ArrayLiteralExpression != null
         state.ReflectionArgumentErrorsBefore = diagnostics.ErrorCount
         return EmitArgument(state, argument, null, state.IsMethodGroup, state.IsMethodGroup)
+    }
+
+    func IsContextualUnionTargetInGroup(state: CallAnalysisState, argumentIndex: int): bool {
+        functions := state.GroupFunctions
+        if functions == null || argumentIndex < 0 || argumentIndex >= state.Call.Arguments.Count {
+            return false
+        }
+
+        for functionType in functions {
+            if functionType == null {
+                continue
+            }
+            functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, state.Call)
+            parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, state.Call)
+            placement: int[] = new int[0]
+            if !syntheticCallReporter.TryBindAndReport(functionType, functionName, state.Call, out placement, parameterStartIndex, false) || argumentIndex >= placement.Length {
+                continue
+            }
+
+            genericBindings := syntheticCallWalk.InferGenericBindings(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+            expectedType := syntheticCallValidator.GetExpectedArgumentType(functionType, state.Call, argumentIndex, placement[argumentIndex], genericBindings)
+            if ExpectedTypeNamesUnionCase(expectedType, state.Call.Arguments[argumentIndex].Value) {
+                return true
+            }
+        }
+        return false
     }
 
     // ONE ARGUMENT, AND THE `ref`/`out` FORM IS THIS WALK'S OWN BUSINESS RATHER THAN THE DRIVER'S.
@@ -2353,6 +2400,7 @@ class AnalyzerCallAnalysis {
         if funcType != null {
             if funcType.ParameterTypes != null {
                 state.SyntheticFunctionType = funcType
+                state.ArgumentIndex = 0
                 state.Phase = 14
                 return null
             }
@@ -2449,9 +2497,7 @@ class AnalyzerCallAnalysis {
         }
 
         if phase == 15 {
-            syntheticCallValidator.ValidateCall(functionType, state.Call, state.ArgTypes, state.ReceiverType)
-            state.Phase = 16
-            return null
+            return ReanalyzeContextualUnionFunctionArgument(state)
         }
 
         if phase == 16 {
@@ -2461,6 +2507,53 @@ class AnalyzerCallAnalysis {
         state.Result = syntheticCallValidator.ResolveReturnType(functionType, state.Call, state.ArgTypes, state.ReceiverType)
         state.Phase = 99
         return null
+    }
+
+    // A single declared function reaches argument validation through FunctionTypeInfo rather than
+    // the overload-group path. Its arguments have already been analysed once, but a generic union
+    // case may have lacked a target while a later argument was still needed to infer T. Revisit
+    // those cases now, before validation, with the signature closed over all independently typed
+    // arguments.
+    func ReanalyzeContextualUnionFunctionArgument(state: CallAnalysisState): CallAnalysisRequest? {
+        functionType := state.SyntheticFunctionType
+        if functionType == null {
+            state.Phase = 16
+            return null
+        }
+
+        if state.ArgumentIndex >= state.Call.Arguments.Count {
+            syntheticCallValidator.ValidateCall(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+            state.Phase = 16
+            return null
+        }
+
+        argumentIndex := state.ArgumentIndex
+        argument := state.Call.Arguments[argumentIndex]
+        if !IsUntypedGenericUnionCaseConstruction(argument.Value) {
+            state.ArgumentIndex = argumentIndex + 1
+            return null
+        }
+
+        parameterIndex := argumentIndex + state.ParameterStartIndex
+        placement := state.SyntheticParameterIndexByArgument
+        if placement != null && argumentIndex < placement.Length {
+            parameterIndex = placement[argumentIndex]
+        }
+
+        inferenceTypes := ContextualUnionInferenceTypes(state)
+        genericBindings := InferContextualUnionCallBindings(functionType, state.Call, inferenceTypes, state.ReceiverType)
+        expectedType := syntheticCallValidator.GetExpectedArgumentType(functionType, state.Call, argumentIndex, parameterIndex, genericBindings)
+        namesUnionCase := ExpectedTypeNamesUnionCase(expectedType, argument.Value)
+        if !namesUnionCase {
+            state.ArgumentIndex = argumentIndex + 1
+            return null
+        }
+
+        state.Pending = 37
+        request := new CallAnalysisRequest(4)
+        request.Node = argument.Value
+        request.CarriedType = expectedType
+        return request
     }
 
     // THE N#-DECLARED OVERLOAD-GROUP TAIL, and the reason this whole owner is a resumable walk.
@@ -2491,11 +2584,13 @@ class AnalyzerCallAnalysis {
             }
 
             state.BoundFunction = bound
-            state.Phase = 20
-            state.Pending = 14
-            request := new CallAnalysisRequest(14)
-            request.CarriedType = bound
-            return request
+            state.ArgumentIndex = 0
+            state.Phase = 24
+            return null
+        }
+
+        if phase == 24 {
+            return ReanalyzeContextualUnionCallArgument(state)
         }
 
         boundFunction := state.BoundFunction
@@ -2522,6 +2617,155 @@ class AnalyzerCallAnalysis {
         state.Result = syntheticCallValidator.ResolveReturnType(boundFunction, state.Call, state.ArgTypes, state.ReceiverType)
         state.Phase = 99
         return null
+    }
+
+    // N# source overload groups are first scored from an untargeted argument pass. A generic-union
+    // case with no written type arguments has no independent type in that pass, so after the winning
+    // signature and its generic bindings are known, revisit only that construction under its closed
+    // parameter type. This matches the target-typed construction contract used by returns and
+    // initializer values while keeping explicitly instantiated cases in ordinary assignability.
+    func ReanalyzeContextualUnionCallArgument(state: CallAnalysisState): CallAnalysisRequest? {
+        boundFunction := state.BoundFunction
+        call := state.Call
+        if boundFunction == null {
+            state.Phase = 99
+            state.Result = BuiltInTypes.Unknown
+            return null
+        }
+        if state.ArgumentIndex >= call.Arguments.Count {
+            state.Phase = 20
+            state.Pending = 14
+            request := new CallAnalysisRequest(14)
+            request.CarriedType = boundFunction
+            return request
+        }
+
+        argumentIndex := state.ArgumentIndex
+        argument := call.Arguments[argumentIndex]
+        if !IsUntypedGenericUnionCaseConstruction(argument.Value) {
+            state.ArgumentIndex = argumentIndex + 1
+            return null
+        }
+
+        parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(boundFunction, call)
+        placement: int[] = new int[0]
+        functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(boundFunction, call)
+        if !syntheticCallReporter.TryBindAndReport(boundFunction, functionName, call, out placement, parameterStartIndex, false) || argumentIndex >= placement.Length {
+            state.ArgumentIndex = argumentIndex + 1
+            return null
+        }
+
+        inferenceTypes := ContextualUnionInferenceTypes(state)
+        genericBindings := InferContextualUnionCallBindings(boundFunction, call, inferenceTypes, state.ReceiverType)
+        expectedType := syntheticCallValidator.GetExpectedArgumentType(boundFunction, call, argumentIndex, placement[argumentIndex], genericBindings)
+        if !ExpectedTypeNamesUnionCase(expectedType, argument.Value) {
+            state.ArgumentIndex = argumentIndex + 1
+            return null
+        }
+
+        state.Pending = 37
+        request := new CallAnalysisRequest(4)
+        request.Node = argument.Value
+        request.CarriedType = expectedType
+        return request
+    }
+
+    // Re-run ordinary inference with targetless union constructions removed. Some source signatures
+    // expose their parameter type references only on the declaration, so also preserve direct T
+    // bounds from the other written arguments explicitly; those are the decisive bounds in calls
+    // such as `Forward(7, new Result.Ok { value: 17 })`.
+    func InferContextualUnionCallBindings(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): Dictionary<string, TypeInfo>? {
+        bindings := syntheticCallWalk.InferGenericBindings(functionType, call, argTypes, receiverType)
+        typeParameters := functionType.TypeParameters
+        sourceParameterTypes := functionType.SourceParameterTypes
+        if typeParameters == null || typeParameters.Count == 0 || sourceParameterTypes == null || sourceParameterTypes.Count == 0 || call.TypeArguments != null && call.TypeArguments.Count == typeParameters.Count {
+            return bindings
+        }
+
+        functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
+        parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
+        placement: int[] = new int[0]
+        if !syntheticCallReporter.TryBindAndReport(functionType, functionName, call, out placement, parameterStartIndex, false) {
+            return bindings
+        }
+
+        if bindings == null {
+            bindings = new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+        }
+        argumentIndex := 0
+        while argumentIndex < call.Arguments.Count && argumentIndex < argTypes.Count && argumentIndex < placement.Length {
+            parameterIndex := placement[argumentIndex]
+            if parameterIndex >= 0 && parameterIndex < sourceParameterTypes.Count && !IsUntypedGenericUnionCaseConstruction(call.Arguments[argumentIndex].Value) && !BuiltInTypes.IsUnknown(argTypes[argumentIndex]) && !BuiltInTypes.Is(argTypes[argumentIndex], BuiltInTypes.Null) {
+                parameter := sourceParameterTypes[parameterIndex] as SimpleTypeReference
+                if parameter != null {
+                    for typeParameter in typeParameters {
+                        if typeParameter.Name == parameter.Name {
+                            bindings[parameter.Name] = argTypes[argumentIndex]
+                            break
+                        }
+                    }
+                }
+            }
+            argumentIndex = argumentIndex + 1
+        }
+        return bindings
+    }
+
+    func ContextualUnionInferenceTypes(state: CallAnalysisState): List<TypeInfo> {
+        result := new List<TypeInfo>()
+        index := 0
+        while index < state.ArgTypes.Count {
+            if index < state.Call.Arguments.Count && IsUntypedGenericUnionCaseConstruction(state.Call.Arguments[index].Value) {
+                result.Add(BuiltInTypes.Unknown)
+            } else {
+                result.Add(state.ArgTypes[index])
+            }
+            index = index + 1
+        }
+        return result
+    }
+
+    static func IsUntypedGenericUnionCaseConstruction(expression: Expression): bool {
+        current := expression
+        parenthesized := current as ParenthesizedExpression
+        while parenthesized != null {
+            current = parenthesized.Inner
+            parenthesized = current as ParenthesizedExpression
+        }
+
+        creation := current as NewExpression
+        if creation == null {
+            return false
+        }
+
+        simple := creation.Type as SimpleTypeReference
+        return simple != null && simple.Name.Contains('.')
+    }
+
+    static func ExpectedTypeNamesUnionCase(expectedType: TypeInfo?, expression: Expression): bool {
+        expected := expectedType as GenericTypeInfo
+        unionDefinition := expected == null ? null : expected.GenericDefinition as UnionTypeInfo
+        if unionDefinition == null {
+            return false
+        }
+
+        current := expression
+        parenthesized := current as ParenthesizedExpression
+        while parenthesized != null {
+            current = parenthesized.Inner
+            parenthesized = current as ParenthesizedExpression
+        }
+
+        creation := current as NewExpression
+        if creation == null {
+            return false
+        }
+        simple := creation.Type as SimpleTypeReference
+        if simple == null {
+            return false
+        }
+
+        return AnalyzerExhaustivenessSelector.FindUnionCaseForPattern(unionDefinition, simple.Name) != null
     }
 
     // THE RECEIVER GUARD, STATED ONCE. A receiver is read only when the inference walk will read it
