@@ -51,9 +51,14 @@ async function main() {
         if (process.platform === 'darwin') {
             const appBundle = vscodeExecutablePath.match(/^(.*?\.app)(?:\/|$)/)?.[1];
             if (!appBundle) throw new Error(`VS Code executable is outside an app bundle: ${vscodeExecutablePath}`);
-            const attributes = childProcess.execFileSync('xattr', ['-lr', appBundle], { encoding: 'utf8' });
-            if (attributes.includes('com.apple.quarantine')) {
-                childProcess.execFileSync('xattr', ['-dr', 'com.apple.quarantine', appBundle], { stdio: 'ignore' });
+            const quarantine = childProcess.spawnSync('xattr', ['-p', 'com.apple.quarantine', appBundle], { stdio: 'ignore' });
+            if (quarantine.error) throw quarantine.error;
+            if (quarantine.status === 0) {
+                const removal = childProcess.spawnSync('xattr', ['-dr', 'com.apple.quarantine', appBundle], { stdio: 'ignore' });
+                if (removal.error) throw removal.error;
+                if (removal.status !== 0) throw new Error(`Failed to remove VS Code quarantine attribute (xattr exited ${removal.status}).`);
+            } else if (quarantine.status !== 1) {
+                throw new Error(`Failed to inspect VS Code quarantine attribute (xattr exited ${quarantine.status}).`);
             }
         }
 

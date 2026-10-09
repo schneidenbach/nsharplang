@@ -70,6 +70,13 @@ test "VS Code launch policy removes macOS quarantine after download and before l
     headless := VSCodeLaunchSource("src/test/runTest.ts")
     assert standard.IndexOf("await downloadAndUnzipVSCode({") < standard.IndexOf("xattr")
     assert headless.IndexOf("await downloadAndUnzipVSCode({") < headless.IndexOf("xattr")
+    assert standard.Contains("childProcess.spawnSync('xattr', ['-p', 'com.apple.quarantine', appBundle], { stdio: 'ignore' })")
+    assert headless.Contains("childProcess.spawnSync('xattr', ['-p', 'com.apple.quarantine', appBundle], { stdio: 'ignore' })")
+    assert standard.Contains("quarantine.status === 0") && standard.Contains("quarantine.status !== 1")
+    assert headless.Contains("quarantine.status === 0") && headless.Contains("quarantine.status !== 1")
     assert standard.Contains("['-dr', 'com.apple.quarantine', appBundle]")
     assert headless.Contains("['-dr', 'com.apple.quarantine', appBundle]")
+    assert standard.Contains("removal.status !== 0") && standard.Contains("{ stdio: 'ignore' }")
+    assert headless.Contains("removal.status !== 0") && headless.Contains("{ stdio: 'ignore' }")
+    assert !standard.Contains("['-lr', appBundle]") && !headless.Contains("['-lr', appBundle]")
 }
