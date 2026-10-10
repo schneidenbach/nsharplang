@@ -1235,7 +1235,7 @@ class Analyzer: IDisposable {
 
         yieldStatement := statement as YieldStatement
         if yieldStatement != null {
-            Ambient.ReportYieldPlacementIfNeeded(yieldStatement.Line, yieldStatement.Column)
+            Ambient.ReportYieldPlacementIfNeeded(yieldStatement.Line, yieldStatement.Column, yieldStatement.Value != null)
             DriveYieldStatement(LoopSequence.BeginYield(yieldStatement, Assignability))
             return
         }

@@ -1217,6 +1217,29 @@ test "yield inside a lock reports NL351 at the yield keyword" {
     harness.Context.ExitLockBody()
 }
 
+test "yield break exits try and catch placements without suspending" {
+    harness := AmbientDefault()
+    harness.Context.EnterYieldForbidden("try")
+    harness.Context.ReportYieldPlacementIfNeeded(7, 9, false)
+    harness.Context.ExitYieldForbidden()
+    harness.Context.EnterYieldForbidden("catch")
+    harness.Context.ReportYieldPlacementIfNeeded(8, 13, false)
+    harness.Context.ExitYieldForbidden()
+
+    assert harness.Errors.Count == 0
+}
+
+test "yield break remains forbidden in a finally handler" {
+    harness := AmbientDefault()
+    harness.Context.EnterYieldForbidden("finally")
+    harness.Context.ReportYieldPlacementIfNeeded(9, 13, false)
+    harness.Context.ExitYieldForbidden()
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.YieldInProtectedRegion
+    assert harness.Errors[0].Message == "A 'yield' cannot appear inside a 'finally' handler"
+}
+
 test "A BARE return IN A TYPED FUNCTION IS NL305 MissingReturn AT THE KEYWORD" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)

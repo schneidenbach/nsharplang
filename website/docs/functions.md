@@ -1835,10 +1835,14 @@ async func* guarded(source: IAsyncDisposable): IAsyncEnumerable<int> {
 }
 ```
 
-An `await` inside a `catch` is also supported. Awaited `finally` blocks work on a `try` with source
-`catch` clauses: the original catches still select and handle exceptions inside the protected region,
-then the hoisted `finally` runs before a parked unhandled exception is rethrown.
-If a `catch` body itself awaits, that same `try` cannot also declare a `finally` yet.
+An `await` inside a `catch` is supported, including when the same `try` has a `finally` that also
+awaits. The compiler parks exceptions while the `catch` body runs, then runs the `finally` before
+rethrowing an unhandled or rethrown exception. The `finally` also runs on normal completion and
+`yield break`. As in C#, `yield return` cannot appear anywhere inside a `try` that declares a
+`catch`; `yield break` does not suspend and is allowed there. A consumer can dispose at a yield
+suspension inside a surrounding `try`/`finally`, which runs that outer `finally`. Calling
+`DisposeAsync()` while `MoveNextAsync()` is still pending at an `await` is unsupported and throws
+`NotSupportedException`, matching C# async iterators.
 
 An iterator cannot use `return value`; use `yield value` to produce an element, or a bare `return` /
 `yield break` to stop ([NL350](./errors/NL350.md)).

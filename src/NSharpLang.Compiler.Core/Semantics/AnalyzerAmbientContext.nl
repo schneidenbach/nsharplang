@@ -965,14 +965,13 @@ class AnalyzerAmbientContext {
         finallyDepthValue = finallyDepthValue - 1
     }
 
-    // WHERE A GENERATOR MAY NOT SUSPEND. A `yield` inside a protected region has to be resumable: the
-    // state machine re-enters the region and dispatches to the resume point inside it, and the
-    // `finally` it is standing in must run when the consumer abandons the enumeration. That is only
-    // expressible when the region's ONLY handler is a `finally`; a `catch` would have to be re-armed
-    // across a suspension that is not inside the call at all, and a handler body cannot be suspended
-    // out of and resumed back into. These three placements are therefore refused (NL332), and the
-    // innermost reason is what the message names — the stack nests because a `try` can sit inside a
-    // `catch` that sits inside a `finally`.
+    // WHERE A GENERATOR MAY NOT SUSPEND. A `yield return` inside a protected region has to be
+    // resumable: the state machine re-enters the region and dispatches to the resume point inside it,
+    // and the `finally` it is standing in must run when the consumer abandons the enumeration. A
+    // `catch` would have to be re-armed across that suspension, and a handler body cannot be
+    // suspended out of and resumed back into. `yield break` is different: it exits synchronously, so
+    // it can run through a try/catch/finally unwind without a resume point. Only the placements that
+    // suspend are refused (NL332); the innermost reason is what the message names.
     func EnterYieldForbidden(placement: string) {
         yieldForbiddenPlacementsValue.Add(placement)
     }
@@ -995,9 +994,9 @@ class AnalyzerAmbientContext {
         }
     }
 
-    // NL332, reported at the `yield` keyword itself: the reader needs to see the suspension point,
-    // not the handler that forbids it.
-    func ReportYieldPlacementIfNeeded(line: int, column: int) {
+    // NL332, reported at the `yield return` keyword itself: the reader needs to see the suspension
+    // point, not the handler that forbids it.
+    func ReportYieldPlacementIfNeeded(line: int, column: int, isYieldReturn: bool = true) {
         if lockDepthValue > 0 {
             diagnosticsValue.Report(ErrorCode.SuspensionInLock, "A 'yield' cannot appear inside a 'lock' statement", line, column, "Move the 'yield' after the lock block. Keep the lock limited to synchronous work, then produce the value outside it.", 5)
             return
@@ -1007,6 +1006,9 @@ class AnalyzerAmbientContext {
         }
 
         placement := yieldForbiddenPlacementsValue[yieldForbiddenPlacementsValue.Count - 1]
+        if !isYieldReturn && (placement == "try" || placement == "catch") {
+            return
+        }
         diagnosticsValue.Report(ErrorCode.YieldInProtectedRegion, YieldPlacementMessage(placement), line, column, YieldPlacementHint(placement), 5)
     }
 

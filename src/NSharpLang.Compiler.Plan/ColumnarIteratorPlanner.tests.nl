@@ -1267,6 +1267,35 @@ test "iterator planner declines a yield inside a catch handler" {
     assert probe.Shape.DeclineMessage == "a `yield` cannot appear inside a `catch` handler"
 }
 
+test "iterator planner admits yield break inside a try with catch" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { yield break } catch ex: Exception { } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 0
+    assert probe.Shape.TryRegionCount == 1
+}
+
+test "iterator planner admits yield break inside a catch handler" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { } catch ex: Exception { yield break } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 0
+}
+
 test "iterator planner declines a yield inside a finally handler" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Guarded(): IEnumerable<int> { try { } finally { yield 1 } }",
@@ -1395,6 +1424,28 @@ test "iterator planner hoists an await inside a catch handler" {
     assert probe.Shape.Supported
     assert probe.Shape.AwaitResumeCount == 2
     assert probe.Shape.TryRegionCount == 1
+}
+
+test "iterator planner composes awaiting catches and finally with nested resume regions" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Guarded(): IAsyncEnumerable<int> { try { await Task.Delay(1)\n throw new InvalidOperationException() } catch ex: InvalidOperationException { await Task.Delay(2) } finally { await Task.Delay(3) }\n yield 1 }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 2
+    assert probe.Shape.ResumeRegionOf(1) == 1
+    assert probe.Shape.ResumeRegionOf(2) == 0
+    assert probe.Shape.ResumeRegionOf(3) == 0 - 1
+    assert IteratorShapeHasField(probe.Shape, "<>__pending0")
+    assert IteratorShapeHasField(probe.Shape, "<>__branch0")
+    assert IteratorShapeHasField(probe.Shape, "<>__pending1")
+    assert IteratorShapeHasField(probe.Shape, "<>__branch1")
 }
 
 // A synchronous generator cannot suspend at all, so an awaiting handler there is the ordinary

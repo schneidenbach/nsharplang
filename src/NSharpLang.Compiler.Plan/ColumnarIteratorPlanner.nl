@@ -1088,12 +1088,12 @@ class ColumnarIteratorPlanner {
 
     // A `try` STATEMENT INSIDE A GENERATOR BODY — the shape C# admits, classified.
     //
-    // A `yield` may appear inside a `try` that has ONLY a `finally` (the handler runs when the body
-    // completes, when an exception passes through, and when a consumer abandons the enumeration and
-    // calls `Dispose`), and nowhere else: not inside a `try` that also declares a `catch`, and not
-    // inside a `catch` or `finally` handler. Those three placements are refused by the analyzer with
-    // NL332; the classification refuses them again here so no shape can reach lowering without a
-    // diagnostic, and the messages are the same sentences.
+    // A `yield return` may appear inside a `try` that has ONLY a `finally` (the handler runs when the
+    // body completes, when an exception passes through, and when a consumer abandons the enumeration
+    // and calls `Dispose`), but not inside a `try` that declares a `catch`, or inside a `catch` or
+    // `finally` handler. `yield break` does not suspend and is allowed in a `try` or `catch`; it still
+    // unwinds through any `finally`. The analyzer and this classification enforce those placements
+    // with the same NL332 sentences.
     //
     // Each `try` takes a region ordinal in walk order. A `yield return` inside one records that
     // region as its resume home, which is what lets MoveNext dispatch to a resume point that lives
@@ -1330,13 +1330,13 @@ class ColumnarIteratorPlanner {
         catchCount := handlerEnd - 1
         hasAwaitingCatch := false
         tryBlock := nodes.Child(node, 0)
-        if ContainsYield(nodes, tryBlock) && catchCount > 0 {
+        if ContainsYieldReturn(nodes, tryBlock) && catchCount > 0 {
             state.Decline("emit.iterator.unsupported-shape", YieldInTryWithCatchMessage())
             return false
         }
         c := 1
         while c < handlerEnd {
-            if ContainsYield(nodes, nodes.Child(node, c)) {
+            if ContainsYieldReturn(nodes, nodes.Child(node, c)) {
                 state.Decline("emit.iterator.unsupported-shape", YieldInHandlerMessage("catch"))
                 return false
             }
@@ -1354,10 +1354,6 @@ class ColumnarIteratorPlanner {
             state.Decline("emit.iterator.async-await-unsupported", "an `await` inside a `catch` handler requires an async iterator")
             return false
         }
-        if hasAwaitingCatch && finallyNode >= 0 {
-            state.Decline("emit.iterator.async-await-unsupported", "an async iterator cannot yet combine an awaiting `catch` body with a `finally` on the same `try`")
-            return false
-        }
         if hoistedFinally && !state.IsAsync {
             state.Decline("emit.iterator.async-await-unsupported", AwaitInHandlerMessage("finally"))
             return false
@@ -1367,17 +1363,34 @@ class ColumnarIteratorPlanner {
             return false
         }
 
+        enclosing := state.CurrentRegion
         region := state.TryRegionCount
-        state.TryRegionParents[region] = state.CurrentRegion
+        state.TryRegionParents[region] = enclosing
         state.TryRegionCount = state.TryRegionCount + 1
-        if (hoistedFinally || hasAwaitingCatch) && !DeclareHoistedHandlerFields(region, state) {
+        catchRegion := enclosing
+        if hasAwaitingCatch && finallyNode >= 0 {
+            // The synthetic finally region surrounds the synthetic catch region. Try-body awaits
+            // resume through both entries; source catch awaits resume inside only the outer region.
+            catchRegion = region
+            innerRegion := state.TryRegionCount
+            state.TryRegionParents[innerRegion] = region
+            state.TryRegionCount = state.TryRegionCount + 1
+            if !DeclareHoistedHandlerFields(region, state) || !DeclareHoistedHandlerFields(innerRegion, state) {
+                return false
+            }
+        } else if (hoistedFinally || hasAwaitingCatch) && !DeclareHoistedHandlerFields(region, state) {
             return false
         }
-        enclosing := state.CurrentRegion
-        state.CurrentRegion = region
+
+        bodyRegion := region
+        if hasAwaitingCatch && finallyNode >= 0 {
+            bodyRegion = region + 1
+        }
+        state.CurrentRegion = bodyRegion
         tryFalls := WalkStatement(nodes, source, tryBlock, state)
-        state.CurrentRegion = enclosing
+        state.CurrentRegion = catchRegion
         if state.Declined {
+            state.CurrentRegion = enclosing
             return false
         }
 
@@ -1387,21 +1400,25 @@ class ColumnarIteratorPlanner {
             clause := nodes.Child(node, c)
             if nodes.Kind(clause) != ColumnarStatementNodeKind.CatchClause || nodes.ChildCount(clause) < 1 {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
+                state.CurrentRegion = enclosing
                 return false
             }
             state.AddLocal(CatchBindingName(nodes, source, clause, state.CatchCount), CatchTypeCanonical(nodes, source, clause))
             state.CatchCount = state.CatchCount + 1
             if state.Declined {
+                state.CurrentRegion = enclosing
                 return false
             }
             if WalkStatement(nodes, source, nodes.Child(clause, nodes.ChildCount(clause) - 1), state) {
                 handlersFall = true
             }
             if state.Declined {
+                state.CurrentRegion = enclosing
                 return false
             }
             c = c + 1
         }
+        state.CurrentRegion = enclosing
         if finallyNode >= 0 {
             if !WalkStatement(nodes, source, finallyNode, state) {
                 // A `finally` that cannot complete would swallow every path through the statement;
@@ -1793,6 +1810,22 @@ class ColumnarIteratorPlanner {
         c := 0
         while c < nodes.ChildCount(node) {
             if ContainsYield(nodes, nodes.Child(node, c)) {
+                return true
+            }
+            c = c + 1
+        }
+        return false
+    }
+
+    // `yield break` exits synchronously and is legal in a try/catch or catch body. Only `yield
+    // return` suspends there; both forms remain forbidden in a finally handler.
+    static func ContainsYieldReturn(nodes: ColumnarNodeTable, node: int): bool {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.YieldExpression && nodes.ChildCount(node) == 1 {
+            return true
+        }
+        c := 0
+        while c < nodes.ChildCount(node) {
+            if ContainsYieldReturn(nodes, nodes.Child(node, c)) {
                 return true
             }
             c = c + 1
@@ -2695,6 +2728,7 @@ class ColumnarIteratorBodyPlanner {
         smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         statePool := plan.AddField(context.FieldForName("<>__state"))
+        AppendPendingMoveNextGuard(plan, context, thisArg, statePool)
         AppendAsyncDisposeUnwind(plan, context, thisArg, statePool)
         AppendEnumeratorDisposals(plan, context, thisArg)
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
@@ -2709,6 +2743,42 @@ class ColumnarIteratorBodyPlanner {
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
         plan.CompleteMethodBody(vtType)
         return plan
+    }
+
+    // C# async iterators reject DisposeAsync while MoveNextAsync is still pending. The pending move
+    // owns the state machine's continuation; starting disposal would register a second continuation
+    // against the same awaiter and lose the pending move's promise. A yield suspension has already
+    // completed its move promise, so ordinary early disposal at a yield remains allowed.
+    static func AppendPendingMoveNextGuard(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, statePool: int) {
+        doneLabel := plan.DefineLabel()
+        noPromiseLabel := plan.DefineLabel()
+        promiseCompletedLabel := plan.DefineLabel()
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), statePool)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(ColumnarIteratorPlanner.DoneState()))
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), doneLabel)
+
+        promisePool := plan.AddField(context.FieldForName("<>__promise"))
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), promisePool)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), noPromiseLabel)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), promisePool)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(PromiseTaskGetter()))
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(TaskIsCompletedGetter()))
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), promiseCompletedLabel)
+
+        noParameters := new Type[](0)
+        constructor := typeof(NotSupportedException).GetConstructor(noParameters)
+        if constructor == null {
+            throw new InvalidOperationException("The parameterless NotSupportedException constructor was not found.")
+        }
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(constructor))
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
+        plan.AppendMarkLabel(noPromiseLabel)
+        plan.AppendMarkLabel(promiseCompletedLabel)
+        plan.AppendMarkLabel(doneLabel)
     }
 
     // GetAsyncEnumerator(CancellationToken): clone semantics, exactly the sync GetEnumerator discipline
@@ -5452,7 +5522,10 @@ class ColumnarIteratorBodyPlanner {
             catchIndex += 1
         }
         if awaitingCatch {
-            return EmitHoistedAwaitCatchRegion(emit, node, finallyNode, handlerEnd)
+            if finallyNode >= 0 {
+                return EmitHoistedAwaitCatchFinallyRegion(emit, node, finallyNode, handlerEnd)
+            }
+            return EmitHoistedAwaitCatchRegion(emit, node, handlerEnd)
         }
 
         if finallyNode >= 0 && ColumnarIteratorPlanner.ContainsAwait(nodes, finallyNode) {
@@ -5623,11 +5696,33 @@ class ColumnarIteratorBodyPlanner {
     // catch-all, close the protected region, then perform source-order type matching and run each
     // selected body outside the handler. A handled exception clears the pending slot; an unmatched
     // one reaches the common tail and is rethrown with its original stack.
-    static func EmitHoistedAwaitCatchRegion(emit: ColumnarMoveNextEmit, node: int, finallyNode: int, handlerEnd: int): bool {
-        if finallyNode >= 0 {
-            emit.Context.Decline("emit.iterator.async-await-unsupported", "an async iterator cannot yet combine an awaiting `catch` body with a `finally` on the same `try`")
+    static func EmitHoistedAwaitCatchFinallyRegion(emit: ColumnarMoveNextEmit, node: int, finallyNode: int, handlerEnd: int): bool {
+        outerRegion := emit.NextTryRegion
+        emit.NextTryRegion += 1
+        pendingName := ColumnarIteratorPlanner.PendingExceptionFieldName(outerRegion)
+        branchName := ColumnarIteratorPlanner.PendingBranchFieldName(outerRegion)
+        if !BeginHoistedHandlerRegion(emit, outerRegion, pendingName, branchName) {
             return false
         }
+
+        catchFalls := EmitHoistedAwaitCatchRegion(emit, node, handlerEnd)
+        if emit.Context.Declined {
+            return false
+        }
+
+        EndHoistedHandlerRegion(emit, catchFalls, pendingName)
+        emit.HoistedHandlerDepth += 1
+        EmitStatement(emit, finallyNode)
+        emit.HoistedHandlerDepth -= 1
+        if emit.Context.Declined {
+            return false
+        }
+
+        AppendHoistedHandlerTail(emit, pendingName, branchName)
+        return !emit.Context.Declined && catchFalls
+    }
+
+    static func EmitHoistedAwaitCatchRegion(emit: ColumnarMoveNextEmit, node: int, handlerEnd: int): bool {
         nodes := emit.Context.Nodes
         region := emit.NextTryRegion
         emit.NextTryRegion += 1
@@ -6661,6 +6756,10 @@ class ColumnarIteratorBodyPlanner {
     }
     static func PromiseTaskGetter(): MethodInfo {
         return RequiredMethodOf(PromiseRuntimeType(), "get_Task")
+    }
+
+    static func TaskIsCompletedGetter(): MethodInfo {
+        return RequiredMethodOf(RequiredRuntimeType("System.Threading.Tasks.Task"), "get_IsCompleted")
     }
 
     static func PromiseSetExceptionMethod(): MethodInfo {
