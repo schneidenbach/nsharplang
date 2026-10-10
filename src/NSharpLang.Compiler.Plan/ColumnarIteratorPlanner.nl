@@ -1340,7 +1340,7 @@ class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.unsupported-shape", YieldInHandlerMessage("catch"))
                 return false
             }
-            if ContainsAwait(nodes, nodes.Child(node, c)) {
+            if ContainsAwait(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, nodes.Child(node, c))) {
                 hasAwaitingCatch = true
             }
             c = c + 1
@@ -5516,7 +5516,7 @@ class ColumnarIteratorBodyPlanner {
         awaitingCatch := false
         catchIndex := 1
         while catchIndex < handlerEnd {
-            if ColumnarIteratorPlanner.ContainsAwait(nodes, nodes.Child(node, catchIndex)) {
+            if ColumnarIteratorPlanner.ContainsAwait(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, nodes.Child(node, catchIndex))) {
                 awaitingCatch = true
             }
             catchIndex += 1
@@ -5728,6 +5728,8 @@ class ColumnarIteratorBodyPlanner {
         emit.NextTryRegion += 1
         pendingName := ColumnarIteratorPlanner.PendingExceptionFieldName(region)
         branchName := ColumnarIteratorPlanner.PendingBranchFieldName(region)
+        matchedCatchType := emit.Plan.AddType(typeof(int))
+        matchedCatch := emit.Plan.DeclarePlanLocal(matchedCatchType)
         if !BeginHoistedHandlerRegion(emit, region, pendingName, branchName) {
             return false
         }
@@ -5735,7 +5737,10 @@ class ColumnarIteratorBodyPlanner {
         if emit.Context.Declined {
             return false
         }
-        EndHoistedHandlerRegion(emit, bodyFalls, pendingName)
+        depth := emit.HoistedDepth - 1
+        if bodyFalls {
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.HoistedRegionEnds[depth])
+        }
 
         anyCatchFalls := false
         catchOrdinal := 0
@@ -5743,37 +5748,114 @@ class ColumnarIteratorBodyPlanner {
         handledLabel := emit.Plan.DefineLabel()
         while clauseIndex < handlerEnd {
             clause := nodes.Child(node, clauseIndex)
-            if nodes.Kind(clause) != ColumnarStatementNodeKind.CatchClause || nodes.ChildCount(clause) < 1 || ColumnarCatchClauseFacts.HasFilter(nodes, clause) {
-                emit.Context.Decline("emit.iterator.catch-filter", "a catch filter or malformed catch clause is not supported in an async iterator")
+            if nodes.Kind(clause) != ColumnarStatementNodeKind.CatchClause || nodes.ChildCount(clause) < 1 {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "a malformed catch clause is not supported in an async iterator")
                 return false
             }
             bindingName := ColumnarIteratorPlanner.CatchBindingName(nodes, emit.Context.Source, clause, catchOrdinal)
             bindingField := emit.Context.FieldForName(bindingName)
             caughtType := bindingField.FieldType
             caughtTypePool := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(caughtType), emit.Context.StructuralTypeReferences)
-            nextCatch := emit.Plan.DefineLabel()
-
-            LoadThis(emit)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, pendingName))
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), nextCatch)
-            LoadThis(emit)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, pendingName))
-            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(ExceptionDispatchInfoSourceExceptionGetter()))
+            bindingNode := ColumnarCatchClauseFacts.BindingNode(nodes, clause)
+            // A CLR filter belongs to the first exception pass. In particular, keeping it on this
+            // synthetic catch region means nested finally handlers in the source try have not run
+            // when the guard is evaluated. Unfiltered clauses use the same block with a constant true
+            // guard, which preserves declaration order and leaves one final catch-all to park an
+            // otherwise-unhandled exception until the hoisted finally path has had its turn.
+            emit.Plan.AppendBeginExceptFilterBlock()
             emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Isinst(), caughtTypePool)
-            caughtLocal := emit.Plan.DeclarePlanLocal(caughtTypePool)
-            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), caughtLocal)
-            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caughtLocal)
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), nextCatch)
+            matchedType := emit.Plan.DefineLabel()
+            verdict := emit.Plan.DefineLabel()
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), matchedType)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+            EmitInt(emit, 0)
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), verdict)
+            emit.Plan.AppendMarkLabel(matchedType)
+            if bindingNode >= 0 {
+                caughtLocal := emit.Plan.DeclarePlanLocal(caughtTypePool)
+                emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), caughtLocal)
+                LoadThis(emit)
+                emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caughtLocal)
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(bindingField))
+            } else {
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+            }
+
+            guard := ColumnarCatchClauseFacts.FilterGuard(nodes, clause)
+            if guard >= 0 {
+                scope := emit.Context.RequiredScope()
+                filterMark := scope.EnterBindingScope()
+                if bindingNode >= 0 {
+                    scope.HideEnclosingMember(bindingName)
+                }
+                guardType := typeof(int)
+                guardEmitted := scope.TryAppendValue(nodes, emit.Context.Source, guard, emit.Plan, out guardType) && guardType == typeof(bool)
+                scope.ExitBindingScope(filterMark)
+                if !guardEmitted {
+                    emit.Context.Decline("emit.iterator.catch-filter", "a catch filter could not be emitted as a bool")
+                    return false
+                }
+            } else {
+                EmitInt(emit, 1)
+            }
+            emit.Plan.AppendMarkLabel(verdict)
+            emit.Plan.AppendBeginFilteredCatchBlock()
+
+            exceptionTypePool := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(ExceptionRuntimeType()), emit.Context.StructuralTypeReferences)
+            caughtException := emit.Plan.DeclarePlanLocal(exceptionTypePool)
+            emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Castclass(), exceptionTypePool)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), caughtException)
             LoadThis(emit)
-            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caughtLocal)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(bindingField))
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caughtException)
+            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(ExceptionDispatchInfoCaptureMethod()))
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, pendingName))
+            EmitInt(emit, catchOrdinal)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), matchedCatch)
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.HoistedRegionEnds[depth])
+            catchOrdinal += 1
+            clauseIndex += 1
+        }
+
+        // Reaching this last clause means every source catch filter rejected the exception (or no
+        // source catch type matched). Capturing it here lets the state machine run an awaiting
+        // finally/catch continuation outside the protected region, then rethrow with its original
+        // stack when no source handler accepted it.
+        exceptionTypePool := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(ExceptionRuntimeType()), emit.Context.StructuralTypeReferences)
+        emit.Plan.AppendBeginCatchBlock(exceptionTypePool)
+        uncaughtException := emit.Plan.DeclarePlanLocal(exceptionTypePool)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), uncaughtException)
+        LoadThis(emit)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), uncaughtException)
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(ExceptionDispatchInfoCaptureMethod()))
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, pendingName))
+        EmitInt(emit, 0 - 1)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), matchedCatch)
+        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.HoistedRegionEnds[depth])
+        emit.Plan.AppendEndExceptionBlock()
+        emit.RegionDepth = emit.RegionDepth - 1
+        emit.HoistedDepth = emit.HoistedDepth - 1
+
+        catchOrdinal = 0
+        clauseIndex = 1
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, pendingName))
+        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), handledLabel)
+        while clauseIndex < handlerEnd {
+            clause := nodes.Child(node, clauseIndex)
+            bindingName := ColumnarIteratorPlanner.CatchBindingName(nodes, emit.Context.Source, clause, catchOrdinal)
+            nextCatch := emit.Plan.DefineLabel()
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), matchedCatch)
+            EmitInt(emit, catchOrdinal)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), nextCatch)
 
             previousPending := emit.HoistedCatchPendingField
             emit.HoistedCatchPendingField = pendingName
             scope := emit.Context.RequiredScope()
             handlerMark := scope.EnterBindingScope()
             scope.HideEnclosingMember(bindingName)
-            fell := EmitStatement(emit, nodes.Child(clause, nodes.ChildCount(clause) - 1))
+            fell := EmitStatement(emit, ColumnarCatchClauseFacts.BodyNode(nodes, clause))
             scope.ExitBindingScope(handlerMark)
             emit.HoistedCatchPendingField = previousPending
             if emit.Context.Declined {
@@ -5876,10 +5958,10 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
             return false
         }
-        // AN EXCEPTION FILTER IN A STATE MACHINE DECLINES RATHER THAN BEING DROPPED. The plan IR has
-        // no filter region yet, and a filter that is silently discarded is not a slower program — it
-        // is a DIFFERENT one, because the handler would then run for exceptions the guard rejects.
-        // Declining says so; emitting without it would not.
+        // The direct iterator catch path has no async-handler dispatch around it yet, so a filter
+        // still declines here rather than being dropped. The hoisted-awaiting-catch path above uses
+        // real CLR filter regions. Silently omitting a guard would run the handler for exceptions it
+        // rejects, which is a different program.
         if ColumnarCatchClauseFacts.HasFilter(nodes, clause) {
             emit.Context.Decline("emit.iterator.catch-filter", "a catch filter is not supported in an iterator or async body yet")
             return false

@@ -194,6 +194,49 @@ test "an awaiting catch and finally run in order on normal completion" {
     assert observed == 3
 }
 
+test "async iterator filters run before nested finally and filter throws count as false" {
+    events := new List<int>()
+    observed := 0
+    await foreach value in AwaitCatchFilters(events) {
+        observed = value
+    }
+    assert events.Count == 11
+    assert events[0] == 1
+    assert events[1] == 2
+    assert events[2] == 3
+    assert events[3] == 5
+    assert events[4] == 4
+    assert events[5] == 6
+    assert events[6] == 7
+    assert events[7] == 8
+    assert events[8] == 9
+    assert events[9] == 10
+    assert events[10] == 11
+    assert observed == 12
+}
+
+test "false and throwing async iterator filters propagate through the awaited finally" {
+    events := new List<int>()
+    caught := false
+    try {
+        await foreach value in AwaitCatchFiltersRejected(events) {
+        }
+    } catch ex: InvalidOperationException {
+        caught = true
+        events.Add(28)
+    }
+    assert caught
+    assert events.Count == 8
+    assert events[0] == 21
+    assert events[1] == 22
+    assert events[2] == 23
+    assert events[3] == 24
+    assert events[4] == 25
+    assert events[5] == 26
+    assert events[6] == 27
+    assert events[7] == 28
+}
+
 test "an awaiting catch handles the exception before the awaiting finally" {
     events := new List<int>()
     observed := 0
@@ -342,6 +385,23 @@ test "ordinary async methods run awaiting catches and finally blocks" {
     assert caughtEvents[4] == 77
     assert caughtEvents[5] == 78
     assert caughtEvents[6] == 79
+}
+
+test "ordinary async filters run before nested finally and filter throws count as false" {
+    events := new List<int>()
+    assert await OrdinaryAwaitCatchFilters(events) == 49
+    assert events.Count == 11
+    assert events[0] == 41
+    assert events[1] == 42
+    assert events[2] == 43
+    assert events[3] == 45
+    assert events[4] == 44
+    assert events[5] == 46
+    assert events[6] == 47
+    assert events[7] == 48
+    assert events[8] == 50
+    assert events[9] == 51
+    assert events[10] == 52
 }
 
 test "ordinary async rethrows pass through the awaited finally" {

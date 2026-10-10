@@ -68,6 +68,10 @@ class ErrorSuggestions {
             return "Guard expression must be boolean type"
         }
 
+        if code == ErrorCode.AwaitInCatchFilter {
+            return "Keep the `when` expression synchronous; put awaited work in the selected `catch` body"
+        }
+
         if code == ErrorCode.WrongArgumentCount {
             return "Check the function signature for required parameters"
         }

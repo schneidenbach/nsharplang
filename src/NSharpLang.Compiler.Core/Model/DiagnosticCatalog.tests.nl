@@ -11,7 +11,7 @@ import System.Collections.Generic
 // nine of the 99 descriptors, and only two of the four BUILDERS that produce them.
 //
 // THE SAMPLE IS REPLACED BY THE CROSS. Every descriptor the catalog publishes is walked, and the
-// builders are asserted as a PARTITION: 69 compiler + 10 linter, no row belonging to two builders
+// builders are asserted as a PARTITION: 105 compiler + 10 linter, no row belonging to two builders
 // and no row belonging to none. A rule added to `AddLinterRuleDescriptors` and forgotten in the
 // partition guard now FAILS a contract instead of passing unnoticed — which is the property the
 // deleted file's duplicate census could not have, because a census only sees the rows that are
@@ -136,6 +136,15 @@ test "NL109 is a build-blocking compiler SYNTAX error" {
     assert descriptor.Title == "Reserved Keyword As Name"
 }
 
+test "NL352 is a build-blocking compiler diagnostic for await in catch filters" {
+    descriptor := DiagnosticCatalog.EmptyDescriptor()
+    assert DiagnosticCatalog.TryGetDescriptor("NL352", out descriptor)
+    assert descriptor.Source == DiagnosticSource.Compiler
+    assert descriptor.Category == DiagnosticCategory.Semantic
+    assert descriptor.DefaultSeverity == DiagnosticSeverity.Error
+    assert descriptor.BlocksBuildByDefault
+}
+
 // ── the docs URL, on BOTH its arms ────────────────────────────────────────────────────────────
 
 test "DocsUrlFor SYNTHESIZES a public docs URL, and it is the ONLY thing it does" {
@@ -185,7 +194,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     // generic interface named without the arguments the implements list writes), NL933 (an attribute
     // outside its AttributeUsage targets), NL934 (an attribute repeated without AllowMultiple) and
     // NL935 (an attribute at a position N# has none — a target prefix).
-    assert codes.Count == 114
+    assert codes.Count == 115
 
     duplicates := 0
     outer := 0
@@ -205,7 +214,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert duplicates == 0
 
     // The builders, counted where they are OBSERVABLE: the linter rows are the ones sourced to the
-    // linter, the rest are the compiler's. 104 + 10 = 114, so nothing is uncounted or double-counted.
+    // linter, the rest are the compiler's. 105 + 10 = 115, so nothing is uncounted or double-counted.
     //
     // The performance and AOT categories are asserted at ZERO, not omitted. A row in either one is
     // a row for a rule this compiler does not produce - that is exactly how NL950-954 and NL960-963
@@ -217,7 +226,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert linterRows == 10
     assert performanceRows == 0
     assert aotRows == 0
-    assert compilerRows == 104
+    assert compilerRows == 105
     assert compilerRows + linterRows == codes.Count
 }
 

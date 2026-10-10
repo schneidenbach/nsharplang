@@ -56,7 +56,7 @@ class ColumnarCodePlanContract {
     // Structured exception-region operations (schema v4). They carry no opcode; the executor maps them
     // to the matching ILGenerator region calls. BeginExceptionBlock names a label operand: the executor
     // stores the end label returned by ILGenerator.BeginExceptionBlock() into that label slot so `leave`
-    // instructions inside the region can target it. The three handler starters and EndExceptionBlock take
+    // instructions inside the region can target it. The handler starters and EndExceptionBlock take
     // no operand. A FAULT handler (runs only on exception, never on a normal `leave`) is what an iterator
     // MoveNext uses to dispose a foreach enumerator without disposing on a `yield return` suspend; a
     // FINALLY handler (runs on every exit including `leave`) backs the generated Dispose() finalizer.
@@ -76,6 +76,17 @@ class ColumnarCodePlanContract {
     // runtime enters the handler with that exception reference on the evaluation stack.
     static func BeginCatchBlockOperation(): int {
         return 7
+    }
+
+    // Filter handlers (schema v4): BeginExceptFilterBlock enters the CLR first-pass filter with the
+    // original exception on the stack; BeginFilteredCatchBlock ends that filter and opens its handler
+    // with the exception pushed again by the runtime.
+    static func BeginExceptFilterBlockOperation(): int {
+        return 8
+    }
+
+    static func BeginFilteredCatchBlockOperation(): int {
+        return 9
     }
 
     static func NoOperand(): int {
@@ -1478,6 +1489,14 @@ class ColumnarCodePlan {
             throw new InvalidOperationException("The begin-catch-block row references an unknown type.")
         }
         AppendV2Row(ColumnarCodePlanContract.BeginCatchBlockOperation(), ColumnarCodePlanContract.NoOpCode(), ColumnarCodePlanContract.TypeOperand(), typeIndex)
+    }
+
+    func AppendBeginExceptFilterBlock() {
+        AppendRegionMarker(ColumnarCodePlanContract.BeginExceptFilterBlockOperation())
+    }
+
+    func AppendBeginFilteredCatchBlock() {
+        AppendRegionMarker(ColumnarCodePlanContract.BeginFilteredCatchBlockOperation())
     }
 
     func AppendBeginFaultBlock() {

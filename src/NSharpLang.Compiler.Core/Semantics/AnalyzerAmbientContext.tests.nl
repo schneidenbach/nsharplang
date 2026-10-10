@@ -1204,6 +1204,21 @@ test "await inside a lock reports NL351 at the await keyword" {
     harness.Context.ExitLockBody()
 }
 
+test "await inside a catch filter reports NL352 at the await keyword" {
+    harness := AmbientDefault()
+    harness.Context.EnterCatchFilter()
+    harness.Context.ReportAwaitPlacementIfNeeded(12, 31)
+    harness.Context.ExitCatchFilter()
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AwaitInCatchFilter
+    assert harness.Errors[0].DiagnosticId == "NL352"
+    assert harness.Errors[0].Message == "A catch filter cannot contain 'await'"
+    assert harness.Errors[0].Suggestion == "Keep the `when` expression synchronous. Put awaited work in the selected `catch` body."
+    assert harness.Errors[0].Line == 12
+    assert harness.Errors[0].Column == 31
+}
+
 test "yield inside a lock reports NL351 at the yield keyword" {
     harness := AmbientDefault()
     harness.Context.EnterLockBody()

@@ -88,6 +88,7 @@ test "the context-free suggestion table answers every code it names" {
     assert ErrorSuggestionText(ErrorCode.CannotInferType) == "Add explicit type annotation: 'let x: Type = ...'"
     assert ErrorSuggestionText(ErrorCode.NonExhaustiveMatch) == "Ensure all cases are covered or add wildcard pattern '_'"
     assert ErrorSuggestionText(ErrorCode.GuardNotBoolean) == "Guard expression must be boolean type"
+    assert ErrorSuggestionText(ErrorCode.AwaitInCatchFilter) == "Keep the `when` expression synchronous; put awaited work in the selected `catch` body"
     assert ErrorSuggestionText(ErrorCode.WrongArgumentCount) == "Check the function signature for required parameters"
     assert ErrorSuggestionText(ErrorCode.MethodGroupUsedAsValue) == "Call the method with parentheses, or pass it to a parameter with a delegate type"
     assert ErrorSuggestionText(ErrorCode.FeatureNotImplemented) == "This language feature is parsed for forward compatibility, but it is not available in production builds yet"

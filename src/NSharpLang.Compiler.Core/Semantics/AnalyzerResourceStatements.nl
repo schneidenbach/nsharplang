@@ -360,6 +360,7 @@ class AnalyzerResourceStatements {
             if filter != null {
                 state.Phase = 31
                 state.Pending = 1
+                ambientValue.EnterCatchFilter()
                 request := new ResourceStatementRequest(1, BuiltInTypes.Unknown)
                 request.Node = filter
                 return request
@@ -377,6 +378,7 @@ class AnalyzerResourceStatements {
                 return null
             }
 
+            ambientValue.ExitCatchFilter()
             ReportNonBooleanCatchFilterIfNeeded(filter, state)
             state.Phase = 4
             request := new ResourceStatementRequest(8, BuiltInTypes.Unknown)

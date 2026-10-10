@@ -69,6 +69,7 @@ enum ErrorCode {
     ExplicitInterfaceQualifierNotClosed = 349,
     IteratorReturnValue = 350,
     SuspensionInLock = 351,
+    AwaitInCatchFilter = 352,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

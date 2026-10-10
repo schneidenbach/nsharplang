@@ -231,7 +231,7 @@ class ColumnarCodePlanExecutor {
     }
 
     // Replay a flat method body. Labels are pre-declared so both forward and backward branches resolve;
-    // the four structured region operations map to the ILGenerator region calls, with BeginExceptionBlock's
+    // the structured region operations map to the ILGenerator region calls, with BeginExceptionBlock's
     // returned end label written into its operand slot so `leave` rows can target it.
     static func ExecuteMethodBodyRows(plan: ColumnarCodePlan, il: ILGenerator, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?) {
         planLocals := new LocalBuilder[](plan.PlanLocalCount)
@@ -261,6 +261,10 @@ class ColumnarCodePlanExecutor {
                 il.BeginFaultBlock()
             } else if operationKind == ColumnarCodePlanContract.BeginCatchBlockOperation() {
                 il.BeginCatchBlock(plan.Types[plan.OperandIndices[i]])
+            } else if operationKind == ColumnarCodePlanContract.BeginExceptFilterBlockOperation() {
+                il.BeginExceptFilterBlock()
+            } else if operationKind == ColumnarCodePlanContract.BeginFilteredCatchBlockOperation() {
+                il.BeginCatchBlock(null)
             } else if operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
                 il.EndExceptionBlock()
             } else {
@@ -687,6 +691,7 @@ class ColumnarCodePlanExecutor {
         regionLabelStack := new int[](n + 1)
         regionHandlerStarted := new bool[](n + 1)
         regionTerminalHandler := new bool[](n + 1)
+        regionFilterOpen := new bool[](n + 1)
         regionTop := 0
         depth := 0
         i := 0
@@ -734,24 +739,36 @@ class ColumnarCodePlanExecutor {
                 regionLabelStack[regionTop] = operandIndex
                 regionHandlerStarted[regionTop] = false
                 regionTerminalHandler[regionTop] = false
+                regionFilterOpen[regionTop] = false
                 regionTop += 1
                 depth += 1
             } else if operationKind == ColumnarCodePlanContract.BeginCatchBlockOperation() {
                 // A region may declare SEVERAL catch handlers, and a `finally` may follow them; what
                 // it may not do is declare a handler after the terminal one, because `finally`/`fault`
                 // close the region's handler list.
-                if regionTop == 0 || regionTerminalHandler[regionTop - 1] {
+                if regionTop == 0 || regionTerminalHandler[regionTop - 1] || regionFilterOpen[regionTop - 1] {
                     throw new InvalidOperationException(schemaName + " a catch handler must open one enclosing try region that has no finally or fault handler yet.")
                 }
                 regionHandlerStarted[regionTop - 1] = true
+            } else if operationKind == ColumnarCodePlanContract.BeginExceptFilterBlockOperation() {
+                if regionTop == 0 || regionTerminalHandler[regionTop - 1] || regionFilterOpen[regionTop - 1] {
+                    throw new InvalidOperationException(schemaName + " an exception filter must open one enclosing try region with no active filter or terminal handler.")
+                }
+                regionHandlerStarted[regionTop - 1] = true
+                regionFilterOpen[regionTop - 1] = true
+            } else if operationKind == ColumnarCodePlanContract.BeginFilteredCatchBlockOperation() {
+                if regionTop == 0 || !regionFilterOpen[regionTop - 1] {
+                    throw new InvalidOperationException(schemaName + " a filtered catch handler must close an open exception filter.")
+                }
+                regionFilterOpen[regionTop - 1] = false
             } else if operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation() || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation() {
-                if regionTop == 0 || regionTerminalHandler[regionTop - 1] {
+                if regionTop == 0 || regionTerminalHandler[regionTop - 1] || regionFilterOpen[regionTop - 1] {
                     throw new InvalidOperationException(schemaName + " a finally or fault handler must open one enclosing try region and be its last handler.")
                 }
                 regionHandlerStarted[regionTop - 1] = true
                 regionTerminalHandler[regionTop - 1] = true
             } else if operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
-                if regionTop == 0 || !regionHandlerStarted[regionTop - 1] {
+                if regionTop == 0 || !regionHandlerStarted[regionTop - 1] || regionFilterOpen[regionTop - 1] {
                     throw new InvalidOperationException(schemaName + " exception region must open a handler before it ends.")
                 }
                 regionTop -= 1
@@ -815,7 +832,7 @@ class ColumnarCodePlanExecutor {
         // does fall into it.
         i = 0
         while i < n {
-            if (plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFinallyBlockOperation() || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFaultBlockOperation()) || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginCatchBlockOperation() || plan.OperationKinds[i] == ColumnarCodePlanContract.EndExceptionBlockOperation() {
+            if (plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFinallyBlockOperation() || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFaultBlockOperation()) || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginCatchBlockOperation() || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginExceptFilterBlockOperation() || plan.OperationKinds[i] == ColumnarCodePlanContract.EndExceptionBlockOperation() {
                 heights[i] = 0
             }
             i += 1
@@ -839,6 +856,16 @@ class ColumnarCodePlanExecutor {
                         // The runtime enters a catch handler with the exception reference on the stack.
                         if h != 0 {
                             throw new InvalidOperationException(schemaName + " evaluation stack must be empty at an exception-region boundary.")
+                        }
+                        changed = MergeMethodBodyHeight(heights, i + 1, 1, schemaName) || changed
+                    } else if operationKind == ColumnarCodePlanContract.BeginExceptFilterBlockOperation() {
+                        if h != 0 {
+                            throw new InvalidOperationException(schemaName + " evaluation stack must be empty at an exception-filter boundary.")
+                        }
+                        changed = MergeMethodBodyHeight(heights, i + 1, 1, schemaName) || changed
+                    } else if operationKind == ColumnarCodePlanContract.BeginFilteredCatchBlockOperation() {
+                        if h != 1 {
+                            throw new InvalidOperationException(schemaName + " an exception filter must leave exactly one boolean result.")
                         }
                         changed = MergeMethodBodyHeight(heights, i + 1, 1, schemaName) || changed
                     } else if operationKind == ColumnarCodePlanContract.BeginExceptionBlockOperation() || operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation() || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation() || operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {

@@ -918,8 +918,10 @@ try {
 ```
 
 A guard must be a `bool` — anything else is [`NL505`](./errors/NL505.md), the same code a match
-guard answers to. A filter is not yet lowered inside an **iterator or `async` body**; a `catch` with
-a `when` in one of those declines rather than silently dropping the guard.
+guard answers to. Filters run synchronously during the CLR's first exception pass; `await` is not
+allowed in the filter itself and reports [`NL352`](./errors/NL352.md). Filters are supported in
+ordinary async methods and in async iterators whose catch bodies use `await` (the hoisted awaiting
+catch path). A filtered catch in an iterator without an awaiting catch body is not yet lowered.
 
 ### Re-throwing
 

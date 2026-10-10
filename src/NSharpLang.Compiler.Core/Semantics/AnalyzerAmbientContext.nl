@@ -53,10 +53,12 @@ class AmbientContextFrame {
 class AmbientReturnInferenceFrame {
     Inferring: bool
     Inferred: TypeInfo?
+    CatchFilterDepth: int
 
-    constructor(inferring: bool, inferred: TypeInfo?) {
+    constructor(inferring: bool, inferred: TypeInfo?, catchFilterDepth: int) {
         Inferring = inferring
         Inferred = inferred
+        CatchFilterDepth = catchFilterDepth
     }
 }
 
@@ -216,6 +218,9 @@ class AnalyzerAmbientContext {
     // inside a handler of the SAME method.
     catchHandlerDepthValue: int
     rethrowTargetFinallyDepthValue: int
+    // Positive only while analyzing a catch filter expression. Nested function bodies clear and
+    // restore this marker because their awaits are not part of the filter evaluation.
+    catchFilterDepthValue: int
     // WHETHER THIS BODY IS WORKING OUT ITS OWN RETURN TYPE, and the join of what its `return`
     // statements have given so far. A LAMBDA'S BLOCK BODY written where the target's return position
     // is not yet decided — a generic method's `TResult` before the call has bound it — has no type to
@@ -452,6 +457,7 @@ class AnalyzerAmbientContext {
         continueTargetFinallyDepthValue = 0
         catchHandlerDepthValue = 0
         rethrowTargetFinallyDepthValue = 0
+        catchFilterDepthValue = 0
         currentExpectedTypeValue = null
         currentClassValue = null
         currentConstructorDeclaringClassValue = null
@@ -491,6 +497,7 @@ class AnalyzerAmbientContext {
         continueTargetFinallyDepthValue = 0
         catchHandlerDepthValue = 0
         rethrowTargetFinallyDepthValue = 0
+        catchFilterDepthValue = 0
         inConstructorValue = false
         memberIsStaticValue = false
     }
@@ -801,7 +808,8 @@ class AnalyzerAmbientContext {
         catchHandlerDepthValue = 0
         rethrowTargetFinallyDepthValue = 0
         inConstructorValue = false
-        returnInferenceStackValue.Add(new AmbientReturnInferenceFrame(inferringReturnTypeValue, inferredReturnTypeValue))
+        returnInferenceStackValue.Add(new AmbientReturnInferenceFrame(inferringReturnTypeValue, inferredReturnTypeValue, catchFilterDepthValue))
+        catchFilterDepthValue = 0
         inferringReturnTypeValue = declaration == null && returnType != null && BuiltInTypes.IsUnknown(returnType)
         inferredReturnTypeValue = null
         return saved
@@ -827,6 +835,7 @@ class AnalyzerAmbientContext {
         continueTargetFinallyDepthValue = saved.ContinueTargetFinallyDepth
         catchHandlerDepthValue = saved.CatchHandlerDepth
         rethrowTargetFinallyDepthValue = saved.RethrowTargetFinallyDepth
+        catchFilterDepthValue = 0
         inConstructorValue = saved.InConstructor
 
         restoredIndex := returnInferenceStackValue.Count - 1
@@ -835,9 +844,11 @@ class AnalyzerAmbientContext {
             returnInferenceStackValue.RemoveAt(restoredIndex)
             inferringReturnTypeValue = restored.Inferring
             inferredReturnTypeValue = restored.Inferred
+            catchFilterDepthValue = restored.CatchFilterDepth
         } else {
             inferringReturnTypeValue = false
             inferredReturnTypeValue = null
+            catchFilterDepthValue = 0
         }
     }
 
@@ -988,7 +999,19 @@ class AnalyzerAmbientContext {
         lockDepthValue = lockDepthValue - 1
     }
 
+    func EnterCatchFilter() {
+        catchFilterDepthValue = catchFilterDepthValue + 1
+    }
+
+    func ExitCatchFilter() {
+        catchFilterDepthValue = catchFilterDepthValue - 1
+    }
+
     func ReportAwaitPlacementIfNeeded(line: int, column: int) {
+        if catchFilterDepthValue > 0 {
+            diagnosticsValue.Report(ErrorCode.AwaitInCatchFilter, "A catch filter cannot contain 'await'", line, column, "Keep the `when` expression synchronous. Put awaited work in the selected `catch` body.", 5)
+            return
+        }
         if lockDepthValue > 0 {
             diagnosticsValue.Report(ErrorCode.SuspensionInLock, "An 'await' cannot appear inside a 'lock' statement", line, column, "Move the awaited operation before the lock, then lock only the synchronous work that uses its result.", 5)
         }

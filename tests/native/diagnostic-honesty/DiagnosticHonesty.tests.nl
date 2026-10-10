@@ -524,6 +524,20 @@ test "a bare `throw` OUTSIDE a handler is NL336, and it names the missing handle
     assert outside.IndexOf("there's no exception here to re-throw", StringComparison.Ordinal) >= 0, outside
 }
 
+test "await in a catch filter is NL352 rather than an opaque emitter decline" {
+    source := "import System\nimport System.Threading.Tasks\n\nasync func Run(): Task<int> {\n    try {\n        throw new InvalidOperationException()\n    } catch ex: InvalidOperationException when await Task.FromResult(true) {\n        return 1\n    }\n}\n"
+    output := DhProbe.Check("await-in-catch-filter", source)
+    assert DhCodeCount(output, "NL352") == 1, output
+    assert DhCodeCount(output, "NL103") == 0, output
+    assert output.IndexOf("A catch filter cannot contain 'await'", StringComparison.Ordinal) >= 0, output
+    assert output.IndexOf("Keep the `when` expression synchronous", StringComparison.Ordinal) >= 0, output
+
+    iteratorSource := "import System\nimport System.Collections.Generic\nimport System.Threading.Tasks\n\nfunc Touch(value: bool) {}\n\nasync func* Read(): IAsyncEnumerable<int> {\n    try {\n        throw new InvalidOperationException()\n    } catch ex: InvalidOperationException when await Task.FromResult(true) {\n        Touch(true)\n    }\n    yield break\n}\n"
+    iteratorOutput := DhProbe.Check("await-in-iterator-catch-filter", iteratorSource)
+    assert DhCodeCount(iteratorOutput, "NL352") == 1, iteratorOutput
+    assert DhCodeCount(iteratorOutput, "NL103") == 0, iteratorOutput
+}
+
 // ═══ THE NULL CHECK THAT CANNOT BE NULL — BOTH HALVES, AND NEITHER TWICE ══════════════════════
 //
 // NL003 reads the LITERAL half (`3 == null`) and needs no types to do it. The other half — a name

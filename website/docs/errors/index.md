@@ -138,6 +138,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL349`](./NL349.md) | A generic interface named without the arguments it is implemented with. |
 | [`NL350`](./NL350.md) | A value returned from an iterator. |
 | [`NL351`](./NL351.md) | A `yield` or `await` inside a `lock` statement. |
+| [`NL352`](./NL352.md) | An `await` inside a catch filter. |
 
 ## Calls — `NL4xx`
 
