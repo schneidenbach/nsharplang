@@ -1187,7 +1187,7 @@ func AgentLoopParseLspResult(json: string, size: string, sourceLines: long, pair
             while sampleIndex < headSamples.GetArrayLength() {
                 headSample := headSamples[sampleIndex]
                 headWall[sampleIndex] = headSample.GetProperty("wallMs").GetInt64()
-            if !AgentLoopLspCountersFullyMeasured(AgentLoopLspCountersFromElement(headSample.GetProperty("counters"))) || !AgentLoopLspCountersEqual(counters, AgentLoopLspCountersFromElement(headSample.GetProperty("counters"))) {
+                if !AgentLoopLspCountersFullyMeasured(AgentLoopLspCountersFromElement(headSample.GetProperty("counters"))) || !AgentLoopLspCountersEqual(counters, AgentLoopLspCountersFromElement(headSample.GetProperty("counters"))) {
                     observed.CountersStable = false
                 }
                 sampleIndex = sampleIndex + 1
