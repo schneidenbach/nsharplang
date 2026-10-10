@@ -46,6 +46,29 @@ test "the least recently accessed buffer is the one that goes" {
     assert evicted == "file:///b.nl"
 }
 
+test "an open editor buffer is protected while a closed buffer can be evicted" {
+    uris: string[] = ["file:///open.nl", "file:///closed.nl"]
+    ticks: long[] = [1, 2]
+    protectedUris: string[] = ["file:///open.nl"]
+    rows := EditorDocumentCacheFixture.Rows(uris, ticks)
+    protectedUrisList := new List<string>()
+    protectedUrisList.Add(protectedUris[0])
+
+    evicted := EditorDocumentCacheFacts.EvictionUriExcluding(rows, protectedUrisList)
+    assert evicted == "file:///closed.nl"
+}
+
+test "open editor buffers may exceed the cache ceiling without eviction candidates" {
+    uris: string[] = ["file:///open-a.nl", "file:///open-b.nl"]
+    ticks: long[] = [1, 2]
+    rows := EditorDocumentCacheFixture.Rows(uris, ticks)
+    protectedUrisList := new List<string>()
+    protectedUrisList.Add(uris[0])
+    protectedUrisList.Add(uris[1])
+
+    assert EditorDocumentCacheFacts.EvictionUriExcluding(rows, protectedUrisList) == null
+}
+
 // THE SHIPPED TIE RULE. `OrderBy` is stable and the C# took `FirstOrDefault()`, so the FIRST row
 // carrying the lowest tick is the one that went. A later equal row must not displace it.
 test "a tie keeps the first row, which is what the stable sort shipped" {

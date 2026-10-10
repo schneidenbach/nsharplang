@@ -74,9 +74,10 @@ class IncrementalProjectSession {
     }
 
     // Parses and analyses the project without emitting — what a query or a check needs.
-    func Analyze(config: ProjectConfig, sourceFiles: IReadOnlyList<string>, sourceTextOverrides: IReadOnlyDictionary<string, string>?): MultiFileCompiler {
+    func Analyze(config: ProjectConfig, sourceFiles: IReadOnlyList<string>, sourceTextOverrides: IReadOnlyDictionary<string, string>?, systemsDiagnosticsOnly: bool = false): MultiFileCompiler {
         compiler := new MultiFileCompiler(sourceFiles, ProjectRoot, config, sourceTextOverrides)
         compiler.IncrementalState = State
+        compiler.SystemsDiagnosticsOnly = systemsDiagnosticsOnly
         compiler.CompileForAnalysis()
         LastCompiler = compiler
         return compiler

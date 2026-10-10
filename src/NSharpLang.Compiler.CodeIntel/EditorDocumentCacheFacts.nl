@@ -58,15 +58,36 @@ class EditorDocumentCacheFacts {
     // dictionary yielded FIRST is the one that went. Strictly-less-than keeps that: a later row
     // equal to the best does not displace it.
     static func EvictionIndex(rows: List<EditorDocumentCacheRow>): int {
+        return EvictionIndexExcluding(rows, new List<string>())
+    }
+
+    // Open editor buffers are live user state. They are never candidates for capacity eviction;
+    // when every tracked document is open, the cache may temporarily exceed its closed-buffer
+    // ceiling rather than discard an unsaved edit.
+    static func EvictionIndexExcluding(rows: List<EditorDocumentCacheRow>, protectedUris: List<string>): int {
         best := -1
         bestTicks: long = 0
 
         index := 0
         while index < rows.Count {
-            ticks := rows[index].LastAccessTicks
-            if best < 0 || ticks < bestTicks {
-                best = index
-                bestTicks = ticks
+            row := rows[index]
+            isProtected := false
+            protectedIndex := 0
+            while protectedIndex < protectedUris.Count {
+                if protectedUris[protectedIndex] == row.Uri {
+                    isProtected = true
+                    break
+                }
+
+                protectedIndex = protectedIndex + 1
+            }
+
+            if !isProtected {
+                ticks := row.LastAccessTicks
+                if best < 0 || ticks < bestTicks {
+                    best = index
+                    bestTicks = ticks
+                }
             }
 
             index = index + 1
@@ -79,6 +100,15 @@ class EditorDocumentCacheFacts {
     // the caller that only wants the key, spelled here so the two cannot disagree about the tie.
     static func EvictionUri(rows: List<EditorDocumentCacheRow>): string? {
         index := EvictionIndex(rows)
+        if index < 0 {
+            return null
+        }
+
+        return rows[index].Uri
+    }
+
+    static func EvictionUriExcluding(rows: List<EditorDocumentCacheRow>, protectedUris: List<string>): string? {
+        index := EvictionIndexExcluding(rows, protectedUris)
         if index < 0 {
             return null
         }

@@ -14,6 +14,7 @@ import System.IO
 //     --runs <n>               minimum paired samples per scenario (default 3; relative runs use at least 9)
 //     --cli <Cli.dll>          the CLI under test (default: the Debug build beside the repo root)
 //     --base-cli <Cli.dll>     interleave this base CLI with head and report paired ratios
+//     --lsp-only               skip CLI rows and run the full medium/large LSP matrix
 //     --scenario <id>          limit paired measurement to one exact scenario id
 //     --daemon                 keep `nlc daemon` running for the project during each sample
 //     --judge                  exit 1 when a counter differs from the committed baseline
@@ -29,6 +30,7 @@ class AgentLoopOptions {
     BaseCliDll: string
     LanguageServerDll: string
     BaseLanguageServerDll: string
+    LspOnly: bool
     ScenarioId: string
     Daemon: bool
     Judge: bool
@@ -45,6 +47,7 @@ class AgentLoopOptions {
         BaseCliDll = ""
         LanguageServerDll = ""
         BaseLanguageServerDll = ""
+        LspOnly = false
         ScenarioId = ""
         Daemon = false
         Judge = false
@@ -70,7 +73,7 @@ func AgentLoopRequested(args: string[]): bool {
 }
 
 func AgentLoopHelpText(): string {
-    return "N# agent-loop performance benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench --agent-loop [options]\n" + "\n" + "Measures nlc check/build/test and real stdio Language Server edit and query latency.\n" + "Exact compiler and project-snapshot counters are gated; paired timing uses an exact sign-test bound.\n" + "\n" + "Options:\n" + "  --sizes <list>           small, medium, large (comma-separated) or all (default small,medium)\n" + "  --runs <n>               minimum paired samples per row (default 3; relative runs use at least 9)\n" + "  --cli <path>             head Cli.dll (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --base-cli <path>        base Cli.dll measured interleaved with head\n" + "  --language-server <path> head LanguageServer.dll (default: src/NSharpLang.LanguageServer/bin/Debug/net10.0/LanguageServer.dll)\n" + "  --base-language-server <path> base LanguageServer.dll measured interleaved with head\n" + "  --scenario <id>          exact CLI scenario id, or 'test' for all nlc test rows\n" + "  --daemon                 Keep nlc daemon running for each single-CLI sample\n" + "  --judge                  Exit 1 when structural counters differ from the committed baseline\n" + "  --write-baseline <path>  Write structural counters only (the owner's re-baseline)\n" + "  --ratchet                Lower the committed counter baseline; refuses any rise\n" + "  --out <dir>              Output directory (default artifacts/agent-loop/<local date>)\n" + "  --help, -h               Show this help text"
+    return "N# agent-loop performance benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench --agent-loop [options]\n" + "\n" + "Measures nlc check/build/test and real stdio Language Server edit and query latency.\n" + "Exact compiler and project-snapshot counters are gated; paired timing uses an exact sign-test bound.\n" + "\n" + "Options:\n" + "  --sizes <list>           small, medium, large (comma-separated) or all (default small,medium)\n" + "  --runs <n>               minimum paired samples per row (default 3; relative runs use at least 9)\n" + "  --cli <path>             head Cli.dll (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --base-cli <path>        base Cli.dll measured interleaved with head\n" + "  --language-server <path> head LanguageServer.dll (default: src/NSharpLang.LanguageServer/bin/Debug/net10.0/LanguageServer.dll)\n" + "  --base-language-server <path> base LanguageServer.dll measured interleaved with head\n" + "  --lsp-only               skip CLI rows; run the complete medium/large LSP matrix\n" + "  --scenario <id>          exact CLI scenario id, or 'test' for all nlc test rows\n" + "  --daemon                 Keep nlc daemon running for each single-CLI sample\n" + "  --judge                  Exit 1 when structural counters differ from the committed baseline\n" + "  --write-baseline <path>  Write structural counters only (the owner's re-baseline)\n" + "  --ratchet                Lower the committed counter baseline; refuses any rise\n" + "  --out <dir>              Output directory (default artifacts/agent-loop/<local date>)\n" + "  --help, -h               Show this help text"
 }
 
 func AgentLoopParseSizes(text: string): List<string> {
@@ -119,6 +122,8 @@ func AgentLoopParseOptions(args: string[], repositoryRoot: string): AgentLoopOpt
             options.ShowHelp = true
         } else if argument == "--daemon" {
             options.Daemon = true
+        } else if argument == "--lsp-only" {
+            options.LspOnly = true
         } else if argument == "--judge" {
             options.Judge = true
         } else if argument == "--ratchet" {
@@ -237,6 +242,10 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         BenchFailHarness("--base-cli requires --base-language-server so the Language Server rows use the same paired base/head timing model.")
     }
 
+    if options.LspOnly && options.BaseLanguageServerDll != "" && options.BaseCliDll == "" {
+        BenchFailHarness("--base-language-server requires --base-cli for paired LSP-only measurements.")
+    }
+
     if options.BaseCliDll != "" && (options.WriteBaseline != "" || options.Ratchet) {
         BenchFailHarness("--base-cli cannot be combined with --write-baseline or --ratchet; measure the head CLI alone for structural baseline updates.")
     }
@@ -252,7 +261,11 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
     lspRows := new List<AgentLoopLspRow>()
     if options.BaseCliDll != "" {
         print "base CLI: " + options.BaseCliDll
-        relative = AgentLoopMeasureRelativeMatrix(options.CliDll, options.BaseCliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.ScenarioId)
+        if options.LspOnly {
+            relative = new AgentLoopRelativeMatrix()
+        } else {
+            relative = AgentLoopMeasureRelativeMatrix(options.CliDll, options.BaseCliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.ScenarioId)
+        }
         lspFailure := AgentLoopMeasureLspRelativeRows(languageServerDll, options.BaseLanguageServerDll, repositoryRoot, relative ?? new AgentLoopRelativeMatrix())
         if lspFailure != "" {
             BenchFailHarness("Language Server paired measurements failed: " + lspFailure)
@@ -260,10 +273,14 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         rows = (relative ?? new AgentLoopRelativeMatrix()).HeadCounterRows
         lspRows = (relative ?? new AgentLoopRelativeMatrix()).LspCounterRows
     } else if options.WriteBaseline != "" || options.Ratchet || options.Judge {
-        rows = AgentLoopMeasureStructuralRows(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.ScenarioId)
+        if !options.LspOnly {
+            rows = AgentLoopMeasureStructuralRows(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.ScenarioId)
+        }
         lspRows = AgentLoopMeasureLspStructuralRows(languageServerDll, repositoryRoot, options.Runs)
     } else {
-        rows = AgentLoopMeasureMatrix(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.Daemon, true, options.ScenarioId)
+        if !options.LspOnly {
+            rows = AgentLoopMeasureMatrix(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.Daemon, true, options.ScenarioId)
+        }
         lspRows = AgentLoopMeasureLspStructuralRows(languageServerDll, repositoryRoot, options.Runs)
     }
 
@@ -298,7 +315,7 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         }
 
         written := new AgentLoopBaseline()
-        written.SchemaVersion = 3
+        written.SchemaVersion = 4
         if File.Exists(options.WriteBaseline) {
             existing := AgentLoopParseBaseline(File.ReadAllText(options.WriteBaseline))
             written.Rows = AgentLoopMergeRows(existing.Rows, rows)

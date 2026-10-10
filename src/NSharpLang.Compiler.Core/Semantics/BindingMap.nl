@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Concurrent
 import System.Collections.Generic
 
@@ -225,6 +226,16 @@ class BindingDeclarationEntryCollection {
     }
 }
 
+class BindingMapEntryData {
+    Keys: List<BindingPositionKey>
+    Values: List<SymbolDeclaration>
+
+    constructor() {
+        Keys = new List<BindingPositionKey>()
+        Values = new List<SymbolDeclaration>()
+    }
+}
+
 class BindingReferenceResult {
     declarationValue: SymbolDeclaration?
     usagesValue: List<SymbolUsage>
@@ -255,6 +266,13 @@ class BindingReferenceResult {
 // buckets at each (line, column) are now listed in insertion order, and the fallback scans only
 // those, in that order -- the same first match the full scan found.
 class BindingMap {
+    private compositeBaseValue: BindingMap?
+    private compositeReplacementMaps: Dictionary<string, BindingMap?>
+    private compositeReplacedFiles: HashSet<string>
+    private compositeGenerationValue: int
+    private compositeDeclarationsValue: List<SymbolDeclaration>?
+    private compositeBindingsValue: BindingMapEntryData?
+
     bindingIndexByKey: Dictionary<BindingPositionKey, int>
     bindingKeys: List<BindingPositionKey>
     bindingDeclarations: List<SymbolDeclaration>
@@ -276,6 +294,9 @@ class BindingMap {
     AllDeclarations: List<SymbolDeclaration> {
         get {
             EnsureInitialized()
+            if compositeBaseValue != null {
+                return CompositeDeclarations()
+            }
             return declarations
         }
     }
@@ -283,6 +304,10 @@ class BindingMap {
     BindingEntries: BindingEntryCollection {
         get {
             EnsureInitialized()
+            if compositeBaseValue != null {
+                entries := CompositeBindings()
+                return new BindingEntryCollection(entries.Keys, entries.Values)
+            }
             return new BindingEntryCollection(bindingKeys, bindingDeclarations)
         }
     }
@@ -290,14 +315,20 @@ class BindingMap {
     DeclarationEntries: BindingDeclarationEntryCollection {
         get {
             EnsureInitialized()
+            if compositeBaseValue != null {
+                return new BindingDeclarationEntryCollection(CompositeDeclarations())
+            }
             return new BindingDeclarationEntryCollection(declarations)
         }
     }
 
-    Version: int => versionValue
+    Version: int => compositeBaseValue == null ? versionValue : compositeBaseValue.Version + compositeGenerationValue
     BindingCount: int {
         get {
             EnsureInitialized()
+            if compositeBaseValue != null {
+                return CompositeBindings().Keys.Count
+            }
             return bindingKeys.Count
         }
     }
@@ -353,6 +384,17 @@ class BindingMap {
 
     func GetBindingAt(filePath: string?, line: int, col: int): SymbolDeclaration? {
         EnsureInitialized()
+        if compositeBaseValue != null {
+            if IsCompositeReplacedFile(filePath) {
+                replacement := CompositeReplacementFor(filePath)
+                if replacement == null {
+                    return null
+                }
+                return replacement.GetBindingAt(filePath, line, col)
+            }
+            return compositeBaseValue.GetBindingAt(filePath, line, col)
+        }
+
         key := MakeBindingKey(filePath, line, col)
 
         index := 0
@@ -379,10 +421,59 @@ class BindingMap {
         return null
     }
 
+    // Exact project-index probes used by completion, hover and navigation. The older CodeIntel
+    // path copied and linearly scanned every project's declarations and usages for each candidate
+    // cursor column; these retain its exact-file semantics while using the position indexes.
+    func GetDeclarationAt(filePath: string?, line: int, col: int): SymbolDeclaration? {
+        EnsureInitialized()
+        if compositeBaseValue != null {
+            if IsCompositeReplacedFile(filePath) {
+                replacement := CompositeReplacementFor(filePath)
+                if replacement == null {
+                    return null
+                }
+                return replacement.GetDeclarationAt(filePath, line, col)
+            }
+            return compositeBaseValue.GetDeclarationAt(filePath, line, col)
+        }
+
+        key := MakeBindingKey(filePath, line, col)
+        index := 0
+        if declarationIndexByKey.TryGetValue(key, out index) {
+            return declarations[index]
+        }
+        return null
+    }
+
+    func GetBindingDeclarationAt(filePath: string?, line: int, col: int): SymbolDeclaration? {
+        EnsureInitialized()
+        if compositeBaseValue != null {
+            if IsCompositeReplacedFile(filePath) {
+                replacement := CompositeReplacementFor(filePath)
+                if replacement == null {
+                    return null
+                }
+                return replacement.GetBindingDeclarationAt(filePath, line, col)
+            }
+            return compositeBaseValue.GetBindingDeclarationAt(filePath, line, col)
+        }
+
+        key := MakeBindingKey(filePath, line, col)
+        index := 0
+        if bindingIndexByKey.TryGetValue(key, out index) {
+            return bindingDeclarations[index]
+        }
+        return null
+    }
+
     func GetReferences(declaration: SymbolDeclaration?): List<SymbolUsage> {
         EnsureInitialized()
         if declaration == null {
             return new List<SymbolUsage>()
+        }
+
+        if compositeBaseValue != null {
+            return CompositeReferences(declaration)
         }
 
         key := MakeBindingKey(declaration.File, declaration.Line, declaration.Column)
@@ -418,6 +509,10 @@ class BindingMap {
     }
 
     func FindDeclarationNear(filePath: string?, line: int, col: int): SymbolDeclaration? {
+        if compositeBaseValue != null {
+            return FindDeclarationNearComposite(filePath, line, col)
+        }
+
         bestIndex := -1
         bestDistance := 2147483647
 
@@ -458,6 +553,31 @@ class BindingMap {
             return null
         }
 
+        if compositeBaseValue != null {
+            if IsCompositeReplacedFile(declaration.File) {
+                replacement := CompositeReplacementFor(declaration.File)
+                if replacement == null {
+                    return null
+                }
+                return replacement.FindStoredDeclarationForLookup(declaration)
+            }
+
+            stored := compositeBaseValue.FindStoredDeclarationForLookup(declaration)
+            if stored != null && !IsCompositeReplacedFile(stored.File) {
+                return stored
+            }
+            for replacement in compositeReplacementMaps.Values {
+                if replacement == null {
+                    continue
+                }
+                overlayStored := replacement.FindStoredDeclarationForLookup(declaration)
+                if overlayStored != null {
+                    return overlayStored
+                }
+            }
+            return null
+        }
+
         for candidate in declarations {
             if candidate.Name == declaration.Name && candidate.Line == declaration.Line && candidate.Column == declaration.Column && FilesMatch(candidate.File, declaration.File) {
                 return candidate
@@ -470,6 +590,12 @@ class BindingMap {
     func Merge(other: BindingMap) {
         EnsureInitialized()
         other.EnsureInitialized()
+
+        if other.compositeBaseValue != null {
+            MergeComposite(other)
+            return
+        }
+
         i := 0
         while i < other.declarations.Count {
             SetDeclaration(other.declarations[i])
@@ -499,6 +625,268 @@ class BindingMap {
         }
 
         if other.declarations.Count > 0 || other.bindingKeys.Count > 0 || other.referenceKeys.Count > 0 {
+            versionValue = versionValue + 1
+        }
+    }
+
+    // A project index for a new snapshot that keeps the previous aggregate as its base and replaces
+    // only files whose semantic analyses changed. The overlays are file-local BindingMaps produced
+    // by the compiler's incremental session; tombstones hide files removed from the project.
+    static func ReplaceFiles(previous: BindingMap, replacementMaps: Dictionary<string, BindingMap>, removedFiles: List<string>): BindingMap {
+        previous.EnsureInitialized()
+        result := new BindingMap()
+        result.EnsureInitialized()
+
+        if previous.compositeBaseValue == null {
+            result.compositeBaseValue = previous
+            result.compositeReplacementMaps = new Dictionary<string, BindingMap?>(StringComparer.OrdinalIgnoreCase)
+            result.compositeReplacedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            result.compositeGenerationValue = 1
+        } else {
+            result.compositeBaseValue = previous.compositeBaseValue
+            result.compositeReplacementMaps = new Dictionary<string, BindingMap?>(StringComparer.OrdinalIgnoreCase)
+            for entry in previous.compositeReplacementMaps {
+                result.compositeReplacementMaps[entry.Key] = entry.Value
+            }
+            result.compositeReplacedFiles = new HashSet<string>(previous.compositeReplacedFiles, StringComparer.OrdinalIgnoreCase)
+            result.compositeGenerationValue = previous.compositeGenerationValue + 1
+        }
+
+        for entry in replacementMaps {
+            result.compositeReplacementMaps[entry.Key] = entry.Value
+            result.compositeReplacedFiles.Add(entry.Key)
+        }
+        for removedFile in removedFiles {
+            result.compositeReplacementMaps.Remove(removedFile)
+            result.compositeReplacedFiles.Add(removedFile)
+        }
+
+        return result
+    }
+
+    private func IsCompositeReplacedFile(filePath: string?): bool {
+        if filePath == null || compositeReplacedFiles == null {
+            return false
+        }
+
+        for replacedFile in compositeReplacedFiles {
+            if FilesMatch(replacedFile, filePath) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func CompositeReplacementFor(filePath: string?): BindingMap? {
+        if filePath == null || compositeReplacementMaps == null {
+            return null
+        }
+
+        for entry in compositeReplacementMaps {
+            if FilesMatch(entry.Key, filePath) {
+                return entry.Value
+            }
+        }
+
+        return null
+    }
+
+    private func CompositeDeclarations(): List<SymbolDeclaration> {
+        cached := compositeDeclarationsValue
+        if cached != null {
+            return cached
+        }
+
+        result := new List<SymbolDeclaration>()
+        seen := new HashSet<BindingPositionKey>()
+        for declaration in compositeBaseValue.AllDeclarations {
+            if IsCompositeReplacedFile(declaration.File) {
+                continue
+            }
+            key := MakeBindingKey(declaration.File, declaration.Line, declaration.Column)
+            if seen.Add(key) {
+                result.Add(declaration)
+            }
+        }
+
+        for entry in compositeReplacementMaps {
+            replacement := entry.Value
+            if replacement == null {
+                continue
+            }
+            for declaration in replacement.AllDeclarations {
+                if !FilesMatch(entry.Key, declaration.File) {
+                    continue
+                }
+                key := MakeBindingKey(declaration.File, declaration.Line, declaration.Column)
+                if seen.Add(key) {
+                    result.Add(declaration)
+                }
+            }
+        }
+
+        compositeDeclarationsValue = result
+        return result
+    }
+
+    private func CompositeBindings(): BindingMapEntryData {
+        cached := compositeBindingsValue
+        if cached != null {
+            return cached
+        }
+
+        result := new BindingMapEntryData()
+        seen := new HashSet<BindingPositionKey>()
+        baseEntries := compositeBaseValue.BindingEntries
+        for entry in baseEntries {
+            if IsCompositeReplacedFile(entry.Key.File) {
+                continue
+            }
+            if seen.Add(entry.Key) {
+                result.Keys.Add(entry.Key)
+                result.Values.Add(entry.Value)
+            }
+        }
+
+        for replacementEntry in compositeReplacementMaps {
+            replacement := replacementEntry.Value
+            if replacement == null {
+                continue
+            }
+            for entry in replacement.BindingEntries {
+                if !FilesMatch(replacementEntry.Key, entry.Key.File) {
+                    continue
+                }
+                if seen.Add(entry.Key) {
+                    result.Keys.Add(entry.Key)
+                    result.Values.Add(entry.Value)
+                }
+            }
+        }
+
+        compositeBindingsValue = result
+        return result
+    }
+
+    private func CompositeReferences(declaration: SymbolDeclaration): List<SymbolUsage> {
+        result := new List<SymbolUsage>()
+        for usage in compositeBaseValue.GetReferences(declaration) {
+            if !IsCompositeReplacedFile(usage.File) {
+                result.Add(usage)
+            }
+        }
+
+        for entry in compositeReplacementMaps {
+            replacement := entry.Value
+            if replacement == null {
+                continue
+            }
+            for usage in replacement.GetReferences(declaration) {
+                if FilesMatch(entry.Key, usage.File) {
+                    result.Add(usage)
+                }
+            }
+        }
+
+        return result
+    }
+
+    private func FindDeclarationNearComposite(filePath: string?, line: int, col: int): SymbolDeclaration? {
+        best: SymbolDeclaration? = null
+        bestDistance := 2147483647
+        for declaration in compositeBaseValue.AllDeclarations {
+            if IsCompositeReplacedFile(declaration.File) || declaration.Line != line || !FilesMatch(declaration.File, filePath) {
+                continue
+            }
+
+            start := declaration.Column
+            end := declaration.Column + declaration.Name.Length - 1
+            if col >= start && col <= end {
+                return declaration
+            }
+            distance := Math.Abs(col - start)
+            if distance < bestDistance {
+                best = declaration
+                bestDistance = distance
+            }
+        }
+
+        for entry in compositeReplacementMaps {
+            replacement := entry.Value
+            if replacement == null {
+                continue
+            }
+            for declaration in replacement.AllDeclarations {
+                if !FilesMatch(entry.Key, declaration.File) || declaration.Line != line || !FilesMatch(declaration.File, filePath) {
+                    continue
+                }
+
+                start := declaration.Column
+                end := declaration.Column + declaration.Name.Length - 1
+                if col >= start && col <= end {
+                    return declaration
+                }
+                distance := Math.Abs(col - start)
+                if distance < bestDistance {
+                    best = declaration
+                    bestDistance = distance
+                }
+            }
+        }
+
+        return best
+    }
+
+    private func MergeComposite(other: BindingMap): void {
+        for declaration in other.CompositeDeclarations() {
+            SetDeclaration(declaration)
+        }
+
+        entries := other.CompositeBindings()
+        index := 0
+        while index < entries.Keys.Count {
+            key := entries.Keys[index]
+            bindingIndex := 0
+            if bindingIndexByKey.TryGetValue(key, out bindingIndex) {
+                bindingDeclarations[bindingIndex] = entries.Values[index]
+            } else {
+                bindingIndexByKey[key] = bindingKeys.Count
+                bindingKeys.Add(key)
+                bindingDeclarations.Add(entries.Values[index])
+            }
+            index = index + 1
+        }
+
+        baseMap := other.compositeBaseValue
+        index = 0
+        while index < baseMap.referenceKeys.Count {
+            key := baseMap.referenceKeys[index]
+            for usage in baseMap.referenceBuckets[index].Items {
+                if !other.IsCompositeReplacedFile(usage.File) {
+                    GetOrAddReferenceList(key).Add(usage)
+                }
+            }
+            index = index + 1
+        }
+        for entry in other.compositeReplacementMaps {
+            replacement := entry.Value
+            if replacement == null {
+                continue
+            }
+            index = 0
+            while index < replacement.referenceKeys.Count {
+                key := replacement.referenceKeys[index]
+                for usage in replacement.referenceBuckets[index].Items {
+                    if FilesMatch(entry.Key, usage.File) {
+                        GetOrAddReferenceList(key).Add(usage)
+                    }
+                }
+                index = index + 1
+            }
+        }
+
+        if entries.Keys.Count > 0 || entries.Values.Count > 0 {
             versionValue = versionValue + 1
         }
     }

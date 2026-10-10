@@ -39,7 +39,7 @@ func AgentLoopTestRow(size: string, scenario: string, mode: string, wallMs: long
 
 func AgentLoopTestBaseline(): AgentLoopBaseline {
     baseline := new AgentLoopBaseline()
-    baseline.SchemaVersion = 3
+    baseline.SchemaVersion = 4
     sizes := AgentLoopSizes()
     scenarios := AgentLoopScenarios()
     i := 0
@@ -64,7 +64,28 @@ func AgentLoopTestBaseline(): AgentLoopBaseline {
             row.Samples = 3
             row.MedianWallMs = 20
             row.SourceLines = 80960
-            row.Counters = new AgentLoopLspCounters(0, 1, 160)
+            snapshots := 0L
+            updated := 0L
+            published := 0L
+            parsed := 0L
+            reanalyzed := 0L
+            reused := 0L
+            if lspOperations[j] == "LSP didChange diagnostics" {
+                snapshots = 1
+                updated = 1
+                published = 1
+                parsed = 2
+                reanalyzed = 1
+                if lspSizes[i] == "medium" {
+                    reused = 39
+                } else {
+                    reused = 159
+                }
+            } else if lspOperations[j] == "LSP unchanged didOpen" {
+                updated = 1
+                published = 1
+            }
+            row.Counters = new AgentLoopLspCounters(snapshots, updated, published, parsed, reanalyzed, reused)
             baseline.LspRows.Add(row)
             j = j + 1
         }
@@ -329,8 +350,8 @@ test "agent-loop bench: a baseline with no rows, an unknown schema or unmeasured
     assert AgentLoopBaselineRefusal(empty).Contains("has no rows")
 
     future := AgentLoopTestBaseline()
-    future.SchemaVersion = 4
-    assert AgentLoopBaselineRefusal(future).Contains("schemaVersion 4")
+    future.SchemaVersion = 5
+    assert AgentLoopBaselineRefusal(future).Contains("schemaVersion 5")
 
     missingDaemonWarm := AgentLoopTestBaseline()
     missingDaemonWarm.Rows.RemoveAt(missingDaemonWarm.Rows.Count - 1)
@@ -576,7 +597,7 @@ test "agent-loop bench: the committed structural baseline covers cold, warm and 
     for row in baseline.LspRows {
         assert AgentLoopLspCountersMeasured(row.Counters), row.Size + " / " + row.Scenario
         if row.Scenario == "LSP unchanged didOpen" && row.Size == "large" {
-            assert (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1)).ProjectSnapshotsBuilt == 0, "an unchanged didOpen in the large project must reuse the project snapshot"
+            assert (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)).ProjectSnapshotsBuilt == 0, "an unchanged didOpen in the large project must reuse the project snapshot"
         }
     }
     i := 0
@@ -603,12 +624,12 @@ test "agent-loop LSP rows use exact snapshot and document-activity counters" {
     baseline := AgentLoopTestBaseline()
     rows := new List<AgentLoopLspRow>()
     opened := new AgentLoopLspRow("large", "LSP unchanged didOpen")
-    opened.Counters = new AgentLoopLspCounters(0, 1, 160)
+    opened.Counters = new AgentLoopLspCounters(0, 1, 1, 0, 0, 0)
     rows.Add(opened)
     assert AgentLoopLspCounterFailure(baseline, rows).Count == 0
 
     rebuilt := new AgentLoopLspRow("large", "LSP unchanged didOpen")
-    rebuilt.Counters = new AgentLoopLspCounters(1, 1, 160)
+    rebuilt.Counters = new AgentLoopLspCounters(1, 1, 1, 0, 0, 0)
     rows[0] = rebuilt
     assert AgentLoopLspCounterFailure(baseline, rows)[0].Contains("projectSnapshotsBuilt=0")
 }

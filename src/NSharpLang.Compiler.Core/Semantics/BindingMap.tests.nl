@@ -747,3 +747,45 @@ test "binding map projects its entries" {
     assert entries.Count == 1
     assert bindings.BindingEntries.Count == 2
 }
+
+test "an incremental project binding map replaces one file and filters stale references" {
+    shared := new SymbolDeclaration("shared", "shared.nl", 1, 1, "func")
+    firstFile := new BindingMap()
+    firstFile.RecordBinding("a.nl", 3, 1, 6, shared)
+    secondFile := new BindingMap()
+    secondFile.RecordBinding("b.nl", 4, 1, 6, shared)
+    original := new BindingMap()
+    original.Merge(firstFile)
+    original.Merge(secondFile)
+
+    local := new SymbolDeclaration("local", "a.nl", 1, 1, "variable")
+    replacementFile := new BindingMap()
+    replacementFile.RecordDeclaration(local)
+    replacementFile.RecordBinding("a.nl", 3, 1, 5, local)
+    replacements := new Dictionary<string, BindingMap>()
+    replacements["a.nl"] = replacementFile
+
+    updated := BindingMap.ReplaceFiles(original, replacements, new List<string>())
+    localBinding := updated.GetBindingAt("a.nl", 3, 1)
+    sharedBinding := updated.GetBindingAt("b.nl", 4, 1)
+    assert localBinding != null && localBinding.Name == "local"
+    assert sharedBinding != null && sharedBinding.Name == "shared"
+    assert updated.GetDeclarationAt("a.nl", 3, 1) == null
+    localDeclaration := updated.GetDeclarationAt("a.nl", 1, 1)
+    localUse := updated.GetBindingDeclarationAt("a.nl", 3, 1)
+    assert localDeclaration != null && localDeclaration.Name == "local"
+    assert localUse != null && localUse.Name == "local"
+    assert updated.GetReferences(shared).Count == 1
+    assert updated.GetReferences(shared)[0].File == "b.nl"
+    assert updated.GetReferences(local).Count == 1
+    assert updated.BindingCount == 2
+    assert BindingMapContractNames(updated.AllDeclarations) == "shared|local|"
+
+    removedFiles := new List<string>()
+    removedFiles.Add("a.nl")
+    deleted := BindingMap.ReplaceFiles(updated, new Dictionary<string, BindingMap>(), removedFiles)
+    assert deleted.GetBindingAt("a.nl", 3, 1) == null
+    assert deleted.GetReferences(shared).Count == 1
+    assert deleted.GetReferences(shared)[0].File == "b.nl"
+    assert !BindingMapContractNames(deleted.AllDeclarations).Contains("local|")
+}

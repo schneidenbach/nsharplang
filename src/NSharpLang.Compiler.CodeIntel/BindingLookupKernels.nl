@@ -68,40 +68,11 @@ class BindingLookupKernels {
     }
 
     static func FindDeclarationAt(bindingMap: BindingMap, filePathValue: string?, line: int, column: int): SymbolDeclaration? {
-        values := bindingMap.DeclarationEntries.Values
-        for declaration in values {
-            if declaration.Line == line && declaration.Column == column && FilesEqualExact(declaration.File, filePathValue) {
-                return declaration
-            }
-        }
-
-        return null
+        return bindingMap.GetDeclarationAt(filePathValue, line, column)
     }
 
     static func FindBindingDeclarationAt(bindingMap: BindingMap, filePathValue: string?, line: int, column: int): SymbolDeclaration? {
-        entries := bindingMap.BindingEntries
-        enumerator := entries.GetEnumerator()
-        while enumerator.MoveNext() {
-            entry := enumerator.Current
-            usage := entry.Key
-            if usage.Line == line && usage.Col == column && FilesEqualExact(usage.File, filePathValue) {
-                return entry.Value
-            }
-        }
-
-        return null
-    }
-
-    static func FilesEqualExact(left: string?, right: string?): bool {
-        if left == null {
-            return right == null
-        }
-
-        if right == null {
-            return false
-        }
-
-        return left == right
+        return bindingMap.GetBindingDeclarationAt(filePathValue, line, column)
     }
 
     static func CandidateColumnMaxDistance(column: int, spanStart: int, spanEnd: int): int {

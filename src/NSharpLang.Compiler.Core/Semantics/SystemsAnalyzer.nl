@@ -74,7 +74,7 @@ sealed class SystemsAnalyzer {
         HotSummaries = HotSummaryCatalog.Load(projectRoot, Config)
     }
 
-    func Analyze(compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, performanceFacts: PerformanceFactStore? = null, semanticModels: IReadOnlyDictionary<string, SemanticModel>? = null): SystemsReport {
+    func Analyze(compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, performanceFacts: PerformanceFactStore? = null, semanticModels: IReadOnlyDictionary<string, SemanticModel>? = null, diagnosticsOnly: bool = false): SystemsReport {
         FindingSink.BeginAnalysis(Config)
         Functions.Clear()
         TrustedSites.Clear()
@@ -103,7 +103,10 @@ sealed class SystemsAnalyzer {
         entryEnumerator := OrderedFunctionEntries.GetEnumerator()
         try {
             while entryEnumerator.MoveNext() {
-                AnalyzeFunction(entryEnumerator.get_Current(), performanceFacts)
+                entry := entryEnumerator.get_Current()
+                if !diagnosticsOnly || IsSystemsProfile() || NeedsFunctionDiagnostics(entry.Function) {
+                    AnalyzeFunction(entry, performanceFacts)
+                }
             }
         } finally {
             entryEnumerator.Dispose()
@@ -140,6 +143,15 @@ sealed class SystemsAnalyzer {
             summary
         )
         return report
+    }
+
+    // A Language Server snapshot needs every systems diagnostic, but it does not expose the
+    // complete systems function report. In the default profile unannotated cold functions cannot
+    // produce function-level findings. Keep every attributed declaration in the pass (including
+    // policy annotations beyond hot/boundary), while recursive callee summaries remain reachable
+    // from those functions through AnalyzeFunction. Type-level checks still run during registration.
+    private func NeedsFunctionDiagnostics(function: FunctionDeclaration): bool {
+        return function.Attributes.Count > 0
     }
 
     private static func CountHotFunctions(summaries: List<SystemsFunctionSummary>): int {

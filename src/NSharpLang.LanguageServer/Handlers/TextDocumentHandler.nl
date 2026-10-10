@@ -1,5 +1,6 @@
 namespace NSharpLang.LanguageServer.Handlers
 
+import System
 import System.Collections.Generic
 import System.Linq
 import System.Threading
@@ -18,6 +19,8 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
     readonly documentManager: DocumentManager
     readonly languageServer: ILanguageServerFacade
     readonly logger: ILogger<TextDocumentHandler>
+    readonly pendingChangesLock: object
+    readonly pendingChanges: Dictionary<string, CancellationTokenSource>
 
     constructor(
         documentManager: DocumentManager,
@@ -27,6 +30,8 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
         this.documentManager = documentManager
         this.languageServer = languageServer
         this.logger = logger
+        pendingChangesLock = new Object()
+        pendingChanges = new Dictionary<string, CancellationTokenSource>(StringComparer.Ordinal)
     }
 
     override func GetTextDocumentAttributes(uri: DocumentUri): TextDocumentAttributes {
@@ -55,14 +60,51 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
             text := request.ContentChanges.First().Text
             version := request.TextDocument.Version ?? 0
 
-            documentManager.UpdateDocument(uri, text, version)
-            publishDiagnostics(uri)
+            documentManager.UpdateDocumentForChange(uri, text, version)
+            cancellation := new CancellationTokenSource()
+            lock pendingChangesLock {
+                previous: CancellationTokenSource? = null
+                if pendingChanges.TryGetValue(uri, out previous) && previous != null {
+                    previous.Cancel()
+                }
+                pendingChanges[uri] = cancellation
+            }
+            return publishChangedDocumentDiagnostics(uri, version, cancellation)
         }
 
         return Unit.Task
     }
 
-    override func Handle(request: DidSaveTextDocumentParams, _token: CancellationToken): Task<Unit> {
+    // Coalesce a fast sequence of full-text edits. Cancellation prevents an older queued edit from
+    // publishing after a newer version; the incremental session still owns semantic invalidation.
+    private async func publishChangedDocumentDiagnostics(uri: string, version: int, cancellation: CancellationTokenSource): Task<Unit> {
+        try {
+            await Task.Delay(1, cancellation.Token)
+            if cancellation.IsCancellationRequested {
+                return Unit.Value
+            }
+
+            doc := documentManager.GetDocument(uri)
+            if doc == null || doc.Version != version {
+                return Unit.Value
+            }
+
+            publishDiagnostics(uri, cancellation.Token)
+        } catch cancelled: TaskCanceledException {
+        } finally {
+            lock pendingChangesLock {
+                current: CancellationTokenSource? = null
+                if pendingChanges.TryGetValue(uri, out current) && current != null && Object.ReferenceEquals(current, cancellation) {
+                    pendingChanges.Remove(uri)
+                }
+            }
+            cancellation.Dispose()
+        }
+
+        return Unit.Value
+    }
+
+    override func Handle(request: DidSaveTextDocumentParams, token: CancellationToken): Task<Unit> {
         // Re-analyze on save to ensure diagnostics are up-to-date
         uri := request.TextDocument.Uri.ToString()
         logger.LogInformation("Document saved: {Uri}", uri)
@@ -104,8 +146,16 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
     }
 
     func publishDiagnostics(uri: string) {
+        publishDiagnostics(uri, CancellationToken.None)
+    }
+
+    func publishDiagnostics(uri: string, token: CancellationToken) {
         publications := documentManager.GetDiagnosticsToPublish(uri)
         for publication in publications {
+            if token.IsCancellationRequested {
+                return
+            }
+
             allDiagnostics := new List<OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic>()
 
             for error in publication.CompilerDiagnostics {
@@ -116,8 +166,15 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
                 allDiagnostics.Add(LspDiagnosticConverter.FromLinterDiagnostic(diagnostic))
             }
 
+            document := documentManager.GetDocument(publication.Uri)
+            publishedVersion: int? = null
+            if document != null {
+                publishedVersion = document.Version
+            }
+
             languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams {
                 Uri: DocumentUri.From(publication.Uri),
+                Version: publishedVersion,
                 Diagnostics: new Container<OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic>(allDiagnostics)
             })
 

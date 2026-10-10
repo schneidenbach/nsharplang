@@ -63,6 +63,7 @@ class IncrementalFileRecord {
 class IncrementalCompilationState {
     EnvironmentKey: string
     RetainedAnalyzer: Analyzer?
+    LastProjectBindings: BindingMap?
     Files: Dictionary<string, IncrementalFileRecord>
     MetadataEntries: List<IncrementalInputEntry>
 
@@ -70,9 +71,18 @@ class IncrementalCompilationState {
     SummaryCache: Dictionary<string, IncrementalFileSummary>
 
     // The last run's work, for counters and tests.
+    LastFilesParsed: int
+    LastSummaryFilesParsed: int
     LastFilesAnalyzed: int
     LastFilesReused: int
     LastWasFull: bool
+    LastPlanMilliseconds: long
+    LastParseMilliseconds: long
+    LastImportGraphMilliseconds: long
+    LastFileAnalysisMilliseconds: long
+    LastFileAnalyzerMilliseconds: long
+    LastProjectMergeMilliseconds: long
+    LastSystemsPolicyMilliseconds: long
 
     // THE BACK END'S HALF. Each file's columnar parse, kept while its text and position hold
     // (`ColumnarFileProgramCache`), and the last emission's outcome under the key of everything it
@@ -88,12 +98,22 @@ class IncrementalCompilationState {
     constructor() {
         EnvironmentKey = ""
         RetainedAnalyzer = null
+        LastProjectBindings = null
         Files = new Dictionary<string, IncrementalFileRecord>(StringComparer.OrdinalIgnoreCase)
         MetadataEntries = new List<IncrementalInputEntry>()
         SummaryCache = new Dictionary<string, IncrementalFileSummary>(StringComparer.Ordinal)
+        LastFilesParsed = 0
+        LastSummaryFilesParsed = 0
         LastFilesAnalyzed = 0
         LastFilesReused = 0
         LastWasFull = true
+        LastPlanMilliseconds = 0
+        LastParseMilliseconds = 0
+        LastImportGraphMilliseconds = 0
+        LastFileAnalysisMilliseconds = 0
+        LastFileAnalyzerMilliseconds = 0
+        LastProjectMergeMilliseconds = 0
+        LastSystemsPolicyMilliseconds = 0
         EmitParses = new ColumnarFileProgramCache()
         LastEmissionKey = ""
         LastEmissionImage = null
@@ -105,8 +125,21 @@ class IncrementalCompilationState {
     func Reset(environmentKey: string) {
         EnvironmentKey = environmentKey
         RetainedAnalyzer = null
+        LastProjectBindings = null
         Files.Clear()
         MetadataEntries.Clear()
+        LastFilesParsed = 0
+        LastSummaryFilesParsed = 0
+        LastFilesAnalyzed = 0
+        LastFilesReused = 0
+        LastWasFull = true
+        LastPlanMilliseconds = 0
+        LastParseMilliseconds = 0
+        LastImportGraphMilliseconds = 0
+        LastFileAnalysisMilliseconds = 0
+        LastFileAnalyzerMilliseconds = 0
+        LastProjectMergeMilliseconds = 0
+        LastSystemsPolicyMilliseconds = 0
         EmitParses.Clear()
         ForgetEmission()
     }
@@ -145,6 +178,7 @@ class IncrementalCompilationState {
         }
 
         summary := IncrementalFileSummary.Compute(path, text)
+        LastSummaryFilesParsed = LastSummaryFilesParsed + 1
         SummaryCache[path + "|" + contentHash] = summary
         return summary
     }
@@ -179,7 +213,6 @@ class IncrementalCompilationPlan {
         for path in paths {
             summary := state.SummaryFor(path, texts[path])
             plan.Summaries[path] = summary
-            plan.Index(path, summary)
 
             fileRecord: IncrementalFileRecord = null
             if !state.Files.TryGetValue(path, out fileRecord) {
@@ -217,6 +250,16 @@ class IncrementalCompilationPlan {
         for namespaceName in previousNamespaces {
             if !currentNamespaces.Contains(namespaceName) {
                 IncrementalFileSummary.AddWords(plan.ChangedNamespaceWords, namespaceName)
+            }
+        }
+
+        // The current declaration and reverse-reference indexes exist only to compute the
+        // dependency closure of files whose surface changed. On a body-only edit, ChangedFiles is
+        // empty: no other file can have a stale binding, so building those project-wide indexes
+        // would add work to every keystroke without changing the reuse answer.
+        if plan.ChangedFiles.Count > 0 {
+            for summaryEntry in plan.Summaries {
+                plan.Index(summaryEntry.Key, summaryEntry.Value)
             }
         }
 
@@ -272,15 +315,17 @@ class IncrementalCompilationPlan {
             return false
         }
 
-        for dependency in fileRecord.Dependencies {
-            if ChangedFiles.Contains(dependency) {
-                return false
+        if ChangedFiles.Count > 0 {
+            for dependency in fileRecord.Dependencies {
+                if ChangedFiles.Contains(dependency) {
+                    return false
+                }
             }
-        }
 
-        for dependency in DependenciesOf(path) {
-            if ChangedFiles.Contains(dependency) {
-                return false
+            for dependency in DependenciesOf(path) {
+                if ChangedFiles.Contains(dependency) {
+                    return false
+                }
             }
         }
 

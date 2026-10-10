@@ -1263,11 +1263,12 @@ participates. It records four operations on the medium and large synthetic proje
 `didChange` through the matching `publishDiagnostics`, completion response after an edit and its
 diagnostics have finished, hover response under the same setup, and opening unchanged workspace
 content after the initialized workspace scan. Each timing sample is a wall-clock interval around the
-named client operation. LSP structural rows in baseline schema 3 count semantic project snapshots
-from the server's `Loaded semantic project snapshot` debug event and target-document update and
-diagnostics-publication protocol activity. Completion and hover counters cover only the request
+named client operation. LSP structural rows in baseline schema 4 count project snapshot builds,
+target-document updates and diagnostics publications, plus compiler-side source parses, per-file
+semantic analyses and reused analyses. Completion and hover counters cover only the request
 interval. The large unchanged-`didOpen` row requires exactly zero project snapshot builds; a
-nonzero count fails the baseline gate.
+nonzero count fails the baseline gate. Open editor buffers are protected from document-cache
+eviction, so an unsaved body edit remains part of later project snapshots.
 
 LSP timings follow the same paired base/head policy as CLI timings: exact structural counters always,
 paired timing only when classified compiler, CLI or Language Server inputs change, at least nine
@@ -1276,7 +1277,8 @@ and a 17-pair cap. LSP timing rows use the same
 exact two-sided sign-test 95% lower confidence bound and fail only above 1.20× with at least 30 ms
 median paired slowdown. `--base-language-server` supplies the base-side server beside `--base-cli`;
 the base build retains its base `NSharpLang.*` slices and uses the matching non-product package
-closure.
+closure. `--lsp-only` runs the complete medium/large LSP matrix without the unrelated CLI timing
+rows.
 
 **Measured counter rows at the integrated baseline** (`320cd5f92`). Counter order below is
 filesParsed / emitParses / filesAnalyzed / assembliesEmitted / referenceAssembliesLoaded /
@@ -1364,6 +1366,30 @@ intervals up to whole milliseconds. For each size, the four exact
 counter triples in operation order were `0/1/1`, `0/0/0`, `0/0/0`, and `0/1/1` for project
 snapshots built / documents updated / diagnostics published. The large unchanged `didOpen` therefore
 reused the workspace without building a project snapshot.
+
+**Incremental edit evidence on `perf/lsp-edit-to-diagnostics` (2026-10-09).** The paired run used
+17 medium pairs and 15 large pairs after the warm-up; base was `cd35b9064`, head was the working
+tree, and machine load ranged from 13.37 to 39.01 on 10 cores. The paired timing gate passed. The
+head structural tuple is project snapshots built / documents updated / diagnostics published;
+files parsed / files reanalyzed / files reused. An unchanged open has zero snapshot builds, while a
+body edit reanalyzes one file and reuses the other 39 or 159 files.
+
+| size | operation | base median ms | head median ms | head structural tuple |
+|---|---|---:|---:|---|
+| medium, 10,640 lines | `didChange` → diagnostics | 1 | 17 | `1 / 1 / 1; 2 / 1 / 39` |
+| medium, 10,640 lines | completion after edit | 6 | 3 | `0 / 0 / 0; 0 / 0 / 0` |
+| medium, 10,640 lines | hover | 14 | 3 | `0 / 0 / 0; 0 / 0 / 0` |
+| medium, 10,640 lines | unchanged `didOpen` | 1 | 9 | `0 / 1 / 1; 0 / 0 / 0` |
+| large, 80,960 lines | `didChange` → diagnostics | 1,860 | 94 | `1 / 1 / 1; 2 / 1 / 159` |
+| large, 80,960 lines | completion after edit | 79 | 74 | `0 / 0 / 0; 0 / 0 / 0` |
+| large, 80,960 lines | hover | 240 | 61 | `0 / 0 / 0; 0 / 0 / 0` |
+| large, 80,960 lines | unchanged `didOpen` | 1 | 36 | `0 / 1 / 1; 0 / 0 / 0` |
+
+Large paired head `didChange` met the 100 ms median target. A separate three-run head-only judge under
+the same shared-machine load recorded medium/large `didChange` at 33 / 38 ms, completion at 15 / 5
+ms, hover at 7 / 5 ms, and unchanged `didOpen` at 26 / 15 ms. The paired base large medians varied
+substantially from the earlier absolute baseline under concurrent machine load; the paired ratios,
+not cross-run absolute values, are the integration comparison.
 
 **Cold-check startup and JIT/R2R attribution.** The measurement-only check used the same generated
 40-file/10,640-line and 160-file/80,960-line projects. EventPipe (`dotnet-trace`, runtime JIT and

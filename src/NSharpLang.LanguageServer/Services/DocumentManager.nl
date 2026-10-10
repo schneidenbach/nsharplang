@@ -3,6 +3,7 @@ namespace NSharpLang.LanguageServer.Services
 import System
 import System.Collections.Concurrent
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Linq
 import Microsoft.Extensions.Logging
@@ -38,6 +39,7 @@ import NSharpLang.LanguageServer.Models
 class DocumentManager {
     readonly documents: ConcurrentDictionary<string, DocumentState>
     readonly lastAccessTimes: ConcurrentDictionary<string, DateTime>
+    readonly documentCacheLock: object
     readonly logger: ILogger<DocumentManager>
     SharedAnalyzer: Analyzer
     readonly codeIntelligenceService: CodeIntelligenceService
@@ -47,6 +49,10 @@ class DocumentManager {
     readonly analyzerLock: object
     readonly projectSnapshotLock: object
     readonly projectSnapshots: ConcurrentDictionary<string, CachedProjectSnapshot>
+    // One compiler-owned incremental session per semantic project. The session retains parsed
+    // units and per-file binding results across editor edits, so a body change does not fall back
+    // to the cold whole-project CodeIntelligenceService loader.
+    readonly incrementalProjectSessions: ConcurrentDictionary<string, IncrementalProjectSession>
     readonly editorOpenUris: ConcurrentDictionary<string, byte>
     readonly workspaceRoots: ConcurrentDictionary<string, byte>
     readonly referenceVersions: ReferenceFileVersions
@@ -58,6 +64,7 @@ class DocumentManager {
         this.logger = logger
         documents = new ConcurrentDictionary<string, DocumentState>()
         lastAccessTimes = new ConcurrentDictionary<string, DateTime>()
+        documentCacheLock = new object()
         codeIntelligenceService = new CodeIntelligenceService()
         loadedProjectDirs = new HashSet<string>()
         resolvedProjectConfigs = new Dictionary<string, CachedResolvedProjectConfig>(StringComparer.OrdinalIgnoreCase)
@@ -65,6 +72,7 @@ class DocumentManager {
         analyzerLock = new object()
         projectSnapshotLock = new object()
         projectSnapshots = new ConcurrentDictionary<string, CachedProjectSnapshot>()
+        incrementalProjectSessions = new ConcurrentDictionary<string, IncrementalProjectSession>(StringComparer.OrdinalIgnoreCase)
         editorOpenUris = new ConcurrentDictionary<string, byte>()
         workspaceRoots = new ConcurrentDictionary<string, byte>()
         referenceVersions = new ReferenceFileVersions()
@@ -100,6 +108,7 @@ class DocumentManager {
 
         lock projectSnapshotLock {
             projectSnapshots.Clear()
+            incrementalProjectSessions.Clear()
         }
         return true
     }
@@ -173,7 +182,9 @@ class DocumentManager {
     // workspace scans and are reverted to disk content on close (instead of being removed) if the
     // file belongs to a workspace.
     func MarkEditorOpen(uri: string) {
-        editorOpenUris.TryAdd(uri, 0)
+        lock documentCacheLock {
+            editorOpenUris.TryAdd(uri, 0)
+        }
     }
 
     // Handles an editor-close event. If the file belongs to a scanned workspace, reloads it from
@@ -181,8 +192,10 @@ class DocumentManager {
     // Returns the URI if the document was reloaded from disk (caller should republish
     // diagnostics), or null if the document was fully removed.
     func HandleEditorClose(uri: string): string? {
-        removedOpenMarker: byte = 0
-        editorOpenUris.TryRemove(uri, out removedOpenMarker)
+        lock documentCacheLock {
+            removedOpenMarker: byte = 0
+            editorOpenUris.TryRemove(uri, out removedOpenMarker)
+        }
 
         filePath := EditorWorkspaceFacts.UriToFilePath(uri)
         isInWorkspace := EditorWorkspaceFacts.ContainingWorkspaceRoot(filePath, workspaceRoots.Keys) != null
@@ -282,23 +295,22 @@ class DocumentManager {
     }
 
     func UpdateDocument(uri: string, text: string, version: int) {
+        updateDocument(uri, text, version)
+    }
+
+    // A project didChange buffer is queued without duplicate parsing and then semantically analysed
+    // by the retained project session when diagnostics are requested. Loose files keep their
+    // established single-document path.
+    func UpdateDocumentForChange(uri: string, text: string, version: int) {
+        if CanUseIncrementalProjectSnapshot(uri) {
+            updateDocumentTextBuffer(uri, text, version)
+        } else {
+            updateDocument(uri, text, version)
+        }
+    }
+
+    private func updateDocument(uri: string, text: string, version: int): void {
         try {
-            if EditorDocumentCacheFacts.ShouldEvictBefore(documents.Count, documents.ContainsKey(uri)) {
-                cacheRows := new List<EditorDocumentCacheRow>()
-                for entry in lastAccessTimes {
-                    cacheRows.Add(new EditorDocumentCacheRow(entry.Key, entry.Value.Ticks))
-                }
-
-                evicted := EditorDocumentCacheFacts.EvictionUri(cacheRows)
-                if evicted != null {
-                    evictedState: DocumentState? = null
-                    evictedTime: DateTime = DateTime.MinValue
-                    documents.TryRemove(evicted, out evictedState)
-                    lastAccessTimes.TryRemove(evicted, out evictedTime)
-                    logger.LogInformation("Evicted least recently used document: {Uri}", evicted)
-                }
-            }
-
             logger.LogInformation("Updating document: {Uri} (version {Version})", uri, version)
 
             state := new DocumentState(uri, text, version)
@@ -398,8 +410,7 @@ class DocumentManager {
             }
 
             state.Diagnostics = EditorWorkspaceFacts.DeduplicateDiagnostics(diagnostics)
-            documents[uri] = state
-            lastAccessTimes[uri] = DateTime.UtcNow
+            storeDocument(uri, state)
 
             logger.LogInformation(
                 "Document updated successfully with {DiagnosticCount} diagnostics ({ParseErrors} parse errors)",
@@ -420,7 +431,89 @@ class DocumentManager {
                 ErrorSeverity.Error
             ))
             failed.Diagnostics = failedDiagnostics
-            documents[uri] = failed
+            storeDocument(uri, failed)
+        }
+    }
+
+    // Closed documents provide the bounded cache; editor-open buffers contain live user state and
+    // stay resident even when the workspace has more than the cache ceiling's number of open files.
+    // The same lock protects open/close transitions so an LRU candidate cannot become protected
+    // between selection and removal.
+    private func storeDocument(uri: string, state: DocumentState): void {
+        lock documentCacheLock {
+            if EditorDocumentCacheFacts.ShouldEvictBefore(documents.Count, documents.ContainsKey(uri)) {
+                cacheRows := new List<EditorDocumentCacheRow>()
+                protectedUris := new List<string>()
+                for openUri in editorOpenUris.Keys {
+                    protectedUris.Add(openUri)
+                }
+                for entry in lastAccessTimes {
+                    cacheRows.Add(new EditorDocumentCacheRow(entry.Key, entry.Value.Ticks))
+                }
+
+                evicted := EditorDocumentCacheFacts.EvictionUriExcluding(cacheRows, protectedUris)
+                if evicted != null {
+                    evictedState: DocumentState? = null
+                    evictedTime: DateTime = DateTime.MinValue
+                    documents.TryRemove(evicted, out evictedState)
+                    lastAccessTimes.TryRemove(evicted, out evictedTime)
+                    logger.LogInformation("Evicted least recently accessed closed document: {Uri}", evicted)
+                }
+            }
+
+            documents[uri] = state
+            lastAccessTimes[uri] = DateTime.UtcNow
+        }
+    }
+
+    // Whether the incremental project snapshot owns this buffer. Excluded project files and loose
+    // files retain the established single-document analysis path.
+    func CanUseIncrementalProjectSnapshot(uri: string): bool {
+        filePath := EditorWorkspaceFacts.UriToFilePath(uri)
+        workspaceRoot := EditorWorkspaceFacts.ContainingWorkspaceRoot(filePath, workspaceRoots.Keys)
+        if workspaceRoot != null {
+            return true
+        }
+
+        projectRoot := EditorWorkspaceFacts.FindProjectRoot(filePath)
+        projectFile := Path.Combine(projectRoot, "project.yml")
+        if !File.Exists(projectFile) {
+            return false
+        }
+
+        try {
+            sourcePaths := ProjectSourcePathsFor(projectRoot, ProjectConfigFileStamp(projectFile), false)
+            return sourcePaths.Contains(Path.GetFullPath(filePath))
+        } catch sourcePathFailure: Exception {
+            return false
+        }
+    }
+
+    // Store a project buffer without running either the per-document Analyzer or a redundant parse.
+    // The incremental compiler owns parsing and binding; its resulting AST then hydrates the editor
+    // state before diagnostics are published.
+    private func updateDocumentTextBuffer(uri: string, text: string, version: int): void {
+        try {
+            filePath := EditorWorkspaceFacts.UriToFilePath(uri)
+            if shouldInvalidateProjectSnapshot(uri, filePath, text) {
+                invalidateProjectSnapshot(filePath)
+            }
+
+            storeDocument(uri, new DocumentState(uri, text, version))
+            logger.LogDebug("Queued project document version {Version} for incremental analysis: {Uri}", version, uri)
+        } catch updateFailure: Exception {
+            logger.LogError(updateFailure, "Error updating document buffer: {Uri}", uri)
+            failed := new DocumentState(uri, text, version)
+            failedDiagnostics := new List<CompilerError>()
+            failedDiagnostics.Add(CompilerError.Create(
+                ErrorCode.InvalidSyntax,
+                "Internal error: " + updateFailure.Message,
+                1,
+                1,
+                ErrorSeverity.Error
+            ))
+            failed.Diagnostics = failedDiagnostics
+            storeDocument(uri, failed)
         }
     }
 
@@ -546,6 +639,17 @@ class DocumentManager {
 
         binding := SynchronizedProjectSnapshot(uri)
         if binding == null {
+            if doc.Tokens == null {
+                UpdateDocument(uri, doc.Text, doc.Version)
+                refreshedDoc := GetDocument(uri)
+                if refreshedDoc == null {
+                    return new List<DocumentDiagnosticsPublication>()
+                }
+                fallback := new List<DocumentDiagnosticsPublication>()
+                fallback.Add(buildPublicationFromDocument(refreshedDoc))
+                return fallback
+            }
+
             fallback := new List<DocumentDiagnosticsPublication>()
             fallback.Add(buildPublicationFromDocument(doc))
             return fallback
@@ -555,6 +659,7 @@ class DocumentManager {
         snapshot := binding.Snapshot
 
         openDocsInProject := documents.Values.Where(d => EditorWorkspaceFacts.IsPathUnderProject(EditorWorkspaceFacts.UriToFilePath(d.Uri), projectRoot)).OrderBy(d => d.Uri, StringComparer.Ordinal).ToList()
+        openDocsInProject = openDocsInProject.OrderBy(d => d.Uri == doc.Uri ? 0 : 1).ThenBy(d => d.Uri, StringComparer.Ordinal).ToList()
 
         publications := new List<DocumentDiagnosticsPublication>(openDocsInProject.Count)
         for openDoc in openDocsInProject {
@@ -592,6 +697,7 @@ class DocumentManager {
 
         RefreshStaleReferences()
 
+        sourceInputTimer := Stopwatch.StartNew()
         projectFile := Path.Combine(projectRoot, "project.yml")
         projectConfigFileStamp := ProjectConfigFileStamp(projectFile)
         projectSourcePaths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -612,10 +718,12 @@ class DocumentManager {
             logProjectSnapshotDegraded(EditorWorkspaceFacts.NoSourceFilesRefusal(projectRoot))
             return null
         }
+        sourceInputsMs := sourceInputTimer.ElapsedMilliseconds
 
         lock projectSnapshotLock {
             cached: CachedProjectSnapshot? = null
             if projectSnapshots.TryGetValue(projectRoot, out cached) && cached.ProjectConfigFileStamp == projectConfigFileStamp && EditorDocumentCacheFacts.SnapshotCacheHit(cached.Stamp, stamp) {
+                logger.LogInformation("LSP structural counters: projectSnapshotsBuilt=0 filesParsed=0 filesReanalyzed=0 filesReused=0")
                 return new ProjectSnapshotBinding(projectRoot, filePath, cached.Snapshot)
             }
 
@@ -625,7 +733,54 @@ class DocumentManager {
                     projectConfig = ResolvedProjectConfig(projectRoot)
                 }
 
-                loaded := codeIntelligenceService.LoadProject(projectRoot, projectConfig, sourceTextOverrides)
+                effectiveProjectConfig := projectConfig ?? ProjectFileParser.ParseFromDirectoryOrDefault(projectRoot)
+                sourceFiles := new List<string>()
+                for sourcePath in projectSourcePaths {
+                    sourceFiles.Add(sourcePath)
+                }
+                sourceFiles.Sort(StringComparer.OrdinalIgnoreCase)
+
+                session: IncrementalProjectSession? = null
+                if !incrementalProjectSessions.TryGetValue(projectRoot, out session) || session == null {
+                    created := new IncrementalProjectSession(projectRoot, "NSharpLang.LanguageServer")
+                    incrementalProjectSessions[projectRoot] = created
+                    session = created
+                }
+
+                activeSession := session ?? throw new InvalidOperationException("Incremental project session was not created.")
+                phaseTimer := Stopwatch.StartNew()
+                activeSession.Analyze(effectiveProjectConfig, sourceFiles, sourceTextOverrides, true)
+                sessionAnalyzeMs := phaseTimer.ElapsedMilliseconds
+                phaseTimer.Restart()
+                loaded := activeSession.Snapshot()
+                if loaded == null {
+                    throw new InvalidOperationException("Incremental project analysis did not produce a semantic snapshot.")
+                }
+                projectSnapshotMs := phaseTimer.ElapsedMilliseconds
+                phaseTimer.Restart()
+                updateOpenDocumentSemanticState(activeSession, loaded)
+                documentHydrationMs := phaseTimer.ElapsedMilliseconds
+                logger.LogInformation(
+                    "LSP structural counters: projectSnapshotsBuilt={ProjectSnapshotsBuilt} filesParsed={FilesParsed} filesReanalyzed={FilesReanalyzed} filesReused={FilesReused}",
+                    1,
+                    activeSession.State.LastFilesParsed,
+                    activeSession.State.LastFilesAnalyzed,
+                    activeSession.State.LastFilesReused
+                )
+                logger.LogDebug(
+                    "LSP phase timings: sourceInputsMs={SourceInputsMs} sessionAnalyzeMs={SessionAnalyzeMs} planMs={PlanMs} parseMs={ParseMs} importGraphMs={ImportGraphMs} fileAnalysisMs={FileAnalysisMs} fileAnalyzerMs={FileAnalyzerMs} projectMergeMs={ProjectMergeMs} systemsPolicyMs={SystemsPolicyMs} projectSnapshotMs={ProjectSnapshotMs} documentHydrationMs={DocumentHydrationMs}",
+                    sourceInputsMs,
+                    sessionAnalyzeMs,
+                    activeSession.State.LastPlanMilliseconds,
+                    activeSession.State.LastParseMilliseconds,
+                    activeSession.State.LastImportGraphMilliseconds,
+                    activeSession.State.LastFileAnalysisMilliseconds,
+                    activeSession.State.LastFileAnalyzerMilliseconds,
+                    activeSession.State.LastProjectMergeMilliseconds,
+                    activeSession.State.LastSystemsPolicyMilliseconds,
+                    projectSnapshotMs,
+                    documentHydrationMs
+                )
                 loadedStampOverrides := buildSnapshotStampSourceTextOverrides(sourceTextOverrides, projectSourcePaths)
                 loadedStamp := EditorWorkspaceFacts.ProjectSnapshotStamp(projectRoot, loadedStampOverrides)
                 projectSnapshots[projectRoot] = new CachedProjectSnapshot(loadedStamp ?? stamp, projectConfigFileStamp, loaded)
@@ -638,6 +793,46 @@ class DocumentManager {
             } catch loadFailure: Exception {
                 logProjectSnapshotDegradedWith(EditorWorkspaceFacts.LoadFailedRefusal(projectRoot, loadFailure.Message), loadFailure)
                 return null
+            }
+        }
+    }
+
+    // Bring the currently tracked document states into line with the same incremental compilation
+    // snapshot used for diagnostics and project queries. Per-file bindings stay with the session's
+    // IncrementalFileRecord; the public snapshot carries the merged project index.
+    func updateOpenDocumentSemanticState(session: IncrementalProjectSession, snapshot: ProjectSnapshot): void {
+        for document in documents.Values {
+            filePath := Path.GetFullPath(EditorWorkspaceFacts.UriToFilePath(document.Uri))
+            unit: NSharpLang.Compiler.Ast.CompilationUnit? = null
+            if snapshot.CompilationUnits.TryGetValue(filePath, out unit) {
+                document.CompilationUnit = unit
+            }
+
+            semanticModel: SemanticModel? = null
+            if snapshot.SemanticModels.TryGetValue(filePath, out semanticModel) {
+                document.SemanticModel = semanticModel
+            }
+
+            fileRecord: IncrementalFileRecord? = null
+            if session.State.Files.TryGetValue(filePath, out fileRecord) && fileRecord != null {
+                document.Bindings = fileRecord.Bindings
+            }
+
+            if document.Tokens == null {
+                lexer := new Lexer(document.Text, filePath)
+                document.Tokens = lexer.Tokenize()
+                document.Comments = lexer.Comments
+                document.Diagnostics = EditorWorkspaceFacts.DiagnosticsForFile(snapshot.AllErrors, snapshot.ProjectRoot, filePath)
+
+                hydratedUnit := document.CompilationUnit
+                if hydratedUnit != null {
+                    projectDir := Path.GetDirectoryName(filePath) ?? snapshot.ProjectRoot
+                    linter := new Linter(LinterConfig.FromEditorConfig(projectDir))
+                    document.LinterDiagnostics = linter.Lint(hydratedUnit, filePath, document.Text)
+                    document.Symbols = EditorSymbolTableFacts.TypeCatalog(hydratedUnit)
+                    document.SymbolsInfo = toSymbolsInfo(EditorSymbolTableFacts.SymbolInfoRows(hydratedUnit, document.Text))
+                    document.SymbolLocations = toSymbolLocations(EditorSymbolTableFacts.SymbolLocationRows(hydratedUnit, document.Text), document.Uri)
+                }
             }
         }
     }

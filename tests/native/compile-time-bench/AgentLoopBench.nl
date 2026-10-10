@@ -1039,19 +1039,24 @@ func AgentLoopMeasureStructuralRows(
     return rows
 }
 
-// Language Server structure is read from the real server's debug log. The project snapshot load
-// message is emitted only when DocumentManager.LoadProject rebuilds that project-wide model;
-// documentsUpdated and diagnosticsPublished describe the notification's own work. The unchanged
-// didOpen row must have zero projectSnapshotBuilds on the large fixture.
+// Language Server structure is read from the real server's log. The incremental counters report
+// actual source-file parse passes, semantic analyses and reused analyses; the other counters track
+// snapshot builds and target-document protocol activity. Unchanged didOpen must reuse the session.
 class AgentLoopLspCounters {
     ProjectSnapshotsBuilt: long
     DocumentsUpdated: long
     DiagnosticsPublished: long
+    FilesParsed: long
+    FilesReanalyzed: long
+    FilesReused: long
 
-    constructor(projectSnapshotsBuilt: long, documentsUpdated: long, diagnosticsPublished: long) {
+    constructor(projectSnapshotsBuilt: long, documentsUpdated: long, diagnosticsPublished: long, filesParsed: long, filesReanalyzed: long, filesReused: long) {
         ProjectSnapshotsBuilt = projectSnapshotsBuilt
         DocumentsUpdated = documentsUpdated
         DiagnosticsPublished = diagnosticsPublished
+        FilesParsed = filesParsed
+        FilesReanalyzed = filesReanalyzed
+        FilesReused = filesReused
     }
 }
 
@@ -1081,24 +1086,36 @@ func AgentLoopLspCountersFromElement(element: JsonElement): AgentLoopLspCounters
     return new AgentLoopLspCounters(
         AgentLoopJsonLong(element, "projectSnapshotsBuilt"),
         AgentLoopJsonLong(element, "documentsUpdated"),
-        AgentLoopJsonLong(element, "diagnosticsPublished")
+        AgentLoopJsonLong(element, "diagnosticsPublished"),
+        AgentLoopJsonLong(element, "filesParsed"),
+        AgentLoopJsonLong(element, "filesReanalyzed"),
+        AgentLoopJsonLong(element, "filesReused")
     )
 }
 
 func AgentLoopLspCountersEqual(left: AgentLoopLspCounters, right: AgentLoopLspCounters): bool {
-    return left.ProjectSnapshotsBuilt == right.ProjectSnapshotsBuilt && left.DocumentsUpdated == right.DocumentsUpdated && left.DiagnosticsPublished == right.DiagnosticsPublished
+    return left.ProjectSnapshotsBuilt == right.ProjectSnapshotsBuilt && left.DocumentsUpdated == right.DocumentsUpdated && left.DiagnosticsPublished == right.DiagnosticsPublished && left.FilesParsed == right.FilesParsed && left.FilesReanalyzed == right.FilesReanalyzed && left.FilesReused == right.FilesReused
 }
 
 func AgentLoopLspCountersMeasured(counters: AgentLoopLspCounters?): bool {
     if counters == null {
         return false
     }
-    value := counters ?? new AgentLoopLspCounters(-1, -1, -1)
+    value := counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)
     return value.ProjectSnapshotsBuilt >= 0 && value.DocumentsUpdated >= 0 && value.DiagnosticsPublished >= 0
 }
 
+func AgentLoopLspCountersFullyMeasured(counters: AgentLoopLspCounters?): bool {
+    if !AgentLoopLspCountersMeasured(counters) {
+        return false
+    }
+
+    value := counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)
+    return value.FilesParsed >= 0 && value.FilesReanalyzed >= 0 && value.FilesReused >= 0
+}
+
 func AgentLoopLspCountersText(counters: AgentLoopLspCounters): string {
-    return "projectSnapshotsBuilt=" + BenchLongText(counters.ProjectSnapshotsBuilt) + " documentsUpdated=" + BenchLongText(counters.DocumentsUpdated) + " diagnosticsPublished=" + BenchLongText(counters.DiagnosticsPublished)
+    return "projectSnapshotsBuilt=" + BenchLongText(counters.ProjectSnapshotsBuilt) + " documentsUpdated=" + BenchLongText(counters.DocumentsUpdated) + " diagnosticsPublished=" + BenchLongText(counters.DiagnosticsPublished) + " filesParsed=" + BenchLongText(counters.FilesParsed) + " filesReanalyzed=" + BenchLongText(counters.FilesReanalyzed) + " filesReused=" + BenchLongText(counters.FilesReused)
 }
 
 func AgentLoopLspOperations(): List<string> {
@@ -1129,7 +1146,7 @@ func AgentLoopParseLspResult(json: string, size: string, sourceLines: long, pair
     try {
         document := JsonDocument.Parse(json)
         root := document.RootElement
-        if (root.GetProperty("schema").GetString() ?? "") != "nsharp.agent-loop-lsp" || root.GetProperty("schemaVersion").GetInt32() != 1 {
+        if (root.GetProperty("schema").GetString() ?? "") != "nsharp.agent-loop-lsp" || root.GetProperty("schemaVersion").GetInt32() != 2 {
             document.Dispose()
             return "LSP driver returned an unknown schema"
         }
@@ -1155,7 +1172,7 @@ func AgentLoopParseLspResult(json: string, size: string, sourceLines: long, pair
             while sampleIndex < headSamples.GetArrayLength() {
                 headSample := headSamples[sampleIndex]
                 headWall[sampleIndex] = headSample.GetProperty("wallMs").GetInt64()
-                if !AgentLoopLspCountersEqual(counters, AgentLoopLspCountersFromElement(headSample.GetProperty("counters"))) {
+            if !AgentLoopLspCountersFullyMeasured(AgentLoopLspCountersFromElement(headSample.GetProperty("counters"))) || !AgentLoopLspCountersEqual(counters, AgentLoopLspCountersFromElement(headSample.GetProperty("counters"))) {
                     observed.CountersStable = false
                 }
                 sampleIndex = sampleIndex + 1
@@ -1187,7 +1204,7 @@ func AgentLoopParseLspResult(json: string, size: string, sourceLines: long, pair
                     }
                     if sampleIndex == 0 {
                         baseCounterReference = baseCounters
-                    } else if baseCounterReference == null || !AgentLoopLspCountersEqual(baseCounterReference ?? new AgentLoopLspCounters(-1, -1, -1), baseCounters) {
+                    } else if baseCounterReference == null || !AgentLoopLspCountersEqual(baseCounterReference ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1), baseCounters) {
                         observed.CountersStable = false
                     }
                     sampleIndex = sampleIndex + 1
@@ -1301,7 +1318,7 @@ func AgentLoopLspCounterFailure(baseline: AgentLoopBaseline, observed: List<Agen
 
         if row.Failure != "" {
             failures.Add(row.Size + " / " + row.Scenario + ": " + row.Failure)
-        } else if !row.CountersStable || row.Counters == null {
+        } else if !row.CountersStable || !AgentLoopLspCountersFullyMeasured(row.Counters) {
             failures.Add(row.Size + " / " + row.Scenario + ": structural counters missing or varied between samples")
         } else if expected == null {
             failures.Add(row.Size + " / " + row.Scenario + ": has no committed LSP counter row")
@@ -1309,8 +1326,8 @@ func AgentLoopLspCounterFailure(baseline: AgentLoopBaseline, observed: List<Agen
             current := expected ?? row
             expectedCounters := current.Counters
             observedCounters := row.Counters
-            if expectedCounters == null || observedCounters == null || !AgentLoopLspCountersEqual(expectedCounters ?? new AgentLoopLspCounters(-1, -1, -1), observedCounters ?? new AgentLoopLspCounters(-1, -1, -1)) {
-                failures.Add(row.Size + " / " + row.Scenario + ": structural counters differ; expected " + AgentLoopLspCountersText(expectedCounters ?? new AgentLoopLspCounters(-1, -1, -1)) + ", observed " + AgentLoopLspCountersText(observedCounters ?? new AgentLoopLspCounters(-1, -1, -1)))
+            if expectedCounters == null || observedCounters == null || !AgentLoopLspCountersEqual(expectedCounters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1), observedCounters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)) {
+                failures.Add(row.Size + " / " + row.Scenario + ": structural counters differ; expected " + AgentLoopLspCountersText(expectedCounters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)) + ", observed " + AgentLoopLspCountersText(observedCounters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)))
             }
         }
         i = i + 1
@@ -1879,8 +1896,8 @@ func AgentLoopBaselineJson(baseline: AgentLoopBaseline): string {
     i = 0
     while i < baseline.LspRows.Count {
         row := baseline.LspRows[i]
-        counters := row.Counters ?? new AgentLoopLspCounters(-1, -1, -1)
-        builder.Append("    {\"size\": " + AgentLoopJsonString(row.Size) + ", \"scenario\": " + AgentLoopJsonString(row.Scenario) + ", \"sourceLines\": " + BenchLongText(row.SourceLines) + ", \"exitCode\": 0, \"counters\": {\"projectSnapshotsBuilt\": " + BenchLongText(counters.ProjectSnapshotsBuilt) + ", \"documentsUpdated\": " + BenchLongText(counters.DocumentsUpdated) + ", \"diagnosticsPublished\": " + BenchLongText(counters.DiagnosticsPublished) + "}}")
+        counters := row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)
+        builder.Append("    {\"size\": " + AgentLoopJsonString(row.Size) + ", \"scenario\": " + AgentLoopJsonString(row.Scenario) + ", \"sourceLines\": " + BenchLongText(row.SourceLines) + ", \"exitCode\": 0, \"counters\": {\"projectSnapshotsBuilt\": " + BenchLongText(counters.ProjectSnapshotsBuilt) + ", \"documentsUpdated\": " + BenchLongText(counters.DocumentsUpdated) + ", \"diagnosticsPublished\": " + BenchLongText(counters.DiagnosticsPublished) + ", \"filesParsed\": " + BenchLongText(counters.FilesParsed) + ", \"filesReanalyzed\": " + BenchLongText(counters.FilesReanalyzed) + ", \"filesReused\": " + BenchLongText(counters.FilesReused) + "}}")
         if i + 1 < baseline.LspRows.Count {
             builder.Append(",")
         }
@@ -1892,7 +1909,7 @@ func AgentLoopBaselineJson(baseline: AgentLoopBaseline): string {
 }
 
 func AgentLoopBaselinePolicy(): string {
-    return "CompilerWorkCounters and real-stdio Language Server project-snapshot counters are gated exactly: decreases are ratcheted into this file in the same commit; increases are regressions to fix. The unchanged didOpen row requires zero project snapshot rebuilds. Absolute wall, CPU and RSS values are run artifacts only."
+    return "CompilerWorkCounters and real-stdio Language Server parse, analysis, reuse, snapshot and target-URI counters are gated exactly: decreases are ratcheted into this file in the same commit; increases are regressions to fix. The unchanged didOpen row requires zero project snapshot rebuilds. Absolute wall, CPU and RSS values are run artifacts only."
 }
 
 func AgentLoopParseBaseline(json: string): AgentLoopBaseline {
@@ -1938,8 +1955,8 @@ func AgentLoopParseBaseline(json: string): AgentLoopBaseline {
 
 // `""` when the baseline can be gated against; the reason otherwise.
 func AgentLoopBaselineRefusal(baseline: AgentLoopBaseline): string {
-    if baseline.SchemaVersion != 3 {
-        return "agent-loop baseline schemaVersion " + BenchIntText(baseline.SchemaVersion) + " is not the supported structural schema version 3"
+    if baseline.SchemaVersion != 4 {
+        return "agent-loop baseline schemaVersion " + BenchIntText(baseline.SchemaVersion) + " is not the supported structural schema version 4"
     }
 
     if baseline.Rows.Count == 0 {
@@ -1993,10 +2010,10 @@ func AgentLoopBaselineRefusal(baseline: AgentLoopBaseline): string {
             for row in baseline.LspRows {
                 if row.Size == lspSizes[i] && row.Scenario == lspOperations[j] {
                     found = true
-                    if !AgentLoopLspCountersMeasured(row.Counters) {
+                    if !AgentLoopLspCountersFullyMeasured(row.Counters) {
                         return "agent-loop baseline LSP row " + row.Size + " / " + row.Scenario + " has no measured counters"
                     }
-                    if row.Size == "large" && row.Scenario == "LSP unchanged didOpen" && (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1)).ProjectSnapshotsBuilt != 0 {
+                    if row.Size == "large" && row.Scenario == "LSP unchanged didOpen" && (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)).ProjectSnapshotsBuilt != 0 {
                         return "agent-loop baseline LSP unchanged didOpen row for the large project records a project snapshot rebuild"
                     }
                     break
@@ -2039,7 +2056,7 @@ func AgentLoopLspUnbaselinableRows(rows: List<AgentLoopLspRow>): List<string> {
         key := row.Size + " / " + row.Scenario
         if row.Failure != "" {
             refusals.Add(key + ": " + row.Failure)
-        } else if !row.CountersStable || !AgentLoopLspCountersMeasured(row.Counters) {
+        } else if !row.CountersStable || !AgentLoopLspCountersFullyMeasured(row.Counters) {
             refusals.Add(key + ": counters missing or different between identical samples")
         }
     }
@@ -2169,9 +2186,9 @@ func AgentLoopRatchetLspCounters(baseline: AgentLoopBaseline, observed: List<Age
         } else if expected == null {
             refusals.Add(key + ": not ratcheted - no baseline row; use --write-baseline for a new row")
         } else {
-            current := (expected ?? row).Counters ?? new AgentLoopLspCounters(-1, -1, -1)
-            next := row.Counters ?? new AgentLoopLspCounters(-1, -1, -1)
-            if next.ProjectSnapshotsBuilt <= current.ProjectSnapshotsBuilt && next.DocumentsUpdated <= current.DocumentsUpdated && next.DiagnosticsPublished <= current.DiagnosticsPublished {
+            current := (expected ?? row).Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)
+            next := row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)
+            if next.ProjectSnapshotsBuilt <= current.ProjectSnapshotsBuilt && next.DocumentsUpdated <= current.DocumentsUpdated && next.DiagnosticsPublished <= current.DiagnosticsPublished && next.FilesParsed <= current.FilesParsed && next.FilesReanalyzed <= current.FilesReanalyzed && next.FilesReused <= current.FilesReused {
                 (expected ?? row).Counters = next
             } else {
                 refusals.Add(key + ": not ratcheted - structural counters increased from " + AgentLoopLspCountersText(current) + " to " + AgentLoopLspCountersText(next))
@@ -2246,8 +2263,8 @@ func AgentLoopRenderLspTable(rows: List<AgentLoopLspRow>, compare: List<AgentLoo
         BenchAppendLine(builder, "Parenthesised values are " + compareLabel + "; a cell without one is unchanged.")
         BenchAppendLine(builder, "")
     }
-    BenchAppendLine(builder, "| size | lines | operation | samples | wall ms | project snapshots built | documents updated | diagnostics published |")
-    BenchAppendLine(builder, "|---|---:|---|---:|---:|---:|---:|---:|")
+    BenchAppendLine(builder, "| size | lines | operation | samples | wall ms | project snapshots built | documents updated | diagnostics published | files parsed | files reanalyzed | files reused |")
+    BenchAppendLine(builder, "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     i := 0
     while i < rows.Count {
         row := rows[i]
@@ -2263,18 +2280,21 @@ func AgentLoopRenderLspTable(rows: List<AgentLoopLspRow>, compare: List<AgentLoo
             }
         }
 
-        observedCounters := row.Counters ?? new AgentLoopLspCounters(-1, -1, -1)
-        compareCounters := (other ?? row).Counters ?? new AgentLoopLspCounters(-1, -1, -1)
+        observedCounters := row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)
+        compareCounters := (other ?? row).Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)
         builder.Append("| " + row.Size + " | " + BenchLongText(row.SourceLines) + " | " + row.Scenario + " | " + BenchIntText(row.Samples) + " | " + BenchLongText(row.MedianWallMs))
         builder.Append(" | " + AgentLoopCounterCell(observedCounters.ProjectSnapshotsBuilt, compareCounters.ProjectSnapshotsBuilt, other != null))
         builder.Append(" | " + AgentLoopCounterCell(observedCounters.DocumentsUpdated, compareCounters.DocumentsUpdated, other != null))
         builder.Append(" | " + AgentLoopCounterCell(observedCounters.DiagnosticsPublished, compareCounters.DiagnosticsPublished, other != null))
+        builder.Append(" | " + AgentLoopCounterCell(observedCounters.FilesParsed, compareCounters.FilesParsed, other != null))
+        builder.Append(" | " + AgentLoopCounterCell(observedCounters.FilesReanalyzed, compareCounters.FilesReanalyzed, other != null))
+        builder.Append(" | " + AgentLoopCounterCell(observedCounters.FilesReused, compareCounters.FilesReused, other != null))
         BenchAppendLine(builder, " |")
         i = i + 1
     }
 
     BenchAppendLine(builder, "")
-    BenchAppendLine(builder, "`projectSnapshotsBuilt` counts the Language Server's `Loaded semantic project snapshot` debug events. `LSP unchanged didOpen` is required to stay at zero on the large project.")
+    BenchAppendLine(builder, "`filesParsed` counts compiler-side per-source parse passes, `filesReanalyzed` counts per-file semantic binding runs, and `filesReused` counts cached per-file analyses. `projectSnapshotsBuilt` counts rebuilt snapshots from the session marker or snapshot-load log. `LSP unchanged didOpen` is required to stay at zero on the large project.")
     return builder.ToString() ?? ""
 }
 

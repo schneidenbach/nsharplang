@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Concurrent
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Linq
 import System.Threading
@@ -100,11 +101,12 @@ class MultiFileCompiler {
     // The image the last emission produced, whether it was written (`CompileToIlAssembly`) or only
     // validated (`ValidateAnalyzedEmission`); null until an emission succeeds.
     private _emittedImage: byte[]?
+    private _parsedFilesCount: int
     private readonly _debugLoggingEnabled: bool
     private readonly _sourceTextOverrides: IReadOnlyDictionary<string, string>
     private readonly _preprocessorSymbols: IReadOnlySet<string>
     private readonly _sourceTexts: Dictionary<string, string>
-    private readonly _projectBindings: BindingMap
+    private _projectBindings: BindingMap
     private readonly _projectTypeDeclarationFiles: Dictionary<string, string>
     // The parses an analyzer's own parse of the snapshot would reproduce exactly (full path -> parse):
     // files no conditional-compilation directive changed, listed under their full path. Every analyzer
@@ -117,6 +119,7 @@ class MultiFileCompiler {
     private _systemsReport: SystemsReport
     private _aotMode: bool
     private _emitReferenceAssembly: bool
+    private _systemsDiagnosticsOnly: bool
     private _soaEnabled: bool
     private _columnarDeclineLog: TextWriter?
     private readonly _phaseProject: string
@@ -132,6 +135,14 @@ class MultiFileCompiler {
     ProjectIndex: ProjectIndex => new ProjectIndex(_projectBindings, _projectTypeDeclarationFiles)
     PerformanceFacts: PerformanceFactStore => _performanceFacts
     SystemsReport: SystemsReport => _systemsReport
+    SystemsDiagnosticsOnly: bool {
+        get {
+            return _systemsDiagnosticsOnly
+        }
+        set {
+            _systemsDiagnosticsOnly = value
+        }
+    }
 
     // THE FRIEND GRANTS THIS COMPILATION ANALYSED UNDER. `InternalsVisibleToGrants` is deliberately
     // ONE object so that the probe, member resolution, extension discovery, attribute resolution,
@@ -281,6 +292,7 @@ class MultiFileCompiler {
         _systemsReport = MultiFileCompilerSystemsReport.Empty(null)
         _aotMode = false
         _emitReferenceAssembly = false
+        _systemsDiagnosticsOnly = false
         _projectRoot = projectRoot
         _config = config ?? ProjectFileParser.CreateDefault(null)
         _preprocessorSymbols = inputs.PreprocessorSymbols
@@ -305,6 +317,7 @@ class MultiFileCompiler {
         _plannedTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         _analysisCompleted = false
         _emittedImage = null
+        _parsedFilesCount = 0
     }
 
     // The configuration this compiler was built with; the constructor already replaced a missing one
@@ -465,6 +478,8 @@ class MultiFileCompiler {
             if TryReuseParsedFile(sourceFile) {
                 continue
             }
+
+            _parsedFilesCount = _parsedFilesCount + 1
 
             errorsBefore := _allErrors.Count
             AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Parsing {Path.GetFileName(sourceFile)}")
@@ -633,6 +648,7 @@ class MultiFileCompiler {
     // the files before it are merged and the earliest failure is rethrown.
     private func AnalyzeAllFiles(): void {
         analysisMark := CompilerPhaseTimings.Begin(_phaseProject, "analysis")
+        fileAnalysisTimer := Stopwatch.StartNew()
         files := new List<string>(_compilationUnits.Count)
         units := new List<CompilationUnit>(_compilationUnits.Count)
         reused := new List<bool>(_compilationUnits.Count)
@@ -673,6 +689,7 @@ class MultiFileCompiler {
             workerCount = Math.Min(_workers, Math.Max(filesToAnalyze, 1))
         }
         sharedAnalyzer := SharedAnalyzer()
+        analyzerTimer := Stopwatch.StartNew()
         if workerCount <= 1 {
             sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
             sharedAnalyzer.SeedProjectParses(_reusableParses)
@@ -686,9 +703,18 @@ class MultiFileCompiler {
         } else {
             AnalyzeFilesInParallel(sharedAnalyzer, files, units, reused, outcomes, workerCount)
         }
+        analyzerTimer.Stop()
 
+        mergeTimer := Stopwatch.StartNew()
         analyzedFiles := 0
         reusedFiles := 0
+        state := _incrementalState
+        previousProjectBindings: BindingMap? = null
+        useIncrementalProjectBindings := state != null && plan != null && state.LastProjectBindings != null
+        if useIncrementalProjectBindings {
+            previousProjectBindings = state.LastProjectBindings
+        }
+        replacementBindings := new Dictionary<string, BindingMap>(StringComparer.OrdinalIgnoreCase)
         mergeIndex := 0
         while mergeIndex < files.Count {
             outcome := outcomes[mergeIndex]
@@ -697,7 +723,15 @@ class MultiFileCompiler {
                 CompilerPhaseTimings.End(analysisMark)
                 throw failure
             }
-            MergeFileAnalysis(files[mergeIndex], outcome)
+            if !reused[mergeIndex] && useIncrementalProjectBindings {
+                bindings := outcome.Bindings
+                if bindings == null {
+                    bindings = new BindingMap()
+                }
+                replacementBindings[Path.GetFullPath(files[mergeIndex])] = bindings
+            }
+
+            MergeFileAnalysis(files[mergeIndex], outcome, !useIncrementalProjectBindings)
             if reused[mergeIndex] {
                 reusedFiles = reusedFiles + 1
             } else {
@@ -707,11 +741,38 @@ class MultiFileCompiler {
             mergeIndex = mergeIndex + 1
         }
 
+        if useIncrementalProjectBindings {
+            removedFiles := new List<string>()
+            for previousFile in state.Files.Keys {
+                if !plan.Summaries.ContainsKey(previousFile) {
+                    removedFiles.Add(previousFile)
+                }
+            }
+
+            previous := previousProjectBindings
+            if replacementBindings.Count == 0 && removedFiles.Count == 0 {
+                _projectBindings = previous
+            } else {
+                _projectBindings = BindingMap.ReplaceFiles(previous, replacementBindings, removedFiles)
+            }
+        }
+
         CommitIncrementalState(analyzedFiles, reusedFiles)
+        mergeTimer.Stop()
+        timingState: IncrementalCompilationState? = _incrementalState
+        if timingState != null {
+            timingState.LastFileAnalysisMilliseconds = fileAnalysisTimer.ElapsedMilliseconds
+            timingState.LastFileAnalyzerMilliseconds = analyzerTimer.ElapsedMilliseconds
+            timingState.LastProjectMergeMilliseconds = mergeTimer.ElapsedMilliseconds
+        }
         CompilerPhaseTimings.End(analysisMark)
 
         systemsMark := CompilerPhaseTimings.Begin(_phaseProject, "systems-policy")
+        systemsPolicyTimer := Stopwatch.StartNew()
         AnalyzeSystemsPolicy()
+        if timingState != null {
+            timingState.LastSystemsPolicyMilliseconds = systemsPolicyTimer.ElapsedMilliseconds
+        }
         CompilerPhaseTimings.End(systemsMark)
     }
 
@@ -729,7 +790,7 @@ class MultiFileCompiler {
         )
     }
 
-    private func MergeFileAnalysis(sourceFile: string, outcome: MultiFileCompilerFileAnalysis): void {
+    private func MergeFileAnalysis(sourceFile: string, outcome: MultiFileCompilerFileAnalysis, mergeBindings: bool): void {
         // Save semantic model for project-wide analysis and emission.
         semanticModel := outcome.SemanticModel
         if semanticModel != null {
@@ -738,7 +799,7 @@ class MultiFileCompiler {
 
         // Merge binding map for cross-file semantic references
         bindings := outcome.Bindings
-        if bindings != null {
+        if mergeBindings && bindings != null {
             _projectBindings.Merge(bindings)
         }
 
@@ -868,7 +929,7 @@ class MultiFileCompiler {
         // The semantic models from the Analyzer pass drive call-site resolution: systems
         // callee facts bind to the declaration each call resolved to, never to a name match.
         // Files whose analysis failed have no model; their calls are conservatively unknown.
-        _systemsReport = new SystemsAnalyzer(_projectRoot, _config).Analyze(_compilationUnits, _performanceFacts, _semanticModels)
+        _systemsReport = new SystemsAnalyzer(_projectRoot, _config).Analyze(_compilationUnits, _performanceFacts, _semanticModels, _systemsDiagnosticsOnly)
         for finding in _systemsReport.Findings {
             _allErrors.Add(SystemsFindingDiagnostics.ToCompilerError(finding))
         }
@@ -971,12 +1032,25 @@ class MultiFileCompiler {
     // pass itself, which is the same rule it already applied to a file with parse errors.
     private func RunLegacyValidationPipeline(validateStrictLint: bool, out strictLintFailed: bool): void {
         strictLintFailed = false
+        phaseTimer := Stopwatch.StartNew()
         PrepareIncrementalPlan()
+        phaseState: IncrementalCompilationState? = _incrementalState
+        if phaseState != null {
+            phaseState.LastPlanMilliseconds = phaseTimer.ElapsedMilliseconds
+        }
+        phaseTimer.Restart()
         parseMark := CompilerPhaseTimings.Begin(_phaseProject, "parse")
         ParseAllFiles()
+        if phaseState != null {
+            phaseState.LastParseMilliseconds = phaseTimer.ElapsedMilliseconds
+        }
         CompilerPhaseTimings.End(parseMark)
+        phaseTimer.Restart()
         importsMark := CompilerPhaseTimings.Begin(_phaseProject, "import-graph")
         DetectCircularFileImports()
+        if phaseState != null {
+            phaseState.LastImportGraphMilliseconds = phaseTimer.ElapsedMilliseconds
+        }
         CompilerPhaseTimings.End(importsMark)
         AnalyzeAllFiles()
 
@@ -1267,6 +1341,8 @@ class MultiFileCompiler {
         if state == null {
             return
         }
+        _parsedFilesCount = 0
+        state.LastSummaryFilesParsed = 0
         state.LastEmissionReused = false
         state.EmitParses.LastReused = 0
         state.EmitParses.LastParsed = 0
@@ -1357,7 +1433,9 @@ class MultiFileCompiler {
         }
         state.LastFilesAnalyzed = analyzedFiles
         state.LastFilesReused = reusedFiles
+        state.LastFilesParsed = _parsedFilesCount + state.LastSummaryFilesParsed
         state.LastWasFull = reusedFiles == 0
+        state.LastProjectBindings = _projectBindings
         analyzer := _sharedAnalyzerValue
         if analyzer != null && analyzerWasNew {
             capture := new IncrementalBuildInputCapture()

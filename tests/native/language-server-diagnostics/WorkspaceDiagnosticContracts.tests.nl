@@ -15,6 +15,110 @@ test "publishing diagnostics for an unsaved buffer also publishes every other op
             """
 func Main() {
 }
+
+test "a body edit reuses project analyses and parses and reanalyzes only its source file" {
+    root := LscNewWorkspaceRoot()
+    try {
+        LsdWriteFile(root, "project.yml", "name: IncrementalEditor\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        firstPath := Path.Combine(root, "First.nl")
+        secondPath := Path.Combine(root, "Second.nl")
+        firstText := "func First(): int { return 1 }"
+        secondText := "func Second(): int { return First() }"
+        LsdWriteFile(root, "First.nl", firstText)
+        LsdWriteFile(root, "Second.nl", secondText)
+
+        firstUri := LsdFileUri(firstPath)
+        secondUri := LsdFileUri(secondPath)
+        manager := new DocumentManager(NullLogger<DocumentManager>.Instance)
+        manager.MarkEditorOpen(firstUri)
+        manager.MarkEditorOpen(secondUri)
+        manager.UpdateDocument(firstUri, firstText, 1)
+        manager.UpdateDocument(secondUri, secondText, 1)
+        manager.GetDiagnosticsToPublish(firstUri)
+
+        editedText := "func First(): int { return 2 }"
+        manager.UpdateDocumentForChange(firstUri, editedText, 2)
+        publications := manager.GetDiagnosticsToPublish(firstUri)
+        session := manager.incrementalProjectSessions[root]
+
+        assert publications.Count == 2
+        assert publications[0].Uri == firstUri
+        assert session.State.LastFilesParsed == 2, "the changed source is parsed once for interface summary and once for full analysis"
+        assert session.State.LastFilesAnalyzed == 1
+        assert session.State.LastFilesReused == 1
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a signature edit refreshes diagnostics in dependent open files" {
+    root := LscNewWorkspaceRoot()
+    try {
+        LsdWriteFile(root, "project.yml", "name: IncrementalSignature\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        declarationPath := Path.Combine(root, "Declaration.nl")
+        callerPath := Path.Combine(root, "Caller.nl")
+        declarationText := "func Shared(value: int): int { return value }"
+        callerText := "func Caller(): int { return Shared(7) }"
+        LsdWriteFile(root, "Declaration.nl", declarationText)
+        LsdWriteFile(root, "Caller.nl", callerText)
+
+        declarationUri := LsdFileUri(declarationPath)
+        callerUri := LsdFileUri(callerPath)
+        manager := new DocumentManager(NullLogger<DocumentManager>.Instance)
+        manager.MarkEditorOpen(declarationUri)
+        manager.MarkEditorOpen(callerUri)
+        manager.UpdateDocument(declarationUri, declarationText, 1)
+        manager.UpdateDocument(callerUri, callerText, 1)
+        manager.GetDiagnosticsToPublish(declarationUri)
+
+        editedDeclaration := "func Shared(value: string): string { return value }"
+        manager.UpdateDocumentForChange(declarationUri, editedDeclaration, 2)
+        publications := manager.GetDiagnosticsToPublish(declarationUri)
+
+        assert publications.Count == 2
+        assert publications[0].Uri == declarationUri
+        hasCallerDiagnostic := false
+        for publication in publications {
+            if publication.Uri == callerUri {
+                hasCallerDiagnostic = publication.CompilerDiagnostics.Count > 0
+            }
+        }
+        assert hasCallerDiagnostic, "a dependent call must be diagnosed after its target signature changes"
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a body edit refreshes systems diagnostics for hot functions in the fast editor path" {
+    root := LscNewWorkspaceRoot()
+    try {
+        LsdWriteFile(root, "project.yml", "name: IncrementalSystemsEditor\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        sourcePath := Path.Combine(root, "Hot.nl")
+        initialText := "[hot]\nfunc HotWork(): int { return 1 }"
+        LsdWriteFile(root, "Hot.nl", initialText)
+
+        uri := LsdFileUri(sourcePath)
+        manager := new DocumentManager(NullLogger<DocumentManager>.Instance)
+        manager.MarkEditorOpen(uri)
+        manager.UpdateDocument(uri, initialText, 1)
+        initialPublications := manager.GetDiagnosticsToPublish(uri)
+        assert initialPublications[0].CompilerDiagnostics.Count == 0
+
+        editedText := "[hot]\nfunc HotWork(): int { try { return 2 } catch { return 3 } }"
+        manager.UpdateDocumentForChange(uri, editedText, 2)
+        publications := manager.GetDiagnosticsToPublish(uri)
+
+        hasHotSystemsDiagnostic := false
+        for diagnostic in publications[0].CompilerDiagnostics {
+            if diagnostic.DiagnosticId == "NSYS120" {
+                hasHotSystemsDiagnostic = true
+            }
+        }
+        assert hasHotSystemsDiagnostic, "the edited hot function's systems policy diagnostic must be refreshed"
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
 """
         )
         dirtyProgramText := LsdDecodedSource(
