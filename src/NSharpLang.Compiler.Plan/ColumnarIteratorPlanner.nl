@@ -1687,8 +1687,9 @@ class ColumnarIteratorPlanner {
     // assignment to a binding, the operand of a `yield`. These are the positions where an `await` can
     // be the WHOLE value, and therefore the positions where a suspension point has somewhere to put
     // its result: the awaited value lands in the storage the statement already names, so the
-    // suspension needs no spill slot of its own. An `await` nested inside a larger expression does
-    // need one, and declines with that reason rather than silently losing its result.
+    // suspension needs no spill slot of its own. When an `await` is nested inside a larger expression,
+    // the walk reserves spill fields for earlier values that must survive the suspension; the value
+    // emitter fills and reloads those fields in written evaluation order.
     static func WalkBoundValue(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
         if nodes.Kind(node) == ColumnarExpressionNodeKind.AwaitExpression {
             if !state.IsAsync {
@@ -3374,8 +3375,7 @@ class ColumnarIteratorBodyPlanner {
         }
         // AN `on` SUBSCRIPTION IS THE GENERATOR'S OWN SHAPE, for the same reason a lambda is: the rows
         // it needs — a delegate built over a method the machine itself carries, and a `ldvirtftn` over
-        // the receiver — are plan rows this owner appends, and the ONE expression door declines node
-        // kind 79 wherever it is asked.
+        // the receiver — are appended directly here instead of delegated to the ordinary value owner.
         if nodes.Kind(node) == ColumnarExpressionNodeKind.OnSubscriptionExpression {
             return AppendOnSubscription(emit, node, out resultType)
         }
@@ -5972,20 +5972,59 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
             return false
         }
-        // The direct iterator catch path has no async-handler dispatch around it yet, so a filter
-        // still declines here rather than being dropped. The hoisted-awaiting-catch path above uses
-        // real CLR filter regions. Silently omitting a guard would run the handler for exceptions it
-        // rejects, which is a different program.
-        if ColumnarCatchClauseFacts.HasFilter(nodes, clause) {
-            emit.Context.Decline("emit.iterator.catch-filter", "a catch filter is not supported in an iterator or async body yet")
-            return false
-        }
         name := ColumnarIteratorPlanner.CatchBindingName(nodes, emit.Context.Source, clause, ordinal)
         field := emit.Context.FieldForName(name)
         exceptionType := field.FieldType
         typeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(exceptionType), emit.Context.StructuralTypeReferences)
-        emit.Plan.AppendBeginCatchBlock(typeIdx)
+        bindingNode := ColumnarCatchClauseFacts.BindingNode(nodes, clause)
+        filterGuard := ColumnarCatchClauseFacts.FilterGuard(nodes, clause)
+        if filterGuard >= 0 {
+            // A filter is a CLR first-pass region. Keep it on the source exception region so it
+            // runs before any nested finally has unwound, and let the runtime treat an exception
+            // from the filter as false. The handler then receives the exception a second time.
+            emit.Plan.AppendBeginExceptFilterBlock()
+            emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Isinst(), typeIdx)
+            matched := emit.Plan.DefineLabel()
+            verdict := emit.Plan.DefineLabel()
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), matched)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+            EmitInt(emit, 0)
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), verdict)
+            emit.Plan.AppendMarkLabel(matched)
+            if bindingNode >= 0 {
+                filterException := emit.Plan.DeclarePlanLocal(typeIdx)
+                emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), filterException)
+                LoadThis(emit)
+                emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), filterException)
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(field))
+            } else {
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+            }
+
+            scope := emit.Context.RequiredScope()
+            filterMark := scope.EnterBindingScope()
+            if bindingNode >= 0 {
+                scope.HideEnclosingMember(name)
+            }
+            guardType := typeof(int)
+            guardEmitted := scope.TryAppendValue(nodes, emit.Context.Source, filterGuard, emit.Plan, out guardType) && guardType == typeof(bool)
+            scope.ExitBindingScope(filterMark)
+            if !guardEmitted {
+                emit.Context.Decline("emit.iterator.catch-filter", "a catch filter could not be emitted as a bool")
+                return false
+            }
+            emit.Plan.AppendMarkLabel(verdict)
+            emit.Plan.AppendBeginFilteredCatchBlock()
+        } else {
+            emit.Plan.AppendBeginCatchBlock(typeIdx)
+        }
         caught := emit.Plan.DeclarePlanLocal(typeIdx)
+        if filterGuard >= 0 {
+            // BeginCatchBlock(null) has an object-typed handler stack in Reflection.Emit's plan
+            // verifier. Narrow it back to the clause type before storing the state-machine field.
+            emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Castclass(), typeIdx)
+        }
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), caught)
         LoadThis(emit)
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caught)

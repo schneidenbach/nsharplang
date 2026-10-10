@@ -1844,11 +1844,11 @@ suspension inside a surrounding `try`/`finally`, which runs that outer `finally`
 `DisposeAsync()` while `MoveNextAsync()` is still pending at an `await` is unsupported and throws
 `NotSupportedException`, matching C# async iterators.
 
-Catch filters (`catch error: Error when condition`) are supported in ordinary async methods and in
-async iterators with an awaiting catch body. They run before nested `finally` blocks, as in the
-filter example in [Error Handling](./language-tour.md#exception-filters--catch--when). The filter
-expression must stay synchronous; `await` there reports [`NL352`](./errors/NL352.md). A filtered
-catch in an async iterator with no awaiting catch body is not yet lowered.
+Catch filters (`catch error: Error when condition`) are supported in ordinary async methods,
+synchronous iterators, and async iterators, whether or not the selected catch body awaits. They run
+before nested `finally` blocks, as in the filter example in
+[Error Handling](./language-tour.md#exception-filters--catch--when). The filter expression must stay
+synchronous; `await` there reports [`NL352`](./errors/NL352.md).
 
 An iterator cannot use `return value`; use `yield value` to produce an element, or a bare `return` /
 `yield break` to stop ([NL350](./errors/NL350.md)).

@@ -920,8 +920,10 @@ try {
 A guard must be a `bool` — anything else is [`NL505`](./errors/NL505.md), the same code a match
 guard answers to. Filters run synchronously during the CLR's first exception pass; `await` is not
 allowed in the filter itself and reports [`NL352`](./errors/NL352.md). Filters are supported in
-ordinary async methods and in async iterators whose catch bodies use `await` (the hoisted awaiting
-catch path). A filtered catch in an iterator without an awaiting catch body is not yet lowered.
+ordinary async methods, synchronous iterators, and async iterators, including both catch bodies that
+await and catch bodies that remain synchronous. In iterators, filters retain first-pass ordering:
+they run before nested `finally` blocks, and a filter that returns `false` or throws lets the
+exception continue to the next clause or caller.
 
 ### Re-throwing
 

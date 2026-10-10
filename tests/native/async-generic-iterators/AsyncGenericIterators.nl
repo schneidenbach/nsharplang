@@ -19,6 +19,11 @@ func ThrowingFilter(events: List<int>, marker: int): bool {
     throw new InvalidOperationException()
 }
 
+func FilterOnException(events: List<int>, marker: int, result: bool, failure: InvalidOperationException): bool {
+    events.Add(marker)
+    return result && failure.Message == "boom"
+}
+
 func JoinValues(left: int, right: int): int {
     return left * 10 + right
 }
@@ -167,6 +172,43 @@ async func* AwaitCatchFiltersRejected(events: List<int>): IAsyncEnumerable<int> 
         events.Add(27)
     }
     yield break
+}
+
+func* SyncCatchFiltersWithoutAwait(events: List<int>, accept: bool): IEnumerable<int> {
+    try {
+        try {
+            events.Add(1)
+            throw new InvalidOperationException("boom")
+        } finally {
+            events.Add(4)
+        }
+    } catch first: InvalidOperationException when FilterOnException(events, 2, false, first) {
+        events.Add(30)
+    } catch second: InvalidOperationException when ThrowingFilter(events, 3) {
+        events.Add(31)
+    } catch third: InvalidOperationException when FilterOnException(events, 5, accept, third) {
+        events.Add(6)
+    }
+    yield 8
+}
+
+async func* AsyncCatchFiltersWithoutAwait(events: List<int>, accept: bool): IAsyncEnumerable<int> {
+    await Task.Delay(1)
+    try {
+        try {
+            events.Add(11)
+            throw new InvalidOperationException("boom")
+        } finally {
+            events.Add(14)
+        }
+    } catch first: InvalidOperationException when FilterOnException(events, 12, false, first) {
+        events.Add(40)
+    } catch second: InvalidOperationException when ThrowingFilter(events, 13) {
+        events.Add(41)
+    } catch third: InvalidOperationException when FilterOnException(events, 15, accept, third) {
+        events.Add(16)
+    }
+    yield 18
 }
 
 async func* AwaitCatchAndFinallyCaught(events: List<int>): IAsyncEnumerable<int> {
@@ -339,6 +381,26 @@ async func OrdinaryAwaitCatchFilters(events: List<int>): Task<int> {
         events.Add(52)
     }
     return 53
+}
+
+async func OrdinaryCatchFiltersWithoutAwait(events: List<int>, accept: bool): Task<int> {
+    result := 29
+    try {
+        try {
+            events.Add(21)
+            throw new InvalidOperationException("boom")
+        } finally {
+            events.Add(24)
+        }
+    } catch first: InvalidOperationException when FilterOnException(events, 22, false, first) {
+        events.Add(50)
+    } catch second: InvalidOperationException when ThrowingFilter(events, 23) {
+        events.Add(51)
+    } catch third: InvalidOperationException when FilterOnException(events, 25, accept, third) {
+        events.Add(26)
+        result = 28
+    }
+    return await Task.FromResult(result)
 }
 
 async func OrdinaryAwaitCatchAndFinallyRethrown(events: List<int>): Task {

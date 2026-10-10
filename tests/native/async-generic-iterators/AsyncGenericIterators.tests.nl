@@ -237,6 +237,74 @@ test "false and throwing async iterator filters propagate through the awaited fi
     assert events[7] == 28
 }
 
+test "sync iterator filters run in the first pass and filter failures act as false" {
+    acceptedEvents := new List<int>()
+    accepted := 0
+    for value in SyncCatchFiltersWithoutAwait(acceptedEvents, true) {
+        accepted = value
+    }
+    assert accepted == 8
+    assert acceptedEvents.Count == 6
+    assert acceptedEvents[0] == 1
+    assert acceptedEvents[1] == 2
+    assert acceptedEvents[2] == 3
+    assert acceptedEvents[3] == 5
+    assert acceptedEvents[4] == 4
+    assert acceptedEvents[5] == 6
+
+    rejectedEvents := new List<int>()
+    propagated := false
+    try {
+        for value in SyncCatchFiltersWithoutAwait(rejectedEvents, false) {
+        }
+    } catch ex: InvalidOperationException {
+        propagated = true
+        rejectedEvents.Add(9)
+    }
+    assert propagated
+    assert rejectedEvents.Count == 6
+    assert rejectedEvents[0] == 1
+    assert rejectedEvents[1] == 2
+    assert rejectedEvents[2] == 3
+    assert rejectedEvents[3] == 5
+    assert rejectedEvents[4] == 4
+    assert rejectedEvents[5] == 9
+}
+
+test "async iterator filters run in the first pass without awaiting catch bodies" {
+    acceptedEvents := new List<int>()
+    accepted := 0
+    await foreach value in AsyncCatchFiltersWithoutAwait(acceptedEvents, true) {
+        accepted = value
+    }
+    assert accepted == 18
+    assert acceptedEvents.Count == 6
+    assert acceptedEvents[0] == 11
+    assert acceptedEvents[1] == 12
+    assert acceptedEvents[2] == 13
+    assert acceptedEvents[3] == 15
+    assert acceptedEvents[4] == 14
+    assert acceptedEvents[5] == 16
+
+    rejectedEvents := new List<int>()
+    propagated := false
+    try {
+        await foreach value in AsyncCatchFiltersWithoutAwait(rejectedEvents, false) {
+        }
+    } catch ex: InvalidOperationException {
+        propagated = true
+        rejectedEvents.Add(19)
+    }
+    assert propagated
+    assert rejectedEvents.Count == 6
+    assert rejectedEvents[0] == 11
+    assert rejectedEvents[1] == 12
+    assert rejectedEvents[2] == 13
+    assert rejectedEvents[3] == 15
+    assert rejectedEvents[4] == 14
+    assert rejectedEvents[5] == 19
+}
+
 test "an awaiting catch handles the exception before the awaiting finally" {
     events := new List<int>()
     observed := 0
@@ -402,6 +470,35 @@ test "ordinary async filters run before nested finally and filter throws count a
     assert events[8] == 50
     assert events[9] == 51
     assert events[10] == 52
+}
+
+test "ordinary async filters work when no catch body awaits" {
+    acceptedEvents := new List<int>()
+    assert await OrdinaryCatchFiltersWithoutAwait(acceptedEvents, true) == 28
+    assert acceptedEvents.Count == 6
+    assert acceptedEvents[0] == 21
+    assert acceptedEvents[1] == 22
+    assert acceptedEvents[2] == 23
+    assert acceptedEvents[3] == 25
+    assert acceptedEvents[4] == 24
+    assert acceptedEvents[5] == 26
+
+    rejectedEvents := new List<int>()
+    propagated := false
+    try {
+        _ignored := await OrdinaryCatchFiltersWithoutAwait(rejectedEvents, false)
+    } catch ex: InvalidOperationException {
+        propagated = true
+        rejectedEvents.Add(27)
+    }
+    assert propagated
+    assert rejectedEvents.Count == 6
+    assert rejectedEvents[0] == 21
+    assert rejectedEvents[1] == 22
+    assert rejectedEvents[2] == 23
+    assert rejectedEvents[3] == 25
+    assert rejectedEvents[4] == 24
+    assert rejectedEvents[5] == 27
 }
 
 test "ordinary async rethrows pass through the awaited finally" {
