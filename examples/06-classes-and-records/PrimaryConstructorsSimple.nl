@@ -1,5 +1,7 @@
-// Primary Constructors (C# 12 Feature)
+// Primary Constructors
 // Simple demonstration showing the syntax
+namespace Examples.PrimaryConstructorsSimple
+
 class Logger(name: string) {
     logName: string = name
 

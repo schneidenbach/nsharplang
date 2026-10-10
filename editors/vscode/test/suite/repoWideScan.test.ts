@@ -36,7 +36,7 @@ import {
 const SKIP_DIRS = new Set([
     'node_modules', 'bin', 'obj', 'nsharp', '.git', '.vscode-test',
     'out', 'server', '.context', '.worktrees', '.hermes',
-    // C# source directories — no .nl files
+    // Host source directories — no .nl files
     'src', 'tests',
     // Build/config directories
     'scripts', 'docs', 'memory', '.github', '.vscode',
@@ -134,7 +134,7 @@ suite('Repo-Wide File Scan — Full Workspace Simulation', () => {
     });
 
     // Discover all .nl files from repo root, skipping build artifacts
-    // and C# source directories (which don't contain N# source files).
+    // and host source directories (which don't contain N# source files).
     const allNlFiles = findAllNlFiles(repoRoot);
 
     if (allNlFiles.length === 0) {

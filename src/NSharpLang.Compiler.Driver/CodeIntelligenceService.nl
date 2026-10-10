@@ -1,0 +1,140 @@
+namespace NSharpLang.Compiler.CodeIntelligence
+
+import System.Collections.Generic
+import NSharpLang.Compiler
+
+// The public compiler-service surface is deliberately a thin N# boundary over the Core owners.
+// Project loading and every query stay in N# so callers do not need a second implementation path.
+class CodeIntelligenceService {
+    func LoadProject(projectRoot: string): ProjectSnapshot {
+        return LoadProject(projectRoot, null)
+    }
+
+    func LoadProject(projectRoot: string, sourceTextOverrides: IReadOnlyDictionary<string, string>?): ProjectSnapshot {
+        config := ProjectFileParser.ParseFromDirectory(projectRoot)
+        return LoadProject(projectRoot, config, sourceTextOverrides)
+    }
+
+    func LoadProject(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>? = null): ProjectSnapshot {
+        compiler := new MultiFileCompiler(projectRoot, config, sourceTextOverrides)
+        return Snapshot(projectRoot, compiler)
+    }
+
+    // THE SAME PROJECT, INCLUDING ITS `*.tests.nl` FILES. A test file is N# source: `nlc test` compiles
+    // it with everything else, so a command that reports on a project's health has to READ it or it
+    // answers about a different project than the one that gets built. `nlc check` asks for this arm;
+    // callers that deliberately analyse only the shipped surface keep the arm above.
+    func LoadProjectIncludingTests(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?): ProjectSnapshot {
+        compiler := new MultiFileCompiler(projectRoot, config, sourceTextOverrides, true)
+        return Snapshot(projectRoot, compiler)
+    }
+
+    // Workspace planning assigns every source to its nearest project root before analysis. The
+    // explicit-list overload preserves that ownership boundary instead of rediscovering a parent's
+    // nested members as part of the same program.
+    //
+    // A WORKSPACE MEMBER IS ANALYSED ON ONE WORKER. `nlc check` already runs the members of a
+    // workspace concurrently (`CheckCommandKernels.GetWorkspaceMaxConcurrency`), so fanning each
+    // member's analysis out again would nest one pool inside the other: every extra worker re-opens the
+    // member's whole reference closure in its own load context, and the machine is already busy with
+    // the other members. Measured on the repository root (225 members, load ~7 on 10 cores): 36.4 s
+    // with per-member fan-out against 35.5 s without, for 548 more reference images opened. A
+    // single-project check or build keeps `CompilerParallelism`'s fan-out.
+    func LoadWorkspaceProjectIncludingTests(projectRoot: string, config: ProjectConfig?, sourceFiles: IEnumerable<string>): ProjectSnapshot {
+        compiler := new MultiFileCompiler(sourceFiles, projectRoot, config, null) { Workers: 1 }
+        return Snapshot(projectRoot, compiler)
+    }
+
+    // `nlc check` needs the analysis snapshot and backend validation for each project. Running
+    // `CompileForAnalysis` and then creating a second compiler for IL validation parsed and
+    // analyzed every clean member twice. Analyse once, validate that compiler's emission in memory
+    // (`MultiFileCompiler.ValidateAnalyzedEmission`: nothing is written), then expose the completed
+    // analysis and emission diagnostics through the same snapshot used by code intelligence.
+    func LoadWorkspaceProjectIncludingTestsForCheck(
+        projectRoot: string,
+        config: ProjectConfig,
+        sourceFiles: IEnumerable<string>,
+        assemblyName: string,
+        aotMode: bool
+    ): ProjectSnapshot {
+        // One worker: see `LoadWorkspaceProjectIncludingTests`.
+        compiler := new MultiFileCompiler(sourceFiles, projectRoot, config, null) { AotMode: aotMode, Workers: 1 }
+        compiler.CompileForAnalysis()
+        compiler.ValidateAnalyzedEmission(assemblyName)
+        return SnapshotAfterCompilation(projectRoot, compiler)
+    }
+
+    private func Snapshot(projectRoot: string, compiler: MultiFileCompiler): ProjectSnapshot {
+        compiler.CompileForAnalysis()
+        return SnapshotAfterCompilation(projectRoot, compiler)
+    }
+
+    // The snapshot of a compilation the caller ran itself — `nlc check`, which keeps the compiler so
+    // it can emit from the same analysis afterwards.
+    func SnapshotOfCompilation(projectRoot: string, compiler: MultiFileCompiler): ProjectSnapshot {
+        return SnapshotAfterCompilation(projectRoot, compiler)
+    }
+
+    private func SnapshotAfterCompilation(projectRoot: string, compiler: MultiFileCompiler): ProjectSnapshot {
+        return new ProjectSnapshot(
+            projectRoot,
+            compiler.CompilationUnits,
+            compiler.SemanticModels,
+            compiler.AllErrors,
+            compiler.SourceFiles,
+            compiler.ProjectIndex,
+            compiler.SourceTexts,
+            compiler.PerformanceFacts,
+            compiler.SystemsReport,
+            compiler.FriendGrants
+        )
+    }
+
+    func GetSymbols(snapshot: ProjectSnapshot, fileName: string? = null, kind: SymbolKind? = null): List<SymbolResult> {
+        if kind == null {
+            return CodeIntelligenceQueries.Symbols(snapshot, fileName)
+        }
+
+        return CodeIntelligenceQueries.SymbolsOfKind(snapshot, fileName, kind.Value)
+    }
+
+    func GetOutline(snapshot: ProjectSnapshot, fileName: string): OutlineResult {
+        return CodeIntelligenceQueries.Outline(snapshot, fileName)
+    }
+
+    func GetOutlineSingleFile(filePath: string): OutlineResult {
+        return CodeIntelligenceQueries.OutlineSingleFile(filePath)
+    }
+
+    func GetDiagnostics(snapshot: ProjectSnapshot, fileName: string? = null): List<DiagnosticResult> {
+        return CodeIntelligenceQueries.Diagnostics(snapshot, fileName)
+    }
+
+    func GetTypeAtPosition(snapshot: ProjectSnapshot, fileName: string, line: int, col: int): TypeResult? {
+        return CodeIntelligenceNavigation.TypeAtPosition(snapshot, fileName, line, col)
+    }
+
+    func FindDefinition(snapshot: ProjectSnapshot, fileName: string, line: int, col: int): DefinitionResult? {
+        return CodeIntelligenceQueries.Definition(snapshot, fileName, line, col)
+    }
+
+    func FindReferences(snapshot: ProjectSnapshot, fileName: string, line: int, col: int): List<ReferenceResult> {
+        return CodeIntelligenceQueries.References(snapshot, fileName, line, col)
+    }
+
+    func FindStrictReferences(snapshot: ProjectSnapshot, fileName: string, line: int, col: int): List<ReferenceResult> {
+        return CodeIntelligenceQueries.References(snapshot, fileName, line, col)
+    }
+
+    func GetHoverInfo(snapshot: ProjectSnapshot, fileName: string, line: int, col: int): HoverResult? {
+        return CodeIntelligenceQueries.HoverInfo(snapshot, fileName, line, col)
+    }
+
+    func GetCallGraph(snapshot: ProjectSnapshot, functionName: string?, limit: int = 100): CallGraphResult {
+        return CodeIntelligenceQueries.CallGraph(snapshot, functionName, limit)
+    }
+
+    func GetImplementors(snapshot: ProjectSnapshot, interfaceName: string): ImplementorsResult {
+        return CodeIntelligenceQueries.Implementors(snapshot, interfaceName)
+    }
+}

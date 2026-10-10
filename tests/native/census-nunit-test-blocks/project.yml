@@ -1,0 +1,6 @@
+name: NSharpLang.CensusNUnitTestBlocks.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+testFramework: nunit

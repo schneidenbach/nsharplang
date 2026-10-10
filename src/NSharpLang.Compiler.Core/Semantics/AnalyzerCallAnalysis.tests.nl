@@ -1,0 +1,1955 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.IO
+import System.Reflection
+import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
+
+// Native contracts for the CALL WALK — the schedule, the dispatch and the receiver protocol.
+//
+// The member behind these was `private` in Analyzer.cs with exactly one call site, so nothing in
+// `src/` or `tests/` ever named it and the only pinning it had was end-to-end diagnostic text. These
+// go at the decisions a reader cannot recover from a single arm, and above all at the one thing a
+// driver could get wrong:
+//
+//   * THE RECEIVER COUNT. A receiver-style generic call reads the member-access receiver THREE
+//     times — once to close the inference before the arguments, then again for validation and again
+//     for the return type — and each read reports again. An overload group whose winner is NOT
+//     receiver-style generic reads it ONCE. That difference is why the walk suspends instead of
+//     scheduling: the winner is not known until the first read has already happened.
+//   * the SoA direct-column rule is ONE step whose verdict ENDS the call at `unknown` — the four
+//     gates under it are `AnalyzerSoaDirectColumnCalls`'s and are pinned in its own contracts;
+//   * a method-group LAMBDA argument is deliberately not analysed here — it folds `unknown` and
+//     still runs the ref/out target report, because binding will analyse it later with a real
+//     delegate type;
+//   * the expected type of each argument comes from the placement the binder computed, not from the
+//     argument's own position, and it is computed from bindings closed ONCE before the loop;
+//   * a reflected call that binds to nothing answers `unknown` THROUGH the reporter, so the report
+//     and the answer cannot drift apart;
+//   * `Ok`/`Err` short-circuits the whole walk with the factory's own answer, and is a PROBE with
+//     four exits: not those two names, no `Result` being asked for, the name bound to a real symbol
+//     (marked refused), and taken — which is why `IsResultFactory` is three-valued;
+//   * a BARE callee is RESOLVED by the walk through the call-target door and is never a step at all,
+//     while any other callee is one plain step taken under three suppressions the walk opens before
+//     it asks and closes when the answer arrives — a bracket that spans a suspension;
+//   * a `ref`/`out` argument is analysed against the BYREF's INNER type and folded back WRAPPED,
+//     its write-target table is open across the analysis, and the target rule that follows it is
+//     SILENCED by anything the analysis itself reported.
+func CallWalkErrors(): List<CompilerError> {
+    return new List<CompilerError>()
+}
+
+// The walk plus the three things a contract has to reach to script it: the scope stack (because a
+// BARE callee is resolved through the call-target door and not handed in), the ambient context
+// (because the expected type decides whether `Ok` is a factory at all) and the error list.
+class CallWalkHarness {
+    Owner: AnalyzerCallAnalysis
+    Errors: List<CompilerError>
+    Scopes: AnalyzerScopeStack
+    Ambient: AnalyzerAmbientContext
+
+    constructor(owner: AnalyzerCallAnalysis, errors: List<CompilerError>, scopes: AnalyzerScopeStack, ambient: AnalyzerAmbientContext) {
+        Owner = owner
+        Errors = errors
+        Scopes = scopes
+        Ambient = ambient
+    }
+}
+
+func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
+    context := new AnalyzerDeclarationContext()
+    assemblies := new List<Assembly>()
+    assemblies.Add(typeof(List<int>).get_Assembly())
+    context.Reset(Path.GetFullPath("."), assemblies)
+    scopes := new AnalyzerScopeStack()
+    model := new SemanticModel()
+    scopes.Push(model, new Scope(ScopeKind.Global), 1, 1)
+    bindings := new BindingMap()
+    provider := new AnalyzerProjectSourceProvider()
+    namespaces := new List<string>()
+    usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
+    discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)
+    probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)
+    sink := new AnalyzerDiagnosticSink(errors, provider)
+    resolver := new AnalyzerTypeResolver(scopes, context, discovery, probe, sink, usingAliases, importedSymbols, importedDeclarations, model, bindings)
+    substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
+    facts := new AnalyzerAssignabilityFacts(context, null)
+    structural := new AnalyzerStructuralAssignability(resolver, probe)
+    clrConversion := new AnalyzerClrTypeConversion(context, null)
+    guard := new AnalyzerImplicitConversionGuard()
+    assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
+    scoring := new AnalyzerOverloadScoring(context, clrConversion, assignability, resolver, null)
+    binder := new AnalyzerSyntheticCallBinder(context, scoring, assignability, clrConversion)
+    spans := new AnalyzerDiagnosticSpans(sink)
+    reporter := new AnalyzerSyntheticCallReporter(sink, spans)
+    walk := new AnalyzerSyntheticCallWalk(
+        resolver,
+        binder,
+        reporter,
+        scoring,
+        assignability,
+        spans,
+        sink
+    )
+    constants := new AnalyzerConstantExpressionFacts(scopes, context)
+    postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
+    validator := new AnalyzerSyntheticCallValidator(
+        context,
+        resolver,
+        assignability,
+        scoring,
+        walk,
+        reporter,
+        spans,
+        sink,
+        constants,
+        postconditions,
+        new AnalyzerTerminatingCalls()
+    )
+    reflectionReporter := new AnalyzerReflectionCallReporter(
+        scopes,
+        context,
+        facts,
+        spans,
+        sink,
+        new AnalyzerCallableReferenceReportLog()
+    )
+    functionTypes := new AnalyzerFunctionTypeFactory(context, substitution)
+    extensions := new List<FunctionDeclaration>()
+    extensionResolution := new AnalyzerExtensionMethodResolution(resolver, assignability, context, functionTypes, clrConversion, extensions, namespaces, assemblies)
+    members := new AnalyzerMemberResolution(functionTypes, context, substitution, resolver, clrConversion, extensionResolution, namespaces)
+    soaEscape := new AnalyzerSoaEscape(sink, spans, scopes, context)
+    ambient := new AnalyzerAmbientContext(sink, spans, soaEscape)
+    nullFlow := new AnalyzerNullFlow(sink, spans, scopes, context)
+    identifierResolution := new AnalyzerIdentifierResolution(sink, scopes, resolver, discovery, probe, functionTypes, ambient, nullFlow, extensions, members, new AnalyzerSourceMemberDeclarations(context, provider), model, bindings)
+    memberAccess := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, new AnalyzerSourceMemberDeclarations(context, provider), discovery, probe, substitution, identifierResolution, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
+    indexAccess := new AnalyzerIndexAccess(sink, spans, context, ambient, nullFlow, soaEscape, memberAccess, constants)
+    writeTargets := new AnalyzerWriteTargets(sink, spans, scopes, context, substitution, clrConversion, ambient, soaEscape, memberAccess, indexAccess)
+    argumentBinder := new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring, resolver, postconditions)
+    owner := new AnalyzerCallAnalysis(
+        reporter,
+        walk,
+        validator,
+        reflectionReporter,
+        argumentBinder,
+        clrConversion,
+        substitution,
+        assignability,
+        sink,
+        spans,
+        scopes,
+        ambient,
+        writeTargets,
+        identifierResolution,
+        context,
+        postconditions,
+        new AnalyzerTerminatingCalls(),
+        nullFlow
+    )
+    return new CallWalkHarness(owner, errors, scopes, ambient)
+}
+
+// A BARE CALLEE IS NOT HANDED TO THE WALK — it is RESOLVED by it, through the call-target door. A
+// contract that wants the walk to see a particular callee type therefore declares the name, exactly
+// as a program would.
+func CallWalkDeclare(harness: CallWalkHarness, name: string, declaredType: TypeInfo) {
+    harness.Scopes.Peek().Symbols[name] = declaredType
+}
+
+// A TYPE declared into the scope, which is how the analyzer declares a newtype: `UserId(5)` names the
+// type, and a VALUE of that type called the same way is NL413 rather than a second construction.
+func CallWalkDeclareType(harness: CallWalkHarness, name: string, declaredType: TypeInfo) {
+    harness.Scopes.Peek().Types[name] = declaredType
+}
+
+// ------------------------------------------------------------------ signature and call shapes
+
+func CallWalkNames(count: int): List<string> {
+    names := new List<string>()
+    index := 0
+    while index < count {
+        ordinal := index + 1
+        names.Add("p" + ordinal.ToString())
+        index = index + 1
+    }
+
+    return names
+}
+
+func CallWalkModifiers(count: int): List<Ast.ParameterModifier> {
+    modifiers := new List<Ast.ParameterModifier>()
+    index := 0
+    while index < count {
+        modifiers.Add(Ast.ParameterModifier.None)
+        index = index + 1
+    }
+
+    return modifiers
+}
+
+func CallWalkTypes1(first: TypeInfo): List<TypeInfo> {
+    types := new List<TypeInfo>()
+    types.Add(first)
+    return types
+}
+
+func CallWalkTypes2(first: TypeInfo, second: TypeInfo): List<TypeInfo> {
+    types := new List<TypeInfo>()
+    types.Add(first)
+    types.Add(second)
+    return types
+}
+
+func CallWalkReferences2(first: TypeReference, second: TypeReference): List<TypeReference> {
+    references := new List<TypeReference>()
+    references.Add(first)
+    references.Add(second)
+    return references
+}
+
+func CallWalkSignature(parameterTypes: List<TypeInfo>, returnType: TypeInfo?): FunctionTypeInfo {
+    signature := new FunctionTypeInfo()
+    signature.SyntheticName = "f"
+    signature.ParameterNames = CallWalkNames(parameterTypes.Count)
+    signature.ParameterTypes = parameterTypes
+    signature.ParameterModifiers = CallWalkModifiers(parameterTypes.Count)
+    signature.ReturnType = returnType
+    return signature
+}
+
+// `this p1: T, p2: <second>` — the receiver-style GENERIC shape the whole protocol is about.
+func CallWalkReceiverGeneric(second: TypeInfo, secondReference: TypeReference): FunctionTypeInfo {
+    signature := CallWalkSignature(
+        CallWalkTypes2(BuiltInTypes.Int, second),
+        BuiltInTypes.String
+    )
+    signature.SourceHasReceiverParameter = true
+    signature.SourceParameterTypes = CallWalkReferences2(new SimpleTypeReference("T"), secondReference)
+    typeParameters := new List<TypeParameter>()
+    typeParameters.Add(new TypeParameter("T"))
+    signature.TypeParameters = typeParameters
+    return signature
+}
+
+// `this p1: int, p2: string` — receiver-style but NOT generic, so it never reads the receiver.
+func CallWalkReceiverPlain(): FunctionTypeInfo {
+    signature := CallWalkSignature(
+        CallWalkTypes2(BuiltInTypes.Int, BuiltInTypes.String),
+        BuiltInTypes.String
+    )
+    signature.SourceHasReceiverParameter = true
+    signature.SourceParameterTypes = CallWalkReferences2(
+        new SimpleTypeReference("int"),
+        new SimpleTypeReference("string")
+    )
+    return signature
+}
+
+func CallWalkIdentifier(name: string): Expression {
+    return new IdentifierExpression(name, 1, 1)
+}
+
+func CallWalkArgs(): List<Argument> {
+    return new List<Argument>()
+}
+
+func CallWalkArgs1(name: string): List<Argument> {
+    arguments := CallWalkArgs()
+    arguments.Add(new Argument(null, CallWalkIdentifier(name), ArgumentModifier.None))
+    return arguments
+}
+
+func CallWalkLambdaArgs1(): List<Argument> {
+    arguments := CallWalkArgs()
+    lambda: Expression = new LambdaExpression(new List<Parameter>(), null, null, 1, 1)
+    arguments.Add(new Argument(null, lambda, ArgumentModifier.None))
+    return arguments
+}
+
+func CallWalkMemberCall(arguments: List<Argument>): CallExpression {
+    receiver: Expression = CallWalkIdentifier("receiver")
+    callee: Expression = new MemberAccessExpression(receiver, "f", false, 1, 1)
+    return new CallExpression(callee, arguments, null, 1, 1)
+}
+
+func CallWalkBareCall(arguments: List<Argument>): CallExpression {
+    return new CallExpression(CallWalkIdentifier("f"), arguments, null, 1, 1)
+}
+
+func CallWalkGroup2(first: FunctionTypeInfo, second: FunctionTypeInfo): NSharpMethodGroupInfo {
+    functions := new List<FunctionTypeInfo>()
+    functions.Add(first)
+    functions.Add(second)
+    return new NSharpMethodGroupInfo(functions)
+}
+
+// ------------------------------------------------------------------ the scripted driver
+
+func CallWalkTypeText(resolved: TypeInfo?): string {
+    if resolved == null {
+        return "<null>"
+    }
+
+    boxed: object = resolved
+    rendered := boxed.ToString()
+    if rendered == null {
+        return "<null>"
+    }
+
+    return rendered
+}
+
+// The step transcript a driver would produce, in order, with the expected type of every
+// expected-type analysis and the action of every escape report written out. This IS the protocol:
+// any change to which step happens, in what order, or how many times, changes this string.
+//
+// KIND 6 IS THE CALLEE AND KIND 16 IS THE RECEIVER, and they are two kinds rather than one because
+// the driver answers them differently. `6(callee)` is the callee's own analysis, taken under the
+// three callee-position suppressions the walk opens and closes around it, and it is the ONE walk of
+// the receiver's subtree; every `16` after it is a RE-READ of the receiver the callee walk already
+// analysed, which the driver answers by re-running the expression tail on the kept dispatched type.
+// A contract about how many times the receiver is read counts `16`, and never the callee.
+//
+// KIND 4 CARRIES ITS EXPECTED TYPE AND KIND 15 CARRIES ITS TREE FLAG, because those are exactly what
+// distinguishes the reflected bind's argument pre-pass (`4(<null>)`) from an ordinary argument, and
+// an expression-tree lambda (`15(tree)`) from a plain one.
+func CallWalkStepText(step: CallAnalysisRequest): string {
+    kind := step.Kind
+    if kind == 4 {
+        return "4(" + CallWalkTypeText(step.CarriedType) + ")"
+    }
+
+    if kind == 6 {
+        return "6(callee)"
+    }
+
+    if kind == 7 {
+        action := step.Text
+        if action == null {
+            action = "<null>"
+        }
+
+        return "7(" + action + ")"
+    }
+
+    if kind == 15 {
+        if step.Flag {
+            return "15(tree)"
+        }
+
+        return "15(" + CallWalkTypeText(step.CarriedType) + ")"
+    }
+
+    return kind.ToString()
+}
+
+// A driver that performs nothing and answers everything from a script, so the transcript is the
+// walk's own decisions and not the analyzer's.
+func CallWalkRun(
+    owner: AnalyzerCallAnalysis,
+    state: CallAnalysisState,
+    calleeType: TypeInfo?,
+    receiverType: TypeInfo?,
+    argumentAnswer: TypeInfo,
+    lambdaAnswer: TypeInfo?,
+    firedGate: int
+): string {
+    transcript := ""
+    step := owner.NextCallStep(state)
+    while step != null {
+        kind := step.Kind
+        if transcript.Length > 0 {
+            transcript = transcript + " "
+        }
+
+        transcript = transcript + CallWalkStepText(step)
+        answer: TypeInfo? = null
+        handled := false
+        if kind == 4 {
+            answer = argumentAnswer
+        } else if kind == 6 {
+            answer = calleeType
+        } else if kind == 16 {
+            answer = receiverType
+        } else if kind == 15 {
+            answer = lambdaAnswer
+        } else if kind == firedGate {
+            handled = true
+        }
+
+        owner.SupplyCallStep(state, answer, handled)
+        step = owner.NextCallStep(state)
+    }
+
+    return transcript
+}
+
+func CallWalkCount(transcript: string, token: string): int {
+    total := 0
+    parts := transcript.Split(' ')
+    index := 0
+    while index < parts.Length {
+        if parts[index] == token {
+            total = total + 1
+        }
+
+        index = index + 1
+    }
+
+    return total
+}
+
+// ------------------------------------------------------------------ result-constructor shapes
+
+func CallWalkFactoryCall(name: string, arguments: List<Argument>): CallExpression {
+    return new CallExpression(CallWalkIdentifier(name), arguments, null, 1, 1)
+}
+
+// THE THREE-VALUED FACTORY MARK, read through `object` because a `bool?` compares against neither
+// `true` nor `false` on the columnar surface. `unasked` is a node the probe never had an opinion
+// about; `False` is one it considered and refused; `True` is one it took.
+func CallWalkFactoryMark(call: CallExpression): string {
+    boxed: object? = call.IsResultFactory
+    if boxed == null {
+        return "unasked"
+    }
+
+    rendered := boxed.ToString()
+    if rendered == null {
+        return "unasked"
+    }
+
+    return rendered
+}
+
+// ------------------------------------------------------------------ ref/out argument shapes
+
+func CallWalkRefArgs1(name: string, modifier: ArgumentModifier): List<Argument> {
+    arguments := CallWalkArgs()
+    arguments.Add(new Argument(null, CallWalkIdentifier(name), modifier))
+    return arguments
+}
+
+func CallWalkRefLiteralArgs1(modifier: ArgumentModifier): List<Argument> {
+    arguments := CallWalkArgs()
+    literal: Expression = new IntLiteralExpression("1", 1, 7)
+    arguments.Add(new Argument(null, literal, modifier))
+    return arguments
+}
+
+func CallWalkRefNullConditionalArgs1(modifier: ArgumentModifier): List<Argument> {
+    arguments := CallWalkArgs()
+    hop: Expression = new MemberAccessExpression(CallWalkIdentifier("holder"), "field", true, 1, 7)
+    arguments.Add(new Argument(null, hop, modifier))
+    return arguments
+}
+
+func CallWalkRefLambdaArgs1(modifier: ArgumentModifier): List<Argument> {
+    arguments := CallWalkArgs()
+    lambda: Expression = new LambdaExpression(new List<Parameter>(), null, null, 1, 7)
+    arguments.Add(new Argument(null, lambda, modifier))
+    return arguments
+}
+
+// A one-parameter signature whose parameter is `ref T`, which is what makes the walk unwrap the
+// expected type before it hands the argument out.
+func CallWalkByRefSignature(inner: TypeInfo): FunctionTypeInfo {
+    byRef: TypeInfo = new ByRefTypeInfo(inner)
+    return CallWalkSignature(CallWalkTypes1(byRef), BuiltInTypes.Int)
+}
+
+func CallWalkMessages(errors: List<CompilerError>): string {
+    text := ""
+    index := 0
+    while index < errors.Count {
+        if index > 0 {
+            text = text + " | "
+        }
+
+        text = text + errors[index].Message
+        index = index + 1
+    }
+
+    return text
+}
+
+// ------------------------------------------------------------------ contracts
+
+test "the walk's prologue is the callee, the null-call report, then the gates" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    call := CallWalkBareCall(CallWalkArgs())
+    signature := CallWalkSignature(new List<TypeInfo>(), BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 0)
+
+    // 3 the null-call report, 8 the SoA direct-column rule (ONE step: its four gates are one
+    // owner's). The `Ok`/`Err` probe and the callee's own resolution are the WALK's now — the probe
+    // never leaves N# and a BARE callee is answered through the call-target door — so neither shows
+    // up as a step at all. No argument steps (there are none), no receiver steps (the signature is
+    // not generic).
+    assert transcript == "3 8"
+    assert CallWalkTypeText(state.Result) == "int"
+}
+
+// The callee fork is the grammar's: a bare name is a CALL TARGET, resolved without leaving N#, and
+// anything else is an expression the driver must analyse.
+test "a bare callee is resolved through the call-target door and is never a step" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    call := CallWalkBareCall(CallWalkArgs())
+    signature := CallWalkSignature(new List<TypeInfo>(), BuiltInTypes.Bool)
+    CallWalkDeclare(harness, "f", signature)
+    state := harness.Owner.BeginCall(call)
+
+    // The scripted callee answer is DELIBERATELY a different type: if the walk had asked for the
+    // callee it would have got `string`, and the result would not be `bool`.
+    transcript := CallWalkRun(harness.Owner, state, BuiltInTypes.String, null, BuiltInTypes.Int, null, 0)
+
+    assert CallWalkCount(transcript, "6(callee)") == 0
+    assert CallWalkTypeText(state.Result) == "bool"
+}
+
+test "a member-access callee is analysed as one plain step under the callee suppressions" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    call := CallWalkMemberCall(CallWalkArgs())
+    signature := CallWalkSignature(new List<TypeInfo>(), BuiltInTypes.Int)
+    state := harness.Owner.BeginCall(call)
+
+    // The suppressions are CLOSED before the walk starts, OPEN while the callee step is outstanding
+    // and CLOSED again once its answer has been folded — the bracket spans a suspension, which is
+    // why it is held in the walk's state rather than in a driver local.
+    assert !harness.Ambient.AnalyzingCallCallee
+    step := harness.Owner.NextCallStep(state)
+    assert step != null
+    assert step.Kind == 6
+    assert harness.Ambient.AnalyzingCallCallee
+    assert harness.Ambient.AllowUnboundCallableReference
+    assert harness.Ambient.AllowSyntheticSoaOperationReference
+    harness.Owner.SupplyCallStep(state, signature, false)
+    assert !harness.Ambient.AnalyzingCallCallee
+    assert !harness.Ambient.AllowUnboundCallableReference
+    assert !harness.Ambient.AllowSyntheticSoaOperationReference
+    assert CallWalkTypeText(state.CalleeType) == CallWalkTypeText(signature)
+}
+
+// WHAT THIS TEST HOST CAN AND CANNOT REACH, STATED ONCE. The probe answers `true` only for a
+// `GenericTypeInfo` whose definition IS `NSharpLang.Runtime.Result<,>` — full name, arity and
+// declaring assembly — and this assembly does not reference the runtime, so no contract here can
+// construct one. The probe's POSITIVE paths (which arm each name selects, the arity report, the
+// mismatch report and the shadow rule) are therefore pinned END TO END by the slice's `Ok`/`Err`
+// fixtures under the real CLI, where the runtime is loaded. What IS pinned here is every way the
+// probe declines, which is what a reader cannot recover from the arm.
+test "an expected type that is not the runtime Result leaves the node unasked" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    impostor: TypeInfo = new GenericTypeInfo("Result", CallWalkTypes2(BuiltInTypes.Int, BuiltInTypes.String))
+    signature := CallWalkSignature(CallWalkTypes1(BuiltInTypes.Int), BuiltInTypes.Bool)
+    CallWalkDeclare(harness, "Ok", signature)
+    saved := harness.Ambient.EnterExpectedType(impostor)
+    call := CallWalkFactoryCall("Ok", CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 0)
+    harness.Ambient.ExitExpectedType(saved)
+
+    // The name is spelled `Ok` and the expected type is even spelled `Result` over two arguments —
+    // and it is STILL an ordinary call, because the definition is not the runtime's.
+    assert CallWalkFactoryMark(call) == "unasked"
+    assert transcript == "3 4(int) 8"
+    assert CallWalkTypeText(state.Result) == "bool"
+}
+
+test "Ok with no expected type at all is an ordinary call" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkSignature(CallWalkTypes1(BuiltInTypes.Int), BuiltInTypes.Bool)
+    CallWalkDeclare(harness, "Ok", signature)
+    call := CallWalkFactoryCall("Ok", CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 0)
+
+    assert CallWalkFactoryMark(call) == "unasked"
+    assert transcript == "3 4(int) 8"
+}
+
+test "a name that is neither Ok nor Err is never probed" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    impostor: TypeInfo = new GenericTypeInfo("Result", CallWalkTypes2(BuiltInTypes.Int, BuiltInTypes.String))
+    signature := CallWalkSignature(CallWalkTypes1(BuiltInTypes.Int), BuiltInTypes.Bool)
+    CallWalkDeclare(harness, "Fine", signature)
+    saved := harness.Ambient.EnterExpectedType(impostor)
+    call := CallWalkFactoryCall("Fine", CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+
+    _ = CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 0)
+    harness.Ambient.ExitExpectedType(saved)
+
+    assert CallWalkFactoryMark(call) == "unasked"
+}
+
+// THE ARM LOOKUP ITSELF, pinned directly on every shape that declines. `Ok`/`Err` are only the
+// factory where a `Result` is being asked for, so each of these is a program where the two names
+// mean whatever the user made them mean.
+test "the result-arm lookup declines every shape that is not a runtime Result" {
+    okType: TypeInfo = BuiltInTypes.Unknown
+    errType: TypeInfo = BuiltInTypes.Unknown
+
+    assert !AnalyzerCallAnalysis.TryGetResultArmTypes(null, out okType, out errType)
+    assert CallWalkTypeText(okType) == "unknown"
+    assert CallWalkTypeText(errType) == "unknown"
+
+    // not generic at all
+    assert !AnalyzerCallAnalysis.TryGetResultArmTypes(BuiltInTypes.Int, out okType, out errType)
+
+    // generic, spelled `Result`, but with ONE argument
+    oneArm: TypeInfo = new GenericTypeInfo("Result", CallWalkTypes1(BuiltInTypes.Int))
+    assert !AnalyzerCallAnalysis.TryGetResultArmTypes(oneArm, out okType, out errType)
+
+    // generic with two arguments and no definition at all
+    noDefinition: TypeInfo = new GenericTypeInfo("Result", CallWalkTypes2(BuiltInTypes.Int, BuiltInTypes.String))
+    assert !AnalyzerCallAnalysis.TryGetResultArmTypes(noDefinition, out okType, out errType)
+
+    // generic with two arguments and a definition that is a REAL type — just not the runtime's
+    wrongDefinition: TypeInfo = new GenericTypeInfo("Result", CallWalkTypes2(BuiltInTypes.Int, BuiltInTypes.String), new ReflectionTypeInfo(typeof(Dictionary<int, string>)))
+    assert !AnalyzerCallAnalysis.TryGetResultArmTypes(wrongDefinition, out okType, out errType)
+}
+
+// ------------------------------------------------------------------ the ref/out argument
+
+// A `ref T` parameter asks for a `T`. The walk unwraps the BYREF before handing the argument out and
+// wraps the answer back up, so the call's argument list carries `ref int` while the expression was
+// analysed against plain `int`.
+test "a ref argument is analysed against the BYREF's inner type and folded back as a ByRef" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkByRefSignature(BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    CallWalkDeclare(harness, "slot", BuiltInTypes.Int)
+    call := CallWalkBareCall(CallWalkRefArgs1("slot", ArgumentModifier.Ref))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 0)
+
+    assert transcript == "3 4(int) 8"
+    assert state.ArgTypes.Count == 1
+    assert CallWalkTypeText(state.ArgTypes[0]) == "&int"
+    assert errors.Count == 0
+}
+
+// A TARGET WHOSE ANSWER IS ALREADY `&T` -- a member declared `&T`, as a `ref struct`'s ref field is --
+// is passed on by `ref` as that SAME reference. Wrapping the answer again typed the argument `&&T`, a
+// type the CLR does not have, and refused the call NL202. (A `&T` PARAMETER's name no longer answers
+// the shell at all: it is bound at the storage it reaches, and `AnalyzerBindingFacts.tests.nl` pins
+// that.) A by-ref target of a class type, a struct and a primitive all pass on as `&T`.
+test "a ref argument over a target that is already a reference passes that reference on" {
+    inners := new List<TypeInfo>()
+    inners.Add(BuiltInTypes.Int)
+    inners.Add(BuiltInTypes.String)
+    inners.Add(new StructTypeInfo("Table", 1, 1, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0)))
+    for inner in inners {
+        errors := CallWalkErrors()
+        harness := CallWalkHarnessOf(errors)
+        signature := CallWalkByRefSignature(inner)
+        CallWalkDeclare(harness, "f", signature)
+        byRef: TypeInfo = new ByRefTypeInfo(inner)
+        CallWalkDeclare(harness, "slot", byRef)
+        call := CallWalkBareCall(CallWalkRefArgs1("slot", ArgumentModifier.Ref))
+        state := harness.Owner.BeginCall(call)
+
+        _ = CallWalkRun(harness.Owner, state, signature, null, byRef, null, 0)
+
+        assert state.ArgTypes.Count == 1
+        assert CallWalkTypeText(state.ArgTypes[0]) == "&" + CallWalkTypeText(inner)
+        assert errors.Count == 0, CallWalkMessages(errors)
+    }
+}
+
+// THE SPELLING WRITTEN AT THE CALL IS THE ONE THE ARGUMENT CARRIES, not the one the target was
+// declared with: `out p` over a `&int` target is an `out` argument, whose incoming nullability is the
+// callee's to replace.
+test "an out argument over a by-ref target keeps the out spelling" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkByRefSignature(BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    byRef: TypeInfo = new ByRefTypeInfo(BuiltInTypes.Int)
+    CallWalkDeclare(harness, "slot", byRef)
+    call := CallWalkBareCall(CallWalkRefArgs1("slot", ArgumentModifier.Out))
+    state := harness.Owner.BeginCall(call)
+
+    _ = CallWalkRun(harness.Owner, state, signature, null, byRef, null, 0)
+
+    passed := state.ArgTypes[0] as ByRefTypeInfo
+    assert passed != null
+    assert passed.IsOutArgument
+    assert CallWalkTypeText(passed.InnerType) == "int"
+    assert errors.Count == 0, CallWalkMessages(errors)
+}
+
+// An `unknown` answer is NOT wrapped: `ref <error>` would be a second, invented type for a target
+// that has already failed.
+test "a ref argument whose analysis answered unknown is not wrapped" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkByRefSignature(BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    CallWalkDeclare(harness, "slot", BuiltInTypes.Int)
+    call := CallWalkBareCall(CallWalkRefArgs1("slot", ArgumentModifier.Ref))
+    state := harness.Owner.BeginCall(call)
+
+    _ = CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Unknown, null, 0)
+
+    assert state.ArgTypes.Count == 1
+    assert CallWalkTypeText(state.ArgTypes[0]) == "unknown"
+}
+
+test "an out argument that names no assignable target is refused with the modifier in the sentence" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkByRefSignature(BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    call := CallWalkBareCall(CallWalkRefLiteralArgs1(ArgumentModifier.Out))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 0)
+
+    assert transcript == "3 4(int) 8"
+    assert errors.Count == 1
+    assert errors[0].Message == "The 'out' argument needs an assignable target"
+    assert errors[0].Suggestion == "Use a variable, field, or indexed array/SoA column element as the out argument."
+}
+
+// A `?.` chain is refused BEFORE anything is analysed: there is no kind-4 step at all, and the
+// follow-up rule stays silent because this report already fired.
+test "a null-conditional ref target is refused without being analysed at all" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkByRefSignature(BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    CallWalkDeclare(harness, "holder", BuiltInTypes.String)
+    call := CallWalkBareCall(CallWalkRefNullConditionalArgs1(ArgumentModifier.Ref))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 0)
+
+    assert transcript == "3 8"
+    assert state.ArgTypes.Count == 1
+    assert CallWalkTypeText(state.ArgTypes[0]) == "unknown"
+    assert errors.Count == 1
+    assert CallWalkMessages(errors).Contains("used as the ref argument")
+}
+
+// THE SILENCE RULE. A target whose own analysis reported is not ALSO told it is unassignable —
+// telling the developer both would name the wrong problem twice. The scripted driver reports here
+// exactly as a real analysis would.
+test "a ref target whose own analysis reported is not also told it is unassignable" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkByRefSignature(BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    call := CallWalkBareCall(CallWalkRefLiteralArgs1(ArgumentModifier.Out))
+    state := harness.Owner.BeginCall(call)
+
+    step := harness.Owner.NextCallStep(state)
+    while step != null {
+        if step.Kind == 4 {
+            errors.Add(AnalyzerDiagnostics.Create(ErrorCode.UndefinedVariable, "the analysis said so", null, 1, 7, null, null, 0, ErrorSeverity.Error))
+        }
+
+        harness.Owner.SupplyCallStep(state, BuiltInTypes.Int, false)
+        step = harness.Owner.NextCallStep(state)
+    }
+
+    assert errors.Count == 1
+    assert errors[0].Message == "the analysis said so"
+}
+
+// An ORDINARY argument is untouched by any of it: no bracket, no wrap, no target rule.
+test "an ordinary argument keeps its own type and raises no target report" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkSignature(CallWalkTypes1(BuiltInTypes.Int), BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    call := CallWalkBareCall(CallWalkRefLiteralArgs1(ArgumentModifier.None))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 0)
+
+    assert transcript == "3 4(int) 8"
+    assert CallWalkTypeText(state.ArgTypes[0]) == "int"
+    assert errors.Count == 0
+}
+
+// ------------------------------------------------------------------ the receiver protocol
+
+test "a receiver-style generic call reads the member-access receiver EXACTLY three times" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    call := CallWalkMemberCall(CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+    signature := CallWalkReceiverGeneric(BuiltInTypes.String, new SimpleTypeReference("string"))
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        signature,
+        BuiltInTypes.Int,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    // 16 before the arguments (closing the inference), then 16 again for validation and 16 again
+    // for the return type. The leading `6(callee)` is the callee itself — the one walk of the
+    // receiver's subtree — and is NOT one of them.
+    assert CallWalkCount(transcript, "16") == 3
+    assert transcript == "6(callee) 3 16 4(string) 8 16 16"
+}
+
+test "the same signature called WITHOUT a member access reads no receiver at all" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkReceiverGeneric(BuiltInTypes.String, new SimpleTypeReference("string"))
+    CallWalkDeclare(harness, "f", signature)
+    call := CallWalkBareCall(CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        signature,
+        BuiltInTypes.Int,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    assert CallWalkCount(transcript, "16") == 0
+    assert CallWalkCount(transcript, "6(callee)") == 0
+}
+
+// THE COUNTEREXAMPLE THAT DECIDED THE SHAPE. The group holds a receiver-style GENERIC candidate and
+// a plain one; the plain one wins the scoring, and only the WINNER decides whether the receiver is
+// read for validation and for the return type. One read, not three — and the winner is not known
+// until the first read has already been made.
+test "an overload group whose winner is not receiver-style generic reads the receiver ONCE" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    call := CallWalkMemberCall(CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+    plain := CallWalkReceiverPlain()
+    generic := CallWalkReceiverGeneric(BuiltInTypes.Object, new SimpleTypeReference("object"))
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        CallWalkGroup2(plain, generic),
+        BuiltInTypes.Int,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    assert CallWalkCount(transcript, "16") == 1
+    // 14 is the semantic-model record for the chosen overload, and it happens between the binding
+    // read and the validation the winner did not need.
+    assert transcript == "6(callee) 3 4(<null>) 8 16 14"
+    assert CallWalkTypeText(state.Result) == "string"
+}
+
+test "an overload group whose winner IS receiver-style generic reads the receiver three times" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    call := CallWalkMemberCall(CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+    generic := CallWalkReceiverGeneric(BuiltInTypes.String, new SimpleTypeReference("string"))
+    other := CallWalkReceiverGeneric(BuiltInTypes.Object, new SimpleTypeReference("object"))
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        CallWalkGroup2(generic, other),
+        BuiltInTypes.Int,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    assert CallWalkCount(transcript, "16") == 3
+    assert transcript == "6(callee) 3 4(<null>) 8 16 14 16 16"
+}
+
+// ------------------------------------------------------------------ dispatch and the gates
+
+// The direct-column rule reporting ENDS the call at `unknown` and nothing after it — not the
+// dispatch, not the binding — is ever asked. The ORDER of the four gates under it is the rule's own
+// and is pinned in `AnalyzerSoaDirectColumnCalls.tests.nl`; what the WALK owns is that one verdict
+// stops it, which is why kinds 9, 10 and 11 no longer exist and their numbers are left as a gap.
+test "the SoA direct-column verdict ends the call at unknown and the dispatch is never asked" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := CallWalkSignature(new List<TypeInfo>(), BuiltInTypes.Int)
+    CallWalkDeclare(harness, "f", signature)
+    call := CallWalkBareCall(CallWalkArgs())
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 8)
+
+    assert CallWalkTypeText(state.Result) == "unknown"
+    assert transcript == "3 8"
+}
+
+test "a method-group lambda argument is not analysed here and folds unknown" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    methods := new MethodInfo[0]
+    group: TypeInfo = new ReflectionMethodGroupInfo(methods)
+    CallWalkDeclare(harness, "f", group)
+    call := CallWalkBareCall(CallWalkLambdaArgs1())
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        group,
+        null,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    // The skipped argument is no longer a STEP at all — kind 5 was a round trip that relayed a
+    // report the walk now makes itself — so the transcript goes straight from the null-call report
+    // to the gates and then STOPS: the bind's own argument pre-pass skips a lambda too, and an empty
+    // method group pre-binds no candidate at all.
+    assert transcript == "3 8"
+    assert state.ArgTypes.Count == 1
+    assert CallWalkTypeText(state.ArgTypes[0]) == "unknown"
+    assert errors.Count == 0
+}
+
+// AND THE TARGET RULE STILL RUNS ON IT. Nothing was analysed, so nothing could have reported, and
+// whether a thing may be written through is a question about the SPELLING rather than about the type
+// the lambda would have turned out to have.
+test "a ref method-group lambda argument is still refused as a write target" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    methods := new MethodInfo[0]
+    group: TypeInfo = new ReflectionMethodGroupInfo(methods)
+    CallWalkDeclare(harness, "f", group)
+    call := CallWalkBareCall(CallWalkRefLambdaArgs1(ArgumentModifier.Ref))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        group,
+        null,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    assert transcript == "3 8"
+    assert errors.Count == 1
+    assert errors[0].Message == "The 'ref' argument needs an assignable target"
+}
+
+test "a reflected call that binds to nothing answers unknown through the reporter" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    methods := new MethodInfo[0]
+    group: TypeInfo = new ReflectionMethodGroupInfo(methods)
+    CallWalkDeclare(harness, "f", group)
+    call := CallWalkBareCall(CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        group,
+        null,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    // THE ARGUMENT IS ANALYSED TWICE AND ALWAYS WAS. The walk's own argument schedule analyses it
+    // once for the call's argument types; the reflected bind analyses every NON-LAMBDA argument again
+    // because pre-binding scores against them. `Analyzer.cs` did exactly this inside
+    // `BindReflectionCall`, where the second analysis was invisible to the protocol; owning the bind
+    // makes it a step, and the second `4(<null>)` is that same analysis rather than a new one.
+    assert transcript == "3 4(<null>) 8 4(<null>)"
+    assert CallWalkTypeText(state.Result) == "unknown"
+}
+
+// ── the reflected bind's candidate order, which is user-visible ───────────────
+//
+// The order decides WHICH failed candidate's diagnostics survive: every candidate that fails has its
+// reports withdrawn before the next is tried, so the LAST one tried is the one the user reads. It is
+// therefore sorted by hand, with a STRICTLY-precedes predicate driving an insertion sort, and both
+// halves of that are pinned here — the key order, and the STABILITY that a `>=` predicate would
+// silently destroy.
+
+// FOUR SINGLE-OVERLOAD STATICS, used only as identity TAGS. A candidate's identity has to be
+// observable to pin STABILITY, and the runtime method is the one field that is already there and
+// already distinct — so the transcripts below read the method NAMES rather than comparing references.
+func CallWalkRequireMethod(name: string): MethodInfo {
+    method := typeof(string).GetMethod(name)
+    if method == null {
+        throw new InvalidOperationException("System.String must define the reflection candidate '" + name + "'.")
+    }
+
+    return method
+}
+
+func CallWalkCandidateMethod(tag: int): MethodInfo {
+    if tag == 1 {
+        return CallWalkRequireMethod("IsNullOrWhiteSpace")
+    }
+
+    if tag == 2 {
+        return CallWalkRequireMethod("Intern")
+    }
+
+    if tag == 3 {
+        return CallWalkRequireMethod("IsInterned")
+    }
+
+    return CallWalkRequireMethod("IsNullOrEmpty")
+}
+
+// One argument position's worth of parameter types, as the specificity comparison reads them. A
+// position NO candidate filled — a lambda, a method group — is left as the array's own null.
+class CallWalkParameterTypes {
+    static func Of1(first: Type): Type?[] {
+        types := new Type?[](1)
+        types[0] = first
+        return types
+    }
+
+    static func Of2(first: Type, second: Type): Type?[] {
+        types := new Type?[](2)
+        types[0] = first
+        types[1] = second
+        return types
+    }
+
+    static func Unfilled(count: int): Type?[] {
+        return new Type?[](count)
+    }
+
+    // The N# side of the same positions. All null here: every position these contracts compare either
+    // carries a CLR type — which is the oracle the comparison prefers — or is deliberately unknown.
+    static func NoTypeInfos(count: int): TypeInfo?[] {
+        return new TypeInfo?[](count)
+    }
+
+    // No position holds an anonymous function. These contracts pin the conversion and tie-break rules
+    // over ordinary arguments; the lambda clause has its own contracts beside the rule that states it.
+    static func NoLambdas(count: int): bool[] {
+        return new bool[count]
+    }
+}
+
+func CallWalkCandidate(score: int, usesParams: bool, defaultsUsed: int): ReflectionPreBoundCandidate {
+    return CallWalkTaggedCandidate(score, usesParams, defaultsUsed, 0)
+}
+
+func CallWalkTaggedCandidate(score: int, usesParams: bool, defaultsUsed: int, tag: int): ReflectionPreBoundCandidate {
+    method := CallWalkCandidateMethod(tag)
+    return new ReflectionPreBoundCandidate(
+        method,
+        method,
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        new List<ReflectionBoundArgument>(),
+        score,
+        usesParams,
+        defaultsUsed
+    )
+}
+
+func CallWalkCandidateTags(candidates: List<ReflectionPreBoundCandidate>): string {
+    rendered := ""
+    index := 0
+    while index < candidates.Count {
+        if rendered.Length > 0 {
+            rendered = rendered + " "
+        }
+
+        // Split into locals, and read the name through `get_Name()`: a chained
+        // `list[i].Property.Property` read declines at `emit.statement.block-child`, and a reflected
+        // member is reached through its accessor rather than its property syntax.
+        candidate := candidates[index]
+        method := candidate.RuntimeMethod
+        rendered = rendered + method.get_Name()
+        index = index + 1
+    }
+
+    return rendered
+}
+
+func CallWalkCandidateOrder(candidates: List<ReflectionPreBoundCandidate>): string {
+    rendered := ""
+    index := 0
+    while index < candidates.Count {
+        if rendered.Length > 0 {
+            rendered = rendered + " "
+        }
+
+        candidate := candidates[index]
+        // NOT `params`: it is a keyword, and a local that spells one declines at `parse.function`.
+        paramsMark := "n"
+        if candidate.UsesParams {
+            paramsMark = "p"
+        }
+
+        rendered = rendered + candidate.Score.ToString() + paramsMark + candidate.DefaultsUsed.ToString()
+        index = index + 1
+    }
+
+    return rendered
+}
+
+test "the candidate order is score DESCENDING first" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkCandidate(1, false, 0))
+    candidates.Add(CallWalkCandidate(9, false, 0))
+    candidates.Add(CallWalkCandidate(5, false, 0))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    assert CallWalkCandidateOrder(candidates) == "9n0 5n0 1n0"
+}
+
+test "at equal score the candidate that does NOT need params wins" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkCandidate(4, true, 0))
+    candidates.Add(CallWalkCandidate(4, false, 0))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    assert CallWalkCandidateOrder(candidates) == "4n0 4p0"
+}
+
+test "at equal score and params the candidate that needs FEWER defaults wins" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkCandidate(4, false, 3))
+    candidates.Add(CallWalkCandidate(4, false, 1))
+    candidates.Add(CallWalkCandidate(4, false, 2))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    assert CallWalkCandidateOrder(candidates) == "4n1 4n2 4n3"
+}
+
+// THE STABILITY IS THE POINT. Three candidates with IDENTICAL keys must come out in the order the
+// method group gave them, because that order decides whose diagnostics the user reads. This is the
+// contract a `>=` comparison — or any sort that is merely "correct" — would break.
+test "candidates with identical keys keep the order the method group gave them" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkTaggedCandidate(4, false, 1, 0))
+    candidates.Add(CallWalkTaggedCandidate(4, false, 1, 1))
+    candidates.Add(CallWalkTaggedCandidate(4, false, 1, 2))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    assert CallWalkCandidateTags(candidates) == "IsNullOrEmpty IsNullOrWhiteSpace Intern"
+}
+
+test "ties INSIDE a reordering keep their relative order too" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    candidates := new List<ReflectionPreBoundCandidate>()
+    candidates.Add(CallWalkTaggedCandidate(1, false, 0, 0))
+    candidates.Add(CallWalkTaggedCandidate(7, false, 0, 1))
+    candidates.Add(CallWalkTaggedCandidate(7, false, 0, 2))
+    candidates.Add(CallWalkTaggedCandidate(1, false, 0, 3))
+
+    harness.Owner.SortReflectionCandidates(candidates)
+
+    // The two 7s keep their order and so do the two 1s: a sort that reordered ties would show
+    // `Intern IsNullOrWhiteSpace` or `IsInterned IsNullOrEmpty` here.
+    assert CallWalkCandidateTags(candidates) == "IsNullOrWhiteSpace Intern IsNullOrEmpty IsInterned"
+}
+
+test "the precedes predicate is STRICT, so an identical pair precedes neither way" {
+    left := CallWalkCandidate(4, false, 1)
+    right := CallWalkCandidate(4, false, 1)
+
+    assert !AnalyzerCallAnalysis.PrecedesReflectionCandidate(left, right)
+    assert !AnalyzerCallAnalysis.PrecedesReflectionCandidate(right, left)
+}
+
+// ── which candidate the LANGUAGE prefers, once the ladder has rated them the same ─────────────
+
+test "THE SCORE STILL DECIDES FIRST: specificity separates candidates the ladder rated the same" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+    empty := CallWalkParameterTypes.Unfilled(0)
+    emptyInfos := CallWalkParameterTypes.NoTypeInfos(0)
+    noLambdas := CallWalkParameterTypes.NoLambdas(0)
+
+    // The ladder carries facts the type comparison cannot see — the extension penalty, the lambda
+    // rules — so a higher score wins outright and nothing else is asked.
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(8, false, 0), CallWalkCandidate(4, false, 0), empty, empty, empty, empty, empty, emptyInfos, noLambdas) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 0), CallWalkCandidate(8, false, 0), empty, empty, empty, empty, empty, emptyInfos, noLambdas) == AnalyzerOverloadSpecificity.RightIsBetter
+}
+
+test "A MORE SPECIFIC PARAMETER BEATS A MORE GENERAL ONE AT AN EQUAL SCORE" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+    left := CallWalkCandidate(4, false, 0)
+    right := CallWalkCandidate(4, false, 0)
+
+    // `IEnumerable<int>` over `object` for a `List<int>`: neither is the argument's own type, and the
+    // left one converts to the right while the right does not convert back. This is the
+    // `Task.WhenAll(List<Task<int>>)` shape, whose non-generic overload used to win by arriving first.
+    specific := harness.Owner.CompareReflectionCandidates(
+        left,
+        right,
+        CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
+        CallWalkParameterTypes.Of1(typeof(object)),
+        CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
+        CallWalkParameterTypes.Of1(typeof(object)),
+        CallWalkParameterTypes.Of1(typeof(List<int>)),
+        CallWalkParameterTypes.NoTypeInfos(1),
+        CallWalkParameterTypes.NoLambdas(1)
+    )
+    assert specific == AnalyzerOverloadSpecificity.LeftIsBetter
+
+    // Identity beats specificity: the argument's own type wins the position outright.
+    identity := harness.Owner.CompareReflectionCandidates(
+        left,
+        right,
+        CallWalkParameterTypes.Of1(typeof(List<int>)),
+        CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
+        CallWalkParameterTypes.Of1(typeof(List<int>)),
+        CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
+        CallWalkParameterTypes.Of1(typeof(List<int>)),
+        CallWalkParameterTypes.NoTypeInfos(1),
+        CallWalkParameterTypes.NoLambdas(1)
+    )
+    assert identity == AnalyzerOverloadSpecificity.LeftIsBetter
+}
+
+test "A CANDIDATE THAT WINS ONE POSITION AND LOSES ANOTHER IS NOT BETTER — that tie is NL414" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+
+    // `Pick(object, string)` against `Pick(string, object)` for `("a", "b")`.
+    split := harness.Owner.CompareReflectionCandidates(
+        CallWalkCandidate(12, false, 0),
+        CallWalkCandidate(12, false, 0),
+        CallWalkParameterTypes.Of2(typeof(object), typeof(string)),
+        CallWalkParameterTypes.Of2(typeof(string), typeof(object)),
+        CallWalkParameterTypes.Of2(typeof(object), typeof(string)),
+        CallWalkParameterTypes.Of2(typeof(string), typeof(object)),
+        CallWalkParameterTypes.Of2(typeof(string), typeof(string)),
+        CallWalkParameterTypes.NoTypeInfos(2),
+        CallWalkParameterTypes.NoLambdas(2)
+    )
+    assert split == AnalyzerOverloadSpecificity.NeitherIsBetter
+}
+
+test "A POSITION WITH NO ARGUMENT TYPE IS SKIPPED, not guessed at" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+
+    // A lambda is left unanalysed on purpose and a method group has no type of its own, so both arrive
+    // as a null argument type. The parameter types still differ, so nothing is claimed about the pair —
+    // which is exactly how a method group with two ARITIES ties both `Enumerable.Select` overloads.
+    unknownArgument := harness.Owner.CompareReflectionCandidates(
+        CallWalkCandidate(6, false, 0),
+        CallWalkCandidate(6, false, 0),
+        CallWalkParameterTypes.Of1(typeof(Func<string, string>)),
+        CallWalkParameterTypes.Of1(typeof(Func<string, int, string>)),
+        CallWalkParameterTypes.Of1(typeof(Func<string, string>)),
+        CallWalkParameterTypes.Of1(typeof(Func<string, int, string>)),
+        CallWalkParameterTypes.Unfilled(1),
+        CallWalkParameterTypes.NoTypeInfos(1),
+        CallWalkParameterTypes.NoLambdas(1)
+    )
+    assert unknownArgument == AnalyzerOverloadSpecificity.NeitherIsBetter
+
+    // And a position one candidate never filled says nothing either.
+    unfilled := harness.Owner.CompareReflectionCandidates(
+        CallWalkCandidate(6, false, 0),
+        CallWalkCandidate(6, false, 0),
+        CallWalkParameterTypes.Of1(typeof(string)),
+        CallWalkParameterTypes.Unfilled(1),
+        CallWalkParameterTypes.Of1(typeof(string)),
+        CallWalkParameterTypes.Unfilled(1),
+        CallWalkParameterTypes.Of1(typeof(string)),
+        CallWalkParameterTypes.NoTypeInfos(1),
+        CallWalkParameterTypes.NoLambdas(1)
+    )
+    assert unfilled == AnalyzerOverloadSpecificity.NeitherIsBetter
+}
+
+test "THE PARAMS AND DEFAULT KEYS STILL BREAK A TIE THE CONVERSIONS COULD NOT" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+    empty := CallWalkParameterTypes.Unfilled(0)
+    emptyInfos := CallWalkParameterTypes.NoTypeInfos(0)
+    noLambdas := CallWalkParameterTypes.NoLambdas(0)
+
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 0), CallWalkCandidate(4, true, 0), empty, empty, empty, empty, empty, emptyInfos, noLambdas) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 2), CallWalkCandidate(4, false, 0), empty, empty, empty, empty, empty, emptyInfos, noLambdas) == AnalyzerOverloadSpecificity.RightIsBetter
+}
+
+// ── the diagnostic rollback, which is what makes the order matter ─────────────
+
+test "a rollback to a mark withdraws exactly the reports taken after it" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    sink := new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
+    sink.Report(ErrorCode.InvalidSyntax, "kept", 1, 1, null, 0)
+    mark := sink.ErrorCount
+    sink.Report(ErrorCode.InvalidSyntax, "withdrawn one", 2, 1, null, 0)
+    sink.Report(ErrorCode.InvalidSyntax, "withdrawn two", 3, 1, null, 0)
+
+    sink.RollbackErrorsTo(mark)
+
+    assert sink.ErrorCount == 1
+    assert errors.Count == 1
+    assert errors[0].Message == "kept"
+}
+
+test "a rollback to the CURRENT mark withdraws nothing" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    sink := new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
+    sink.Report(ErrorCode.InvalidSyntax, "kept", 1, 1, null, 0)
+
+    sink.RollbackErrorsTo(sink.ErrorCount)
+
+    assert sink.ErrorCount == 1
+}
+
+test "a rollback to a mark BEYOND the list withdraws nothing rather than throwing" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    sink := new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
+    sink.Report(ErrorCode.InvalidSyntax, "kept", 1, 1, null, 0)
+
+    sink.RollbackErrorsTo(99)
+
+    assert sink.ErrorCount == 1
+}
+
+test "a rollback to zero withdraws everything" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    sink := new AnalyzerDiagnosticSink(errors, new AnalyzerProjectSourceProvider())
+    sink.Report(ErrorCode.InvalidSyntax, "one", 1, 1, null, 0)
+    sink.Report(ErrorCode.InvalidSyntax, "two", 2, 1, null, 0)
+
+    sink.RollbackErrorsTo(0)
+
+    assert sink.ErrorCount == 0
+}
+
+test "a newtype construction checks arity first and the underlying type second" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    newtypeInfo: TypeInfo = new NewtypeInfo("UserId", new SimpleTypeReference("int"))
+    CallWalkDeclareType(harness, "f", newtypeInfo)
+    call := CallWalkBareCall(CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        newtypeInfo,
+        null,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    assert transcript == "3 4(<null>) 8"
+    assert CallWalkTypeText(state.Result) == "UserId"
+    assert errors.Count == 1
+    assert errors[0].Message.Contains("is not assignable to underlying type")
+
+    twoArguments := CallWalkArgs1("a")
+    twoArguments.Add(new Argument(null, CallWalkIdentifier("b"), ArgumentModifier.None))
+    arityErrors := CallWalkErrors()
+    arityHarness := CallWalkHarnessOf(arityErrors)
+    CallWalkDeclareType(arityHarness, "f", newtypeInfo)
+    arityCall := CallWalkBareCall(twoArguments)
+    arityState := arityHarness.Owner.BeginCall(arityCall)
+
+    _ = CallWalkRun(
+        arityHarness.Owner,
+        arityState,
+        newtypeInfo,
+        null,
+        BuiltInTypes.Int,
+        null,
+        0
+    )
+
+    assert arityErrors.Count == 1
+    assert arityErrors[0].Message.Contains("expects exactly 1 argument but got 2")
+}
+
+test "a callee the walk does not recognise answers unknown after the whole schedule has run" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    CallWalkDeclare(harness, "f", BuiltInTypes.Unknown)
+    call := CallWalkBareCall(CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        BuiltInTypes.Unknown,
+        null,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    // The arguments are still analysed and the gates still run — an unrecognised callee must not
+    // silence the diagnostics its arguments would have produced.
+    assert transcript == "3 4(<null>) 8"
+    assert CallWalkTypeText(state.Result) == "unknown"
+}
+
+test "a declared signature with no parameter list answers its return type without validating" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    signature := new FunctionTypeInfo()
+    signature.SyntheticName = "f"
+    signature.ReturnType = BuiltInTypes.Bool
+    CallWalkDeclare(harness, "f", signature)
+    call := CallWalkBareCall(CallWalkArgs())
+    state := harness.Owner.BeginCall(call)
+
+    transcript := CallWalkRun(harness.Owner, state, signature, null, BuiltInTypes.Int, null, 0)
+
+    assert transcript == "3 8"
+    assert CallWalkTypeText(state.Result) == "bool"
+}
+
+test "an argument's expected type comes from the signature, closed once before the loop" {
+    errors := CallWalkErrors()
+    harness := CallWalkHarnessOf(errors)
+    call := CallWalkMemberCall(CallWalkArgs1("a"))
+    state := harness.Owner.BeginCall(call)
+    typeParameter: TypeInfo = new SimpleTypeInfo("T")
+    signature := CallWalkReceiverGeneric(typeParameter, new SimpleTypeReference("T"))
+
+    transcript := CallWalkRun(
+        harness.Owner,
+        state,
+        signature,
+        BuiltInTypes.Int,
+        BuiltInTypes.String,
+        null,
+        0
+    )
+
+    // `p2: T` with the receiver binding `T = int` — the expected type is the CLOSED one, and it is
+    // closed from the receiver read before the loop rather than from the arguments analysed so far.
+    assert transcript == "6(callee) 3 16 4(int) 8 16 16"
+}
+
+// ------------------------------------------------------- the receiver is walked ONCE per link
+
+// THE COMPLEXITY CONTRACT, STATED AS A COUNT RATHER THAN AS A CLOCK.
+//
+// A fluent chain's receiver is itself a call whose receiver is a call, and the call walk reads the
+// member-access receiver more than once (three times for a receiver-style generic, once for a group
+// whose winner is not). While each of those reads RE-WALKED the receiver's subtree, an N-link chain
+// was analysed once per PATH through it — exponential — and the analysis of a 27-link
+// `.WithHandler<T>()` registration did not terminate.
+//
+// A REPORT IS THE COUNT MADE OBSERVABLE. `Seed(1)` is an arity fault whose answer is still `Chain`,
+// so the chain above it resolves normally and the fault is analysed once per walk of the receiver.
+// The raw analyzer error list is what is counted here, deliberately: `nlc check` distincts its
+// results and would hide the repeat, which is how the exponential stayed invisible until a project
+// stopped finishing. One report at one link and one report at twenty-four is the same statement as
+// "the receiver's subtree is walked once", and at twenty-four links the old walk would not have
+// finished at all.
+func ChainedReceiverSource(links: int): string {
+    source := "namespace Probe\n\nclass Chain {\n    public func Next(): Chain {\n        return this\n    }\n}\n\nfunc Seed(): Chain {\n    return new Chain()\n}\n\nfunc Run(): Chain {\n    return Seed(1)"
+    index := 0
+    while index < links {
+        source = source + ".Next()"
+        index = index + 1
+    }
+
+    return source + "\n}\n"
+}
+
+func ChainedReceiverArityReports(links: int): int {
+    source := ChainedReceiverSource(links)
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-chain-receiver-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    total := 0
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Code == ErrorCode.WrongArgumentCount {
+                total = total + 1
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return total
+}
+
+test "a fault in a chained call's receiver is reported ONCE however long the chain" {
+    // Non-vacuity first: the fault is real and is found at the shortest chain there is.
+    assert ChainedReceiverArityReports(1) == 1
+
+    // The same one report twelve and twenty-four links up. A walk that re-walked the receiver would
+    // report 2^links times and would not reach the third of these.
+    assert ChainedReceiverArityReports(12) == 1
+    assert ChainedReceiverArityReports(24) == 1
+}
+
+func AssertCallArgumentSourceChecks(source: string) {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-call-context-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        messages := ""
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                messages += error.Message + "\n"
+            }
+        }
+        if messages.Length > 0 {
+            throw new InvalidOperationException(messages)
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "call argument inference clears an enclosing unsigned result target" {
+    AssertCallArgumentSourceChecks("func Pick(text: string): uint {\n    return (uint)text.Substring(0, 1).Length\n}\n")
+}
+
+test "call argument inference retains an actual unsigned parameter target" {
+    AssertCallArgumentSourceChecks("func Echo(value: uint): uint { return value }\nfunc Run(): uint { return Echo(4000000000) }\n")
+}
+
+test "call argument inference restores the enclosing target after a nested call" {
+    AssertCallArgumentSourceChecks("func Pick(text: string): uint {\n    return (uint)text.Substring(0, 1).Length + 4000000000\n}\n")
+}
+
+// ---- a callee that names a VALUE, end to end ------------------------------------------------------
+//
+// The whole analyzer over a whole file, because the shapes differ in WHERE the name is found — the
+// type scope, an inherited member, a referenced base's metadata, a local — and every one of them must
+// reach the same NL413 sentence through the bare spelling and the `this.` spelling alike, while a
+// delegate-typed member keeps being a call. Every row answers `code@line:column message` per error so
+// a stray second report fails the row as surely as a missing first one.
+//
+// THE FRAMEWORK IS LOADED, because half of these shapes are about delegates and bases that live in
+// it — `Func<string>`, `Action`, `Predicate<int>`, `List<string>` — and a bare `Analyzer` in a
+// temporary directory has no reference assemblies at all: `import System` would be NL704 and every
+// such member an unresolved type.
+func NotCallableErrors(source: string, projectMode: bool = false): List<CompilerError> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-not-callable-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    if parsed.Errors.Count > 0 {
+        throw new InvalidOperationException("parse error: " + parsed.Errors[0].Message)
+    }
+    unit := parsed.CompilationUnit
+    if unit == null {
+        throw new InvalidOperationException("The parsed compilation unit was missing.")
+    }
+    Directory.CreateDirectory(projectRoot)
+    if projectMode {
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: NotCallableProbe\nversion: 0.1.0\noutputType: library\ntargetFramework: net10.0\n")
+    }
+    analyzer := new Analyzer()
+    errors := new List<CompilerError>()
+    try {
+        analyzer.LoadSystemAssemblies()
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                errors.Add(error)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return errors
+}
+
+func NotCallableReports(source: string, projectMode: bool = false): string {
+    text := ""
+    for error in NotCallableErrors(source, projectMode) {
+        codeValue: int = (int)error.Code
+        text = text + "NL" + codeValue.ToString() + "@" + error.Line.ToString() + ":" + error.Column.ToString() + " " + error.Message + "\n"
+    }
+
+    return text
+}
+
+// The comparison, with BOTH texts in the failure: a row that pins a sentence is only useful if a
+// mismatch shows the sentence the analyzer actually wrote.
+func AssertNotCallableReports(source: string, expected: string, projectMode: bool = false) {
+    actual := NotCallableReports(source, projectMode)
+    if actual != expected {
+        throw new InvalidOperationException("expected:\n" + expected + "actual:\n" + actual)
+    }
+}
+
+func NotCallableHint(source: string): string {
+    hint := ""
+    for error in NotCallableErrors(source) {
+        if error.Code == ErrorCode.MemberNotCallable {
+            hint = hint + (error.ContextualHint ?? "")
+        }
+    }
+
+    return hint
+}
+
+func MemberFunctionAmbiguityCount(source: string): int {
+    count := 0
+    for error in NotCallableErrors(source, true) {
+        if error.Code == ErrorCode.AmbiguousTypeReference {
+            count = count + 1
+        }
+    }
+
+    return count
+}
+
+test "a bare call of a `string` FIELD is NL413 at the name, not an emitter decline" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => Label()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:28 `Label` is a field of type `string` on `Widget`, not something you can call\n")
+}
+
+test "the `this.` spelling of the same call is the same sentence" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => this.Label()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:33 `Label` is a field of type `string` on `Widget`, not something you can call\n")
+}
+
+test "a PROPERTY is named a property through both spellings" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string => \"prop\"\n\n    func Show(): string => Label()\n    func Again(): string => this.Label()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:28 `Label` is a property of type `string` on `Widget`, not something you can call\nNL413@7:34 `Label` is a property of type `string` on `Widget`, not something you can call\n")
+}
+
+test "a delegate-typed field is still INVOKED, through both spellings, and its result is typed" {
+    // The `string` a `Func<string>` returns, handed back from an `int` function, is NL202 — proof the
+    // call was bound to the delegate's signature rather than silently answering `unknown`.
+    source := "namespace Probe\n\nimport System\n\nclass Widget {\n    Label: Func<string> = () => \"delegate\"\n    Done: Action = () => {}\n\n    func Show(): string => Label()\n    func Again(): string => this.Label()\n    func Finish() {\n        Done()\n        this.Done()\n    }\n    func Wrong(): int => Label()\n}\n"
+    AssertNotCallableReports(source, "NL202@15:26 Function 'Wrong' should return int but returns string\n")
+}
+
+test "a delegate is a delegate however it is spelled: qualified, or a generic delegate other than Func" {
+    source := "namespace Probe\n\nimport System\n\nclass Widget {\n    Label: System.Func<string> = () => \"qualified\"\n    IsBig: Predicate<int> = value => value > 3\n\n    func Show(): string => Label()\n    func Check(): bool => IsBig(5) && this.IsBig(1)\n}\n\nfunc Make(): System.Func<string> => () => \"made\"\n\nfunc Use(): string {\n    group := Make()\n    return group()\n}\n"
+    AssertNotCallableReports(source, "")
+}
+
+test "a method-group reference with a member and free function is NL209 before delegate applicability" {
+    source := "namespace Probe\n\nimport System\n\nfunc Label(value: int): string => value.ToString()\n\nclass Widget {\n    func Label(): string => \"member\"\n    func Show(): string {\n        read: Func<int, string> = Label\n        return read(1)\n    }\n}\n"
+    expected := "NL209@10:35 'Label' is ambiguous between member 'Probe.Widget.Label' (declared by 'Probe.Widget') and free function 'Probe.Label' (declared in namespace 'Probe')\n"
+    AssertNotCallableReports(source, expected, true)
+}
+
+test "explicit this chooses the member when a same-named free function is visible" {
+    source := "namespace Probe\n\nfunc Label(value: int): string => value.ToString()\n\nclass Widget {\n    func Label(): string => \"member\"\n    func Member(): string => this.Label()\n}\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "base, this, static type-qualified and outside-type spellings are unambiguous" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Base {\n    func Label(): string => \"base\"\n}\n\nclass Child: Base {\n    func FromThis(): string => this.Label()\n    func FromBase(): string => base.Label()\n}\n\nclass StaticWidget {\n    static func Label(): string => \"static\"\n    static func FromType(): string => StaticWidget.Label()\n}\n\nfunc Outside(): string => Label()\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "local values and local functions shadow a member and free-function name before NL209" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Widget {\n    func Label(): string => \"member\"\n    func LocalValue(): string {\n        Label := \"local\"\n        return Label()\n    }\n    func Parameter(Label: string): string => Label()\n    func LocalFunction(): string {\n        func Label(): string => \"local function\"\n        return Label()\n    }\n}\n"
+    errors := NotCallableErrors(source, true)
+    notCallable := 0
+    ambiguities := 0
+    for error in errors {
+        if error.Code == ErrorCode.MemberNotCallable {
+            notCallable = notCallable + 1
+        }
+        if error.Code == ErrorCode.AmbiguousTypeReference {
+            ambiguities = ambiguities + 1
+        }
+    }
+    assert errors.Count == 2, NotCallableReports(source, true)
+    assert notCallable == 2
+    assert ambiguities == 0
+}
+
+test "a non-delegate field does not compete with a free function at a call site" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => Label()\n}\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "member ambiguity is independent of overload applicability" {
+    ambiguous := "namespace Probe\n\nfunc Label(value: int): string => value.ToString()\n\nclass Widget {\n    func Label(): string => \"member\"\n\n    func Ambiguous(): string => Label(1)\n    func Member(): string => this.Label()\n}\n"
+    expected := "NL209@8:33 'Label' is ambiguous between member 'Probe.Widget.Label' (declared by 'Probe.Widget') and free function 'Probe.Label' (declared in namespace 'Probe')\n"
+    AssertNotCallableReports(ambiguous, expected, true)
+}
+
+test "a bare static member and free function are ambiguous by name" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Widget {\n    static func Label(): string => \"member\"\n    static func Show(): string => Label()\n}\n"
+    expected := "NL209@7:35 'Label' is ambiguous between member 'Probe.Widget.Label' (declared by 'Probe.Widget') and free function 'Probe.Label' (declared in namespace 'Probe')\n"
+    AssertNotCallableReports(source, expected, true)
+    errors := NotCallableErrors(source, true)
+    assert (errors[0].Suggestion ?? "").Contains("Probe.Widget.Label(...)")
+    assert (errors[0].Suggestion ?? "").Contains("Probe.Label(...)")
+}
+
+test "an inherited non-delegate field leaves the free function as the call target" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Base {\n    Label: string = \"field\"\n}\n\nclass Widget: Base {\n    func Show(): string => Label()\n}\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "a member of a REFERENCED base is named from its metadata" {
+    source := "namespace Probe\n\nimport System.Collections.Generic\n\nclass Bag: List<string> {\n    func Show(): int => Count()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:25 `Count` is a property of type `int` on `Bag`, not something you can call\n")
+}
+
+test "a referenced non-delegate property does not compete with a free function at a call site" {
+    source := "namespace Probe\n\nimport System.Collections.Generic\n\nfunc Count(): int => 1\n\nclass Bag: List<string> {\n    func Show(): int => Count()\n}\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "write positions do not compare field, property, or method names with free functions" {
+    source := "namespace Probe\n\nimport System\n\nfunc Field(): string => \"free\"\nfunc Property(): string => \"free\"\nfunc Method(): string => \"free\"\n\nclass Target {\n    Field: string\n    Property: string {\n        get { return fieldValue }\n        set { fieldValue = value }\n    }\n    fieldValue: string\n    func Method(): string => \"method\"\n}\n\nclass Widget {\n    Field: Func<string> = () => \"member\"\n    propertyValue: Func<string> = () => \"member\"\n    Property: Func<string> {\n        get { return propertyValue }\n        set { propertyValue = value }\n    }\n    func Method(): string => \"member\"\n\n    func Touch(ref value: Func<string>) {}\n    func Fill(out value: Func<string>) { value = () => \"out\" }\n\n    func Writes(): Target {\n        Field = () => \"assigned\"\n        Property = () => \"assigned\"\n        Method = () => \"assigned\"\n        Field += () => \"added\"\n        Property += () => \"added\"\n        Method += () => \"added\"\n        Field++\n        Property++\n        Method++\n        Touch(ref Field)\n        Touch(ref Property)\n        Touch(ref Method)\n        Fill(out Field)\n        Fill(out Property)\n        Fill(out Method)\n        return new Target { Field: \"field\", Property: \"property\", Method: \"method\" }\n    }\n}\n"
+    assert MemberFunctionAmbiguityCount(source) == 0
+    decremented := source.Replace("Field++", "Field--").Replace("Property++", "Property--").Replace("Method++", "Method--")
+    assert MemberFunctionAmbiguityCount(decremented) == 0
+}
+
+test "call positions report only when a field, property, or method is invocable" {
+    source := "namespace Probe\n\nimport System\n\nfunc Field(): string => \"free\"\nfunc Property(): string => \"free\"\nfunc Method(): string => \"free\"\n\nclass Widget {\n    Field: Func<string> = () => \"member\"\n    propertyValue: Func<string> = () => \"member\"\n    Property: Func<string> {\n        get { return propertyValue }\n        set { propertyValue = value }\n    }\n    func Method(): string => \"member\"\n\n    func Calls(): string {\n        first := Field()\n        second := Property()\n        return Method()\n    }\n}\n"
+    assert MemberFunctionAmbiguityCount(source) == 3
+    for error in NotCallableErrors(source, true) {
+        if error.Code == ErrorCode.AmbiguousTypeReference {
+            suggestion := error.Suggestion ?? ""
+            assert suggestion.Contains("Call the member with `this.")
+            assert suggestion.Contains("(...)` or call the free function with `Probe.")
+        }
+    }
+}
+
+test "non-delegate fields and properties leave a bare call to the free function" {
+    source := "namespace Probe\n\nfunc Field(): string => \"free\"\nfunc Property(): string => \"free\"\n\nclass Widget {\n    Field: string = \"member\"\n    Property: string => \"member\"\n    func Calls(): string => Field() + Property()\n}\n"
+    AssertNotCallableReports(source, "", true)
+}
+
+test "bare reads and method-group references compare all three member kinds by name" {
+    source := "namespace Probe\n\nimport System\n\nfunc Field(): string => \"free\"\nfunc Property(): string => \"free\"\nfunc Method(): string => \"free\"\nfunc Accept(value: Func<string>) {}\n\nclass Widget {\n    Field: Func<string> = () => \"member\"\n    propertyValue: Func<string> = () => \"member\"\n    Property: Func<string> {\n        get { return propertyValue }\n        set { propertyValue = value }\n    }\n    func Method(): string => \"member\"\n\n    func Reads() {\n        fieldRead: Func<string> = Field\n        propertyRead: Func<string> = Property\n        methodRead: Func<string> = Method\n        Accept(Field)\n        Accept(Property)\n        Accept(Method)\n    }\n}\n"
+    assert MemberFunctionAmbiguityCount(source) == 6
+    for error in NotCallableErrors(source, true) {
+        if error.Code == ErrorCode.AmbiguousTypeReference {
+            suggestion := error.Suggestion ?? ""
+            assert suggestion.StartsWith("Use the member `this.")
+            assert suggestion.Contains("` or the free-function group `Probe.")
+            assert !suggestion.Contains("(...)")
+        }
+    }
+}
+
+test "a record's POSITIONAL component is a property, not a bare `member`" {
+    source := "namespace Probe\n\nrecord Point(X: int, Y: int) {\n    func Sum(): int => X() + Y\n}\n"
+    AssertNotCallableReports(source, "NL413@4:24 `X` is a property of type `int` on `Point`, not something you can call\n")
+}
+
+test "a member whose type did not RESOLVE is NL201 alone, never also NL413" {
+    // `NoSuchType` is a spelling the analyzer could not identify, so whether `Done` can be called is
+    // exactly what it does not know.
+    source := "namespace Probe\n\nclass Widget {\n    Done: NoSuchType\n\n    func Finish() {\n        Done()\n    }\n}\n"
+    AssertNotCallableReports(source, "NL201@4:11 Type 'NoSuchType' not found\n")
+}
+
+test "a local and a parameter are values too" {
+    source := "namespace Probe\n\nfunc Use(count: int): int {\n    text := \"x\"\n    print text()\n    return count(1)\n}\n"
+    AssertNotCallableReports(source, "NL413@5:11 `text` is a value of type `string`, not something you can call\nNL413@6:12 `count` is a value of type `int`, not something you can call\n")
+}
+
+test "a NEWTYPE value called is NL413, not a second construction" {
+    source := "namespace Probe\n\ntype UserId = newtype int\n\nfunc Use(id: UserId): UserId => id(5)\n"
+    AssertNotCallableReports(source, "NL413@5:33 `id` is a value of type `UserId`, not something you can call\n")
+}
+
+test "a free function called from outside every type is still an ordinary call" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nfunc Show(): string => Label()\n"
+    AssertNotCallableReports(source, "")
+}
+
+// ---- a `default` arm passed to a callee chosen by its arguments, end to end ----------------------
+//
+// An overload group walks its arguments before a parameter is chosen, so a `default` there — the
+// argument itself, or an arm of a conditional passed as it — used to report NL203, and a conditional
+// with a `default` or `null` arm answered `unknown`, which left an overload group ambiguous (NL414).
+// The other arm decides which overload applies; the parameter decides what the `default` is.
+
+test "a default or null arm passed to an N# overload group, a static group, an instance group and a framework method reports nothing" {
+    source := "namespace Probe\n\nimport System\n\nfunc Measure(value: int?): int => value ?? -1\nfunc Measure(value: string?): int => 0\n\nclass Gauge {\n    static func Read(value: int?): int => value ?? -1\n    static func Read(value: bool): int => 1\n    func Shift(value: long?): long => value ?? -1\n    func Shift(value: string?): long => 2\n}\n\nfunc A(flag: bool, n: int): int => Measure(flag ? default : n)\nfunc B(flag: bool, s: string): int => Measure(flag ? s : default)\nfunc C(a: bool, b: bool, n: int): int => Measure(a ? (b ? default : 7) : n)\nfunc D(flag: bool, n: int): int => Gauge.Read(flag ? default : n)\nfunc E(flag: bool, g: Gauge, n: long): long => g.Shift(flag ? default : n)\nfunc F(flag: bool, s: string): bool => string.IsNullOrEmpty(flag ? default : s)\nfunc G(flag: bool, n: int): int => Math.Max(flag ? default : n, 1)\nfunc H(flag: bool, n: int): int => Measure(flag ? null : n)\nfunc I(flag: bool, s: string): int => Measure(flag ? s : null)\n"
+    AssertNotCallableReports(source, "")
+}
+
+test "a default with no parameter to wait for is still told it has no target" {
+    // A local with no written type has no target at all, and a `default` OPERAND inside an argument
+    // has its own (the operator's), so neither is excused by the argument it sits in.
+    source := "namespace Probe\n\nfunc Measure(value: int?): int => value ?? -1\nfunc Measure(value: string?): int => 0\n\nfunc A(flag: bool, n: int): int {\n    x := flag ? default : n\n    return x\n}\nfunc B(flag: bool, n: int): int => Measure(flag ? default + 1 : n)\n"
+    reports := NotCallableReports(source)
+    assert reports.Contains("NL203@7:17 "), reports
+    assert reports.Contains("NL203@10:51 "), reports
+}
+// ── NL415: a TYPE named bare before `(` ──────────────────────────────────────────────────────────
+//
+// WHOLE-ANALYZER ROWS, because the fault needs both halves: the identifier rule saying which channel
+// answered with a type, and this walk judging it. Before NL415 the walk answered `unknown` in silence
+// and the program was refused only at emit, with `emit.call.bare-unresolved` naming the emitter
+// rather than the code — so a clean analyzer result for `Widget()` IS the bug these rows pin.
+func TypeCalleeErrors(source: string): List<CompilerError> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-type-callee-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    // The referenced rows need `Console`, `StringBuilder`, `List<T>` and `Func<T, TResult>` to exist,
+    // which means the framework's metadata loaded as `nlc check` loads it.
+    analyzer := new Analyzer()
+    analyzer.LoadSystemAssemblies()
+    errors := new List<CompilerError>()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                errors.Add(error)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return errors
+}
+
+// One line per error: code, position, message, suggestion. A row compares the whole list, so an
+// extra report — a second one at the same callee, or a cascade from the arguments — fails it too.
+func TypeCalleeReports(source: string): string {
+    text := ""
+    for error in TypeCalleeErrors(source) {
+        text += "NL" + Convert.ToInt32(error.Code).ToString() + " " + error.Line.ToString() + ":" + error.Column.ToString() + " " + error.Message + " | " + (error.Suggestion ?? "") + "\n"
+    }
+
+    return text
+}
+
+test "a source class, struct, record or generic type called bare is NL415 at the callee, told to write `new`" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"field\"\n}\n\nstruct Point(x: double, y: double) {}\n\nrecord Person(name: string, age: int) {}\n\nclass Box<T> {\n    Value: T\n}\n\nfunc Run() {\n    a := Widget()\n    b := Point(1.0, 2.0)\n    c := Person(\"x\", 1)\n    d := Box<int>()\n    print a\n    print b\n    print c\n    print d\n}\n"
+    expected := "NL415 16:10 `Widget` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new Widget()`.\n"
+    expected += "NL415 17:10 `Point` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new Point(...)`.\n"
+    expected += "NL415 18:10 `Person` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new Person(...)`.\n"
+    expected += "NL415 19:10 `Box<int>` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new Box<int>()`.\n"
+    assert TypeCalleeReports(source) == expected
+}
+
+test "the report spans the callee's NAME, so the underline sits on the type and not on the call" {
+    errors := TypeCalleeErrors("namespace Probe\n\nclass Widget {\n}\n\nfunc Run() {\n    print Widget()\n}\n")
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.TypeNotCallable
+    assert errors[0].Line == 7
+    assert errors[0].Column == 11
+    assert errors[0].Length == 6
+}
+
+test "a REFERENCED type called bare is NL415 too, and the fix follows what the type is" {
+    source := "namespace Probe\n\nimport System\nimport System.Text\nimport System.Collections.Generic\n\nfunc Run() {\n    a := Console()\n    b := StringBuilder()\n    c := List<int>()\n    d := int(5)\n    print a\n    print b\n    print c\n    print d\n}\n"
+    expected := "NL415 8:10 `Console` is a static class, not a function, so it cannot be called | A static class has no instances. Call one of its members instead: `Console.Member(...)`.\n"
+    expected += "NL415 9:10 `StringBuilder` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new StringBuilder()`.\n"
+    // `List<T>`'s metadata name is `List`1`, which the bare-name probe cannot see: without the
+    // arity-aware lookup this was NL412 "Function 'List' not found".
+    expected += "NL415 10:10 `List<int>` is a type, not a function, so it cannot be called | N# creates an instance with `new`: write `new List<int>()`.\n"
+    expected += "NL415 11:10 `int` is a type, not a function, so it cannot be called | N# converts between built-in types with a cast: write `(int)value`.\n"
+    assert TypeCalleeReports(source) == expected
+}
+
+test "a type that cannot be created is not told to write `new` — enum, interface, abstract class, union" {
+    source := "namespace Probe\n\nenum Color {\n    Red,\n    Green\n}\n\ninterface IShape {\n}\n\nabstract class Shape {\n}\n\nunion Outcome {\n    Win { score: int }\n    Loss { reason: string }\n}\n\nfunc Run() {\n    a := Color()\n    b := IShape()\n    c := Shape()\n    d := Outcome()\n    print a\n    print b\n    print c\n    print d\n}\n"
+    expected := "NL415 20:10 `Color` is an enum, not a function, so it cannot be called | Name one of its members, such as `Color.Member`, or convert a number with a cast: `(Color)value`.\n"
+    expected += "NL415 21:10 `IShape` is an interface, not a function, so it cannot be called | An interface cannot be created. Create a type that implements `IShape` with `new`.\n"
+    expected += "NL415 22:10 `Shape` is an abstract class, not a function, so it cannot be called | An abstract class cannot be created. Create a type derived from `Shape` with `new`.\n"
+    expected += "NL415 23:10 `Outcome` is a union, not a function, so it cannot be called | Create one of its cases with `new`: `new Outcome.Case(...)`.\n"
+    assert TypeCalleeReports(source) == expected
+}
+
+test "a DELEGATE type called bare is NL415, because the walk binds nothing for it and emit refused it" {
+    source := "namespace Probe\n\nimport System\n\nfunc Run() {\n    a := Func<int, int>((x: int) => x + 1)\n    b := EventHandler()\n    print a\n    print b\n}\n"
+    expected := "NL415 6:10 `Func<int, int>` is a delegate type, not a function, so it cannot be called | A delegate is made from a function or a lambda: assign one to a variable of this type (`handler: Func<int, int> = ...`), or write `new Func<int, int>(...)`.\n"
+    expected += "NL415 7:10 `EventHandler` is a delegate type, not a function, so it cannot be called | A delegate is made from a function or a lambda: assign one to a variable of this type (`handler: EventHandler = ...`), or write `new EventHandler(...)`.\n"
+    assert TypeCalleeReports(source) == expected
+}
+
+test "a NEWTYPE is constructed by call, and its arity and argument checks still own that call" {
+    // Clean: the one type spelled as a call.
+    assert TypeCalleeReports("namespace Probe\n\ntype UserId = newtype int\n\nfunc Run(): UserId {\n    return UserId(5)\n}\n") == ""
+
+    // A wrong construction is the newtype's own report, not NL415 on top of it.
+    errors := TypeCalleeErrors("namespace Probe\n\ntype UserId = newtype int\n\nfunc Run(): UserId {\n    return UserId(5, 6)\n}\n")
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.InvalidSyntax
+}
+
+test "a delegate-typed VALUE is still called — a local, a parameter, a field — and so is a function" {
+    source := "namespace Probe\n\nimport System\n\nclass Button {\n    OnClick: Func<int, int> = (x: int) => x\n}\n\nfunc Twice(value: int): int {\n    return value * 2\n}\n\nfunc Run(handler: Func<int, int>, button: Button): int {\n    doubler := (x: int) => x * 2\n    return doubler(1) + handler(2) + button.OnClick(3) + Twice(4)\n}\n"
+    assert TypeCalleeReports(source) == ""
+}
+
+test "a local whose value is of a class type is a VALUE callee, never NL415, even though it answers the same type" {
+    // `current` answers `Widget` exactly as the class does. Only the channel it came from separates
+    // them, and a class-typed value is not callable for a different reason than a type is — so
+    // whatever else it earns, it must not be told to write `new`.
+    for error in TypeCalleeErrors("namespace Probe\n\nclass Widget {\n}\n\nfunc Run(current: Widget) {\n    current()\n}\n") {
+        assert error.Code != ErrorCode.TypeNotCallable
+    }
+}

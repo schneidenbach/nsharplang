@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { runTests } from '@vscode/test-electron';
+import * as childProcess from 'child_process';
+import { downloadAndUnzipVSCode, runTests } from '@vscode/test-electron';
 
 async function main(): Promise<void> {
     const extensionDevelopmentPath = path.resolve(__dirname, '../../..');
@@ -10,6 +11,12 @@ async function main(): Promise<void> {
         ?? path.join(repoRoot, '.context', 'vscode-headless-report.json');
     const serverPath = process.env.NSHARP_VSCODE_SERVER_PATH
         ?? path.join(repoRoot, 'src', 'NSharpLang.LanguageServer', 'bin', 'Release', 'net10.0', 'LanguageServer.dll');
+    const vscodeCachePath = process.env.NSHARP_VSCODE_TEST_CACHE?.trim()
+        || process.env.NSHARP_VSCODE_CACHE_PATH?.trim()
+        || path.join(extensionDevelopmentPath, '.vscode-test');
+    const vscodeTestVersion = (require(path.join(extensionDevelopmentPath, 'package.json')) as {
+        config: { vscodeTestVersion: string }
+    }).config.vscodeTestVersion;
 
     if (!fs.existsSync(serverPath)) {
         throw new Error(`Language server binary not found: ${serverPath}`);
@@ -21,30 +28,59 @@ async function main(): Promise<void> {
     const userDataDir = path.join(profileRoot, 'user-data');
     const extensionsDir = path.join(profileRoot, 'extensions');
 
-    fs.mkdirSync(userDataDir, { recursive: true });
-    fs.mkdirSync(extensionsDir, { recursive: true });
+    for (const directory of [userDataDir, extensionsDir]) fs.mkdirSync(directory, { recursive: true });
+    const settingsPath = path.join(userDataDir, 'User', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({
+        'update.mode': 'none',
+        'update.showReleaseNotes': false,
+        'extensions.autoUpdate': 'off',
+        'extensions.autoCheckUpdates': false,
+        'telemetry.telemetryLevel': 'off',
+        'security.workspace.trust.enabled': false,
+        'workbench.startupEditor': 'none'
+    }, null, 2));
 
     process.env.NSHARP_VSCODE_FIXTURE_ROOT = workspaceRoot;
     process.env.NSHARP_VSCODE_REPORT_PATH = reportPath;
     process.env.NSHARP_VSCODE_SERVER_PATH = serverPath;
 
     try {
+        const vscodeExecutablePath = await downloadAndUnzipVSCode({
+            version: vscodeTestVersion,
+            cachePath: vscodeCachePath,
+            extensionDevelopmentPath
+        });
+        if (process.platform === 'darwin') {
+            const appBundle = vscodeExecutablePath.match(/^(.*?\.app)(?:\/|$)/)?.[1]; if (!appBundle) throw new Error(`VS Code executable is outside an app bundle: ${vscodeExecutablePath}`);
+            const quarantine = childProcess.spawnSync('xattr', ['-p', 'com.apple.quarantine', appBundle], { stdio: 'ignore' });
+            if (quarantine.error || (quarantine.status !== 0 && quarantine.status !== 1)) throw quarantine.error ?? new Error(`Failed to inspect VS Code quarantine attribute (xattr exited ${quarantine.status}).`);
+            if (quarantine.status === 0 && childProcess.spawnSync('xattr', ['-dr', 'com.apple.quarantine', appBundle], { stdio: 'ignore' }).status !== 0) throw new Error('Failed to remove VS Code quarantine attribute.');
+        }
+
         await runTests({
             extensionDevelopmentPath,
             extensionTestsPath,
+            vscodeExecutablePath,
             extensionTestsEnv: {
                 NSHARP_VSCODE_FIXTURE_ROOT: workspaceRoot,
                 NSHARP_VSCODE_REPORT_PATH: reportPath,
                 NSHARP_VSCODE_SERVER_PATH: serverPath
             },
-            reuseMachineInstall: true,
             launchArgs: [
                 workspaceRoot,
-                '--disable-workspace-trust',
+                '--disable-updates',
+                '--disable-telemetry',
                 '--skip-welcome',
                 '--skip-release-notes',
+                '--disable-workspace-trust',
+                '--disable-experiments',
+                '--use-inmemory-secretstorage',
                 '--disable-gpu',
-                '--password-store=basic',
+                ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
+                ...(process.platform === 'linux' ? ['--password-store=basic'] : []),
+                `--user-data-dir=${userDataDir}`,
+                `--extensions-dir=${extensionsDir}`,
                 '--disable-extension',
                 'vscode.git',
                 '--disable-extension',
@@ -58,9 +94,7 @@ async function main(): Promise<void> {
                 '--disable-extension',
                 'github.copilot',
                 '--disable-extension',
-                'github.copilot-chat',
-                `--user-data-dir=${userDataDir}`,
-                `--extensions-dir=${extensionsDir}`
+                'github.copilot-chat'
             ]
         });
     } finally {

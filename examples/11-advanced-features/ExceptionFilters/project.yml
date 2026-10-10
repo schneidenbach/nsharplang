@@ -1,0 +1,5 @@
+name: ExceptionFilters
+version: 1.0.0
+targetFramework: net10.0
+outputType: exe
+entry: ExceptionFilters.nl

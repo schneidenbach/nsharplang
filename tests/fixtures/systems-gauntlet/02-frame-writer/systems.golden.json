@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "case": "binary frame writer into caller Span<byte>",
+  "expected": {
+    "hot": "pass",
+    "boundsProof": "dst.Length < 5 exit guard",
+    "errors": []
+  }
+}

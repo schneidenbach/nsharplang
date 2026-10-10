@@ -1,0 +1,727 @@
+{
+  "schemaVersion": 2,
+  "kind": "nsharp.agent-loop-baseline",
+  "policy": "CompilerWorkCounters are gated exactly: decreases are ratcheted into this file in the same commit; increases are regressions to fix. Member isolation deliberately loads one additional xunit.abstractions reference from the fixture closure when the host has only the same identity at a different path. Absolute wall, CPU and RSS values are run artifacts only.",
+  "rows": [
+    {
+      "size": "small",
+      "scenario": "no-op check",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "no-op check",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "no-op build",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "no-op build",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "no-op test",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "no-op test",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "body check",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "body check",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "body build",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 319, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "body build",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "body test",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "body test",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "signature check",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "signature check",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "signature build",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 319, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "signature build",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "new-file check",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 9, "emitParses": 9, "filesAnalyzed": 9, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "new-file check",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 9, "emitParses": 9, "filesAnalyzed": 9, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "new-file build",
+      "mode": "cold",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 9, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 319, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "new-file build",
+      "mode": "warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "no-op check",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "no-op check",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "no-op build",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "no-op build",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "no-op test",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "no-op test",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "body check",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "body check",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "body build",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 36, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "body build",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "body test",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "body test",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "signature check",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "signature check",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "signature build",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 36, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "signature build",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "new-file check",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 42, "emitParses": 42, "filesAnalyzed": 42, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "new-file check",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 42, "emitParses": 42, "filesAnalyzed": 42, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "new-file build",
+      "mode": "cold",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 42, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 36, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "new-file build",
+      "mode": "warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "no-op check",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "no-op check",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "no-op build",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "no-op build",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "no-op test",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "no-op test",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "body check",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "body check",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "body build",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 161, "emitParses": 160, "filesAnalyzed": 160, "assembliesEmitted": 1, "referenceAssembliesLoaded": 36, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "body build",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "body test",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "body test",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "signature check",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "signature check",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "signature build",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 161, "emitParses": 160, "filesAnalyzed": 160, "assembliesEmitted": 1, "referenceAssembliesLoaded": 36, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "signature build",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "new-file check",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 162, "emitParses": 162, "filesAnalyzed": 162, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "new-file check",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 162, "emitParses": 162, "filesAnalyzed": 162, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "new-file build",
+      "mode": "cold",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 162, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 1, "referenceAssembliesLoaded": 36, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "new-file build",
+      "mode": "warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "no-op check",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "no-op build",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "no-op test",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "body check",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "body build",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "body test",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "signature check",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "signature build",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "new-file check",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "small",
+      "scenario": "new-file build",
+      "mode": "daemon-warm",
+      "sourceLines": 448,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "no-op check",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "no-op build",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "no-op test",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "body check",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "body build",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "body test",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "signature check",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "signature build",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "new-file check",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "medium",
+      "scenario": "new-file build",
+      "mode": "daemon-warm",
+      "sourceLines": 10640,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "no-op check",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "no-op build",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "no-op test",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "body check",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "body build",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "body test",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "signature check",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "signature build",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "new-file check",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    },
+    {
+      "size": "large",
+      "scenario": "new-file build",
+      "mode": "daemon-warm",
+      "sourceLines": 80960,
+      "exitCode": 0,
+      "counters": {"filesParsed": 0, "emitParses": 0, "filesAnalyzed": 0, "assembliesEmitted": 0, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+    }
+  ]
+}

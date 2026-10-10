@@ -25,7 +25,6 @@ const fallbackExample = {
   minutes: 2,
   goal: 'Change the greeting and use diagnostics to keep the program clean.',
   concepts: ['entry point', 'print', 'string interpolation', 'tests'],
-  cSharpContrast: 'N# keeps top-level ceremony low: func main() plus print is enough.',
   expectedOutput: 'Hello, N#!\n',
   code: `package Tutorial
 
@@ -57,7 +56,6 @@ function normalizeExample(example) {
     minutes: readField(example, 'minutes', 'Minutes') ?? 1,
     goal: readField(example, 'goal', 'Goal') ?? '',
     concepts: readField(example, 'concepts', 'Concepts') ?? [],
-    cSharpContrast: readField(example, 'cSharpContrast', 'CSharpContrast') ?? '',
     code: readField(example, 'code', 'Code') ?? '',
     testsCode: readField(example, 'testsCode', 'TestsCode'),
     expectedOutput: readField(example, 'expectedOutput', 'ExpectedOutput'),
@@ -604,7 +602,6 @@ function GuidePanel({activeExample, activeTutorialStep, validationState, isTutor
             <span>{validationState?.message ?? 'Run the exercise to unlock Next.'}</span>
           </div>
         )}
-        {activeExample?.cSharpContrast && <p>{activeExample.cSharpContrast}</p>}
       </div>
     );
   }
@@ -612,7 +609,6 @@ function GuidePanel({activeExample, activeTutorialStep, validationState, isTutor
   return (
     <div className="playground-lesson-notes">
       <p>{activeExample?.summary}</p>
-      <p>{activeExample?.cSharpContrast}</p>
       <div className="playground-note">
         <Clipboard size={15} aria-hidden="true" />
         <span>Install nlc for full build, run, test, NuGet, and filesystem workflows.</span>

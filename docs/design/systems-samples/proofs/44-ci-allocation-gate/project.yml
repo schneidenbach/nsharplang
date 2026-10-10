@@ -1,0 +1,11 @@
+name: SystemsProof44CiAllocationGate
+version: 0.1.0
+targetFramework: net10.0
+outputType: exe
+entry: Program.nl
+language:
+  profile: systems
+  systems:
+    mode: strict
+    unknownExternalCalls: error
+    aotTarget: nativeaot

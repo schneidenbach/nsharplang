@@ -8,11 +8,14 @@ This layout keeps the examples isolated from each other so they build, run, and 
 
 - `CheckedUnchecked` - checked and unchecked arithmetic expressions
 - `ConversionOperators` - implicit and explicit user-defined conversions
-- `FileScopedSimple` - a small file-scoped type example
-- `FileScopedTypes` - a larger file-scoped type example with internal helper types
+- `ExceptionFilters` - `catch ... when` guards, and the two-pass ordering that makes them more than sugar
+- `ExplicitInterfaceImplementation` - a member that names its interface: `IEnumerable<T>` and `IEnumerable` in one type
+- `InParameters` - `in` parameters: read-only by reference, and when to reach for one
 - `InterpolatedRawStrings` - interpolated raw string literals
 - `LockStatement` - thread-safe code with `lock`
 - `OperatorOverloading` - operator overload declarations
+- `PackagePrivateSimple` - a small package-private (camelCase) type example
+- `PackagePrivateTypes` - a larger one: a service whose whole implementation is unexported
 - `PreprocessorDirectives` - regions and conditional compilation
 
 ## Running An Example

@@ -1,0 +1,54 @@
+name: Clean up closed PR releases
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Closed PR number to clean up (also supports retrying cleanup)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# Serialize with publication so closing a PR cannot leave a racing release behind.
+concurrency:
+  group: unofficial-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      # Never check out or execute PR code in a pull_request_target workflow.
+      - name: Delete this closed PR's unofficial releases and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid PR number'; exit 1; }
+          [[ $(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.state') == closed ]] || {
+            echo 'Refusing to clean up an open PR'; exit 1;
+          }
+          # Fetch every page before deleting, so pagination cannot skip releases.
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[].tag_name' > releases.txt
+          while IFS= read -r tag; do
+            if [[ "$tag" =~ ^unofficial-pr-${PR_NUMBER}-[0-9]+-[0-9]+$ ]]; then
+              gh release delete "$tag" --cleanup-tag --yes
+            fi
+          done < releases.txt
+          # Also recover tags left behind by a partially failed release/delete.
+          gh api --paginate "repos/$GH_REPO/git/matching-refs/tags/unofficial-pr-$PR_NUMBER-" \
+            --jq '.[].ref' > refs.txt
+          while IFS= read -r ref; do
+            if [[ "$ref" =~ ^refs/tags/unofficial-pr-${PR_NUMBER}-[0-9]+-[0-9]+$ ]]; then
+              gh api --method DELETE "repos/$GH_REPO/git/refs/${ref#refs/}"
+            fi
+          done < refs.txt

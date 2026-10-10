@@ -318,7 +318,7 @@ export class NSharpTestRunner {
 
 /**
  * Converts a test description to a PascalCase method name.
- * Mirrors the C# Transpiler.TestDescriptionToMethodName logic.
+ * Mirrors the CLI test-result method-name normalization.
  */
 export function testDescriptionToMethodName(description: string): string {
     const words = description.split(/[\s\-_]+/).filter(w => w.length > 0);

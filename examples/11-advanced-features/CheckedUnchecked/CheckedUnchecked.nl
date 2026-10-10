@@ -1,5 +1,6 @@
 // Checked and Unchecked Expressions Example
 // Demonstrates overflow checking control in arithmetic operations
+import System
 
 // Helper function with checked arithmetic
 func SafeAdd(x: int, y: int): int {
@@ -52,7 +53,7 @@ func Main() {
         checkedResult := checked(max + 1)
         print $"checked(MaxValue + 1) = {checkedResult}"
     } catch ex: OverflowException {
-        print $"checked(MaxValue + 1) threw {ex.GetType().Name}"
+        print "checked(MaxValue + 1) threw OverflowException"
     }
 
     print ""

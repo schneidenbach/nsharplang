@@ -1,0 +1,853 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.IO
+import System.Reflection
+import NSharpLang.Compiler.Ast
+
+
+// Native contracts for WHAT AN ASSIGNMENT MEANS.
+//
+// Every member behind these contracts was `private` in `Analyzer.cs`. This is their first DIRECT
+// pinning, and it goes at the decisions that are invisible from the outside:
+//
+// (1) THE ARM TAKES TWO STEPS OF ONE KIND, AND EVERY BRACKET IS THE OWNER'S. The target step runs
+// under FOUR ambient changes at once — the flow type suppressed, the target NODE exempt from the
+// error-tuple result guard exactly when the operator is a plain `=`, bare event references allowed,
+// and a capture table installed for a member or index chain — and all four are restored before any
+// gate runs. The exemption is the target node ITSELF: a result read beneath it, as an index or a
+// receiver, is still a read and still reports NL314.
+//
+// (2) A REFUSED ASSIGNMENT STILL WALKS ITS VALUE. Six of the gates refuse, and every one of them
+// hands out the value step anyway, because an error inside the value is the developer's problem
+// whether or not the target was legal.
+//
+// (3) WHICH REFUSALS TARGET-TYPE THE VALUE AND WHICH DO NOT. The three target-SHAPE refusals — a row
+// view, a table member, a built-in indexed mutation — walk the value under the target's type; the
+// invalid-target and read-only-property refusals walk it under nothing. That is not a tidy-up: it is
+// what the C# did, and the value's own diagnostics depend on it.
+//
+// (4) `??=` REPORTS AND CONTINUES. It is the only gate that does not end the walk.
+//
+// (5) THE ASSIGNABILITY GATE IS THE FRONT DOOR. `EmitValueCoercion` silently no-ops for closed
+// generics over emitted user types, so this check is the only thing between a mismatched value and a
+// type-confused read at run time. Both of its renderings are pinned.
+//
+// (6) THE NULL-STATE AND ERROR-TUPLE FACTS ARE LEFT BEHIND EVEN WHEN THE GATE REFUSED, because the
+// store is still what the developer wrote.
+//
+// (7) NL322 IS DELIBERATELY UNDER-ENFORCING. An unresolvable hop stays silent, an ARRAY ELEMENT is a
+// variable, and a FIELD hop passes the question to its own receiver.
+class AssignmentValueProbe {
+    Count: int => 0
+    Mutable: int
+
+    constructor() {
+        Mutable = 0
+    }
+}
+
+class AssignmentHarness {
+    Arm: AnalyzerAssignment
+    Errors: List<CompilerError>
+    Ambient: AnalyzerAmbientContext
+    Scopes: AnalyzerScopeStack
+    NullFlow: AnalyzerNullFlow
+    Identifiers: AnalyzerIdentifierResolution
+    Context: AnalyzerDeclarationContext
+    LastResult: string
+
+    constructor(arm: AnalyzerAssignment, errors: List<CompilerError>, ambient: AnalyzerAmbientContext, scopes: AnalyzerScopeStack, nullFlow: AnalyzerNullFlow, identifiers: AnalyzerIdentifierResolution, context: AnalyzerDeclarationContext) {
+        Arm = arm
+        Errors = errors
+        Ambient = ambient
+        Scopes = scopes
+        NullFlow = nullFlow
+        Identifiers = identifiers
+        Context = context
+        LastResult = ""
+    }
+}
+
+func AssignmentPath(): string {
+    return Path.GetFullPath("assignment-contract.nl")
+}
+
+func AssignmentHarnessWith(sourceText: string?): AssignmentHarness {
+    errors := new List<CompilerError>()
+    context := new AnalyzerDeclarationContext()
+    assemblies := new List<Assembly>()
+    assemblies.Add(typeof(List<int>).get_Assembly())
+    context.Reset(Path.GetFullPath("."), assemblies)
+    scopes := new AnalyzerScopeStack()
+    model := new SemanticModel()
+    scopes.Push(model, new Scope(ScopeKind.Global), 1, 1)
+    bindings := new BindingMap()
+    provider := new AnalyzerProjectSourceProvider()
+    sink := new AnalyzerDiagnosticSink(errors, provider)
+    sink.BeginAnalysis(AssignmentPath(), sourceText)
+    spans := new AnalyzerDiagnosticSpans(sink)
+    usingAliases := new Dictionary<string, string>(StringComparer.Ordinal)
+    importedSymbols := new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal)
+    importedDeclarations := new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal)
+    namespaces := new List<string>()
+    discovery := new AnalyzerProjectTypeDiscovery(provider, context, namespaces, usingAliases)
+    probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)
+    resolver := new AnalyzerTypeResolver(scopes, context, discovery, probe, sink, usingAliases, importedSymbols, importedDeclarations, model, bindings)
+    resolver.BeginAnalysis(AssignmentPath(), null, model, bindings)
+    substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
+    facts := new AnalyzerAssignabilityFacts(context, null)
+    structural := new AnalyzerStructuralAssignability(resolver, probe)
+    clrConversion := new AnalyzerClrTypeConversion(context, null)
+    guard := new AnalyzerImplicitConversionGuard()
+    assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
+    functionTypes := new AnalyzerFunctionTypeFactory(context, substitution)
+    extensions := new List<FunctionDeclaration>()
+    extensionResolution := new AnalyzerExtensionMethodResolution(resolver, assignability, context, functionTypes, clrConversion, extensions, namespaces, assemblies)
+    members := new AnalyzerMemberResolution(functionTypes, context, substitution, resolver, clrConversion, extensionResolution, namespaces)
+    soaEscape := new AnalyzerSoaEscape(sink, spans, scopes, context)
+    ambient := new AnalyzerAmbientContext(sink, spans, soaEscape)
+    nullFlow := new AnalyzerNullFlow(sink, spans, scopes, context)
+    identifiers := new AnalyzerIdentifierResolution(sink, scopes, resolver, discovery, probe, functionTypes, ambient, nullFlow, extensions, members, new AnalyzerSourceMemberDeclarations(context, provider), model, bindings)
+    memberAccess := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, new AnalyzerSourceMemberDeclarations(context, provider), discovery, probe, substitution, identifiers, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
+    constantFacts := new AnalyzerConstantExpressionFacts(scopes, context)
+    indexAccess := new AnalyzerIndexAccess(sink, spans, context, ambient, nullFlow, soaEscape, memberAccess, constantFacts)
+    writeTargets := new AnalyzerWriteTargets(sink, spans, scopes, context, substitution, clrConversion, ambient, soaEscape, memberAccess, indexAccess)
+    postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
+    narrowing := new AnalyzerFlowNarrowing(scopes, resolver, assignability, postconditions, nullFlow)
+    operators := new AnalyzerOperatorExpressions(sink, spans, scopes, context, substitution, assignability, clrConversion, probe, soaEscape, ambient, narrowing, writeTargets)
+    arm := new AnalyzerAssignment(sink, spans, scopes, context, ambient, nullFlow, soaEscape, identifiers, assignability, facts, writeTargets, operators)
+    return new AssignmentHarness(arm, errors, ambient, scopes, nullFlow, identifiers, context)
+}
+
+func AssignmentDefault(): AssignmentHarness {
+    return AssignmentHarnessWith(null)
+}
+
+func AssignmentTypeText(candidate: TypeInfo?): string {
+    if candidate == null {
+        return "<none>"
+    }
+
+    boxed := candidate as object
+    rendered := boxed.ToString()
+    if rendered != null {
+        return rendered
+    }
+
+    return "<blank>"
+}
+
+func AssignmentNodeName(node: Expression?): string {
+    if node == null {
+        return "<null>"
+    }
+
+    identifier := node as IdentifierExpression
+    if identifier != null {
+        return identifier.Name
+    }
+
+    member := node as MemberAccessExpression
+    if member != null {
+        return AssignmentNodeName(member.Object) + "." + member.MemberName
+    }
+
+    boxed := node as object
+    return boxed.GetType().Name
+}
+
+func AssignmentStepFact(step: List<string>, index: int): string {
+    if index < 0 || index >= step.Count {
+        return ""
+    }
+    return step[index]
+}
+
+// One full turn of the protocol, exactly as `DriveAssignment` writes it. Every step records the
+// FOUR ambient facts that were in force at the instant it was handed out, which is the only way to
+// observe brackets that open and close entirely inside the owner.
+func AssignmentRun(harness: AssignmentHarness, node: Expression, answers: List<TypeInfo?>): List<List<string>> {
+    steps := new List<List<string>>()
+    state := harness.Arm.Begin(node)
+    step := harness.Arm.NextStep(state)
+    while step != null {
+        index := steps.Count
+        stepFacts := new List<string>()
+        kindText := step.Kind.ToString()
+        stepFacts.Add(kindText)
+        nodeName := AssignmentNodeName(step.Node)
+        stepFacts.Add(nodeName)
+        expectedType := AssignmentTypeText(harness.Ambient.CurrentExpectedType)
+        stepFacts.Add(expectedType)
+        errorsBefore := harness.Errors.Count.ToString()
+        stepFacts.Add(errorsBefore)
+        if step.Node != null && harness.NullFlow.IsFlowTypeSuppressed(step.Node) {
+            stepFacts.Add("true")
+        } else {
+            stepFacts.Add("false")
+        }
+        exemptNode := AssignmentNodeName(harness.Identifiers.SuppressedErrorTupleResultUseNode)
+        stepFacts.Add(exemptNode)
+        if Object.ReferenceEquals(harness.Identifiers.SuppressedErrorTupleResultUseNode, step.Node) {
+            stepFacts.Add("true")
+        } else {
+            stepFacts.Add("false")
+        }
+        if harness.Ambient.AllowEventReference {
+            stepFacts.Add("true")
+        } else {
+            stepFacts.Add("false")
+        }
+        if harness.Ambient.InWriteTarget {
+            stepFacts.Add("true")
+        } else {
+            stepFacts.Add("false")
+        }
+        steps.Add(stepFacts)
+        answer: TypeInfo? = null
+        if index < answers.Count {
+            answer = answers[index]
+        }
+
+        harness.Arm.Supply(state, answer)
+        step = harness.Arm.NextStep(state)
+    }
+
+    harness.LastResult = AssignmentTypeText(harness.Arm.Result(state))
+    return steps
+}
+
+func AssignmentAnswers(first: TypeInfo?, second: TypeInfo?): List<TypeInfo?> {
+    answers := new List<TypeInfo?>()
+    answers.Add(first)
+    answers.Add(second)
+    return answers
+}
+
+func AssignmentOne(answer: TypeInfo?): List<TypeInfo?> {
+    answers := new List<TypeInfo?>()
+    answers.Add(answer)
+    return answers
+}
+
+func AssignmentName(name: string): Expression {
+    expression: Expression = new IdentifierExpression(name, 3, 5)
+    return expression
+}
+
+func AssignmentMember(receiver: Expression, memberName: string, nullConditional: bool): Expression {
+    expression: Expression = new MemberAccessExpression(receiver, memberName, nullConditional, 3, 5)
+    return expression
+}
+
+func AssignmentOf(op: AssignmentOperator, target: Expression, value: Expression): Expression {
+    expression: Expression = new AssignmentExpression(target, op, value, 3, 5)
+    return expression
+}
+
+func AssignmentSimple(op: AssignmentOperator): Expression {
+    return AssignmentOf(op, AssignmentName("total"), AssignmentName("source"))
+}
+
+func AssignmentCodes(errors: List<CompilerError>): string {
+    text := ""
+    index := 0
+    while index < errors.Count {
+        if index > 0 {
+            text = text + ","
+        }
+
+        codeValue: int = (int)errors[index].Code
+        text = text + codeValue.ToString()
+        index = index + 1
+    }
+
+    return text
+}
+
+func AssignmentCall(calleeName: string): Expression {
+    expression: Expression = new CallExpression(AssignmentName(calleeName), new List<Argument>(), null, 3, 5)
+    return expression
+}
+
+func AssignmentPlainStruct(name: string): StructTypeInfo {
+    return new StructTypeInfo(name, 1, 1, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0))
+}
+
+func AssignmentDeclare(harness: AssignmentHarness, name: string, declaredType: TypeInfo) {
+    harness.Scopes.Peek().Symbols[name] = declaredType
+}
+
+// ---- the walk protocol -----------------------------------------------------------------------------
+
+test "the arm takes TWO steps of ONE kind, the target then the value" {
+    harness := AssignmentDefault()
+    steps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
+
+    assert steps.Count == 2
+    assert AssignmentStepFact(steps[0], 0) == "1"
+    assert AssignmentStepFact(steps[0], 1) == "total"
+    assert AssignmentStepFact(steps[1], 0) == "1"
+    assert AssignmentStepFact(steps[1], 1) == "source"
+    assert harness.LastResult == "int"
+    assert harness.Errors.Count == 0
+}
+
+test "a node that is not an assignment finishes at Begin and asks for nothing" {
+    harness := AssignmentDefault()
+    steps := AssignmentRun(harness, AssignmentName("total"), AssignmentOne(BuiltInTypes.Int))
+
+    assert steps.Count == 0
+    assert harness.LastResult == "unknown"
+}
+
+test "a DISCARD never walks its target at all, and answers the VALUE'S type" {
+    harness := AssignmentDefault()
+    steps := AssignmentRun(harness, AssignmentOf(AssignmentOperator.Assign, AssignmentName("_"), AssignmentName("source")), AssignmentOne(BuiltInTypes.String))
+
+    assert steps.Count == 1
+    assert AssignmentStepFact(steps[0], 1) == "source"
+    assert harness.LastResult == "string"
+    assert harness.Errors.Count == 0
+}
+
+test "a COMPOUND discard is refused and still walks its value" {
+    harness := AssignmentDefault()
+    steps := AssignmentRun(harness, AssignmentOf(AssignmentOperator.AddAssign, AssignmentName("_"), AssignmentName("source")), AssignmentOne(BuiltInTypes.Int))
+
+    assert steps.Count == 1
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "The discard `_` can only be used with a plain `=` assignment"
+    assert AssignmentCodes(harness.Errors) == "103"
+    assert harness.LastResult == "int"
+}
+
+test "a NULL-CONDITIONAL target is refused before it is walked, and the value is walked anyway" {
+    harness := AssignmentDefault()
+    target := AssignmentMember(AssignmentName("box"), "count", true)
+    steps := AssignmentRun(harness, AssignmentOf(AssignmentOperator.Assign, target, AssignmentName("source")), AssignmentOne(BuiltInTypes.Int))
+
+    assert steps.Count == 1
+    assert AssignmentStepFact(steps[0], 1) == "source"
+    assert harness.Errors[0].Message == "Null-conditional member access can't be assigned with '='"
+    assert harness.LastResult == "unknown"
+}
+
+// ---- the four-part target bracket -------------------------------------------------------------------
+
+test "the TARGET step runs under all four ambient changes and the VALUE step under none of them" {
+    harness := AssignmentDefault()
+    steps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
+
+    assert AssignmentStepFact(steps[0], 4) == "true"
+    assert AssignmentStepFact(steps[0], 5) == "total"
+    assert AssignmentStepFact(steps[0], 6) == "true"
+    assert AssignmentStepFact(steps[0], 7) == "true"
+    assert AssignmentStepFact(steps[0], 8) == "false"
+
+    assert AssignmentStepFact(steps[1], 4) == "false"
+    assert AssignmentStepFact(steps[1], 5) == "<null>"
+    assert AssignmentStepFact(steps[1], 7) == "false"
+    assert AssignmentStepFact(steps[1], 8) == "false"
+
+    // And the walk leaves every one of them exactly as it found them.
+    assert harness.NullFlow.SuppressedFlowTypeNode == null
+    assert harness.Identifiers.SuppressedErrorTupleResultUseNode == null
+    assert !harness.Ambient.AllowEventReference
+    assert !harness.Ambient.InWriteTarget
+}
+
+test "the ERROR-TUPLE exemption is conditional on a PLAIN '=' and nothing else is" {
+    harness := AssignmentDefault()
+    plainSteps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
+    assert AssignmentStepFact(plainSteps[0], 6) == "true"
+
+    // A compound operator READS the target first, so a `must`-typed read there is a real use.
+    compoundSteps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.AddAssign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
+    assert AssignmentStepFact(compoundSteps[0], 5) == "<null>"
+    assert AssignmentStepFact(compoundSteps[0], 4) == "true"
+    assert AssignmentStepFact(compoundSteps[0], 7) == "true"
+}
+
+test "the CAPTURE TABLE is opened for a member chain and NOT for a bare name" {
+    harness := AssignmentDefault()
+    nameSteps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
+    assert AssignmentStepFact(nameSteps[0], 8) == "false"
+
+    target := AssignmentMember(AssignmentName("box"), "count", false)
+    memberSteps := AssignmentRun(harness, AssignmentOf(AssignmentOperator.Assign, target, AssignmentName("source")), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
+    assert AssignmentStepFact(memberSteps[0], 8) == "true"
+    assert AssignmentStepFact(memberSteps[1], 8) == "false"
+    assert !harness.Ambient.InWriteTarget
+}
+
+// THE EXEMPTION IS A NODE, NOT A WALK. The target step of `values[i] = 5` is the whole index
+// expression, and the walk it starts READS `i` on the way to the element. Only the node being stored
+// into is exempt from the error-tuple guard; the read beneath it is judged like any other.
+test "the ERROR-TUPLE exemption is the TARGET NODE ITSELF, so a result read beneath it still reports" {
+    harness := AssignmentDefault()
+    AssignmentDeclare(harness, "values", new ArrayTypeInfo(BuiltInTypes.Int))
+    AssignmentDeclare(harness, "i", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("i", "err", 2, 5)
+
+    index := new IdentifierExpression("i", 3, 12)
+    target: Expression = new IndexAccessExpression(AssignmentName("values"), index, false, 3, 5)
+
+    // The rule is asked from INSIDE the open target bracket, which is where the walk asks it.
+    state := harness.Arm.Begin(AssignmentOf(AssignmentOperator.Assign, target, new IntLiteralExpression("5", 3, 17)))
+    step := harness.Arm.NextStep(state)
+    assert step != null && Object.ReferenceEquals(step.Node, target)
+    assert harness.Identifiers.IsErrorTupleResultUseSuppressed(target)
+    assert !harness.Identifiers.IsErrorTupleResultUseSuppressed(index)
+    harness.Identifiers.ResolveIdentifier(index)
+    assert AssignmentCodes(harness.Errors) == "314"
+    assert harness.Errors[0].Message == "Result 'i' may be unavailable because 'err' can be non-null"
+    assert harness.Errors[0].Line == 3
+    assert harness.Errors[0].Column == 12
+}
+
+test "a BARE result name being written is exempt, through any number of brackets" {
+    harness := AssignmentDefault()
+    AssignmentDeclare(harness, "i", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("i", "err", 2, 5)
+
+    bare := new IdentifierExpression("i", 3, 5)
+    bareState := harness.Arm.Begin(AssignmentOf(AssignmentOperator.Assign, bare, new IntLiteralExpression("5", 3, 9)))
+    harness.Arm.NextStep(bareState)
+    harness.Identifiers.ResolveIdentifier(bare)
+    assert harness.Errors.Count == 0
+    harness.Arm.Supply(bareState, BuiltInTypes.Int)
+
+    inner := new IdentifierExpression("i", 4, 7)
+    wrapped: Expression = new ParenthesizedExpression(new ParenthesizedExpression(inner, 4, 6), 4, 5)
+    wrappedState := harness.Arm.Begin(AssignmentOf(AssignmentOperator.Assign, wrapped, new IntLiteralExpression("5", 4, 13)))
+    harness.Arm.NextStep(wrappedState)
+    harness.Identifiers.ResolveIdentifier(inner)
+    assert harness.Errors.Count == 0
+    harness.Arm.Supply(wrappedState, BuiltInTypes.Int)
+
+    // The SAME name at the same position, but a different node, is a read and not the store.
+    impostor := new IdentifierExpression("i", 3, 5)
+    harness.Identifiers.ResolveIdentifier(impostor)
+    assert AssignmentCodes(harness.Errors) == "314"
+}
+
+// ---- the error-tuple exemption, through the whole analyzer -------------------------------------------
+//
+// The same rule end to end: parse, analyse, and read the errors a developer would see. Every row
+// declares ONE guarded result — the error half must be spelled `err`, so a function holds one — and
+// follows it with an error branch that does NOT return, so the result is not available afterwards.
+
+func AssignmentErrorTupleSource(declaration: string, body: string): List<string> {
+    return OperatorSourceErrors("namespace P\n\nfunc Hi(): int {\n    return 1\n}\n\nclass Box {\n    Count: int\n\n    constructor() {\n        Count = 0\n    }\n}\n\nfunc MakeBox(): Box {\n    return new Box()\n}\n\nfunc Probe() {\n    values := new int[3]\n    " + declaration + "\n    if err != null {\n        print err\n    }\n\n" + body + "    print values[1]\n}\n")
+}
+
+test "AN UNCHECKED RESULT USED AS THE INDEX OF A PLAIN '=' TARGET IS NL314" {
+    errors := AssignmentErrorTupleSource("i, err := Hi()", "    values[i] = 5\n")
+    assert errors.Count == 1
+    assert errors[0] == "Result 'i' may be unavailable because 'err' can be non-null"
+}
+
+test "AN UNCHECKED RESULT USED AS THE RECEIVER OF A PLAIN '=' TARGET IS NL314" {
+    errors := AssignmentErrorTupleSource("box, err := MakeBox()", "    box.Count = 5\n")
+    assert errors.Count == 1
+    assert errors[0] == "Result 'box' may be unavailable because 'err' can be non-null"
+}
+
+test "A PLAIN '=' INTO A BARE RESULT NAME IS A STORE, NOT A USE, and makes the name available" {
+    assert AssignmentErrorTupleSource("i, err := Hi()", "    i = 5\n    values[i] = 5\n").Count == 0
+    assert AssignmentErrorTupleSource("box, err := MakeBox()", "    box = new Box()\n    box.Count = 5\n").Count == 0
+    assert AssignmentErrorTupleSource("i, err := Hi()", "    (i) = 5\n").Count == 0
+}
+
+test "A COMPOUND '=' READS ITS TARGET FIRST, so a bare result name there is still NL314" {
+    errors := AssignmentErrorTupleSource("i, err := Hi()", "    i += 1\n")
+    assert errors.Count == 1
+    assert errors[0] == "Result 'i' may be unavailable because 'err' can be non-null"
+}
+
+// ---- which refusals target-type the value -----------------------------------------------------------
+
+test "the ORDINARY value step runs under the TARGET'S type" {
+    harness := AssignmentDefault()
+    steps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Byte, BuiltInTypes.Byte))
+
+    assert AssignmentStepFact(steps[0], 2) == "<none>"
+    assert AssignmentStepFact(steps[1], 2) == "byte"
+    assert AssignmentTypeText(harness.Ambient.CurrentExpectedType) == "<none>"
+}
+
+test "a SoA ROW-VIEW target is refused, target-types its value anyway, and answers unknown" {
+    harness := AssignmentDefault()
+    columns := new List<SoaColumnInfo>()
+    row: TypeInfo = new SoaRowTypeInfo(new SoaRecordDeclarationInfo("Points", columns, 1, 1))
+
+    steps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(row, BuiltInTypes.Int))
+
+    assert steps.Count == 2
+    assert AssignmentStepFact(steps[1], 2) == "Points.Row"
+    assert harness.LastResult == "unknown"
+    assert harness.Errors.Count == 1
+}
+
+test "an INVALID target and a READ-ONLY PROPERTY target walk the value under NOTHING" {
+    harness := AssignmentDefault()
+    literal: Expression = new IntLiteralExpression("1", 3, 5)
+    steps := AssignmentRun(harness, AssignmentOf(AssignmentOperator.Assign, literal, AssignmentName("source")), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
+
+    assert steps.Count == 2
+    assert AssignmentStepFact(steps[1], 2) == "<none>"
+    assert harness.Errors[0].Message == "The '=' assignment needs an assignable target"
+    assert harness.LastResult == "unknown"
+}
+
+// ---- the event gate -----------------------------------------------------------------------------------
+
+test "the three event operators get three different sentences and the value is still walked" {
+    harness := AssignmentDefault()
+    eventType: TypeInfo = new ReflectionEventInfo("Changed", null, null, null, null, "Changed")
+    target := AssignmentMember(AssignmentName("widget"), "Changed", false)
+
+    assignSteps := AssignmentRun(harness, AssignmentOf(AssignmentOperator.Assign, target, AssignmentName("handler")), AssignmentAnswers(eventType, BuiltInTypes.Int))
+    assert assignSteps.Count == 2
+    assert harness.Errors[0].Message == "'Changed' is a .NET event — it can't be assigned with '='"
+    assert harness.Errors[0].Suggestion == "Subscribe with `on widget.Changed (sender, args) => { ... }` and unsubscribe with `off`."
+    assert harness.LastResult == "unknown"
+
+    AssignmentRun(harness, AssignmentOf(AssignmentOperator.AddAssign, target, AssignmentName("handler")), AssignmentAnswers(eventType, BuiltInTypes.Int))
+    assert harness.Errors[1].Message == "'Changed' is a .NET event — it can't be subscribed to with '+='"
+
+    AssignmentRun(harness, AssignmentOf(AssignmentOperator.SubtractAssign, target, AssignmentName("handler")), AssignmentAnswers(eventType, BuiltInTypes.Int))
+    assert harness.Errors[2].Message == "'Changed' is a .NET event — it can't be unsubscribed with '-='"
+    assert AssignmentCodes(harness.Errors) == "317,317,317"
+}
+
+// A SOURCE-DECLARED EVENT IS THE SAME GATE WITH A DIFFERENT SENTENCE, and the difference is the one
+// that matters: it names the type that DECLARED the event, because a reader who watched
+// `Changed = null` compile inside `Widget` needs to know why it does not compile here. It also has to
+// be caught by THIS gate rather than by the compound-assignment rule below, which deliberately lets
+// `+=` through on a delegate-like target — an event's type IS a delegate, so reaching that rule would
+// mean no diagnostic at all and then a write to somebody else's private field.
+test "a source-declared event gets the three sentences too, each naming the declaring type" {
+    harness := AssignmentDefault()
+    eventType: TypeInfo = new SourceEventInfo("Changed", "Widget", BuiltInTypes.Unknown, false)
+    target := AssignmentMember(AssignmentName("widget"), "Changed", false)
+
+    assignSteps := AssignmentRun(harness, AssignmentOf(AssignmentOperator.Assign, target, AssignmentName("handler")), AssignmentAnswers(eventType, BuiltInTypes.Int))
+    assert assignSteps.Count == 2
+    assert harness.Errors[0].Message == "'Changed' is an event declared by 'Widget' — it can't be assigned with '='"
+    assert harness.Errors[0].Suggestion == "Subscribe with `on widget.Changed (sender, args) => { ... }` and unsubscribe with `off`. Only 'Widget''s own code may assign 'Changed'."
+    assert harness.LastResult == "unknown"
+
+    AssignmentRun(harness, AssignmentOf(AssignmentOperator.AddAssign, target, AssignmentName("handler")), AssignmentAnswers(eventType, BuiltInTypes.Int))
+    assert harness.Errors[1].Message == "'Changed' is an event declared by 'Widget' — it can't be subscribed to with '+='"
+    assert harness.Errors[1].Suggestion == "Subscribe with `on widget.Changed (sender, args) => { ... }`; it returns a subscription you can later pass to `off`."
+
+    AssignmentRun(harness, AssignmentOf(AssignmentOperator.SubtractAssign, target, AssignmentName("handler")), AssignmentAnswers(eventType, BuiltInTypes.Int))
+    assert harness.Errors[2].Message == "'Changed' is an event declared by 'Widget' — it can't be unsubscribed with '-='"
+    assert harness.Errors[2].Suggestion == "Capture the subscription when you subscribe (`sub := on widget.Changed handler`), then detach it with `off sub`."
+    assert AssignmentCodes(harness.Errors) == "337,337,337"
+}
+
+test "the event target is rendered from the AST, through every transparent wrapper" {
+    inner := AssignmentMember(AssignmentName("a"), "b", false)
+    assert AnalyzerAssignment.RenderEventTarget(inner) == "a.b"
+
+    parenthesized: Expression = new ParenthesizedExpression(inner, 3, 4)
+    assert AnalyzerAssignment.RenderEventTarget(parenthesized) == "a.b"
+
+    thisExpression: Expression = new ThisExpression(3, 4)
+    assert AnalyzerAssignment.RenderEventTarget(AssignmentMember(thisExpression, "b", false)) == "this.b"
+
+    literal: Expression = new IntLiteralExpression("1", 3, 4)
+    assert AnalyzerAssignment.RenderEventTarget(literal) == "<event>"
+}
+
+// ---- the assignability front door ----------------------------------------------------------------------
+
+test "THE FRONT DOOR: a value that is not assignable to the target is refused by NAME" {
+    harness := AssignmentDefault()
+    steps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.String))
+
+    assert steps.Count == 2
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Type mismatch in assignment — expected 'int' but got 'string'"
+    assert AssignmentCodes(harness.Errors) == "202"
+    // The BARE rendering carries neither the snippet nor the two type names.
+    assert harness.Errors[0].SourceSnippet == null
+
+    // The store still answers the TARGET'S type: a refused assignment is still an assignment, and the
+    // expression it sits inside should not cascade a second complaint.
+    assert harness.LastResult == "int"
+}
+
+test "THE FRONT DOOR CLOSES ON A CLOSED-GENERIC MISMATCH, which the emitter cannot catch" {
+    harness := AssignmentDefault()
+    // A construction is bound to a TYPED local before it is widened into a `List<TypeInfo>`: the
+    // columnar surface does not widen a derived construction inside a call's argument list.
+    pointElement: TypeInfo = AssignmentPlainStruct("Pt")
+    pointArguments := new List<TypeInfo>()
+    pointArguments.Add(pointElement)
+    pointList: TypeInfo = new GenericTypeInfo("List", pointArguments)
+    rectangleElement: TypeInfo = AssignmentPlainStruct("Rs")
+    rectangleArguments := new List<TypeInfo>()
+    rectangleArguments.Add(rectangleElement)
+    rectangleList: TypeInfo = new GenericTypeInfo("List", rectangleArguments)
+
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(pointList, rectangleList))
+
+    assert harness.Errors.Count == 1
+    assert AssignmentCodes(harness.Errors) == "202"
+
+    // The same instantiation on both sides is silent.
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(pointList, pointList))
+    assert harness.Errors.Count == 1
+}
+
+test "the RICH rendering is used when a source snippet and a file path both exist" {
+    harness := AssignmentHarnessWith("func main() {\n    total := 1\n    total = \"text\"\n}\n")
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.String))
+
+    assert harness.Errors.Count == 1
+    assert AssignmentCodes(harness.Errors) == "202"
+
+    // The rich builder is the one that carries the SOURCE SNIPPET and the two TYPE NAMES a developer
+    // reads; the bare report carries none of them, which is the whole difference between the two
+    // renderings.
+    assert harness.Errors[0].SourceSnippet != null
+    assert harness.Errors[0].ActualType == "string"
+    assert harness.Errors[0].ExpectedType == "int"
+
+    // AND THE SENTENCE IS NOT PART OF THE DIFFERENCE. The route production actually calls used to
+    // trade this sentence away for the snippet; it now carries both.
+    assert harness.Errors[0].Message == "Type mismatch in assignment — expected 'int' but got 'string'"
+}
+
+// ---- the compound form -----------------------------------------------------------------------------------
+
+// THE COMPOUND RULE RUNS ONLY WHEN THE VALUE IS ALREADY ASSIGNABLE, which is why the shape that
+// reaches it is `byte += byte` and not `byte += int`: the latter never gets past the front door, and a
+// contract written on it would be testing the front door instead of the operator question.
+test "a COMPOUND assignment asks the operator family what the binary form is worth" {
+    harness := AssignmentDefault()
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.AddAssign), AssignmentAnswers(BuiltInTypes.Byte, BuiltInTypes.Byte))
+
+    // `byte + byte` is an `int` — binary numeric promotion — which cannot be stored back into a `byte`.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "The '+=' assignment produces 'int', which can't be stored in 'byte'"
+    assert AssignmentCodes(harness.Errors) == "202"
+    assert harness.LastResult == "unknown"
+
+    // `byte += int` never reaches the rule at all: the front door refuses it first, and says so.
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.AddAssign), AssignmentAnswers(BuiltInTypes.Byte, BuiltInTypes.Int))
+    assert harness.Errors.Count == 2
+    assert harness.Errors[1].Message == "Type mismatch in assignment — expected 'byte' but got 'int'"
+}
+
+test "a compound form whose result FITS is silent, and a plain '=' never asks at all" {
+    harness := AssignmentDefault()
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.AddAssign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
+    assert harness.Errors.Count == 0
+
+    // The SAME operand pair under a plain `=` is silent, which is the proof that the compound
+    // question is asked by the OPERATOR and not by the assignment.
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Byte, BuiltInTypes.Byte))
+    assert harness.Errors.Count == 0
+}
+
+test "an UNKNOWN on either side declines the compound rule rather than guessing" {
+    harness := AssignmentDefault()
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.AddAssign), AssignmentAnswers(BuiltInTypes.Unknown, BuiltInTypes.Int))
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.AddAssign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Unknown))
+    assert harness.Errors.Count == 0
+}
+
+test "'+=' ON A DELEGATE-LIKE TARGET SKIPS THE RULE, because combination is not arithmetic" {
+    harness := AssignmentDefault()
+    parameterTypes := new List<TypeInfo>()
+    action: TypeInfo = new GenericTypeInfo("Action", parameterTypes)
+
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.AddAssign), AssignmentAnswers(action, action))
+    assert harness.Errors.Count == 0
+
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.SubtractAssign), AssignmentAnswers(action, action))
+    assert harness.Errors.Count == 0
+
+    // A MULTIPLY on the same target is not a combination and is still asked.
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.MultiplyAssign), AssignmentAnswers(action, action))
+    assert harness.Errors.Count == 1
+}
+
+// ---- '??=' ---------------------------------------------------------------------------------------------
+
+test "'??=' on a target that can never be null REPORTS AND CONTINUES" {
+    harness := AssignmentDefault()
+    steps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.NullCoalesceAssign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
+
+    // Two steps: it is the only gate that does not end the walk.
+    assert steps.Count == 2
+    assert harness.Errors[0].Message == "The left side of '??=' has type 'int', which can't be null"
+    assert AssignmentCodes(harness.Errors) == "202"
+    assert harness.LastResult == "int"
+}
+
+test "a nullable, a reference type, a generic parameter and unknown all pass the '??=' rule" {
+    harness := AssignmentDefault()
+    nullable: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.NullCoalesceAssign), AssignmentAnswers(nullable, BuiltInTypes.Int))
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.NullCoalesceAssign), AssignmentAnswers(BuiltInTypes.String, BuiltInTypes.String))
+    AssignmentRun(harness, AssignmentSimple(AssignmentOperator.NullCoalesceAssign), AssignmentAnswers(BuiltInTypes.Unknown, BuiltInTypes.Int))
+
+    assert harness.Errors.Count == 0
+}
+
+// ---- NL322 ----------------------------------------------------------------------------------------------
+
+// NL322 END TO END, THROUGH THE WALK. The capture table is open exactly at the target step, so this
+// is where a driver would have recorded the chain's types — and the report fires when the target has
+// answered, not before.
+test "NL322 names WHICH temporary the receiver chain bottomed out in" {
+    harness := AssignmentDefault()
+    probeType: TypeInfo = new ReflectionTypeInfo(typeof(AssignmentValueProbe))
+    structType: TypeInfo = AssignmentPlainStruct("Pt")
+
+    box := AssignmentName("box")
+    AssignmentDeclare(harness, "box", probeType)
+    propertyHop := AssignmentMember(box, "Count", false)
+    target := AssignmentMember(propertyHop, "x", false)
+
+    state := harness.Arm.Begin(AssignmentOf(AssignmentOperator.Assign, target, AssignmentName("source")))
+    targetStep := harness.Arm.NextStep(state)
+
+    assert targetStep != null
+    assert harness.Ambient.InWriteTarget
+
+    table := harness.Ambient.WriteTargetExpressionTypes
+    assert table != null
+    table[box] = probeType
+    table[propertyHop] = structType
+    table[target] = BuiltInTypes.Int
+    harness.Arm.Supply(state, BuiltInTypes.Int)
+
+    valueStep := harness.Arm.NextStep(state)
+    assert valueStep != null
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Cannot assign to 'x' because its receiver is a temporary copy of 'Pt', not a variable"
+    assert AssignmentCodes(harness.Errors) == "322"
+
+    harness.Arm.Supply(state, BuiltInTypes.Int)
+    assert AssignmentTypeText(harness.Arm.Result(state)) == "int"
+}
+
+// THE FOUR RECEIVER SHAPES GET FOUR DIFFERENT WORDS, because the fix is different in each case.
+test "the offending receiver is described by WHAT IT IS" {
+    harness := AssignmentDefault()
+    structType: TypeInfo = AssignmentPlainStruct("Pt")
+
+    callReceiver := AssignmentCall("make")
+    callTypes := new Dictionary<object, TypeInfo>()
+    callTypes[callReceiver] = structType
+    harness.Arm.CheckMemberWriteReceiverIsVariable(new MemberAccessExpression(callReceiver, "x", false, 3, 5), callTypes)
+    assert harness.Errors[0].Message == "Cannot assign to 'x' because its receiver is a temporary copy of 'Pt', not a variable"
+    assert harness.Errors[0].Suggestion == "Copy the value into a local first, modify the local, then store the whole value back"
+}
+
+test "an ARRAY ELEMENT is a variable and a CALL RESULT is not" {
+    harness := AssignmentDefault()
+    elementType: TypeInfo = AssignmentPlainStruct("Pt")
+    arrayType: TypeInfo = new ArrayTypeInfo(elementType)
+    structType: TypeInfo = AssignmentPlainStruct("Pt")
+
+    elementReceiver: Expression = new IndexAccessExpression(AssignmentName("xs"), new IntLiteralExpression("0", 3, 9), false, 3, 5)
+    target := AssignmentMember(elementReceiver, "x", false)
+    types := new Dictionary<object, TypeInfo>()
+    types[elementReceiver] = structType
+    types[AssignmentName("xs")] = arrayType
+
+    // The array receiver has to be the SAME node instance the chain names.
+    arrayName := AssignmentName("xs")
+    elementOfNamed: Expression = new IndexAccessExpression(arrayName, new IntLiteralExpression("0", 3, 9), false, 3, 5)
+    namedTypes := new Dictionary<object, TypeInfo>()
+    namedTypes[elementOfNamed] = structType
+    namedTypes[arrayName] = arrayType
+    assert harness.Arm.FindValueCopyReceiver(elementOfNamed, namedTypes) == null
+
+    callReceiver: Expression = AssignmentCall("make")
+    callTypes := new Dictionary<object, TypeInfo>()
+    callTypes[callReceiver] = structType
+    offender := harness.Arm.FindValueCopyReceiver(callReceiver, callTypes)
+    assert offender != null
+}
+
+test "an UNRESOLVABLE hop and a REFERENCE-typed receiver both stay silent" {
+    harness := AssignmentDefault()
+    unknownReceiver := AssignmentName("mystery")
+    assert harness.Arm.FindValueCopyReceiver(unknownReceiver, new Dictionary<object, TypeInfo>()) == null
+
+    referenceTypes := new Dictionary<object, TypeInfo>()
+    referenceCall: Expression = AssignmentCall("make")
+    referenceTypes[referenceCall] = BuiltInTypes.String
+    assert harness.Arm.FindValueCopyReceiver(referenceCall, referenceTypes) == null
+}
+
+// ---- the arm's own shape rules --------------------------------------------------------------------------
+
+test "a discard is only a bare '_', and a parenthesised name is an assignable target" {
+    assert AnalyzerAssignment.IsDiscardTarget(AssignmentName("_"))
+    assert !AnalyzerAssignment.IsDiscardTarget(AssignmentName("total"))
+
+    parenthesized: Expression = new ParenthesizedExpression(AssignmentName("total"), 3, 4)
+    assert AnalyzerAssignment.IsAssignmentTarget(parenthesized)
+    assert AnalyzerAssignment.IsAssignmentTarget(AssignmentMember(AssignmentName("box"), "count", false))
+
+    literal: Expression = new IntLiteralExpression("1", 3, 5)
+    assert !AnalyzerAssignment.IsAssignmentTarget(literal)
+
+    call: Expression = AssignmentCall("make")
+    assert !AnalyzerAssignment.IsAssignmentTarget(call)
+}
+
+// ---- the target keeps its nullable; the reads inside it do not ----------------------------------------
+//
+// The target walk preserves the TARGET's flow type, because a storage location's declared type is what
+// is written to. An index argument or a receiver inside the target is an ordinary read, and a name the
+// flow has narrowed reads narrowly there — through the real `Analyzer.Analyze` entry, the same route
+// `OperatorSourceErrors` takes for the `??` operand that shares this rule.
+func AssignmentNarrowingSource(body: string): string {
+    return "namespace P\n\nclass B {\n    Name: string = \"b\"\n}\n\nclass H {\n    Slot: B? = null\n    Count: int? = null\n    Items: int[] = new int[2]\n}\n\nfunc Index(b: B): int {\n    return b.Name.Length - 1\n}\n\nfunc Pick(b: B): B {\n    return b\n}\n\n" + body
+}
+
+test "A NARROWED NAME READ INSIDE AN ASSIGNMENT TARGET READS NARROWLY" {
+    index := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(n: B?, values: int[]) {\n    if n != null {\n        values[Index(n)] = 1\n    }\n}\n"))
+    assert index.Count == 0, String.Join(" | ", index)
+
+    memberIndex := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(h: H) {\n    if h.Slot != null {\n        h.Items[Index(h.Slot)] = 1\n    }\n}\n"))
+    assert memberIndex.Count == 0, String.Join(" | ", memberIndex)
+
+    receiver := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(n: B?) {\n    if n != null {\n        Pick(n).Name = \"c\"\n    }\n}\n"))
+    assert receiver.Count == 0, String.Join(" | ", receiver)
+
+    compound := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(n: B?, values: int[]) {\n    if n != null {\n        values[Index(n)] += 1\n    }\n}\n"))
+    assert compound.Count == 0, String.Join(" | ", compound)
+}
+
+test "THE TARGET ITSELF KEEPS ITS NULLABLE: a narrowed name can still be assigned null" {
+    // A VALUE-typed nullable is where the difference shows: a reference target takes `null` whatever
+    // its annotation says, but a target read as its narrowed `int` would refuse `null` outright.
+    local := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(x: int?): int? {\n    if x != null {\n        x = null\n    }\n    return x\n}\n"))
+    assert local.Count == 0, String.Join(" | ", local)
+
+    parenthesized := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(x: int?): int? {\n    if x != null {\n        (x) = null\n    }\n    return x\n}\n"))
+    assert parenthesized.Count == 0, String.Join(" | ", parenthesized)
+
+    memberPath := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(h: H) {\n    if h.Count != null {\n        h.Count = null\n    }\n}\n"))
+    assert memberPath.Count == 0, String.Join(" | ", memberPath)
+
+    // And a target that genuinely is not nullable still refuses `null` — the preservation keeps the
+    // declared type, it does not widen it.
+    plain := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(): int {\n    count: int = 0\n    count = null\n    return count\n}\n"))
+    assert plain.Count == 1, String.Join(" | ", plain)
+    assert plain[0] == "Type mismatch in assignment — expected 'int' but got 'null'"
+}

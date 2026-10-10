@@ -1,0 +1,89 @@
+namespace NSharpLang.Cli.Commands
+
+import System
+import System.Collections.Generic
+import System.IO
+import System.Text
+
+class RemoveCommand {
+    static func Execute(args: string[]): int {
+        arguments := RemoveCommandKernels.GetArgumentSummary(args)
+        if arguments.ShowHelp {
+            print RemoveCommandKernels.GetHelpText()
+            return 0
+        }
+
+        packageName := arguments.PackageOperand
+        if string.IsNullOrWhiteSpace(packageName) {
+            return CommandOutputKernels.Error(RemoveCommandKernels.GetUsageMessage())
+        }
+
+        projectRoot := Environment.CurrentDirectory
+        projectYml := Path.Combine(projectRoot, "project.yml")
+
+        if !File.Exists(projectYml) {
+            return CommandOutputKernels.Error(RemoveCommandKernels.GetMissingProjectFileMessage())
+        }
+
+        lines := ReadProjectLines(projectYml)
+        packageNameValue := packageName ?? ""
+        removed := false
+
+        i := 0
+        while i < lines.Count {
+            action := RemoveCommandKernels.GetDependencyLineAction(lines[i], packageNameValue)
+            if action == RemoveDependencyLineAction.RemoveSingleLine {
+                lines.RemoveAt(i)
+                removed = true
+                break
+            }
+
+            if action == RemoveDependencyLineAction.RemoveMappingBlock {
+                lines.RemoveAt(i)
+                while i < lines.Count {
+                    if RemoveCommandKernels.ShouldStopDependencyContinuationLine(lines[i]) {
+                        break
+                    }
+
+                    lines.RemoveAt(i)
+                }
+
+                removed = true
+                break
+            }
+
+            i = i + 1
+        }
+
+        if !removed {
+            return CommandOutputKernels.Error(RemoveCommandKernels.GetPackageNotFoundMessage(packageNameValue))
+        }
+
+        WriteProjectLines(projectYml, lines)
+        RestoreCommand.Restore(projectRoot, true)
+
+        print RemoveCommandKernels.GetRemovedMessage(packageNameValue)
+        return 0
+    }
+
+    static func ReadProjectLines(projectYml: string): List<string> {
+        lineArray := File.ReadAllLines(projectYml)
+        lines := new List<string>()
+
+        for lineArrayItem in lineArray {
+            lines.Add(lineArrayItem)
+        }
+
+        return lines
+    }
+
+    static func WriteProjectLines(projectYml: string, lines: List<string>) {
+        builder := new StringBuilder()
+
+        for line in lines {
+            builder.AppendLine(line)
+        }
+
+        File.WriteAllText(projectYml, builder.ToString())
+    }
+}

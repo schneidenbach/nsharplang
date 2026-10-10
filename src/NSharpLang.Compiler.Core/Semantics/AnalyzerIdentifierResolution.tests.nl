@@ -1,0 +1,1067 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.IO
+import System.Reflection
+import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
+
+// Native contracts for the identifier arm — what a BARE NAME means.
+//
+// Both members behind these contracts were `private` in `Analyzer.cs`, so no test named either: the
+// six-channel lookup and the four codes it raises were pinned only indirectly, through end-to-end
+// diagnostics on programs that happened to reach them. This is their first DIRECT pinning, and it
+// goes at the decisions that read like plumbing and are not:
+//
+//   * the CHANNEL ORDER, which is what makes a local shadow an enclosing type's member, a member
+//     shadow an imported type name, and a project type outrank a CLR type of the same name;
+//   * the `<error>` SILENCE, which is what stops a syntax error from also being told the name it
+//     could not read is undefined;
+//   * the TWO SHAPES of both miss reports, because a diagnostic with a snippet underlines columns
+//     and one without cannot, and the fallback is the shape an editor sees on a buffer the analyzer
+//     has no text for;
+//   * the TWO SUGGESTION POOLS, because only a callee position may mean an extension method;
+//   * the ERROR-TUPLE GUARD's write-target exemption — ONE node, by identity, so a result read
+//     beneath a plain `=` target is still judged — and its dedupe, which is the difference between
+//     telling a developer once and telling them at every re-resolution of the same position;
+//   * the PER-ANALYSIS RESET, because the dedupe set outliving an analysis would silence a real
+//     second report in the next file;
+//   * the SETTER discipline for the two rebuilt collaborators, because a factory rebuild would drop
+//     that set mid-analysis.
+class IdentifierHarness {
+    Rule: AnalyzerIdentifierResolution
+    Errors: List<CompilerError>
+    Scopes: AnalyzerScopeStack
+    Model: SemanticModel
+    Bindings: BindingMap
+    Extensions: List<FunctionDeclaration>
+    Sink: AnalyzerDiagnosticSink
+    Members: AnalyzerMemberResolution
+
+    constructor(
+        rule: AnalyzerIdentifierResolution,
+        errors: List<CompilerError>,
+        scopes: AnalyzerScopeStack,
+        model: SemanticModel,
+        bindings: BindingMap,
+        extensions: List<FunctionDeclaration>,
+        sink: AnalyzerDiagnosticSink,
+        members: AnalyzerMemberResolution
+    ) {
+        Rule = rule
+        Errors = errors
+        Scopes = scopes
+        Model = model
+        Bindings = bindings
+        Extensions = extensions
+        Sink = sink
+        Members = members
+    }
+}
+
+// The rule over an EMPTY project with no referenced assemblies: channels 1, 2 and 5 are live, channel
+// 3 is dark because the well-known-type bag is null, channel 4 finds nothing and channel 6 has no
+// assembly to probe. That is exactly the shape most of these contracts are about — the ones that need
+// a live metadata channel say so.
+func IdentifierRuleOf(): IdentifierHarness {
+    errors := new List<CompilerError>()
+    context := new AnalyzerDeclarationContext()
+    context.Reset(Path.GetFullPath("."), new List<Assembly>())
+    scopes := new AnalyzerScopeStack()
+    model := new SemanticModel()
+    scopes.Push(model, new Scope(ScopeKind.Global), 1, 1)
+    bindings := new BindingMap()
+    provider := new AnalyzerProjectSourceProvider()
+    sink := new AnalyzerDiagnosticSink(errors, provider)
+    spans := new AnalyzerDiagnosticSpans(sink)
+    discovery := new AnalyzerProjectTypeDiscovery(
+        provider,
+        context,
+        new List<string>(),
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
+    probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
+    resolver := new AnalyzerTypeResolver(
+        scopes,
+        context,
+        discovery,
+        probe,
+        sink,
+        new Dictionary<string, string>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
+        model,
+        bindings
+    )
+    substitution := new AnalyzerTypeSubstitution(scopes, context, resolver)
+    facts := new AnalyzerAssignabilityFacts(context, null)
+    structural := new AnalyzerStructuralAssignability(resolver, probe)
+    clrConversion := new AnalyzerClrTypeConversion(context, null)
+    guard := new AnalyzerImplicitConversionGuard()
+    assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
+    functionTypes := new AnalyzerFunctionTypeFactory(context, substitution)
+    namespaces := new List<string>()
+    extensions := new List<FunctionDeclaration>()
+    extensionResolution := new AnalyzerExtensionMethodResolution(
+        resolver,
+        assignability,
+        context,
+        functionTypes,
+        clrConversion,
+        extensions,
+        namespaces,
+        new List<Assembly>()
+    )
+    members := new AnalyzerMemberResolution(
+        functionTypes,
+        context,
+        substitution,
+        resolver,
+        clrConversion,
+        extensionResolution,
+        namespaces
+    )
+    soaEscape := new AnalyzerSoaEscape(sink, spans, scopes, context)
+    ambient := new AnalyzerAmbientContext(sink, spans, soaEscape)
+    nullFlow := new AnalyzerNullFlow(sink, spans, scopes, context)
+
+    rule := new AnalyzerIdentifierResolution(
+        sink,
+        scopes,
+        resolver,
+        discovery,
+        probe,
+        functionTypes,
+        ambient,
+        nullFlow,
+        extensions,
+        members,
+        new AnalyzerSourceMemberDeclarations(context, provider),
+        model,
+        bindings
+    )
+    return new IdentifierHarness(rule, errors, scopes, model, bindings, extensions, sink, members)
+}
+
+func IdentifierCodes(errors: List<CompilerError>): string {
+    text := ""
+    index := 0
+    while index < errors.Count {
+        if index > 0 {
+            text = text + ","
+        }
+
+        codeValue: int = (int)errors[index].Code
+        text = text + codeValue.ToString()
+        index = index + 1
+    }
+
+    return text
+}
+
+// The DID-YOU-MEAN names live in `Suggestions`, a nullable list, while `Suggestion` is the single
+// prose line. Reading the list through one door keeps the narrowing in one place.
+func IdentifierSuggestions(error: CompilerError): string {
+    if error.Suggestions == null {
+        return ""
+    }
+
+    text := ""
+    index := 0
+    while index < error.Suggestions.Count {
+        text = text + error.Suggestions[index] + "|"
+        index = index + 1
+    }
+
+    return text
+}
+
+func IdentifierSuggestion(error: CompilerError): string {
+    if error.Suggestion == null {
+        return ""
+    }
+
+    return error.Suggestion
+}
+
+// A name declared into the innermost LEXICAL scope, which is the table channel 1 reads.
+// `RecordVariable` writes the semantic model's scoped table instead, and that is a different table.
+func IdentifierDeclare(harness: IdentifierHarness, name: string, declaredType: TypeInfo) {
+    harness.Scopes.Peek().Symbols[name] = declaredType
+}
+
+// A signature value: what a local function, a lambda or a free function declares into a scope.
+func IdentifierSignature(parameterCount: int): FunctionTypeInfo {
+    signature := new FunctionTypeInfo()
+    parameters := new List<TypeInfo>()
+    while parameters.Count < parameterCount {
+        parameters.Add(BuiltInTypes.Int)
+    }
+
+    signature.ParameterTypes = parameters
+    signature.ReturnType = BuiltInTypes.Int
+    return signature
+}
+
+// The scope a type body opens: `this` names the type, and the type's own members sit beside it —
+// which is where `CurrentTypeScope` and `TypeScopeIndex` look.
+func IdentifierEnterType(harness: IdentifierHarness, typeName: string) {
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 2, 1)
+    harness.Scopes.Peek().Symbols["this"] = new SimpleTypeInfo(typeName)
+}
+
+func IdentifierExtensionMethod(name: string): FunctionDeclaration {
+    return new FunctionDeclaration(name, new List<Parameter>(), null, null, null, null, null, Modifiers.None, new List<AttributeNode>(), false, null, false, false, 1, 1)
+}
+
+func IdentifierTypeName(candidate: TypeInfo?): string {
+    if candidate == null {
+        return "<null>"
+    }
+
+    if BuiltInTypes.IsUnknown(candidate) {
+        return "unknown"
+    }
+
+    simple := candidate as SimpleTypeInfo
+    if simple != null {
+        return "simple:" + simple.Name
+    }
+
+    reflection := candidate as ReflectionTypeInfo
+    if reflection != null {
+        return "reflection:" + reflection.Type.get_Name()
+    }
+
+    nullable := candidate as NullableTypeInfo
+    if nullable != null {
+        return "nullable(" + IdentifierTypeName(nullable.InnerType) + ")"
+    }
+
+    functionType := candidate as FunctionTypeInfo
+    if functionType != null {
+        parameters := functionType.ParameterTypes
+        if parameters == null {
+            return "function/unknown-parameters"
+        }
+
+        return "function/" + parameters.Count.ToString()
+    }
+
+    return "<other>"
+}
+
+// ---- the `<error>` placeholder -------------------------------------------------------------------
+
+test "the parser's `<error>` placeholder answers unknown and reports NOTHING" {
+    harness := IdentifierRuleOf()
+
+    // The syntax diagnostic has already been raised at this position. A second report saying the name
+    // the parser could not read is undefined would be noise stacked on top of it, and it would be
+    // stacked on EVERY malformed expression in a file being typed.
+    answer := harness.Rule.Resolve("<error>", 3, 5, false)
+
+    assert IdentifierTypeName(answer) == "unknown"
+    assert harness.Errors.Count == 0
+}
+
+test "the `<error>` silence holds in callee position too" {
+    harness := IdentifierRuleOf()
+
+    answer := harness.Rule.Resolve("<error>", 3, 5, true)
+
+    assert IdentifierTypeName(answer) == "unknown"
+    assert harness.Errors.Count == 0
+}
+
+// ---- channel 1: the scope stack ------------------------------------------------------------------
+
+test "channel 1 answers a scope SYMBOL, and the answer is the declared type" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "count", BuiltInTypes.Int)
+
+    assert IdentifierTypeName(harness.Rule.Resolve("count", 4, 9, false)) == "simple:int"
+    assert harness.Errors.Count == 0
+}
+
+test "channel 1 answers a scope TYPE when no symbol has the name — symbols FIRST" {
+    harness := IdentifierRuleOf()
+    scope := harness.Scopes.Peek()
+    scope.Types["Widget"] = BuiltInTypes.String
+    scope.Symbols["Widget"] = BuiltInTypes.Int
+
+    // Both tables carry the name. The SYMBOL wins, which is what makes `let string = 1` mean the
+    // local and not the type for the rest of the block.
+    assert IdentifierTypeName(harness.Rule.Resolve("Widget", 4, 9, false)) == "simple:int"
+}
+
+test "a scope type with no symbol of that name is still an answer" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.Peek().Types["Widget"] = BuiltInTypes.String
+
+    assert IdentifierTypeName(harness.Rule.Resolve("Widget", 4, 9, false)) == "simple:string"
+}
+
+test "an inner scope shadows an outer binding of the same name" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 2, 1)
+    IdentifierDeclare(harness, "value", BuiltInTypes.String)
+
+    assert IdentifierTypeName(harness.Rule.Resolve("value", 4, 9, false)) == "simple:string"
+
+    harness.Scopes.Pop(harness.Model)
+    assert IdentifierTypeName(harness.Rule.Resolve("value", 5, 9, false)) == "simple:int"
+}
+
+test "channel 1 is where NARROWING pays off: the arm reads whatever the scope now holds" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "text", new NullableTypeInfo(BuiltInTypes.String))
+
+    assert IdentifierTypeName(harness.Rule.Resolve("text", 4, 9, false)) == "nullable(simple:string)"
+
+    // This is exactly what `AnalyzerFlowNarrowing` does inside an `if text != null` branch: it writes
+    // the narrowed type into the scope's own symbol table. The arm names narrowing nowhere and still
+    // answers the narrowed type, which is why the identifier arm needed no narrowing collaborator.
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 5, 1)
+    IdentifierDeclare(harness, "text", BuiltInTypes.String)
+
+    assert IdentifierTypeName(harness.Rule.Resolve("text", 6, 9, false)) == "simple:string"
+}
+
+// ---- channel 3: the built-in keyword table -------------------------------------------------------
+
+test "channel 3 is DARK while the well-known-type bag is null" {
+    harness := IdentifierRuleOf()
+
+    // Without a metadata load context there is no `System.Int32` to name, so `int` in expression
+    // position is a miss rather than a receiver. That is not a degraded mode to be worked around: the
+    // analyzer reports through exactly this path before it has loaded any assembly.
+    assert IdentifierTypeName(harness.Rule.Resolve("int", 4, 9, false)) == "unknown"
+    assert IdentifierCodes(harness.Errors) == "301"
+}
+
+test "a scope symbol shadows the built-in keyword table" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "double", BuiltInTypes.Int)
+
+    assert IdentifierTypeName(harness.Rule.Resolve("double", 4, 9, false)) == "simple:int"
+    assert harness.Errors.Count == 0
+}
+
+// ---- channel 5: project-wide function discovery --------------------------------------------------
+
+test "the published project-function probe answers false over an empty project" {
+    harness := IdentifierRuleOf()
+    functionType: TypeInfo = BuiltInTypes.Unknown
+    declaration: SymbolDeclaration? = null
+
+    // The probe is PUBLISHED because a second host member — the qualified-external-type walk — asks
+    // the same question of a dotted name's root. Both consumers must get the same answer, which is
+    // the whole reason it is not private to the rule.
+    assert !harness.Rule.TryResolveVisibleProjectFunction("Anything", out functionType, out declaration)
+    assert IdentifierTypeName(functionType) == "unknown"
+    assert declaration == null
+    assert harness.Errors.Count == 0
+}
+
+// ---- NL301, the undefined variable ---------------------------------------------------------------
+
+test "a miss with NO source text takes the BARE NL301 shape" {
+    harness := IdentifierRuleOf()
+
+    answer := harness.Rule.Resolve("missing", 4, 9, false)
+
+    assert IdentifierTypeName(answer) == "unknown"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UndefinedVariable
+    assert harness.Errors[0].Message == "I can't find 'missing' — it hasn't been declared in this scope"
+    assert harness.Errors[0].Line == 4
+    assert harness.Errors[0].Column == 9
+    // The BARE shape is asked for length 0 and floors at 1, so it underlines a single caret. The
+    // rich shape below carries the name's own length, and an IDE underlines exactly those columns.
+    assert harness.Errors[0].Length == 1
+}
+
+test "a miss WITH source text takes the RICH NL301 shape and underlines the name" {
+    harness := IdentifierRuleOf()
+    harness.Sink.BeginAnalysis("a.nl", "func Main() {\n    print missing\n}\n")
+
+    answer := harness.Rule.Resolve("missing", 2, 11, false)
+
+    assert IdentifierTypeName(answer) == "unknown"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UndefinedVariable
+    assert harness.Errors[0].Message == "Variable 'missing' not found"
+    assert harness.Errors[0].Length == 7
+    assert harness.Errors[0].FileName == "a.nl"
+}
+
+test "line 0 has no snippet, so a miss there falls back to the bare shape even with text" {
+    harness := IdentifierRuleOf()
+    harness.Sink.BeginAnalysis("a.nl", "func Main() {\n    print missing\n}\n")
+
+    harness.Rule.Resolve("missing", 0, 0, false)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "I can't find 'missing' — it hasn't been declared in this scope"
+}
+
+test "a near-miss local is suggested, and the suggestion pool is the SCOPE" {
+    harness := IdentifierRuleOf()
+    harness.Sink.BeginAnalysis("a.nl", "func Main() {\n    print countre\n}\n")
+    IdentifierDeclare(harness, "counter", BuiltInTypes.Int)
+
+    harness.Rule.Resolve("countre", 2, 11, false)
+
+    assert harness.Errors.Count == 1
+    assert IdentifierSuggestions(harness.Errors[0]).Contains("counter")
+}
+
+// ---- NL412, the undefined function ---------------------------------------------------------------
+
+test "a callee-position miss is an undefined FUNCTION, not an undefined variable" {
+    harness := IdentifierRuleOf()
+
+    answer := harness.Rule.Resolve("Nonesuch", 4, 9, true)
+
+    assert IdentifierTypeName(answer) == "unknown"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UndefinedFunction
+    assert harness.Errors[0].Message == "Function 'Nonesuch' not found"
+    // Unlike the bare NL301, the bare NL412 DOES carry the name's length.
+    assert harness.Errors[0].Length == 8
+}
+
+test "the RICH NL412 shape is selected by the same snippet test" {
+    harness := IdentifierRuleOf()
+    harness.Sink.BeginAnalysis("a.nl", "func Main() {\n    print Nonesuch()\n}\n")
+
+    harness.Rule.Resolve("Nonesuch", 2, 11, true)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UndefinedFunction
+    assert harness.Errors[0].Length == 8
+    assert harness.Errors[0].FileName == "a.nl"
+}
+
+test "the CALLABLE pool is a different pool: a non-callable local is not suggested for a callee" {
+    harness := IdentifierRuleOf()
+    harness.Sink.BeginAnalysis("a.nl", "func Main() {\n    print countre()\n}\n")
+    IdentifierDeclare(harness, "counter", BuiltInTypes.Int)
+
+    harness.Rule.Resolve("countre", 2, 11, true)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UndefinedFunction
+    // `counter` is an `int`, so it is not a callable and the callee position must not offer it.
+    assert !IdentifierSuggestions(harness.Errors[0]).Contains("counter")
+}
+
+test "an EXTENSION METHOD name is in the callable pool and in no other" {
+    harness := IdentifierRuleOf()
+    harness.Sink.BeginAnalysis("a.nl", "func Main() {\n    print Shou()\n}\n")
+    harness.Extensions.Add(IdentifierExtensionMethod("Shout"))
+
+    harness.Rule.Resolve("Shou", 2, 11, true)
+
+    assert harness.Errors.Count == 1
+    assert IdentifierSuggestions(harness.Errors[0]).Contains("Shout")
+
+    // The SAME name in a non-callee position must not be offered: extension methods are not values.
+    harness.Errors.Clear()
+    harness.Rule.Resolve("Shou", 2, 11, false)
+    assert harness.Errors.Count == 1
+    assert !IdentifierSuggestions(harness.Errors[0]).Contains("Shout")
+}
+
+test "the extension list is LIVE: a method registered after construction is still offered" {
+    harness := IdentifierRuleOf()
+    harness.Sink.BeginAnalysis("a.nl", "func Main() {\n    print Shou()\n}\n")
+
+    harness.Rule.Resolve("Shou", 2, 11, true)
+    assert harness.Errors.Count == 1
+    assert !IdentifierSuggestions(harness.Errors[0]).Contains("Shout")
+
+    // The declaration walk registers extension methods as it meets them, long after the rule was
+    // built. Holding the LIST rather than a copy is what keeps the suggestion pool current.
+    harness.Extensions.Add(IdentifierExtensionMethod("Shout"))
+    harness.Errors.Clear()
+
+    harness.Rule.Resolve("Shou", 2, 11, true)
+    assert harness.Errors.Count == 1
+    assert IdentifierSuggestions(harness.Errors[0]).Contains("Shout")
+}
+
+// ---- NL314, the error-tuple result guard ---------------------------------------------------------
+
+test "a result read before its error is checked is refused, and the report names BOTH names" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    answer := harness.Rule.Resolve("value", 3, 11, false)
+
+    // The NAME still resolves — this is a use rule, not a resolution rule, so the answer is the
+    // declared type and the walk around it carries on with a real type rather than `unknown`.
+    assert IdentifierTypeName(answer) == "simple:int"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UnverifiedErrorResult
+    assert harness.Errors[0].Message == "Result 'value' may be unavailable because 'err' can be non-null"
+    assert harness.Errors[0].Line == 3
+    assert harness.Errors[0].Column == 11
+    assert harness.Errors[0].Length == 5
+    assert IdentifierSuggestion(harness.Errors[0]).Contains("if err == null")
+}
+
+test "once the error is checked the same read is silent" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+    harness.Scopes.MarkErrorTupleResultsAvailableForError("err")
+
+    harness.Rule.Resolve("value", 3, 11, false)
+
+    assert harness.Errors.Count == 0
+}
+
+test "the SAME position is reported once and no more — the dedupe is (line, column, name)" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    // One position can be resolved more than once: an assignment target is resolved again by the
+    // write-target classifiers that follow it. The developer must see the report once.
+    harness.Rule.Resolve("value", 3, 11, false)
+    harness.Rule.Resolve("value", 3, 11, false)
+    harness.Rule.Resolve("value", 3, 11, false)
+
+    assert harness.Errors.Count == 1
+}
+
+test "a DIFFERENT position of the same name is a different report" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    harness.Rule.Resolve("value", 3, 11, false)
+    harness.Rule.Resolve("value", 4, 11, false)
+
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Line == 3
+    assert harness.Errors[1].Line == 4
+}
+
+test "the EXEMPTION turns the guard off for the write target NODE and nothing else" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    // Writing INTO a result name is not a use of it. The assignment arm saves the exempt node, sets
+    // it to the target of a plain `=` only, and restores it.
+    target := new IdentifierExpression("value", 3, 5)
+    assert harness.Rule.SuppressedErrorTupleResultUseNode == null
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(target)
+    assert Object.ReferenceEquals(harness.Rule.SuppressedErrorTupleResultUseNode, target)
+
+    harness.Rule.ResolveIdentifier(target)
+    assert harness.Errors.Count == 0
+
+    // Another read of the SAME name while the bracket is open — an index argument, a receiver — is
+    // not the store, and is judged. Identity decides, not the name and not the position.
+    harness.Rule.ResolveIdentifier(new IdentifierExpression("value", 3, 12))
+    assert harness.Errors.Count == 1
+
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(null)
+    harness.Rule.ResolveIdentifier(new IdentifierExpression("value", 4, 5))
+    assert harness.Errors.Count == 2
+}
+
+test "the exemption looks through BRACKETS, and a name resolved without its node is never exempt" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    inner := new IdentifierExpression("value", 3, 7)
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(new ParenthesizedExpression(new ParenthesizedExpression(inner, 3, 6), 3, 5))
+    assert harness.Rule.IsErrorTupleResultUseSuppressed(inner)
+    harness.Rule.ResolveIdentifier(inner)
+    assert harness.Errors.Count == 0
+
+    // The name-only door has no node to compare, so it can only ever be a read.
+    harness.Rule.Resolve("value", 3, 7, false)
+    assert harness.Errors.Count == 1
+}
+
+test "an exempt store does NOT consume its dedupe slot" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    // The exemption skips the report BEFORE the dedupe set is touched. If it did not, a plain
+    // assignment would silence the report a later read at the same position must still raise.
+    target := new IdentifierExpression("value", 3, 5)
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(target)
+    harness.Rule.ResolveIdentifier(target)
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(null)
+    harness.Rule.ResolveIdentifier(target)
+
+    assert harness.Errors.Count == 1
+}
+
+test "the guard never fires for a name that is not a registered result" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    IdentifierDeclare(harness, "err", BuiltInTypes.String)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    harness.Rule.Resolve("err", 3, 11, false)
+
+    assert harness.Errors.Count == 0
+}
+
+test "the guard fires on a MISS-free path only: an unresolved name never reaches it" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    // `value` was registered as a guarded result but never declared, so channel 1 misses and the
+    // whole lookup falls through to the undefined report. The guard is reached only from the
+    // RESOLVED branch, so there is exactly one diagnostic here and it is NL301.
+    harness.Rule.Resolve("value", 3, 11, false)
+
+    assert IdentifierCodes(harness.Errors) == "301"
+}
+
+// ---- the per-analysis reset ----------------------------------------------------------------------
+
+test "`BeginAnalysis` clears the dedupe set, so the next file reports at the same position again" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    harness.Rule.Resolve("value", 3, 11, false)
+    assert harness.Errors.Count == 1
+
+    harness.Rule.BeginAnalysis(null, new SemanticModel(), new BindingMap())
+    harness.Rule.Resolve("value", 3, 11, false)
+
+    assert harness.Errors.Count == 2
+}
+
+test "`BeginAnalysis` also clears the exemption, so a file never inherits the previous one's" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    target := new IdentifierExpression("value", 3, 11)
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(target)
+    harness.Rule.BeginAnalysis(null, new SemanticModel(), new BindingMap())
+
+    assert harness.Rule.SuppressedErrorTupleResultUseNode == null
+    harness.Rule.ResolveIdentifier(target)
+    assert harness.Errors.Count == 1
+}
+
+test "`BeginAnalysis` takes the REPLACED semantic model and binding map, not the ones held before" {
+    harness := IdentifierRuleOf()
+    replacementModel := new SemanticModel()
+    replacementBindings := new BindingMap()
+    harness.Rule.BeginAnalysis(null, replacementModel, replacementBindings)
+    IdentifierDeclare(harness, "handler", BuiltInTypes.Int)
+
+    // The call-target form writes the IDE records. They must land in the model this analysis owns —
+    // both are REPLACED per analysis rather than cleared, so holding them from construction would
+    // write every file's hover types into the first file's model.
+    harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
+
+    assert replacementModel.ExpressionTypes.ContainsKey((Line: 7, Column: 3))
+    assert !harness.Model.ExpressionTypes.ContainsKey((Line: 7, Column: 3))
+}
+
+// ---- the setter discipline for the two rebuilt collaborators -------------------------------------
+
+test "`SetMetadataCollaborators` replaces the pair WITHOUT dropping the dedupe set" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    harness.Rule.Resolve("value", 3, 11, false)
+    assert harness.Errors.Count == 1
+
+    // This is the whole reason the rule is TOLD about the rebuilt pair instead of being rebuilt with
+    // it: the metadata load context opens and closes around an analysis, and a rebuild here would
+    // forget what had already been reported and say it a second time.
+    harness.Rule.SetMetadataCollaborators(harness.Members, null)
+    harness.Rule.Resolve("value", 3, 11, false)
+
+    assert harness.Errors.Count == 1
+}
+
+// ---- the callee-position form --------------------------------------------------------------------
+
+test "`CallTarget` resolves as a FUNCTION and records both IDE facts" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "handler", IdentifierSignature(1))
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
+
+    assert IdentifierTypeName(answer) == "function/1"
+    assert IdentifierTypeName(harness.Model.ExpressionTypes[(Line: 7, Column: 3)]) == "function/1"
+    assert harness.Model.ExpressionNullStates.ContainsKey((Line: 7, Column: 3))
+    assert harness.Errors.Count == 0
+}
+
+test "`CallTarget` says when the callee names a TYPE, which a value of that same type does not" {
+    harness := IdentifierRuleOf()
+    widget := BuiltInTypes.String
+    harness.Scopes.Peek().Types["Widget"] = widget
+    IdentifierDeclare(harness, "current", widget)
+
+    // The two answers are the SAME `TypeInfo`, so the flag is the only thing the call arm can tell
+    // `Widget()` from `current()` by — and only the first is a type being called like a function.
+    namesType := false
+    typeAnswer := harness.Rule.CallTarget(new IdentifierExpression("Widget", 7, 3), 0, out namesType)
+    assert IdentifierTypeName(typeAnswer) == "simple:string"
+    assert namesType
+
+    valueAnswer := harness.Rule.CallTarget(new IdentifierExpression("current", 8, 3), 0, out namesType)
+    assert IdentifierTypeName(valueAnswer) == "unknown"
+    assert !namesType
+    assert IdentifierTypeName(harness.Model.ExpressionTypes[(Line: 8, Column: 3)]) == "simple:string"
+
+    harness.Rule.CallTarget(new IdentifierExpression("Nonesuch", 9, 3), 0, out namesType)
+    assert !namesType
+    assert IdentifierCodes(harness.Errors) == "413,412"
+}
+
+test "`CallTarget` on a miss reports NL412 rather than NL301" {
+    harness := IdentifierRuleOf()
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("Nonesuch", 7, 3))
+
+    assert IdentifierTypeName(answer) == "unknown"
+    assert IdentifierCodes(harness.Errors) == "412"
+}
+
+test "`CallTarget` applies the nullability FLOW type, which is what the plain rule does not do" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "handler", new NullableTypeInfo(IdentifierSignature(0)))
+
+    // The plain rule answers the DECLARED type; the callee form answers the FLOW type. The call arm
+    // reaches its callee without going through the dispatch host, so if this form did not apply the
+    // flow type the callee would be the only expression position in the language that did not.
+    plain := harness.Rule.Resolve("handler", 7, 3, true)
+    flowed := harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
+
+    assert IdentifierTypeName(plain) == "nullable(function/0)"
+    assert IdentifierTypeName(flowed) == "nullable(function/0)"
+    assert harness.Model.ExpressionNullStates.ContainsKey((Line: 7, Column: 3))
+}
+
+test "both consumers share ONE resolution, so a miss is reported once per position per consumer" {
+    harness := IdentifierRuleOf()
+    harness.Sink.BeginAnalysis("a.nl", "func Main() {\n    print Nonesuch()\n}\n")
+
+    // The dispatch arm and the call arm ask the SAME rule. Neither wraps the other and neither
+    // re-implements it, which is what stops a callee from being resolved twice with two reports.
+    harness.Rule.CallTarget(new IdentifierExpression("Nonesuch", 2, 11))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UndefinedFunction
+}
+
+// ---- a bare name that finds a member of a CLOSED EXTERNAL BASE ----------------------------------
+//
+// Channel 2 answers a bare `ToArray` inside `class Names: List<string>` with `List<string>`'s method
+// group, exactly as `this.ToArray` is answered. The CALL was where the two came apart: the reflected
+// bind closes the declaring type's `T` over the RECEIVER, and a bare call wrote none, so `ToArray()`
+// typed as the open `T[]`, `IndexOf(5)` was accepted against a `List<string>`, and a lambda passed to
+// `ConvertAll` had no parameter type. A bare call inside a type now binds through the enclosing
+// instance, which is what C#'s simple-name rule says it is.
+//
+// Every row states the TYPE rather than only the absence of a report: an `int`-returning twin must be
+// told it returns `string`, which is what keeps a row from passing because the base never resolved.
+
+// The sources run through the real `Analyzer.Analyze` entry, over the framework's common assemblies —
+// the one thing the other source harnesses here leave out, and without it `List` is not a type at
+// all. Error-severity messages only, in report order.
+func InheritedBaseSourceErrors(source: string): List<string> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-inherited-base-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    messages := new List<string>()
+    analyzer := new Analyzer()
+    try {
+        analyzer.LoadSystemAssemblies()
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                messages.Add(error.Message)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return messages
+}
+
+test "a bare call to a closed external base's member returns the base's type argument, as `this.` does" {
+    agreed := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Names: List<string> {\n    func FirstBare(): string => ToArray()[0]\n    func FirstViaThis(): string => this.ToArray()[0]\n    func LengthsBare(): List<int> => ConvertAll(s => s.Length)\n}\n")
+    assert agreed.Count == 0
+
+    mistyped := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Names: List<string> {\n    func FirstBare(): int => ToArray()[0]\n    func FirstViaThis(): int => this.ToArray()[0]\n}\n")
+    assert mistyped.Count == 2
+    assert mistyped[0] == "Function 'FirstBare' should return int but returns string"
+    assert mistyped[1] == "Function 'FirstViaThis' should return int but returns string"
+}
+
+test "a bare call's ARGUMENTS are checked against the base's type argument, as `this.` checks them" {
+    refused := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Names: List<string> {\n    func Bare(): int => IndexOf(5)\n    func ViaThis(): int => this.IndexOf(5)\n}\n")
+    assert refused.Count == 2
+    assert refused[0] == "No overload of 'IndexOf' accepts 1 argument with these types"
+    assert refused[1] == "No overload of 'IndexOf' accepts 1 argument with these types"
+}
+
+// A SOURCE BASE BETWEEN the type and the external one: `Deep: Mid<string>` over `Mid<U>: List<U>`.
+// The middle link's `U` is substituted on the way, so `T` is `string` for both spellings and for a
+// receiver outside the type (`deep.Add(...)`), which had bound against nothing.
+test "a generic source base between the type and the external base is substituted, not stopped at" {
+    agreed := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Mid<U>: List<U> {\n}\n\nclass Deep: Mid<string> {\n    func FirstBare(): string => ToArray()[0]\n    func FirstViaThis(): string => this.ToArray()[0]\n}\n\nfunc Fill(deep: Deep) {\n    deep.Add(\"a\")\n}\n")
+    assert agreed.Count == 0
+
+    mistyped := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass Mid<U>: List<U> {\n}\n\nclass Deep: Mid<string> {\n    func FirstBare(): int => ToArray()[0]\n    func FirstViaThis(): int => this.ToArray()[0]\n}\n")
+    assert mistyped.Count == 2
+    assert mistyped[0] == "Function 'FirstBare' should return int but returns string"
+    assert mistyped[1] == "Function 'FirstViaThis' should return int but returns string"
+}
+
+// THE SPELLED ARGUMENT'S NULLABILITY IS PART OF THE ANSWER. The CLR surrogate of `List<string?>` is
+// `List<string>`; only the written base says the element may be null, and both spellings read it.
+// With referenced nullability enforced unconditionally, the selected BCL member is named in each
+// return mismatch while the two name-resolution paths still produce the same nullable type.
+test "a nullable type argument on the external base is what both spellings answer" {
+    maybe := InheritedBaseSourceErrors("namespace P\n\nimport System.Collections.Generic\n\nclass MaybeNames: List<string?> {\n    func FirstBare(): string => ToArray()[0]\n    func FirstViaThis(): string => this.ToArray()[0]\n}\n")
+    assert maybe.Count == 2
+    assert maybe[0].StartsWith("Function 'FirstBare' should return string but returns string?", StringComparison.Ordinal)
+    assert maybe[1].StartsWith("Function 'FirstViaThis' should return string but returns string?", StringComparison.Ordinal)
+    assert maybe[0].Contains("The .NET member `")
+    assert maybe[1].Contains("The .NET member `")
+}
+
+// ---- channel 2: the binding a bare member records --------------------------------------------------
+//
+// End to end over real source, because the question is which DECLARATION the binding map points at,
+// and only a real analysis has a declaration context with source types, bases and texts in it. The
+// type's OWN members are channel 1's (its type scope); every inherited one reaches channel 2, and
+// before channel 2 recorded, a bare inherited call had no definition, no references and a hover
+// that described only the call's value. This harness has no reference assemblies, so the member a
+// REFLECTED base declares is stated in `tests/native/query-integration`, over a real project.
+func BareMemberProbeSource(): string {
+    return "namespace Probe\n" + "\n" + "class Root {\n" + "    func Origin(): string => \"root\"\n" + "}\n" + "\n" + "class Base: Root {\n" + "    Count: int => 3\n" + "    func Label(): string => \"base\"\n" + "    static func Make(): int => 1\n" + "}\n" + "\n" + "class Widget: Base {\n" + "    func Own(): string => \"own\"\n" + "    func Show(): string => Label() + Own() + Origin() + this.Label()\n" + "    func Size(): int => Count + Make()\n" + "}\n" + "\n" + "class Holder<T> {\n" + "    func Describe(): string => \"holder\"\n" + "}\n" + "\n" + "class IntHolder: Holder<int> {\n" + "    func Show(): string => Describe()\n" + "}\n"
+}
+
+class BareMemberProbe {
+    FilePath: string
+    Bindings: BindingMap
+
+    constructor(filePath: string, bindings: BindingMap) {
+        FilePath = filePath
+        Bindings = bindings
+    }
+
+    func At(line: int, column: int): string {
+        declaration := Bindings.GetBindingAt(FilePath, line, column)
+        if declaration == null {
+            return "<none>"
+        }
+
+        return declaration.Name + "@" + declaration.Line.ToString() + ":" + declaration.Column.ToString() + " " + declaration.Kind
+    }
+}
+
+func BareMemberAnalysis(): BareMemberProbe {
+    source := BareMemberProbeSource()
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-bare-member-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    try {
+        // The snapshot the CLI and the Language Server always supply. A declaration's NAME column is
+        // re-derived from it, so without it both member forms would land on the `func` keyword.
+        snapshot := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        snapshot[filePath] = source
+        analyzer.SetProjectSourceTexts(snapshot)
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        report := ""
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                report = report + "[" + error.Line.ToString() + ":" + error.Column.ToString() + "] " + error.Message + " | "
+            }
+        }
+
+        if report != "" {
+            throw new InvalidOperationException("The probe source must analyse cleanly: " + report)
+        }
+
+        bindings := result.Bindings
+        assert bindings != null
+        return new BareMemberProbe(filePath, bindings ?? new BindingMap())
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "a bare call to an INHERITED method binds to the base's declaration" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(15, 28) == "Label@9:10 function"
+}
+
+test "the bare form and the `this.` form bind ONE declaration, so references see both" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(15, 62) == probe.At(15, 28)
+
+    declaration := probe.Bindings.GetBindingAt(probe.FilePath, 15, 28)
+    assert declaration != null
+    columns := new List<int>()
+    for usage in probe.Bindings.GetReferences(declaration) {
+        if usage.Line == 15 && !columns.Contains(usage.Column) {
+            columns.Add(usage.Column)
+        }
+    }
+
+    columns.Sort()
+    assert columns.Count == 2
+    assert columns[0] == 28
+    assert columns[1] == 62
+}
+
+test "a bare member two bases up binds to the grandparent that declares it" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(15, 46) == "Origin@4:10 function"
+}
+
+test "a bare OWN member still binds through channel 1, beside the inherited ones" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(15, 38) == "Own@14:10 function"
+}
+
+test "a bare inherited PROPERTY and a bare inherited STATIC method bind too" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(16, 25) == "Count@8:5 property"
+    assert probe.At(16, 33) == "Make@10:17 function"
+}
+
+test "a bare member of a CLOSED GENERIC base binds to the generic definition's declaration" {
+    probe := BareMemberAnalysis()
+
+    assert probe.At(24, 28) == "Describe@20:10 function"
+}
+
+// ---- NL413: a value in callee position -----------------------------------------------------------
+//
+// A callee that resolved to a VALUE is a call only when the value's type is a delegate. Before this
+// rule the call arm dispatched a `string` callee to `unknown` in silence and the emitter was the first
+// to object, with an NL103 decline about a bare call it "could not resolve" — a sentence about the
+// compiler, reported at a name that resolved perfectly well.
+
+test "a LOCAL whose type is not a delegate is NL413, and the IDE still sees the value's own type" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 2, 1)
+    IdentifierDeclare(harness, "count", BuiltInTypes.Int)
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("count", 7, 3))
+
+    // `unknown` to the call arm, so nothing downstream reports a consequence of the same mistake —
+    // but hover over `count` still says `int`.
+    assert IdentifierTypeName(answer) == "unknown"
+    assert IdentifierTypeName(harness.Model.ExpressionTypes[(Line: 7, Column: 3)]) == "simple:int"
+    assert IdentifierCodes(harness.Errors) == "413"
+    assert harness.Errors[0].Message == "`count` is a value of type `int`, not something you can call"
+    assert harness.Errors[0].Column == 3
+    assert harness.Errors[0].Length == 5
+    assert IdentifierSuggestion(harness.Errors[0]) == "Drop the parentheses to read `count`."
+}
+
+test "a member of the enclosing type is named as a MEMBER, with its owner" {
+    harness := IdentifierRuleOf()
+    IdentifierEnterType(harness, "Widget")
+    IdentifierDeclare(harness, "Label", BuiltInTypes.String)
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 3, 1)
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("Label", 7, 3))
+
+    assert IdentifierTypeName(answer) == "unknown"
+    assert IdentifierCodes(harness.Errors) == "413"
+    // `member` because this harness has no declaration behind `Widget` to say `field`; the
+    // end-to-end rows in `AnalyzerCallAnalysis.tests.nl` pin the field and property words.
+    assert harness.Errors[0].Message == "`Label` is a member of type `string` on `Widget`, not something you can call"
+    assert (harness.Errors[0].ContextualHint ?? "").Contains("give it a delegate type such as `Func<string>`")
+    assert !(harness.Errors[0].ContextualHint ?? "").Contains("free function")
+}
+
+test "a non-delegate member and a same-named free function do not compete at a call site" {
+    harness := IdentifierRuleOf()
+    // The file's free function lives in the global scope, below the type.
+    IdentifierDeclare(harness, "Label", IdentifierSignature(0))
+    IdentifierEnterType(harness, "Widget")
+    IdentifierDeclare(harness, "Label", BuiltInTypes.String)
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 3, 1)
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("Label", 7, 3))
+
+    // The member is not invocable, so the free function is the only viable call candidate.
+    assert IdentifierTypeName(answer) == "function/0"
+    assert IdentifierCodes(harness.Errors) == ""
+}
+
+test "a delegate-typed value is a call, not a report" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 2, 1)
+    IdentifierDeclare(harness, "handler", IdentifierSignature(1))
+    IdentifierDeclare(harness, "done", new ReflectionTypeInfo(typeof(Action)))
+    IdentifierDeclare(harness, "maybe", new NullableTypeInfo(new ReflectionTypeInfo(typeof(Action))))
+
+    harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
+    harness.Rule.CallTarget(new IdentifierExpression("done", 8, 3))
+    harness.Rule.CallTarget(new IdentifierExpression("maybe", 9, 3))
+
+    assert harness.Errors.Count == 0
+}
+
+test "a TYPE in callee position is not a value, so this rule leaves it to the call arm" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.Peek().Types["Widget"] = new SimpleTypeInfo("Widget")
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("Widget", 7, 3))
+
+    assert IdentifierTypeName(answer) == "simple:Widget"
+    assert harness.Errors.Count == 0
+}
+
+test "a value read OUTSIDE callee position is never NL413" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 2, 1)
+    IdentifierDeclare(harness, "count", BuiltInTypes.Int)
+
+    answer := harness.Rule.Resolve("count", 7, 3, false)
+
+    assert IdentifierTypeName(answer) == "simple:int"
+    assert harness.Errors.Count == 0
+}

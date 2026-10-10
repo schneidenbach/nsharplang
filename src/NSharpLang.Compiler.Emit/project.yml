@@ -1,0 +1,17 @@
+name: NSharpLang.Compiler.Emit
+backend: il
+outputType: library
+targetFramework: net10.0
+# Emit carries its own estate (`*.tests.nl`); every build of it that does not pass
+# `-p:NSharpExcludeTests=false` is product-only, which is what the projects above it reference.
+excludeTests: true
+dependencies:
+  - project: ../NSharpLang.Compiler.Plan/project.yml
+  - nuget: YamlDotNet
+    version: 16.3.0
+  # Emit's own source names runtime types (the SIMD reduction helpers), so it declares the runtime
+  # package as Core and Plan do; Sdk.props leaves all three out of the implicit runtime reference.
+  - nuget: NSharpLang.Runtime
+    version: 0.1.0
+  - nuget: Mono.Cecil
+    version: 0.11.6

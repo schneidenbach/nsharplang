@@ -2,6 +2,13 @@
 
 All notable changes to the "nsharp" extension will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Report a same-name member and visible free function as NL209 inside a type, with code actions to
+  make the member receiver or the free function's namespace explicit.
+- Keep both NL209 alternatives enabled in VS Code while leaving them suggestion-only for `nlc fix`.
+
 ## [0.6.0] - 2025-11-10
 
 ### Added - VS Code Polish Release (Task 048)

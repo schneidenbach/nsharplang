@@ -1,0 +1,156 @@
+namespace NSharpLang.Cli.Commands
+
+import System
+import System.Collections.Generic
+import System.IO
+import System.Text
+import NSharpLang.Cli
+
+class CleanCommand {
+    static func Execute(args: string[]): int {
+        options := CleanCommandKernels.GetOptionSummary(args)
+        if options.ShowHelp {
+            print CleanCommandKernels.GetHelpText()
+            return 0
+        }
+
+        projectRoot := Path.GetFullPath(options.ProjectOption ?? Environment.CurrentDirectory)
+        cleanAll := options.CleanAll
+
+        if !Directory.Exists(projectRoot) {
+            return CommandOutputKernels.Error(CommandOutputKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
+        }
+
+        try {
+            removed := RemoveArtifacts(projectRoot)
+
+            if cleanAll {
+                cacheExitCode := ClearNuGetCaches()
+                if cacheExitCode != 0 {
+                    return cacheExitCode
+                }
+            }
+
+            if removed.Count == 0 {
+                print CleanCommandKernels.GetNoArtifactsFoundMessage(projectRoot)
+            } else {
+                print CleanCommandKernels.GetRemovedArtifactsHeader(removed.Count)
+                for removedItem in removed {
+                    print CleanCommandKernels.GetRemovedArtifactLine(removedItem)
+                }
+            }
+
+            if cleanAll {
+                print CleanCommandKernels.GetClearedNuGetCachesMessage()
+            }
+
+            return 0
+        } catch ex: Exception {
+            return CommandOutputKernels.Error(CleanCommandKernels.GetCleanFailedMessage(ex.Message))
+        }
+    }
+
+    static func RemoveArtifacts(projectRoot: string): List<string> {
+        candidates := new List<string>()
+        AddArtifactCandidates(projectRoot, candidates)
+        ordered := CleanArtifactDirectoryOrderer.Order(candidates)
+
+        removed := new List<string>()
+        for dir in ordered {
+            if Directory.Exists(dir) {
+                DeleteDirectoryTree(dir)
+                removed.Add(CommandOutputKernels.NormalizePath(Path.GetRelativePath(projectRoot, dir)))
+            }
+        }
+
+        array := removed.ToArray()
+        Array.Sort(array, 0, array.Length, StringComparer.Ordinal)
+
+        sorted := new List<string>()
+        for arrayItem in array {
+            sorted.Add(arrayItem)
+        }
+
+        return sorted
+    }
+
+    static func AddArtifactCandidates(projectRoot: string, candidates: List<string>) {
+        AddIfExists(candidates, Path.Combine(projectRoot, "bin"))
+        AddIfExists(candidates, Path.Combine(projectRoot, "obj"))
+        AddIfExists(candidates, Path.Combine(projectRoot, ".nlc"))
+        AddArtifactCandidatesRecursive(projectRoot, candidates)
+    }
+
+    static func AddArtifactCandidatesRecursive(directory: string, candidates: List<string>) {
+        subdirectories := new string[](0)
+        try {
+            subdirectories = Directory.GetDirectories(directory, "*", SearchOption.TopDirectoryOnly)
+        } catch {
+            return
+        }
+
+        for subdirectory in subdirectories {
+            AddIfExists(candidates, subdirectory)
+
+            directoryName := Path.GetFileName(subdirectory) ?? ""
+            if String.Compare(directoryName, "node_modules", StringComparison.OrdinalIgnoreCase) != 0 {
+                AddArtifactCandidatesRecursive(subdirectory, candidates)
+            }
+        }
+    }
+
+    static func AddIfExists(candidates: List<string>, directory: string) {
+        if Directory.Exists(directory) {
+            candidates.Add(directory)
+        }
+    }
+
+    static func DeleteDirectoryTree(directory: string) {
+        result := new DotnetRunResult(1, "", "")
+        if IsWindows() {
+            result = DotnetRunner.RunProcess("cmd", "/c rmdir /s /q " + QuoteProcessArgument(directory), null, null)
+        } else {
+            result = DotnetRunner.RunProcess("rm", "-rf " + QuoteProcessArgument(directory), null, null)
+        }
+
+        if result.ExitCode != 0 {
+            detail := (result.Stderr + result.Stdout).Trim()
+            if detail.Length == 0 {
+                detail = "directory removal process exited with code " + result.ExitCode.ToString()
+            }
+
+            throw new InvalidOperationException(detail)
+        }
+    }
+
+    static func ClearNuGetCaches(): int {
+        result := DotnetRunner.Run("nuget locals all --clear", null, true, null)
+
+        if result.ExitCode == 0 {
+            return 0
+        }
+
+        return CommandOutputKernels.Error(CleanCommandKernels.GetClearNuGetCachesFailedMessage((result.Stderr + result.Stdout).Trim()))
+    }
+
+    static func IsWindows(): bool {
+        osMarker := Environment.GetEnvironmentVariable("OS") ?? ""
+        return String.Compare(osMarker, "Windows_NT", StringComparison.OrdinalIgnoreCase) == 0
+    }
+
+    static func QuoteProcessArgument(value: string): string {
+        builder := new StringBuilder()
+        builder.Append('"')
+
+        for ch in value {
+            if ch == '\\' || ch == '"' {
+                builder.Append('\\')
+            }
+
+            builder.Append(ch)
+        }
+
+        builder.Append('"')
+        return builder.ToString()
+    }
+}

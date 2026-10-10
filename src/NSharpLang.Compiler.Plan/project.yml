@@ -1,0 +1,25 @@
+name: NSharpLang.Compiler.Plan
+backend: il
+outputType: library
+targetFramework: net10.0
+# Plan carries its own estate (`*.tests.nl`); every build of it that does not pass
+# `-p:NSharpExcludeTests=false` is product-only, which is what the projects above it reference.
+excludeTests: true
+dependencies:
+  - project: ../NSharpLang.Compiler.Core/project.yml
+  # The packages Plan's own source spells: the metadata-universe binding scope and resolvers
+  # (MetadataLoadContext), the YamlDotNet and MSBuild/Cecil admission tables and their rows, and the
+  # runtime's own types by name. Sdk.props leaves Plan, like Core and Emit, out of the implicit
+  # runtime reference.
+  - nuget: System.Reflection.MetadataLoadContext
+    version: 10.0.5
+  - nuget: YamlDotNet
+    version: 16.3.0
+  - nuget: Mono.Cecil
+    version: 0.11.6
+  - nuget: Microsoft.Build.Framework
+    version: 18.0.2
+  - nuget: Microsoft.Build.Utilities.Core
+    version: 18.0.2
+  - nuget: NSharpLang.Runtime
+    version: 0.1.0

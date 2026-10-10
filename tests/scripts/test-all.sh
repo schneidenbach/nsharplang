@@ -12,6 +12,7 @@ fi
 
 FORCE_RUN="${NSHARP_TEST_ALL_FORCE:-0}"
 KEEP_RUN="${NSHARP_TEST_KEEP_RUN:-0}"
+STEP_CACHE_OFF="${NSHARP_TEST_STEP_CACHE_OFF:-0}"
 FRESH_REASON=""
 CORE_ARGS=()
 
@@ -37,28 +38,39 @@ Options:
 
 Plain ./scripts/test-all.sh may return a validated cache hit for fast local
 development. Do not use a cached hit as a pre-commit or release verification.
+
+Within a plain fresh isolated development run, individual gate steps may be
+skipped when their ENTIRE input set is byte-identical to inputs that previously
+passed that step on the same toolchain (validated per-step cache). --commit,
+--release, --fresh, --no-cache, and --clean disable per-step skipping and run
+everything.
 EOF
             exit 0
             ;;
         --commit|--pre-commit)
             FORCE_RUN=1
             FRESH_REASON="pre-commit verification"
+            STEP_CACHE_OFF=1
             ;;
         --release)
             FORCE_RUN=1
             FRESH_REASON="release verification"
+            STEP_CACHE_OFF=1
             ;;
         --fresh)
             FORCE_RUN=1
             FRESH_REASON="explicit fresh verification"
+            STEP_CACHE_OFF=1
             ;;
         --no-cache|--rebuild-cache)
             FORCE_RUN=1
             FRESH_REASON="cache bypass requested"
+            STEP_CACHE_OFF=1
             ;;
         --clean)
             FORCE_RUN=1
             FRESH_REASON="clean verification"
+            STEP_CACHE_OFF=1
             CORE_ARGS+=("$arg")
             ;;
         *)
@@ -94,18 +106,19 @@ CACHE_ROOT="$(cache_root)"
 RESULTS_ROOT="$CACHE_ROOT/results"
 LOCKS_ROOT="$CACHE_ROOT/locks"
 SIGNATURE_FILE="$(mktemp "${TMPDIR:-/tmp}/nsharp-test-signature.XXXXXX")"
+DEPENDENCY_SIGNATURE_FILE="$(mktemp "${TMPDIR:-/tmp}/nsharp-test-dependencies.XXXXXX")"
 LOCK_STALE_SECONDS="${NSHARP_TEST_LOCK_STALE_SECONDS:-7200}"
 if ! [[ "$LOCK_STALE_SECONDS" =~ ^[0-9]+$ ]]; then
     LOCK_STALE_SECONDS=7200
 fi
 
 cleanup_signature() {
-    rm -f "$SIGNATURE_FILE"
+    rm -f "$SIGNATURE_FILE" "$DEPENDENCY_SIGNATURE_FILE"
 }
 trap cleanup_signature EXIT
 
 CACHE_KEY="$(
-    python3 - "$SOURCE_ROOT" "$SIGNATURE_FILE" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"} <<'PY'
+    python3 - "$SOURCE_ROOT" "$SIGNATURE_FILE" "$DEPENDENCY_SIGNATURE_FILE" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"} <<'PY'
 import hashlib
 import json
 import os
@@ -115,7 +128,8 @@ import sys
 
 root = os.path.realpath(sys.argv[1])
 signature_path = sys.argv[2]
-args = sys.argv[3:]
+dependency_signature_path = sys.argv[3]
+args = sys.argv[4:]
 
 
 def run_text(command):
@@ -157,9 +171,33 @@ def source_files():
         for name in files:
             yield os.path.relpath(os.path.join(current, name), root)
 
+def is_dependency_input(relative):
+    normalized = relative.replace(os.sep, "/")
+    name = os.path.basename(normalized).lower()
+    if name in {
+        "global.json",
+        "nuget.config",
+        "packages.lock.json",
+        "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "project.yml",
+    }:
+        return True
+    return normalized.endswith((
+        ".csproj",
+        ".fsproj",
+        ".vbproj",
+        ".props",
+        ".targets",
+        ".sln",
+        ".slnx",
+    ))
 
 content_hash = hashlib.sha256()
-for relative in sorted(set(source_files())):
+source_file_list = sorted(set(source_files()))
+for relative in source_file_list:
     path = os.path.join(root, relative)
     if not os.path.isfile(path):
         continue
@@ -178,13 +216,17 @@ tool_versions = {
     "code": (run_text(["code", "--version"]) or "").splitlines()[:2],
 }
 
+# Behavior-changing environment for the gate. Keep in sync with ENV_NAMES in
+# the per-step salt in tests/scripts/test-all-core.sh
+# (GateStepInputSetGuardTests enforces it).
 env_names = [
-    "VSCODE_TESTS",
+    "VSCODE_TESTS", "SYSTEMS_BENCH",
     "TEST_SUITE",
     "TEST_GREP",
     "TEST_ALL_JOBS",
     "NLC_MSBUILD_SINGLE_NODE",
     "DOTNET_ROOT",
+    "NSHARP_EXPERIMENTAL_SOA",
 ]
 
 signature = {
@@ -205,7 +247,58 @@ key = hashlib.sha256(encoded).hexdigest()
 with open(signature_path, "w", encoding="utf-8") as handle:
     json.dump(signature, handle, indent=2, sort_keys=True)
     handle.write("\n")
+
+dependency_hash = hashlib.sha256()
+for relative in source_file_list:
+    if not is_dependency_input(relative):
+        continue
+    path = os.path.join(root, relative)
+    if not os.path.isfile(path):
+        continue
+    normalized = relative.replace(os.sep, "/")
+    dependency_hash.update(normalized.encode("utf-8", "surrogateescape"))
+    dependency_hash.update(b"\0")
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            dependency_hash.update(chunk)
+    dependency_hash.update(b"\0")
+
+dependency_signature = {
+    "schemaVersion": 1,
+    "sourceHash": dependency_hash.hexdigest(),
+    "tools": tool_versions,
+    "platform": {
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "release": platform.release(),
+    },
+    "salt": os.environ.get("NSHARP_TEST_DEPENDENCY_CACHE_SALT"),
+}
+dependency_encoded = json.dumps(dependency_signature, sort_keys=True, separators=(",", ":")).encode("utf-8")
+dependency_key = hashlib.sha256(dependency_encoded).hexdigest()
+with open(dependency_signature_path, "w", encoding="utf-8") as handle:
+    json.dump(
+        {
+            "key": dependency_key,
+            "signature": dependency_signature,
+        },
+        handle,
+        indent=2,
+        sort_keys=True,
+    )
+    handle.write("\n")
+
 print(key)
+PY
+)"
+
+DEPENDENCY_KEY="$(
+    python3 - "$DEPENDENCY_SIGNATURE_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.load(handle)["key"])
 PY
 )"
 
@@ -334,7 +427,206 @@ RUN_ROOT="$(mktemp -d "$RUN_PARENT/nsharp-test-all.${CACHE_KEY:0:12}.XXXXXX")"
 RUN_REPO="$RUN_ROOT/repo"
 RUN_HOME="$RUN_ROOT/home"
 RUN_TMP="$RUN_ROOT/tmp"
-RUN_DEPS="$CACHE_ROOT/dependencies/$CACHE_KEY"
+RUN_DEPS="$CACHE_ROOT/dependencies/$DEPENDENCY_KEY"
+
+# ONE PACKAGES FOLDER PER RUN, OVER A SHARED STORE THAT IS NEVER WRITTEN IN PLACE.
+#
+# Every run restores into its OWN `NUGET_PACKAGES`, because a run mutates that folder: its first
+# restore extracts the tree's stage-0 seed there, Step 4b deletes the NSharpLang packages and the
+# steps after it restore the SDK this tree just packed under the SAME version, and the release pack
+# path rewrites the restored SDK's `Sdk.props`. When that folder was shared per dependency key, a
+# gate at one commit deleted or replaced the SDK another gate at a different commit was reading
+# (MSB3030 on `nsharplang.runtime/0.1.0/.../NSharpLang.Runtime.dll`), and a run could compile with
+# a seed that was not its own.
+#
+# What runs share is `NUGET_STORE`: immutable entries `<id>/<version>/<sha512 of the .nupkg>/`,
+# one per nuget.org package a run restored. An entry is written once -- cloned into a staging
+# directory inside the store, verified there, then published with a single `rename` that fails if
+# the entry already exists, so the loser of a race discards its copy -- and never modified after.
+# A reader therefore sees an entry whole or not at all. The NSharpLang packages are never shared:
+# the tree under test owns every version of them. `nlc` reads `NUGET_PACKAGES` directly rather than
+# NuGet's fallback folders, so a run starts from a copy-on-write clone of the entries its dependency
+# key used last time (`NUGET_STORE_INDEX`), which costs a fraction of a second on APFS.
+RUN_PACKAGES="$RUN_ROOT/nuget/packages"
+NUGET_STORE="$CACHE_ROOT/nuget-store/v1"
+NUGET_STORE_INDEX="$RUN_DEPS/nuget-store-index.txt"
+
+# nuget_store materialize|promote <store> <index> <packages-folder>
+nuget_store() {
+    python3 - "$@" <<'PY'
+import base64
+import binascii
+import hashlib
+import json
+import os
+import shutil
+import sys
+import time
+import uuid
+
+NUGET_ORG = "https://api.nuget.org/v3/index.json"
+TREE_OWNED_PREFIX = "nsharplang."
+STALE_STAGING_SECONDS = 24 * 60 * 60
+
+
+def recorded_digest(package_dir, package_id, version):
+    """Hex SHA-512 the entry's `.nupkg.sha512` records, or None when it is absent or malformed."""
+    path = os.path.join(package_dir, f"{package_id}.{version}.nupkg.sha512")
+    try:
+        with open(path, encoding="ascii") as handle:
+            return binascii.hexlify(base64.b64decode(handle.read().strip(), validate=True)).decode("ascii")
+    except (OSError, ValueError):
+        return None
+
+
+def verified_digest(package_dir, package_id, version):
+    """The recorded digest, only when the `.nupkg` bytes beside it actually hash to it."""
+    recorded = recorded_digest(package_dir, package_id, version)
+    if recorded is None:
+        return None
+    digest = hashlib.sha512()
+    try:
+        with open(os.path.join(package_dir, f"{package_id}.{version}.nupkg"), "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return recorded if digest.hexdigest() == recorded else None
+
+
+def shareable(package_dir, package_id):
+    # The tree under test owns every NSharpLang identity: seeds, local-feed packs, same-version
+    # replacements. Anything else must have come from nuget.org, whose packages never change under
+    # an id and version. `nlc`'s own resolver downloads from nuget.org only and writes no
+    # `.nupkg.metadata`; NuGet's restore writes one naming the source it extracted from, and one
+    # with no source at all when it adopts a package `nlc` already installed.
+    if package_id.startswith(TREE_OWNED_PREFIX):
+        return False
+    metadata = os.path.join(package_dir, ".nupkg.metadata")
+    if not os.path.exists(metadata):
+        return True
+    try:
+        with open(metadata, encoding="utf-8") as handle:
+            return json.load(handle).get("source", NUGET_ORG) == NUGET_ORG
+    except (OSError, ValueError):
+        return False
+
+
+def clone_tree(source, destination):
+    # Copy-on-write where the filesystem has it (one `clonefile` per package on APFS), else a copy.
+    if sys.platform == "darwin":
+        import ctypes
+        libc = ctypes.CDLL("libc.dylib", use_errno=True)
+        if libc.clonefile(os.fsencode(source), os.fsencode(destination), 0) == 0:
+            return
+    shutil.copytree(source, destination, symlinks=True)
+
+
+def safe_name(name):
+    return bool(name) and name not in (".", "..") and "/" not in name and "\\" not in name
+
+
+def read_index(index):
+    entries = set()
+    try:
+        with open(index, encoding="utf-8") as handle:
+            for line in handle:
+                parts = line.split()
+                if len(parts) == 3 and all(safe_name(part) for part in parts):
+                    entries.add(tuple(parts))
+    except OSError:
+        pass
+    return entries
+
+
+def write_index(index, entries):
+    os.makedirs(os.path.dirname(index), exist_ok=True)
+    temporary = f"{index}.{uuid.uuid4().hex}.tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        for entry in sorted(entries):
+            handle.write(" ".join(entry) + "\n")
+    os.replace(temporary, index)
+
+
+def materialize(store, index, packages):
+    identities = {}
+    for package_id, version, digest in read_index(index):
+        identities.setdefault((package_id, version), set()).add(digest)
+    cloned = 0
+    for (package_id, version), digests in sorted(identities.items()):
+        if len(digests) != 1:
+            continue
+        digest = next(iter(digests))
+        entry = os.path.join(store, package_id, version, digest)
+        destination = os.path.join(packages, package_id, version)
+        if os.path.exists(destination) or verified_digest(entry, package_id, version) != digest:
+            continue
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        clone_tree(entry, destination)
+        cloned += 1
+    print(f"NuGet store: {cloned} packages cloned into this run's packages folder from {store}")
+
+
+def publish(package_dir, entry, staging_root, package_id, version, digest):
+    os.makedirs(staging_root, exist_ok=True)
+    staging = os.path.join(staging_root, uuid.uuid4().hex)
+    os.mkdir(staging)
+    try:
+        candidate = os.path.join(staging, "entry")
+        clone_tree(package_dir, candidate)
+        if verified_digest(candidate, package_id, version) != digest:
+            return False
+        os.makedirs(os.path.dirname(entry), exist_ok=True)
+        try:
+            os.rename(candidate, entry)
+        except OSError:
+            # Another run published this content first. Its entry stands; this copy is discarded.
+            return False
+        return True
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def promote(store, index, packages):
+    staging_root = os.path.join(store, ".staging")
+    now = time.time()
+    try:
+        for name in os.listdir(staging_root):
+            path = os.path.join(staging_root, name)
+            if now - os.path.getmtime(path) > STALE_STAGING_SECONDS:
+                shutil.rmtree(path, ignore_errors=True)
+    except OSError:
+        pass
+
+    known = set()
+    published = 0
+    for package_id in sorted(os.listdir(packages)) if os.path.isdir(packages) else []:
+        id_dir = os.path.join(packages, package_id)
+        if not safe_name(package_id) or not os.path.isdir(id_dir):
+            continue
+        for version in sorted(os.listdir(id_dir)):
+            package_dir = os.path.join(id_dir, version)
+            if not safe_name(version) or not os.path.isdir(package_dir) or not shareable(package_dir, package_id):
+                continue
+            digest = recorded_digest(package_dir, package_id, version)
+            if digest is None:
+                continue
+            entry = os.path.join(store, package_id, version, digest)
+            if not os.path.isdir(entry):
+                if verified_digest(package_dir, package_id, version) != digest:
+                    continue
+                if publish(package_dir, entry, staging_root, package_id, version, digest):
+                    published += 1
+            if os.path.isdir(entry):
+                known.add((package_id, version, digest))
+    write_index(index, read_index(index) | known)
+    print(f"NuGet store: {published} new packages published, {len(known)} recorded for this dependency key")
+
+
+command, store, index, packages = sys.argv[1:5]
+{"materialize": materialize, "promote": promote}[command](store, index, packages)
+PY
+}
 
 cleanup_run() {
     if ! is_enabled "$KEEP_RUN"; then
@@ -357,8 +649,9 @@ copy_source_tree() {
             --exclude='**/out/' \
             --exclude='**/server/' \
             --exclude='**/nsharp/' \
-            --exclude='.context/' \
+            --exclude='.context/' --exclude='.claude/' \
             --exclude='artifacts/' \
+            --include='/bootstrap/*.nupkg' \
             --exclude='*.nupkg' \
             --exclude='*.vsix' \
             "$SOURCE_ROOT/" "$RUN_REPO/"
@@ -372,7 +665,7 @@ copy_source_tree() {
                 --exclude='*/.vscode-test' \
                 --exclude='*/out' \
                 --exclude='*/server' \
-                --exclude='.context' \
+                --exclude='.context' --exclude='.claude' \
                 --exclude='artifacts' \
                 -cf - .
         ) | (
@@ -388,9 +681,18 @@ echo "  Run:    $RUN_ROOT"
 echo "  Cache:  $CACHE_ROOT"
 echo "  Deps:   $RUN_DEPS"
 echo "  Key:    ${CACHE_KEY:0:16}"
+echo "  DepKey: ${DEPENDENCY_KEY:0:16}"
 
+python3 "$SOURCE_ROOT/tests/scripts/test-release-workflows.py"
 copy_source_tree
-mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_DEPS/nuget/packages" "$RUN_DEPS/npm-cache"
+# THE SEED IS THE TREE'S OWN. The run's packages folder starts with no NSharpLang package at all, so
+# the first restore extracts the stage-0 SDK/runtime from the COPIED tree's `bootstrap/` (the root
+# NuGet.config source), and these are the bytes checked against its SHA256SUMS -- never whatever
+# seed the user's global cache or another gate happens to hold under the same version.
+python3 "$RUN_REPO/scripts/verify-bootstrap.py"
+mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_PACKAGES" "$RUN_DEPS/npm-cache"
+nuget_store materialize "$NUGET_STORE" "$NUGET_STORE_INDEX" "$RUN_PACKAGES" \
+    || echo "Could not materialize cached NuGet packages; this run restores them itself." >&2
 
 START_TIME="$(date +%s)"
 
@@ -402,16 +704,44 @@ set +e
     export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
     export DOTNET_CLI_TELEMETRY_OPTOUT=1
     export DOTNET_NOLOGO=1
-    export NUGET_PACKAGES="$RUN_DEPS/nuget/packages"
+    export NUGET_PACKAGES="$RUN_PACKAGES"
     export NPM_CONFIG_CACHE="$RUN_DEPS/npm-cache"
+    export NSHARP_VSCODE_TEST_CACHE="$RUN_DEPS/vscode-test"
+    export NSHARP_VSCODE_PROFILE_ROOT="$RUN_TMP/vscode-profiles"
     export TMPDIR="$RUN_TMP"
     export TMP="$RUN_TMP"
     export TEMP="$RUN_TMP"
     export NSHARP_TEST_ALL_ISOLATED=1
+    export NSHARP_TEST_STEP_CACHE_ROOT="$CACHE_ROOT/steps"
+    export NSHARP_TEST_STEP_CACHE_OFF="$STEP_CACHE_OFF"
+    export NSHARP_COMPILER_PERF_GIT_ROOT="$SOURCE_ROOT"
+    export NSHARP_COMPILER_PERF_CACHE="$CACHE_ROOT/compiler-perf-base"
+    # Golden regeneration must never leak into the gate: the isolated copy is
+    # discarded, and NSHARP_UPDATE_DIAGNOSTIC_GOLDENS=1 makes golden tests
+    # self-satisfying (rewrite, then compare against the rewrite). Regenerate
+    # goldens with plain `dotnet test` in the working tree instead.
+    unset NSHARP_UPDATE_DIAGNOSTIC_GOLDENS
     "$RUN_REPO/tests/scripts/test-all-core.sh" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"}
 )
 CORE_EXIT=$?
 set -e
+
+# Carried out on a failing run too: what a nuget.org package holds does not depend on the verdict.
+nuget_store promote "$NUGET_STORE" "$NUGET_STORE_INDEX" "$RUN_PACKAGES" \
+    || echo "Could not promote this run's NuGet packages into the shared store; the gate's verdict is unaffected." >&2
+
+# THE RECORDS THE GATE LEAVES BEHIND, CARRIED OUT OF THE COPY IT DELETES. Step 3a writes
+# `artifacts/native-sweep/<UTC time>.json`, the compile-time and agent-loop gates write their
+# `last-gate-run.txt` verdicts and `relative-gate.md` ratio tables under the ISOLATED copy's root, which
+# `cleanup_run` removes on exit. Carried back on a failing run too: what a red sweep cost is the
+# record most worth keeping. `artifacts/` is gitignored and never part of any input set.
+for gate_record in native-sweep compile-time agent-loop; do
+    if [ -d "$RUN_REPO/artifacts/$gate_record" ]; then
+        mkdir -p "$SOURCE_ROOT/artifacts/$gate_record" \
+            && cp -R "$RUN_REPO/artifacts/$gate_record/." "$SOURCE_ROOT/artifacts/$gate_record/" \
+            || echo "Could not carry artifacts/$gate_record back to $SOURCE_ROOT; the gate's verdict is unaffected." >&2
+    fi
+done
 
 END_TIME="$(date +%s)"
 DURATION=$((END_TIME - START_TIME))

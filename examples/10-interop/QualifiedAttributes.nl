@@ -1,8 +1,5 @@
 // Qualified Attribute Names Example
 // Demonstrates support for fully-qualified attribute names in N#
-import System.Diagnostics.CodeAnalysis
-import System.Runtime.CompilerServices
-
 
 // 1. System.Serializable attribute (fully qualified)
 class Person {
@@ -15,7 +12,7 @@ class Person {
     }
 }
 
-// 2. InlineArray attribute for C# 12 inline arrays (fully qualified)
+// 2. InlineArray attribute for CLR inline arrays (fully qualified)
 
 struct Buffer10 {
 

@@ -80,8 +80,8 @@ type Person = record {
 }
 
 union Result<T> {
-    | Success(T)
-    | Error(string)
+    Success { value: T }
+    Error { message: string }
 }
 ```
 

@@ -7,18 +7,24 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/NewCLILang"
+    "url": "https://github.com/schneidenbach/nsharplang"
   },
+  "bugs": {
+    "url": "https://github.com/schneidenbach/nsharplang/issues"
+  },
+  "homepage": "https://schneidenbach.github.io/nsharplang",
   "engines": {
     "vscode": "^1.75.0"
   },
   "categories": [
     "Programming Languages",
     "Linters",
-    "Formatters",
-    "Debuggers"
+    "Formatters"
   ],
   "icon": "icon.png",
+  "config": {
+    "vscodeTestVersion": "1.138.0"
+  },
   "keywords": [
     "nsharp",
     "n#",
@@ -31,9 +37,6 @@
     "onLanguage:nsharp",
     "onTaskType:nsharp",
     "onCommand:nsharp.runProject",
-    "onCommand:nsharp.debugProject",
-    "onDebugInitialConfigurations:nsharp",
-    "onDebugResolve:nsharp",
     "workspaceContains:project.yml"
   ],
   "contributes": {
@@ -41,11 +44,6 @@
       {
         "command": "nsharp.runProject",
         "title": "N#: Run Project",
-        "category": "N#"
-      },
-      {
-        "command": "nsharp.debugProject",
-        "title": "N#: Debug Project",
         "category": "N#"
       }
     ],
@@ -94,85 +92,6 @@
             "variable.other.catch-result.nsharp"
           ]
         }
-      }
-    ],
-    "breakpoints": [
-      {
-        "language": "nsharp"
-      }
-    ],
-    "debuggers": [
-      {
-        "type": "nsharp",
-        "label": "N# (.NET)",
-        "languages": [
-          "nsharp"
-        ],
-        "configurationAttributes": {
-          "launch": {
-            "required": [],
-            "properties": {
-              "project": {
-                "type": "string",
-                "default": "${workspaceFolder}",
-                "description": "N# project directory containing project.yml."
-              },
-              "args": {
-                "type": "array",
-                "default": [],
-                "description": "Command-line arguments passed to the debugged program."
-              },
-              "cwd": {
-                "type": "string",
-                "default": "${workspaceFolder}",
-                "description": "Working directory for the debugged program."
-              },
-              "console": {
-                "type": "string",
-                "enum": [
-                  "internalConsole",
-                  "integratedTerminal",
-                  "externalTerminal"
-                ],
-                "default": "integratedTerminal",
-                "description": "Where program output is displayed."
-              },
-              "stopAtEntry": {
-                "type": "boolean",
-                "default": false,
-                "description": "Stop at the program entry point."
-              }
-            }
-          }
-        },
-        "initialConfigurations": [
-          {
-            "type": "nsharp",
-            "request": "launch",
-            "name": "Launch N# Project",
-            "project": "${workspaceFolder}",
-            "args": [],
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
-            "stopAtEntry": false
-          }
-        ],
-        "configurationSnippets": [
-          {
-            "label": "N#: Launch Project",
-            "description": "Debug the current N# executable project.",
-            "body": {
-              "type": "nsharp",
-              "request": "launch",
-              "name": "Launch N# Project",
-              "project": "${workspaceFolder}",
-              "args": [],
-              "cwd": "${workspaceFolder}",
-              "console": "integratedTerminal",
-              "stopAtEntry": false
-            }
-          }
-        ]
       }
     ],
     "configuration": {
@@ -237,15 +156,16 @@
     "watch": "node ./node_modules/typescript/lib/tsc.js -watch -p ./",
     "package": "npm run build-server && vsce package",
     "pretest": "npm run build-server && npm run compile",
-    "test": "node ./out/test/runTest.js",
-    "test:headless": "node ./out/src/test/runTest.js",
-    "test:smoke": "TEST_SUITE=extension,diagnostics,hover,completion node ./out/test/runTest.js"
+    "test": "npm run test:launch-policy && node ./out/test/runTest.js",
+    "test:headless": "npm run test:launch-policy && node ./out/src/test/runTest.js",
+    "test:launch-policy": "npm run compile && nlc test --project ../../tests/native/vscode-launch-policy --filter \"VS Code launch policy\"",
+    "test:smoke": "npm run test:launch-policy && TEST_SUITE=extension,diagnostics,hover,completion node ./out/test/runTest.js"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
-    "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-electron": "3.1.0",
     "@types/mocha": "^10.0.7",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",

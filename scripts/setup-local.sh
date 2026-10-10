@@ -58,6 +58,8 @@ Environment overrides:
   NSHARP_LOCAL_FEED          Local NuGet feed path
   NSHARP_INSTALL_DIR         N# install directory (default: ~/.nsharp)
   NSHARP_ENV_DIR             Directory for the N# shell env file
+  NSHARP_TOOLSET_RID         RID to publish for (default: this machine's, which makes nlc the
+                             NativeAOT front door over a ReadyToRun compiler; 'portable' for IL)
 EOF
 }
 
@@ -130,6 +132,8 @@ ensure_profile_sources_env() {
 }
 
 ensure_nsharp_path() {
+    export NSHARP_INSTALL_DIR
+
     if ! nsharp_path_contains "$NSHARP_BIN_DIR"; then
         export PATH="$NSHARP_BIN_DIR:$PATH"
     fi
@@ -162,7 +166,8 @@ ensure_nsharp_path() {
         mkdir -p "$NSHARP_ENV_DIR"
         cat > "$NSHARP_ENV_FILE" <<EOF
 # Added by N# local setup.
-export PATH="$NSHARP_BIN_DIR:\$PATH"
+export NSHARP_INSTALL_DIR="$NSHARP_INSTALL_DIR"
+export PATH="\$NSHARP_INSTALL_DIR/bin:\$PATH"
 EOF
         if [[ -n "$dotnet_root" ]]; then
             {
@@ -206,9 +211,21 @@ verify_local_toolchain() {
     fi
 }
 
+# A local install is for this machine, so it is published for this machine's RID unless told
+# otherwise: the compiler host is ReadyToRun-compiled and `nlc` is the NativeAOT front door.
+local_toolset_rid() {
+    local rid="${NSHARP_TOOLSET_RID:-host}"
+    case "$rid" in
+        portable) echo "" ;;
+        host) nsharp_host_rid ;;
+        *) echo "$rid" ;;
+    esac
+}
+
 deploy_local_toolset() {
     local skip_vscode="$1"
     local vscode_vsix=""
+    local package_spec
 
     nsharp_require_command dotnet
 
@@ -228,7 +245,8 @@ deploy_local_toolset() {
 
     nsharp_log "Packing N# packages"
     nsharp_run mkdir -p "$LOCAL_FEED"
-    while IFS='|' read -r package_id _label _project; do
+    for package_spec in "${NSHARP_PACKAGE_SPECS[@]}"; do
+        IFS='|' read -r package_id _label _project <<<"$package_spec"
         normalized_id="$(nsharp_lowercase "$package_id")"
         if [[ "$DRY_RUN" -eq 0 ]]; then
             rm -f "$LOCAL_FEED"/"$package_id".*.nupkg
@@ -237,12 +255,12 @@ deploy_local_toolset() {
             echo "+ rm -f $LOCAL_FEED/$package_id.*.nupkg"
             echo "+ rm -rf $HOME/.nuget/packages/$normalized_id"
         fi
-    done < <(nsharp_each_package_spec)
+    done
     nsharp_pack_package_set "$LOCAL_FEED" q
 
     nsharp_log "Publishing and installing local app payloads"
     if [[ "$DRY_RUN" -eq 0 ]]; then
-        nsharp_publish_toolset "$TOOLSET_DIR" "$LOCAL_FEED"
+        nsharp_publish_toolset "$TOOLSET_DIR" "$LOCAL_FEED" "$(local_toolset_rid)"
         nsharp_install_toolset "$TOOLSET_DIR" "$NSHARP_INSTALL_DIR"
         nsharp_install_templates_from_packages "$NSHARP_INSTALL_DIR/packages"
         nsharp_write_shared_nuget_config "$NSHARP_INSTALL_DIR/packages" "$NSHARP_INSTALL_DIR/NuGet.config"
@@ -269,7 +287,8 @@ deploy_local_toolset() {
         nsharp_run code --install-extension "$vscode_vsix" --force
 
         if [[ "$RESTART_VSCODE" -eq 1 ]]; then
-            nsharp_run code "$SAMPLE_PROJECT"
+            nsharp_relaunch_vscode_restoring_windows
+            nsharp_open_vscode_sample_in_new_window "$SAMPLE_PROJECT"
         fi
     fi
 

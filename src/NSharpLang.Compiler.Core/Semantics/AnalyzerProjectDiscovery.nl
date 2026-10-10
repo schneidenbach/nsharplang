@@ -1,0 +1,1291 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.IO
+import System.Reflection
+import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.CodeIntelligence
+import NSharpLang.Compiler.Columnar
+
+
+// PROJECT DISCOVERY: how a name that no scope, no file alias and no import knows still resolves,
+// because some OTHER file in the same project declares it.
+//
+// N# has no `using`-style type import. A project's files see each other's exported top-level
+// declarations directly, which means the resolver has to be able to look at every source file in the
+// project — read it, parse it, and read its declared namespace. That capability is what this file
+// owns, in two pieces:
+//
+//   * `AnalyzerProjectSourceProvider` — the SOURCE AND UNIT PROVIDER. The project's source texts (an
+//     in-memory snapshot when one was supplied, the files on disk otherwise), the parsed unit per
+//     file, and the two namespace questions — asked of files, answered from their cached units.
+//     Four caches.
+//   * `AnalyzerProjectTypeDiscovery` — the DISCOVERY WALK itself: the visible-namespace sweep, the
+//     unique-exported fallback, the materialisation of a selection into a type plus a symbol
+//     declaration, and the inaccessible-declaration DECISION.
+//
+// THREE RULES ARE LOAD-BEARING.
+//
+//   1. THE ENUMERATION ORDER IS PART OF THE ANSWER. Every walk here takes the FIRST file that
+//      declares the name, and duplicate names across files are ordinary, not pathological: measured
+//      over this repository's own root project (440 files) there are 47 distinct
+//      (namespace, name) pairs declared by more than one file — `Person` by 14 files, `Main` by 42,
+//      `Calculator` by 5. So "first wins" is a decision and the order it is taken in must be
+//      reproduced exactly: the in-memory snapshot is walked in INSERTION order (the order
+//      `AddSourceText` saw, first spelling of a path winning), and the disk fallback in
+//      `ProjectConfig.EnumerateSourceFiles` order. `AnalyzerDeclarationContext` already depends on
+//      this same order, because the units are handed to it in it.
+//   2. THE WALK IS SILENT; ONE DECISION ON ITS PATH IS NOT. Resolution reports nothing. The
+//      inaccessible-declaration probe DOES report (`InaccessibleMember`), so only its decision lives
+//      here — "some visible namespace has a non-exported declaration of this name, declared in THIS
+//      file" — and the shell keeps the report. That ordering matters: the probe runs BETWEEN the
+//      namespace sweep and the unique-exported fallback, so a single entry point returns all three
+//      outcomes rather than letting the shell interleave them.
+//   3. A FILE IS PARSED AT MOST ONCE PER SNAPSHOT. Every question about a file — its unit, its
+//      declared namespace, the project's namespace set — is answered through ONE parsed-unit cache,
+//      snapshot text first and disk text otherwise. A file that fails to parse caches a null unit,
+//      so it is parsed once and skipped thereafter. `Analyze` does NOT clear that cache or the
+//      source snapshot — only `SetProjectSourceTexts` does — while the two namespace caches ARE
+//      cleared per analysis. The namespace caches may be cheap to rebuild ONLY because rebuilding
+//      them walks already-parsed units: a shared analyzer runs one `Analyze` per project file, so a
+//      namespace rebuild that re-parsed the project would parse it once per file — O(files²), the
+//      2026-08 `nlc query completions` hang (693 files, 480k recovery parses, tens of minutes).
+//   4. THE UNIT OF PRIVACY IS THE NAMESPACE, NOT THE FILE. A camelCase top-level declaration — type
+//      OR function — is visible to every file of the namespace that declares it and to no other
+//      namespace. So both channels take the SAME export decision: require an export from every
+//      visible namespace EXCEPT the asking file's own. A file-private tier does not exist in N#;
+//      splitting one namespace across files is the ordinary way to write it, and two halves of one
+//      namespace must see each other's helpers.
+
+// The analyzer's view of the project's sources: which files there are, what they contain, what they
+// parse to, and what namespace they declare. Constructed once per analyzer and never rebuilt, because
+// the parsed-unit cache and the source snapshot outlive a single `Analyze` call.
+class AnalyzerProjectSourceProvider {
+    private static readonly EmptySourceTypeCandidates: List<AnalyzerProjectSourceTypeCandidate> = new List<AnalyzerProjectSourceTypeCandidate>()
+
+    // The in-memory snapshot, keyed by full path, case-insensitive — exactly the shell's dictionary.
+    sourceTexts: Dictionary<string, string>
+    // The snapshot's keys in INSERTION order. A dictionary with no removals enumerates in insertion
+    // order, and rule 1 makes that order part of the answer, so it is held explicitly rather than
+    // depended on implicitly.
+    sourceTextOrder: List<string>
+    // file full path -> parsed unit, or null when the file could not be parsed.
+    unitCache: Dictionary<string, CompilationUnit?>
+    // file full path -> the whole parse (unit AND syntax errors), for every path whose parse
+    // returned; a path whose parse threw has a null unit above and no entry here.
+    parseCache: Dictionary<string, FileParseAst>
+    // project root -> the set of namespaces its files declare.
+    namespaceCache: Dictionary<string, HashSet<string>>
+    // file full path -> the namespace that file declares, or null.
+    fileNamespaceCache: Dictionary<string, string?>
+    sourceTypeCandidatesByArity: Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>
+    sourceTypeCandidatesBySimpleName: Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>
+    sourceTypeIndexRoot: string
+    sourceTypeIndexVersion: int
+    sourceTypeIndexReady: bool
+    projectRootValue: string?
+    sourceSnapshotVersionValue: int
+    // Whether the DRIVER said these files compile into one assembly. See `CompilesAsOneProgram`.
+    declaredOneProgramValue: bool
+    // Whether the driver holds the DISK still for this analyzer's lifetime (`HoldDiskViewAcrossAnalyses`),
+    // and the snapshot version and root the two namespace caches were filled for.
+    holdDiskViewValue: bool
+    diskViewVersion: int
+    diskViewRoot: string?
+
+    // The project root of the analysis in progress, or null when there is none.
+    ProjectRoot: string? => projectRootValue
+    SourceSnapshotVersion: int => sourceSnapshotVersionValue
+
+    constructor() {
+        sourceTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        sourceTextOrder = new List<string>()
+        unitCache = new Dictionary<string, CompilationUnit?>(StringComparer.OrdinalIgnoreCase)
+        parseCache = new Dictionary<string, FileParseAst>(StringComparer.OrdinalIgnoreCase)
+        namespaceCache = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+        fileNamespaceCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        sourceTypeCandidatesByArity = new Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>(StringComparer.Ordinal)
+        sourceTypeCandidatesBySimpleName = new Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>(StringComparer.Ordinal)
+        sourceTypeIndexRoot = ""
+        sourceTypeIndexVersion = -1
+        sourceTypeIndexReady = false
+        projectRootValue = null
+        sourceSnapshotVersionValue = 0
+        declaredOneProgramValue = false
+        holdDiskViewValue = false
+        diskViewVersion = -1
+        diskViewRoot = null
+    }
+
+    // THE DRIVER'S WORD THAT THE DISK DOES NOT MOVE UNDER THIS ANALYZER. A batch compiler analyses
+    // every file of one project against one snapshot and one directory tree, so the two namespace
+    // caches -- which enumerate the project's files on disk and parse the ones outside the snapshot
+    // (its `.tests.nl` files, in a product build) -- are the same answer for every file. Rebuilding
+    // them per analysis was a directory walk per file and, for Compiler.Core, a namespace scan over
+    // 308 files for each of its 141. Held, they are rebuilt only when the snapshot or the project root
+    // changes. A long-lived analyzer (the language server's) never sets this, so a file created on
+    // disk between two of its analyses is still seen.
+    func HoldDiskViewAcrossAnalyses() {
+        holdDiskViewValue = true
+    }
+
+    // PARSES THE DRIVER ALREADY MADE, handed over instead of made again. The driver parses every
+    // file of the compilation before analysis; when a file's parse is exactly the one this provider
+    // would make -- the same snapshot text (no conditional-compilation directive changed it) under
+    // the same full path -- the driver's parse IS this provider's parse, and parsing it a second time
+    // was a whole extra parse of the project per analyzer (per worker, under parallel analysis). The
+    // parse goes into BOTH caches: the unit cache every declaration walk reads, and the parse cache a
+    // file import reads with its syntax errors (`TryGetProjectParse`), so one parse per file serves
+    // the driver, every analyzer and every import of it. Only paths in the current snapshot are taken;
+    // a later snapshot discards them with the rest of the caches.
+    //
+    // A SHARED UNIT IS READ, NOT WRITTEN. The analysis of one file writes three facts onto AST nodes
+    // -- `CompilationUnit.ImportUsage`, `CallExpression.IsResultFactory`, `MatchExpression.IsExhaustive`
+    // -- and only onto the unit it is analysing; it reads other files' units for their declarations
+    // and never reads those three facts. So a unit seen by several analyses (and, under parallel
+    // analysis, by several threads) answers every one of them the same.
+    func SeedParses(parses: IReadOnlyDictionary<string, FileParseAst>) {
+        for entry in parses {
+            if sourceTexts.ContainsKey(entry.Key) {
+                unitCache[entry.Key] = entry.Value.CompilationUnit
+                parseCache[entry.Key] = entry.Value
+            }
+        }
+    }
+
+    // THE PROJECT'S NAMESPACE SET COMPUTED ELSEWHERE, for a held disk view: a parallel analysis
+    // worker is handed the set the shared analyzer computed over the same snapshot and the same tree,
+    // instead of parsing every file outside the snapshot again. It holds until the snapshot or the
+    // root changes, exactly as a set this provider computed would.
+    func SeedProjectNamespaces(projectRoot: string, namespaces: HashSet<string>) {
+        if !holdDiskViewValue {
+            return
+        }
+
+        namespaceCache.Clear()
+        fileNamespaceCache.Clear()
+        namespaceCache[projectRoot] = new HashSet<string>(namespaces, StringComparer.Ordinal)
+        diskViewVersion = sourceSnapshotVersionValue
+        diskViewRoot = projectRoot
+    }
+
+    // THE DRIVER'S WORD THAT ITS FILES ARE ONE PROGRAM. A compiler handed a project configuration
+    // compiles every file it was given into one assembly whether or not a `project.yml` sits on disk:
+    // the playground builds its virtual project from one, and so does the SDK. It lasts for the
+    // analyzer's lifetime, like the source snapshot, because it is a fact about the compilation and
+    // not about one file's analysis.
+    func DeclareOneProgram() {
+        declaredOneProgramValue = true
+    }
+
+    // ---- the source snapshot -------------------------------------------------------------------
+
+    // Starts a fresh snapshot. The parsed units go with it: they were parsed from the OLD texts.
+    func ResetSourceTexts() {
+        sourceTexts.Clear()
+        sourceTextOrder.Clear()
+        unitCache.Clear()
+        parseCache.Clear()
+        sourceSnapshotVersionValue = sourceSnapshotVersionValue + 1
+    }
+
+    // Adds one file to the snapshot. A path already present keeps its ORDER and takes the new text,
+    // exactly as an indexer assignment into the shell's dictionary did.
+    func AddSourceText(filePath: string, sourceText: string) {
+        fullPath := Path.GetFullPath(filePath)
+        if !sourceTexts.ContainsKey(fullPath) {
+            sourceTextOrder.Add(fullPath)
+        }
+
+        sourceTexts[fullPath] = sourceText
+        sourceSnapshotVersionValue = sourceSnapshotVersionValue + 1
+    }
+
+    // Called at the start of every analysis: the project root changes and the two namespace caches
+    // are per-analysis -- unless the driver holds the disk still (`HoldDiskViewAcrossAnalyses`), when
+    // they last until the snapshot or the root changes. The source snapshot and the parsed units
+    // deliberately survive.
+    func BeginAnalysis(projectRoot: string?) {
+        projectRootValue = projectRoot
+        if holdDiskViewValue && diskViewVersion == sourceSnapshotVersionValue && string.Equals(diskViewRoot, projectRoot, StringComparison.Ordinal) {
+            return
+        }
+
+        namespaceCache.Clear()
+        fileNamespaceCache.Clear()
+        diskViewVersion = sourceSnapshotVersionValue
+        diskViewRoot = projectRoot
+    }
+
+    // WHETHER THE FILES UNDER THIS ROOT COMPILE INTO ONE ASSEMBLY. A `project.yml` is what says so:
+    // it is the file the SDK and `nlc build` read, and every file beneath it is one program with one
+    // `Program` holder per namespace. A directory WITHOUT one is a folder of standalone scripts —
+    // `examples/03-functions` is seven programs, each with its own `Main` — which the CLI builds one
+    // file at a time and the Language Server opens with the directory as its fallback root. Rules
+    // about what two FILES may declare between them apply only to the first shape.
+    //
+    // A driver that compiles its files together says so directly (`DeclareOneProgram`), and that
+    // answer wins: the playground's files are one program with no `project.yml` on disk. Without the
+    // driver's word, the root's `project.yml` is the evidence — an analysis of a lone folder, or one
+    // run without a driver at all.
+    func CompilesAsOneProgram(): bool {
+        if declaredOneProgramValue {
+            return true
+        }
+
+        root := projectRootValue
+        if root == null || string.IsNullOrWhiteSpace(root) {
+            return false
+        }
+
+        return File.Exists(Path.Combine(root, "project.yml"))
+    }
+
+    // The snapshot's text for a file, or null when the file is not in the snapshot. Null means "ask
+    // the disk", not "empty file".
+    func TryGetProjectSourceText(filePath: string?): string? {
+        if filePath == null {
+            return null
+        }
+
+        fullPath := Path.GetFullPath(filePath)
+        text := ""
+        if sourceTexts.TryGetValue(fullPath, out text) {
+            return text
+        }
+
+        return null
+    }
+
+    // True when the snapshot holds this exact full path. Used where an unsaved editor buffer must
+    // count as an existing file.
+    func ContainsSourceText(fullPath: string): bool {
+        return sourceTexts.ContainsKey(fullPath)
+    }
+
+    // The text of a project file: the snapshot first, then the file on disk, then empty.
+    func ProjectSourceText(filePath: string): string {
+        snapshot := TryGetProjectSourceText(filePath)
+        if snapshot != null {
+            return snapshot
+        }
+
+        if File.Exists(filePath) {
+            return File.ReadAllText(filePath)
+        }
+
+        return ""
+    }
+
+    // ---- the file list ------------------------------------------------------------------------
+
+    // Every project source file, in the order rule 1 requires. The snapshot wins whole when there is
+    // one; otherwise the project root is enumerated and files that have vanished are skipped.
+    func SourceFilePaths(): List<string> {
+        if sourceTexts.Count > 0 {
+            return sourceTextOrder
+        }
+
+        paths := new List<string>()
+        root := projectRootValue
+        if root == null || string.IsNullOrWhiteSpace(root) || !Directory.Exists(root) {
+            return paths
+        }
+
+        for filePath in ProjectConfig.EnumerateSourceFiles(root) {
+            fullPath := Path.GetFullPath(filePath)
+            if File.Exists(fullPath) {
+                paths.Add(fullPath)
+            }
+        }
+
+        return paths
+    }
+
+    // The simple-name fallback can ask whether a type name is unique across the project for many
+    // type references in every source file. Keep its ordered declaration candidates beside the
+    // parsed-unit cache so each analysis reuses one project walk rather than reflecting over every
+    // declaration for each spelling.
+    private func EnsureSourceTypeIndex() {
+        root := projectRootValue ?? ""
+        version := sourceSnapshotVersionValue
+        if sourceTypeIndexReady && sourceTypeIndexVersion == version && string.Equals(sourceTypeIndexRoot, root, StringComparison.OrdinalIgnoreCase) {
+            return
+        }
+
+        candidatesByArity := new Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>(StringComparer.Ordinal)
+        candidatesBySimpleName := new Dictionary<string, List<AnalyzerProjectSourceTypeCandidate>>(StringComparer.Ordinal)
+        for filePath in SourceFilePaths() {
+            unit := GetProjectCompilationUnit(filePath)
+            if unit == null {
+                continue
+            }
+
+            declaredArityNames := new HashSet<string>(StringComparer.Ordinal)
+            namespaceName := AnalyzerProjectSourceProvider.UnitNamespace(unit)
+            for declaration in unit.Declarations {
+                if !AnalyzerProjectTypeDiscovery.IsTopLevelTypeDeclaration(declaration) {
+                    continue
+                }
+
+                arityName := DeclarationFacts.GetDeclarationArityName(declaration)
+                simpleName := DeclarationFacts.GetDeclarationName(declaration)
+                if arityName == null || simpleName == null {
+                    continue
+                }
+
+                exported := DeclarationFacts.IsExportedDeclaration(declaration, TypeArityNames.Display(arityName))
+                candidate := new AnalyzerProjectSourceTypeCandidate(filePath, namespaceName, declaration, exported)
+                if declaredArityNames.Add(arityName) {
+                    candidates := new List<AnalyzerProjectSourceTypeCandidate>()
+                    if !candidatesByArity.TryGetValue(arityName, out candidates) {
+                        candidates = new List<AnalyzerProjectSourceTypeCandidate>()
+                        candidatesByArity.Add(arityName, candidates)
+                    }
+
+                    candidates.Add(candidate)
+                }
+
+                simpleCandidates := new List<AnalyzerProjectSourceTypeCandidate>()
+                if !candidatesBySimpleName.TryGetValue(simpleName, out simpleCandidates) {
+                    simpleCandidates = new List<AnalyzerProjectSourceTypeCandidate>()
+                    candidatesBySimpleName.Add(simpleName, simpleCandidates)
+                }
+
+                simpleCandidates.Add(candidate)
+            }
+        }
+
+        sourceTypeCandidatesByArity = candidatesByArity
+        sourceTypeCandidatesBySimpleName = candidatesBySimpleName
+        sourceTypeIndexRoot = root
+        sourceTypeIndexVersion = version
+        sourceTypeIndexReady = true
+    }
+
+    func SourceTypeDeclarationsNamed(arityName: string): List<AnalyzerProjectSourceTypeCandidate> {
+        EnsureSourceTypeIndex()
+        candidates := EmptySourceTypeCandidates
+        if sourceTypeCandidatesByArity.TryGetValue(arityName, out candidates) {
+            return candidates
+        }
+
+        return EmptySourceTypeCandidates
+    }
+
+    func SourceTypeDeclarationsBySimpleName(name: string): List<AnalyzerProjectSourceTypeCandidate> {
+        EnsureSourceTypeIndex()
+        candidates := EmptySourceTypeCandidates
+        if sourceTypeCandidatesBySimpleName.TryGetValue(name, out candidates) {
+            return candidates
+        }
+
+        return EmptySourceTypeCandidates
+    }
+
+    // ---- parsed units -------------------------------------------------------------------------
+
+    // The parsed unit for a project file, or null when it does not parse. Parsed at most once per
+    // path: a failure caches null and is not retried (rule 3).
+    func GetProjectCompilationUnit(filePath: string): CompilationUnit? {
+        fullPath := Path.GetFullPath(filePath)
+        cached: CompilationUnit? = null
+        if unitCache.TryGetValue(fullPath, out cached) {
+            return cached
+        }
+
+        try {
+            parseResult := ColumnarParserRecovery.ParseFileAst(ProjectSourceText(fullPath), fullPath)
+            unit := parseResult.CompilationUnit
+            unitCache[fullPath] = unit
+            parseCache[fullPath] = parseResult
+            return unit
+        } catch {
+            // A bare `null` through a dictionary indexer is off the columnar surface; the typed
+            // local is the same write.
+            missingUnit: CompilationUnit? = null
+            unitCache[fullPath] = missingUnit
+            return null
+        }
+    }
+
+    // THE SAME PARSE, WITH ITS SYNTAX ERRORS, for a caller that reports them — a file import, which
+    // reads exactly the text this cache parses (snapshot first, then disk) and so would otherwise
+    // parse every imported file a second time. False when the parse threw: the caller parses it
+    // itself, so the failure is reported the way it always was.
+    func TryGetProjectParse(filePath: string, out parse: FileParseAst?): bool {
+        GetProjectCompilationUnit(filePath)
+        cached: FileParseAst = null
+        if parseCache.TryGetValue(Path.GetFullPath(filePath), out cached) {
+            parse = cached
+            return true
+        }
+
+        parse = null
+        return false
+    }
+
+    // Hands every parseable project file to the declaration context, in enumeration order — which is
+    // what makes the context's own "first file wins" agree with this file's walks.
+    func AddProjectUnitsTo(context: AnalyzerDeclarationContext) {
+        paths := SourceFilePaths()
+        for filePath in paths {
+            unit := GetProjectCompilationUnit(filePath)
+            if unit != null {
+                context.AddCompilationUnit(filePath, unit)
+            }
+        }
+    }
+
+    // ---- namespaces ---------------------------------------------------------------------------
+
+    // The namespace a unit declares: its package name, else its namespace name, else none.
+    static func UnitNamespace(unit: CompilationUnit?): string? {
+        if unit == null {
+            return null
+        }
+
+        packageDeclaration := unit.Package
+        if packageDeclaration != null {
+            return packageDeclaration.Name
+        }
+
+        namespaceDeclaration := unit.Namespace
+        if namespaceDeclaration != null {
+            return namespaceDeclaration.Name
+        }
+
+        return null
+    }
+
+    // True when some file of the project under analysis declares this namespace.
+    func ProjectNamespaceExists(namespaceName: string): bool {
+        root := projectRootValue
+        if root == null || string.IsNullOrWhiteSpace(root) || !Directory.Exists(root) {
+            return false
+        }
+
+        return ProjectNamespaces(root).Contains(namespaceName)
+    }
+
+    // Every namespace declared by the files under a root. The file SET is the disk enumeration, but
+    // each file's text and parse go through the SAME unit cache every other project question uses —
+    // snapshot text first, disk otherwise, parsed at most once per snapshot (rule 3). Memoised per
+    // root for the analysis; the per-analysis rebuild is a walk over cached units, never a re-parse.
+    func ProjectNamespaces(projectRoot: string): HashSet<string> {
+        cached := new HashSet<string>(StringComparer.Ordinal)
+        if namespaceCache.TryGetValue(projectRoot, out cached) {
+            return cached
+        }
+
+        namespaces := new HashSet<string>(StringComparer.Ordinal)
+        for filePath in ProjectConfig.EnumerateSourceFiles(projectRoot) {
+            declaredNamespace := UnitNamespace(GetProjectCompilationUnit(filePath))
+            if !string.IsNullOrWhiteSpace(declaredNamespace) {
+                namespaces.Add(declaredNamespace)
+            }
+        }
+
+        namespaceCache[projectRoot] = namespaces
+        return namespaces
+    }
+
+    // The namespace a FILE declares — the snapshot's text when the file is in it, the disk's
+    // otherwise, through the shared unit cache (rule 3) — memoised for the analysis, including the
+    // negative answer for a file that exists nowhere.
+    func GetNamespaceForFile(filePath: string?): string? {
+        if filePath == null || string.IsNullOrWhiteSpace(filePath) {
+            return null
+        }
+
+        fullPath := Path.GetFullPath(filePath)
+        cached: string? = null
+        if fileNamespaceCache.TryGetValue(fullPath, out cached) {
+            return cached
+        }
+
+        if !ContainsSourceText(fullPath) && !File.Exists(fullPath) {
+            missingNamespace: string? = null
+            fileNamespaceCache[fullPath] = missingNamespace
+            return null
+        }
+
+        declaredNamespace := UnitNamespace(GetProjectCompilationUnit(fullPath))
+        fileNamespaceCache[fullPath] = declaredNamespace
+        return declaredNamespace
+    }
+}
+
+// The project-discovery walk: a name resolved because another file in a visible namespace declares
+// it. Silent, except that it decides — and does not report — the inaccessible-declaration case.
+class AnalyzerProjectTypeDiscovery {
+    private static readonly EmptySourceFunctions: List<ProjectFunctionCandidate> = new List<ProjectFunctionCandidate>()
+    private static readonly EmptySourceFunctionGroups: Dictionary<string, AnalyzerProjectFunctionGroup> = new Dictionary<string, AnalyzerProjectFunctionGroup>(StringComparer.Ordinal)
+    private static readonly EmptySourceFunctionGroup: AnalyzerProjectFunctionGroup = new AnalyzerProjectFunctionGroup()
+    sources: AnalyzerProjectSourceProvider
+    declarationContext: AnalyzerDeclarationContext
+    usingNamespaces: List<string>
+    // name -> declaring file, the snapshot the project index is built from. Owned by the shell and
+    // cleared per analysis, so it is handed in once and written through.
+    typeDeclarationFiles: Dictionary<string, string>
+    // The EXTERNAL half of the same question, because the project-wide fallback below has to know
+    // whether an explicitly imported CLR type already answers the name. Handed in rather than
+    // rebuilt: its cache is part of its answer. ABSENT means no assemblies are loaded — a contract
+    // harness with no metadata load context — and then no imported CLR type can exist, which is the
+    // same answer a probe over an empty assembly list gives.
+    externalTypeProbe: AnalyzerExternalTypeProbe?
+    // NL010's ledger. A SOURCE type is supplied by the namespace the sweep below found it in, and
+    // that namespace is known HERE and nowhere else: the resolved type carries its own name and not
+    // the namespace that answered for it.
+    importUsageCredit: AnalyzerImportUsageCredit?
+    // `SelectVisibleType`'s answers for the analysis in progress, keyed by everything they depend on.
+    selectionMemo: Dictionary<string, SimpleNameSelection>
+    sourceFunctionGroups: Dictionary<string, Dictionary<string, AnalyzerProjectFunctionGroup>>
+    sourceFunctionsByNamespace: Dictionary<string, List<ProjectFunctionCandidate>>
+    sourceFunctionIndexRoot: string
+    sourceFunctionIndexVersion: int
+    sourceFunctionIndexReady: bool
+
+    constructor(sourceProvider: AnalyzerProjectSourceProvider, context: AnalyzerDeclarationContext, usingNamespaceNames: List<string>, declarationFiles: Dictionary<string, string>, externalProbe: AnalyzerExternalTypeProbe? = null) {
+        sources = sourceProvider
+        declarationContext = context
+        usingNamespaces = usingNamespaceNames
+        typeDeclarationFiles = declarationFiles
+        externalTypeProbe = externalProbe
+        importUsageCredit = null
+        selectionMemo = new Dictionary<string, SimpleNameSelection>(StringComparer.Ordinal)
+        sourceFunctionGroups = new Dictionary<string, Dictionary<string, AnalyzerProjectFunctionGroup>>(StringComparer.Ordinal)
+        sourceFunctionsByNamespace = new Dictionary<string, List<ProjectFunctionCandidate>>(StringComparer.Ordinal)
+        sourceFunctionIndexRoot = ""
+        sourceFunctionIndexVersion = -1
+        sourceFunctionIndexReady = false
+    }
+
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCredit = credit
+    }
+
+    // One call per analysis: the selections were decided against the previous file's namespace,
+    // imports and sources.
+    func BeginAnalysis() {
+        selectionMemo.Clear()
+    }
+
+    // PROJECT FUNCTION LOOKUPS MUST NOT WALK EVERY FILE FOR EVERY WRITTEN NAME. The project may
+    // contain hundreds of files and each analyzed call asks these channels repeatedly. Build the
+    // ordered namespace/name index from the provider's shared parse cache once per source snapshot;
+    // each candidate list retains the original file and declaration order, so first-wins and
+    // overload-binding behavior remain unchanged. The snapshot version also covers editor buffers
+    // replaced between analyses, while the root key covers analyzers reused for another project.
+    private func EnsureSourceFunctionIndex() {
+        root := sources.ProjectRoot ?? ""
+        version := sources.SourceSnapshotVersion
+        if sourceFunctionIndexReady && sourceFunctionIndexVersion == version && string.Equals(sourceFunctionIndexRoot, root, StringComparison.OrdinalIgnoreCase) {
+            return
+        }
+
+        groupsByNamespace := new Dictionary<string, Dictionary<string, AnalyzerProjectFunctionGroup>>(StringComparer.Ordinal)
+        functionsByNamespace := new Dictionary<string, List<ProjectFunctionCandidate>>(StringComparer.Ordinal)
+        for filePath in sources.SourceFilePaths() {
+            unit := sources.GetProjectCompilationUnit(filePath)
+            if unit == null {
+                continue
+            }
+
+            namespaceName := AnalyzerProjectSourceProvider.UnitNamespace(unit) ?? ""
+            namespaceGroups := new Dictionary<string, AnalyzerProjectFunctionGroup>(StringComparer.Ordinal)
+            if !groupsByNamespace.TryGetValue(namespaceName, out namespaceGroups) {
+                namespaceGroups = new Dictionary<string, AnalyzerProjectFunctionGroup>(StringComparer.Ordinal)
+                groupsByNamespace.Add(namespaceName, namespaceGroups)
+            }
+
+            namespaceFunctions := new List<ProjectFunctionCandidate>()
+            if !functionsByNamespace.TryGetValue(namespaceName, out namespaceFunctions) {
+                namespaceFunctions = new List<ProjectFunctionCandidate>()
+                functionsByNamespace.Add(namespaceName, namespaceFunctions)
+            }
+
+            for declaration in unit.Declarations {
+                functionDeclaration := declaration as FunctionDeclaration
+                if functionDeclaration == null {
+                    continue
+                }
+
+                candidate := new ProjectFunctionCandidate(filePath, functionDeclaration)
+                namespaceFunctions.Add(candidate)
+                group := EmptySourceFunctionGroup
+                if !namespaceGroups.TryGetValue(functionDeclaration.Name, out group) {
+                    group = new AnalyzerProjectFunctionGroup()
+                    namespaceGroups.Add(functionDeclaration.Name, group)
+                }
+
+                group.All.Add(candidate)
+                if DeclarationFacts.IsExportedDeclaration(functionDeclaration, functionDeclaration.Name) {
+                    group.Exported.Add(candidate)
+                }
+            }
+        }
+
+        sourceFunctionGroups = groupsByNamespace
+        sourceFunctionsByNamespace = functionsByNamespace
+        sourceFunctionIndexRoot = root
+        sourceFunctionIndexVersion = version
+        sourceFunctionIndexReady = true
+    }
+
+    // Cached source candidates for a namespace/name pair, in project source order. Exported and
+    // same-namespace lookups share the index but choose the visibility-appropriate ordered list.
+    func ProjectFunctionsInNamespace(namespaceName: string?, name: string, requireExported: bool = false): List<ProjectFunctionCandidate> {
+        EnsureSourceFunctionIndex()
+        wantedNamespace := namespaceName ?? ""
+        namespaceGroups := EmptySourceFunctionGroups
+        if !sourceFunctionGroups.TryGetValue(wantedNamespace, out namespaceGroups) {
+            return EmptySourceFunctions
+        }
+
+        group := EmptySourceFunctionGroup
+        if !namespaceGroups.TryGetValue(name, out group) {
+            return EmptySourceFunctions
+        }
+
+        if requireExported {
+            return group.Exported
+        }
+
+        return group.All
+    }
+
+    // THE TYPE CHANNEL, whole. Three outcomes in one call, because their ORDER is the semantics
+    // (rule 2):
+    //   * returns true — the name is a project type; `typeInfo` and `declaration` are set and the
+    //     declaring file has been recorded.
+    //   * returns false with `inaccessibleFilePath` non-null — a visible namespace declares the name
+    //     but does not export it. The caller reports; the unique-exported fallback is NOT tried.
+    //   * returns false with `inaccessibleFilePath` null — no project type of that name.
+    // `probeInaccessible` is the caller's "I have a real source position" (line > 0); without one the
+    // middle outcome cannot be reported and is not looked for.
+    func ResolveVisibleProjectType(name: string, currentNamespace: string?, probeInaccessible: bool, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?, out inaccessibleFilePath: string?): bool {
+        inaccessibleFilePath = null
+
+        // THE SELECTION DECIDES, AND THIS CHANNEL MATERIALISES ITS SOURCE ANSWER. The file's own
+        // namespace, each enclosing one and then its imports are asked in `SimpleNamePrecedence`
+        // order, and a SOURCE declaration found there is this channel's answer: the nearest one, or —
+        // when two imports tie, which the caller reports as NL209 — the first import whose supplier
+        // is source, so the tie still binds something while it is reported.
+        //
+        // A REFERENCED ASSEMBLY'S TYPE THAT WINS IS NOT A PROJECT TYPE AND IS NOT A MISS. In the
+        // file's own or an enclosing namespace it is the nearest declaration of the name, so no
+        // import, no inaccessible declaration and no project-wide fallback may answer in its place:
+        // this channel steps aside and the external channel, which climbs the same chain first, binds
+        // it. From an import it is exactly what the fallback guard below already defers to.
+        selection := SelectVisibleType(name, currentNamespace)
+        if selection.IsLexicalMetadata {
+            typeInfo = BuiltInTypes.Unknown
+            declaration = null
+            return false
+        }
+
+        sourceNamespace: string? = null
+        hasSourceNamespace := false
+        if selection.Kind == SimpleNameSelectionKind.Source || (selection.Kind == SimpleNameSelectionKind.Ambiguous && selection.FirstIsSource) {
+            sourceNamespace = selection.Namespace
+            hasSourceNamespace = true
+        } else if selection.Kind == SimpleNameSelectionKind.Ambiguous && selection.SecondIsSource {
+            sourceNamespace = selection.SecondNamespace
+            hasSourceNamespace = true
+        }
+
+        if hasSourceNamespace {
+            if TryResolveProjectTypeInNamespace(name, sourceNamespace, currentNamespace, out typeInfo, out declaration) {
+                RecordDeclarationFile(name, declaration)
+                // NL010: THE NAMESPACE THAT ANSWERED IS THE IMPORT THAT SUPPLIED THE NAME. The
+                // selection walks the file's own namespace, its enclosing ones and its imports in
+                // order, so the entry that answered is exactly the one a reader would point at —
+                // and an `import TaskCli.Services` beside `service: TaskService` is used, even
+                // though the project-wide fallback below would also have found the type.
+                credit := importUsageCredit
+                if credit != null {
+                    credit.CreditNamespaceSupplier(sourceNamespace)
+                }
+
+                return true
+            }
+        }
+
+        // The guard is a nested `if` rather than `probeInaccessible && Try…(out …)`: an `out`
+        // argument in the right-hand operand of `&&` is off the columnar surface.
+        if probeInaccessible {
+            if TryFindInaccessibleVisibleDeclaration(name, currentNamespace, false, out inaccessibleFilePath) {
+                typeInfo = BuiltInTypes.Unknown
+                declaration = null
+                return false
+            }
+        }
+
+        // AN EXPLICIT IMPORT IS NOT A LAST RESORT, AND THE FALLBACK BELOW IS.
+        //
+        // The sweep above is what the file ASKED for: its own namespace and the namespaces it wrote
+        // an `import` for. The fallback is project-wide auto-discovery — a convenience that finds a
+        // type nothing in this file named. An imported CLR type is an explicit reference, so it must
+        // outrank the fallback, and until this guard it did not: a source class named
+        // `SimdReductions` in a namespace this file never imported silently replaced the
+        // `NSharpLang.Runtime.SimdReductions` the file's own `import` brought in, with no
+        // diagnostic, and a parity harness became a self-comparison. Answering false here hands the
+        // name to the caller's external channel, which resolves it through the imports in order.
+        //
+        // THE PROBE IS ASKED AT THE LOOKUP NAME, ARITY AND ALL. It used to be asked at the DISPLAY
+        // name, which is the identity with its arity suffix removed — and metadata has no such name,
+        // so `List`1` was probed as `List`, found nothing, and the guard did not fire: a source
+        // `class List<T>` in a namespace a file never imported took the name back from the
+        // `System.Collections.Generic.List` that file's own `import` brought in, and `items.Add(1)`
+        // reported NL303. The guard was written for exactly that shape; only the generic half of it
+        // was unreachable.
+        importProbe := externalTypeProbe
+        if importProbe != null && importProbe.ResolveImportedExternalType(name) != null {
+            typeInfo = BuiltInTypes.Unknown
+            declaration = null
+            return false
+        }
+
+        if TryResolveUniqueExportedProjectType(name, out typeInfo, out declaration) {
+            RecordDeclarationFile(name, declaration)
+            return true
+        }
+
+        typeInfo = BuiltInTypes.Unknown
+        declaration = null
+        return false
+    }
+
+    // `SimpleNamePrecedence.Select`, answered from this project's sources and its referenced
+    // assemblies. The SOURCE answer is the one the sweeps here take — the file's own namespace needs no
+    // export, every other one does — and the METADATA answer is the probe's, asked only where no source
+    // declaration answered, because at one namespace the source declaration wins. Nothing is
+    // materialised and nothing is recorded; the caller decides what the selection means.
+    //
+    // MEMOISED FOR THE ANALYSIS. The type channel and the NL209 gate both ask it of every name that
+    // reaches them, and each source answer is a sweep of the project's files, so the second asking is
+    // a lookup. The key carries everything the answer depends on that can move inside one analysis:
+    // the asking namespace, the import list (it grows as a file's imports are read) and the loaded
+    // assembly count (an import can load a reference). `BeginAnalysis` drops it with the sources.
+    func SelectVisibleType(name: string, currentNamespace: string?): SimpleNameSelection {
+        probe := externalTypeProbe
+        assemblyCount := 0
+        if probe != null {
+            assemblyCount = probe.AssemblyCount
+        }
+
+        key := (currentNamespace ?? "") + "|" + usingNamespaces.Count.ToString() + "|" + assemblyCount.ToString() + "|" + name
+        memo := new SimpleNameSelection(new List<SimpleNameCandidate>())
+        if selectionMemo.TryGetValue(key, out memo) {
+            return memo
+        }
+
+        selection := SimpleNamePrecedence.Select(currentNamespace, usingNamespaces)
+        while !selection.IsSettled {
+            candidate := selection.Current
+            declaresSource := DeclaresProjectTypeInNamespace(name, candidate.Namespace, candidate.RequiresExport)
+            declaresMetadata := false
+            if !declaresSource && probe != null {
+                declaresMetadata = probe.NamespaceDeclares(candidate.Namespace, name)
+            }
+
+            selection.Answer(declaresSource, declaresMetadata)
+        }
+
+        selectionMemo[key] = selection
+        return selection
+    }
+
+    // The SOURCE answer a selection asks of one namespace: exactly the condition under which
+    // `TryResolveProjectTypeInNamespace` would materialise a declaration there, without materialising
+    // it.
+    func DeclaresProjectTypeInNamespace(name: string, namespaceName: string?, requireExported: bool): bool {
+        sourceSelection := new AnalyzerSourceTypeSelection(BuiltInTypes.Unknown, null, null, false)
+        if !declarationContext.TryResolveProjectTypeInNamespace(name, namespaceName, requireExported, out sourceSelection) {
+            return false
+        }
+
+        return sourceSelection.Declaration as Declaration != null && !string.IsNullOrWhiteSpace(sourceSelection.FilePath)
+    }
+
+    // TWO IMPORTS THAT SUPPLY ONE NAME, which is an error rather than a race: C# reports CS0104 for
+    // exactly this shape and so does N#, because whichever import happened to be written first is
+    // not what the developer meant to select — and `nlc format` sorts imports, so "first" is not even
+    // the developer's to choose.
+    //
+    // WHAT IS *NOT* AMBIGUOUS, and every exclusion is C#'s and `SimpleNamePrecedence`'s: a
+    // declaration in the file's own namespace or an ENCLOSING one — from source OR from a referenced
+    // assembly — wins outright over every import, and the project-wide auto-discovery fallback is
+    // never a candidate. At ONE imported namespace a source declaration and a metadata type of the
+    // same full name are one candidate, not two. The tie itself is source against source, source
+    // against metadata or metadata against metadata; the selection does not care which.
+    //
+    // THE PROBE NAME CARRIES ITS ARITY AND THE REPORT CARRIES THE WRITTEN ONE. ``List`1`` and `List`
+    // are different identities in metadata, so the question asked is the LOOKUP name; the two
+    // candidates a reader is shown are spelled the way the file spells them, FULLY QUALIFIED, in
+    // import order.
+    func TryFindAmbiguousImportedType(name: string, currentNamespace: string?, out firstCandidate: string, out secondCandidate: string): bool {
+        firstCandidate = ""
+        secondCandidate = ""
+        selection := SelectVisibleType(name, currentNamespace)
+        if selection.Kind != SimpleNameSelectionKind.Ambiguous {
+            return false
+        }
+
+        writtenName := TypeArityNames.Display(name)
+        firstCandidate = selection.QualifiedName(writtenName)
+        secondCandidate = selection.SecondQualifiedName(writtenName)
+        return true
+    }
+
+    // A NAMESPACE-QUALIFIED PROJECT TYPE — the `Example` half of `Example.Handle`.
+    //
+    // The visible-namespace walk above answers a BARE name by trying every namespace the file can
+    // see. A qualified reference has already NAMED its namespace, so exactly one is asked and the
+    // file's imports do not enter into it. The export rule is the same one: the file's own namespace
+    // needs no export, every other one does.
+    func ResolveNamespaceQualifiedProjectType(namespaceName: string, name: string, currentNamespace: string?, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?): bool {
+        if TryResolveProjectTypeInNamespace(name, namespaceName, currentNamespace, out typeInfo, out declaration) {
+            RecordDeclarationFile(name, declaration)
+            return true
+        }
+
+        typeInfo = BuiltInTypes.Unknown
+        declaration = null
+        return false
+    }
+
+    // One visible namespace. A namespace that is NOT the file's own requires the declaration to be
+    // exported; the file's own namespace does not.
+    func TryResolveProjectTypeInNamespace(name: string, namespaceName: string?, currentNamespace: string?, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?): bool {
+        requireExported := !string.Equals(namespaceName, currentNamespace, StringComparison.Ordinal)
+        selection := new AnalyzerSourceTypeSelection(BuiltInTypes.Unknown, null, null, false)
+        resolved := declarationContext.TryResolveProjectTypeInNamespace(name, namespaceName, requireExported, out selection)
+        return TryMaterializeProjectTypeSelection(name, resolved, selection, out typeInfo, out declaration)
+    }
+
+    // The last resort: exactly one file in the whole project exports this name, whatever namespace it
+    // is in.
+    func TryResolveUniqueExportedProjectType(name: string, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?): bool {
+        selection := new AnalyzerSourceTypeSelection(BuiltInTypes.Unknown, null, null, false)
+        resolved := declarationContext.TryResolveUniqueExportedType(name, out selection)
+        return TryMaterializeProjectTypeSelection(name, resolved, selection, out typeInfo, out declaration)
+    }
+
+    // A selection becomes an answer only when it carries BOTH a declaration and the file it came
+    // from; either missing is a miss, not an error.
+    func TryMaterializeProjectTypeSelection(name: string, resolved: bool, selection: AnalyzerSourceTypeSelection, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?): bool {
+        sourceDeclaration := selection.Declaration as Declaration
+        filePath := selection.FilePath
+        if !resolved || sourceDeclaration == null || filePath == null || string.IsNullOrWhiteSpace(filePath) {
+            typeInfo = BuiltInTypes.Unknown
+            declaration = null
+            return false
+        }
+
+        typeInfo = selection.Type
+        declaration = CreateTopLevelSymbolDeclaration(name, filePath, sources.ProjectSourceText(filePath), sourceDeclaration)
+        return true
+    }
+
+    // A top-level declaration's symbol identity. The LINE is the declaration's own; the COLUMN is
+    // where the NAME starts on that line, which is what a go-to-definition span has to point at.
+    func CreateTopLevelSymbolDeclaration(name: string, filePath: string, sourceText: string, topLevelDeclaration: Declaration): SymbolDeclaration {
+        line := topLevelDeclaration.Line
+        column := topLevelDeclaration.Column
+        // `name` may be an identity key (`Handle``1`); the SPAN is over what is written in the file,
+        // which is the bare name.
+        writtenName := TypeArityNames.Display(name)
+        return new SymbolDeclaration(writtenName, filePath, line, CodeIntelligenceTextUtilities.FindIdentifierNameColumn(sourceText, writtenName, line, column), DeclarationFacts.GetDeclarationKind(topLevelDeclaration))
+    }
+
+    // THE FUNCTION CHANNEL's discovery half, and it takes the SAME export decision the type channel
+    // takes in `TryResolveProjectTypeInNamespace`: a camelCase top-level declaration is private to its
+    // NAMESPACE, not to its file. Every file that declares namespace `X` sees `X`'s camelCase
+    // functions with no import and no export; every OTHER namespace needs the declaration exported
+    // (PascalCase), and a camelCase one it names falls through to the inaccessible probe below, which
+    // is what produces NL308 naming the declaring namespace. Before this the function channel required
+    // export unconditionally, so `A.nl`'s `func formatTypeRef` was invisible to `B.nl` of the same
+    // namespace (NL412 at a direct call, NL402 at a method group) while a camelCase CLASS in the same
+    // two files already resolved — the two halves of one rule disagreed. The FunctionTypeInfo itself
+    // is built by the caller, which is why the matched declaration and its file come back out.
+    func TryResolveVisibleProjectFunction(name: string, currentNamespace: string?, out filePath: string?, out functionDeclaration: FunctionDeclaration?, out declaration: SymbolDeclaration?): bool {
+        externalFunctions := new List<MethodInfo>()
+        return TryResolveVisibleFunction(name, currentNamespace, out filePath, out functionDeclaration, out declaration, out externalFunctions) && functionDeclaration != null
+    }
+
+    // THE SAME WALK OVER REFERENCED ASSEMBLIES TOO. A namespace's free functions are its members
+    // wherever they were compiled, so every visible namespace is asked of source first and then of
+    // metadata (`AnalyzerExternalTypeProbe.NamespaceFreeFunctions`) before the walk moves outward:
+    // a source function wins at its own namespace, and a referenced one in a nearer namespace wins
+    // over a source one further out -- the order `SimpleNamePrecedence` gives a type name and the
+    // emitter's free-function scope gives the same call (`ColumnarFreeFunctionScope`). A referenced
+    // winner answers through `externalFunctions`, with no declaration or file.
+    func TryResolveVisibleFunction(name: string, currentNamespace: string?, out filePath: string?, out functionDeclaration: FunctionDeclaration?, out declaration: SymbolDeclaration?, out externalFunctions: List<MethodInfo>): bool {
+        externalFunctions = new List<MethodInfo>()
+        visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
+        for visibleNamespace in visible {
+            requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, visibleNamespace)
+            candidates := ProjectFunctionsInNamespace(visibleNamespace, name, requireExported)
+            if candidates.Count > 0 {
+                first := candidates[0]
+                firstFunction := first.Declaration
+                if firstFunction == null {
+                    continue
+                }
+
+                filePath = first.FilePath
+                functionDeclaration = firstFunction
+                declaration = CreateTopLevelSymbolDeclaration(name, first.FilePath, sources.ProjectSourceText(first.FilePath), firstFunction)
+                // NL010: A FREE FUNCTION IS WHAT ITS NAMESPACE'S IMPORT IS FOR, and the
+                // call writes no type name at all. A file whose whole use of
+                // `import Census.Holder` was `Hold(1)` had that import reported dead.
+                CreditFunctionNamespace(visibleNamespace)
+                return true
+            }
+
+            probe := externalTypeProbe
+            if probe != null {
+                referenced := probe.NamespaceFreeFunctions(visibleNamespace, name)
+                if referenced.Count > 0 {
+                    filePath = null
+                    functionDeclaration = null
+                    declaration = null
+                    externalFunctions = referenced
+                    CreditFunctionNamespace(visibleNamespace)
+                    return true
+                }
+            }
+        }
+
+        filePath = null
+        functionDeclaration = null
+        declaration = null
+        return false
+    }
+
+    // The declarations OTHER files of this file's namespace contribute to top-level overload groups.
+    // The caller's own file is excluded: its local overload group is already in the declaration
+    // scope. Each candidate carries its declaration and path so overload binding and duplicate
+    // signature diagnostics preserve declaration identity across the project. Built once per
+    // analysis by the policy, not once per declaration. Whether these files compile together is
+    // `CompilesAsOneProgram`, and the policy asks that first.
+    func CompilesAsOneProgram(): bool {
+        return sources.CompilesAsOneProgram()
+    }
+
+    func SymbolForFunction(name: string, filePath: string, declaration: FunctionDeclaration): SymbolDeclaration {
+        return CreateTopLevelSymbolDeclaration(name, filePath, sources.ProjectSourceText(filePath), declaration)
+    }
+
+    // Every same-named top-level function in the caller's namespace, across the project. The
+    // declaring file travels with each syntax node so analyzer overload groups and diagnostics do
+    // not collapse declarations merely because their names match.
+    func SameNamespaceFunctionCandidates(currentFilePath: string?, currentNamespace: string?): List<ProjectFunctionCandidate> {
+        candidates := new List<ProjectFunctionCandidate>()
+        ownPath := currentFilePath == null ? "" : Path.GetFullPath(currentFilePath)
+        EnsureSourceFunctionIndex()
+        wantedNamespace := currentNamespace ?? ""
+        namespaceFunctions := EmptySourceFunctions
+        if !sourceFunctionsByNamespace.TryGetValue(wantedNamespace, out namespaceFunctions) {
+            return candidates
+        }
+
+        for candidate in namespaceFunctions {
+            if !string.Equals(Path.GetFullPath(candidate.FilePath), ownPath, StringComparison.OrdinalIgnoreCase) {
+                candidates.Add(candidate)
+            }
+        }
+
+        return candidates
+    }
+
+    // The first visible namespace that supplies this function name wins, and every source function
+    // with that name in that namespace forms one overload group. Referenced-assembly precedence is
+    // preserved when a nearer namespace has no source function.
+    func TryResolveVisibleSourceFunctionGroup(name: string, currentNamespace: string?, out candidates: List<ProjectFunctionCandidate>, out externalFunctions: List<MethodInfo>): bool {
+        candidates = new List<ProjectFunctionCandidate>()
+        externalFunctions = new List<MethodInfo>()
+        visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
+        for visibleNamespace in visible {
+            requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, visibleNamespace)
+            candidates = ProjectFunctionsInNamespace(visibleNamespace, name, requireExported)
+
+            if candidates.Count > 0 {
+                CreditFunctionNamespace(visibleNamespace)
+                return true
+            }
+
+            probe := externalTypeProbe
+            if probe != null {
+                referenced := probe.NamespaceFreeFunctions(visibleNamespace, name)
+                if referenced.Count > 0 {
+                    externalFunctions = referenced
+                    CreditFunctionNamespace(visibleNamespace)
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    // A FUNCTION NAMED THROUGH ITS NAMESPACE, the qualified counterpart of the visible-name walk.
+    // `App.Render` asks exactly `App`; lexical qualifier expansion is owned by the member-access
+    // resolver, so this method never guesses from imports or from a simple-name scan. Source wins
+    // over a referenced holder in the same namespace, and private functions remain visible only
+    // when the caller is in that namespace.
+    func TryResolveQualifiedFunctionGroup(name: string, namespaceName: string, currentNamespace: string?, out candidates: List<ProjectFunctionCandidate>, out externalFunctions: List<MethodInfo>): bool {
+        candidates = new List<ProjectFunctionCandidate>()
+        externalFunctions = new List<MethodInfo>()
+        requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, namespaceName)
+        candidates = ProjectFunctionsInNamespace(namespaceName, name, requireExported)
+
+        if candidates.Count > 0 {
+            CreditFunctionNamespace(namespaceName)
+            return true
+        }
+
+        probe := externalTypeProbe
+        if probe != null {
+            externalFunctions = probe.NamespaceFreeFunctions(namespaceName, name)
+            if externalFunctions.Count > 0 {
+                CreditFunctionNamespace(namespaceName)
+                return true
+            }
+        }
+
+        return false
+    }
+
+    func NamespaceForFile(filePath: string?): string? {
+        return sources.GetNamespaceForFile(filePath)
+    }
+
+    func CreditFunctionNamespace(namespaceName: string?) {
+        functionCredit := importUsageCredit
+        if functionCredit != null {
+            functionCredit.CreditNamespaceSupplier(namespaceName)
+        }
+    }
+
+    // NL209 FOR THE FUNCTION CHANNEL. The same tie the type half reports, asked of top-level `func`
+    // declarations: two IMPORTED namespaces each export this spelling, so `SimpleNamePrecedence`
+    // rule 3 has two winners and the file has to settle it.
+    //
+    // WHAT IS NOT AMBIGUOUS, and it is rule 1 and rule 2 again: a function this FILE declares, or an
+    // exported one in the file's own or any enclosing namespace, is lexically nearer than every
+    // import and wins outright — so a lexical match answers `false` before any import is asked. An
+    // `import` naming an enclosing namespace is redundant rather than a rival and is skipped.
+    //
+    // The candidates come back FULLY QUALIFIED, in import order.
+    func TryFindAmbiguousImportedFunction(name: string, currentNamespace: string?, out firstCandidate: string, out secondCandidate: string): bool {
+        firstCandidate = ""
+        secondCandidate = ""
+
+        lexical := SimpleNamePrecedence.LexicalNamespaces(currentNamespace)
+        for lexicalItem in lexical {
+            if HasExportedFunctionInNamespace(name, lexicalItem) {
+                return false
+            }
+        }
+
+        matched := false
+        index := 0
+        while index < usingNamespaces.Count {
+            candidateNamespace := usingNamespaces[index]
+            index = index + 1
+            if SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, candidateNamespace) {
+                continue
+            }
+
+            if !HasExportedFunctionInNamespace(name, candidateNamespace) {
+                continue
+            }
+
+            if !matched {
+                matched = true
+                firstCandidate = candidateNamespace + "." + name
+                continue
+            }
+
+            secondCandidate = candidateNamespace + "." + name
+            return true
+        }
+
+        return false
+    }
+
+    // One namespace's answer to "does an exported top-level function of this name live here?" -- in
+    // this project's source, or in a referenced assembly's holder for that namespace.
+    func HasExportedFunctionInNamespace(name: string, namespaceName: string?): bool {
+        probe := externalTypeProbe
+        if probe != null && probe.NamespaceFreeFunctions(namespaceName, name).Count > 0 {
+            return true
+        }
+
+        return ProjectFunctionsInNamespace(namespaceName, name, true).Count > 0
+    }
+
+    // The inaccessible-FUNCTION decision, for the identifier path. Types take the same decision
+    // inside `ResolveVisibleProjectType`, where its position in the sequence matters.
+    func TryFindInaccessibleVisibleFunction(name: string, currentNamespace: string?, out filePath: string?): bool {
+        return TryFindInaccessibleVisibleDeclaration(name, currentNamespace, true, out filePath)
+    }
+
+    // "A namespace I IMPORTED declares this name and does not export it." Every LEXICAL namespace is
+    // skipped, and for two different reasons that come to the same answer. The file's OWN namespace:
+    // a name that is not exported is still visible inside it, so finding it there is not an
+    // accessibility failure at all. An ENCLOSING namespace: the file never asked for it — it is in
+    // scope because of where the file sits — so a private declaration out there must not hijack a
+    // name the file did explicitly import. The lookup walks past it instead, which is exactly what
+    // the emitter's binding scope does (`TryFindEnclosingNamespaceSourceName` matches only EXPORTED
+    // names and its caller then tries the imports).
+    func TryFindInaccessibleVisibleDeclaration(name: string, currentNamespace: string?, wantFunctions: bool, out filePath: string?): bool {
+        visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
+        for visibleNamespace in visible {
+            if SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, visibleNamespace) {
+                continue
+            }
+
+            if wantFunctions {
+                candidates := ProjectFunctionsInNamespace(visibleNamespace, name, false)
+                for candidate in candidates {
+                    declaration := candidate.Declaration
+                    if declaration != null && !DeclarationFacts.IsExportedDeclaration(declaration, name) {
+                        filePath = candidate.FilePath
+                        return true
+                    }
+                }
+            } else {
+                candidates := sources.SourceTypeDeclarationsBySimpleName(name)
+                for candidate in candidates {
+                    if string.Equals(candidate.NamespaceName, visibleNamespace, StringComparison.Ordinal) && !candidate.IsExported {
+                        filePath = candidate.FilePath
+                        return true
+                    }
+                }
+            }
+        }
+
+        filePath = null
+        return false
+    }
+
+    // ---- helpers ------------------------------------------------------------------------------
+
+    func RecordDeclarationFile(name: string, declaration: SymbolDeclaration?) {
+        if declaration == null {
+            return
+        }
+
+        declarationFile := declaration.File
+        if declarationFile != null && !string.IsNullOrWhiteSpace(declarationFile) {
+            typeDeclarationFiles[TypeArityNames.Display(name)] = declarationFile
+        }
+    }
+
+    // The kind test is TYPE IDENTITY, not a spelling: exactly the shell's `is ClassDeclaration or …`
+    // and `is FunctionDeclaration` patterns.
+    static func MatchesDeclarationKind(declaration: Declaration, wantFunctions: bool): bool {
+        if wantFunctions {
+            return declaration as FunctionDeclaration != null
+        }
+
+        return IsTopLevelTypeDeclaration(declaration)
+    }
+
+    // A top-level declaration that introduces a TYPE. Every declared family, and nothing else.
+    static func IsTopLevelTypeDeclaration(declaration: Declaration): bool {
+        if declaration as ClassDeclaration != null {
+            return true
+        }
+        if declaration as StructDeclaration != null {
+            return true
+        }
+        if declaration as RecordDeclaration != null {
+            return true
+        }
+        if declaration as SoaRecordDeclaration != null {
+            return true
+        }
+        if declaration as InterfaceDeclaration != null {
+            return true
+        }
+        if declaration as UnionDeclaration != null {
+            return true
+        }
+        if declaration as EnumDeclaration != null {
+            return true
+        }
+        if declaration as TypeAliasDeclaration != null {
+            return true
+        }
+        if declaration as NewtypeDeclaration != null {
+            return true
+        }
+        return false
+    }
+
+    // A top-level function of this name, exported when the asking file is in ANOTHER namespace and
+    // regardless of export when it is in the declaring one (a camelCase function is namespace-private).
+    static func IsFunctionNamed(declaration: Declaration, name: string, requireExported: bool): bool {
+        functionDeclaration := declaration as FunctionDeclaration
+        if functionDeclaration == null {
+            return false
+        }
+
+        if !string.Equals(functionDeclaration.Name, name, StringComparison.Ordinal) {
+            return false
+        }
+
+        if !requireExported {
+            return true
+        }
+
+        return DeclarationFacts.IsExportedDeclaration(declaration, name)
+    }
+}
+
+class AnalyzerProjectFunctionGroup {
+    All: List<ProjectFunctionCandidate>
+    Exported: List<ProjectFunctionCandidate>
+
+    constructor() {
+        All = new List<ProjectFunctionCandidate>()
+        Exported = new List<ProjectFunctionCandidate>()
+    }
+}
+
+// A project-level source type declaration used by the unique-exported-name index. The declaration
+// node is shared with the provider's parsed-unit cache; the per-analysis declaration context still
+// materializes its TypeInfo so its recursion and identity caches remain analysis-local.
+class AnalyzerProjectSourceTypeCandidate {
+    FilePath: string
+    NamespaceName: string?
+    Declaration: Declaration
+    IsExported: bool
+
+    constructor(filePath: string, namespaceName: string?, declaration: Declaration, isExported: bool) {
+        FilePath = filePath
+        NamespaceName = namespaceName
+        Declaration = declaration
+        IsExported = isExported
+    }
+}
+
+// A top-level function declaration from another project source file. The syntax declaration keeps
+// overload identity and is used for analyzer binding and duplicate-signature diagnostics.
+class ProjectFunctionCandidate {
+    FilePath: string
+    Line: int
+    Declaration: FunctionDeclaration?
+
+    constructor(filePath: string, declaration: FunctionDeclaration) {
+        FilePath = filePath
+        Line = declaration.Line
+        Declaration = declaration
+    }
+}

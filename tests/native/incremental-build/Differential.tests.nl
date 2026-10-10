@@ -1,0 +1,130 @@
+namespace NSharpLang.IncrementalBuild.Tests
+
+import NSharpLang.Compiler
+
+// INCREMENTAL RESULTS ARE A CLEAN BUILD'S RESULTS.
+//
+// For every project of the corpus, a warm session absorbs a seeded sequence of edits — body
+// literals, blank and comment lines that move declarations, renamed identifiers, retyped
+// signatures, files added, duplicated, removed and restored — and after each one its diagnostics and
+// emitted bytes are compared with a from-scratch compilation of the same files. A row also requires
+// that the run was not vacuous: some comparisons built successfully, some failed, and some steps
+// really did reuse analyses.
+//
+// The default is eight edits per project, seeded; `NSHARP_INCREMENTAL_DIFFERENTIAL_STEPS` runs more.
+test "a warm session's diagnostics and IL bytes equal a clean build's across seeded edits to five multi-file projects" {
+    report := new DifferentialReport()
+    steps := DifferentialSteps(8)
+    seed := 20261005
+    for project in DifferentialCorpus() {
+        DifferentialRun(project, seed, steps, report)
+        seed = seed + 1
+    }
+
+    detail := report.Summary()
+    if report.Mismatches.Count > 0 {
+        detail = detail + "\n" + report.Mismatches[0]
+    }
+    assert report.Mismatches.Count == 0, detail
+    assert report.SuccessfulComparisons > 0, detail
+    assert report.FailedComparisons > 0, detail
+    assert report.PartialSteps > 0, detail
+    assert report.FilesReused > 0, detail
+    assert report.EmissionReuses > 0, detail
+    assert report.ParseReuses > 0, detail
+}
+
+// THE CHECK'S HALF OF THE SAME CONTRACT. `nlc check` in the workspace server keeps a session too: the
+// analyses, each file's columnar parse and the last validation's outcome. After each seeded edit its
+// diagnostics and its in-memory image must be a fresh check's, and the run must have reused all three.
+test "a warm check session's diagnostics and validated image equal a fresh check's across seeded edits" {
+    report := new DifferentialReport()
+    steps := DifferentialSteps(8)
+    seed := 20261006
+    for project in DifferentialCorpus() {
+        DifferentialCheckRun(project, seed, steps, report)
+        seed = seed + 1
+    }
+
+    detail := report.Summary()
+    if report.Mismatches.Count > 0 {
+        detail = detail + "\n" + report.Mismatches[0]
+    }
+    assert report.Mismatches.Count == 0, detail
+    assert report.SuccessfulComparisons > 0, detail
+    assert report.FailedComparisons > 0, detail
+    assert report.FilesReused > 0, detail
+    assert report.EmissionReuses > 0, detail
+    assert report.ParseReuses > 0, detail
+}
+
+test "a body-only edit re-analyses only the edited file" {
+    scratch := IncrementalScratch("body-only")
+    try {
+        project := DifferentialCorpus()[0]
+        root := scratch + "/geo"
+        originals := DifferentialCopy(project, root)
+        session := new IncrementalProjectSession(root, "Geo")
+        report := new DifferentialReport()
+        DifferentialCompare(session, root, "initial", report)
+        assert session.State.LastFilesAnalyzed == originals.Count
+        calc := root + "/Util/Calc.nl"
+        System.IO.File.WriteAllText(calc, originals[calc].Replace("return value * factor\n}\n\nfunc Scale(value: double", "return value * factor * 1\n}\n\nfunc Scale(value: double"))
+        DifferentialCompare(session, root, "body edit", report)
+        assert report.Mismatches.Count == 0, report.Summary()
+        assert session.State.LastFilesAnalyzed == 1, report.Summary()
+        assert session.State.LastFilesReused == originals.Count - 1, report.Summary()
+    } finally {
+        IncrementalCleanup(scratch)
+    }
+}
+
+test "a signature edit re-analyses the files that depend on it and no others" {
+    scratch := IncrementalScratch("signature")
+    try {
+        project := DifferentialCorpus()[0]
+        root := scratch + "/geo"
+        originals := DifferentialCopy(project, root)
+        session := new IncrementalProjectSession(root, "Geo")
+        report := new DifferentialReport()
+        DifferentialCompare(session, root, "initial", report)
+        tags := root + "/Model/Tags.nl"
+        System.IO.File.WriteAllText(tags, originals[tags].Replace("func Get(): T {", "func Get(): T? {"))
+        DifferentialCompare(session, root, "signature edit", report)
+        assert report.Mismatches.Count == 0, report.Summary()
+        assert session.State.LastFilesAnalyzed > 1, report.Summary()
+        assert session.State.LastFilesReused > 0, report.Summary()
+    } finally {
+        IncrementalCleanup(scratch)
+    }
+}
+
+test "a session opened cold loads the persisted summaries, and a corrupt summary file loads nothing" {
+    scratch := IncrementalScratch("summaries")
+    try {
+        project := DifferentialCorpus()[0]
+        root := scratch + "/geo"
+        originals := DifferentialCopy(project, root)
+        first := new IncrementalProjectSession(root, "Geo")
+        report := new DifferentialReport()
+        DifferentialCompare(first, root, "initial", report)
+        assert first.Save()
+        storePath := first.SummaryStorePath()
+        assert System.IO.File.Exists(storePath)
+
+        reopened := IncrementalProjectSession.Open(root, "Geo")
+        assert reopened.State.SummaryCache.Count == originals.Count
+
+        bytes := System.IO.File.ReadAllBytes(storePath)
+        bytes[bytes.Length / 3] = (byte)(bytes[bytes.Length / 3] ^ 1)
+        System.IO.File.WriteAllBytes(storePath, bytes)
+        corrupted := IncrementalProjectSession.Open(root, "Geo")
+        assert corrupted.State.SummaryCache.Count == 0
+
+        // A cold-opened session still compiles exactly what a clean build does.
+        DifferentialCompare(reopened, root, "reopened", report)
+        assert report.Mismatches.Count == 0, report.Summary()
+    } finally {
+        IncrementalCleanup(scratch)
+    }
+}
