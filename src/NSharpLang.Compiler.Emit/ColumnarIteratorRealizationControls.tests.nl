@@ -325,7 +325,7 @@ test "persisted realization preserves sync registration before an element declin
         EmitFixtureNoStrings(),
         false
     )
-    assert syncProbe.Shape.Supported
+    assert syncProbe.Shape.Supported, "the sync iterator shape should be supported before its element-type decline"
     syncResolution := IteratorRealizationControlResolution(syncSource)
     syncHost := IteratorRealizationControlPersistedHost("IteratorRealizationSyncMissingHost")
     syncModule := IteratorRealizationControlPersistedModule(syncHost)
@@ -364,11 +364,11 @@ test "persisted realization preserves sync registration before an element declin
         syncEnclosingFieldCanonicals,
         null
     )
-    assert !syncResult.Succeeded
-    assert syncResult.DeclineSite == "emit.iterator.element-type"
-    assert syncResult.DeclineMessage == "iterator element type 'IteratorRealizationUnresolvableElement' could not be resolved for 'SyncMissing'"
-    assert syncResult.DeclineMember == "SyncMissing"
-    assert syncTypes.Count == 0
+    assert !syncResult.Succeeded, "the sync realization should decline its unresolved element type"
+    assert syncResult.DeclineSite == "emit.iterator.element-type", syncResult.DeclineSite
+    assert syncResult.DeclineMessage == "iterator element type 'IteratorRealizationUnresolvableElement' could not be resolved for 'SyncMissing'", syncResult.DeclineMessage
+    assert syncResult.DeclineMember == "SyncMissing", syncResult.DeclineMember
+    assert syncTypes.Count == 0, "a declined sync realization must not retain its machine type"
 
     syncStableIdentity := IteratorRealizationControlStableIdentity(701, 17, syncShape)
     syncTable := syncResolution.StructuralTypeReferences
@@ -378,7 +378,7 @@ test "persisted realization preserves sync registration before an element declin
         syncStableIdentity
     )
     syncSelected := syncTable.SelectSynthesizedDefinition(syncStableIdentity, syncMachine)
-    assert syncTable.ValidatePair(syncSelected, syncMachine)
+    assert syncTable.ValidatePair(syncSelected, syncMachine), "the sync machine registration must survive the element-type decline"
 
     asyncSource := "import System.Collections.Generic\nasync func* Gen(): IAsyncEnumerable<IteratorRealizationUnresolvableElement> { yield 1 }\n"
     asyncProbe := new EmitFixtureIteratorShapeProbe(
@@ -390,7 +390,7 @@ test "persisted realization preserves sync registration before an element declin
         false,
         true
     )
-    assert asyncProbe.Shape.Supported
+    assert asyncProbe.Shape.Supported, "the async iterator shape should be supported before its element-type decline"
     asyncResolution := IteratorRealizationControlResolution(asyncSource)
     asyncHost := IteratorRealizationControlPersistedHost("IteratorRealizationAsyncMissingHost")
     asyncModule := IteratorRealizationControlPersistedModule(asyncHost)
@@ -417,17 +417,17 @@ test "persisted realization preserves sync registration before an element declin
         asyncTypes,
         null
     )
-    assert !asyncResult.Succeeded
-    assert asyncResult.DeclineSite == "emit.iterator.element-type"
-    assert asyncResult.DeclineMessage == "iterator element type 'IteratorRealizationUnresolvableElement' could not be resolved for 'Gen'"
-    assert asyncResult.DeclineMember == "Gen"
-    assert asyncTypes.Count == 0
-    assert IteratorRealizationControlMapCount(asyncMap) == asyncMapCountBefore
+    assert !asyncResult.Succeeded, "the async realization should decline its unresolved element type"
+    assert asyncResult.DeclineSite == "emit.iterator.element-type", asyncResult.DeclineSite
+    assert asyncResult.DeclineMessage == "iterator element type 'IteratorRealizationUnresolvableElement' could not be resolved for 'Gen'", asyncResult.DeclineMessage
+    assert asyncResult.DeclineMember == "Gen", asyncResult.DeclineMember
+    assert asyncTypes.Count == 0, "a declined async realization must not retain its machine type"
+    assert IteratorRealizationControlMapCount(asyncMap) == asyncMapCountBefore, "the async type map must not change before the element-type decline"
 
     // AnalyzeShape observes ordinal zero. EmitAsync deliberately recomputes the machine name from
     // its supplied ordinal, so this is the actual registration identity whose absence matters.
     asyncStableIdentity := "iterator:702:18:<Gen>d__18"
-    assert !IteratorRealizationControlMapContains(asyncMap, asyncStableIdentity)
+    assert !IteratorRealizationControlMapContains(asyncMap, asyncStableIdentity), "the async machine registration must remain absent before element resolution"
 }
 
 test "persisted generic realization rebinds its retained machine-VAR field through the factory MVAR owner" {

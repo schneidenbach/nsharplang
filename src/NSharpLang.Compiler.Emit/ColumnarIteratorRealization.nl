@@ -748,6 +748,8 @@ class ColumnarIteratorRealization {
         smSpecialConstraints := System.Array.Empty<int>()
         smBaseConstraints := System.Array.Empty<Type>()
         smInterfaceConstraints := System.Array.Empty<Type[]>()
+        machineOwnedParameters: Dictionary<string, Type>? = null
+        methodGps: GenericTypeParameterBuilder[]? = null
         if enclosingParameters.Length > 0 || fn.TypeParamNames.Length > 0 {
             enclosingCount := enclosingParameters.Length
             methodCount := fn.TypeParamNames.Length
@@ -795,8 +797,8 @@ class ColumnarIteratorRealization {
                 smInterfaceConstraints[e] = enclosingInterfaces
                 e = e + 1
             }
-            methodGps := new GenericTypeParameterBuilder[](methodCount)
-            machineOwnedParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+            methodGps = new GenericTypeParameterBuilder[](methodCount)
+            machineOwnedParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
             g := 0
             while g < methodCount {
                 methodGps[g] = smGps[enclosingCount + g]
@@ -806,7 +808,26 @@ class ColumnarIteratorRealization {
                 machineOwnedParameters[fn.TypeParamNames[g]] = parameter
                 g = g + 1
             }
-            table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, machineOwnedParameters)
+        }
+        elementType: Type = null
+        if !TryResolveIteratorCanonical(shape.ElementCanonical, smTypeParamMap, typeResolution, out elementType) || !ColumnarTypeOfPlanner.IsSupportedType(elementType) {
+            return Declined(
+                "emit.iterator.element-type",
+                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + declineLabel + "'",
+                declineLabel
+            )
+        }
+        // An async iterator that cannot resolve its element type is declined before it contributes a
+        // synthesized machine to the shared type map. Keep this registration after that validation;
+        // the synchronous realization intentionally retains its earlier registration contract.
+        table.RegisterIteratorType(
+            fn.SourceFileId,
+            funcOrdinal,
+            shape.TypeName,
+            sm,
+            machineOwnedParameters
+        )
+        if methodGps != null {
             methodSpecialConstraints := System.Array.Empty<int>()
             methodBaseConstraints := System.Array.Empty<Type>()
             methodInterfaceConstraints := System.Array.Empty<Type[]>()
@@ -817,23 +838,14 @@ class ColumnarIteratorRealization {
                     declineLabel
                 )
             }
-            g = 0
-            while g < methodCount {
-                smSpecialConstraints[enclosingCount + g] = methodSpecialConstraints[g]
-                smBaseConstraints[enclosingCount + g] = methodBaseConstraints[g]
-                smInterfaceConstraints[enclosingCount + g] = methodInterfaceConstraints[g]
+            g := 0
+            while g < methodGps.Length {
+                parameterIndex := enclosingParameters.Length + g
+                smSpecialConstraints[parameterIndex] = methodSpecialConstraints[g]
+                smBaseConstraints[parameterIndex] = methodBaseConstraints[g]
+                smInterfaceConstraints[parameterIndex] = methodInterfaceConstraints[g]
                 g = g + 1
             }
-        } else {
-            table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, null)
-        }
-        elementType: Type = null
-        if !TryResolveIteratorCanonical(shape.ElementCanonical, smTypeParamMap, typeResolution, out elementType) || !ColumnarTypeOfPlanner.IsSupportedType(elementType) {
-            return Declined(
-                "emit.iterator.element-type",
-                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + declineLabel + "'",
-                declineLabel
-            )
         }
         asyncEnumerable := ColumnarIteratorBodyPlanner.AsyncEnumerableInterfaceTypeOf(elementType)
         asyncEnumerator := ColumnarIteratorBodyPlanner.AsyncEnumeratorInterfaceTypeOf(elementType)
