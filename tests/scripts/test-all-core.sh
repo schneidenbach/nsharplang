@@ -1498,6 +1498,59 @@ filter_check_dir() {
     find "$check_dir" -maxdepth 1 -name "*.nl" -type f 2>/dev/null | grep -q .
 }
 
+# Keep Step 10's worker logic in ordinary shell functions. The xargs command below runs a small
+# worker string in a login shell; embedding JSON parsing in that string nested Python, shell and
+# xargs quoting and let the parser arrive as shell commands instead of Python source.
+# STEP10_CHECK_FUNCTIONS_BEGIN
+step10_summarize_check_json() {
+    python3 - "$1" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        document = json.load(stream)
+    summary = document.get("summary", {})
+    errors = summary.get("errors", -1)
+    warnings = summary.get("warnings", -1)
+    project_failures = summary.get("projectFailures", 0)
+    is_ok = document.get("ok", False)
+    if type(errors) is not int or type(warnings) is not int or type(project_failures) is not int or type(is_ok) is not bool:
+        raise ValueError("check JSON summary fields have invalid types")
+    print("%s|%s|%s|%s" % (
+        errors,
+        warnings,
+        project_failures,
+        str(is_ok).lower(),
+    ))
+except Exception:
+    print("?|?|?|false")
+PY
+}
+
+step10_check_project() {
+    local entry="$1"
+    local results_dir="$2"
+    local cli_dll="$3"
+    local idx="${entry%%|*}"
+    local check_dir="${entry#*|}"
+    local result_file="$results_dir/$idx.result"
+    local check_output="$results_dir/$idx.json"
+    local counts errors warnings project_failures is_ok dir_name
+
+    dotnet "$cli_dll" check "$check_dir/" > "$check_output" 2>/dev/null || true
+    counts=$(step10_summarize_check_json "$check_output")
+    IFS='|' read -r errors warnings project_failures is_ok <<< "$counts"
+    dir_name=$(echo "$check_dir" | sed "s|examples/||")
+    printf "%s|%s|%s|%s|%s|%s\n" "$errors" "$warnings" "$project_failures" "$is_ok" "$dir_name" "$check_dir" > "$result_file"
+
+    [ "$errors" = "0" ] && [ "$warnings" = "0" ] && [ "$project_failures" = "0" ] && [ "$is_ok" = "true" ]
+}
+
+export -f step10_summarize_check_json step10_check_project
+STEP10_CHECK_WORKER='step10_check_project "$1" "$2" "$3" || true'
+# STEP10_CHECK_FUNCTIONS_END
+
 echo "Using up to $MAX_JOBS parallel workers for nlc check..."
 CHECK_RESULTS_DIR=$(mktemp -d)
 CHECK_LIST="$CHECK_RESULTS_DIR/items.txt"
@@ -1508,26 +1561,16 @@ while IFS= read -r check_dir; do
     printf '%04d|%s\n' "$i" "$check_dir"
 done <<< "$(printf '%s\n' "$CHECK_DIRS" | sort -u)" > "$CHECK_LIST"
 
-xargs -P "$MAX_JOBS" -I{} bash -lc '
-    entry="$1"
-    repo_root="$2"
-    results_dir="$3"
-    cli_dll="$4"
-    idx="${entry%%|*}"
-    check_dir="${entry#*|}"
-    result_file="$results_dir/$idx.result"
-
-    result=$(dotnet "$cli_dll" check "$check_dir/" 2>/dev/null || true)
-    counts=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('summary',{}); print('%s|%s|%s|%s' % (s.get('errors',-1),s.get('warnings',-1),s.get('projectFailures',0),str(d.get('ok',False)).lower()))" 2>/dev/null || echo "?|?|?|false")
-    IFS='|' read -r errors warnings project_failures is_ok <<< "$counts"
-    dir_name=$(echo "$check_dir" | sed "s|examples/||")
-    printf "%s|%s|%s|%s|%s|%s\n" "$errors" "$warnings" "$project_failures" "$is_ok" "$dir_name" "$check_dir" > "$result_file"
-' _ {} "$REPO_ROOT" "$CHECK_RESULTS_DIR" "$CLI_DLL" < "$CHECK_LIST"
+xargs -P "$MAX_JOBS" -I{} bash -lc "$STEP10_CHECK_WORKER" _ {} "$CHECK_RESULTS_DIR" "$CLI_DLL" < "$CHECK_LIST"
 
 CHECK_FAIL=0
 while IFS='|' read -r idx check_dir_unused; do
     result_file="$CHECK_RESULTS_DIR/$idx.result"
-    [ ! -f "$result_file" ] && continue
+    if [ ! -f "$result_file" ]; then
+        echo -e "  ${RED}✗${NC} $check_dir_unused (worker produced no result)"
+        CHECK_FAIL=1
+        continue
+    fi
     errors=$(cut -d'|' -f1 "$result_file")
     warnings=$(cut -d'|' -f2 "$result_file")
     project_failures=$(cut -d'|' -f3 "$result_file")
