@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Runtime.Loader
+import System.Text
 import System.Threading
 import Xunit
 import Xunit.Abstractions
@@ -21,25 +22,205 @@ import Xunit.Abstractions
 // that context where the test output directory is. `tests/native/test-assembly-load-contexts` pins
 // that fact and says why it is safe: the gate runs one `nlc test` PROCESS per project, so exactly
 // one emitted assembly is pinned per process and it dies with the process.
+class XunitTestOutputChunk {
+    IsError: bool
+    Text: string
 
-// The sink xunit hands every execution message. It accumulates the rows in arrival order and
-// releases `WaitForCompletion` when the assembly finishes.
+    constructor(isError: bool, text: string) {
+        IsError = isError
+        Text = text
+    }
+}
+
+// Console is process-wide, so let xUnit execute cases concurrently while associating every write
+// with the currently executing test through AsyncLocal. Chunks are replayed after completion in
+// the same stable order as the result rows.
+class XunitTestOutputCapture {
+    currentTestKey: AsyncLocal<string?>
+    currentTestKeyValue: PropertyInfo
+    chunksByTest: Dictionary<string, List<XunitTestOutputChunk>>
+    unscopedChunks: List<XunitTestOutputChunk>
+    gate: object
+    stdoutTarget: TextWriter
+    stderrTarget: TextWriter
+    streamImmediately: bool
+
+    constructor(stdout: TextWriter, stderr: TextWriter) {
+        currentTestKey = new AsyncLocal<string?>()
+        valueProperty := typeof(AsyncLocal<string>).GetProperty("Value")
+        if valueProperty == null {
+            throw new InvalidOperationException("AsyncLocal.Value property was not found.")
+        }
+
+        currentTestKeyValue = valueProperty
+        chunksByTest = new Dictionary<string, List<XunitTestOutputChunk>>(StringComparer.Ordinal)
+        unscopedChunks = new List<XunitTestOutputChunk>()
+        gate = new object()
+        stdoutTarget = stdout
+        stderrTarget = stderr
+        streamImmediately = false
+    }
+
+    func StreamImmediately() {
+        streamImmediately = true
+    }
+
+    func BeginTest(test: ITest) {
+        key := GetTestKey(test)
+        lock gate {
+            if !chunksByTest.ContainsKey(key) {
+                chunksByTest[key] = new List<XunitTestOutputChunk>()
+            }
+        }
+
+        currentTestKeyValue.SetValue(currentTestKey, key)
+    }
+
+    func EndTest() {
+        currentTestKeyValue.SetValue(currentTestKey, null)
+    }
+
+    func Capture(isError: bool, text: string) {
+        if text.Length == 0 {
+            return
+        }
+
+        if streamImmediately {
+            if isError {
+                stderrTarget.Write(text)
+            } else {
+                stdoutTarget.Write(text)
+            }
+
+            return
+        }
+
+        key := currentTestKeyValue.GetValue(currentTestKey) as string
+        chunk := new XunitTestOutputChunk(isError, text)
+        lock gate {
+            if key == null {
+                unscopedChunks.Add(chunk)
+                return
+            }
+
+            testKey := key ?? ""
+            chunks: List<XunitTestOutputChunk>? = null
+            if !chunksByTest.TryGetValue(testKey, out chunks) {
+                chunks = new List<XunitTestOutputChunk>()
+                chunksByTest[testKey] = chunks ?? new List<XunitTestOutputChunk>()
+            }
+
+            (chunks ?? new List<XunitTestOutputChunk>()).Add(chunk)
+        }
+    }
+
+    func ReplayUnscoped() {
+        Replay(unscopedChunks)
+    }
+
+    func ReplayTest(testKey: string) {
+        chunks: List<XunitTestOutputChunk>? = null
+        lock gate {
+            chunksByTest.TryGetValue(testKey, out chunks)
+        }
+
+        if chunks != null {
+            Replay(chunks ?? new List<XunitTestOutputChunk>())
+        }
+    }
+
+    func Replay(chunks: IReadOnlyList<XunitTestOutputChunk>) {
+        for chunk in chunks {
+            if chunk.IsError {
+                Console.Error.Write(chunk.Text)
+            } else {
+                Console.Out.Write(chunk.Text)
+            }
+        }
+    }
+
+    static func GetTestKey(test: ITest): string {
+        return test.TestCase.UniqueID + "\n" + test.DisplayName
+    }
+}
+
+// StringWriter supplies the encoding property which the pinned seed compiler cannot override on
+// an external abstract base; all write paths are redirected into the per-test capture above.
+class XunitTestOutputWriter: StringWriter {
+    capture: XunitTestOutputCapture
+    isError: bool
+
+    constructor(capture: XunitTestOutputCapture, isError: bool) {
+        this.capture = capture
+        this.isError = isError
+    }
+
+    override func Write(value: char) {
+        capture.Capture(isError, value.ToString())
+    }
+
+    override func Write(buffer: char[], index: int, count: int) {
+        builder := new StringBuilder()
+        builder.Append(buffer, index, count)
+        capture.Capture(isError, builder.ToString())
+    }
+
+    override func Write(value: string?) {
+        if value != null {
+            capture.Capture(isError, value ?? "")
+        }
+    }
+
+    override func WriteLine(value: string?) {
+        capture.Capture(isError, (value ?? "") + Environment.NewLine)
+    }
+
+    override func WriteLine() {
+        capture.Capture(isError, Environment.NewLine)
+    }
+
+    override func Flush() {
+    }
+}
+
+class XunitTestExecutionRecord {
+    Result: NativeTestResult
+    OutcomeRank: int
+    OutputKey: string?
+    VerboseMessage: string?
+
+    constructor(result: NativeTestResult, outcomeRank: int, outputKey: string?, verboseMessage: string?) {
+        Result = result
+        OutcomeRank = outcomeRank
+        OutputKey = outputKey
+        VerboseMessage = verboseMessage
+    }
+}
+
+// The sink xunit hands every execution message. It buffers records and releases
+// `WaitForCompletion` when the assembly finishes.
 class XunitResultSink: IMessageSink, IDisposable {
     finishedValue: ManualResetEventSlim
     verboseValue: bool
-    outcomeRanksValue: int[]
-    outcomeCountValue: int
-    resultsValue: List<NativeTestResult>
+    recordsValue: List<XunitTestExecutionRecord>
+    outputCaptureValue: XunitTestOutputCapture
+    recordsGate: object
 
-    constructor(verbose: bool, expectedResultCount: int) {
+    constructor(verbose: bool, expectedResultCount: int, outputCapture: XunitTestOutputCapture) {
         finishedValue = new ManualResetEventSlim()
         verboseValue = verbose
-        outcomeRanksValue = new int[](Math.Max(expectedResultCount, 4))
-        outcomeCountValue = 0
-        resultsValue = new List<NativeTestResult>()
+        recordsValue = new List<XunitTestExecutionRecord>(Math.Max(expectedResultCount, 4))
+        outputCaptureValue = outputCapture
+        recordsGate = new object()
     }
 
     func OnMessage(message: IMessageSinkMessage): bool {
+        starting := message as ITestStarting
+        if starting != null {
+            outputCaptureValue.BeginTest(starting.Test)
+            return true
+        }
+
         passed := message as ITestPassed
         if passed != null {
             AddResult(passed, TestCommandKernels.GetPassedOutcome(), null)
@@ -60,15 +241,28 @@ class XunitResultSink: IMessageSink, IDisposable {
 
         error := message as IErrorMessage
         if error != null {
-            resultsValue.Add(new NativeTestResult(
+            result := new NativeTestResult(
                 TestCommandKernels.GetXunitRunnerErrorName(),
                 TestCommandKernels.GetXunitRunnerErrorDisplayName(),
                 TestCommandKernels.GetFailedOutcome(),
                 TestCommandKernels.GetZeroTestDuration(),
                 XunitTestRunner.FormatXunitFailure(error),
                 TestCommandKernels.GetXunitRunnerErrorDisplayName()
-            ))
-            AddOutcomeRank(TestCommandKernels.GetNativeTestOutcomeRank(TestCommandKernels.GetFailedOutcome()))
+            )
+            lock recordsGate {
+                recordsValue.Add(new XunitTestExecutionRecord(
+                    result,
+                    TestCommandKernels.GetNativeTestOutcomeRank(TestCommandKernels.GetFailedOutcome()),
+                    null,
+                    null
+                ))
+            }
+            return true
+        }
+
+        finished := message as ITestFinished
+        if finished != null {
+            outputCaptureValue.EndTest()
             return true
         }
 
@@ -96,7 +290,60 @@ class XunitResultSink: IMessageSink, IDisposable {
     }
 
     func ToRun(): NativeTestRun {
-        return new NativeTestRun(resultsValue, outcomeRanksValue, outcomeCountValue)
+        SortRecords()
+        results := new List<NativeTestResult>(recordsValue.Count)
+        outcomeRanks := new int[](recordsValue.Count)
+        index := 0
+        for executionRecord in recordsValue {
+            results.Add(executionRecord.Result)
+            outcomeRanks[index] = executionRecord.OutcomeRank
+            index = index + 1
+        }
+
+        return new NativeTestRun(results, outcomeRanks, recordsValue.Count)
+    }
+
+    func EmitOutput() {
+        SortRecords()
+        outputCaptureValue.ReplayUnscoped()
+        for executionRecord in recordsValue {
+            if executionRecord.OutputKey != null {
+                outputCaptureValue.ReplayTest(executionRecord.OutputKey ?? "")
+            }
+
+            if executionRecord.VerboseMessage != null {
+                Console.WriteLine(executionRecord.VerboseMessage ?? "")
+            }
+        }
+    }
+
+    func SortRecords() {
+        i := 1
+        while i < recordsValue.Count {
+            current := recordsValue[i]
+            j := i - 1
+            while j >= 0 && CompareRecords(recordsValue[j], current) > 0 {
+                recordsValue[j + 1] = recordsValue[j]
+                j = j - 1
+            }
+
+            recordsValue[j + 1] = current
+            i = i + 1
+        }
+    }
+
+    static func CompareRecords(left: XunitTestExecutionRecord, right: XunitTestExecutionRecord): int {
+        nameOrder := StringComparer.Ordinal.Compare(left.Result.Name, right.Result.Name)
+        if nameOrder != 0 {
+            return nameOrder
+        }
+
+        displayOrder := StringComparer.Ordinal.Compare(left.Result.DisplayName, right.Result.DisplayName)
+        if displayOrder != 0 {
+            return displayOrder
+        }
+
+        return StringComparer.Ordinal.Compare(left.OutputKey ?? "", right.OutputKey ?? "")
     }
 
     func AddResult(message: ITestResultMessage, outcome: string, errorMessage: string?) {
@@ -114,24 +361,20 @@ class XunitResultSink: IMessageSink, IDisposable {
             nsharpDescription
         )
 
-        resultsValue.Add(result)
-        AddOutcomeRank(TestCommandKernels.GetNativeTestOutcomeRank(outcome))
-
-        if !verboseValue {
-            return
+        verboseMessage: string? = null
+        if verboseValue {
+            elapsedText := TestCommandKernels.FormatTestElapsedMilliseconds((double)(message.ExecutionTime * 1000))
+            verboseMessage = TestCommandKernels.GetVerboseMessage(outcome, displayName, elapsedText, errorMessage)
         }
 
-        elapsedText := TestCommandKernels.FormatTestElapsedMilliseconds((double)(message.ExecutionTime * 1000))
-        Console.WriteLine(TestCommandKernels.GetVerboseMessage(outcome, displayName, elapsedText, errorMessage))
-    }
-
-    func AddOutcomeRank(rank: int) {
-        if outcomeCountValue == outcomeRanksValue.Length {
-            Array.Resize(ref outcomeRanksValue, Math.Max(outcomeRanksValue.Length * 2, 4))
+        lock recordsGate {
+            recordsValue.Add(new XunitTestExecutionRecord(
+                result,
+                TestCommandKernels.GetNativeTestOutcomeRank(outcome),
+                XunitTestOutputCapture.GetTestKey(message.Test),
+                verboseMessage
+            ))
         }
-
-        outcomeRanksValue[outcomeCountValue] = rank
-        outcomeCountValue = outcomeCountValue + 1
     }
 }
 
@@ -143,6 +386,12 @@ static class XunitTestRunner {
         }
 
         probeDirectory := assemblyDirectory
+        stdout := Console.Out
+        stderr := Console.Error
+        outputCapture := new XunitTestOutputCapture(stdout, stderr)
+        Console.SetOut(new XunitTestOutputWriter(outputCapture, false))
+        Console.SetError(new XunitTestOutputWriter(outputCapture, true))
+        executionSink: XunitResultSink? = null
 
         // `on`/`off` is the N# spelling of `+=`/`-=`, and the handle remembers the exact delegate,
         // so the `finally` below removes the same instance that was added.
@@ -189,19 +438,66 @@ static class XunitTestRunner {
                 }
             }
 
-            using executionSink := new XunitResultSink(verbose, testCases.Count)
-            executionOptions := TestFrameworkOptions.ForExecution(assemblyConfiguration)
-            controller.RunTests(testCases, executionSink, executionOptions)
+            SortTestCases(testCases)
+            if testCases.Count == 1 {
+                // A one-test run has no cross-test ordering ambiguity. Keep its output live, and
+                // preserve writes if user test code exits the process before the runner returns.
+                outputCapture.StreamImmediately()
+            }
 
-            if !executionSink.WaitForCompletion(timeoutMs) {
+            sink := new XunitResultSink(verbose, testCases.Count, outputCapture)
+            executionSink = sink
+            executionOptions := TestFrameworkOptions.ForExecution(assemblyConfiguration)
+            // Keep test-start/finish messages on the execution context. The capture writer uses an
+            // AsyncLocal key set by those messages to route process-wide Console writes per test.
+            executionOptions.SetSynchronousMessageReporting(true)
+            controller.RunTests(testCases, sink, executionOptions)
+
+            if !sink.WaitForCompletion(timeoutMs) {
                 throw new TimeoutException(TestCommandKernels.GetRunTimedOutMessage())
             }
 
-            return executionSink.ToRun()
+            return sink.ToRun()
         } finally {
+            Console.SetOut(stdout)
+            Console.SetError(stderr)
+            if executionSink != null {
+                sink := executionSink
+                sink.EmitOutput()
+                sink.Dispose()
+            } else {
+                outputCapture.ReplayUnscoped()
+            }
+
             off resolvingSubscription
             off appDomainSubscription
         }
+    }
+
+    // Test output is process-wide, so execution and result order use this ordinal key in every
+    // runner invocation, whether it is in-process or in a daemon worker.
+    static func SortTestCases(testCases: List<ITestCase>) {
+        i := 1
+        while i < testCases.Count {
+            current := testCases[i]
+            j := i - 1
+            while j >= 0 && CompareTestCases(testCases[j], current) > 0 {
+                testCases[j + 1] = testCases[j]
+                j = j - 1
+            }
+
+            testCases[j + 1] = current
+            i = i + 1
+        }
+    }
+
+    static func CompareTestCases(left: ITestCase, right: ITestCase): int {
+        nameOrder := StringComparer.Ordinal.Compare(GetXunitFullyQualifiedName(left), GetXunitFullyQualifiedName(right))
+        if nameOrder != 0 {
+            return nameOrder
+        }
+
+        return StringComparer.Ordinal.Compare(left.DisplayName, right.DisplayName)
     }
 
     // An assembly already in the context wins, so a dependency the host has loaded is shared rather

@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Diagnostics
 import System.IO
+import System.Text.Json
 import System.Threading
 
 // ═══ SOURCES THE ROWS COMPILE ═════════════════════════════════════════════════════════════════
@@ -17,6 +18,18 @@ func BrokenProgram(): string {
 
 func MixedTests(): string {
     return "namespace DaemonExecProbe\n\nimport System\n\ntest \"twice doubles\" {\n    print \"hello from a passing test\"\n    assert Twice(2) == 4\n}\n\ntest \"twice is wrong on purpose\" {\n    Console.Error.WriteLine(\"stderr from a failing test\")\n    assert Twice(3) == 7\n}\n"
+}
+
+func OutputOrderingProbe(index: int): string {
+    id := index.ToString("D2")
+    source := "namespace DaemonExecProbe\n\nimport System\nimport System.Threading\n\ntest \"output " + id + "\" {\n    Thread.Sleep(" + ((index * 3) % 25).ToString() + ")\n    print \"stdout-" + id + "\"\n    Console.Error.WriteLine(\"stderr-" + id + "\")\n    Thread.Sleep(" + ((index * 7) % 19).ToString() + ")\n"
+    if index == 11 {
+        source = source + "    assert false\n"
+    } else {
+        source = source + "    assert true\n"
+    }
+
+    return source + "}\n"
 }
 
 func UnformattedSource(): string {
@@ -151,6 +164,130 @@ test "test runs answer identically, failing tests, prints and JSON envelope incl
         assert run.Stderr.Contains("stderr from a failing test")
     } finally {
         DeleteWorkspace(workspace)
+    }
+}
+
+test "test output order is stable across repeated parallel-capable in-process and daemon runs" {
+    workspace := NewWorkspace()
+    try {
+        WriteSource(workspace, "Program.nl", "namespace DaemonExecProbe\n\nfunc main() {\n}\n")
+        index := 0
+        while index < 24 {
+            WriteSource(workspace, "Probe" + index.ToString("D2") + ".tests.nl", OutputOrderingProbe(index))
+            index = index + 1
+        }
+
+        StartServer(workspace)
+        textArgs := ["test", "--verbose"]
+        jsonArgs := ["test", "--json", "--verbose"]
+        textBaseline := NlcWith(textArgs, workspace, InProcess(), null)
+        jsonBaseline := NlcWith(jsonArgs, workspace, InProcess(), null)
+        assert textBaseline.ExitCode == 1
+        assert jsonBaseline.ExitCode == 1
+        AssertRunnerOutputOrder(textBaseline.Stdout, 24)
+        AssertPrintOrder(textBaseline.Stderr, "stderr-", 24)
+        AssertRunnerOutputOrder(jsonBaseline.Stderr, 24)
+        AssertJsonResultOrder(jsonBaseline.Stdout, 24)
+
+        attempt := 0
+        while attempt < 5 {
+            textInProcess := NlcWith(textArgs, workspace, InProcess(), null)
+            AssertSameProbeRun(textBaseline, textInProcess, "text in-process", false)
+
+            textRouted := NlcWith(textArgs, workspace, Traced(), null)
+            assert RoutedThroughServer(textRouted.Stderr)
+            AssertSameProbeRun(textBaseline, textRouted, "text daemon", true)
+
+            jsonInProcess := NlcWith(jsonArgs, workspace, InProcess(), null)
+            AssertSameProbeRun(jsonBaseline, jsonInProcess, "JSON in-process", false)
+
+            jsonRouted := NlcWith(jsonArgs, workspace, Traced(), null)
+            assert RoutedThroughServer(jsonRouted.Stderr)
+            AssertSameProbeRun(jsonBaseline, jsonRouted, "JSON daemon", true)
+            attempt = attempt + 1
+        }
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
+func AssertRunnerOutputOrder(output: string, expectedCount: int) {
+    cursor := 0
+    index := 0
+    while index < expectedCount {
+        id := index.ToString("D2")
+        printPosition := output.IndexOf("stdout-" + id, cursor, StringComparison.Ordinal)
+        if printPosition < cursor {
+            throw new InvalidOperationException("Test output is missing or out of order for probe " + id + ".\n" + output)
+        }
+
+        resultPrefix := "Passed output " + id + " ["
+        if index == 11 {
+            resultPrefix = "Failed output " + id + ":"
+        }
+
+        resultPosition := output.IndexOf(resultPrefix, printPosition, StringComparison.Ordinal)
+        if resultPosition < printPosition {
+            throw new InvalidOperationException("The result for probe " + id + " did not follow its print.")
+        }
+
+        cursor = resultPosition + resultPrefix.Length
+        index = index + 1
+    }
+}
+
+func AssertPrintOrder(output: string, prefix: string, expectedCount: int) {
+    cursor := 0
+    index := 0
+    while index < expectedCount {
+        id := index.ToString("D2")
+        position := output.IndexOf(prefix + id, cursor, StringComparison.Ordinal)
+        if position < cursor {
+            throw new InvalidOperationException("Test print is missing or out of order for probe " + id + ".")
+        }
+
+        cursor = position + prefix.Length + id.Length
+        index = index + 1
+    }
+}
+
+func AssertJsonResultOrder(json: string, expectedCount: int) {
+    using document := JsonDocument.Parse(json)
+    results := document.RootElement.GetProperty("results")
+    enumerator := results.EnumerateArray()
+    index := 0
+    while enumerator.MoveNext() {
+        id := index.ToString("D2")
+        actual := enumerator.Current.GetProperty("displayName").GetString()
+        expected := "output " + id
+        if actual != expected {
+            throw new InvalidOperationException("JSON result row " + index.ToString() + " was '" + (actual ?? "<null>") + "', expected '" + expected + "'.")
+        }
+
+        index = index + 1
+    }
+
+    if index != expectedCount {
+        throw new InvalidOperationException("JSON contained " + index.ToString() + " results, expected " + expectedCount.ToString() + ".")
+    }
+}
+
+func AssertSameProbeRun(expected: ProcessRun, actual: ProcessRun, label: string, routed: bool) {
+    if expected.ExitCode != actual.ExitCode {
+        throw new InvalidOperationException("Exit code changed across " + label + " probe runs.")
+    }
+
+    actualStderr := actual.Stderr
+    if routed {
+        actualStderr = WithoutTrace(actualStderr)
+    }
+
+    if Normalized(expected.Stdout) != Normalized(actual.Stdout) {
+        throw new InvalidOperationException("Stdout changed across " + label + " probe runs.\n--- expected ---\n" + expected.Stdout + "\n--- actual ---\n" + actual.Stdout)
+    }
+
+    if Normalized(expected.Stderr) != Normalized(actualStderr) {
+        throw new InvalidOperationException("Stderr changed across " + label + " probe runs.\n--- expected ---\n" + expected.Stderr + "\n--- actual ---\n" + actualStderr)
     }
 }
 

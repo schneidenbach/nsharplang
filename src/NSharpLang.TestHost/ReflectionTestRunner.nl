@@ -43,6 +43,7 @@ static class ReflectionTestRunner {
                 }
             }
 
+            SortNativeTests(testCases)
             results := new List<NativeTestResult>()
             outcomeRanks := new int[](testCases.Count)
             outcomeCount := 0
@@ -57,6 +58,32 @@ static class ReflectionTestRunner {
         } finally {
             loadContext.Unload()
         }
+    }
+
+    // Reflection enumeration order is not the CLI contract. Keep the sequential runner aligned
+    // with xUnit's stable test order for text output and JSON result arrays.
+    static func SortNativeTests(testCases: List<NativeTestCase>) {
+        i := 1
+        while i < testCases.Count {
+            current := testCases[i]
+            j := i - 1
+            while j >= 0 && CompareNativeTests(testCases[j], current) > 0 {
+                testCases[j + 1] = testCases[j]
+                j = j - 1
+            }
+
+            testCases[j + 1] = current
+            i = i + 1
+        }
+    }
+
+    static func CompareNativeTests(left: NativeTestCase, right: NativeTestCase): int {
+        nameOrder := StringComparer.Ordinal.Compare(left.FullyQualifiedName, right.FullyQualifiedName)
+        if nameOrder != 0 {
+            return nameOrder
+        }
+
+        return StringComparer.Ordinal.Compare(left.DisplayName, right.DisplayName)
     }
 
     // ONE CASE PER METHOD. N# owns table-driven cases by LOWERING each row into its own test
