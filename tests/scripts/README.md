@@ -64,3 +64,25 @@ Add `--scenario "no-op build"` to isolate that exact cold and daemon-warm row fo
 probe; the product gate always uses the complete small/medium scenario matrix.
 
 See `memory/testing.md` sections 8 and 8a for the counter rows, base selection, artifacts and ratchet workflow.
+
+## CI test shards
+
+`.github/workflows/build.yml` builds the CLI, native prerequisites and compiler-service estate once,
+then uploads their outputs for the matrix test shards. `scripts/ci-test-shards.sh` discovers every
+estate project and native `project.yml`, balances them by the checked-in measurements in
+`scripts/ci-test-durations.json`, and reserves `tests/native/compile-time-bench` for its own
+parallel performance job. New projects are discovered and assigned automatically; projects with
+no measurement start with the baseline's conservative fallback estimate. The shard contract runs
+in `tests/native/gate-script-contracts` and checks exact coverage, uniqueness and repeatability.
+
+Each shard and the performance job upload a JSON duration artifact with one record per project.
+After downloading all duration artifacts from a complete run, refresh the local balance baseline:
+
+```bash
+gh run download 123456789 --pattern 'ci-project-durations-*' --dir /tmp/nsharp-ci-durations
+scripts/ci-test-shards.sh refresh-durations --from-dir /tmp/nsharp-ci-durations --source 123456789
+```
+
+Review and commit the updated measurements with the workflow change that needs them. The performance
+project's paired base/head measurement remains in its dedicated job and is included in the duration
+artifacts, separate from the ordinary test-shard estimates.
