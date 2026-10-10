@@ -26,8 +26,8 @@ test "Execute logs every compiler diagnostic in result order before failure and 
         output := result.Stdout + result.Stderr
         first := "First.nl(2,12,2,23): error NL301: Variable 'missingFirst' not found | I cannot find a `missingFirst` variable on line 2: | Make sure you've declared this variable before using it. | docs: https://schneidenbach.github.io/nsharplang/docs/errors/NL301"
         second := "Second.nl(2,12,2,24): error NL301: Variable 'missingSecond' not found | I cannot find a `missingSecond` variable on line 2: | Make sure you've declared this variable before using it. | docs: https://schneidenbach.github.io/nsharplang/docs/errors/NL301"
-        firstWarning := "First.nl(1,1,1,4): warning NL923: Reference assembly '" + badReference + "' could not be loaded or fully inspected (BadImageFormatException: Image is too small.); types from it may be reported as not found."
-        secondWarning := "Second.nl(1,1,1,4): warning NL923: Reference assembly '" + badReference + "' could not be loaded or fully inspected (BadImageFormatException: Image is too small.); types from it may be reported as not found."
+        firstWarning := "First.nl(1,1,1,4): warning NL923: Reference assembly '" + badReference + "' could not be loaded or fully inspected (BadImageFormatException: Reference image remained incomplete or invalid while it was being read: " + badReference + "); types from it may be reported as not found."
+        secondWarning := "Second.nl(1,1,1,4): warning NL923: Reference assembly '" + badReference + "' could not be loaded or fully inspected (BadImageFormatException: Reference image remained incomplete or invalid while it was being read: " + badReference + "); types from it may be reported as not found."
         firstIndex := output.IndexOf(first, StringComparison.Ordinal)
         secondIndex := output.IndexOf(second, StringComparison.Ordinal)
         firstWarningIndex := output.IndexOf(firstWarning, StringComparison.Ordinal)
