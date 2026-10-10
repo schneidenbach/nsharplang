@@ -101,8 +101,14 @@ test "CI runs the paired compiler gates with git history and uploads their trend
     assert workflow.Contains("name: Discover and run compiler-service estate and native tests"), "CI must use the discovery-driven compiler test step."
     assert workflow.Contains("for project in src/NSharpLang.Compiler/*.csproj src/NSharpLang.Compiler.*/*.csproj; do"), "CI must discover estate owners instead of freezing the project list."
     assert workflow.Contains("NSharpExcludeTests=false"), "Every discovered estate project must compile its test rows."
+    assert workflow.Contains("dotnet build \"$project\" -c Release -p:NSharpExcludeTests=false"), "Estate build errors must stay fail-fast before test execution."
+    assert workflow.Contains("dotnet test \"$project\" -c Release -p:NSharpExcludeTests=false --no-build"), "Estate test failures must be collected after the fail-fast build phase."
+    assert workflow.Contains("estate_failures+=(\"$project (exit $test_status)\")"), "CI must retain every failed estate project."
     assert workflow.Contains("native_projects=(tests/native/*/project.yml)"), "CI must discover every native test project."
-    assert workflow.Contains("dotnet \"$cli_dll\" test --project \"$native_dir\" --no-cache"), "Every discovered native project must run with the fresh CLI."
+    assert workflow.Contains("dotnet \"$cli_dll\" test --project \"$native_dir\" --no-cache --json"), "Every discovered native project must run with the fresh CLI and a classifiable result envelope."
+    assert workflow.Contains("native_failures+=(\"$native_dir\")"), "A failed native test project must be recorded while the sweep continues."
+    assert workflow.Contains("macos_only_reason()"), "Any native project skipped on Linux must have an explicit reason in the workflow."
+    assert workflow.Contains("if [[ ${#estate_failures[@]} -gt 0 || ${#native_failures[@]} -gt 0 ]]; then"), "CI must report the complete failure list after both sweeps."
     assert workflow.Contains("tests/native/compile-time-bench") && workflow.Contains("NSHARP_COMPILER_PERF_CACHE"), "The discovered performance project must keep its quiet paired timing configuration."
     assert workflow.Contains("NSHARP_RUN_DOCKER_INTEGRATION: '1'"), "Docker rows must run as required integration tests in CI."
     assert workflow.Contains("name: Upload compiler performance trends"), "CI must upload the absolute trend artifacts."
@@ -176,7 +182,7 @@ test "the product gate and CI build native prerequisites before their tests thro
 
     workflowBuildCall := "\n        " + buildScriptPath + "\n"
     workflowBuildIndex := workflow.IndexOf(workflowBuildCall)
-    nativeRunIndex := workflow.IndexOf("dotnet \"$cli_dll\" test --project \"$native_dir\" --no-cache")
+    nativeRunIndex := workflow.IndexOf("dotnet \"$cli_dll\" test --project \"$native_dir\" --no-cache --json")
     assert workflowBuildIndex >= 0 && nativeRunIndex > workflowBuildIndex, "CI must invoke the shared Debug prerequisite builder before running any discovered native project."
     assert workflow.Contains("native_projects=(tests/native/*/project.yml)"), "CI must retain open-ended native project discovery."
     assert workflow.Contains("NSHARP_RUN_DOCKER_INTEGRATION: '1'"), "The discovered installed-toolchain-integration project requires Docker, and CI must force those rows to run."

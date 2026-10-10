@@ -181,8 +181,9 @@ class DaemonClient {
             // failures are still told apart in the order the clauses had.
             socketFailure := ex as SocketException
             if socketFailure != null {
-                // Only a failed connect can prove a path stale; connection-refused is ambiguous
-                // until the server's PID file marks Listen complete.
+                // Only a failed connect can prove a path stale. Connection-refused stays
+                // ambiguous on macOS until the ready PID marker; Linux uses /proc/net/unix to
+                // distinguish a bound socket from a regular file at the same path.
                 DeleteStaleSocket(socketPath, socketFailure, connectFailed)
                 return null
             }
@@ -403,12 +404,20 @@ class DaemonClient {
 
     static func DeleteStaleSocket(socketPath: string, ex: SocketException, connectFailed: bool) {
         pidPath := DaemonProtocolKernels.GetPidFilePath(socketPath)
+        isLinux := OperatingSystem.IsLinux()
+        linuxSocketIsBound := false
+        if isLinux && ex.SocketErrorCode == SocketError.ConnectionRefused {
+            linuxSocketIsBound = IsLinuxUnixSocketBound(socketPath)
+        }
+
         if !DaemonClientKernels.ShouldDeleteStaleSocket(
             (int)ex.SocketErrorCode,
             connectFailed,
             File.Exists(pidPath),
             (int)SocketError.NotSocket,
-            (int)SocketError.ConnectionRefused
+            (int)SocketError.ConnectionRefused,
+            isLinux,
+            linuxSocketIsBound
         ) {
             return
         }
@@ -418,6 +427,26 @@ class DaemonClient {
         } catch deleteFailure: Exception {
             Console.Error.WriteLine(DaemonClientKernels.GetConnectionErrorMessage(deleteFailure.Message))
         }
+    }
+
+    // Linux reports the same ECONNREFUSED for a regular file and a live socket that has been
+    // bound but has not started listening. `/proc/net/unix` lists bound Unix sockets by pathname,
+    // which lets stale-file cleanup keep a live startup socket intact. If procfs is unavailable,
+    // preserve the path because the refusal alone cannot prove that it is stale.
+    static func IsLinuxUnixSocketBound(socketPath: string): bool {
+        try {
+            lines := File.ReadAllLines("/proc/net/unix")
+            for line in lines {
+                if line.EndsWith(" " + socketPath, StringComparison.Ordinal) {
+                    return true
+                }
+            }
+        } catch probeFailure: Exception {
+            Console.Error.WriteLine(DaemonClientKernels.GetConnectionErrorMessage("Unable to inspect Linux Unix socket table: " + probeFailure.Message))
+            return true
+        }
+
+        return false
     }
 
     static func SendAll(socket: Socket, bytes: byte[]) {

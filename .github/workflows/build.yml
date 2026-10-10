@@ -82,9 +82,24 @@ jobs:
           exit 1
         fi
         printf 'Discovered %s compiler-service estate projects.\n' "${#estate_projects[@]}"
+
+        # Compile every estate project first. Build failures remain fail-fast; test failures are
+        # collected so a red project cannot hide the rest of the estate or native sweep.
+        for project in "${estate_projects[@]}"; do
+          echo "Building compiler-service estate: $project"
+          dotnet build "$project" -c Release -p:NSharpExcludeTests=false
+        done
+
+        estate_failures=()
         for project in "${estate_projects[@]}"; do
           echo "Testing compiler-service estate: $project"
-          dotnet test "$project" -c Release -p:NSharpExcludeTests=false
+          if dotnet test "$project" -c Release -p:NSharpExcludeTests=false --no-build; then
+            :
+          else
+            test_status=$?
+            estate_failures+=("$project (exit $test_status)")
+            echo "::error::Compiler-service estate tests failed: $project (exit $test_status)"
+          fi
         done
 
         # Native project.yml files reference Debug outputs directly. Use the same prerequisite
@@ -99,15 +114,30 @@ jobs:
           exit 1
         fi
         # Environment constraints are explicit: installed-toolchain-integration requires Docker
-        # (forced by NSHARP_RUN_DOCKER_INTEGRATION above). There are no macOS-only native projects;
-        # the host-conditional rows support Linux as well as macOS and are exercised on this runner.
+        # (forced by NSHARP_RUN_DOCKER_INTEGRATION above). There are no macOS-only native projects
+        # today. If one is added, list its path and reason below; every unlisted project runs here.
+        macos_only_reason() {
+          case "$1" in
+            # Example: tests/native/example) printf '%s' 'uses a macOS-only framework unavailable on Linux' ;;
+            *) return 1 ;;
+          esac
+        }
+
         native_count=0
+        native_skipped=0
+        native_failures=()
         for config in "${native_projects[@]}"; do
           native_dir=${config%/project.yml}
           if ! find "$native_dir" -type f -name '*.tests.nl' \
               -not -path '*/bin/*' -not -path '*/obj/*' -print -quit | grep -q .; then
             echo "::error::Native project has no *.tests.nl files: $native_dir"
             exit 1
+          fi
+
+          if reason=$(macos_only_reason "$native_dir"); then
+            echo "::notice::Skipping macOS-only native project: $native_dir — $reason"
+            native_skipped=$((native_skipped + 1))
+            continue
           fi
 
           cli_dll=src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll
@@ -118,10 +148,93 @@ jobs:
           fi
 
           echo "Testing native project: $native_dir"
-          dotnet "$cli_dll" test --project "$native_dir" --no-cache
+          native_output=$(mktemp)
+          native_exit=0
+          if dotnet "$cli_dll" test --project "$native_dir" --no-cache --json >"$native_output"; then
+            native_exit=0
+          else
+            native_exit=$?
+          fi
+
+          # `nlc test` emits a complete summary for test failures. A missing/invalid envelope or a
+          # zero-test result means the project did not reach a trustworthy test run (usually a
+          # build failure), so fail fast instead of misclassifying it as an ordinary test failure.
+          native_classification=0
+          if python3 - "$native_output" "$native_exit" "$native_dir" <<'PY'
+        import json
+        import sys
+
+        path, exit_text, project = sys.argv[1:]
+        exit_code = int(exit_text)
+        try:
+            with open(path, encoding="utf-8") as stream:
+                payload = json.load(stream)
+        except Exception as error:
+            print(f"::error::Native test build/run failed before a valid result for {project}: {error}")
+            sys.exit(2)
+
+        summary = payload.get("summary") if isinstance(payload, dict) else None
+        results = payload.get("results") if isinstance(payload, dict) else None
+        if not isinstance(payload, dict) or payload.get("schemaVersion") != 1 or payload.get("command") != "test" or not isinstance(summary, dict) or not isinstance(results, list):
+            print(f"::error::Native test build/run failed before a valid result for {project}.")
+            sys.exit(2)
+
+        total = summary.get("total")
+        passed = summary.get("passed")
+        failed = summary.get("failed")
+        skipped = summary.get("skipped")
+        outcomes = {"passed": 0, "failed": 0, "skipped": 0}
+        for result in results:
+            if not isinstance(result, dict) or result.get("outcome") not in outcomes:
+                print(f"::error::Native test output contains an invalid result for {project}.")
+                sys.exit(2)
+            outcomes[result["outcome"]] += 1
+
+        values = (total, passed, failed, skipped)
+        if any(type(value) is not int for value in values) or total <= 0 or len(results) != total or sum(outcomes.values()) != total or (passed, failed, skipped) != tuple(outcomes[key] for key in ("passed", "failed", "skipped")):
+            print(f"::error::Native test build/run did not produce a complete nonempty result for {project}.")
+            sys.exit(2)
+
+        print(f"Native result: {project} — {total} tests (passed {passed}, failed {failed}, skipped {skipped})")
+        if payload.get("ok") is True and exit_code == 0 and passed > 0 and failed == 0:
+            sys.exit(0)
+
+        if payload.get("ok") is False and exit_code != 0 and failed > 0:
+            for result in results:
+                if result["outcome"] == "failed":
+                    detail = result.get("errorMessage", "")
+                    print(f"  FAILED {result.get('displayName') or result.get('name')}: {detail}")
+            sys.exit(1)
+
+        print(f"::error::Native test build/run failed for {project} (exit {exit_code}); this is not a complete test-failure result.")
+        sys.exit(2)
+        PY
+          then
+            native_classification=0
+          else
+            native_classification=$?
+          fi
+          rm -f "$native_output"
+
+          if [[ $native_classification -eq 1 ]]; then
+            native_failures+=("$native_dir")
+          elif [[ $native_classification -ne 0 ]]; then
+            exit "$native_classification"
+          fi
           native_count=$((native_count + 1))
         done
-        printf 'Ran all %s discovered native test projects.\n' "$native_count"
+        printf 'Ran %s discovered native test projects; explicitly skipped %s macOS-only projects.\n' "$native_count" "$native_skipped"
+
+        if [[ ${#estate_failures[@]} -gt 0 || ${#native_failures[@]} -gt 0 ]]; then
+          echo '::error::Compiler-service/native test failures:'
+          for failed_project in "${estate_failures[@]}"; do
+            echo "  compiler-service estate: $failed_project"
+          done
+          for failed_project in "${native_failures[@]}"; do
+            echo "  native project: $failed_project"
+          done
+          exit 1
+        fi
 
     - name: Upload compiler performance trends
       if: always()

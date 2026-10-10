@@ -42,7 +42,9 @@ class DaemonClientKernels {
         connectFailed: bool,
         hasReadyPidFile: bool,
         notSocketErrorCode: int,
-        connectionRefusedErrorCode: int
+        connectionRefusedErrorCode: int,
+        isLinux: bool,
+        linuxSocketIsBound: bool
     ): bool {
         if !connectFailed {
             return false
@@ -52,6 +54,20 @@ class DaemonClientKernels {
             return true
         }
 
-        return socketErrorCode == connectionRefusedErrorCode && hasReadyPidFile
+        if socketErrorCode == connectionRefusedErrorCode {
+            // Linux reports ECONNREFUSED for both a regular file and a live socket that has bound
+            // but has not started listening. Its active-socket table distinguishes those paths;
+            // if the path is currently bound, keep it. macOS reports ENOTSOCK for a regular file
+            // and ECONNREFUSED for the live startup window, so the ready PID marker remains its
+            // stale-socket signal.
+            if isLinux {
+                return !linuxSocketIsBound
+            }
+
+            return hasReadyPidFile
+        }
+
+        // AddressNotAvailable and other errors do not prove that the path is stale.
+        return false
     }
 }

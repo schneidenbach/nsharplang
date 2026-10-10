@@ -47,13 +47,20 @@ test "the two client sentences that take a reason really use it" {
 test "stale socket cleanup waits for the listener-ready pid marker" {
     connectionRefused := (int)SocketError.ConnectionRefused
     notSocket := (int)SocketError.NotSocket
+    addressNotAvailable := (int)SocketError.AddressNotAvailable
     timedOut := (int)SocketError.TimedOut
 
-    assert !DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, true, false, notSocket, connectionRefused)
-    assert DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, true, true, notSocket, connectionRefused)
-    assert DaemonClientKernels.ShouldDeleteStaleSocket(notSocket, true, false, notSocket, connectionRefused)
-    assert !DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, false, true, notSocket, connectionRefused)
-    assert !DaemonClientKernels.ShouldDeleteStaleSocket(timedOut, true, true, notSocket, connectionRefused)
+    // macOS reports ENOTSOCK for a regular file and ECONNREFUSED for the live startup window.
+    // Linux reports ECONNREFUSED for both, so the caller checks /proc/net/unix before applying
+    // this kernel's bound-socket fact.
+    assert !DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, true, false, notSocket, connectionRefused, false, false)
+    assert DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, true, true, notSocket, connectionRefused, false, false)
+    assert DaemonClientKernels.ShouldDeleteStaleSocket(notSocket, true, false, notSocket, connectionRefused, false, false)
+    assert !DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, false, true, notSocket, connectionRefused, true, false)
+    assert !DaemonClientKernels.ShouldDeleteStaleSocket(timedOut, true, true, notSocket, connectionRefused, true, false)
+    assert DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, true, false, notSocket, connectionRefused, true, false)
+    assert !DaemonClientKernels.ShouldDeleteStaleSocket(connectionRefused, true, false, notSocket, connectionRefused, true, true)
+    assert !DaemonClientKernels.ShouldDeleteStaleSocket(addressNotAvailable, true, false, notSocket, connectionRefused, true, false)
 }
 
 // ── the server's protocol sentences ───────────────────────────────────────────

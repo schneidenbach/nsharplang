@@ -4,10 +4,10 @@
   "codeEpochFileCount": 223,
   "codeEpochPathFingerprint": "pathset-v2:fbda7fc3d5053525",
   "codeEpochFactFingerprint": "epochfacts-v2:e9d97310d85a20be",
-  "reviewedHeadFingerprint": "head-v2:11423b55fa1b8114",
+  "reviewedHeadFingerprint": "head-v2:73834fae298f9449",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
-    {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":267,"currentNonBlankLines":236,"currentBytes":0,"currentFingerprint":"text-v1:0bb5ac38fd16aeef"},
+    {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":380,"currentNonBlankLines":335,"currentBytes":0,"currentFingerprint":"text-v1:dd9e6d61b133581a"},
     {"path":".github/workflows/cleanup-unofficial.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":54,"currentNonBlankLines":50,"currentBytes":0,"currentFingerprint":"text-v1:7338cd13d4fc1ef4"},
     {"path":".github/workflows/deploy-website.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":71,"currentNonBlankLines":58,"currentBytes":0,"currentFingerprint":"text-v1:2fe571c209b4ceac"},
     {"path":".github/workflows/publish.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":75,"currentNonBlankLines":61,"currentBytes":0,"currentFingerprint":"text-v1:c92ed094a20f9532"},
