@@ -98,18 +98,20 @@ test "CI runs the paired compiler gates with git history and uploads their trend
     workflow := CompilerPerfSource(".github/workflows/build.yml")
 
     assert workflow.Contains("fetch-depth: 0"), "CI must fetch the compiler history and origin branch needed for deterministic base selection."
-    assert workflow.Contains("name: Discover and run compiler-service estate and native tests"), "CI must use the discovery-driven compiler test step."
-    assert workflow.Contains("for project in src/NSharpLang.Compiler/*.csproj src/NSharpLang.Compiler.*/*.csproj; do"), "CI must discover estate owners instead of freezing the project list."
-    assert workflow.Contains("NSharpExcludeTests=false"), "Every discovered estate project must compile its test rows."
-    assert workflow.Contains("dotnet build \"$project\" -c Release -p:NSharpExcludeTests=false"), "Estate build errors must stay fail-fast before test execution."
-    assert workflow.Contains("dotnet test \"$project\" -c Release -p:NSharpExcludeTests=false --no-build"), "Estate test failures must be collected after the fail-fast build phase."
-    assert workflow.Contains("estate_failures+=(\"$project (exit $test_status)\")"), "CI must retain every failed estate project."
-    assert workflow.Contains("native_projects=(tests/native/*/project.yml)"), "CI must discover every native test project."
-    assert workflow.Contains("dotnet \"$cli_dll\" test --project \"$native_dir\" --no-cache --json"), "Every discovered native project must run with the fresh CLI and a classifiable result envelope."
-    assert workflow.Contains("native_failures+=(\"$native_dir\")"), "A failed native test project must be recorded while the sweep continues."
-    assert workflow.Contains("macos_only_reason()"), "Any native project skipped on Linux must have an explicit reason in the workflow."
-    assert workflow.Contains("if [[ ${#estate_failures[@]} -gt 0 || ${#native_failures[@]} -gt 0 ]]; then"), "CI must report the complete failure list after both sweeps."
-    assert workflow.Contains("tests/native/compile-time-bench") && workflow.Contains("NSHARP_COMPILER_PERF_CACHE"), "The discovered performance project must keep its quiet paired timing configuration."
+    assert workflow.Contains("compiler-performance:"), "The compiler performance gate must run in its own parallel job."
+    assert workflow.Contains("Build head CLI for compiler performance gate"), "The performance lane must build its own head CLI."
+    assert workflow.Contains("NSHARP_COMPILER_PERF_CACHE"), "The performance project must retain its isolated base-build cache."
+    assert workflow.Contains("--performance"), "The performance job must own the compile-time-bench project."
+    assert workflow.Contains("test-shards:"), "CI must use the matrix test-shard job."
+    assert workflow.Contains("fail-fast: false"), "A failed shard must not cancel other test shards."
+    assert workflow.Contains("ci-test-shards.sh run"), "Shard execution must use the discovery-driven runner."
+    assert workflow.Contains("ci-test-shards.sh build-estate"), "All discovered estate projects must be built before any test shard runs."
+    assert workflow.Contains("matrix: ${{ fromJSON(needs.build-prerequisites.outputs.test_matrix) }}"), "The shard matrix must be generated from discovered projects."
+    assert workflow.Contains("needs: [build-prerequisites, test-shards, compiler-performance, package, ilverify]"), "The existing required build check must aggregate every blocking lane."
+    assert workflow.Contains("name: Upload shard project durations"), "Per-project timings must be downloadable for balancing refresh."
+    assert workflow.Contains("name: Upload shard test logs"), "Shard logs must be downloadable for diagnosis."
+    assert workflow.Contains("name: Upload compiler performance project duration"), "The dedicated performance project's duration must be downloadable."
+    assert workflow.Contains("ci-native-build"), "Test jobs must consume the single shared prerequisite build artifact."
     assert workflow.Contains("NSHARP_RUN_DOCKER_INTEGRATION: '1'"), "Docker rows must run as required integration tests in CI."
     assert workflow.Contains("name: Upload compiler performance trends"), "CI must upload the absolute trend artifacts."
     assert workflow.Contains("artifacts/compile-time/relative-gate.md") && workflow.Contains("artifacts/agent-loop/relative-gate.md"), "Both ratio tables must be included in the CI artifact."
@@ -178,13 +180,11 @@ test "the product gate and CI build native prerequisites before their tests thro
     workflow := NativePrerequisiteSource(".github/workflows/build.yml")
 
     assert coreScript.Contains(buildScriptPath), "Step 2 of the product gate must use the shared native prerequisite builder."
-    assert workflow.Contains(buildScriptPath), "The CI test step must use the shared native prerequisite builder."
-
-    workflowBuildCall := "\n        " + buildScriptPath + "\n"
-    workflowBuildIndex := workflow.IndexOf(workflowBuildCall)
-    nativeRunIndex := workflow.IndexOf("dotnet \"$cli_dll\" test --project \"$native_dir\" --no-cache --json")
-    assert workflowBuildIndex >= 0 && nativeRunIndex > workflowBuildIndex, "CI must invoke the shared Debug prerequisite builder before running any discovered native project."
-    assert workflow.Contains("native_projects=(tests/native/*/project.yml)"), "CI must retain open-ended native project discovery."
+    assert workflow.Contains("run: scripts/build-native-prerequisites.sh"), "The CI build job must invoke the shared Debug prerequisite builder."
+    assert workflow.Contains("name: Upload shared build outputs"), "CI must make the built prerequisites available to every shard."
+    assert workflow.Contains("name: Download shared build outputs"), "Every shard must restore the same build outputs before testing."
+    assert workflow.Contains("scripts/ci-test-shards.sh run"), "CI shards must use the common project runner."
     assert workflow.Contains("NSHARP_RUN_DOCKER_INTEGRATION: '1'"), "The discovered installed-toolchain-integration project requires Docker, and CI must force those rows to run."
-    assert workflow.Contains("There are no macOS-only native projects"), "Host-specific project requirements must be classified explicitly; Linux and macOS-compatible rows run on this Linux job."
+    planner := NativePrerequisiteSource("scripts/ci-test-shards.sh")
+    assert planner.Contains("native_root.glob") && planner.Contains("project.yml"), "Native test project discovery must remain open-ended in the shared planner."
 }
