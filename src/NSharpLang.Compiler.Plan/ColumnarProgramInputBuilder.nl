@@ -96,6 +96,21 @@ sealed class ColumnarProgramInputBuilder {
         )
     }
 
+    // Parse one interpolation hole with the same expression kernels as a source body. The caller
+    // supplies the enclosing table separately so it can inherit the live binding context.
+    static func TryBuildExpressionNodeTable(source: string, out nodes: ColumnarNodeTable, out root: int): bool {
+        nodes = null
+        root = -1
+        if source == null || source.Length == 0 {
+            return false
+        }
+        tokens: ColumnarTokenizedSource = null
+        if !TryTokenizeColumnarSource(source, out tokens) {
+            return false
+        }
+        return TryBuildExpressionSpanNodeTable(source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count, 0, source.Length, out nodes, out root)
+    }
+
     private static func TryBuildExpressionSpanNodeTable(
         source: string,
         tokenKinds: int[],

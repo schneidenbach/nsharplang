@@ -1161,9 +1161,9 @@ test "A GENERATOR CANNOT RETURN A VALUE, AND THAT REPORT ENDS THE ARM" {
     AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String)
 
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
-    assert harness.Errors[0].Message == "Generator functions cannot return a value"
-    assert harness.Errors[0].Suggestion == "Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration."
+    assert harness.Errors[0].Code == ErrorCode.IteratorReturnValue
+    assert harness.Errors[0].Message == "An iterator cannot return a value"
+    assert harness.Errors[0].Suggestion == "Use `yield value` to produce this element, or a bare `return` / `yield break` to stop the iterator."
 }
 
 test "THE GENERATOR REPORT IS SPANNED ON THE RETURNED EXPRESSION, NOT THE KEYWORD" {
@@ -1187,7 +1187,34 @@ test "A GENERATOR STILL WALKS ITS VALUE AND STILL RUNS AN ESCAPE REPORT" {
     // Both the escape report and the generator report speak, in that order.
     assert harness.Errors.Count == 2
     assert harness.Errors[0].Message == "SoA table member 'x' cannot be returned directly"
-    assert harness.Errors[1].Message == "Generator functions cannot return a value"
+    assert harness.Errors[1].Message == "An iterator cannot return a value"
+}
+
+test "await inside a lock reports NL351 at the await keyword" {
+    harness := AmbientDefault()
+    harness.Context.EnterLockBody()
+    harness.Context.ReportAwaitPlacementIfNeeded(4, 9)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.SuspensionInLock
+    assert harness.Errors[0].Message == "An 'await' cannot appear inside a 'lock' statement"
+    assert harness.Errors[0].Line == 4
+    assert harness.Errors[0].Column == 9
+    assert harness.Errors[0].Suggestion == "Move the awaited operation before the lock, then lock only the synchronous work that uses its result."
+    harness.Context.ExitLockBody()
+}
+
+test "yield inside a lock reports NL351 at the yield keyword" {
+    harness := AmbientDefault()
+    harness.Context.EnterLockBody()
+    harness.Context.ReportYieldPlacementIfNeeded(6, 5)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.SuspensionInLock
+    assert harness.Errors[0].Message == "A 'yield' cannot appear inside a 'lock' statement"
+    assert harness.Errors[0].Line == 6
+    assert harness.Errors[0].Column == 5
+    harness.Context.ExitLockBody()
 }
 
 test "A BARE return IN A TYPED FUNCTION IS NL305 MissingReturn AT THE KEYWORD" {

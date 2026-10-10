@@ -410,6 +410,7 @@ class ColumnarIteratorBodyScope {
         resultType = typeof(int)
         scratch := new ColumnarCodePlan()
         scratch.PrepareMethodBody()
+        scratch.IteratorTypeDiscovery = true
         if !TryAppendValue(nodes, source, node, scratch, out resultType) {
             return false
         }

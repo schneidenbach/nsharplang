@@ -147,6 +147,13 @@ class ColumnarPrimitiveBinaryPlanner {
 
         checkpoint := plan.CreateCheckpoint()
         try {
+            iteratorEmitter := bindings.IteratorMoveNextEmitter
+            spillLeftAcrossAwait := iteratorEmitter != null && nodes.ChildCount(candidate) == 2 && ColumnarIteratorPlanner.ContainsAwait(nodes, nodes.Child(candidate, 1))
+            spillFieldName := ""
+            if spillLeftAcrossAwait {
+                spillFieldName = ColumnarIteratorPlanner.SpillFieldName(iteratorEmitter.NextSpill)
+                iteratorEmitter.NextSpill += 1
+            }
             leftType := typeof(int)
             leftOwnership := ColumnarDirectCallOwnership.NotOwned
             if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(candidate, 0), bindings, handles, plan, parentFragment, depth + 1, out leftType, out leftOwnership) {
@@ -155,6 +162,19 @@ class ColumnarPrimitiveBinaryPlanner {
                 }
                 plan.Rollback(checkpoint)
                 return false
+            }
+            if spillLeftAcrossAwait {
+                spillField: FieldInfo? = null
+                spillFieldReady := iteratorEmitter.Context.TryEnsureHoistedField(spillFieldName, leftType, out spillField)
+                if !spillFieldReady || spillField == null {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+                leftLocal := plan.DeclarePlanLocal(plan.AddType(iteratorEmitter.Context.StructuralTypeReferences.SelectRuntimeType(leftType), iteratorEmitter.Context.StructuralTypeReferences))
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), leftLocal)
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), iteratorEmitter.ThisArg)
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), leftLocal)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(spillField))
             }
 
             rightType := typeof(int)
@@ -174,6 +194,21 @@ class ColumnarPrimitiveBinaryPlanner {
                 }
                 plan.Rollback(checkpoint)
                 return false
+            }
+            if spillLeftAcrossAwait {
+                rightLocal := plan.DeclarePlanLocal(plan.AddType(rightType))
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), rightLocal)
+                spilledLeftType := typeof(int)
+                if !iteratorEmitter.Context.IsFieldDefined(spillFieldName) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+                spillField := iteratorEmitter.Context.FieldForName(spillFieldName)
+                spilledLeftType = spillField.FieldType
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), iteratorEmitter.ThisArg)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), plan.AddField(spillField))
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), rightLocal)
+                leftType = spilledLeftType
             }
 
             // THE CONSTANT CONVERSION IS SYMMETRIC, AND THE SECOND PASS IS WHAT MAKES IT SO.

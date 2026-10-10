@@ -206,6 +206,7 @@ class AnalyzerAmbientContext {
     inLoopValue: bool
     finallyDepthValue: int
     yieldForbiddenPlacementsValue: List<string>
+    lockDepthValue: int
     breakTargetFinallyDepthValue: int
     continueTargetFinallyDepthValue: int
     // How many `catch` HANDLER BODIES of THIS body the walk is standing inside, and the `finally`
@@ -441,6 +442,7 @@ class AnalyzerAmbientContext {
         isAsyncValue = false
         inLoopValue = false
         finallyDepthValue = 0
+        lockDepthValue = 0
         inferringReturnTypeValue = false
         inferredReturnTypeValue = null
         lastInferredReturnTypeValue = null
@@ -979,9 +981,27 @@ class AnalyzerAmbientContext {
         yieldForbiddenPlacementsValue.RemoveAt(yieldForbiddenPlacementsValue.Count - 1)
     }
 
+    func EnterLockBody() {
+        lockDepthValue = lockDepthValue + 1
+    }
+
+    func ExitLockBody() {
+        lockDepthValue = lockDepthValue - 1
+    }
+
+    func ReportAwaitPlacementIfNeeded(line: int, column: int) {
+        if lockDepthValue > 0 {
+            diagnosticsValue.Report(ErrorCode.SuspensionInLock, "An 'await' cannot appear inside a 'lock' statement", line, column, "Move the awaited operation before the lock, then lock only the synchronous work that uses its result.", 5)
+        }
+    }
+
     // NL332, reported at the `yield` keyword itself: the reader needs to see the suspension point,
     // not the handler that forbids it.
     func ReportYieldPlacementIfNeeded(line: int, column: int) {
+        if lockDepthValue > 0 {
+            diagnosticsValue.Report(ErrorCode.SuspensionInLock, "A 'yield' cannot appear inside a 'lock' statement", line, column, "Move the 'yield' after the lock block. Keep the lock limited to synchronous work, then produce the value outside it.", 5)
+            return
+        }
         if yieldForbiddenPlacementsValue.Count == 0 {
             return
         }
@@ -1243,7 +1263,7 @@ class AnalyzerAmbientContext {
 
         if CurrentFunctionDeclaresGenerator {
             span := spansValue.GetExpressionDiagnosticSpan(value)
-            diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Generator functions cannot return a value", span.Line, span.Column, "Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.", span.Length)
+            diagnosticsValue.Report(ErrorCode.IteratorReturnValue, "An iterator cannot return a value", span.Line, span.Column, "Use `yield value` to produce this element, or a bare `return` / `yield break` to stop the iterator.", span.Length)
             return
         }
 

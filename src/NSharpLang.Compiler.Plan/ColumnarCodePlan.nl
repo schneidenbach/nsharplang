@@ -618,6 +618,9 @@ class ColumnarCodePlan {
     OperandIndices: int[]
     OperationOwnerFragmentIndices: int[]
     ResultType: Type?
+    // Scratch plans created only to discover an awaited expression's value type. They route awaits
+    // through blocking type discovery and must never add states to a live iterator machine.
+    IteratorTypeDiscovery: bool
 
     TypeCount: int
     Types: Type[]
@@ -712,6 +715,7 @@ class ColumnarCodePlan {
         OperandIndices[0] = -1
         OperationOwnerFragmentIndices[0] = -1
         ResultType = null
+        IteratorTypeDiscovery = false
 
         TypeCount = 0
         Types = new Type[](0)

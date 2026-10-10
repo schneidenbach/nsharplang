@@ -644,6 +644,9 @@ class AnalyzerResourceStatements {
         if phase == 21 {
             state.Phase = 22
             ReportLockeeIfNeeded(statement.LockObject, state)
+            // The lock expression runs before the monitor is acquired, so only the embedded
+            // statement is forbidden from suspending.
+            ambientValue.EnterLockBody()
             return NewScopeRequest(statement.Line, statement.Column)
         }
 
@@ -653,6 +656,7 @@ class AnalyzerResourceStatements {
         }
 
         if phase == 23 {
+            ambientValue.ExitLockBody()
             state.Phase = 99
             return new ResourceStatementRequest(6, BuiltInTypes.Unknown)
         }

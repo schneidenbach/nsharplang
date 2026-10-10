@@ -678,6 +678,7 @@ class AnalyzerPassThroughOperands {
     // is not accused. Everything else — an `int`, a `string`, a function type — is told plainly.
     func FinishAwait(state: PassThroughOperandState, awaitNode: AwaitExpression) {
         state.ResultType = BuiltInTypes.Unknown
+        ambientValue.ReportAwaitPlacementIfNeeded(awaitNode.Line, awaitNode.Column)
         if soaEscapeValue.ReportSoaRowEscapeIfNeeded(awaitNode.Expression, state.OperandType, "awaited") {
             return
         }

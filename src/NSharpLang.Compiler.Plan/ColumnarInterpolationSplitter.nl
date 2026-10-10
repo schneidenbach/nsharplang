@@ -571,6 +571,10 @@ class ColumnarInterpolationSplitter {
     }
 
     static func ColumnarInterpolatedStringIsSupportedHoleExpression(literal: string, start: int, length: int): bool {
+        if ColumnarInterpolatedStringIsAwaitHoleExpression(literal, start, length) {
+            return true
+        }
+
         if ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, start, length) {
             return true
         }
@@ -646,6 +650,17 @@ class ColumnarInterpolationSplitter {
         }
 
         return ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, leftStart, leftLength) && ColumnarInterpolatedStringIsSupportedSimpleHoleExpression(literal, rightStart, rightLength)
+    }
+
+    static func ColumnarInterpolatedStringIsAwaitHoleExpression(literal: string, start: int, length: int): bool {
+        while length > 0 && ColumnarInterpolatedStringIsTrimSpace(literal[start]) {
+            start += 1
+            length -= 1
+        }
+        if length <= 5 || literal.Substring(start, 5) != "await" || IdentifierText.IsPart(literal[start + 5]) {
+            return false
+        }
+        return true
     }
 
     // A call hole with TWO OR MORE top-level arguments (`{String.Join(separator, numbers)}`): an

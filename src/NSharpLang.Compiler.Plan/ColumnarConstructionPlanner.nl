@@ -1693,7 +1693,7 @@ class ColumnarConstructionPlanner {
         }
 
         suppliedParameters := PrefixTypes(selected.ParamTypes, argumentCount)
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts, ColumnarDirectCallPlanner.ParameterModifierKindSlice(selected.ParamModifierKinds, 0, argumentCount)) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts, ColumnarDirectCallPlanner.ParameterModifierKindSlice(selected.ParamModifierKinds, 0, argumentCount), null, false, true) {
             if argumentFacts.RequiresEmitterByRefRvalue {
                 ownership = ColumnarDirectCallOwnership.NotOwned
                 legacyWholeSubtreePlanning = true
@@ -2063,7 +2063,7 @@ class ColumnarConstructionPlanner {
         selectedParameters = candidateParameters[selectedIndex]
 
         suppliedParameters := PrefixTypes(selectedParameters, argumentCount)
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts, ColumnarDirectCallPlanner.ParameterModifierKindSlice(selected.ParamModifierKinds, 0, argumentCount)) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts, ColumnarDirectCallPlanner.ParameterModifierKindSlice(selected.ParamModifierKinds, 0, argumentCount), null, false, true) {
             if argumentFacts.RequiresEmitterByRefRvalue {
                 ownership = ColumnarDirectCallOwnership.NotOwned
                 legacyWholeSubtreePlanning = true
@@ -2838,7 +2838,7 @@ class ColumnarConstructionPlanner {
             if parameters == null {
                 return false
             }
-            return ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameterTypes, argumentCount), argumentFacts, ColumnarDirectCallPlanner.ParameterModifierKindSlice(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), 0, argumentCount)) && TryAppendConstructorOptionalDefaults(plan, constructor, parameterTypes, argumentCount)
+            return ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameterTypes, argumentCount), argumentFacts, ColumnarDirectCallPlanner.ParameterModifierKindSlice(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), 0, argumentCount), null, false, true) && TryAppendConstructorOptionalDefaults(plan, constructor, parameterTypes, argumentCount)
         }
 
         parameters := constructor.GetParameters()

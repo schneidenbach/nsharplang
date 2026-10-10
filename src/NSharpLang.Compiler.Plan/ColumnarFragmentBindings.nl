@@ -63,6 +63,10 @@ class ColumnarFragmentBindings {
     // enabled only for that method scope; every other fragment binding set continues to reject kind
     // 53, so an enclosing iterator's await remains owned by its suspension planner.
     BlockingAwaitEnabled: bool
+    // A `MoveNextCore` expression scope installs its active machine emitter only while appending one
+    // source value. Recursive expression owners use it to lower an `await` at its written position
+    // into a real state-machine suspension; ordinary method and lambda scopes leave it null.
+    IteratorMoveNextEmitter: ColumnarMoveNextEmit?
     // Union aliases may likewise expose the same definition more than once. Type-expression
     // owners consume the live builders and deduplicate by base identity.
     SourceUnionDefinitions: IEnumerable<ColumnarUnionDef>
@@ -107,6 +111,7 @@ class ColumnarFragmentBindings {
         EnclosingTypeDefinition = null
         OverflowCheckingEnabled = false
         BlockingAwaitEnabled = false
+        IteratorMoveNextEmitter = null
         SourceUnionDefinitions = new List<ColumnarUnionDef>()
         TupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)
         LabeledTypes = new Dictionary<string, string>(StringComparer.Ordinal)

@@ -157,6 +157,8 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.DuplicateExplicitInterfaceImplementation)
         AddCompiler(descriptors, ErrorCode.ExplicitInterfaceImplementationModifier)
         AddCompiler(descriptors, ErrorCode.ExplicitInterfaceQualifierNotClosed)
+        AddCompiler(descriptors, ErrorCode.IteratorReturnValue)
+        AddCompiler(descriptors, ErrorCode.SuspensionInLock)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)

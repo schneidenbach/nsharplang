@@ -67,6 +67,8 @@ enum ErrorCode {
     DuplicateExplicitInterfaceImplementation = 347,
     ExplicitInterfaceImplementationModifier = 348,
     ExplicitInterfaceQualifierNotClosed = 349,
+    IteratorReturnValue = 350,
+    SuspensionInLock = 351,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

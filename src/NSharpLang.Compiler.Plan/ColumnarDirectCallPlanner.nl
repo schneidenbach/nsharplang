@@ -100,7 +100,11 @@ class ColumnarDirectCallPlanner {
 
         checkpoint := plan.CreateCheckpoint()
         try {
-            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.CallExpression, candidate)
+            fragmentParent := -1
+            if plan.OpenFragmentCount > 0 {
+                fragmentParent = plan.OpenFragmentIndices[plan.OpenFragmentCount - 1]
+            }
+            fragment := plan.BeginFragment(fragmentParent, ColumnarExpressionNodeKind.CallExpression, candidate)
 
             handles := ColumnarRangeIndexHandles.Resolve()
             if !TryAppendCall(nodes, source, candidate, bindings, handles, plan, fragment, 0, out ownership, out legacyWholeSubtreePlanning, out resultType) {
@@ -1320,7 +1324,7 @@ class ColumnarDirectCallPlanner {
                 directWritten += 1
             }
         }
-        if (argumentFacts.RequiresReorder || directArgumentsInOrder) && directScore >= 0 && AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth, ArgumentsAdmitPrimitiveBinary(), argumentTypes, parameterTypes, argumentFacts, modifierKinds) {
+        if (argumentFacts.RequiresReorder || directArgumentsInOrder) && directScore >= 0 && AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth, ArgumentsAdmitPrimitiveBinary(), argumentTypes, parameterTypes, argumentFacts, modifierKinds, null, false, true) {
             return true
         }
         plan.Rollback(checkpoint)
@@ -2134,7 +2138,7 @@ class ColumnarDirectCallPlanner {
         receiverIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, current.ExactType, false)
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), receiverIndex)
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, runtimeSelection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(runtimeMethod.GetParameters())) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, runtimeSelection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(runtimeMethod.GetParameters()), current.ExactType, true, true) {
             plan.Rollback(checkpoint)
             return false
         }
@@ -2398,7 +2402,7 @@ class ColumnarDirectCallPlanner {
 
         AppendImplicitReceiverLoad(plan, bindings, receiverType, false)
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters())) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters()), receiverType, true, !receiverType.IsValueType) {
             return false
         }
 
@@ -2425,7 +2429,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters())) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters()), receiverType, true, true) {
             return false
         }
 
@@ -2727,7 +2731,7 @@ class ColumnarDirectCallPlanner {
                 if !TryAppendBoundArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, inferredArgumentTypes, argumentFacts, parameterTypes, facts.ParameterNames, facts.ParameterDefaultKinds, facts.ParameterDefaultTexts, facts.ParameterModifierKinds) {
                     return false
                 }
-            } else if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, parameterTypes, argumentFacts, facts.ParameterModifierKinds) {
+            } else if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, parameterTypes, argumentFacts, facts.ParameterModifierKinds, null, false, true) {
                 return false
             }
         }
@@ -3297,7 +3301,7 @@ class ColumnarDirectCallPlanner {
             }
         } else {
             leadingParameterTypes := ColumnarExtensionMethodResolver.ExplicitParameterTypes(parameterTypes, explicitCount)
-            if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts, ParameterModifierKindSlice(modifierKinds, 1, explicitCount)) {
+            if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts, ParameterModifierKindSlice(modifierKinds, 1, explicitCount), parameterTypes[0], true, true) {
                 return false
             }
 
@@ -3347,7 +3351,7 @@ class ColumnarDirectCallPlanner {
 
         leadingParameterTypes := ExtensionLeadingTypes(parameterTypes, explicitCount)
         parameters := method.GetParameters()
-        if parameters == null || parameters.Length != parameterTypes.Length || !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts, ParameterModifierKindSlice(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), 0, explicitCount)) {
+        if parameters == null || parameters.Length != parameterTypes.Length || !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts, ParameterModifierKindSlice(ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters), 0, explicitCount), selection.IsStatic ? null : selection.LookupType, !selection.IsStatic, selection.ReceiverIsReference) {
             return false
         }
 
@@ -3514,7 +3518,7 @@ class ColumnarDirectCallPlanner {
             AppendInterfaceReceiverWidening(plan, selection)
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, selection.ParameterModifierKinds) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, selection.ParameterModifierKinds, selection.IsStatic ? null : selection.DeclaringType, !selection.IsStatic, selection.ReceiverIsReference) {
             return false
         }
 
@@ -3538,7 +3542,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters())) {
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(method.GetParameters()), selection.IsStatic ? null : selection.LookupType, !selection.IsStatic, selection.ReceiverIsReference) {
             return false
         }
 
@@ -3685,12 +3689,21 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, parameterModifierKinds: int[]? = null): bool {
+    static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, parameterModifierKinds: int[]?, receiverType: Type?, receiverIsOnStack: bool, receiverIsReference: bool): bool {
         if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != parameterTypes.Length || argumentFacts.ArgumentNodes.Length != parameterTypes.Length || argumentFacts.WrittenOrderSlots.Length != parameterTypes.Length {
             return false
         }
         if parameterModifierKinds != null && parameterModifierKinds.Length != 0 && parameterModifierKinds.Length != parameterTypes.Length {
             return false
+        }
+
+        // A normal argument list leaves each result on the evaluation stack until the call. That is
+        // not a legal suspension frame: earlier arguments would be lost when a later argument awaits.
+        // In an async iterator, evaluate the written order into machine fields and reload in parameter
+        // order after every argument has completed. The fields are classified with the call node.
+        iteratorEmitter := bindings.IteratorMoveNextEmitter
+        if iteratorEmitter != null && HasAwaitedArgument(nodes, argumentFacts) {
+            return AppendAwaitSpilledArguments(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts, parameterModifierKinds, iteratorEmitter, receiverType, receiverIsOnStack, receiverIsReference)
         }
 
         // A NAMED ARGUMENT THAT MOVED IS STILL EVALUATED WHERE IT WAS WRITTEN. `Send(body: Build(),
@@ -3713,6 +3726,123 @@ class ColumnarDirectCallPlanner {
             index += 1
         }
 
+        return true
+    }
+
+    static func HasAwaitedArgument(nodes: ColumnarNodeTable, argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+        if argumentFacts == null || argumentFacts.ArgumentNodes == null {
+            return false
+        }
+        for argumentNode in argumentFacts.ArgumentNodes {
+            if ColumnarIteratorPlanner.ContainsAwait(nodes, argumentNode) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func AppendAwaitSpilledArguments(nodes: ColumnarNodeTable, source: string, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, parameterModifierKinds: int[]?, iteratorEmitter: ColumnarMoveNextEmit, receiverType: Type?, receiverIsOnStack: bool, receiverIsReference: bool): bool {
+        if parameterTypes.Length != argumentFacts.ArgumentNodes.Length || parameterTypes.Length != argumentFacts.WrittenOrderSlots.Length {
+            return false
+        }
+
+        // Reserve a receiver prefix and every argument field before recursing. Nested awaited
+        // expressions then consume the next spill identities in the same pre-order as classification.
+        baseSpill := iteratorEmitter.NextSpill
+        slotSpills := new int[](parameterTypes.Length)
+        i := 0
+        while i < parameterTypes.Length {
+            slotSpills[i] = -1
+            i += 1
+        }
+        written := 0
+        while written < parameterTypes.Length {
+            slot := argumentFacts.WrittenOrderSlots[written]
+            if slot < 0 || slot >= parameterTypes.Length || slotSpills[slot] >= 0 {
+                return false
+            }
+            slotSpills[slot] = baseSpill + 1 + written
+            written += 1
+        }
+        iteratorEmitter.NextSpill += parameterTypes.Length + 1
+
+        if receiverIsOnStack {
+            if receiverType == null || receiverType.IsByRef {
+                iteratorEmitter.Context.Decline("emit.iterator.await-receiver", "the receiver of a call with an awaited argument cannot be carried across suspension")
+                return false
+            }
+            receiverFieldName := ColumnarIteratorPlanner.SpillFieldName(baseSpill)
+            receiverField: FieldInfo? = null
+            receiverFieldReady := iteratorEmitter.Context.TryEnsureHoistedField(receiverFieldName, receiverType, out receiverField)
+            if !receiverFieldReady || receiverField == null {
+                return false
+            }
+            if !receiverIsReference {
+                receiverTypePool := plan.AddType(iteratorEmitter.Context.StructuralTypeReferences.SelectRuntimeType(receiverType), iteratorEmitter.Context.StructuralTypeReferences)
+                plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldobj(), receiverTypePool)
+            }
+            receiverLocal := plan.DeclarePlanLocal(plan.AddType(iteratorEmitter.Context.StructuralTypeReferences.SelectRuntimeType(receiverType), iteratorEmitter.Context.StructuralTypeReferences))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), receiverLocal)
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), iteratorEmitter.ThisArg)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), receiverLocal)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(receiverField))
+        }
+
+        written = 0
+        while written < parameterTypes.Length {
+            slot := argumentFacts.WrittenOrderSlots[written]
+            modifierKind := parameterModifierKinds != null && parameterModifierKinds.Length > 0 ? parameterModifierKinds[slot] : 0
+            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts, slot, modifierKind) {
+                return false
+            }
+            spillName := ColumnarIteratorPlanner.SpillFieldName(slotSpills[slot])
+            spillField: FieldInfo? = null
+            spillFieldReady := iteratorEmitter.Context.TryEnsureHoistedField(spillName, parameterTypes[slot], out spillField)
+            if !spillFieldReady || spillField == null {
+                return false
+            }
+            valueLocal := plan.DeclarePlanLocal(plan.AddType(iteratorEmitter.Context.StructuralTypeReferences.SelectRuntimeType(parameterTypes[slot]), iteratorEmitter.Context.StructuralTypeReferences))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueLocal)
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), iteratorEmitter.ThisArg)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), valueLocal)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(spillField))
+            written += 1
+        }
+
+        if receiverIsOnStack {
+            receiverFieldName := ColumnarIteratorPlanner.SpillFieldName(baseSpill)
+            if !iteratorEmitter.Context.IsFieldDefined(receiverFieldName) {
+                return false
+            }
+            receiverField := iteratorEmitter.Context.FieldForName(receiverFieldName)
+            if receiverIsReference {
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), iteratorEmitter.ThisArg)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), plan.AddField(receiverField))
+            } else {
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), iteratorEmitter.ThisArg)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), plan.AddField(receiverField))
+            }
+        }
+
+        slot := 0
+        while slot < parameterTypes.Length {
+            if slotSpills[slot] < 0 {
+                return false
+            }
+            spillType := typeof(int)
+            spillName := ColumnarIteratorPlanner.SpillFieldName(slotSpills[slot])
+            if !iteratorEmitter.Context.IsFieldDefined(spillName) {
+                return false
+            }
+            spillField := iteratorEmitter.Context.FieldForName(spillName)
+            spillType = spillField.FieldType
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(spillType, parameterTypes[slot]) {
+                return false
+            }
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), iteratorEmitter.ThisArg)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), plan.AddField(spillField))
+            slot += 1
+        }
         return true
     }
 
@@ -4316,6 +4446,10 @@ class ColumnarDirectCallPlanner {
         scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
         scratch.EnableNestedValueFrame()
         scratch.PrepareV3()
+        // The argument type walk is speculative and has no state-machine frame of its own. Await
+        // there only to learn the result type; the live append below performs the suspension once
+        // the call has been selected.
+        scratch.IteratorTypeDiscovery = true
         valuePlanned := false
         if allowPrimitiveBinary {
             valuePlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, handles, scratch, -1, depth, out resultType, out nestedOwnership)

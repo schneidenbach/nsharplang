@@ -1362,10 +1362,26 @@ test "iterator planner hoists an awaiting finally handler and declares its pendi
     assert IteratorShapeHasField(probe.Shape, "<>__branch0")
 }
 
-// An `await` inside a `catch` is a DOCUMENTED LIMIT, not a silent decline: the hoisted form replaces
-// the statement's own handlers with one catch-all, so a `catch` clause would have to be re-matched
-// against the parked exception by hand.
-test "iterator planner declines an await inside a catch handler" {
+test "iterator planner hoists an awaiting finally while preserving source catch clauses" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Guarded(): IAsyncEnumerable<int> { try { throw new InvalidOperationException() } catch ex: InvalidOperationException { } finally { await Task.Delay(1) }\n yield 1 }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 1
+    assert IteratorShapeHasField(probe.Shape, "<>__pending0")
+    assert IteratorShapeHasField(probe.Shape, "<>__branch0")
+}
+
+// A source catch body with an await is emitted outside the physical CLR handler, then matched against
+// the parked exception. This keeps its suspension resume point outside the unwinding handler.
+test "iterator planner hoists an await inside a catch handler" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Guarded(): IAsyncEnumerable<int> { try { await Task.Delay(1) } catch ex: Exception { await Task.Delay(1) }\n yield 1 }",
         "IAsyncEnumerable<int>",
@@ -1376,9 +1392,9 @@ test "iterator planner declines an await inside a catch handler" {
         true
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
-    assert probe.Shape.DeclineMessage == "an `await` inside a `catch` handler is not yet lowered: a suspension there has no resume point to return to"
+    assert probe.Shape.Supported
+    assert probe.Shape.AwaitResumeCount == 2
+    assert probe.Shape.TryRegionCount == 1
 }
 
 // A synchronous generator cannot suspend at all, so an awaiting handler there is the ordinary
@@ -1398,7 +1414,7 @@ test "iterator planner declines an awaiting finally in a synchronous generator" 
     assert probe.Shape.DeclineMessage == "an `await` inside a `finally` handler is not yet lowered: a suspension there has no resume point to return to"
 }
 
-test "iterator planner declines a lock statement in an iterator body" {
+test "iterator planner rejects a lock body that suspends" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Locked(gate: string): IEnumerable<int> { lock gate { yield 1 } }",
         "IEnumerable<int>",
@@ -1409,8 +1425,22 @@ test "iterator planner declines a lock statement in an iterator body" {
     )
 
     assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
-    assert probe.Shape.DeclineMessage == "an iterator body statement (node kind 51) is not yet lowered"
+    assert probe.Shape.DeclineSite == "emit.iterator.lock-suspension"
+    assert probe.Shape.DeclineMessage == "a `lock` inside an iterator cannot contain `yield` or `await`; move the suspension outside the lock"
+}
+
+test "iterator planner admits a lock body without suspension" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Locked(gate: string): IEnumerable<int> { lock gate { value := 1 }\n yield 1 }",
+        "IEnumerable<int>",
+        IteratorOne("gate"),
+        IteratorOne("string"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
@@ -2864,10 +2894,9 @@ test "an async machine hoists its awaiter fields unresolved" {
     assert awaiterCount == 1
 }
 
-// AN `await` MAY BE THE WHOLE VALUE OF A BOUND STATEMENT, and only that. A suspension branches out of
-// the step core with an empty evaluation stack, so a nested one would have nowhere to leave its
-// result; that shape declines with the reason, and says what to write instead.
-test "async iterator planner admits a bound await and refuses a nested one" {
+// Nested expression awaits are classified in source order; the expression planner later spills any
+// values that must survive the suspension.
+test "async iterator planner admits bound and nested expression awaits" {
     bound := new ColumnarIteratorShapeProbe(
         "async func* Ticks(): IAsyncEnumerable<int> { x := await Other()\n yield x }",
         "IAsyncEnumerable<int>",
@@ -2902,12 +2931,11 @@ test "async iterator planner admits a bound await and refuses a nested one" {
         false,
         true
     )
-    assert !nested.Shape.Supported
-    assert nested.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
-    assert nested.Shape.DeclineMessage == "an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)"
+    assert nested.Shape.Supported
+    assert nested.Shape.AwaitResumeCount == 1
 }
 
-test "async iterator planner refuses a read-only reference rvalue before a later awaited argument" {
+test "async iterator planner classifies arguments before a later awaited argument" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Ticks(): IAsyncEnumerable<int> { yield Consume(new Node(\"a\"), await Other()) }",
         "IAsyncEnumerable<int>",
@@ -2918,12 +2946,8 @@ test "async iterator planner refuses a read-only reference rvalue before a later
         true
     )
 
-    // The first argument is an unmodified rvalue intended for an `in` parameter. Spilling it into
-    // an ordinary plan local would leave that local live across the later argument's suspension,
-    // but async iterator lowering hoists only its own declared state-machine fields.
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
-    assert probe.Shape.DeclineMessage == "an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)"
+    assert probe.Shape.Supported
+    assert probe.Shape.AwaitResumeCount == 1
 }
 
 // `await` OUTSIDE AN ASYNC GENERATOR IS STILL AN ERROR, in both positions.

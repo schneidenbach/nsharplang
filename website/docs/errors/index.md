@@ -136,6 +136,8 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL347`](./NL347.md) | One interface slot implemented explicitly twice. |
 | [`NL348`](./NL348.md) | A modifier word on an explicit interface implementation. |
 | [`NL349`](./NL349.md) | A generic interface named without the arguments it is implemented with. |
+| [`NL350`](./NL350.md) | A value returned from an iterator. |
+| [`NL351`](./NL351.md) | A `yield` or `await` inside a `lock` statement. |
 
 ## Calls — `NL4xx`
 

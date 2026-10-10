@@ -124,6 +124,9 @@ class ColumnarIteratorShape {
 class ColumnarIteratorWalkState {
     YieldReturnCount: int
     AwaitCount: int
+    // Spill fields needed by expression-level awaits. The emission walk increments this in the same
+    // pre-order as classification, so both passes refer to the same generated field identities.
+    SpillCount: int
     // THE SHARED SUSPENSION COUNTER, and the index `ResumeRegions` is keyed by. A synchronous
     // generator suspends only at a `yield return`, so this equals `YieldReturnCount` there; an
     // async one interleaves `yield` and `await` in walk order and numbers them with ONE counter,
@@ -182,6 +185,7 @@ class ColumnarIteratorWalkState {
     constructor(capacity: int, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], memberFieldNames: string[], memberFieldCanonicals: string[], isAsync: bool) {
         YieldReturnCount = 0
         AwaitCount = 0
+        SpillCount = 0
         ResumeCount = 0
         IsAsync = isAsync
         ForInCount = 0
@@ -884,6 +888,21 @@ class ColumnarIteratorPlanner {
         if kind == ColumnarStatementNodeKind.TryStatement {
             return WalkTryStatement(nodes, source, node, state)
         }
+        if kind == ColumnarStatementNodeKind.LockStatement {
+            if nodes.ChildCount(node) != 2 {
+                state.Decline("emit.iterator.unsupported-shape", "unsupported lock statement in an iterator body")
+                return false
+            }
+            lockExpression := nodes.Child(node, 0)
+            lockBody := nodes.Child(node, 1)
+            if ContainsAwait(nodes, lockBody) || ContainsYield(nodes, lockBody) {
+                state.Decline("emit.iterator.lock-suspension", "a `lock` inside an iterator cannot contain `yield` or `await`; move the suspension outside the lock")
+                return false
+            }
+            WalkExpression(nodes, source, lockExpression, state)
+            WalkStatement(nodes, source, lockBody, state)
+            return !state.Declined
+        }
         if kind == ColumnarStatementNodeKind.ForeachStatement {
             // Foreach / `for..in` [source, body], loop-var name in the value span. A hoisted ARRAY
             // identifier lowers as an index loop over its own length; EVERY OTHER SOURCE lowers
@@ -1240,6 +1259,56 @@ class ColumnarIteratorPlanner {
         return "<>__branch" + region.ToString()
     }
 
+    static func SpillFieldName(ordinal: int): string {
+        return "<>__spill" + ordinal.ToString()
+    }
+
+    // The parser treats an interpolated literal as one token. Parse each hole through the ordinary
+    // expression kernels and inherit the containing body's binding facts so holes resolve the same
+    // locals, parameters and members as expressions written directly in the iterator body.
+    static func TryParseInterpolatedExpression(nodes: ColumnarNodeTable, source: string, node: int, out literal: string, out parts: List<ColumnarInterpolationPart>, out holeNodes: ColumnarNodeTable[], out holeSources: string[], out holeRoots: int[]): bool {
+        literal = ""
+        parts = new List<ColumnarInterpolationPart>()
+        holeNodes = new ColumnarNodeTable[](0)
+        holeSources = new string[](0)
+        holeRoots = new int[](0)
+        if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+        literal = nodes.Text(source, node)
+        if literal.Length == 0 || literal[0] != '$' || !ColumnarInterpolationSplitter.TrySplit(literal, parts) {
+            return false
+        }
+        holeCount := 0
+        for part in parts {
+            if part.IsHole {
+                holeCount += 1
+            }
+        }
+        if holeCount == 0 {
+            return false
+        }
+        holeNodes = new ColumnarNodeTable[](holeCount)
+        holeSources = new string[](holeCount)
+        holeRoots = new int[](holeCount)
+        holeIndex := 0
+        for part in parts {
+            if !part.IsHole {
+                continue
+            }
+            parsedNodes: ColumnarNodeTable = null
+            parsedRoot := -1
+            if !ColumnarProgramInputBuilder.TryBuildExpressionNodeTable(part.Text, out parsedNodes, out parsedRoot) {
+                return false
+            }
+            holeNodes[holeIndex] = ColumnarNodeTable.InheritBindingContext(parsedNodes, nodes)
+            holeSources[holeIndex] = part.Text
+            holeRoots[holeIndex] = parsedRoot
+            holeIndex += 1
+        }
+        return true
+    }
+
     static func DeclareHoistedHandlerFields(region: int, state: ColumnarIteratorWalkState): bool {
         state.AddLocal(PendingExceptionFieldName(region), UnresolvedCanonical())
         state.AddLocal(PendingBranchFieldName(region), "int")
@@ -1259,6 +1328,7 @@ class ColumnarIteratorPlanner {
             handlerEnd = childCount - 1
         }
         catchCount := handlerEnd - 1
+        hasAwaitingCatch := false
         tryBlock := nodes.Child(node, 0)
         if ContainsYield(nodes, tryBlock) && catchCount > 0 {
             state.Decline("emit.iterator.unsupported-shape", YieldInTryWithCatchMessage())
@@ -1271,8 +1341,7 @@ class ColumnarIteratorPlanner {
                 return false
             }
             if ContainsAwait(nodes, nodes.Child(node, c)) {
-                state.Decline("emit.iterator.async-await-unsupported", AwaitInHandlerMessage("catch"))
-                return false
+                hasAwaitingCatch = true
             }
             c = c + 1
         }
@@ -1281,15 +1350,16 @@ class ColumnarIteratorPlanner {
             return false
         }
         hoistedFinally := finallyNode >= 0 && ContainsAwait(nodes, finallyNode)
-        if hoistedFinally && !state.IsAsync {
-            state.Decline("emit.iterator.async-await-unsupported", AwaitInHandlerMessage("finally"))
+        if hasAwaitingCatch && !state.IsAsync {
+            state.Decline("emit.iterator.async-await-unsupported", "an `await` inside a `catch` handler requires an async iterator")
             return false
         }
-        if hoistedFinally && catchCount > 0 {
-            // The hoisted form replaces the statement's own handlers with ONE catch-all that parks the
-            // exception, so a `catch` clause beside an awaiting `finally` would have to be re-matched
-            // by hand against the parked exception. That is a separate shape from this slice's.
-            state.Decline("emit.iterator.async-await-unsupported", "an `await` inside a `finally` is not yet lowered when the same `try` also declares a `catch`")
+        if hasAwaitingCatch && finallyNode >= 0 {
+            state.Decline("emit.iterator.async-await-unsupported", "an async iterator cannot yet combine an awaiting `catch` body with a `finally` on the same `try`")
+            return false
+        }
+        if hoistedFinally && !state.IsAsync {
+            state.Decline("emit.iterator.async-await-unsupported", AwaitInHandlerMessage("finally"))
             return false
         }
         if catchCount == 0 && finallyNode < 0 {
@@ -1300,7 +1370,7 @@ class ColumnarIteratorPlanner {
         region := state.TryRegionCount
         state.TryRegionParents[region] = state.CurrentRegion
         state.TryRegionCount = state.TryRegionCount + 1
-        if hoistedFinally && !DeclareHoistedHandlerFields(region, state) {
+        if (hoistedFinally || hasAwaitingCatch) && !DeclareHoistedHandlerFields(region, state) {
             return false
         }
         enclosing := state.CurrentRegion
@@ -1394,6 +1464,40 @@ class ColumnarIteratorPlanner {
             return
         }
         kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.StringLiteralExpression {
+            literal := ""
+            parts := new List<ColumnarInterpolationPart>()
+            holeNodes := new ColumnarNodeTable[](0)
+            holeSources := new string[](0)
+            holeRoots := new int[](0)
+            if TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+                hasAwaitedHole := false
+                hole := 0
+                while hole < holeRoots.Length {
+                    if ContainsAwait(holeNodes[hole], holeRoots[hole]) {
+                        hasAwaitedHole = true
+                    }
+                    hole += 1
+                }
+                if hasAwaitedHole {
+                    hole = 0
+                    while hole < holeRoots.Length {
+                        state.AddLocal(SpillFieldName(state.SpillCount), UnresolvedCanonical())
+                        state.SpillCount += 1
+                        hole += 1
+                    }
+                }
+                hole = 0
+                while hole < holeRoots.Length {
+                    WalkExpression(holeNodes[hole], holeSources[hole], holeRoots[hole], state)
+                    if state.Declined {
+                        return
+                    }
+                    hole += 1
+                }
+                return
+            }
+        }
         if kind == ColumnarExpressionNodeKind.AwaitExpression {
             // `await` reaches WalkExpression only in a VALUE position (initializer, yield value,
             // operand); suspension points are statement-position unit awaits handled by WalkStatement.
@@ -1401,7 +1505,7 @@ class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.unsupported-shape", "`await` is only valid inside an async iterator body")
                 return
             }
-            state.Decline("emit.iterator.async-await-unsupported", "an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)")
+            WalkAwait(nodes, source, node, state)
             return
         }
         if kind == ColumnarExpressionNodeKind.PostfixUnary {
@@ -1409,6 +1513,34 @@ class ColumnarIteratorPlanner {
             // the binding — the same target admission as the statement form.
             WalkPostfixStep(nodes, source, node, state)
             return
+        }
+        if kind == ColumnarExpressionNodeKind.CallExpression {
+            hasAwaitedArgument := false
+            argument := 1
+            while argument < nodes.ChildCount(node) {
+                if ContainsAwait(nodes, nodes.Child(node, argument)) {
+                    hasAwaitedArgument = true
+                    break
+                }
+                argument += 1
+            }
+            if hasAwaitedArgument {
+                // Calls evaluate their receiver before arguments. Reserve a receiver slot even for
+                // statically bound calls; the append owner knows whether an actual receiver is on
+                // the stack and uses this prefix only when one must survive an awaited argument.
+                state.AddLocal(SpillFieldName(state.SpillCount), UnresolvedCanonical())
+                state.SpillCount += 1
+                argument = 1
+                while argument < nodes.ChildCount(node) {
+                    state.AddLocal(SpillFieldName(state.SpillCount), UnresolvedCanonical())
+                    state.SpillCount += 1
+                    argument += 1
+                }
+            }
+        }
+        if kind == ColumnarExpressionNodeKind.BinaryExpression && nodes.ChildCount(node) == 2 && !ColumnarConditionalPlanner.IsShortCircuitBinary(nodes, source, node) && !ColumnarConditionalPlanner.IsNullCoalesceBinary(nodes, source, node) && ContainsAwait(nodes, nodes.Child(node, 1)) {
+            state.AddLocal(SpillFieldName(state.SpillCount), UnresolvedCanonical())
+            state.SpillCount += 1
         }
         if ColumnarLambdaNodeFacts.IsLambda(kind) {
             WalkLambda(nodes, source, node, state)
@@ -2157,6 +2289,13 @@ class ColumnarMoveNextEmit {
     AsyncCompletionLocal: int
     NextResume: int
     NextAwait: int
+    NextSpill: int
+    // Interpolation holes are parsed into their own node table. While one is being appended, the
+    // suspension writer reads that table/source so an await's child index cannot alias the body AST.
+    ExpressionNodes: ColumnarNodeTable?
+    ExpressionSource: string?
+    // A source catch moved outside its CLR handler keeps its parked EDI available for `throw;`.
+    HoistedCatchPendingField: string
     NextAsyncEnumerator: int
     NextLambda: int
     // How many `catch` HANDLER BODIES of this MoveNext the walk is writing inside. IL `rethrow` is
@@ -2203,6 +2342,10 @@ class ColumnarMoveNextEmit {
         AsyncCompletionLocal = -1
         NextResume = 0
         NextAwait = 0
+        NextSpill = 0
+        ExpressionNodes = null
+        ExpressionSource = null
+        HoistedCatchPendingField = ""
         NextAsyncEnumerator = 0
         NextLambda = 0
         FaultGuarded = faultGuarded
@@ -2260,6 +2403,40 @@ class ColumnarMoveNextEmit {
 }
 
 class ColumnarIteratorBodyPlanner {
+    static func CurrentExpressionNodes(emit: ColumnarMoveNextEmit): ColumnarNodeTable {
+        return emit.ExpressionNodes ?? emit.Context.Nodes
+    }
+
+    static func CurrentExpressionSource(emit: ColumnarMoveNextEmit): string {
+        return emit.ExpressionSource ?? emit.Context.Source
+    }
+
+    static func ExpressionContainsAwait(emit: ColumnarMoveNextEmit, node: int): bool {
+        nodes := CurrentExpressionNodes(emit)
+        source := CurrentExpressionSource(emit)
+        if ColumnarIteratorPlanner.ContainsAwait(nodes, node) {
+            return true
+        }
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.StringLiteralExpression {
+            return false
+        }
+        literal := ""
+        parts := new List<ColumnarInterpolationPart>()
+        holeNodes := new ColumnarNodeTable[](0)
+        holeSources := new string[](0)
+        holeRoots := new int[](0)
+        if !ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+            return false
+        }
+        i := 0
+        while i < holeRoots.Length {
+            if ColumnarIteratorPlanner.ContainsAwait(holeNodes[i], holeRoots[i]) {
+                return true
+            }
+            i += 1
+        }
+        return false
+    }
 
     // MoveNext(): the resumable state machine. A dispatch prologue routes each resume state to its
     // label; state 0 falls through to the body start (state set running = -1); every `yield return`
@@ -3097,15 +3274,17 @@ class ColumnarIteratorBodyPlanner {
     // sub-slice.
     static func AppendValue(emit: ColumnarMoveNextEmit, node: int, out resultType: Type): bool {
         resultType = typeof(int)
+        nodes := CurrentExpressionNodes(emit)
+        source := CurrentExpressionSource(emit)
         if emit.Context.Declined {
             return false
         }
         // A POSTFIX STEP IS A WRITE, and a write to a hoisted binding is the state machine's own
         // rewrite rather than an expression the value owner can plan: `i++` reads a field, steps it and
         // stores it back. Its VALUE is the pre-step field value, which is what `yield i++` produces.
-        if emit.Context.Nodes.Kind(node) == ColumnarExpressionNodeKind.PostfixUnary {
-            operand := emit.Context.Nodes.Child(node, 0)
-            name := emit.Context.Nodes.Text(emit.Context.Source, operand)
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.PostfixUnary {
+            operand := nodes.Child(node, 0)
+            name := nodes.Text(source, operand)
             if emit.Context.NamesEnclosingMember(operand, name) {
                 memberIndex := emit.Context.EnclosingFieldIndex(name)
                 if memberIndex < 0 {
@@ -3126,16 +3305,159 @@ class ColumnarIteratorBodyPlanner {
         // it needs — a delegate built over a method the machine itself carries, and a `ldvirtftn` over
         // the receiver — are plan rows this owner appends, and the ONE expression door declines node
         // kind 79 wherever it is asked.
-        if emit.Context.Nodes.Kind(node) == ColumnarExpressionNodeKind.OnSubscriptionExpression {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.OnSubscriptionExpression {
             return AppendOnSubscription(emit, node, out resultType)
         }
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.StringLiteralExpression {
+            literal := ""
+            parts := new List<ColumnarInterpolationPart>()
+            holeNodes := new ColumnarNodeTable[](0)
+            holeSources := new string[](0)
+            holeRoots := new int[](0)
+            if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+                return AppendIteratorInterpolatedString(emit, literal, parts, holeNodes, holeSources, holeRoots, out resultType)
+            }
+        }
         checkpoint := emit.Plan.CreateCheckpoint()
-        if emit.Context.RequiredScope().TryAppendValue(emit.Context.Nodes, emit.Context.Source, node, emit.Plan, out resultType) {
+        if TryAppendScopedValue(emit, node, emit.Plan, out resultType) {
             return true
         }
         emit.Plan.Rollback(checkpoint)
-        emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body expression (node kind " + emit.Context.Nodes.Kind(node).ToString() + ") could not be lowered")
+        emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body expression (node kind " + nodes.Kind(node).ToString() + ") could not be lowered")
         return false
+    }
+
+    static func AppendIteratorInterpolatedString(emit: ColumnarMoveNextEmit, literal: string, parts: List<ColumnarInterpolationPart>, holeNodes: ColumnarNodeTable[], holeSources: string[], holeRoots: int[], out resultType: Type): bool {
+        resultType = typeof(string)
+        if holeNodes.Length == 0 || holeNodes.Length != holeSources.Length || holeNodes.Length != holeRoots.Length {
+            return false
+        }
+        hasAwait := false
+        i := 0
+        while i < holeRoots.Length {
+            if ColumnarIteratorPlanner.ContainsAwait(holeNodes[i], holeRoots[i]) {
+                hasAwait = true
+            }
+            i += 1
+        }
+
+        baseSpill := emit.NextSpill
+        if hasAwait {
+            emit.NextSpill += holeRoots.Length
+        }
+        valueTypes := new Type[](holeRoots.Length)
+        valueLocals := new int[](holeRoots.Length)
+        i = 0
+        while i < valueLocals.Length {
+            valueLocals[i] = -1
+            i += 1
+        }
+
+        i = 0
+        while i < holeRoots.Length {
+            holeType := typeof(int)
+            if !AppendIteratorInterpolationHole(emit, holeNodes[i], holeSources[i], holeRoots[i], out holeType) || ColumnarCodePlanExecutor.IsVoidType(holeType) {
+                emit.Context.Decline("emit.iterator.interpolation-await", "interpolation hole '" + holeSources[i] + "' could not be lowered in an async iterator")
+                return false
+            }
+            valueTypes[i] = holeType
+            if hasAwait {
+                if !AppendSpillToMachineField(emit, ColumnarIteratorPlanner.SpillFieldName(baseSpill + i), holeType) {
+                    return false
+                }
+            } else {
+                valueLocals[i] = emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(holeType), emit.Context.StructuralTypeReferences))
+                emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueLocals[i])
+            }
+            i += 1
+        }
+
+        format := new StringBuilder()
+        holeIndex := 0
+        for part in parts {
+            if !part.IsHole {
+                decoded := StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text)
+                AppendIteratorCompositeFormatText(format, decoded)
+                continue
+            }
+            format.Append('{')
+            format.Append(holeIndex)
+            if part.Format != null {
+                format.Append(':')
+                format.Append(part.Format)
+            }
+            format.Append('}')
+            holeIndex += 1
+        }
+
+        emit.Plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), emit.Plan.AddString(format.ToString()))
+        emit.Plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), emit.Plan.AddInt32(holeRoots.Length))
+        objectType := emit.Context.StructuralTypeReferences.SelectRuntimeType(typeof(object))
+        objectTypePool := emit.Plan.AddType(objectType, emit.Context.StructuralTypeReferences)
+        emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), objectTypePool)
+        i = 0
+        while i < holeRoots.Length {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            emit.Plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), emit.Plan.AddInt32(i))
+            if hasAwait {
+                spillName := ColumnarIteratorPlanner.SpillFieldName(baseSpill + i)
+                if !emit.Context.IsFieldDefined(spillName) {
+                    return false
+                }
+                spillField := emit.Context.FieldForName(spillName)
+                emit.Plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), emit.ThisArg)
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.Plan.AddField(spillField))
+            } else {
+                emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), valueLocals[i])
+            }
+            valueType := valueTypes[i]
+            if valueType.IsValueType || valueType.IsGenericParameter {
+                valueTypePool := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(valueType), emit.Context.StructuralTypeReferences)
+                emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Box(), valueTypePool)
+            }
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemRef())
+            i += 1
+        }
+        formatMethod := typeof(string).GetMethod("Format", [typeof(string), typeof(object[])])
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(formatMethod))
+        return true
+    }
+
+    static func AppendIteratorInterpolationHole(emit: ColumnarMoveNextEmit, nodes: ColumnarNodeTable, source: string, node: int, out resultType: Type): bool {
+        scope := emit.Context.RequiredScope()
+        bindings := scope.Bindings
+        previous := bindings.IteratorMoveNextEmitter
+        previousNodes := emit.ExpressionNodes
+        previousSource := emit.ExpressionSource
+        bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
+        emit.ExpressionNodes = nodes
+        emit.ExpressionSource = source
+        try {
+            parentFragment := -1
+            if emit.Plan.OpenFragmentCount > 0 {
+                parentFragment = emit.Plan.OpenFragmentIndices[emit.Plan.OpenFragmentCount - 1]
+            }
+            return ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), emit.Plan, parentFragment, 0, out resultType)
+        } finally {
+            bindings.IteratorMoveNextEmitter = previous
+            emit.ExpressionNodes = previousNodes
+            emit.ExpressionSource = previousSource
+        }
+    }
+
+    static func AppendIteratorCompositeFormatText(builder: StringBuilder, text: string) {
+        i := 0
+        while i < text.Length {
+            character := text[i]
+            if character == '{' {
+                builder.Append("{{")
+            } else if character == '}' {
+                builder.Append("}}")
+            } else {
+                builder.Append(character)
+            }
+            i += 1
+        }
     }
 
     // A value that must arrive at a storage location of `storageType` — a hoisted field, the current
@@ -3143,15 +3465,17 @@ class ColumnarIteratorBodyPlanner {
     // reference upcast, a nullable lift, a constructed-generic conversion and a user-defined implicit
     // conversion all behave exactly as they do when the same value is passed to a parameter.
     static func AppendStoredValue(emit: ColumnarMoveNextEmit, node: int, storageType: Type): bool {
+        nodes := CurrentExpressionNodes(emit)
+        source := CurrentExpressionSource(emit)
         if emit.Context.Declined {
             return false
         }
-        if ColumnarLambdaNodeFacts.IsLambda(emit.Context.Nodes.Kind(node)) {
+        if ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(node)) {
             return AppendLambda(emit, node, storageType)
         }
         // The iterator-owned value forms take the ordinary value path plus the storage conversion; only
         // target-typed forms need the position's type handed down.
-        if emit.Context.Nodes.Kind(node) == ColumnarExpressionNodeKind.OnSubscriptionExpression {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.OnSubscriptionExpression {
             subscriptionType := typeof(int)
             if !AppendValue(emit, node, out subscriptionType) {
                 return false
@@ -3165,7 +3489,7 @@ class ColumnarIteratorBodyPlanner {
             }
             return true
         }
-        if emit.Context.Nodes.Kind(node) == ColumnarExpressionNodeKind.PostfixUnary {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.PostfixUnary {
             steppedType := typeof(int)
             if !AppendValue(emit, node, out steppedType) {
                 return false
@@ -3179,13 +3503,65 @@ class ColumnarIteratorBodyPlanner {
             }
             return true
         }
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.StringLiteralExpression {
+            literal := ""
+            parts := new List<ColumnarInterpolationPart>()
+            holeNodes := new ColumnarNodeTable[](0)
+            holeSources := new string[](0)
+            holeRoots := new int[](0)
+            if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+                interpolationType := typeof(string)
+                if !AppendIteratorInterpolatedString(emit, literal, parts, holeNodes, holeSources, holeRoots, out interpolationType) {
+                    return false
+                }
+                if interpolationType == storageType {
+                    return true
+                }
+                if !emit.Context.RequiredScope().TryAppendStorageConversion(emit.Plan, interpolationType, storageType) {
+                    emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body value of type '" + interpolationType.Name + "' cannot be stored as '" + storageType.Name + "'")
+                    return false
+                }
+                return true
+            }
+        }
         checkpoint := emit.Plan.CreateCheckpoint()
-        if emit.Context.RequiredScope().TryAppendTargetTypedValue(emit.Context.Nodes, emit.Context.Source, node, emit.Plan, storageType) {
+        if TryAppendScopedTargetTypedValue(emit, node, emit.Plan, storageType) {
             return true
         }
         emit.Plan.Rollback(checkpoint)
-        emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body value (node kind " + emit.Context.Nodes.Kind(node).ToString() + ") could not be lowered as '" + storageType.Name + "'")
+        emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body value (node kind " + nodes.Kind(node).ToString() + ") could not be lowered as '" + storageType.Name + "'")
         return false
+    }
+
+    // Install the live MoveNext lowering only for this append. Recursive expression planners then
+    // dispatch their await nodes back into the machine's suspension writer; a discovery pass uses a
+    // separate scratch plan and deliberately has no live emitter.
+    static func TryAppendScopedValue(emit: ColumnarMoveNextEmit, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
+        scope := emit.Context.RequiredScope()
+        bindings := scope.Bindings
+        previous := bindings.IteratorMoveNextEmitter
+        bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
+        try {
+            parentFragment := -1
+            if plan.OpenFragmentCount > 0 {
+                parentFragment = plan.OpenFragmentIndices[plan.OpenFragmentCount - 1]
+            }
+            return ColumnarRangeIndexPlanner.TryAppendConstructionValue(CurrentExpressionNodes(emit), CurrentExpressionSource(emit), node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, parentFragment, 0, out resultType)
+        } finally {
+            bindings.IteratorMoveNextEmitter = previous
+        }
+    }
+
+    static func TryAppendScopedTargetTypedValue(emit: ColumnarMoveNextEmit, node: int, plan: ColumnarCodePlan, targetType: Type): bool {
+        scope := emit.Context.RequiredScope()
+        bindings := scope.Bindings
+        previous := bindings.IteratorMoveNextEmitter
+        bindings.IteratorMoveNextEmitter = emit.IsAsync ? emit : null
+        try {
+            return scope.TryAppendTargetTypedValue(CurrentExpressionNodes(emit), CurrentExpressionSource(emit), node, plan, targetType)
+        } finally {
+            bindings.IteratorMoveNextEmitter = previous
+        }
     }
 
     // A VALUE STORED INTO ONE OF THE MACHINE'S FIELDS, which is the only place an `await` can be the
@@ -3195,7 +3571,21 @@ class ColumnarIteratorBodyPlanner {
     // only then is `this` loaded and the field written. Every other value keeps the ordinary order:
     // receiver, value, store.
     static func AppendBoundFieldStore(emit: ColumnarMoveNextEmit, valueNode: int, fieldPool: int, storageType: Type): bool {
-        if emit.Context.Nodes.Kind(valueNode) != ColumnarExpressionNodeKind.AwaitExpression {
+        // The field receiver is part of the evaluation stack until `stfld`. A nested await inside a
+        // call, binary or interpolation therefore has to finish before that receiver is loaded; the
+        // expression's converted value is kept in a method local until the machine field write.
+        if emit.IsAsync && CurrentExpressionNodes(emit).Kind(valueNode) != ColumnarExpressionNodeKind.AwaitExpression && ExpressionContainsAwait(emit, valueNode) {
+            if !AppendStoredValue(emit, valueNode, storageType) {
+                return false
+            }
+            valueLocal := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(storageType), emit.Context.StructuralTypeReferences))
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueLocal)
+            LoadThis(emit)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), valueLocal)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+            return true
+        }
+        if CurrentExpressionNodes(emit).Kind(valueNode) != ColumnarExpressionNodeKind.AwaitExpression {
             LoadThis(emit)
             if !AppendStoredValue(emit, valueNode, storageType) {
                 return false
@@ -3221,6 +3611,36 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+        return true
+    }
+
+    // Move a value currently on the evaluation stack into a generated state-machine field. The plan
+    // local is only a short-lived bridge to put `this` below the value for `stfld`; the field is what
+    // survives the suspension that follows.
+    static func AppendSpillToMachineField(emit: ColumnarMoveNextEmit, fieldName: string, valueType: Type): bool {
+        field: FieldInfo? = null
+        if !emit.Context.TryEnsureHoistedField(fieldName, valueType, out field) || field == null {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "an expression value of type '" + valueType.Name + "' could not be hoisted across an await")
+            return false
+        }
+        valueLocal := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(valueType), emit.Context.StructuralTypeReferences))
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueLocal)
+        LoadThis(emit)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), valueLocal)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(field))
+        return true
+    }
+
+    static func AppendLoadFromMachineField(emit: ColumnarMoveNextEmit, fieldName: string, out valueType: Type): bool {
+        valueType = typeof(int)
+        if !emit.Context.IsFieldDefined(fieldName) {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "expression spill field '" + fieldName + "' was not defined by iterator classification")
+            return false
+        }
+        field := emit.Context.FieldForName(fieldName)
+        valueType = field.FieldType
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.Plan.AddField(field))
         return true
     }
 
@@ -4528,6 +4948,9 @@ class ColumnarIteratorBodyPlanner {
         if kind == ColumnarStatementNodeKind.TryStatement {
             return EmitTryStatement(emit, node)
         }
+        if kind == ColumnarStatementNodeKind.LockStatement {
+            return EmitLockStatement(emit, node)
+        }
         if kind == ColumnarStatementNodeKind.ForStatement {
             // For [init, cond, incr, body]: `init` runs once (its local is a hoisted field), then the
             // while discipline with a trailing increment — the back edge (and the increment before it)
@@ -4591,12 +5014,17 @@ class ColumnarIteratorBodyPlanner {
             // `throw` (zero children) is the RETHROW — the exception the enclosing catch handler is
             // running for, re-raised with its stack trace intact. Either shape ends its path.
             if nodes.ChildCount(node) == 0 {
-                if emit.CatchHandlerDepth == 0 {
+                if emit.CatchHandlerDepth == 0 && emit.HoistedCatchPendingField.Length == 0 {
                     emit.Context.Decline("emit.iterator.rethrow-placement", "a bare 'throw' is only valid inside a catch handler")
                     return false
                 }
-
-                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Rethrow())
+                if emit.CatchHandlerDepth > 0 {
+                    emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Rethrow())
+                } else {
+                    LoadThis(emit)
+                    emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, emit.HoistedCatchPendingField))
+                    emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(ExceptionDispatchInfoThrowMethod()))
+                }
                 return false
             }
 
@@ -5015,8 +5443,20 @@ class ColumnarIteratorBodyPlanner {
             handlerEnd = childCount - 1
         }
 
+        awaitingCatch := false
+        catchIndex := 1
+        while catchIndex < handlerEnd {
+            if ColumnarIteratorPlanner.ContainsAwait(nodes, nodes.Child(node, catchIndex)) {
+                awaitingCatch = true
+            }
+            catchIndex += 1
+        }
+        if awaitingCatch {
+            return EmitHoistedAwaitCatchRegion(emit, node, finallyNode, handlerEnd)
+        }
+
         if finallyNode >= 0 && ColumnarIteratorPlanner.ContainsAwait(nodes, finallyNode) {
-            return EmitHoistedHandlerRegion(emit, node, finallyNode)
+            return EmitHoistedHandlerRegion(emit, node, finallyNode, handlerEnd)
         }
 
         region := emit.NextTryRegion
@@ -5073,6 +5513,44 @@ class ColumnarIteratorBodyPlanner {
         return tryFalls || handlersFall
     }
 
+    // The lock expression runs before the monitor is acquired; only its synchronous body holds the
+    // monitor. The semantic walk rejects suspension in that body. This emits the same
+    // Monitor.Enter/try/finally/Monitor.Exit shape as an ordinary method body.
+    static func EmitLockStatement(emit: ColumnarMoveNextEmit, node: int): bool {
+        nodes := emit.Context.Nodes
+        if nodes.ChildCount(node) != 2 {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "unsupported lock statement in an iterator body")
+            return false
+        }
+
+        lockType := typeof(object)
+        if !AppendValue(emit, nodes.Child(node, 0), out lockType) || lockType.IsValueType || ColumnarCodePlanExecutor.IsVoidType(lockType) {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a lock in an iterator body needs a reference-type lock object")
+            return false
+        }
+        lockLocal := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(lockType), emit.Context.StructuralTypeReferences))
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), lockLocal)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), lockLocal)
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(typeof(System.Threading.Monitor).GetMethod("Enter", [typeof(object)])))
+
+        regionEnd := emit.Plan.DefineLabel()
+        emit.Plan.AppendBeginExceptionBlock(regionEnd)
+        emit.RegionDepth += 1
+        bodyFalls := EmitStatement(emit, nodes.Child(node, 1))
+        if emit.Context.Declined {
+            return false
+        }
+        if bodyFalls {
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), regionEnd)
+        }
+        emit.Plan.AppendBeginFinallyBlock()
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), lockLocal)
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(typeof(System.Threading.Monitor).GetMethod("Exit", [typeof(object)])))
+        emit.Plan.AppendEndExceptionBlock()
+        emit.RegionDepth -= 1
+        return bodyFalls
+    }
+
     // A REGION WHOSE HANDLER SUSPENDS. The handler cannot run inside the region — a suspension leaves
     // the method with an empty stack and comes back through the state dispatch, and a dispatch cannot
     // branch INTO a protected region — so the body keeps the region and the handler is emitted just
@@ -5094,7 +5572,7 @@ class ColumnarIteratorBodyPlanner {
     // This is Roslyn's `AsyncMethodToStateMachineRewriter.VisitTryStatement` lowering, and it carries
     // Roslyn's semantics with it: a handler that itself raises replaces the parked exception, which is
     // what C# does for an exception thrown from a `finally` as well.
-    static func EmitHoistedHandlerRegion(emit: ColumnarMoveNextEmit, node: int, finallyNode: int): bool {
+    static func EmitHoistedHandlerRegion(emit: ColumnarMoveNextEmit, node: int, finallyNode: int, handlerEnd: int): bool {
         region := emit.NextTryRegion
         emit.NextTryRegion = emit.NextTryRegion + 1
         pendingName := ColumnarIteratorPlanner.PendingExceptionFieldName(region)
@@ -5108,7 +5586,27 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
 
-        EndHoistedHandlerRegion(emit, bodyFalls, pendingName)
+        // Keep the source catches in the protected region. The final catch-all only parks exceptions
+        // that none of those clauses handled; the hoisted finally then runs for both handled and
+        // unhandled exits, after which an unhandled exception is re-raised with its original stack.
+        if bodyFalls {
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.HoistedRegionEnds[emit.HoistedDepth - 1])
+        }
+        handlersFall := false
+        catchOrdinal := 0
+        clauseIndex := 1
+        while clauseIndex < handlerEnd {
+            catchFalls := false
+            if !EmitCatchClause(emit, emit.Context.Nodes.Child(node, clauseIndex), catchOrdinal, emit.HoistedRegionEnds[emit.HoistedDepth - 1], out catchFalls) {
+                return false
+            }
+            if catchFalls {
+                handlersFall = true
+            }
+            catchOrdinal += 1
+            clauseIndex += 1
+        }
+        EndHoistedHandlerRegion(emit, false, pendingName)
         emit.HoistedHandlerDepth = emit.HoistedHandlerDepth + 1
         EmitStatement(emit, finallyNode)
         emit.HoistedHandlerDepth = emit.HoistedHandlerDepth - 1
@@ -5117,7 +5615,89 @@ class ColumnarIteratorBodyPlanner {
         }
 
         AppendHoistedHandlerTail(emit, pendingName, branchName)
-        return !emit.Context.Declined
+        return !emit.Context.Declined && (bodyFalls || handlersFall)
+    }
+
+    // A catch body that awaits cannot remain inside a CLR catch handler: its resume label must be
+    // reachable from the enclosing state dispatch. Park the original exception as EDI in a synthetic
+    // catch-all, close the protected region, then perform source-order type matching and run each
+    // selected body outside the handler. A handled exception clears the pending slot; an unmatched
+    // one reaches the common tail and is rethrown with its original stack.
+    static func EmitHoistedAwaitCatchRegion(emit: ColumnarMoveNextEmit, node: int, finallyNode: int, handlerEnd: int): bool {
+        if finallyNode >= 0 {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "an async iterator cannot yet combine an awaiting `catch` body with a `finally` on the same `try`")
+            return false
+        }
+        nodes := emit.Context.Nodes
+        region := emit.NextTryRegion
+        emit.NextTryRegion += 1
+        pendingName := ColumnarIteratorPlanner.PendingExceptionFieldName(region)
+        branchName := ColumnarIteratorPlanner.PendingBranchFieldName(region)
+        if !BeginHoistedHandlerRegion(emit, region, pendingName, branchName) {
+            return false
+        }
+        bodyFalls := EmitStatement(emit, nodes.Child(node, 0))
+        if emit.Context.Declined {
+            return false
+        }
+        EndHoistedHandlerRegion(emit, bodyFalls, pendingName)
+
+        anyCatchFalls := false
+        catchOrdinal := 0
+        clauseIndex := 1
+        handledLabel := emit.Plan.DefineLabel()
+        while clauseIndex < handlerEnd {
+            clause := nodes.Child(node, clauseIndex)
+            if nodes.Kind(clause) != ColumnarStatementNodeKind.CatchClause || nodes.ChildCount(clause) < 1 || ColumnarCatchClauseFacts.HasFilter(nodes, clause) {
+                emit.Context.Decline("emit.iterator.catch-filter", "a catch filter or malformed catch clause is not supported in an async iterator")
+                return false
+            }
+            bindingName := ColumnarIteratorPlanner.CatchBindingName(nodes, emit.Context.Source, clause, catchOrdinal)
+            bindingField := emit.Context.FieldForName(bindingName)
+            caughtType := bindingField.FieldType
+            caughtTypePool := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(caughtType), emit.Context.StructuralTypeReferences)
+            nextCatch := emit.Plan.DefineLabel()
+
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, pendingName))
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), nextCatch)
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, pendingName))
+            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(ExceptionDispatchInfoSourceExceptionGetter()))
+            emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Isinst(), caughtTypePool)
+            caughtLocal := emit.Plan.DeclarePlanLocal(caughtTypePool)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), caughtLocal)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caughtLocal)
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), nextCatch)
+            LoadThis(emit)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caughtLocal)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(bindingField))
+
+            previousPending := emit.HoistedCatchPendingField
+            emit.HoistedCatchPendingField = pendingName
+            scope := emit.Context.RequiredScope()
+            handlerMark := scope.EnterBindingScope()
+            scope.HideEnclosingMember(bindingName)
+            fell := EmitStatement(emit, nodes.Child(clause, nodes.ChildCount(clause) - 1))
+            scope.ExitBindingScope(handlerMark)
+            emit.HoistedCatchPendingField = previousPending
+            if emit.Context.Declined {
+                return false
+            }
+            if fell {
+                LoadThis(emit)
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, pendingName))
+                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), handledLabel)
+                anyCatchFalls = true
+            }
+            emit.Plan.AppendMarkLabel(nextCatch)
+            catchOrdinal += 1
+            clauseIndex += 1
+        }
+        emit.Plan.AppendMarkLabel(handledLabel)
+        AppendHoistedHandlerTail(emit, pendingName, branchName)
+        return !emit.Context.Declined && (bodyFalls || anyCatchFalls)
     }
 
     // The region's PROLOGUE: clear both slots, open the protected region, push it on the hoisted
@@ -6013,6 +6593,18 @@ class ColumnarIteratorBodyPlanner {
         return method
     }
 
+    static func ExceptionDispatchInfoSourceExceptionGetter(): MethodInfo {
+        property := ExceptionDispatchInfoRuntimeType().GetProperty("SourceException")
+        getter: MethodInfo? = null
+        if property != null {
+            getter = property.GetMethod
+        }
+        if getter == null {
+            throw new InvalidOperationException("ExceptionDispatchInfo.SourceException was not found.")
+        }
+        return getter
+    }
+
     static func ExceptionRuntimeType(): Type {
         return RequiredRuntimeType("System.Exception")
     }
@@ -6236,18 +6828,27 @@ class ColumnarIteratorBodyPlanner {
     // awaited value for a bound one, which is left on the stack for the statement that binds it.
     static func AppendAwait(emit: ColumnarMoveNextEmit, awaitNode: int, out resultType: Type): bool {
         resultType = VoidReturnType()
-        operand := emit.Context.Nodes.Child(awaitNode, 0)
+        nodes := CurrentExpressionNodes(emit)
+        source := CurrentExpressionSource(emit)
+        operand := nodes.Child(awaitNode, 0)
         operandType := typeof(int)
-        if !emit.Context.RequiredScope().TryDiscoverValueType(emit.Context.Nodes, emit.Context.Source, operand, out operandType) {
+        if !emit.Context.RequiredScope().TryDiscoverValueType(nodes, source, operand, out operandType) {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "the awaited operand could not be lowered in an async iterator body")
             return false
         }
 
-        LoadThis(emit)
         plannedOperandType := typeof(int)
         if !AppendValue(emit, operand, out plannedOperandType) {
             return false
         }
+
+        // Evaluate the awaitable before loading the machine receiver. The operand may itself contain
+        // an await, and its suspension must see an empty evaluation stack. The temporary also makes
+        // the `this, awaitable` pair explicit for the shared await-pattern writer below.
+        operandLocal := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(operandType), emit.Context.StructuralTypeReferences))
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), operandLocal)
+        LoadThis(emit)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), operandLocal)
 
         return AppendAwaitOfStackValue(emit, operandType, out resultType)
     }

@@ -1718,12 +1718,9 @@ func* ticks(log: List<string>): IEnumerable<int> {
 - non-literal unary negation in a generator lambda, such as `() => -value`.
 - mutation of a generator lambda's own parameters or locals, including `x++` and `x = x + 1`.
   Reads and nonmutating computations are supported; captured generator bindings support assignment.
-- `await` outside an `async func*`, and — inside one — an `await` NESTED in a larger expression;
-  bind it first (`value := await ...`).
-- an `await` inside a `catch` handler, and an awaiting `finally` on a `try` that also declares a
-  `catch` — the hoisted form below replaces the statement's own handlers with one catch-all, so a
-  `catch` clause would have to be re-matched against the parked exception by hand.
-- `lock` inside any generator body.
+- `await` outside an `async func*`.
+- a `yield` or `await` inside a `lock` statement ([NL351](./errors/NL351.md)); lock blocks without
+  suspension are supported.
 - a COMPOUND assignment (`+=`, `-=`, …) whose target is an indexer or a member; write the plain form
   (`table[key] = table[key] + 1`).
 
@@ -1763,8 +1760,20 @@ async func* rows(): IAsyncEnumerable<string> {
 
 The awaited operand may be any awaitable — a `Task`, a `Task<T>`, a `ValueTask<T>`, or a type of your
 own — because the compiler asks the operand's own type for `GetAwaiter()`, and that awaiter for
-`IsCompleted`, `OnCompleted(Action)` and `GetResult()`. An `await` nested inside a larger expression
-(`total + await f()`) is not lowered yet; bind it first.
+`IsCompleted`, `OnCompleted(Action)` and `GetResult()`. An `await` may appear inside a larger
+expression. Values evaluated earlier in the expression are spilled to the iterator state machine and
+reloaded after the await, preserving left-to-right evaluation order across call arguments, binary
+operands, conditions and interpolation holes:
+
+```n#
+import System.Collections.Generic
+import System.Threading.Tasks
+
+async func* describe(): IAsyncEnumerable<string> {
+    left := await Task.FromResult("left")
+    yield $"{left}:{await Task.FromResult("right")}"
+}
+```
 
 `for..in` over any sequence works inside an async generator as well, and the enumerator it opens is
 released when the loop ends, when an exception passes through, and when a consumer stops the
@@ -1826,9 +1835,13 @@ async func* guarded(source: IAsyncDisposable): IAsyncEnumerable<int> {
 }
 ```
 
-The two shapes this does **not** cover are an `await` inside a `catch`, and an awaiting `finally` on
-a `try` that also declares a `catch`: the hoisted form replaces the statement's own handlers with one
-catch-all, so a `catch` clause would have to be re-matched against the parked exception by hand.
+An `await` inside a `catch` is also supported. Awaited `finally` blocks work on a `try` with source
+`catch` clauses: the original catches still select and handle exceptions inside the protected region,
+then the hoisted `finally` runs before a parked unhandled exception is rethrown.
+If a `catch` body itself awaits, that same `try` cannot also declare a `finally` yet.
+
+An iterator cannot use `return value`; use `yield value` to produce an element, or a bare `return` /
+`yield break` to stop ([NL350](./errors/NL350.md)).
 
 ## Generic Functions
 

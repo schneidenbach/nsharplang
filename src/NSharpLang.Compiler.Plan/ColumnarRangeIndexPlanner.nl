@@ -449,7 +449,21 @@ class ColumnarRangeIndexPlanner {
         planned := false
 
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression || kind == ColumnarExpressionNodeKind.FloatLiteralExpression || kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression {
-            planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, node, plan, out resultType)
+            iteratorEmitter := bindings.IteratorMoveNextEmitter
+            if kind == ColumnarExpressionNodeKind.StringLiteralExpression && iteratorEmitter != null && !plan.IteratorTypeDiscovery {
+                literal := ""
+                parts := new List<ColumnarInterpolationPart>()
+                holeNodes := new ColumnarNodeTable[](0)
+                holeSources := new string[](0)
+                holeRoots := new int[](0)
+                if ColumnarIteratorPlanner.TryParseInterpolatedExpression(nodes, source, node, out literal, out parts, out holeNodes, out holeSources, out holeRoots) {
+                    planned = ColumnarIteratorBodyPlanner.AppendIteratorInterpolatedString(iteratorEmitter, literal, parts, holeNodes, holeSources, holeRoots, out resultType)
+                } else {
+                    planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, node, plan, out resultType)
+                }
+            } else {
+                planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, node, plan, out resultType)
+            }
         } else if kind == ColumnarExpressionNodeKind.NameOfExpression {
             planned = ColumnarNameOfPlanner.TryAppendNameOf(nodes, source, node, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.TypeOfExpression {
@@ -485,11 +499,16 @@ class ColumnarRangeIndexPlanner {
             if !planned && ownership == ColumnarDirectCallOwnership.OwnedRejected {
                 nestedOwnership = ColumnarDirectCallOwnership.OwnedRejected
             }
-        } else if kind == ColumnarExpressionNodeKind.AwaitExpression && bindings.BlockingAwaitEnabled && nodes.ChildCount(node) == 1 {
-            awaitableType := typeof(object)
-            planned = TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out awaitableType, out nestedOwnership)
-            if planned {
-                planned = AppendBlockingAwaitOfStackValue(plan, awaitableType, out resultType)
+        } else if kind == ColumnarExpressionNodeKind.AwaitExpression && nodes.ChildCount(node) == 1 {
+            iteratorEmitter := bindings.IteratorMoveNextEmitter
+            if iteratorEmitter != null && !plan.IteratorTypeDiscovery {
+                planned = ColumnarIteratorBodyPlanner.AppendAwait(iteratorEmitter, node, out resultType)
+            } else if bindings.BlockingAwaitEnabled || plan.IteratorTypeDiscovery {
+                awaitableType := typeof(object)
+                planned = TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out awaitableType, out nestedOwnership)
+                if planned {
+                    planned = AppendBlockingAwaitOfStackValue(plan, awaitableType, out resultType)
+                }
             }
         } else if kind == ColumnarExpressionNodeKind.BinaryExpression {
             // Short-circuit `&&`/`||` is a Boolean control-flow form owned by the conditional
