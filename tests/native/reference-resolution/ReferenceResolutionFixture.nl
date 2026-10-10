@@ -249,11 +249,12 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
     // to be assigning to a struct's own field from its own method, which emits since the call site
     // loads an addressable receiver by address, and then a bare STATIC FIELD as a call receiver,
     // which emits since a static member of the enclosing type is a value binding, and then an
-    // `await foreach` inside a generator body. Generic async iterators now emit, so the fixture uses
-    // an await nested in a larger expression, which remains outside the current async body lowering.
+    // `await foreach` inside a generator body. Generic async iterators and nested expression awaits
+    // now emit, so the fixture uses a branch out of `await foreach`, which remains outside the
+    // current async body lowering.
     ResolverWrite(
         Path.Combine(sharedDir, "Shared.nl"),
-        "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* Pending(): IAsyncEnumerable<int> {\n    yield 1 + await Task.FromResult(1)\n}"
+        "import System.Collections.Generic\n\nasync func* Pending(items: IAsyncEnumerable<int>): IAsyncEnumerable<int> {\n    await foreach item in items {\n        break\n    }\n}"
     )
     ResolverWrite(
         Path.Combine(projectRoot, "project.yml"),

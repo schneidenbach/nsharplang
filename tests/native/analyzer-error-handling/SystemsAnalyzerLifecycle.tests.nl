@@ -132,19 +132,21 @@ func SaNewAnalyzer(): object {
 }
 
 func SaAnalyze(analyzer: object, units: object): object {
-    parameterTypes := new Type[](3)
+    parameterTypes := new Type[](4)
     parameterTypes[0] = SaReadOnlyDictionaryType(SaCompilationUnitType())
     parameterTypes[1] = SaPerformanceFactStoreType()
     parameterTypes[2] = SaReadOnlyDictionaryType(SaSemanticModelType())
+    parameterTypes[3] = typeof(bool)
     analyze := analyzer.GetType().GetMethod("Analyze", parameterTypes)
     if analyze == null {
         throw new InvalidOperationException("The production SystemsAnalyzer Analyze entry point was not found.")
     }
 
-    arguments := new object?[](3)
+    arguments := new object?[](4)
     SaPut(arguments, 0, units)
     SaPut(arguments, 1, null)
     SaPut(arguments, 2, null)
+    SaPut(arguments, 3, false)
     report := analyze.Invoke(analyzer, arguments)
     if report == null {
         throw new InvalidOperationException("The production SystemsAnalyzer returned no report.")

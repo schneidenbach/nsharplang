@@ -829,6 +829,7 @@ class DaemonServer {
             // Extract params
             filePath := GetParam<string>(request.Params, "file")
             posStr := GetParam<string>(request.Params, "pos")
+            filter := GetParam<string>(request.Params, "filter")
             kind := GetParam<string>(request.Params, "kind")
             severity := GetParam<string>(request.Params, "severity")
             includeKeywords := GetParam<bool>(request.Params, "includeKeywords")
@@ -855,7 +856,7 @@ class DaemonServer {
 
             // Query methods
             if methodKind == DaemonMethodKind.Symbols {
-                return Ok(request.Id, HandleSymbols(loaded, filePath, kind))
+                return Ok(request.Id, HandleSymbols(loaded, filePath, kind, filter))
             }
 
             if methodKind == DaemonMethodKind.Outline {
@@ -903,7 +904,7 @@ class DaemonServer {
 
     // ── Query Handlers ──────────────────────────────────────────────────
 
-    func HandleSymbols(loaded: ProjectSnapshot, filePath: string?, kind: string?): string {
+    func HandleSymbols(loaded: ProjectSnapshot, filePath: string?, kind: string?, filter: string?): string {
         kindFilter: SymbolKind? = null
         if kind != null {
             parsedKind := QueryCommandKernels.ParseSymbolKind(kind)
@@ -913,6 +914,9 @@ class DaemonServer {
         }
 
         results := service.GetSymbols(loaded, filePath, kindFilter)
+        if !string.IsNullOrWhiteSpace(filter) {
+            results = QuerySymbolNameFilter.Filter(results, filter ?? "", 200)
+        }
         return OutputFormatter.SymbolsToJson(results, loaded.ProjectRoot)
     }
 

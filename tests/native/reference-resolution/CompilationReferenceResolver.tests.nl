@@ -173,7 +173,7 @@ test "build and check retain the exact child AOT diagnostic and produce no child
         build := ResolverRunCli("build --project " + ResolverQuote(buildRoot) + " --backend il --aot -o " + ResolverQuote(buildOutput), buildRoot)
         assert build.ExitCode == 1
         assert (build.Stdout + build.Stderr).Contains("AOT builds require successful N# columnar emission", StringComparison.Ordinal)
-        assert (build.Stdout + build.Stderr).Contains("emit.iterator.async-await-unsupported: an `await` nested inside a larger expression is not yet lowered in an async iterator body", StringComparison.Ordinal)
+        assert (build.Stdout + build.Stderr).Contains("emit.iterator.loop-branch-placement: a `break` out of an `await foreach` is not yet lowered in an iterator body", StringComparison.Ordinal)
         assert !File.Exists(Path.Combine(buildOutput, "SharedLib.dll"))
 
         checkRoot := Path.Combine(scratch, "check")
@@ -187,8 +187,8 @@ test "build and check retain the exact child AOT diagnostic and produce no child
         assert document.RootElement.GetProperty("summary").GetProperty("projectFailures").GetInt32() == 1
         document.Dispose()
         assert ResolverJsonWorkspaceErrorContains(check.Stdout, "AOT builds require successful N# columnar emission")
-        assert ResolverJsonWorkspaceErrorContains(check.Stdout, "emit.iterator.async-await-unsupported: an `await` nested inside a larger expression is not yet lowered in an async iterator body")
-        assert ResolverJsonWorkspaceDiagnosticContains(check.Stdout, "NL103", "emit.iterator.async-await-unsupported: an `await` nested inside a larger expression is not yet lowered in an async iterator body")
+        assert ResolverJsonWorkspaceErrorContains(check.Stdout, "emit.iterator.loop-branch-placement: a `break` out of an `await foreach` is not yet lowered in an iterator body")
+        assert ResolverJsonWorkspaceDiagnosticContains(check.Stdout, "NL103", "emit.iterator.loop-branch-placement: a `break` out of an `await foreach` is not yet lowered in an iterator body")
         assert !File.Exists(Path.Combine(Path.Combine(Path.Combine(Path.Combine(checkRoot, "Shared"), "bin"), "Debug/net10.0"), "SharedLib.dll"))
     } finally {
         Directory.Delete(scratch, true)

@@ -787,7 +787,7 @@ class MultiFileCompiler {
         state := _incrementalState
         previousProjectBindings: BindingMap? = null
         useIncrementalProjectBindings := state != null && plan != null && state.LastProjectBindings != null
-        if useIncrementalProjectBindings {
+        if state != null && plan != null && state.LastProjectBindings != null {
             previousProjectBindings = state.LastProjectBindings
         }
         replacementBindings := new Dictionary<string, BindingMap>(StringComparer.OrdinalIgnoreCase)
@@ -817,7 +817,7 @@ class MultiFileCompiler {
             mergeIndex = mergeIndex + 1
         }
 
-        if useIncrementalProjectBindings {
+        if useIncrementalProjectBindings && state != null && plan != null && previousProjectBindings != null {
             removedFiles := new List<string>()
             for previousFile in state.Files.Keys {
                 if !plan.Summaries.ContainsKey(previousFile) {

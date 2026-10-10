@@ -265,30 +265,24 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     assert privateConstructors.Length == 1
     assert privateConstructors[0].GetParameters().Length == 3
 
-    // THE TENTH READING IS `FriendGrants`, and it is a reading of the compilation like the other
-    // nine: which referenced assemblies named this project in an `InternalsVisibleTo`. It is carried
-    // out of here so the read-only queries — completion, first — can ask the SAME
-    // `InternalsVisibleToGrants` the analyzer asked instead of answering the public surface only.
-    // THE ELEVENTH IS NOT A READING OF THE COMPILATION BUT AN INSTRUCTION TO IT:
-    // `EmitReferenceAssembly` asks the compiler to write the SURFACE of what it emits beside the
-    // implementation, which is what MSBuild's `ProduceReferenceAssembly` needs and what `nlc build`
-    // does not, so it is settable like `AotMode` and defaults off.
-    // THE TWELFTH AND THIRTEENTH ARE THE TWO SETTINGS THE ENVIRONMENT USED TO BE THE ONLY DOOR TO:
-    // `SoaEnabled` (`NSHARP_EXPERIMENTAL_SOA`) and `ColumnarDeclineLog` (`NSHARP_COLUMNAR_DECLINE_LOG`,
-    // which meant stderr). Each is read from its variable ONCE, when the compiler is built, and a
-    // caller that wants the other answer sets the property instead of rewriting the process.
-    // THE FOURTEENTH IS THE SAME KIND OF DOOR FOR `NSHARP_COMPILER_WORKERS`: `Workers`, the worker
-    // count of the fan-out phases (0 lets `CompilerParallelism` decide), so the
-    // serial-versus-parallel differential and the estate rows pick a path without touching the
-    // process environment.
-    // THE FIFTEENTH TO SEVENTEENTH ARE INCREMENTALITY: `IncrementalBuild` lets a caller that keeps
-    // its output have an unchanged compilation answered from its `obj/` stamp, `WasUpToDate` says
-    // that happened, and `IncrementalState` carries the per-file analyses a warm caller keeps
-    // between compilations of the same project. Both instructions default off.
-    // THE EIGHTEENTH IS `EmittedImage`: the image the last successful emission produced, read-only,
-    // and the only place a validation (`ValidateAnalyzedEmission`, which writes nothing) leaves it.
-    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 18
-    propertyNames := new string[](18)
+    // `SystemsDiagnosticsOnly` lets analysis sessions request the bounded systems diagnostics used
+    // by code intelligence instead of the complete build report.
+    // `FriendGrants` carries the compilation's `InternalsVisibleTo` grants so read-only queries can
+    // ask the same result the analyzer uses.
+    // `EmitReferenceAssembly` asks the compiler to write the emitted public surface beside the
+    // implementation for MSBuild's `ProduceReferenceAssembly`; it is settable like `AotMode` and
+    // defaults off.
+    // `SoaEnabled` and `ColumnarDeclineLog` are settings the environment used to be the only door to.
+    // Each reads its variable once when the compiler is built, and a caller can set the property
+    // instead of rewriting the process environment.
+    // `Workers` selects the fan-out count (0 lets `CompilerParallelism` decide), so serial-versus-
+    // parallel checks do not need to touch process environment.
+    // `IncrementalBuild`, `WasUpToDate` and `IncrementalState` let a warm caller reuse an unchanged
+    // compilation and keep per-file analyses between compilations of the same project.
+    // `EmittedImage` is the image the last successful emission produced, and the only place
+    // `ValidateAnalyzedEmission` leaves it without writing an assembly.
+    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 19
+    propertyNames := new string[](19)
     propertyNames[0] = "CompilationUnits"
     propertyNames[1] = "SemanticModels"
     propertyNames[2] = "AllErrors"
@@ -297,16 +291,17 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     propertyNames[5] = "ProjectIndex"
     propertyNames[6] = "PerformanceFacts"
     propertyNames[7] = "SystemsReport"
-    propertyNames[8] = "AotMode"
+    propertyNames[8] = "SystemsDiagnosticsOnly"
     propertyNames[9] = "FriendGrants"
-    propertyNames[10] = "EmitReferenceAssembly"
-    propertyNames[11] = "SoaEnabled"
-    propertyNames[12] = "ColumnarDeclineLog"
-    propertyNames[13] = "Workers"
-    propertyNames[14] = "IncrementalBuild"
-    propertyNames[15] = "WasUpToDate"
-    propertyNames[16] = "IncrementalState"
-    propertyNames[17] = "EmittedImage"
+    propertyNames[10] = "AotMode"
+    propertyNames[11] = "EmitReferenceAssembly"
+    propertyNames[12] = "SoaEnabled"
+    propertyNames[13] = "ColumnarDeclineLog"
+    propertyNames[14] = "Workers"
+    propertyNames[15] = "IncrementalBuild"
+    propertyNames[16] = "WasUpToDate"
+    propertyNames[17] = "IncrementalState"
+    propertyNames[18] = "EmittedImage"
     propertyIndex := 0
     while propertyIndex < propertyNames.Length {
         property := MultiFileOwnerRequiredProperty(
@@ -314,7 +309,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
             propertyNames[propertyIndex]
         )
         assert property.get_CanRead(), propertyNames[propertyIndex]
-        if propertyNames[propertyIndex] == "AotMode" || propertyNames[propertyIndex] == "EmitReferenceAssembly" || propertyNames[propertyIndex] == "SoaEnabled" || propertyNames[propertyIndex] == "ColumnarDeclineLog" || propertyNames[propertyIndex] == "Workers" || propertyNames[propertyIndex] == "IncrementalBuild" || propertyNames[propertyIndex] == "IncrementalState" {
+        if propertyNames[propertyIndex] == "AotMode" || propertyNames[propertyIndex] == "EmitReferenceAssembly" || propertyNames[propertyIndex] == "SoaEnabled" || propertyNames[propertyIndex] == "ColumnarDeclineLog" || propertyNames[propertyIndex] == "Workers" || propertyNames[propertyIndex] == "IncrementalBuild" || propertyNames[propertyIndex] == "IncrementalState" || propertyNames[propertyIndex] == "SystemsDiagnosticsOnly" {
             assert property.get_CanWrite()
         } else {
             assert !property.get_CanWrite(), propertyNames[propertyIndex]
@@ -326,6 +321,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("ColumnarDeclineLog"), "ColumnarDeclineLog").get_PropertyType() == typeof(TextWriter)
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("Workers"), "Workers").get_PropertyType() == typeof(int)
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("EmittedImage"), "EmittedImage").get_PropertyType() == typeof(byte[])
+    assert MultiFileOwnerRequiredProperty(owner.GetProperty("SystemsDiagnosticsOnly"), "SystemsDiagnosticsOnly").get_PropertyType() == typeof(bool)
 
     analysisTypes := new Type[](0)
     analysis := MultiFileOwnerRequiredMethod(
@@ -358,10 +354,10 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
         }
         declaredMethodIndex = declaredMethodIndex + 1
     }
-    // THE THIRD IS `ValidateAnalyzedEmission`: the emission of an analysis `CompileForAnalysis`
+    // `ValidateAnalyzedEmission` validates the emission of an analysis `CompileForAnalysis`
     // already ran, validated in memory, so `nlc check` proves its program emits without a second
     // compiler analysing it again and without writing an assembly.
-    assert declaredMethodCount == 3
+    assert declaredMethodCount == 5
     validateTypes := new Type[](1)
     validateTypes[0] = typeof(string)
     validateAnalyzed := MultiFileOwnerRequiredMethod(
@@ -369,6 +365,28 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
         "ValidateAnalyzedEmission"
     )
     assert validateAnalyzed.get_ReturnType() == emit.get_ReturnType()
+
+    checkReadTypes := new Type[](4)
+    checkReadTypes[0] = typeof(string)
+    checkReadTypes[1] = typeof(int)
+    checkReadTypes[2] = typeof(bool)
+    checkReadTypes[3] = typeof(string)
+    readCheck := MultiFileOwnerRequiredMethod(
+        owner.GetMethod("TryReadCheckResult", checkReadTypes),
+        "TryReadCheckResult"
+    )
+    assert readCheck.get_ReturnType().get_Name() == "IncrementalCheckResult"
+
+    checkSaveTypes := new Type[](4)
+    checkSaveTypes[0] = typeof(string)
+    checkSaveTypes[1] = typeof(string)
+    checkSaveTypes[2] = typeof(bool)
+    checkSaveTypes[3] = typeof(int)
+    saveCheck := MultiFileOwnerRequiredMethod(
+        owner.GetMethod("SaveCheckResult", checkSaveTypes),
+        "SaveCheckResult"
+    )
+    assert saveCheck.get_ReturnType() == typeof(bool)
 
     // The path the reference assembly is written to is the compiler's answer, not the build task's
     // guess: one static reading of an output path, so the SDK task copies a file it did not choose

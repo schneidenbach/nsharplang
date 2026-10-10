@@ -751,6 +751,8 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     startInfo.RedirectStandardOutput = true
     startInfo.RedirectStandardError = true
     startInfo.UseShellExecute = false
+    startInfo.Environment["NLC_NO_DAEMON"] = "1"
+    startInfo.Environment["NSHARP_INCREMENTAL"] = "0"
 
     process := new Process { StartInfo: startInfo }
     startTicks := DateTime.UtcNow.Ticks

@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import System.Text
 
 
 // Sub-slice 3a: the DECISION layer of iterator state machines (`func*` and `async func*`). This planner
@@ -3489,11 +3490,16 @@ class ColumnarIteratorBodyPlanner {
             i += 1
         }
         formatMethod := typeof(string).GetMethod("Format", [typeof(string), typeof(object[])])
+        if formatMethod == null {
+            emit.Context.Decline("emit.iterator.interpolation-format", "the string.Format overload for iterator interpolation is unavailable")
+            return false
+        }
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(formatMethod))
         return true
     }
 
     static func AppendIteratorInterpolationHole(emit: ColumnarMoveNextEmit, nodes: ColumnarNodeTable, source: string, node: int, out resultType: Type): bool {
+        resultType = typeof(void)
         scope := emit.Context.RequiredScope()
         bindings := scope.Bindings
         previous := bindings.IteratorMoveNextEmitter
@@ -3607,6 +3613,7 @@ class ColumnarIteratorBodyPlanner {
     // dispatch their await nodes back into the machine's suspension writer; a discovery pass uses a
     // separate scratch plan and deliberately has no live emitter.
     static func TryAppendScopedValue(emit: ColumnarMoveNextEmit, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(void)
         scope := emit.Context.RequiredScope()
         bindings := scope.Bindings
         previous := bindings.IteratorMoveNextEmitter
@@ -5596,6 +5603,13 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
 
+        monitorEnter := typeof(System.Threading.Monitor).GetMethod("Enter", [typeof(object)])
+        monitorExit := typeof(System.Threading.Monitor).GetMethod("Exit", [typeof(object)])
+        if monitorEnter == null || monitorExit == null {
+            emit.Context.Decline("emit.iterator.lock-monitor", "Monitor.Enter and Monitor.Exit are required to lower a lock in an iterator body")
+            return false
+        }
+
         lockType := typeof(object)
         if !AppendValue(emit, nodes.Child(node, 0), out lockType) || lockType.IsValueType || ColumnarCodePlanExecutor.IsVoidType(lockType) {
             emit.Context.Decline("emit.iterator.unsupported-shape", "a lock in an iterator body needs a reference-type lock object")
@@ -5604,7 +5618,7 @@ class ColumnarIteratorBodyPlanner {
         lockLocal := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(lockType), emit.Context.StructuralTypeReferences))
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), lockLocal)
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), lockLocal)
-        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(typeof(System.Threading.Monitor).GetMethod("Enter", [typeof(object)])))
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(monitorEnter))
 
         regionEnd := emit.Plan.DefineLabel()
         emit.Plan.AppendBeginExceptionBlock(regionEnd)
@@ -5618,7 +5632,7 @@ class ColumnarIteratorBodyPlanner {
         }
         emit.Plan.AppendBeginFinallyBlock()
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), lockLocal)
-        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(typeof(System.Threading.Monitor).GetMethod("Exit", [typeof(object)])))
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(monitorExit))
         emit.Plan.AppendEndExceptionBlock()
         emit.RegionDepth -= 1
         return bodyFalls

@@ -6,10 +6,10 @@ import System.Threading.Tasks
 
 // AN `await` WHOSE RESULT IS BOUND, INSIDE AN ASYNC GENERATOR.
 //
-// A suspension point is statement-shaped: it marks a resume label and branches out of `MoveNextAsync`'s
-// step core, and ECMA requires an empty evaluation stack at that branch. So an `await` may be the
-// WHOLE value of a declaration, an assignment or a `yield` — the statement that binds it has somewhere
-// to put the result — and an `await` nested inside a larger expression declines instead.
+// A suspension point marks a resume label and branches out of `MoveNextAsync`'s step core, and ECMA
+// requires an empty evaluation stack at that branch. A bound await stores its result directly in the
+// declaration, assignment or yield. Nested expression awaits are supported when the planner can spill
+// earlier operands into iterator fields; unsupported expression shapes still decline explicitly.
 //
 // WHICH awaitable is awaited is not a list this compiler keeps: the operand's own type is asked for
 // `GetAwaiter()`, and that awaiter for `IsCompleted`, `OnCompleted(Action)` and `GetResult()` — the

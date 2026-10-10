@@ -95,6 +95,9 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
 
             publishDiagnostics(uri, cancellation.Token)
         } catch cancelled: TaskCanceledException {
+            if !cancellation.IsCancellationRequested {
+                throw cancelled
+            }
         } finally {
             lock pendingChangesLock {
                 current: CancellationTokenSource? = null
@@ -115,7 +118,7 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
 
         doc := documentManager.GetDocument(uri)
         if doc != null {
-            publishDiagnostics(uri)
+            publishDiagnostics(uri, token)
         }
 
         return Unit.Task

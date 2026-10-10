@@ -1165,7 +1165,9 @@ diagnostics. Core's stage and counters are checked on the head build. The genera
 A decrease must be reviewed and ratcheted; an increase is a regression to fix. (A new source file in
 the Core build's closure is not a regression: `speed/agent-loop-2` added `SharedReferenceMetadata.nl`
 to Model and moved Core's files parsed/emit-parsed/analysed 468/278/278 -> 469/279/279 in the same
-commit that took its reference images 479 -> 129 and the Core-scale emit's 141 -> 36.)
+commit that took its reference images 479 -> 129 and the Core-scale emit's 141 -> 36. The batch-3
+integration run measured the current Core counters at 471/280/280; that observed value is now the
+checked-in structural baseline.
 
 **Exact structural behavior is always gated; timing runs only when product inputs changed.** Both
 relative gates run `git diff base..head` and time only if it touches a compiler/runtime/CLI product

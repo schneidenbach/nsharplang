@@ -648,7 +648,7 @@ test "an aot build over a project reference reports a declined async iterator bo
         Directory.CreateDirectory(sharedDirectory)
         WriteVersionedSdkProject(sharedDirectory, "SharedLib")
         WriteFile(sharedDirectory, "project.yml", ProjectYml("SharedLib", "", "library"))
-        WriteFile(sharedDirectory, "Shared.nl", "import System.Collections.Generic\nimport System.Threading.Tasks\nasync func* Pending(): IAsyncEnumerable<int> {\n    yield 1 + await Task.FromResult(1)\n}\n\n")
+        WriteFile(sharedDirectory, "Shared.nl", "import System.Collections.Generic\nasync func* Pending(items: IAsyncEnumerable<int>): IAsyncEnumerable<int> {\n    await foreach item in items {\n        break\n    }\n}\n\n")
 
         WriteFile(directory, "project.yml", "name: App\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - project: Shared/project.yml\n")
         WriteFile(directory, "Program.nl", "func main() {\n    print \"root\"\n}\n")

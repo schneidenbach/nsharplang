@@ -246,6 +246,15 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
+        // A blocking await is a complete value in the ordinary emitter, but this call planner's
+        // append path only lowers it when the surrounding iterator or async-lambda frame owns the
+        // await. Keep the whole call with that emitter when neither frame is active; reporting the
+        // selected call as owned would turn the deliberate await decline into a terminal failure.
+        if HasAwaitedArgument(nodes, argumentFacts) && bindings.IteratorMoveNextEmitter == null && !bindings.BlockingAwaitEnabled {
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
         namedPlacement := new int[](0)
         if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) && !TryPlaceNamedCallArguments(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out namedPlacement) {
             sparseCheckpoint := plan.CreateCheckpoint()

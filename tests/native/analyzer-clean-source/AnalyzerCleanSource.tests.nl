@@ -7278,9 +7278,9 @@ test "020 s31 analyzer error codes: a bare call to an undeclared function is `NL
     assert AcCodeRow(rich, "UndefinedVariable") == "<no-such-code>"
 }
 
-test "020 s31 analyzer error codes: a generator that returns a value is `NL103`, once for `func*` and once for `async func*`, and the two rows anchor at different columns because the declarations are different lengths (was AnalyzerTests.GeneratorReturnValue_ReportsInvalidSyntax, all 2 [InlineData] rows)" with (declaration: string, census: string, codeAnchorInvalidSyntax: string) [
-    ("func* Numbers(): IEnumerable<int> { return 1 }", "NL103:InvalidSyntax@3:44+1;", "NL103@3:44+1"),
-    ("async func* Numbers(): IAsyncEnumerable<int> { return 1 }", "NL103:InvalidSyntax@3:55+1;", "NL103@3:55+1")
+test "020 s31 analyzer error codes: a generator that returns a value is `NL350`, once for `func*` and once for `async func*`, anchored on the returned value (was AnalyzerTests.GeneratorReturnValue_ReportsInvalidSyntax, all 2 [InlineData] rows)" with (declaration: string, census: string, codeAnchorIteratorReturnValue: string) [
+    ("func* Numbers(): IEnumerable<int> { return 1 }", "NL350:IteratorReturnValue@3:44+1;", "NL350@3:44+1"),
+    ("async func* Numbers(): IAsyncEnumerable<int> { return 1 }", "NL350:IteratorReturnValue@3:55+1;", "NL350@3:55+1")
 ] {
     source := "import System.Collections.Generic\n\n" + declaration
     assert AcParseCensus(source) == ""
@@ -7289,26 +7289,26 @@ test "020 s31 analyzer error codes: a generator that returns a value is `NL103`,
     assert AcCensus(analysis) == census
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidSyntax|Generator functions cannot return a value|Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.|Error"
+    assert AcRow(analysis, 0) == "IteratorReturnValue|An iterator cannot return a value|Use `yield value` to produce this element, or a bare `return` / `yield break` to stop the iterator.|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcRow(analysis, 1) == "<no-such-error>"
-    assert AcCodeCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|Generator functions cannot return a value|Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.|Error"
-    assert AcCodeAnchor(analysis, "InvalidSyntax") == codeAnchorInvalidSyntax
+    assert AcCodeCount(analysis, "IteratorReturnValue") == 1
+    assert AcCodeErrorCount(analysis, "IteratorReturnValue") == 1
+    assert AcCodeRow(analysis, "IteratorReturnValue") == "IteratorReturnValue|An iterator cannot return a value|Use `yield value` to produce this element, or a bare `return` / `yield break` to stop the iterator.|Error"
+    assert AcCodeAnchor(analysis, "IteratorReturnValue") == codeAnchorIteratorReturnValue
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == census
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "InvalidSyntax|Generator functions cannot return a value|Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.|Error"
+    assert AcRow(rich, 0) == "IteratorReturnValue|An iterator cannot return a value|Use `yield value` to produce this element, or a bare `return` / `yield break` to stop the iterator.|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcRow(rich, 1) == "<no-such-error>"
-    assert AcCodeCount(rich, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
-    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|Generator functions cannot return a value|Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.|Error"
-    assert AcCodeAnchor(rich, "InvalidSyntax") == codeAnchorInvalidSyntax
+    assert AcCodeCount(rich, "IteratorReturnValue") == 1
+    assert AcCodeErrorCount(rich, "IteratorReturnValue") == 1
+    assert AcCodeRow(rich, "IteratorReturnValue") == "IteratorReturnValue|An iterator cannot return a value|Use `yield value` to produce this element, or a bare `return` / `yield break` to stop the iterator.|Error"
+    assert AcCodeAnchor(rich, "IteratorReturnValue") == codeAnchorIteratorReturnValue
 }
 
 test "020 s31 analyzer error codes: `yield` and `yield break` outside a generator both report `NL103` anchored on the `yield` KEYWORD at 2:5 — five columns for both rows, so `break` is outside the underline (was AnalyzerTests.YieldOutsideGenerator_ReportsInvalidSyntax, all 2 [InlineData] rows)" with (statement: string) [

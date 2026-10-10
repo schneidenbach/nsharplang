@@ -403,8 +403,13 @@ static class QueryCommand {
 
     static func SymbolsCommand(args: string[], options: QueryOptions): int {
         outputMode := QueryCommandKernels.GetTextJsonOutputMode(options.UseText)
+        commandSummary := QueryCommandKernels.GetCommandOptionSummary(args)
+        daemonParameters := MaterializeDaemonParameters(args, options)
+        if commandSummary.Filter != null {
+            daemonParameters["filter"] = commandSummary.Filter
+        }
         daemonExitCode := 0
-        if TryExecuteViaDaemon(options, DaemonConstants.MethodSymbols, MaterializeDaemonParameters(args, options), out daemonExitCode) {
+        if TryExecuteViaDaemon(options, DaemonConstants.MethodSymbols, daemonParameters, out daemonExitCode) {
             return daemonExitCode
         }
 
@@ -414,7 +419,6 @@ static class QueryCommand {
         }
 
         summary := QueryCommandKernels.GetDaemonParameterSummary(args)
-        commandSummary := QueryCommandKernels.GetCommandOptionSummary(args)
         kindFilter: SymbolKind? = null
         kindArg := summary.Kind
         if kindArg != null {

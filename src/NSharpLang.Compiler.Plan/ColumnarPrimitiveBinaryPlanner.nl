@@ -151,6 +151,10 @@ class ColumnarPrimitiveBinaryPlanner {
             spillLeftAcrossAwait := iteratorEmitter != null && nodes.ChildCount(candidate) == 2 && ColumnarIteratorPlanner.ContainsAwait(nodes, nodes.Child(candidate, 1))
             spillFieldName := ""
             if spillLeftAcrossAwait {
+                if iteratorEmitter == null {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
                 spillFieldName = ColumnarIteratorPlanner.SpillFieldName(iteratorEmitter.NextSpill)
                 iteratorEmitter.NextSpill += 1
             }
@@ -164,6 +168,10 @@ class ColumnarPrimitiveBinaryPlanner {
                 return false
             }
             if spillLeftAcrossAwait {
+                if iteratorEmitter == null {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
                 spillField: FieldInfo? = null
                 spillFieldReady := iteratorEmitter.Context.TryEnsureHoistedField(spillFieldName, leftType, out spillField)
                 if !spillFieldReady || spillField == null {
@@ -196,6 +204,10 @@ class ColumnarPrimitiveBinaryPlanner {
                 return false
             }
             if spillLeftAcrossAwait {
+                if iteratorEmitter == null {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
                 rightLocal := plan.DeclarePlanLocal(plan.AddType(rightType))
                 plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), rightLocal)
                 spilledLeftType := typeof(int)
