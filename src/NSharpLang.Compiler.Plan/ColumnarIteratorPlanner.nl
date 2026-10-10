@@ -818,6 +818,37 @@ class ColumnarIteratorPlanner {
             state.AddLocal(name, UnresolvedCanonical())
             return true
         }
+        if kind == ColumnarStatementNodeKind.TupleDeconstructionStatement {
+            // Tuple construction and element typing remain ordinary value questions. The
+            // initializer is walked before the newly declared names enter scope.
+            if nodes.Text(source, node) != ":=" || nodes.ChildCount(node) < 3 {
+                state.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction currently requires a declaration with at least two targets")
+                return false
+            }
+            targetCount := nodes.ChildCount(node) - 1
+            targetIndex := 0
+            while targetIndex < targetCount {
+                target := nodes.Child(node, targetIndex)
+                if nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression {
+                    state.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction targets must be identifiers or discard targets")
+                    return false
+                }
+                targetIndex += 1
+            }
+            WalkBoundValue(nodes, source, nodes.Child(node, targetCount), state)
+            if state.Declined {
+                return false
+            }
+            targetIndex = 0
+            while targetIndex < targetCount {
+                name := nodes.Text(source, nodes.Child(node, targetIndex))
+                if name != "_" {
+                    state.AddLocal(name, UnresolvedCanonical())
+                }
+                targetIndex += 1
+            }
+            return !state.Declined
+        }
         if kind == ColumnarStatementNodeKind.ExpressionStatement {
             // ExpressionStatement: a unit `await` suspension, a postfix step, an assignment to a hoisted
             // binding, or ANY ordinary value expression whose result is discarded (a call statement is
@@ -5082,6 +5113,9 @@ class ColumnarIteratorBodyPlanner {
             scope.HideEnclosingMember(name)
             return true
         }
+        if kind == ColumnarStatementNodeKind.TupleDeconstructionStatement {
+            return EmitTupleDeconstructionDeclaration(emit, node)
+        }
         if kind == ColumnarStatementNodeKind.ExpressionStatement {
             // expression statement: a unit await (async bodies), a bare postfix step (value dropped),
             // an assignment to a hoisted binding, or an ordinary value whose result is discarded.
@@ -5258,6 +5292,139 @@ class ColumnarIteratorBodyPlanner {
         }
         emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
+    }
+
+    // The tuple expression stays with the shared ordinary value owner; this pass only puts each
+    // result into storage that survives the next yield. Assignment-form deconstruction and user
+    // Deconstruct methods are separate slices.
+    static func EmitTupleDeconstructionDeclaration(emit: ColumnarMoveNextEmit, node: int): bool {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        childCount := nodes.ChildCount(node)
+        if nodes.Text(source, node) != ":=" || childCount < 3 {
+            emit.Context.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction currently requires a declaration with at least two targets")
+            return false
+        }
+
+        targetCount := childCount - 1
+        valueNode := nodes.Child(node, targetCount)
+        tupleType := typeof(int)
+        if !TryDiscoverBoundValueType(emit, valueNode, out tupleType) || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType) {
+            emit.Context.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction requires a supported ValueTuple source")
+            return false
+        }
+        if ValueTupleElementCount(tupleType) != targetCount {
+            emit.Context.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction target count does not match its ValueTuple source")
+            return false
+        }
+
+        tupleLocal := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(tupleType), emit.Context.StructuralTypeReferences))
+        tupleValueType := typeof(int)
+        if !AppendValue(emit, valueNode, out tupleValueType) || tupleValueType != tupleType {
+            emit.Context.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction source changed type while lowering")
+            return false
+        }
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), tupleLocal)
+
+        targetIndex := 0
+        while targetIndex < targetCount {
+            target := nodes.Child(node, targetIndex)
+            name := nodes.Text(source, target)
+            if name != "_" {
+                tupleField := ValueTupleElementField(tupleType, targetIndex + 1)
+                if tupleField == null {
+                    emit.Context.Decline("emit.iterator.deconstruction", "ValueTuple element " + (targetIndex + 1).ToString() + " could not be resolved")
+                    return false
+                }
+                field: FieldInfo? = null
+                if !emit.Context.TryEnsureHoistedField(name, tupleField.FieldType, out field) || field == null {
+                    emit.Context.Decline("emit.iterator.deconstruction", "tuple element '" + name + "' could not be stored in its iterator field")
+                    return false
+                }
+
+                LoadThis(emit)
+                if !AppendValueTupleElementLoad(emit, tupleLocal, tupleType, targetIndex + 1) {
+                    emit.Context.Decline("emit.iterator.deconstruction", "ValueTuple element " + (targetIndex + 1).ToString() + " could not be loaded")
+                    return false
+                }
+                if emit.Context.IsLoopCaptured(name) {
+                    if !AppendFreshLoopCaptureBoxFromStack(emit, name, tupleField.FieldType) {
+                        return false
+                    }
+                } else {
+                    emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(field))
+                }
+                emit.Context.RequiredScope().HideEnclosingMember(name)
+            }
+            targetIndex += 1
+        }
+        return true
+    }
+
+    static func AppendValueTupleElementLoad(emit: ColumnarMoveNextEmit, tupleLocal: int, tupleType: Type, ordinal: int): bool {
+        if tupleType == null || ordinal < 1 || ordinal > ValueTupleElementCount(tupleType) {
+            return false
+        }
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), tupleLocal)
+        owner := tupleType
+        memberOrdinal := ordinal
+        arguments := owner.GetGenericArguments()
+        while arguments.Length == 8 && memberOrdinal > 7 {
+            restField := owner.GetField("Rest", BindingFlags.Public | BindingFlags.Instance)
+            if restField == null {
+                return false
+            }
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), emit.Plan.AddField(restField))
+            owner = restField.FieldType
+            memberOrdinal -= 7
+            arguments = owner.GetGenericArguments()
+        }
+        if memberOrdinal > arguments.Length || arguments.Length == 8 && memberOrdinal == 8 {
+            return false
+        }
+        elementField := owner.GetField("Item" + memberOrdinal.ToString(), BindingFlags.Public | BindingFlags.Instance)
+        if elementField == null {
+            return false
+        }
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.Plan.AddField(elementField))
+        return true
+    }
+
+    static func ValueTupleElementCount(tupleType: Type): int {
+        if tupleType == null || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType) {
+            return 0
+        }
+        arguments := tupleType.GetGenericArguments()
+        if arguments.Length != 8 {
+            return arguments.Length
+        }
+        restField := tupleType.GetField("Rest", BindingFlags.Public | BindingFlags.Instance)
+        if restField == null {
+            return 0
+        }
+        return 7 + ValueTupleElementCount(restField.FieldType)
+    }
+
+    static func ValueTupleElementField(tupleType: Type, ordinal: int): FieldInfo? {
+        if tupleType == null || ordinal < 1 || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType) {
+            return null
+        }
+        owner := tupleType
+        memberOrdinal := ordinal
+        arguments := owner.GetGenericArguments()
+        while arguments.Length == 8 && memberOrdinal > 7 {
+            restField := owner.GetField("Rest", BindingFlags.Public | BindingFlags.Instance)
+            if restField == null {
+                return null
+            }
+            owner = restField.FieldType
+            memberOrdinal -= 7
+            arguments = owner.GetGenericArguments()
+        }
+        if memberOrdinal > arguments.Length || arguments.Length == 8 && memberOrdinal == 8 {
+            return null
+        }
+        return owner.GetField("Item" + memberOrdinal.ToString(), BindingFlags.Public | BindingFlags.Instance)
     }
 
     // A `for..in` variable is in scope for the loop body alone.

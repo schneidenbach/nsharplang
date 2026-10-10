@@ -36,6 +36,18 @@ class CensusTrace {
 
 // A collection built and read INSIDE the machine: `new`, an instance call, an indexer and a classic
 // `for` with a compound-assignment increment.
+func MakeIteratorPair(left: int, right: int): (int, int) {
+    return (left, right)
+}
+
+// A tuple declaration whose bindings remain live across multiple yields.
+func* DeconstructedPair(): IEnumerable<int> {
+    (left, right) := MakeIteratorPair(19, 23)
+    yield left
+    yield right
+    yield left + right
+}
+
 func* DoubledThrough(count: int): IEnumerable<int> {
     values := new List<int>()
     for i := 0; i < count; i += 1 {

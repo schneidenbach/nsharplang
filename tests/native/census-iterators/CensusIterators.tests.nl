@@ -45,6 +45,17 @@ test "an object array row yields a boxed int, a string and a nested string array
     assert nestedSecond[1] == "Program.nl"
 }
 
+test "tuple deconstruction stores bindings across yield suspension" {
+    values := new List<int>()
+    for value in DeconstructedPair() {
+        values.Add(value)
+    }
+    assert values.Count == 3
+    assert values[0] == 19
+    assert values[1] == 23
+    assert values[2] == 42
+}
+
 test "a static call is the for..in source and an instance call transforms each element" {
     joined := ""
     for part in TrimmedParts(" a , b ,, c ") {
