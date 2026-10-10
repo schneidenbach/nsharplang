@@ -1012,21 +1012,33 @@ to 0.34 s and 5.87 s to 0.46 s (the tests still run).
 - **Check results share this owner.** A cold in-process `nlc check` stores its selected output,
   full diagnostics JSON and exit code in the same checksummed, atomic stamp format at
   `<projectRoot>/obj/nlc/<assembly>.check.stamp`. The check key carries the compiler identity,
-  project/configuration, source list, AOT/backend/reference switches, lint policy and output mode;
-  its entries are captured by `IncrementalBuildInputCapture`, the same source, project, reference,
-  framework-closure and metadata inventory the build stamp uses. A hit verifies those entries and
-  writes the exact saved stdout or stderr bytes without parsing or binding. Text mode also replays
-  its saved elapsed line. Workspace checks keep one slot under each member project's `obj/`, assemble
-  the workspace envelope from cached member diagnostics, and save assembled human output in the
-  first member's existing check stamp for exact replay when every member hits. The daemon keeps its
-  warm incremental analysis route so its first check seeds semantic state for later edits.
+  project/configuration, source list, AOT/backend/reference switches, output mode, `NUGET_PACKAGES`,
+  `NSHARP_EXPERIMENTAL_SOA`, and `NSHARP_COMPILER_WORKERS`; the structural configuration fingerprint
+  includes target framework, language and systems-policy settings. The invocation context also keys
+  the user-profile and current-directory values used by reference resolution. Input entries are captured by
+  `IncrementalBuildInputCapture`, the same source, project, reference, framework-closure and metadata
+  inventory the build stamp uses. The closure records `.editorconfig` files as inputs for the shared
+  build strict-lint path. A hit verifies those entries and writes the exact saved stdout or stderr
+  bytes without parsing or binding. Text mode has its own output-mode key and replays its saved elapsed
+  line. `--json` is the default JSON mode, so spelling it explicitly shares that key; `--systems-report`
+  has a separate mode. `--stats` is stripped before `check` and writes work counters to its own file or
+  stderr channel; it does not invalidate diagnostics, and a hit still produces a fresh stats record
+  with zero parsed files. Check's diagnostic text formatter is plain text and does not consult
+  `--color`, `NO_COLOR`, or `FORCE_COLOR`, so those formatting settings cannot alter cached output.
+  `nlc check` currently has no `--quiet`, `--format`, `--warn-as-error`, disabled-rule or
+  `language.strict` option; its supported project language and systems settings are included by the
+  structural fingerprint. `NSHARP_INCREMENTAL=0` and the debug/decline logging switches disable
+  persisted replay. Workspace checks keep one slot under each member project's `obj/`, assemble the
+  workspace envelope from cached member diagnostics, and save assembled human output in the first
+  member's existing check stamp for exact replay when every member hits. The daemon keeps its warm
+  incremental analysis route so its first check seeds semantic state for later edits.
 - **Pinned by** `tests/native/incremental-build` (`UpToDate.tests.nl`): every invalidation axis
   (source edit, add/delete/rename, a test file the build does not compile, `project.yml` comment,
   define, configuration value, compile options, `.editorconfig`, deleted or modified output, corrupt,
   truncated or foreign stamp, a referenced DLL's content) rebuilds and must equal a build with the
   machinery off; a touched-but-identical source stays up to date; and the stamp's `CompilerError`
   field list is compared with the record's own members.
-- **Pinned by** `tests/native/daemon-exec/CheckStamp.tests.nl`: cold JSON/text replay, successful and
+- **Pinned by** `tests/native/daemon-exec/CheckStamp.tests.nl` and `CheckStampProof.tests.nl`: cold JSON/text replay, successful and
   failing diagnostics, body/signature edits, new/deleted source files, a `project.yml` edit, a
   referenced project rebuild, truncated/garbled stamps and independent workspace member stamps are
   compared byte-for-byte with fresh checks; a no-op hit parses zero files. A different compiler

@@ -1555,9 +1555,12 @@ class MultiFileCompiler {
         return IncrementalBuildPolicy.IsEnabled()
     }
 
-    // The same non-file inputs and source identity as the build stamp, plus every check option that
-    // can change its serialized result. The exact file/reference closure is verified from the
-    // `IncrementalBuildInputCapture` entries stored in that same stamp.
+    // The same non-file inputs and source identity as the build stamp, plus every check option and
+    // compiler environment override that can change the saved result. Project configuration is
+    // fingerprinted structurally, while the exact project/reference/framework closure is verified
+    // from `IncrementalBuildInputCapture` entries stored in that same stamp. Worker count is part
+    // of the key even though analysis promises deterministic ordering: a changed execution policy
+    // must not be allowed to replay a result produced under a different policy.
     private func ComputeCheckResultKey(assemblyName: string, outputMode: int, useBuiltReferences: bool, backendOption: string?): string {
         key := new IncrementalKeyBuilder()
         key.Add("format", IncrementalBuildStamp.FormatVersion.ToString())
@@ -1583,6 +1586,8 @@ class MultiFileCompiler {
             key.Add("source", Path.GetFullPath(sourceFile))
         }
         key.Add("nuget-packages", Environment.GetEnvironmentVariable("NUGET_PACKAGES"))
+        key.Add("soa-environment", Environment.GetEnvironmentVariable(SoaFeature.EnvironmentVariable))
+        key.Add("compiler-workers", Environment.GetEnvironmentVariable(CompilerParallelism.WorkerOverrideVariable))
         key.Add("user-profile", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
         key.Add("current-directory", Environment.CurrentDirectory)
         return key.Build()
