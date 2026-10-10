@@ -1263,12 +1263,13 @@ participates. It records four operations on the medium and large synthetic proje
 `didChange` through the matching `publishDiagnostics`, completion response after an edit and its
 diagnostics have finished, hover response under the same setup, and opening unchanged workspace
 content after the initialized workspace scan. Each timing sample is a wall-clock interval around the
-named client operation. LSP structural rows in baseline schema 4 count project snapshot builds,
-target-document updates and diagnostics publications, plus compiler-side source parses, per-file
-semantic analyses and reused analyses. Completion and hover counters cover only the request
-interval. The large unchanged-`didOpen` row requires exactly zero project snapshot builds; a
-nonzero count fails the baseline gate. Open editor buffers are protected from document-cache
-eviction, so an unsaved body edit remains part of later project snapshots.
+named client operation. LSP structural rows in baseline schema 5 count project snapshot builds,
+target-document updates and diagnostics publications, compiler-side source parses, per-file
+semantic analyses and reused analyses, project snapshot cache hits and full project source-stamp
+scans, per-document analysis and cache reuse, and whether a fresh diagnostic response was verified.
+Completion and hover counters cover only the request interval. Unchanged `didOpen` rows require zero
+project snapshot builds and zero full project source-stamp scans. Open editor buffers are protected
+from document-cache eviction, so an unsaved body edit remains part of later project snapshots.
 
 LSP timings follow the same paired base/head policy as CLI timings: exact structural counters always,
 paired timing only when classified compiler, CLI or Language Server inputs change, at least nine
@@ -1367,29 +1368,52 @@ counter triples in operation order were `0/1/1`, `0/0/0`, `0/0/0`, and `0/1/1` f
 snapshots built / documents updated / diagnostics published. The large unchanged `didOpen` therefore
 reused the workspace without building a project snapshot.
 
-**Incremental edit evidence on `perf/lsp-edit-to-diagnostics` (2026-10-09).** The paired run used
-17 medium pairs and 15 large pairs after the warm-up; base was `cd35b9064`, head was the working
-tree, and machine load ranged from 13.37 to 39.01 on 10 cores. The paired timing gate passed. The
-head structural tuple is project snapshots built / documents updated / diagnostics published;
-files parsed / files reanalyzed / files reused. An unchanged open has zero snapshot builds, while a
-body edit reanalyzes one file and reuses the other 39 or 159 files.
+**Incremental LSP latency follow-up on `perf/lsp-edit-to-diagnostics` (2026-10-09).** A fresh
+17-pair run used base `cd35b9064` (verified `nlc` identity
+`cd35b9064441f16be303f76f0f4de97b2e98e3ec`), head `e953e4dc3` plus working changes, and load
+4.93 → 3.89 on 10 cores. The paired timing gate passed. Each didChange sample now waits for the
+exact unique unresolved-name diagnostic created by that edit; the client drains queued workspace
+notifications through an LSP request/response barrier before every sample. This proves the former
+1 ms medium base result did not recompute or publish a fresh diagnostic. On unchanged-open rows,
+the prior client likewise accepted an already-queued workspace diagnostic; after the drain barrier,
+exact-base opens measure 15/12 ms.
+
+The 9/36 ms head unchanged-open regression came from the previous didOpen path always calling
+`UpdateDocument` even when workspace discovery had already analyzed identical text. That reparsed
+the target document, reran its per-document analyzer, linter and symbol projections, then entered
+`GetDiagnosticsToPublish` → `SynchronizedProjectSnapshot`, whose cache validation still stamps all
+project source files. The fast path now reuses the tracked document or restores it from the existing
+`IncrementalProjectSession`, then publishes just that URI from the valid snapshot. The exact LSP
+rows record `documentAnalysisRuns=0`, `documentCacheReuses=1`, `projectSnapshotCacheHits=1` and
+`projectDiskStampScans=0` on unchanged didOpen.
+
+The head structural tuple below is project snapshots built / documents updated / diagnostics
+published; files parsed / files reanalyzed / files reused. A body edit parses two passes for the
+changed file, builds one snapshot, semantically analyzes one file, reuses the other 39 or 159 file
+analyses, and publishes the edited file before other open files. An unchanged open uses a cached
+document and project snapshot with zero source-stamp scans and zero per-document analysis.
 
 | size | operation | base median ms | head median ms | head structural tuple |
 |---|---|---:|---:|---|
-| medium, 10,640 lines | `didChange` → diagnostics | 1 | 17 | `1 / 1 / 1; 2 / 1 / 39` |
-| medium, 10,640 lines | completion after edit | 6 | 3 | `0 / 0 / 0; 0 / 0 / 0` |
-| medium, 10,640 lines | hover | 14 | 3 | `0 / 0 / 0; 0 / 0 / 0` |
-| medium, 10,640 lines | unchanged `didOpen` | 1 | 9 | `0 / 1 / 1; 0 / 0 / 0` |
-| large, 80,960 lines | `didChange` → diagnostics | 1,860 | 94 | `1 / 1 / 1; 2 / 1 / 159` |
-| large, 80,960 lines | completion after edit | 79 | 74 | `0 / 0 / 0; 0 / 0 / 0` |
-| large, 80,960 lines | hover | 240 | 61 | `0 / 0 / 0; 0 / 0 / 0` |
-| large, 80,960 lines | unchanged `didOpen` | 1 | 36 | `0 / 1 / 1; 0 / 0 / 0` |
+| medium, 10,640 lines | `didChange` → diagnostics | 103 | 14 | `1 / 1 / 1; 2 / 1 / 39` |
+| medium, 10,640 lines | completion after edit | 3 | 3 | `0 / 0 / 0; 0 / 0 / 0` |
+| medium, 10,640 lines | hover | 9 | 3 | `0 / 0 / 0; 0 / 0 / 0` |
+| medium, 10,640 lines | unchanged `didOpen` | 15 | 1 | `0 / 1 / 1; 0 / 0 / 0` |
+| large, 80,960 lines | `didChange` → diagnostics | 622 | 26 | `1 / 1 / 1; 2 / 1 / 159` |
+| large, 80,960 lines | completion after edit | 3 | 3 | `0 / 0 / 0; 0 / 0 / 0` |
+| large, 80,960 lines | hover | 90 | 3 | `0 / 0 / 0; 0 / 0 / 0` |
+| large, 80,960 lines | unchanged `didOpen` | 12 | 1 | `0 / 1 / 1; 0 / 0 / 0` |
 
-Large paired head `didChange` met the 100 ms median target. A separate three-run head-only judge under
-the same shared-machine load recorded medium/large `didChange` at 33 / 38 ms, completion at 15 / 5
-ms, hover at 7 / 5 ms, and unchanged `didOpen` at 26 / 15 ms. The paired base large medians varied
-substantially from the earlier absolute baseline under concurrent machine load; the paired ratios,
-not cross-run absolute values, are the integration comparison.
+For didChange, `freshDiagnosticsVerified=1` means the exact new marker appeared in the edited URI's
+publish notification. For unchanged didOpen, it means a target-URI publish arrived after the drain
+barrier. The paired report is `/tmp/nsharp-lsp-followup-cd35-paired/agent-loop.md`; the committed
+golden structural rows were re-recorded from a separate real three-run head-only LSP run. The gate
+now rejects any LSP row whose row-median ratio exceeds 1.20× and whose row-median slowdown is at
+least 30 ms, even when paired ordering/noise hides that slowdown from the paired median. A test
+reproduces the old 1 → 36 ms row with a near-zero paired median and requires rejection. The old
+gate passed the 1 → 36 ms unchanged-open row because its only timing condition required both a
+95% sign-test lower bound above 1.20× and paired median slowdown at least 30 ms; that run's paired
+median was 29 ms and its lower bound was 1.0×, despite a 35 ms row-median regression.
 
 **Cold-check startup and JIT/R2R attribution.** The measurement-only check used the same generated
 40-file/10,640-line and 160-file/80,960-line projects. EventPipe (`dotnet-trace`, runtime JIT and

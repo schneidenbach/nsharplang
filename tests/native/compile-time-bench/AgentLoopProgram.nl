@@ -315,7 +315,7 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         }
 
         written := new AgentLoopBaseline()
-        written.SchemaVersion = 4
+        written.SchemaVersion = 5
         if File.Exists(options.WriteBaseline) {
             existing := AgentLoopParseBaseline(File.ReadAllText(options.WriteBaseline))
             written.Rows = AgentLoopMergeRows(existing.Rows, rows)

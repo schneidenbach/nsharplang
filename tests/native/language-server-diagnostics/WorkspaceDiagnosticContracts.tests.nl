@@ -251,7 +251,13 @@ func Main() {
 
         ignoredOpen := LsdInvokeStringArgument(manager, "MarkEditorOpen", programUri)
         _ = ignoredOpen
-        LsdUpdateDocument(manager, programUri, programText)
+        diskDocument := LsdGetDocument(manager, programUri)
+        assert LsdUpdateDocumentForOpen(manager, programUri, programText, 2), "opening the scanned disk text should reuse its document state"
+        openDocument := LsdGetDocument(manager, programUri)
+        assert Object.ReferenceEquals(diskDocument, openDocument), "unchanged didOpen must not allocate or reanalyze a document state"
+        assert LsdRequiredProperty(openDocument, "Version").ToString() == "2"
+        cachedPublication := LsdInvokeStringArgument(manager, "GetCachedDiagnosticsForOpen", programUri)
+        assert cachedPublication != null, "unchanged didOpen should find diagnostics in the current project snapshot"
         openBinding := LsdInvokeStringArgument(manager, "SynchronizedProjectSnapshot", programUri)
         if openBinding == null {
             throw new InvalidOperationException("The open-buffer project snapshot was not created.")
@@ -260,6 +266,16 @@ func Main() {
         if !Object.ReferenceEquals(diskSnapshot, openSnapshot) {
             throw new InvalidOperationException("Opening the unchanged buffer replaced the project snapshot.")
         }
+
+        ignoredEviction := LsdInvokeStringArgument(manager, "CloseDocument", programUri)
+        _ = ignoredEviction
+        assert !Convert.ToBoolean(LsdInvokeStringArgument(manager, "HasDocument", programUri))
+        assert LsdUpdateDocumentForOpen(manager, programUri, programText, 3), "an evicted unchanged file should restore from the incremental project session"
+        restoredDocument := LsdGetDocument(manager, programUri)
+        assert !Object.ReferenceEquals(openDocument, restoredDocument), "restoring an evicted file should create its editor state from cached compiler data"
+        assert LsdRequiredProperty(restoredDocument, "Tokens") != null
+        restoredPublication := LsdInvokeStringArgument(manager, "GetCachedDiagnosticsForOpen", programUri)
+        assert restoredPublication != null
 
         closedUri := LsdInvokeStringArgument(manager, "HandleEditorClose", programUri)
         if closedUri == null || closedUri.ToString() != programUri {

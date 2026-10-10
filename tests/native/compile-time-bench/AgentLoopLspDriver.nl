@@ -51,7 +51,7 @@ class AgentLoopLspOutput {
 
     constructor(project: string, sourceFiles: int, rows: List<AgentLoopLspOutputRow>) {
         Schema = "nsharp.agent-loop-lsp"
-        SchemaVersion = 2
+        SchemaVersion = 3
         Project = project
         SourceFiles = sourceFiles
         Rows = rows
@@ -165,18 +165,48 @@ func AgentLoopLspClientStart(client: AgentLoopLspClient, serverDll: string, sour
     }
     AgentLoopLspClientNotify(client, "initialized", AgentLoopLspObject())
 
-    // The initialized notification queues workspace discovery. A hover request is a protocol
-    // barrier after that callback; queued startup notifications are discarded before timing.
+    // Workspace discovery can enqueue one notification per source file. Drain through a request
+    // response before any measured operation so a prior file's diagnostics cannot satisfy a wait.
+    AgentLoopLspClientWaitForLog(client)
+    AgentLoopLspClientDrainToBarrier(client, sourceFiles)
+    client.LogOffset = File.ReadAllText(client.LogPath).Length
+}
+
+func AgentLoopLspClientDrainToBarrier(client: AgentLoopLspClient, sourceFiles: List<string>) {
+    client.PendingMessages.Clear()
     source := sourceFiles[0]
     text := File.ReadAllText(source)
     token := AgentLoopLspToken(source)
     position := AgentLoopLspTokenPosition(text, token)
     sourceUri := new Uri(Path.GetFullPath(source)).AbsoluteUri
-    barrier := AgentLoopLspTextDocumentPosition(sourceUri, position)
-    AgentLoopLspClientRequest(client, "textDocument/hover", barrier, 180000)
-    client.PendingMessages.Clear()
-    AgentLoopLspClientWaitForLog(client)
-    client.LogOffset = File.ReadAllText(client.LogPath).Length
+    requestId := client.NextRequestId
+    client.NextRequestId = client.NextRequestId + 1
+    request := AgentLoopLspString("textDocument/hover")
+    request["id"] = requestId
+    request["params"] = AgentLoopLspTextDocumentPosition(sourceUri, position)
+    AgentLoopLspClientSend(client, request)
+
+    timer := Stopwatch.StartNew()
+    while timer.ElapsedMilliseconds < 180000 {
+        incoming := AgentLoopLspClientReadMessage(client, 180000 - Convert.ToInt32(timer.ElapsedMilliseconds))
+        document := JsonDocument.Parse(incoming)
+        root := document.RootElement
+        id: JsonElement = default
+        if root.TryGetProperty("id", out id) && id.ValueKind == JsonValueKind.Number && id.GetInt32() == requestId {
+            errorElement: JsonElement = default
+            if root.TryGetProperty("error", out errorElement) {
+                errorText := errorElement.ToString()
+                document.Dispose()
+                throw new InvalidOperationException("LSP drain barrier failed: " + errorText)
+            }
+            document.Dispose()
+            client.PendingMessages.Clear()
+            client.LogOffset = File.ReadAllText(client.LogPath).Length
+            return
+        }
+        document.Dispose()
+    }
+    throw new TimeoutException("Timed out waiting for the Language Server diagnostics drain barrier.")
 }
 
 func AgentLoopLspClientNotify(client: AgentLoopLspClient, method: string, parameters: Dictionary<string, object?>) {
@@ -281,7 +311,7 @@ func AgentLoopLspClientReadMessageCore(client: AgentLoopLspClient): string {
     return Encoding.UTF8.GetString(body)
 }
 
-func AgentLoopLspClientWaitForDiagnostics(client: AgentLoopLspClient, uri: string, expectedVersion: int, timeoutMilliseconds: int): int {
+func AgentLoopLspClientWaitForDiagnostics(client: AgentLoopLspClient, uri: string, expectedVersion: int, expectedDiagnosticMarker: string, timeoutMilliseconds: int): int {
     timer := Stopwatch.StartNew()
     while timer.ElapsedMilliseconds < timeoutMilliseconds {
         incoming := ""
@@ -299,6 +329,10 @@ func AgentLoopLspClientWaitForDiagnostics(client: AgentLoopLspClient, uri: strin
             if root.TryGetProperty("params", out parameters) {
                 publishedUri: JsonElement = default
                 if parameters.TryGetProperty("uri", out publishedUri) && publishedUri.GetString() == uri {
+                    if expectedDiagnosticMarker.Length > 0 && !incoming.Contains(expectedDiagnosticMarker) {
+                        document.Dispose()
+                        continue
+                    }
                     if client.SupportsVersionedDiagnostics {
                         publishedVersion: JsonElement = default
                         if !parameters.TryGetProperty("version", out publishedVersion) || publishedVersion.ValueKind != JsonValueKind.Number || publishedVersion.GetInt32() != expectedVersion {
@@ -366,9 +400,13 @@ func AgentLoopLspClientReadLogCounters(client: AgentLoopLspClient, operation: st
     snapshots := 0
     legacySnapshots := 0
     structuralSnapshots := 0
-    filesParsed := 0L
-    filesReanalyzed := 0L
-    filesReused := 0L
+    filesParsed := client.SupportsVersionedDiagnostics ? 0L : -1L
+    filesReanalyzed := client.SupportsVersionedDiagnostics ? 0L : -1L
+    filesReused := client.SupportsVersionedDiagnostics ? 0L : -1L
+    projectSnapshotCacheHits := client.SupportsVersionedDiagnostics ? 0L : -1L
+    projectDiskStampScans := client.SupportsVersionedDiagnostics ? 0L : -1L
+    documentAnalysisRuns := client.SupportsVersionedDiagnostics ? 0L : -1L
+    documentCacheReuses := client.SupportsVersionedDiagnostics ? 0L : -1L
     hasIncrementalCounters := false
     projectRoot := client.Project
     lines := delta.Split('\n')
@@ -383,7 +421,32 @@ func AgentLoopLspClientReadLogCounters(client: AgentLoopLspClient, operation: st
                 filesParsed = filesParsed + Int64.Parse(counterMatch.Groups[2].Value, CultureInfo.InvariantCulture)
                 filesReanalyzed = filesReanalyzed + Int64.Parse(counterMatch.Groups[3].Value, CultureInfo.InvariantCulture)
                 filesReused = filesReused + Int64.Parse(counterMatch.Groups[4].Value, CultureInfo.InvariantCulture)
+                cacheHitMatch := Regex.Match(line, "projectSnapshotCacheHits=(\\d+)")
+                if cacheHitMatch.Success {
+                    if projectSnapshotCacheHits < 0 {
+                        projectSnapshotCacheHits = 0
+                    }
+                    projectSnapshotCacheHits = projectSnapshotCacheHits + Int64.Parse(cacheHitMatch.Groups[1].Value, CultureInfo.InvariantCulture)
+                }
+                diskStampMatch := Regex.Match(line, "projectDiskStampScans=(\\d+)")
+                if diskStampMatch.Success {
+                    if projectDiskStampScans < 0 {
+                        projectDiskStampScans = 0
+                    }
+                    projectDiskStampScans = projectDiskStampScans + Int64.Parse(diskStampMatch.Groups[1].Value, CultureInfo.InvariantCulture)
+                }
                 hasIncrementalCounters = true
+            }
+        }
+        if line.Contains("LSP document analysis counters: ") {
+            analysisMatch := Regex.Match(line, "documentAnalysisRuns=(\\d+) documentCacheReuses=(\\d+)")
+            if analysisMatch.Success {
+                if documentAnalysisRuns < 0 {
+                    documentAnalysisRuns = 0
+                    documentCacheReuses = 0
+                }
+                documentAnalysisRuns = documentAnalysisRuns + Int64.Parse(analysisMatch.Groups[1].Value, CultureInfo.InvariantCulture)
+                documentCacheReuses = documentCacheReuses + Int64.Parse(analysisMatch.Groups[2].Value, CultureInfo.InvariantCulture)
             }
         }
     }
@@ -399,12 +462,7 @@ func AgentLoopLspClientReadLogCounters(client: AgentLoopLspClient, operation: st
         }
         throw new IOException("The changed-document diagnostics operation did not log incremental project counters. Recent server log: " + detail)
     }
-    if !hasIncrementalCounters {
-        filesParsed = 0
-        filesReanalyzed = 0
-        filesReused = 0
-    }
-    return new AgentLoopLspCounters(snapshots, 0, 0, filesParsed, filesReanalyzed, filesReused)
+    return new AgentLoopLspCounters(snapshots, 0, 0, filesParsed, filesReanalyzed, filesReused, projectSnapshotCacheHits, projectDiskStampScans, documentAnalysisRuns, documentCacheReuses, 0)
 }
 
 func AgentLoopLspClientIsOpened(client: AgentLoopLspClient, uri: string): bool {
@@ -426,12 +484,15 @@ func AgentLoopLspClientOpenFile(client: AgentLoopLspClient, text: string, uri: s
     document["text"] = text
     parameters["textDocument"] = document
     AgentLoopLspClientNotify(client, "textDocument/didOpen", parameters)
-    AgentLoopLspClientWaitForDiagnostics(client, uri, client.Version, 120000)
-    AgentLoopLspClientReadLogCounters(client, "LSP didOpen setup")
+    AgentLoopLspClientWaitForDiagnostics(client, uri, client.Version, "", 120000)
+    barrierSources := new List<string>()
+    barrierSources.Add(new Uri(uri).LocalPath)
+    AgentLoopLspClientDrainToBarrier(client, barrierSources)
     AgentLoopLspClientMarkOpened(client, uri)
 }
 
 func AgentLoopLspClientMeasure(client: AgentLoopLspClient, operation: string, sample: int, sourceFiles: List<string>): AgentLoopLspSample {
+    AgentLoopLspClientDrainToBarrier(client, sourceFiles)
     sourceIndex := sample % sourceFiles.Count
     if operation == "LSP unchanged didOpen" {
         sourceIndex = sourceFiles.Count / 2 + sample
@@ -449,11 +510,12 @@ func AgentLoopLspClientMeasure(client: AgentLoopLspClient, operation: string, sa
         parameters["textDocument"] = document
         started := Stopwatch.GetTimestamp()
         AgentLoopLspClientNotify(client, "textDocument/didOpen", parameters)
-        diagnostics := AgentLoopLspClientWaitForDiagnostics(client, uri, client.Version, 120000)
+        diagnostics := AgentLoopLspClientWaitForDiagnostics(client, uri, client.Version, "", 120000)
         elapsed := AgentLoopLspElapsedMilliseconds(started)
         counters := AgentLoopLspClientReadLogCounters(client, operation)
         counters.DocumentsUpdated = 1
         counters.DiagnosticsPublished = diagnostics
+        counters.FreshDiagnosticsVerified = 1
         if client.SupportsVersionedDiagnostics && counters.ProjectSnapshotsBuilt != 0 {
             side := client.SupportsVersionedDiagnostics ? "head" : "base"
             recentLog := new StringBuilder()
@@ -475,7 +537,8 @@ func AgentLoopLspClientMeasure(client: AgentLoopLspClient, operation: string, sa
     if !AgentLoopLspClientIsOpened(client, uri) {
         AgentLoopLspClientOpenFile(client, original, uri)
     }
-    edited := AgentLoopLspEdit(original, sample)
+    diagnosticMarker := AgentLoopLspFreshDiagnosticMarker(sample, operation)
+    edited := AgentLoopLspEdit(original, sample, diagnosticMarker)
     client.Version = client.Version + 1
     change := AgentLoopLspObject()
     textDocument := AgentLoopLspObject()
@@ -491,16 +554,17 @@ func AgentLoopLspClientMeasure(client: AgentLoopLspClient, operation: string, sa
     if operation == "LSP didChange diagnostics" {
         started := Stopwatch.GetTimestamp()
         AgentLoopLspClientNotify(client, "textDocument/didChange", change)
-        diagnostics := AgentLoopLspClientWaitForDiagnostics(client, uri, client.Version, 120000)
+        diagnostics := AgentLoopLspClientWaitForDiagnostics(client, uri, client.Version, diagnosticMarker, 120000)
         elapsed := AgentLoopLspElapsedMilliseconds(started)
         counters := AgentLoopLspClientReadLogCounters(client, operation)
         counters.DocumentsUpdated = 1
         counters.DiagnosticsPublished = diagnostics
+        counters.FreshDiagnosticsVerified = 1
         return new AgentLoopLspSample(elapsed, counters)
     }
 
     AgentLoopLspClientNotify(client, "textDocument/didChange", change)
-    AgentLoopLspClientWaitForDiagnostics(client, uri, client.Version, 120000)
+    AgentLoopLspClientWaitForDiagnostics(client, uri, client.Version, diagnosticMarker, 120000)
     AgentLoopLspClientReadLogCounters(client, operation)
     token := AgentLoopLspToken(source)
     position := AgentLoopLspTokenPosition(edited, token)
@@ -542,6 +606,7 @@ func AgentLoopLspClientMeasure(client: AgentLoopLspClient, operation: string, sa
             responseDocument.Dispose()
             elapsed := AgentLoopLspElapsedMilliseconds(started)
             counters := AgentLoopLspClientReadLogCounters(client, operation)
+            counters.FreshDiagnosticsVerified = 1
             return new AgentLoopLspSample(elapsed, counters)
         }
         client.PendingMessages.Add(incoming)
@@ -612,7 +677,7 @@ func AgentLoopLspTextDocumentPosition(uri: string, position: Dictionary<string, 
     return parameters
 }
 
-func AgentLoopLspEdit(source: string, sample: int): string {
+func AgentLoopLspEdit(source: string, sample: int, diagnosticMarker: string): string {
     anchor := "seed + 0"
     index := source.IndexOf(anchor, StringComparison.Ordinal)
     if index < 0 {
@@ -622,7 +687,17 @@ func AgentLoopLspEdit(source: string, sample: int): string {
     if after < source.Length && Char.IsDigit(source[after]) {
         throw new InvalidOperationException("The Language Server benchmark edit anchor was not unique.")
     }
-    return source.Substring(0, index) + "seed + " + (1000 + sample).ToString(CultureInfo.InvariantCulture) + source.Substring(after)
+    return source.Substring(0, index) + "seed + " + (1000 + sample).ToString(CultureInfo.InvariantCulture) + " + " + diagnosticMarker + source.Substring(after)
+}
+
+func AgentLoopLspFreshDiagnosticMarker(sample: int, operation: string): string {
+    suffix := "Change"
+    if operation == "LSP completion after edit" {
+        suffix = "Completion"
+    } else if operation == "LSP hover" {
+        suffix = "Hover"
+    }
+    return "AgentLoopFreshProbe" + suffix + sample.ToString(CultureInfo.InvariantCulture)
 }
 
 func AgentLoopLspMeasure(
@@ -631,9 +706,7 @@ func AgentLoopLspMeasure(
     project: string,
     iterations: int,
     paired: bool,
-    minimumPairs: int,
-    maximumPairs: int,
-    workTargetMilliseconds: long
+    pairedSamples: int
 ): string {
     sources := Directory.GetFiles(project, "Module*.nl", SearchOption.TopDirectoryOnly)
     Array.Sort(sources, StringComparer.Ordinal)
@@ -642,8 +715,8 @@ func AgentLoopLspMeasure(
         sourceFiles.Add(source)
     }
     requiredFiles := iterations
-    if paired && maximumPairs > requiredFiles {
-        requiredFiles = maximumPairs
+    if paired && pairedSamples > requiredFiles {
+        requiredFiles = pairedSamples
     }
     if sourceFiles.Count < requiredFiles {
         throw new InvalidOperationException("The generated project has too few source files for distinct unchanged didOpen samples.")
@@ -677,7 +750,7 @@ func AgentLoopLspMeasure(
             // Discard the first paired pass per operation to warm both live servers, matching the
             // CLI relative gate. Its didOpen target sits beyond the measured pair range, so every
             // timed didOpen still opens a fresh document.
-            warmupSample := maximumPairs
+            warmupSample := pairedSamples
             operationIndex = 0
             while operationIndex < operations.Count {
                 AgentLoopLspClientMeasure(baselineClient ?? throw new InvalidOperationException("Base client was not created."), operations[operationIndex], warmupSample, sourceFiles)
@@ -711,7 +784,10 @@ func AgentLoopLspMeasure(
             }
         } else {
             sample := 0
-            while sample < minimumPairs || (sample < maximumPairs && (AgentLoopLspBelowWorkTarget(headSamples, baseSamples, operations.Count, sample, workTargetMilliseconds) || sample % 2 == 0)) {
+            // Always collect the full odd sample set. The LSP rows are short and can contain
+            // unrelated queued-notification noise; a fixed count gives their sign interval the
+            // same evidence on every paired run.
+            while sample < pairedSamples {
                 first := head
                 second := baselineClient ?? throw new InvalidOperationException("Base client was not created.")
                 if sample % 2 == 1 {

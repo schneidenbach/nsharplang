@@ -298,6 +298,109 @@ class DocumentManager {
         updateDocument(uri, text, version)
     }
 
+    // Workspace scans already parsed the on-disk version of a document. When the editor opens
+    // that exact text, reuse its state and the current project snapshot instead of running the
+    // per-document analyzer and re-stamping every project source file.
+    func UpdateDocumentForOpen(uri: string, text: string, version: int): bool {
+        existing: DocumentState? = null
+        if documents.TryGetValue(uri, out existing) && existing != null && existing.Text == text && existing.Tokens != null {
+            existing.Version = version
+            lastAccessTimes[uri] = DateTime.UtcNow
+            logger.LogInformation("LSP document analysis counters: documentAnalysisRuns=0 documentCacheReuses=1")
+            return true
+        }
+
+        if tryRestoreProjectDocument(uri, text, version) {
+            logger.LogInformation("LSP document analysis counters: documentAnalysisRuns=0 documentCacheReuses=1")
+            return true
+        }
+
+        updateDocument(uri, text, version)
+        logger.LogInformation("LSP document analysis counters: documentAnalysisRuns=1 documentCacheReuses=0")
+        return false
+    }
+
+    // The bounded editor-document cache may have evicted a closed workspace file while the
+    // IncrementalProjectSession still owns its parsed unit, binding and semantic snapshot. Restore
+    // the editor-facing state from that compiler-owned record when the incoming text hash matches;
+    // only lexing and editor projections are needed, not parsing or semantic analysis.
+    private func tryRestoreProjectDocument(uri: string, text: string, version: int): bool {
+        if !CanUseIncrementalProjectSnapshot(uri) {
+            return false
+        }
+
+        RefreshStaleReferences()
+        filePath := Path.GetFullPath(EditorWorkspaceFacts.UriToFilePath(uri))
+        projectRoot := EditorWorkspaceFacts.SemanticProjectRoot(filePath, workspaceRoots.Keys)
+        projectFile := Path.Combine(projectRoot, "project.yml")
+        cached: CachedProjectSnapshot? = null
+        if !projectSnapshots.TryGetValue(projectRoot, out cached) || cached == null || cached.ProjectConfigFileStamp != ProjectConfigFileStamp(projectFile) {
+            return false
+        }
+
+        session: IncrementalProjectSession? = null
+        if !incrementalProjectSessions.TryGetValue(projectRoot, out session) || session == null {
+            return false
+        }
+
+        activeSession := session ?? throw new InvalidOperationException("Incremental project session disappeared.")
+        fileRecord: IncrementalFileRecord? = null
+        if !activeSession.State.Files.TryGetValue(filePath, out fileRecord) || fileRecord == null {
+            return false
+        }
+        activeFileRecord := fileRecord ?? throw new InvalidOperationException("Incremental project file record disappeared.")
+        if activeFileRecord.Summary.TextHash != ContentHash.OfText(text) || activeFileRecord.Unit == null || !activeFileRecord.Analyzed {
+            return false
+        }
+
+        restored := new DocumentState(uri, text, version)
+        restored.CompilationUnit = activeFileRecord.Unit
+        restored.SemanticModel = activeFileRecord.SemanticModel
+        restored.Bindings = activeFileRecord.Bindings
+        activeSnapshot := cached ?? throw new InvalidOperationException("Cached project snapshot disappeared.")
+        restored.Diagnostics = EditorWorkspaceFacts.DiagnosticsForFile(activeSnapshot.Snapshot.AllErrors, activeSnapshot.Snapshot.ProjectRoot, filePath)
+
+        lexer := new Lexer(text, filePath)
+        restored.Tokens = lexer.Tokenize()
+        restored.Comments = lexer.Comments
+
+        unit := activeFileRecord.Unit ?? throw new InvalidOperationException("The reused project file has no compilation unit.")
+        projectDir := Path.GetDirectoryName(filePath) ?? projectRoot
+        linter := new Linter(LinterConfig.FromEditorConfig(projectDir))
+        restored.LinterDiagnostics = linter.Lint(unit, filePath, text)
+        restored.Symbols = EditorSymbolTableFacts.TypeCatalog(unit)
+        restored.SymbolsInfo = toSymbolsInfo(EditorSymbolTableFacts.SymbolInfoRows(unit, text))
+        restored.SymbolLocations = toSymbolLocations(EditorSymbolTableFacts.SymbolLocationRows(unit, text), uri)
+        storeDocument(uri, restored)
+        return true
+    }
+
+    // A same-text didOpen may answer from the last valid semantic project snapshot. File-system
+    // watcher events and reference changes evict that snapshot; the project file stamp catches a
+    // project configuration change without walking or hashing all source files.
+    func GetCachedDiagnosticsForOpen(uri: string): DocumentDiagnosticsPublication? {
+        doc := GetDocument(uri)
+        if doc == null {
+            return null
+        }
+
+        RefreshStaleReferences()
+        filePath := EditorWorkspaceFacts.UriToFilePath(uri)
+        projectRoot := EditorWorkspaceFacts.SemanticProjectRoot(filePath, workspaceRoots.Keys)
+        projectFile := Path.Combine(projectRoot, "project.yml")
+        cached: CachedProjectSnapshot? = null
+        if !projectSnapshots.TryGetValue(projectRoot, out cached) || cached == null || cached.ProjectConfigFileStamp != ProjectConfigFileStamp(projectFile) {
+            return null
+        }
+
+        logger.LogInformation("LSP structural counters: projectSnapshotsBuilt=0 filesParsed=0 filesReanalyzed=0 filesReused=0 projectSnapshotCacheHits=1 projectDiskStampScans=0")
+        return new DocumentDiagnosticsPublication(
+            uri,
+            EditorWorkspaceFacts.DiagnosticsForFile(cached.Snapshot.AllErrors, cached.Snapshot.ProjectRoot, filePath),
+            doc.LinterDiagnostics ?? new List<Diagnostic>()
+        )
+    }
+
     // A project didChange buffer is queued without duplicate parsing and then semantically analysed
     // by the retained project session when diagnostics are requested. Loose files keep their
     // established single-document path.
@@ -723,7 +826,7 @@ class DocumentManager {
         lock projectSnapshotLock {
             cached: CachedProjectSnapshot? = null
             if projectSnapshots.TryGetValue(projectRoot, out cached) && cached.ProjectConfigFileStamp == projectConfigFileStamp && EditorDocumentCacheFacts.SnapshotCacheHit(cached.Stamp, stamp) {
-                logger.LogInformation("LSP structural counters: projectSnapshotsBuilt=0 filesParsed=0 filesReanalyzed=0 filesReused=0")
+                logger.LogInformation("LSP structural counters: projectSnapshotsBuilt=0 filesParsed=0 filesReanalyzed=0 filesReused=0 projectSnapshotCacheHits=1 projectDiskStampScans=1")
                 return new ProjectSnapshotBinding(projectRoot, filePath, cached.Snapshot)
             }
 
@@ -761,7 +864,7 @@ class DocumentManager {
                 updateOpenDocumentSemanticState(activeSession, loaded)
                 documentHydrationMs := phaseTimer.ElapsedMilliseconds
                 logger.LogInformation(
-                    "LSP structural counters: projectSnapshotsBuilt={ProjectSnapshotsBuilt} filesParsed={FilesParsed} filesReanalyzed={FilesReanalyzed} filesReused={FilesReused}",
+                    "LSP structural counters: projectSnapshotsBuilt={ProjectSnapshotsBuilt} filesParsed={FilesParsed} filesReanalyzed={FilesReanalyzed} filesReused={FilesReused} projectSnapshotCacheHits=0 projectDiskStampScans=1",
                     1,
                     activeSession.State.LastFilesParsed,
                     activeSession.State.LastFilesAnalyzed,

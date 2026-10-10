@@ -192,6 +192,23 @@ func LsdUpdateDocument(manager: object, uri: string, source: string) {
     _ = ignored
 }
 
+func LsdUpdateDocumentForOpen(manager: object, uri: string, source: string, version: int): bool {
+    parameterTypes := new Type[](3)
+    parameterTypes[0] = typeof(string)
+    parameterTypes[1] = typeof(string)
+    parameterTypes[2] = typeof(int)
+    method := manager.GetType().GetMethod("UpdateDocumentForOpen", parameterTypes)
+    if method == null {
+        throw new InvalidOperationException("DocumentManager.UpdateDocumentForOpen was not found.")
+    }
+    arguments := new object?[](3)
+    LsdPut(arguments, 0, uri)
+    LsdPut(arguments, 1, source)
+    LsdPut(arguments, 2, version)
+    result := method.Invoke(manager, arguments)
+    return result != null && Convert.ToBoolean(result)
+}
+
 func LsdInvokeStringArgument(manager: object, methodName: string, value: string): object? {
     parameterTypes := new Type[](1)
     parameterTypes[0] = typeof(string)

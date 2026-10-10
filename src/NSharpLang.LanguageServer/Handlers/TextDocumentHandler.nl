@@ -46,7 +46,11 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
         logger.LogInformation("Document opened: {Uri}", uri)
 
         documentManager.MarkEditorOpen(uri)
-        documentManager.UpdateDocument(uri, text, version)
+        reused := documentManager.UpdateDocumentForOpen(uri, text, version)
+        if reused && tryPublishCachedDiagnostics(uri) {
+            return Unit.Task
+        }
+
         publishDiagnostics(uri)
 
         return Unit.Task
@@ -151,34 +155,52 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
 
     func publishDiagnostics(uri: string, token: CancellationToken) {
         publications := documentManager.GetDiagnosticsToPublish(uri)
+        publishDiagnosticsList(publications, token)
+    }
+
+    private func tryPublishCachedDiagnostics(uri: string): bool {
+        publication := documentManager.GetCachedDiagnosticsForOpen(uri)
+        if publication == null {
+            return false
+        }
+
+        publishDiagnosticPublication(publication ?? throw new InvalidOperationException("Cached diagnostics disappeared."), CancellationToken.None)
+        return true
+    }
+
+    private func publishDiagnosticsList(publications: IReadOnlyList<DocumentDiagnosticsPublication>, token: CancellationToken): void {
         for publication in publications {
             if token.IsCancellationRequested {
                 return
             }
 
-            allDiagnostics := new List<OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic>()
-
-            for error in publication.CompilerDiagnostics {
-                allDiagnostics.Add(LspDiagnosticConverter.FromCompilerError(error))
-            }
-
-            for diagnostic in publication.LinterDiagnostics {
-                allDiagnostics.Add(LspDiagnosticConverter.FromLinterDiagnostic(diagnostic))
-            }
-
-            document := documentManager.GetDocument(publication.Uri)
-            publishedVersion: int? = null
-            if document != null {
-                publishedVersion = document.Version
-            }
-
-            languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams {
-                Uri: DocumentUri.From(publication.Uri),
-                Version: publishedVersion,
-                Diagnostics: new Container<OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic>(allDiagnostics)
-            })
-
-            logger.LogInformation("Published {Count} diagnostics for {Uri}", allDiagnostics.Count, publication.Uri)
+            publishDiagnosticPublication(publication, token)
         }
+    }
+
+    private func publishDiagnosticPublication(publication: DocumentDiagnosticsPublication, token: CancellationToken): void {
+        if token.IsCancellationRequested {
+            return
+        }
+
+        allDiagnostics := new List<OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic>()
+        for error in publication.CompilerDiagnostics {
+            allDiagnostics.Add(LspDiagnosticConverter.FromCompilerError(error))
+        }
+        for diagnostic in publication.LinterDiagnostics {
+            allDiagnostics.Add(LspDiagnosticConverter.FromLinterDiagnostic(diagnostic))
+        }
+
+        document := documentManager.GetDocument(publication.Uri)
+        publishedVersion: int? = null
+        if document != null {
+            publishedVersion = document.Version
+        }
+        languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams {
+            Uri: DocumentUri.From(publication.Uri),
+            Version: publishedVersion,
+            Diagnostics: new Container<OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic>(allDiagnostics)
+        })
+        logger.LogInformation("Published {Count} diagnostics for {Uri}", allDiagnostics.Count, publication.Uri)
     }
 }

@@ -39,7 +39,7 @@ func AgentLoopTestRow(size: string, scenario: string, mode: string, wallMs: long
 
 func AgentLoopTestBaseline(): AgentLoopBaseline {
     baseline := new AgentLoopBaseline()
-    baseline.SchemaVersion = 4
+    baseline.SchemaVersion = 5
     sizes := AgentLoopSizes()
     scenarios := AgentLoopScenarios()
     i := 0
@@ -70,12 +70,18 @@ func AgentLoopTestBaseline(): AgentLoopBaseline {
             parsed := 0L
             reanalyzed := 0L
             reused := 0L
+            cacheHits := 0L
+            diskStampScans := 0L
+            documentAnalysisRuns := 0L
+            documentCacheReuses := 0L
+            freshDiagnosticsVerified := 1L
             if lspOperations[j] == "LSP didChange diagnostics" {
                 snapshots = 1
                 updated = 1
                 published = 1
                 parsed = 2
                 reanalyzed = 1
+                diskStampScans = 1
                 if lspSizes[i] == "medium" {
                     reused = 39
                 } else {
@@ -84,8 +90,10 @@ func AgentLoopTestBaseline(): AgentLoopBaseline {
             } else if lspOperations[j] == "LSP unchanged didOpen" {
                 updated = 1
                 published = 1
+                cacheHits = 1
+                documentCacheReuses = 1
             }
-            row.Counters = new AgentLoopLspCounters(snapshots, updated, published, parsed, reanalyzed, reused)
+            row.Counters = new AgentLoopLspCounters(snapshots, updated, published, parsed, reanalyzed, reused, cacheHits, diskStampScans, documentAnalysisRuns, documentCacheReuses, freshDiagnosticsVerified)
             baseline.LspRows.Add(row)
             j = j + 1
         }
@@ -330,7 +338,7 @@ test "agent-loop bench: counters that differ between identical samples mark the 
 test "agent-loop bench: the baseline file the harness writes is the baseline file it reads" {
     written := AgentLoopTestBaseline()
     parsed := AgentLoopParseBaseline(AgentLoopBaselineJson(written))
-    assert parsed.SchemaVersion == 3
+    assert parsed.SchemaVersion == 5
     assert parsed.Rows.Count == AgentLoopSizes().Count * AgentLoopScenarios().Count * 3
     assert parsed.LspRows.Count == AgentLoopLspSizes().Count * AgentLoopLspOperations().Count
     first := parsed.Rows[0]
@@ -442,7 +450,7 @@ test "agent-loop relative gate: paired head/base medians accept at 1.20x and fai
     row.Samples = AgentLoopRelativeMinimumPairs()
     timings.Add(row)
     assert AgentLoopRelativeTimingFailures(timings).Count == 0
-    assert AgentLoopRelativeTimingTable(timings).Contains("| small | no-op check | cold | wall | 1000 | 1200 | 60 | 72 | 200 | 9 | 1.2x |")
+    assert AgentLoopRelativeTimingTable(timings).Contains("| small | no-op check | cold | wall | 1000 | 1200 | 60 | 72 | 200 | 200 | 9 | 1.2x |")
 
     i = 0
     while i < row.Samples {
@@ -469,6 +477,30 @@ test "agent-loop relative gate uses the exact sign-test lower confidence bound, 
     values[8] = 1800
     assert BenchMedianLowerConfidenceBound(values, 9) == 1100
     assert BenchMedianLowerConfidenceBound(values, 8) == -1
+}
+
+test "agent-loop relative gate rejects an LSP row-median regression hidden by paired noise" {
+    row := new AgentLoopRelativeTimingRow("large", "LSP unchanged didOpen", AgentLoopLspMode(), AgentLoopRelativeMinimumPairs())
+    baseSamples := [100L, 100L, 100L, 100L, 1L, 1L, 1L, 1L, 1L]
+    headSamples := [36L, 36L, 36L, 36L, 36L, 1L, 1L, 1L, 1L]
+    i := 0
+    while i < AgentLoopRelativeMinimumPairs() {
+        row.BaseMs[i] = baseSamples[i]
+        row.HeadMs[i] = headSamples[i]
+        row.BaseCpuMs[i] = -1
+        row.HeadCpuMs[i] = -1
+        i = i + 1
+    }
+    row.Samples = AgentLoopRelativeMinimumPairs()
+
+    assert BenchMedian(row.BaseMs, row.Samples) == 1
+    assert BenchMedian(row.HeadMs, row.Samples) == 36
+    assert BenchMedianPairedDifference(row.HeadMs, row.BaseMs, row.Samples) < AgentLoopRelativeSlowdownFloorMs()
+    failures := AgentLoopRelativeTimingFailures([row])
+    assert failures.Count == 1
+    assert failures[0].Contains("row median ratio 36x")
+    assert failures[0].Contains("row median slowdown 35 ms >= 30 ms")
+    assert AgentLoopRelativeTimingTable([row]).Contains("| 35 | 0 | 9 |"), "the table must show row and paired slowdown separately"
 }
 
 test "agent-loop relative gate preserves both deliberate 500 ms and 1,500 ms slowdown proofs" {
@@ -597,7 +629,7 @@ test "agent-loop bench: the committed structural baseline covers cold, warm and 
     for row in baseline.LspRows {
         assert AgentLoopLspCountersMeasured(row.Counters), row.Size + " / " + row.Scenario
         if row.Scenario == "LSP unchanged didOpen" && row.Size == "large" {
-            assert (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1)).ProjectSnapshotsBuilt == 0, "an unchanged didOpen in the large project must reuse the project snapshot"
+            assert (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1)).ProjectSnapshotsBuilt == 0, "an unchanged didOpen in the large project must reuse the project snapshot"
         }
     }
     i := 0
@@ -624,12 +656,12 @@ test "agent-loop LSP rows use exact snapshot and document-activity counters" {
     baseline := AgentLoopTestBaseline()
     rows := new List<AgentLoopLspRow>()
     opened := new AgentLoopLspRow("large", "LSP unchanged didOpen")
-    opened.Counters = new AgentLoopLspCounters(0, 1, 1, 0, 0, 0)
+    opened.Counters = new AgentLoopLspCounters(0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1)
     rows.Add(opened)
     assert AgentLoopLspCounterFailure(baseline, rows).Count == 0
 
     rebuilt := new AgentLoopLspRow("large", "LSP unchanged didOpen")
-    rebuilt.Counters = new AgentLoopLspCounters(1, 1, 1, 0, 0, 0)
+    rebuilt.Counters = new AgentLoopLspCounters(1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1)
     rows[0] = rebuilt
     assert AgentLoopLspCounterFailure(baseline, rows)[0].Contains("projectSnapshotsBuilt=0")
 }
