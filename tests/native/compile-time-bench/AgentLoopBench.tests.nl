@@ -362,8 +362,8 @@ test "agent-loop bench: a baseline with no rows, an unknown schema or unmeasured
     assert AgentLoopBaselineRefusal(empty).Contains("has no rows")
 
     future := AgentLoopTestBaseline()
-    future.SchemaVersion = 5
-    assert AgentLoopBaselineRefusal(future).Contains("schemaVersion 5")
+    future.SchemaVersion = 6
+    assert AgentLoopBaselineRefusal(future).Contains("schemaVersion 6")
 
     missingDaemonWarm := AgentLoopTestBaseline()
     missingDaemonWarm.Rows.RemoveAt(missingDaemonWarm.Rows.Count - 1)

@@ -1222,8 +1222,8 @@ output as one JSON envelope. The test writes the verdict and ratio table to
 `artifacts/compile-time/relative-gate.md` and `last-gate-run.txt`; `tests/scripts/test-all.sh` copies
 those records out before deleting its isolated tree, including when a later step fails.
 
-The same project also contains a corpus harness. It measures the 191 distinct projects with
-`project.yml` under `examples/`, `tests/` and `templates/` (21 examples, 164 test and fixture
+The same project also contains a corpus harness. It measures the 197 distinct projects with
+`project.yml` under `examples/`, `tests/` and `templates/` (21 examples, 170 test and fixture
 projects, and 6 templates; the benchmark harness's own project is excluded). The eleven nested
 projects under `examples/11-advanced-features/` and all six template projects are discovered
 individually; projects holding only `.tests.nl` are reported as "no non-test sources". It also
@@ -1232,6 +1232,11 @@ measures Compiler Core. It writes `runs.csv`, `compile-time.csv` and
 to `artifacts/compile-time/<date>/`. Those corpus reports are informational and do not replace the
 paired Core-scale gate. Options include `--only <substring>`, `--scope corpus|bootstrap|all`,
 `--cli <Cli.dll>` and `--out <dir>`.
+
+The 2026-10-09 integration census includes six unique iterator and generic-call projects, bringing
+the corpus to 197. The separate repository-root workspace census pins 235 member roots (including
+the repository root) and 2,015 checked `.nl` files; the parse cap and reference-image budget are
+recomputed from the discovered inventory.
 
 The September 2026 absolute wall/RSS baselines remain historical measurements only; their machine,
 load and phase context is retained in the measurement verdicts. They are no longer a pass/fail

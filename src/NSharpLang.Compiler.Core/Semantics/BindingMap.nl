@@ -692,6 +692,17 @@ class BindingMap {
         return null
     }
 
+    // Composite accessors are called only after the caller has identified a composite map. Read
+    // the base once so nullable analysis and every projection use the same immutable reference.
+    private func RequireCompositeBase(): BindingMap {
+        baseMap := compositeBaseValue
+        if baseMap == null {
+            throw new InvalidOperationException("Composite binding map is missing its base.")
+        }
+
+        return baseMap
+    }
+
     private func CompositeDeclarations(): List<SymbolDeclaration> {
         cached := compositeDeclarationsValue
         if cached != null {
@@ -700,7 +711,8 @@ class BindingMap {
 
         result := new List<SymbolDeclaration>()
         seen := new HashSet<BindingPositionKey>()
-        for declaration in compositeBaseValue.AllDeclarations {
+        baseMap := RequireCompositeBase()
+        for declaration in baseMap.AllDeclarations {
             if IsCompositeReplacedFile(declaration.File) {
                 continue
             }
@@ -738,7 +750,8 @@ class BindingMap {
 
         result := new BindingMapEntryData()
         seen := new HashSet<BindingPositionKey>()
-        baseEntries := compositeBaseValue.BindingEntries
+        baseMap := RequireCompositeBase()
+        baseEntries := baseMap.BindingEntries
         for entry in baseEntries {
             if IsCompositeReplacedFile(entry.Key.File) {
                 continue
@@ -771,7 +784,8 @@ class BindingMap {
 
     private func CompositeReferences(declaration: SymbolDeclaration): List<SymbolUsage> {
         result := new List<SymbolUsage>()
-        for usage in compositeBaseValue.GetReferences(declaration) {
+        baseMap := RequireCompositeBase()
+        for usage in baseMap.GetReferences(declaration) {
             if !IsCompositeReplacedFile(usage.File) {
                 result.Add(usage)
             }
@@ -795,7 +809,8 @@ class BindingMap {
     private func FindDeclarationNearComposite(filePath: string?, line: int, col: int): SymbolDeclaration? {
         best: SymbolDeclaration? = null
         bestDistance := 2147483647
-        for declaration in compositeBaseValue.AllDeclarations {
+        baseMap := RequireCompositeBase()
+        for declaration in baseMap.AllDeclarations {
             if IsCompositeReplacedFile(declaration.File) || declaration.Line != line || !FilesMatch(declaration.File, filePath) {
                 continue
             }
@@ -858,7 +873,7 @@ class BindingMap {
             index = index + 1
         }
 
-        baseMap := other.compositeBaseValue
+        baseMap := other.RequireCompositeBase()
         index = 0
         while index < baseMap.referenceKeys.Count {
             key := baseMap.referenceKeys[index]

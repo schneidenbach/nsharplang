@@ -1391,7 +1391,12 @@ class AnalyzerConstruction {
             }
 
             signature := functionTypeFactoryValue.CreateFromDeclaredMember(constructor, sourceSubstitution, declarationOwner)
-            parameterType := signature.ParameterTypes[index]
+            signatureParameterTypes := signature.ParameterTypes
+            if signatureParameterTypes == null || index >= signatureParameterTypes.Count {
+                return null
+            }
+
+            parameterType := signatureParameterTypes[index]
             if BuiltInTypes.IsUnknown(parameterType) {
                 continue
             }
