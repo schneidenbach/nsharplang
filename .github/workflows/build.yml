@@ -87,6 +87,10 @@ jobs:
           dotnet test "$project" -c Release -p:NSharpExcludeTests=false
         done
 
+        # Native project.yml files reference Debug outputs directly. Use the same prerequisite
+        # builder as the product gate so the required DLL set has one owner.
+        scripts/build-native-prerequisites.sh
+
         # Every native test project has a root project.yml and at least one *.tests.nl below it.
         # Keep this discovery open-ended so a newly added native test project joins CI automatically.
         native_projects=(tests/native/*/project.yml)
@@ -94,6 +98,9 @@ jobs:
           echo '::error::No native test projects were discovered.'
           exit 1
         fi
+        # Environment constraints are explicit: installed-toolchain-integration requires Docker
+        # (forced by NSHARP_RUN_DOCKER_INTEGRATION above). There are no macOS-only native projects;
+        # the host-conditional rows support Linux as well as macOS and are exercised on this runner.
         native_count=0
         for config in "${native_projects[@]}"; do
           native_dir=${config%/project.yml}

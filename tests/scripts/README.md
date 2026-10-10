@@ -23,6 +23,8 @@ automation, and agent instructions already call those paths.
   `./scripts/test-all.sh` so isolation and cache validation stay consistent.
   It records coarse per-stage timings and passes exact emitted assemblies to
   IL verification, keeping copied runtime dependencies as references rather than targets.
+- `scripts/build-native-prerequisites.sh` - shared Debug build owner for the product gate
+  and CI; builds the source-project output directories referenced by native `project.yml` files.
 - `test-vscode-integration.sh` - VS Code extension integration test harness.
 - `test-vscode-headless.sh` - repeatable headless VS Code smoke test.
 - `smoke-turnkey-install.sh` - isolated smoke for the public installer and

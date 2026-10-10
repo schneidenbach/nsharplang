@@ -1,6 +1,8 @@
 namespace NSharpLang.GateScriptContracts.Tests
 
+import System.Collections.Generic
 import System.IO
+import System.Text.RegularExpressions
 
 func CompilerPerfSource(relativePath: string): string {
     return File.ReadAllText(Path.Combine(RepositoryRoot(), relativePath))
@@ -107,4 +109,76 @@ test "CI runs the paired compiler gates with git history and uploads their trend
     assert workflow.Contains("artifacts/compile-time/relative-gate.md") && workflow.Contains("artifacts/agent-loop/relative-gate.md"), "Both ratio tables must be included in the CI artifact."
     assert workflow.Contains("if-no-files-found: warn"), "A test failure before artifact creation must not hide the gate's original failure."
     assert workflow.Contains("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"), "A newer PR preview must cancel its in-progress predecessor without cancelling push previews."
+}
+
+func NativePrerequisiteSource(relativePath: string): string {
+    return File.ReadAllText(Path.Combine(RepositoryRoot(), relativePath))
+}
+
+func NativeDllOwnerDirectories(): List<string> {
+    root := RepositoryRoot()
+    nativeRoot := Path.Combine(Path.Combine(root, "tests"), "native")
+    owners := new List<string>()
+    projectFiles := Directory.GetFiles(nativeRoot, "project.yml", SearchOption.AllDirectories)
+    for projectFile in projectFiles {
+        config := File.ReadAllText(projectFile)
+        for matchValue: Match in Regex.Matches(config, "^\\s*-\\s*dll:\\s*\\.\\./\\.\\./\\.\\./src/(?<owner>[^/]+)/bin/Debug/net10\\.0/", RegexOptions.Multiline) {
+            owner := "src/" + matchValue.Groups["owner"].Value
+            if !owners.Contains(owner) {
+                owners.Add(owner)
+            }
+        }
+    }
+
+    return owners
+}
+
+func NativePrerequisiteProjectDirectories(buildScript: string): List<string> {
+    body := RequireMatch(
+        buildScript,
+        "NATIVE_PREREQUISITE_PROJECTS=\\(\\s*(?<body>[^)]*)\\)",
+        "Could not find the shared native prerequisite project list in scripts/build-native-prerequisites.sh."
+    ).Groups["body"].Value
+    projects := new List<string>()
+    for matchValue: Match in Regex.Matches(body, "(?<project>src/[^\\s]+/[^\\s]+\\.csproj)") {
+        projectPath := matchValue.Groups["project"].Value
+        lastSeparatorIndex := projectPath.LastIndexOf('/')
+        directory := projectPath.Substring(0, lastSeparatorIndex)
+        if !projects.Contains(directory) {
+            projects.Add(directory)
+        }
+    }
+
+    return projects
+}
+
+test "the shared Debug prerequisite builder covers exactly the source output directories referenced by native projects" {
+    buildScript := NativePrerequisiteSource("scripts/build-native-prerequisites.sh")
+    expectedOwners := NativeDllOwnerDirectories()
+    builtOwners := NativePrerequisiteProjectDirectories(buildScript)
+
+    assert expectedOwners.Count == 4, "The discovered native DLL references currently need four source output directories; found " + expectedOwners.Count.ToString() + "."
+    assert builtOwners.Count == expectedOwners.Count, "The shared build list must match the native project.yml DLL owners exactly. Expected: " + string.Join(", ", expectedOwners) + "; built: " + string.Join(", ", builtOwners) + "."
+    for owner in expectedOwners {
+        assert builtOwners.Contains(owner), "The native project.yml files reference " + owner + ", which the shared prerequisite builder does not build."
+    }
+    assert buildScript.Contains("-c Debug"), "Native project.yml DLL references point at Debug outputs, so prerequisite builds must explicitly use Debug."
+}
+
+test "the product gate and CI build native prerequisites before their tests through the shared owner" {
+    buildScriptPath := "scripts/build-native-prerequisites.sh"
+    buildScript := NativePrerequisiteSource(buildScriptPath)
+    coreScript := ReadGateScript("test-all-core.sh")
+    workflow := NativePrerequisiteSource(".github/workflows/build.yml")
+
+    assert coreScript.Contains(buildScriptPath), "Step 2 of the product gate must use the shared native prerequisite builder."
+    assert workflow.Contains(buildScriptPath), "The CI test step must use the shared native prerequisite builder."
+
+    workflowBuildCall := "\n        " + buildScriptPath + "\n"
+    workflowBuildIndex := workflow.IndexOf(workflowBuildCall)
+    nativeRunIndex := workflow.IndexOf("dotnet \"$cli_dll\" test --project \"$native_dir\" --no-cache")
+    assert workflowBuildIndex >= 0 && nativeRunIndex > workflowBuildIndex, "CI must invoke the shared Debug prerequisite builder before running any discovered native project."
+    assert workflow.Contains("native_projects=(tests/native/*/project.yml)"), "CI must retain open-ended native project discovery."
+    assert workflow.Contains("NSHARP_RUN_DOCKER_INTEGRATION: '1'"), "The discovered installed-toolchain-integration project requires Docker, and CI must force those rows to run."
+    assert workflow.Contains("There are no macOS-only native projects"), "Host-specific project requirements must be classified explicitly; Linux and macOS-compatible rows run on this Linux job."
 }

@@ -304,16 +304,11 @@ else
 fi
 
 section "Step 2: Build N# Compiler"
-# THE LANGUAGE SERVER IS BUILT HERE ON PURPOSE. Three native projects take
-# src/NSharpLang.LanguageServer/bin/Debug/net10.0/LanguageServer.dll as a `dll:` dependency, and until
-# the C# unit suite was retired that dll arrived as a side effect of the deleted Step 3 building
-# tests/Tests.csproj, which project-referenced it. Naming it here is the difference between a
-# reproducible gate and one that passes only on a machine that happens to have built it.
-echo "Building compiler, CLI, Build.Tasks, the language server three native projects take as a dll: dependency, and the playground a fourth one takes..."
-if dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Cli/Cli.csproj -v q \
-    && dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -v q \
-    && dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.LanguageServer/LanguageServer.csproj -v q \
-    && dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Playground/NSharpLang.Playground.csproj -v q; then
+# THE LANGUAGE SERVER IS BUILT HERE ON PURPOSE. Three native projects take its Debug output as a
+# `dll:` dependency. It and the other native DLL prerequisites are owned by the shared builder used
+# by CI too, so they cannot arrive only as a side effect of some unrelated local build.
+echo "Building the CLI, Build.Tasks, language server, and playground prerequisites named by native project.yml dll: references..."
+if scripts/build-native-prerequisites.sh $DOTNET_STABLE_FLAGS; then
     handle_success "Compiler built"
 else
     handle_error "Compiler build"

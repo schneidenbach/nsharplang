@@ -188,7 +188,7 @@ test "the systems throughput stage runs once after compiler build/format and bef
     assert throughputSections.Count == 1, "The Systems Throughput Gate must have exactly one product-gate stage."
     assert runnerInvocations.Count == 1, "The Systems Throughput Gate must invoke the throughput runner exactly once."
 
-    compilerBuildIndex := coreScript.IndexOf("dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Cli/Cli.csproj")
+    compilerBuildIndex := coreScript.IndexOf("scripts/build-native-prerequisites.sh")
     formatIndex := coreScript.IndexOf("dotnet \"$CLI_DLL\" format --project examples --check")
     runnerIndex := coreScript.IndexOf("NSharpLang.NativeComparisonRunner.dll gate --cli")
     selfHostIndex := coreScript.IndexOf("dotnet \"$CLI_DLL\" check --use-built-references --project \"$SELF_HOST_PROJECT\"")

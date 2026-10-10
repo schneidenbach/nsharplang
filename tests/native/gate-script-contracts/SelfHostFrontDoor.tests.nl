@@ -1,6 +1,7 @@
 namespace NSharpLang.GateScriptContracts.Tests
 
 import System.Collections.Generic
+import System.IO
 import System.Text.RegularExpressions
 
 // ─── THE SELF-HOST FRONT DOOR'S OWN STEP (Step 2d of the product gate) ────────────────────────
@@ -76,8 +77,10 @@ test "the self-host front door checks the compiler's slices lowest first, then t
     buildIndex := coreScript.IndexOf("section \"Step 2: Build N# Compiler\"")
     frontDoorIndex := coreScript.IndexOf("section \"Step 2d: Self-Host Front Door\"")
     assert buildIndex >= 0 && frontDoorIndex > buildIndex, "Step 2 must build the dependencies before Step 2d reads them."
-    assert coreScript.Contains("dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Cli/Cli.csproj -v q")
-    assert coreScript.Contains("dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Playground/NSharpLang.Playground.csproj -v q")
+    buildScript := File.ReadAllText(Path.Combine(RepositoryRoot(), "scripts/build-native-prerequisites.sh"))
+    assert coreScript.Contains("scripts/build-native-prerequisites.sh"), "Step 2 must call the shared prerequisite builder."
+    assert buildScript.Contains("src/NSharpLang.Cli/Cli.csproj")
+    assert buildScript.Contains("src/NSharpLang.Playground/NSharpLang.Playground.csproj")
 }
 
 test "every self-host ceiling is a measured number, and none of them is the old BLOCKED marker" {
