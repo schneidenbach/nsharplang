@@ -85,7 +85,7 @@
     "tests/native/cli-parity-audit": 4.416,
     "tests/native/columnar-emit-facts": 5.84,
     "tests/native/compilation-backend": 39.153,
-    "tests/native/compile-time-bench": 2861.722,
+    "tests/native/compile-time-bench": 209.401,
     "tests/native/compiler-core-slice-direction": 6.798,
     "tests/native/complete-source-generic-args": 1.224,
     "tests/native/completion-engine": 1.425,
@@ -159,6 +159,6 @@
     "tests/native/user-generic-methods": 1.377,
     "tests/native/vscode-launch-policy": 0.985
   },
-  "source": "GitHub Actions run 38027661547; per-project start/result timestamps from the supplied full log",
+  "source": "GitHub Actions run 38027661547 project durations; compile-time-bench replaced by 209.401s local structural-only measurement on 2026-10-10",
   "unseenProjectSeconds": 10.0
 }

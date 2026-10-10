@@ -25,6 +25,12 @@ SHARD_COUNT = 10
 DEFAULT_SECONDS = 10.0
 RELEASE_CLI_DLL = "src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll"
 DEBUG_CLI_DLL = "src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
+PERFORMANCE_SLICES = (
+    "core",
+    "small-check", "small-build", "small-test",
+    "medium-check", "medium-build", "medium-test",
+    "medium-lsp", "large-lsp",
+)
 
 
 def has_tests(directory):
@@ -79,8 +85,7 @@ def assign(projects, durations, shard_count=SHARD_COUNT):
     if shard_count < 1:
         raise ValueError("Shard count must be positive.")
     shards = [{"id": "{:02d}".format(index + 1), "projects": [], "seconds": 0.0} for index in range(shard_count)]
-    ordinary = [project for project in projects if project != PERFORMANCE_PROJECT]
-    for project in sorted(ordinary, key=lambda item: (-project_seconds(item, durations), item)):
+    for project in sorted(projects, key=lambda item: (-project_seconds(item, durations), item)):
         shard = min(shards, key=lambda item: (item["seconds"], item["id"]))
         shard["projects"].append(project)
         shard["seconds"] += project_seconds(project, durations)
@@ -94,16 +99,11 @@ def plan(root=ROOT, duration_path=DURATION_FILE, shard_count=SHARD_COUNT):
     projects = discover(root)
     durations = load_durations(duration_path)
     shards = assign(projects, durations, shard_count)
-    performance = {
-        "project": PERFORMANCE_PROJECT,
-        "seconds": round(project_seconds(PERFORMANCE_PROJECT, durations), 3),
-    }
     return {
         "schemaVersion": 1,
         "shardCount": shard_count,
         "durationSource": durations.get("source", "checked-in baseline"),
         "shards": shards,
-        "compilerPerformance": performance,
         "projectCount": len(projects),
     }
 
@@ -116,19 +116,18 @@ def verify_contract(root=ROOT, duration_path=DURATION_FILE):
     if first != second:
         raise AssertionError("Shard assignment changed between identical discovery runs.")
     flattened = [project for shard in first for project in shard["projects"]]
-    assigned = flattened + [PERFORMANCE_PROJECT]
-    if len(assigned) != len(set(assigned)):
+    if len(flattened) != len(set(flattened)):
         raise AssertionError("A discovered test project is assigned more than once.")
-    if set(assigned) != set(projects):
-        missing = sorted(set(projects) - set(assigned))
-        unexpected = sorted(set(assigned) - set(projects))
+    if set(flattened) != set(projects):
+        missing = sorted(set(projects) - set(flattened))
+        unexpected = sorted(set(flattened) - set(projects))
         raise AssertionError("Shard union differs from discovery; missing={} unexpected={}".format(missing, unexpected))
 
     # A newly discovered project with no baseline entry must still be assigned. This makes the
     # discovery contract explicit and exercises the documented fallback estimate.
     synthetic = "tests/native/__contract_new_project__"
     extended = assign(projects + [synthetic], durations)
-    extended_union = [project for shard in extended for project in shard["projects"]] + [PERFORMANCE_PROJECT]
+    extended_union = [project for shard in extended for project in shard["projects"]]
     if extended_union.count(synthetic) != 1 or set(extended_union) != set(projects + [synthetic]):
         raise AssertionError("A newly discovered project was not assigned exactly once.")
     return len(projects), first
@@ -183,10 +182,6 @@ def print_plan(plan_value):
         print("shard {}: {:7.2f}s ({:5.2f} min), {} projects".format(
             shard["id"], shard["seconds"], shard["seconds"] / 60.0, len(shard["projects"])
         ))
-    lane = plan_value["compilerPerformance"]
-    print("compiler-performance: {:7.2f}s ({:5.2f} min), {}".format(
-        lane["seconds"], lane["seconds"] / 60.0, lane["project"]
-    ))
 
 
 def workflow_error(message):
@@ -260,13 +255,17 @@ def estate_result(output, exit_code, project):
     raise RuntimeError("Compiler-service estate failed for {} (exit {}) without a complete test-failure result.".format(project, exit_code))
 
 
-def project_command(project, repository_root):
+def project_command(project, repository_root, performance_slice=None):
     if project.startswith("estate:"):
         relative = project[len("estate:"):]
         return ["dotnet", "test", relative, "-c", "Release", "-p:NSharpExcludeTests=false", "--no-build"], "estate"
     cli_dll = DEBUG_CLI_DLL if project == PERFORMANCE_PROJECT else RELEASE_CLI_DLL
     cli = repository_root / cli_dll
-    return ["dotnet", str(cli), "test", "--project", project, "--no-cache", "--json"], "native"
+    command = ["dotnet", str(cli), "test", "--project", project, "--no-cache", "--json"]
+    if performance_slice:
+        test_filter = "CompileTimeGate" if performance_slice == "core" else "AgentLoopGate"
+        command.extend(["--filter", test_filter])
+    return command, "native"
 
 
 def append_summary(path, title, records, hard_failure=None):
@@ -293,7 +292,7 @@ def append_summary(path, title, records, hard_failure=None):
         stream.write("\n".join(lines))
 
 
-def run_projects(projects, title, repository_root, artifact_directory, duration_output, summary_path):
+def run_projects(projects, title, repository_root, artifact_directory, duration_output, summary_path, performance_slice=None):
     artifact_directory = Path(artifact_directory)
     artifact_directory.mkdir(parents=True, exist_ok=True)
     records = []
@@ -309,7 +308,7 @@ def run_projects(projects, title, repository_root, artifact_directory, duration_
         raise RuntimeError("Downloaded native prerequisite artifact is missing CLI output(s): " + ", ".join(missing_cli))
 
     for project in projects:
-        command, kind = project_command(project, repository_root)
+        command, kind = project_command(project, repository_root, performance_slice)
         display = project[len("estate:"):] if kind == "estate" else project
         print("Testing {}: {}".format("compiler-service estate" if kind == "estate" else "native project", display), flush=True)
         started = time.monotonic()
@@ -331,7 +330,14 @@ def run_projects(projects, title, repository_root, artifact_directory, duration_
                 workflow_error(message)
                 print(restore_output, end="" if restore_output.endswith("\n") else "\n")
                 break
-        process = subprocess.run(command, cwd=str(repository_root), stdout=subprocess.PIPE,
+        environment = os.environ.copy()
+        if project == PERFORMANCE_PROJECT:
+            environment["NSHARP_COMPILER_PERF_MODE"] = "timing" if performance_slice else "structural"
+            if performance_slice and performance_slice != "core":
+                size, scenario_group = performance_slice.split("-", 1)
+                environment["NSHARP_COMPILER_PERF_SIZE"] = size
+                environment["NSHARP_COMPILER_PERF_SCENARIO_GROUP"] = scenario_group
+        process = subprocess.run(command, cwd=str(repository_root), env=environment, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, universal_newlines=True)
         elapsed = round(time.monotonic() - started, 3)
         log_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", project) + ".log"
@@ -409,10 +415,10 @@ def main():
     refresh_parser.add_argument("--from-dir", required=True)
     refresh_parser.add_argument("--source", required=True, help="workflow run id or other audit label")
 
-    run_parser = subparsers.add_parser("run", help="run one assigned shard or the compiler performance project")
+    run_parser = subparsers.add_parser("run", help="run one assigned shard or one isolated compiler performance slice")
     group = run_parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--shard")
-    group.add_argument("--performance", action="store_true")
+    group.add_argument("--performance-slice", choices=PERFORMANCE_SLICES, dest="performance_slice")
     run_parser.add_argument("--artifacts", default="artifacts/ci-test-shards")
     run_parser.add_argument("--durations")
     run_parser.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
@@ -427,7 +433,7 @@ def main():
             return 0
         if args.command == "verify-contract":
             count, _ = verify_contract()
-            print("CI test shard contract passed: {} discovered projects are assigned exactly once across 10 test shards and the compiler-performance lane.".format(count))
+            print("CI test shard contract passed: {} discovered projects are assigned exactly once across 10 test shards.".format(count))
             return 0
         if args.command == "build-estate":
             projects = [project[len("estate:"):] for project in discover() if project.startswith("estate:")]
@@ -447,9 +453,9 @@ def main():
             refresh_durations(args.from_dir, args.source)
             return 0
         value = plan()
-        if args.performance:
+        if args.performance_slice:
             projects = [PERFORMANCE_PROJECT]
-            title = "compiler-performance"
+            title = "compiler-performance-" + args.performance_slice
         else:
             matching = [shard for shard in value["shards"] if shard["id"] == args.shard]
             if not matching:
@@ -458,7 +464,8 @@ def main():
             title = "shard-" + args.shard
         if not projects:
             raise ValueError(title + " has no projects; zero-test shards are invalid.")
-        return run_projects(projects, title, ROOT, args.artifacts, args.durations, args.summary)
+        return run_projects(projects, title, ROOT, args.artifacts, args.durations, args.summary,
+                            args.performance_slice)
     except (AssertionError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         workflow_error(str(error))
         print(str(error), file=sys.stderr)
