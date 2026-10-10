@@ -445,12 +445,14 @@ test "agent-loop relative gate: paired head/base medians accept at 1.20x and fai
         row.HeadMs[i] = 1200
         row.BaseCpuMs[i] = 60
         row.HeadCpuMs[i] = 72
+        row.BasePeakRssBytes[i] = 100 * 1024 * 1024
+        row.HeadPeakRssBytes[i] = 120 * 1024 * 1024
         i = i + 1
     }
     row.Samples = AgentLoopRelativeMinimumPairs()
     timings.Add(row)
     assert AgentLoopRelativeTimingFailures(timings).Count == 0
-    assert AgentLoopRelativeTimingTable(timings).Contains("| small | no-op check | cold | wall | 1000 | 1200 | 60 | 72 | 200 | 200 | 9 | 1.2x |")
+    assert AgentLoopRelativeTimingTable(timings).Contains("| small | no-op check | cold | wall | 1000 | 1200 | 60 | 72 | 100.0 | 120.0 | 200 | 200 | 9 | 1.2x |")
 
     i = 0
     while i < row.Samples {

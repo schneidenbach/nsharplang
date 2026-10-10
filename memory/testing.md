@@ -1312,6 +1312,8 @@ medians, confidence bounds, selected metric, machine, load and commit are retain
 `artifacts/agent-loop/relative-gate.md` and `last-gate-run.txt` as trend data. The sensitivity table
 reports the zero-noise minimum detectable slowdown by size and mode (cold and daemon-warm) as
 `max(30 ms, ceil(1.201 × baseline median) − baseline median)`; observed noise raises that minimum.
+The paired timing table also records base and head median peak RSS from `/usr/bin/time -l` on macOS
+or `/usr/bin/time -v` on Linux; RSS is for review and does not affect the timing verdict.
 
 Developers can compare an explicit base CLI locally. Build the benchmark assembly and pass
 `--base-cli`:

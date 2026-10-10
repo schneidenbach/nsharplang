@@ -41,7 +41,7 @@ import System.Text.Json
 //
 // The relative timing gate alternates base and head samples for each row, then takes the median of
 // the per-pair head/base ratios. The JSON baseline holds only structural counters; absolute times,
-// machine and load are recorded in artifacts and never gate.
+// peak RSS, machine and load are recorded in artifacts and never gate.
 
 // ─── SIZES AND SCENARIOS ──────────────────────────────────────────────────────────────────────
 class AgentLoopSize {
@@ -1357,6 +1357,8 @@ class AgentLoopRelativeTimingRow {
     HeadMs: long[]
     BaseCpuMs: long[]
     HeadCpuMs: long[]
+    BasePeakRssBytes: long[]
+    HeadPeakRssBytes: long[]
     Samples: int
     Metric: string
 
@@ -1368,6 +1370,8 @@ class AgentLoopRelativeTimingRow {
         HeadMs = new long[](samples)
         BaseCpuMs = new long[](samples)
         HeadCpuMs = new long[](samples)
+        BasePeakRssBytes = new long[](samples)
+        HeadPeakRssBytes = new long[](samples)
         Samples = 0
         Metric = "wall"
     }
@@ -1405,6 +1409,8 @@ func AgentLoopRecordRelativePair(row: AgentLoopRelativeTimingRow, sample: int, b
     row.HeadMs[sample] = headRow.MedianWallMs
     row.BaseCpuMs[sample] = baseRow.MedianCpuMs
     row.HeadCpuMs[sample] = headRow.MedianCpuMs
+    row.BasePeakRssBytes[sample] = baseRow.MedianPeakRssBytes
+    row.HeadPeakRssBytes[sample] = headRow.MedianPeakRssBytes
     row.Samples = sample + 1
 }
 
@@ -1768,8 +1774,8 @@ func AgentLoopRelativeTimingFailures(timings: List<AgentLoopRelativeTimingRow>):
 
 func AgentLoopRelativeTimingTable(timings: List<AgentLoopRelativeTimingRow>): string {
     builder := new StringBuilder()
-    BenchAppendLine(builder, "| size | scenario | mode | decision metric | wall base ms | wall head ms | CPU base ms | CPU head ms | row median slowdown ms | paired median slowdown ms | pairs | median ratio | 95% lower ratio | pair ratios |")
-    BenchAppendLine(builder, "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+    BenchAppendLine(builder, "| size | scenario | mode | decision metric | wall base ms | wall head ms | CPU base ms | CPU head ms | peak RSS base MB | peak RSS head MB | row median slowdown ms | paired median slowdown ms | pairs | median ratio | 95% lower ratio | pair ratios |")
+    BenchAppendLine(builder, "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     i := 0
     while i < timings.Count {
         row := timings[i]
@@ -1795,7 +1801,9 @@ func AgentLoopRelativeTimingTable(timings: List<AgentLoopRelativeTimingRow>): st
         lowerBound := BenchMedianLowerConfidenceBound(ratios, row.Samples)
         rowMedianSlowdown := BenchMedian(headSamples, row.Samples) - BenchMedian(baseSamples, row.Samples)
         pairedMedianSlowdown := BenchMedianPairedDifference(headSamples, baseSamples, row.Samples)
-        BenchAppendLine(builder, "| " + row.Size + " | " + row.Scenario + " | " + row.Mode + " | " + row.Metric + " | " + BenchLongText(BenchMedian(row.BaseMs, row.Samples)) + " | " + BenchLongText(BenchMedian(row.HeadMs, row.Samples)) + " | " + BenchLongText(BenchMedian(row.BaseCpuMs, row.Samples)) + " | " + BenchLongText(BenchMedian(row.HeadCpuMs, row.Samples)) + " | " + BenchLongText(rowMedianSlowdown) + " | " + BenchLongText(pairedMedianSlowdown) + " | " + BenchIntText(row.Samples) + " | " + BenchFormatFixed3(medianRatio) + "x | " + BenchFormatFixed3(lowerBound) + "x | " + ratioText + " |")
+        basePeakRss := AgentLoopMegabytes(BenchMedian(row.BasePeakRssBytes, row.Samples))
+        headPeakRss := AgentLoopMegabytes(BenchMedian(row.HeadPeakRssBytes, row.Samples))
+        BenchAppendLine(builder, "| " + row.Size + " | " + row.Scenario + " | " + row.Mode + " | " + row.Metric + " | " + BenchLongText(BenchMedian(row.BaseMs, row.Samples)) + " | " + BenchLongText(BenchMedian(row.HeadMs, row.Samples)) + " | " + BenchLongText(BenchMedian(row.BaseCpuMs, row.Samples)) + " | " + BenchLongText(BenchMedian(row.HeadCpuMs, row.Samples)) + " | " + basePeakRss + " | " + headPeakRss + " | " + BenchLongText(rowMedianSlowdown) + " | " + BenchLongText(pairedMedianSlowdown) + " | " + BenchIntText(row.Samples) + " | " + BenchFormatFixed3(medianRatio) + "x | " + BenchFormatFixed3(lowerBound) + "x | " + ratioText + " |")
         i = i + 1
     }
 

@@ -7,6 +7,7 @@ import System.Reflection
 import System.Reflection.Metadata
 import System.Reflection.PortableExecutable
 import System.Runtime.CompilerServices
+import System.Runtime.InteropServices
 import System.Threading
 
 
@@ -25,6 +26,8 @@ class ReferenceImageSnapshotStore {
 
     private static readonly origins: ConditionalWeakTable<Assembly, ReferenceImageSnapshotStore.AssemblyOrigin> = new ConditionalWeakTable<Assembly, ReferenceImageSnapshotStore.AssemblyOrigin>()
     private static readonly originsGate: object = new object()
+    private static readonly installedRootsGate: object = new object()
+    private static installedRoots: string[]? = null
 
     Gate: object
     private readonly imagesByPath: Dictionary<string, byte[]>
@@ -44,12 +47,35 @@ class ReferenceImageSnapshotStore {
         return delay > 750 ? 750 : delay
     }
 
+    private static func InstalledRuntimeRoots(): string[] {
+        lock ReferenceImageSnapshotStore.installedRootsGate {
+            roots := ReferenceImageSnapshotStore.installedRoots
+            if roots == null {
+                roots = AnalyzerMetadataLoadPolicy.InstalledRuntimeReferenceRoots(RuntimeEnvironment.GetRuntimeDirectory())
+                ReferenceImageSnapshotStore.installedRoots = roots
+            }
+
+            return roots ?? new string[](0)
+        }
+    }
+
+    static func IsInstalledRuntimePath(path: string): bool {
+        return AnalyzerMetadataLoadPolicy.IsInstalledRuntimePath(
+            Path.GetFullPath(path),
+            ReferenceImageSnapshotStore.InstalledRuntimeRoots()
+        )
+    }
+
     // The immutable image for a path, copied before it is given to a metadata reader. A file that is
     // temporarily absent or being replaced gets a bounded backoff window for its build to publish
     // the completed DLL; after that the caller receives an IOException and reports a reference-load
     // diagnostic rather than letting a reader continue over changing bytes.
     func Capture(path: string): byte[] {
         fullPath := Path.GetFullPath(path)
+        if ReferenceImageSnapshotStore.IsInstalledRuntimePath(fullPath) {
+            throw new InvalidOperationException("Installed runtime references are immutable and must not be snapshotted: " + fullPath)
+        }
+
         lock Gate {
             image: byte[]? = null
             if imagesByPath.TryGetValue(fullPath, out image) && image != null {
@@ -103,14 +129,23 @@ class ReferenceImageSnapshotStore {
     // Load one captured image into a metadata universe. Its original path is kept separately because
     // in-memory metadata assemblies intentionally have an empty Assembly.Location.
     func LoadFromPath(context: MetadataLoadContext, path: string): Assembly {
-        AssemblyNameForPath(path)
-        return LoadFromImage(context, path, Capture(path))
+        fullPath := Path.GetFullPath(path)
+        if ReferenceImageSnapshotStore.IsInstalledRuntimePath(fullPath) {
+            return context.LoadFromAssemblyPath(fullPath)
+        }
+
+        AssemblyNameForPath(fullPath)
+        return LoadFromImage(context, fullPath, Capture(fullPath))
     }
 
     // Kept as a separate operation so a test can place a deterministic file rewrite between capture
     // and load, the vulnerable interval this store closes in production.
     func LoadFromImage(context: MetadataLoadContext, path: string, image: byte[]): Assembly {
         fullPath := Path.GetFullPath(path)
+        if ReferenceImageSnapshotStore.IsInstalledRuntimePath(fullPath) {
+            throw new InvalidOperationException("Installed runtime references must be loaded from their immutable path: " + fullPath)
+        }
+
         assembly := context.LoadFromByteArray(image)
         lock Gate {
             imagesByPath[fullPath] = image
@@ -164,6 +199,10 @@ class ReferenceImageSnapshotStore {
     // the same file version without reopening the original path.
     func AssemblyNameForPath(path: string): AssemblyName {
         fullPath := Path.GetFullPath(path)
+        if ReferenceImageSnapshotStore.IsInstalledRuntimePath(fullPath) {
+            return AssemblyName.GetAssemblyName(fullPath)
+        }
+
         lock Gate {
             identity: AssemblyName? = null
             if assemblyNamesByPath.TryGetValue(fullPath, out identity) && identity != null {

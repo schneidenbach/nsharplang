@@ -379,7 +379,10 @@ class AnalyzerMetadataLoadSurface {
             }
 
             identity := images.AssemblyNameForPath(fullPath)
-            image := images.Capture(fullPath)
+            installedRuntimePath := ReferenceImageSnapshotStore.IsInstalledRuntimePath(fullPath)
+            if !installedRuntimePath {
+                images.Capture(fullPath)
+            }
             if IsIdentityLoaded(identity) {
                 return
             }
@@ -390,7 +393,7 @@ class AnalyzerMetadataLoadSurface {
                 return
             }
 
-            loaded := images.LoadFromImage(loadContext, fullPath, image)
+            loaded := images.LoadFromPath(loadContext, fullPath)
             CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
             Register(loaded)
         } catch error: Exception {

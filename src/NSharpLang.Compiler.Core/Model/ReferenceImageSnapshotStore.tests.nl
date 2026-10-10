@@ -8,7 +8,20 @@ import System.Runtime.InteropServices
 import YamlDotNet.Serialization
 
 test "metadata loading uses the captured image when a reference path is rewritten before reflection" {
-    sourcePath := typeof(object).Assembly.Location
+    sourceAssembly := typeof(DeserializerBuilder).Assembly
+    sourcePath := sourceAssembly.Location
+    nestedTypeName := ""
+    declaringTypeName := ""
+    for sourceType in sourceAssembly.GetTypes() {
+        sourceDeclaringType := sourceType.DeclaringType
+        if sourceDeclaringType != null {
+            nestedTypeName = sourceType.FullName ?? ""
+            declaringTypeName = sourceDeclaringType.FullName ?? ""
+            break
+        }
+    }
+    assert nestedTypeName.Length > 0, "YamlDotNet did not provide a nested type for the rewrite test"
+
     directory := Path.Combine(Path.GetTempPath(), "nsharp-reference-image-race-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory(directory)
     copiedPath := Path.Combine(directory, Path.GetFileName(sourcePath))
@@ -17,7 +30,9 @@ test "metadata loading uses the captured image when a reference path is rewritte
     gate := new object()
     images := new ReferenceImageSnapshotStore(gate)
     resolverPaths := new List<string>()
-    resolverPaths.Add(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "System.Runtime.dll"))
+    for path in Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll") {
+        resolverPaths.Add(path)
+    }
     resolverPaths.Add(copiedPath)
     resolver := new ReferenceImagePathResolver(resolverPaths.ToArray(), images, gate)
     context := new MetadataLoadContext(resolver, "System.Runtime")
@@ -43,11 +58,11 @@ test "metadata loading uses the captured image when a reference path is rewritte
         }
 
         loaded := images.LoadFromPath(context, copiedPath)
-        nested := loaded.GetType("System.Collections.Generic.Dictionary`2+Entry")
+        nested := loaded.GetType(nestedTypeName)
 
         assert nested != null
         assert nested.DeclaringType != null
-        assert nested.DeclaringType.FullName == "System.Collections.Generic.Dictionary`2"
+        assert nested.DeclaringType.FullName == declaringTypeName
         assert ReferenceImageSnapshotStore.OriginalPathOf(loaded) == Path.GetFullPath(copiedPath)
     } finally {
         context.Dispose()
@@ -144,6 +159,32 @@ test "snapshot resolver keeps compiler model types visible through a reference i
         } finally {
             analyzerContext.Dispose()
         }
+    } finally {
+        context.Dispose()
+    }
+}
+
+test "installed runtime references keep the immutable file-backed metadata path" {
+    frameworkPath := Path.GetFullPath(typeof(object).Assembly.Location)
+    roots := AnalyzerMetadataLoadPolicy.InstalledRuntimeReferenceRoots(RuntimeEnvironment.GetRuntimeDirectory())
+    assert AnalyzerMetadataLoadPolicy.IsInstalledRuntimePath(frameworkPath, roots), frameworkPath
+
+    images := new ReferenceImageSnapshotStore()
+    captureRefused := false
+    try {
+        images.Capture(frameworkPath)
+    } catch error: InvalidOperationException {
+        captureRefused = error.Message.Contains("immutable")
+    }
+    assert captureRefused, "an installed shared-framework image was snapshotted"
+
+    frameworkDirectory := RuntimeEnvironment.GetRuntimeDirectory()
+    paths := Directory.GetFiles(frameworkDirectory, "*.dll")
+    context := ReferenceImageMetadataContext.Create(paths, images, new object())
+    try {
+        loaded := images.LoadFromPath(context, frameworkPath)
+        assert Path.GetFullPath(loaded.Location) == frameworkPath, "installed reference was loaded from a byte snapshot"
+        assert loaded.GetType("System.Object") != null
     } finally {
         context.Dispose()
     }

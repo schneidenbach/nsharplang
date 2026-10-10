@@ -2326,21 +2326,25 @@ The current metadata resolver is N#-owned in
 NL103 report about an external abstract override are historical migration notes, not the current
 ownership boundary.
 
-`ReferenceImageSnapshotStore` (`src/NSharpLang.Compiler.Model/ReferenceImageSnapshotStore.nl`) owns
-the bytes supplied to every compiler `MetadataLoadContext`. It copies a reference through a
-read-only shared-read handle, checks that the path stayed stable while copying, and caches the byte
-image and assembly identity together for that path and compilation. `MetadataLoadContext` receives
-the captured image through `LoadFromByteArray`; the external scan's PE readers use a `MemoryStream`
-over the same owned bytes with `PEStreamOptions.PrefetchMetadata`. Metadata readers must not retain a
-lazy view over a build output under `bin/`, because another `dotnet build` may replace it while a
-parallel workspace check is resolving declaring types. An image that cannot be copied or parsed is
-retried and then reported as an ordinary reference-load failure. The resolver preserves the original
-path separately because assemblies loaded from bytes have an empty `Assembly.Location`.
+`ReferenceImageSnapshotStore` (`src/NSharpLang.Compiler.Model/ReferenceImageSnapshotStore.nl`)
+snapshots mutable compiler references before a metadata reader can retain them. It copies paths
+outside the installed `dotnet/shared` and `dotnet/packs` roots through a read-only shared-read
+handle, checks that the path stayed stable while copying, and caches the byte image and assembly
+identity together for that path and compilation. `MetadataLoadContext` receives those images through
+`LoadFromByteArray`; the external scan's PE readers use a `MemoryStream` over the owned bytes with
+`PEStreamOptions.PrefetchMetadata`. Installed shared-framework and targeting-pack assemblies keep
+the path-based lazy load: their versioned installation roots are immutable and are deliberately not
+copied. Mutable project outputs and package references remain snapshotted, since builds and restores
+can replace files at their existing paths. An image that cannot be copied or parsed is retried and
+then reported as an ordinary reference-load failure. The resolver preserves the original path
+separately because assemblies loaded from bytes have an empty `Assembly.Location`.
 
-The regression in `ReferenceImageSnapshotStore.tests.nl` captures a framework reference, truncates
-its path before reflection, then verifies that the nested type and its declaring type still resolve
-from the captured bytes. It also compares parsed assembly identities with `AssemblyName` and checks
-that compiler Model/Syntax types remain visible through both metadata resolvers.
+The regression in `ReferenceImageSnapshotStore.tests.nl` captures a mutable YamlDotNet package
+reference, truncates its path before reflection, then verifies that the nested type and its declaring
+type still resolve from the captured bytes. It also compares parsed assembly identities with
+`AssemblyName`, checks that the compiler Model/Syntax types remain visible through both metadata
+resolvers, and asserts that an installed framework assembly retains its file-backed `Location` while
+snapshot capture is refused.
 
 Full-compiler NativeAOT remains future work after merge. The analyzer's external type model still uses
 reflection objects such as `Type`, `Assembly` and `MethodInfo`; moving emission off live runtime types

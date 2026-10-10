@@ -220,11 +220,16 @@ class ExternalAssemblyScan {
 
     private static func RuntimeModuleVersionId(path: string): string {
         pe: PEReader? = null
-        stream: MemoryStream? = null
+        stream: Stream? = null
         try {
-            images := new ReferenceImageSnapshotStore()
-            stream = new MemoryStream(images.Capture(path), false)
-            pe = new PEReader(stream, PEStreamOptions.PrefetchMetadata)
+            if ReferenceImageSnapshotStore.IsInstalledRuntimePath(path) {
+                stream = File.OpenRead(path)
+                pe = new PEReader(stream)
+            } else {
+                images := new ReferenceImageSnapshotStore()
+                stream = new MemoryStream(images.Capture(path), false)
+                pe = new PEReader(stream, PEStreamOptions.PrefetchMetadata)
+            }
             if !pe.HasMetadata {
                 return ""
             }
@@ -1724,47 +1729,57 @@ class ExternalAssemblyScan {
             return null
         }
 
+        pe: PEReader? = null
+        stream: Stream? = null
         try {
-            images := new ReferenceImageSnapshotStore()
-            stream := new MemoryStream(images.Capture(path), false)
-            try {
-                pe := new PEReader(stream, PEStreamOptions.PrefetchMetadata)
-                try {
-                    if !pe.HasMetadata {
-                        return null
-                    }
-
-                    reader := pe.GetMetadataReader()
-                    names := new HashSet<string>(StringComparer.Ordinal)
-                    typeCount := reader.TypeDefinitions.Count
-                    row := 1
-                    while row <= typeCount {
-                        definition := reader.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(row))
-                        if definition.GetDeclaringType().IsNil {
-                            names.Add(QualifiedMetadataTypeName(reader.GetString(definition.Namespace), reader.GetString(definition.Name)))
-                        }
-                        row = row + 1
-                    }
-
-                    exportedCount := reader.ExportedTypes.Count
-                    row = 1
-                    while row <= exportedCount {
-                        exported := reader.GetExportedType(MetadataTokens.ExportedTypeHandle(row))
-                        if exported.Implementation.Kind != HandleKind.ExportedType {
-                            names.Add(QualifiedMetadataTypeName(reader.GetString(exported.Namespace), reader.GetString(exported.Name)))
-                        }
-                        row = row + 1
-                    }
-
-                    return names
-                } finally {
-                    pe.Dispose()
-                }
-            } finally {
-                stream.Dispose()
+            if ReferenceImageSnapshotStore.IsInstalledRuntimePath(path) {
+                stream = File.OpenRead(path)
+                pe = new PEReader(stream)
+            } else {
+                images := new ReferenceImageSnapshotStore()
+                stream = new MemoryStream(images.Capture(path), false)
+                pe = new PEReader(stream, PEStreamOptions.PrefetchMetadata)
             }
+
+            if pe == null {
+                return null
+            }
+            if !pe.HasMetadata {
+                return null
+            }
+
+            reader := pe.GetMetadataReader()
+            names := new HashSet<string>(StringComparer.Ordinal)
+            typeCount := reader.TypeDefinitions.Count
+            row := 1
+            while row <= typeCount {
+                definition := reader.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(row))
+                if definition.GetDeclaringType().IsNil {
+                    names.Add(QualifiedMetadataTypeName(reader.GetString(definition.Namespace), reader.GetString(definition.Name)))
+                }
+                row = row + 1
+            }
+
+            exportedCount := reader.ExportedTypes.Count
+            row = 1
+            while row <= exportedCount {
+                exported := reader.GetExportedType(MetadataTokens.ExportedTypeHandle(row))
+                if exported.Implementation.Kind != HandleKind.ExportedType {
+                    names.Add(QualifiedMetadataTypeName(reader.GetString(exported.Namespace), reader.GetString(exported.Name)))
+                }
+                row = row + 1
+            }
+
+            return names
         } catch {
             return null
+        } finally {
+            if pe != null {
+                pe.Dispose()
+            }
+            if stream != null {
+                stream.Dispose()
+            }
         }
     }
 
