@@ -827,7 +827,7 @@ class ColumnarIteratorRealization {
             sm,
             machineOwnedParameters
         )
-        if methodGps != null {
+        if methodGps != null && smTypeParamMap != null {
             methodSpecialConstraints := System.Array.Empty<int>()
             methodBaseConstraints := System.Array.Empty<Type>()
             methodInterfaceConstraints := System.Array.Empty<Type[]>()
