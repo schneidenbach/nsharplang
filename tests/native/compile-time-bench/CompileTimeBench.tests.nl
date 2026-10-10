@@ -866,136 +866,141 @@ test "compile-time gate: exact Core counters and phase contract accompany change
     headCommit := BenchGitText(gitRoot, "rev-parse HEAD")
     productChanges := BenchFindCompilerProductChanges(gitRoot, baseCommit, headCommit)
     assert productChanges.Error == "", "compile-time gate: " + productChanges.Error
-    comparesTiming := productChanges.HasCompilerChanges()
-    baseCompiler := new BenchBaseCompiler(baseCommit, "", 0, false, "")
-    timingStatus := "not compared (no compiler change)"
-    if comparesTiming {
-        baseCompiler = BenchPrepareBaseCompiler(repositoryRoot)
-        assert baseCompiler.Error == "", "compile-time gate: " + baseCompiler.Error
-    }
-
-    headCanary := BenchObserveBuildPhase(headCli)
-    headPhaseRefusal := BenchPhaseContractRefusal(baseline.PhaseContract, baseline.PhaseDiagnosticMultiset, headCanary.DiagnosticMultiset, headCanary.ExitCode, headCanary.SawBuildFailedBanner)
-    assert headPhaseRefusal == "", "compile-time gate: head phase contract changed: " + headPhaseRefusal
-    if comparesTiming {
-        baseCanary := BenchObserveBuildPhase(baseCompiler.CliDll)
-        basePhaseRefusal := BenchPhaseContractRefusal(baseline.PhaseContract, baseline.PhaseDiagnosticMultiset, baseCanary.DiagnosticMultiset, baseCanary.ExitCode, baseCanary.SawBuildFailedBanner)
-        assert basePhaseRefusal == "", "compile-time gate: base phase contract changed: " + basePhaseRefusal
-        timingStatus = "compared by exact sign-test 95% lower bound plus 30 ms slowdown floor"
-    }
-
-    facts := BenchReadEnvironmentFacts(gitRoot)
-    // A clean source copy fixes CompilerWorkCounters at the first-build values. Reusing the checkout
-    // makes the Core build incremental: the first run parses 468 files, the second 452 and the third
-    // 0, even though the inputs are unchanged. Copying source (including uncommitted edits) but
-    // excluding bin/obj/.nlc makes the structural contract deterministic on every gate run.
-    coreCopyRoot := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-" + BenchLongText(DateTime.UtcNow.Ticks))
-    coreSource := Path.Combine(repositoryRoot, "src")
-    copiedSource := Path.Combine(coreCopyRoot, "src")
-    Directory.CreateDirectory(coreCopyRoot)
-    try {
-        AgentLoopCopyDirectory(coreSource, copiedSource)
-        coreProject := Path.Combine(copiedSource, "NSharpLang.Compiler.Core")
-        coreStatsPath := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-stats-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
-        coreBuild := BenchMeasureOnce(headCli, coreProject, "build", 1, coreStatsPath)
-        coreCounterFailure := BenchCoreCounterFailure("src/NSharpLang.Compiler.Core", baseline.CoreCounters, coreBuild.Counters)
-        outcomeFailure := BenchExpectedBuildOutcomeFailure(baseline.ExpectedExitCode, coreBuild.ExitCode, coreBuild.SawBuildFailedBanner)
-        assert outcomeFailure == "", "compile-time gate: " + outcomeFailure
-        assert coreCounterFailure == "", "compile-time gate: " + coreCounterFailure
-    } finally {
-        BenchDeleteDirectory(coreCopyRoot)
-    }
-
-    // The base Core project may end at analysis while head reaches emit. Keep that stage transition
-    // out of the timing ratio: both compilers run this identical generated project and must emit it.
-    scaleDirectory := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-scale-" + BenchLongText(DateTime.UtcNow.Ticks))
-    Directory.CreateDirectory(scaleDirectory)
-    try {
-        large := AgentLoopFindSize("large") ?? new AgentLoopSize("large", "", 160, 32)
-        AgentLoopWriteSynthetic(large, scaleDirectory)
-        minimumPairs := 9
-        maximumPairs := 17
-        baseMs := new long[](maximumPairs)
-        headMs := new long[](maximumPairs)
-        headCountersFailure := ""
+    perfMode := Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_MODE") ?? ""
+    if perfMode == "timing" && !productChanges.HasCompilerChanges() {
+        assert productChanges.ProductPaths.Count == 0, "timing-only lane should skip when no compiler product path changed"
+    } else {
+        comparesTiming := productChanges.HasCompilerChanges() && perfMode != "structural"
+        baseCompiler := new BenchBaseCompiler(baseCommit, "", 0, false, "")
+        timingStatus := "not compared (no compiler change)"
         if comparesTiming {
-            warmupHead := BenchMeasureOnce(headCli, scaleDirectory, "build", 0)
-            warmupBase := BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", 0)
-            if warmupHead.ExitCode != 0 || warmupBase.ExitCode != 0 {
-                headCountersFailure = "Core-scale discarded warm-up pair failed: head exit=" + BenchIntText(warmupHead.ExitCode) + ", base exit=" + BenchIntText(warmupBase.ExitCode)
-            }
+            baseCompiler = BenchPrepareBaseCompiler(repositoryRoot)
+            assert baseCompiler.Error == "", "compile-time gate: " + baseCompiler.Error
         }
-        comparisonWorkMs := 0L
-        i := 0
-        counterOnlySamples := 3
-        while headCountersFailure == "" && ((comparesTiming && (i < minimumPairs || (i < maximumPairs && (comparisonWorkMs < 350 || i % 2 == 0)))) || (!comparesTiming && i < counterOnlySamples)) {
-            headRun := new BenchCommandRun("build", -1, -1, -1)
-            baseRun := new BenchCommandRun("build", -1, -1, -1)
-            headStats := ""
-            if comparesTiming && i % 2 == 0 {
-                headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
-                headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
-                baseRun = BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", i + 1)
-            } else if comparesTiming {
-                baseRun = BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", i + 1)
-                headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
-                headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
-            } else {
-                headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
-                headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
-            }
 
-            headMs[i] = headRun.WallMs
+        headCanary := BenchObserveBuildPhase(headCli)
+        headPhaseRefusal := BenchPhaseContractRefusal(baseline.PhaseContract, baseline.PhaseDiagnosticMultiset, headCanary.DiagnosticMultiset, headCanary.ExitCode, headCanary.SawBuildFailedBanner)
+        assert headPhaseRefusal == "", "compile-time gate: head phase contract changed: " + headPhaseRefusal
+        if comparesTiming {
+            baseCanary := BenchObserveBuildPhase(baseCompiler.CliDll)
+            basePhaseRefusal := BenchPhaseContractRefusal(baseline.PhaseContract, baseline.PhaseDiagnosticMultiset, baseCanary.DiagnosticMultiset, baseCanary.ExitCode, baseCanary.SawBuildFailedBanner)
+            assert basePhaseRefusal == "", "compile-time gate: base phase contract changed: " + basePhaseRefusal
+            timingStatus = "compared by exact sign-test 95% lower bound plus 30 ms slowdown floor"
+        }
+
+        facts := BenchReadEnvironmentFacts(gitRoot)
+        // A clean source copy fixes CompilerWorkCounters at the first-build values. Reusing the checkout
+        // makes the Core build incremental: the first run parses 468 files, the second 452 and the third
+        // 0, even though the inputs are unchanged. Copying source (including uncommitted edits) but
+        // excluding bin/obj/.nlc makes the structural contract deterministic on every gate run.
+        coreCopyRoot := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-" + BenchLongText(DateTime.UtcNow.Ticks))
+        coreSource := Path.Combine(repositoryRoot, "src")
+        copiedSource := Path.Combine(coreCopyRoot, "src")
+        Directory.CreateDirectory(coreCopyRoot)
+        try {
+            AgentLoopCopyDirectory(coreSource, copiedSource)
+            coreProject := Path.Combine(copiedSource, "NSharpLang.Compiler.Core")
+            coreStatsPath := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-stats-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
+            coreBuild := BenchMeasureOnce(headCli, coreProject, "build", 1, coreStatsPath)
+            coreCounterFailure := BenchCoreCounterFailure("src/NSharpLang.Compiler.Core", baseline.CoreCounters, coreBuild.Counters)
+            outcomeFailure := BenchExpectedBuildOutcomeFailure(baseline.ExpectedExitCode, coreBuild.ExitCode, coreBuild.SawBuildFailedBanner)
+            assert outcomeFailure == "", "compile-time gate: " + outcomeFailure
+            assert coreCounterFailure == "", "compile-time gate: " + coreCounterFailure
+        } finally {
+            BenchDeleteDirectory(coreCopyRoot)
+        }
+
+        // The base Core project may end at analysis while head reaches emit. Keep that stage transition
+        // out of the timing ratio: both compilers run this identical generated project and must emit it.
+        scaleDirectory := Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-core-scale-" + BenchLongText(DateTime.UtcNow.Ticks))
+        Directory.CreateDirectory(scaleDirectory)
+        try {
+            large := AgentLoopFindSize("large") ?? new AgentLoopSize("large", "", 160, 32)
+            AgentLoopWriteSynthetic(large, scaleDirectory)
+            minimumPairs := 9
+            maximumPairs := 17
+            baseMs := new long[](maximumPairs)
+            headMs := new long[](maximumPairs)
+            headCountersFailure := ""
             if comparesTiming {
-                baseMs[i] = baseRun.WallMs
-                comparisonWorkMs = comparisonWorkMs + headRun.WallMs + baseRun.WallMs
-            }
-
-            failedRun := headRun.ExitCode != 0
-            if comparesTiming && baseRun.ExitCode != 0 {
-                failedRun = true
-            }
-            if failedRun {
-                if comparesTiming {
-                    headCountersFailure = "Core-scale build did not reach emission: base exit=" + BenchIntText(baseRun.ExitCode) + ", head exit=" + BenchIntText(headRun.ExitCode) + ", base output=" + BenchTruncate(baseRun.Stdout + baseRun.CliStderr, 600) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
-                } else {
-                    headCountersFailure = "Core-scale build did not reach emission: head exit=" + BenchIntText(headRun.ExitCode) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
+                warmupHead := BenchMeasureOnce(headCli, scaleDirectory, "build", 0)
+                warmupBase := BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", 0)
+                if warmupHead.ExitCode != 0 || warmupBase.ExitCode != 0 {
+                    headCountersFailure = "Core-scale discarded warm-up pair failed: head exit=" + BenchIntText(warmupHead.ExitCode) + ", base exit=" + BenchIntText(warmupBase.ExitCode)
                 }
-                break
+            }
+            comparisonWorkMs := 0L
+            i := 0
+            counterOnlySamples := 3
+            while headCountersFailure == "" && ((comparesTiming && (i < minimumPairs || (i < maximumPairs && (comparisonWorkMs < 350 || i % 2 == 0)))) || (!comparesTiming && i < counterOnlySamples)) {
+                headRun := new BenchCommandRun("build", -1, -1, -1)
+                baseRun := new BenchCommandRun("build", -1, -1, -1)
+                headStats := ""
+                if comparesTiming && i % 2 == 0 {
+                    headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
+                    headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
+                    baseRun = BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", i + 1)
+                } else if comparesTiming {
+                    baseRun = BenchMeasureOnce(baseCompiler.CliDll, scaleDirectory, "build", i + 1)
+                    headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
+                    headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
+                } else {
+                    headStats = Path.Combine(Path.GetTempPath(), "nsharp-compile-perf-emit-" + BenchLongText(DateTime.UtcNow.Ticks) + ".json")
+                    headRun = BenchMeasureOnce(headCli, scaleDirectory, "build", i + 1, headStats, "head")
+                }
+
+                headMs[i] = headRun.WallMs
+                if comparesTiming {
+                    baseMs[i] = baseRun.WallMs
+                    comparisonWorkMs = comparisonWorkMs + headRun.WallMs + baseRun.WallMs
+                }
+
+                failedRun := headRun.ExitCode != 0
+                if comparesTiming && baseRun.ExitCode != 0 {
+                    failedRun = true
+                }
+                if failedRun {
+                    if comparesTiming {
+                        headCountersFailure = "Core-scale build did not reach emission: base exit=" + BenchIntText(baseRun.ExitCode) + ", head exit=" + BenchIntText(headRun.ExitCode) + ", base output=" + BenchTruncate(baseRun.Stdout + baseRun.CliStderr, 600) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
+                    } else {
+                        headCountersFailure = "Core-scale build did not reach emission: head exit=" + BenchIntText(headRun.ExitCode) + ", head output=" + BenchTruncate(headRun.Stdout + headRun.CliStderr, 600)
+                    }
+                    break
+                }
+
+                rowFailure := BenchCoreCounterFailure("Core-scale emit", baseline.EmitCounters, headRun.Counters)
+                if rowFailure != "" {
+                    headCountersFailure = rowFailure
+                    break
+                }
+
+                i = i + 1
             }
 
-            rowFailure := BenchCoreCounterFailure("Core-scale emit", baseline.EmitCounters, headRun.Counters)
-            if rowFailure != "" {
-                headCountersFailure = rowFailure
-                break
+            pairCount := i
+            gateFailure := ""
+            medianRatio := -1L
+            table := "timing: " + timingStatus + "; Core-scale CompilerWorkCounters were checked against the committed baseline."
+            if comparesTiming {
+                gateFailure = BenchCompileTimeRatioFailure(headMs, baseMs, pairCount)
+                medianRatio = BenchMedianPairRatioThousandths(headMs, baseMs, pairCount)
+                table = BenchPairedBuildTable(headMs, baseMs, pairCount)
+            }
+            if headCountersFailure != "" {
+                gateFailure = headCountersFailure
             }
 
-            i = i + 1
+            machine := facts.Architecture + ", " + facts.OsDescription + ", " + BenchCountText(facts.ProcessorCount) + " cores, .NET " + facts.DotnetVersion
+            endLoad := BenchReadMachineLoad()
+            gateElapsedMs := (DateTime.UtcNow.Ticks - gateStarted) / 10000
+            coreSourceStats := BenchMeasureProjectSources(Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.Compiler.Core"))
+            gateLine := BenchRelativeGateRecordLine(gateFailure, timingStatus, baseCompiler.Commit, headCommit, baseCompiler.BuildMs, baseCompiler.CacheHit, loadAtStart, machine, medianRatio)
+            gateLine = gateLine + "; loadAtEnd=" + BenchLoadText(endLoad.LoadThousandths) + "; gateElapsedMs=" + BenchLongText(gateElapsedMs) + "; coreFiles=" + BenchIntText(coreSourceStats.Files) + "; coreLines=" + BenchLongText(coreSourceStats.Lines) + "; phase=" + baseline.Stage
+            _ = BenchWriteRelativeGateRecord(repositoryRoot, gateLine, table)
+            assert gateFailure == "", gateLine + "\n" + table
+        } finally {
+            BenchDeleteDirectory(scaleDirectory)
         }
-
-        pairCount := i
-        gateFailure := ""
-        medianRatio := -1L
-        table := "timing: " + timingStatus + "; Core-scale CompilerWorkCounters were checked against the committed baseline."
-        if comparesTiming {
-            gateFailure = BenchCompileTimeRatioFailure(headMs, baseMs, pairCount)
-            medianRatio = BenchMedianPairRatioThousandths(headMs, baseMs, pairCount)
-            table = BenchPairedBuildTable(headMs, baseMs, pairCount)
-        }
-        if headCountersFailure != "" {
-            gateFailure = headCountersFailure
-        }
-
-        machine := facts.Architecture + ", " + facts.OsDescription + ", " + BenchCountText(facts.ProcessorCount) + " cores, .NET " + facts.DotnetVersion
-        endLoad := BenchReadMachineLoad()
-        gateElapsedMs := (DateTime.UtcNow.Ticks - gateStarted) / 10000
-        coreSourceStats := BenchMeasureProjectSources(Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.Compiler.Core"))
-        gateLine := BenchRelativeGateRecordLine(gateFailure, timingStatus, baseCompiler.Commit, headCommit, baseCompiler.BuildMs, baseCompiler.CacheHit, loadAtStart, machine, medianRatio)
-        gateLine = gateLine + "; loadAtEnd=" + BenchLoadText(endLoad.LoadThousandths) + "; gateElapsedMs=" + BenchLongText(gateElapsedMs) + "; coreFiles=" + BenchIntText(coreSourceStats.Files) + "; coreLines=" + BenchLongText(coreSourceStats.Lines) + "; phase=" + baseline.Stage
-        _ = BenchWriteRelativeGateRecord(repositoryRoot, gateLine, table)
-        assert gateFailure == "", gateLine + "\n" + table
-    } finally {
-        BenchDeleteDirectory(scaleDirectory)
     }
 }
 

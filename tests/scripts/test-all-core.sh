@@ -9,6 +9,10 @@ set -e
 : "${NLC_NO_DAEMON:=1}"
 export NLC_NO_DAEMON
 
+# CI may select structural-only mode for the shared bench project. The local product gate always
+# retains its complete paired timing evidence, regardless of the caller's environment.
+unset NSHARP_COMPILER_PERF_MODE NSHARP_COMPILER_PERF_SIZE NSHARP_COMPILER_PERF_SCENARIO_GROUP
+
 echo "========================================="
 echo "N# Comprehensive Test Suite"
 echo "========================================="

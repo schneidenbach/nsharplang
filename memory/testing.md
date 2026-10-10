@@ -1156,6 +1156,16 @@ reflection test runner as well: its compile-time and agent-loop gates live in se
 and the default xUnit runner would execute those machine-sensitive gates concurrently. The compiler
 performance logic stays in N#; the shell gate only carries artifacts out of its isolated tree.
 
+CI assigns this project once to the ordinary discovery-driven test shards. It runs every harness
+unit and contract test plus the exact Core and agent-loop structural-counter checks in the explicit
+`NSHARP_COMPILER_PERF_MODE=structural` mode. The dedicated `compiler-performance` matrix runs only
+the paired Core-scale gate or one small/medium check, build, or test scenario group selected for that
+job; each matrix job keeps its head and base CLI on the same runner and uploads its own ratio report.
+Each size/scenario group retains its full paired sample count and both cold and daemon-warm rows.
+This split is CI-only: the
+local product gate does not set the mode, so its serial Step 3a run still performs the full timing
+comparison when compiler product inputs changed and keeps the same structural evidence otherwise.
+
 **Structural behavior is the primary gate.** `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json`
 pins the stage, phase diagnostic contract, expected exit and `--stats` `CompilerWorkCounters` for
 the current Core build and a deterministic Core-scale project that reaches IL emission. The current

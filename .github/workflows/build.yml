@@ -150,7 +150,12 @@ jobs:
         retention-days: 14
 
   compiler-performance:
+    name: Compiler performance (${{ matrix.slice }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [core, small-check, small-build, small-test, medium-check, medium-build, medium-test, medium-lsp, large-lsp]
     steps:
     - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       with:
@@ -165,26 +170,24 @@ jobs:
     - name: Verify pinned compiler bootstrap
       run: python3 scripts/verify-bootstrap.py
 
-    # This lane owns its head CLI build. The performance project builds the base CLI from git
-    # history when compiler product inputs changed, preserving the paired comparison semantics.
+    # Each row owns both its head and base CLI on the same runner, preserving paired comparisons.
     - name: Build head CLI for compiler performance gate
       run: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug
 
-    - name: Run compiler performance gate
+    - name: Run ${{ matrix.slice }} compiler performance gate
       env:
         NSHARP_COMPILER_PERF_GIT_ROOT: ${{ github.workspace }}
         NSHARP_COMPILER_PERF_CACHE: ${{ runner.temp }}/nsharp-compiler-perf-base-cache
       run: |
         scripts/ci-test-shards.sh run \
-          --performance \
-          --artifacts artifacts/compiler-performance \
-          --durations artifacts/ci-test-durations/compiler-performance.json
+          --performance-slice '${{ matrix.slice }}' \
+          --artifacts 'artifacts/compiler-performance/${{ matrix.slice }}'
 
-    - name: Upload compiler performance trends
+    - name: Upload compiler performance trends (${{ matrix.slice }})
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
-        name: compiler-performance-${{ github.run_id }}-${{ github.run_attempt }}
+        name: compiler-performance-${{ matrix.slice }}-${{ github.run_id }}-${{ github.run_attempt }}
         path: |
           artifacts/compile-time/last-gate-run.txt
           artifacts/compile-time/relative-gate.md
@@ -193,21 +196,12 @@ jobs:
         if-no-files-found: warn
         retention-days: 14
 
-    - name: Upload compiler performance project duration
-      if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-      with:
-        name: ci-project-durations-compiler-performance
-        path: artifacts/ci-test-durations/compiler-performance.json
-        if-no-files-found: warn
-        retention-days: 30
-
     - name: Upload compiler performance test log
       if: always()
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
-        name: ci-test-logs-compiler-performance
-        path: artifacts/compiler-performance/
+        name: ci-test-logs-compiler-performance-${{ matrix.slice }}
+        path: artifacts/compiler-performance/${{ matrix.slice }}/
         if-no-files-found: warn
         retention-days: 14
 
