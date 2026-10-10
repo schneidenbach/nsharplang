@@ -114,12 +114,11 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
     // to a struct's own field from its own method, which emits since the call site loads an
     // addressable receiver by address, and then a bare STATIC FIELD as a call receiver, which emits
     // since a static member of the enclosing type is a value binding, and then an `await foreach`
-    // inside a generator body. The remaining sentinel is a generic async iterator method: analysis
-    // accepts it, while its generic state-machine context is not lowered yet. Replace it when that
-    // capability lands rather than deleting this fixture.
+    // inside a generator body. Generic async iterators and nested awaits now emit, so the remaining
+    // sentinel is a branch out of `await foreach`, whose resume target is not supported yet.
     ResolverWrite(
         Path.Combine(sharedDir, "Shared.nl"),
-        "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* Pending<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}"
+        "import System.Collections.Generic\n\nasync func* Pending(items: IAsyncEnumerable<int>): IAsyncEnumerable<int> {\n    await foreach item in items {\n        break\n    }\n}"
     )
     ResolverWrite(
         Path.Combine(projectRoot, "project.yml"),
