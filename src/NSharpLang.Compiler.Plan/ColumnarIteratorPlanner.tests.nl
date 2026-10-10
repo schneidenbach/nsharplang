@@ -492,7 +492,8 @@ class ColumnarIteratorShapeProbe {
         paramCanonicals: string[],
         typeParamNames: string[],
         isInstance: bool,
-        isAsync: bool = false
+        isAsync: bool = false,
+        receiverCanonical: string = ""
     ) {
         capacity := source.Length * 3 + 16
         rawKinds := new int[](capacity)
@@ -631,7 +632,7 @@ class ColumnarIteratorShapeProbe {
             paramCanonicals,
             typeParamNames,
             isInstance,
-            "",
+            receiverCanonical,
             new string[](0),
             new string[](0),
             isAsync
@@ -2768,7 +2769,7 @@ test "async iterator planner publishes four ordered override records and exclude
     assert probe.Shape.MemberOverrideRows[5].TargetKind == ColumnarIteratorOverrideTargetKind.AsyncGetEnumerator
 }
 
-test "async iterator planner declines a generic async iterator" {
+test "async iterator planner admits generic async iterator methods" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Repeat(): IAsyncEnumerable<T> { yield break }",
         "IAsyncEnumerable<T>",
@@ -2779,8 +2780,30 @@ test "async iterator planner declines a generic async iterator" {
         true
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.async-unsupported"
+    assert probe.Shape.Supported
+    assert probe.Shape.ElementCanonical == "T"
+    assert probe.Shape.FieldCanonicals[1] == "T"
+}
+
+test "async iterator planner captures an instance receiver before method parameters" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Values(value: int): IAsyncEnumerable<int> { await Task.Delay(1)\n yield value }",
+        "IAsyncEnumerable<int>",
+        IteratorOne("value"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        true,
+        true,
+        "AsyncHost"
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.IsAsync
+    assert probe.Shape.FieldNames[2] == "<>__this"
+    assert probe.Shape.FieldCanonicals[2] == "AsyncHost"
+    assert probe.Shape.FieldRoles[2] == ColumnarIteratorPlanner.CapturedParameterFieldRole()
+    assert probe.Shape.FieldNames[3] == "value"
+    assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.CapturedParameterFieldRole()
 }
 
 // THE AWAITED OPERAND IS AN ORDINARY EXPRESSION. Classification counts the suspension point and

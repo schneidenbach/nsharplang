@@ -515,15 +515,15 @@ test "MultiFileCompiler validation failure retains live errors and precedes outp
     }
 }
 
-// THE FIXTURE MUST BE A SHAPE THE COLUMNAR BACKEND DECLINES, because this contract is about what
-// the pipeline does with a decline rather than about the shape itself. It used to be a `foreach` over
+// The fixture used to be a shape the backend declined, because this contract was about the pipeline's
+// response to a decline. It used to be a `foreach` over
 // a `string`, which the backend now emits as an index loop, then assigning to a struct's own field
 // from its own method, which emits since the call site loads an addressable receiver by address, and
 // then a bare STATIC FIELD as a call receiver, which emits since a static member of the enclosing
 // type is a value binding, and then an `await foreach` inside a generator body. The remaining
-// sentinel is a generic async iterator method: analysis accepts it, while its generic state-machine
-// context is not lowered yet. Replace it when that capability lands rather than deleting this contract.
-test "MultiFileCompiler ordinary CLI pipeline requires columnar emission for a declining fixture" {
+// sentinel was a generic async iterator method. Generic async iterators now emit through the ordinary
+// columnar pipeline, so this contract pins that capability instead.
+test "MultiFileCompiler ordinary CLI pipeline emits a generic async iterator" {
     compilation := MultiFileOwnerCompileWithPipelineFlags(
         "Program",
         EmitterCanonicalProjectYml("Program", "exe"),
@@ -545,18 +545,10 @@ func main() {
         true
     )
     try {
-        assert !compilation.Succeeded
-        assert compilation.OutputAssemblyPath == null
-        assert !File.Exists(compilation.OutputPath)
-        assert compilation.Errors.Count == 1, EmitterCanonicalDiagnostics(compilation)
-        error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL103")
-        assert EmitterCanonicalErrorText(error, "Message").StartsWith(
-            "Columnar emission is required for 'Program', but the columnar backend declined.",
-            StringComparison.Ordinal
-        )
-        assert EmitterCanonicalErrorText(error, "Message").Contains("emit.iterator.async-unsupported: generic async iterator methods are not yet lowered", StringComparison.Ordinal)
-        assert EmitterCanonicalErrorText(error, "HumanExplanation") == "This product path requires successful N# columnar emission after analysis passes."
-        assert EmitterCanonicalErrorText(error, "Suggestion") == "Port the rejected source shape to the columnar backend before using this product path."
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        assert compilation.OutputAssemblyPath != null
+        assert File.Exists(compilation.OutputPath)
+        assert !EmitterCanonicalHasErrorText(compilation, "DiagnosticId", "NL103")
     } finally {
         EmitterCanonicalCleanup(compilation)
     }

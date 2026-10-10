@@ -424,13 +424,13 @@ test "an async iterator maps all async routes including CancellationToken and re
     IteratorBindingValueTaskResult(disposeAsync.InterfaceMethod.Invoke(second, empty))
 }
 
-test "generic and instance async iterators reach their exact emitter declines after accepted twins emit" {
+test "generic and instance async iterators emit beside their non-generic top-level twins" {
     genericTwin := "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* IteratorBindingGenericTwin(value: int): IAsyncEnumerable<int> {\n    await Task.Delay(1)\n    yield value\n}\n"
     genericAsync := "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* IteratorBindingGenericAsync<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}\n"
     instanceTwin := "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* IteratorBindingInstanceTwin(): IAsyncEnumerable<int> {\n    await Task.Delay(1)\n    yield 1\n}\n"
     instanceAsync := "import System.Collections.Generic\nimport System.Threading.Tasks\n\nclass IteratorBindingAsyncHost {\n    async func* InstanceAsync(): IAsyncEnumerable<int> {\n        await Task.Delay(1)\n        yield 1\n    }\n}\n"
     assert IteratorBindingEmitOutcome(genericTwin) == "success"
-    assert IteratorBindingEmitOutcome(genericAsync) == "emit.iterator.async-unsupported|generic async iterator methods are not yet lowered|IteratorBindingGenericAsync"
+    assert IteratorBindingEmitOutcome(genericAsync) == "success"
     assert IteratorBindingEmitOutcome(instanceTwin) == "success"
-    assert IteratorBindingEmitOutcome(instanceAsync) == "emit.iterator.async-unsupported|async member iterator methods are not yet lowered|IteratorBindingAsyncHost.InstanceAsync"
+    assert IteratorBindingEmitOutcome(instanceAsync) == "success"
 }

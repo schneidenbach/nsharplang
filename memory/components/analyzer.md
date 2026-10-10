@@ -5038,7 +5038,10 @@ Not yet lowered inside a generator body, each with its own decline: `return <val
 (`emit.iterator.unsupported-shape`), `lock`, an `await` nested in a larger expression of the
 enclosing async iterator, an `await` inside a `catch` handler and an awaiting `finally` beside a
 `catch` on the same `try` (both `emit.iterator.async-await-unsupported`). Generic async iterator
-methods remain declined at `emit.iterator.async-unsupported`. The existing generator-lambda expression
+methods now carry their method type parameters on the state machine, and async instance methods capture
+their receiver and enclosing fields through the same body scope as synchronous instance iterators.
+`GetAsyncEnumerator(CancellationToken)` still ignores its token; N# has no
+`[EnumeratorCancellation]`-equivalent parameter annotation. The existing generator-lambda expression
 boundary still excludes non-literal unary negation, such as `() => -value`, with or without an await.
 Generator lambdas also retain the existing refusal for mutation of their own parameters or locals,
 including postfix steps and plain assignment. Ordinary lambda support for those forms does not
@@ -5105,12 +5108,11 @@ own handlers with ONE catch-all, so a `catch` clause would have to be re-matched
 parked exception. An `await` inside a `catch`, and an awaiting `finally` on a `try` that also declares
 a `catch`, therefore decline with their own messages.
 
-⚠ THE REPO'S "DECLINING SHAPE" SENTINEL is now a generic async iterator method. Analysis accepts the
-shape, while iterator realization declines at `emit.iterator.async-unsupported` because its generic
-state machine is not yet lowered. The sentinel appears in the compilation-reference fixture and the
-native reference-resolution, columnar-emit-facts, CLI-command-contracts and compilation-backend
-projects. An async lambda inside an ordinary generator is supported and must not be reused as a
-negative sentinel.
+⚠ THE REPO'S "DECLINING SHAPE" SENTINEL is now an async iterator with an `await` nested in a larger
+expression. The planner declines at `emit.iterator.async-await-unsupported` because the current state
+machine lowering has no spill slot for that composition. A generic async iterator is supported and
+must not be reused as a negative sentinel. An async lambda inside an ordinary generator is also
+supported and must not be reused as a negative sentinel.
 
 ### The branch-merge value forms on the plan side (census ITER3)
 

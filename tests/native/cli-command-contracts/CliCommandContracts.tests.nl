@@ -1408,7 +1408,7 @@ test "nlc check reports the AOT columnar requirement after analysis declines" {
         WriteProjectYml(directory, "name: AotCheckRequiresColumnar\noutputType: library\ntargetFramework: net10.0\n")
         File.WriteAllText(
             Path.Combine(directory, "Program.nl"),
-            "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* Pending<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}\n"
+            "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* Pending(): IAsyncEnumerable<int> {\n    yield 1 + await Task.FromResult(1)\n}\n"
         )
 
         run := NlcIn(directory, "check --aot")
@@ -1420,7 +1420,7 @@ test "nlc check reports the AOT columnar requirement after analysis declines" {
         assert !root.GetProperty("ok").GetBoolean()
         assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("code")) == "NL103"
         assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("message")).Contains("Columnar AOT emission is required")
-        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("message")).Contains("emit.iterator.async-unsupported: generic async iterator methods are not yet lowered")
+        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("message")).Contains("emit.iterator.async-await-unsupported: an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)")
         document.Dispose()
     } finally {
         Directory.Delete(directory, true)
@@ -1435,7 +1435,7 @@ test "nlc check AOT project references report the referenced source decline" {
         WriteProjectYml(sharedDirectory, "name: SharedLib\noutputType: library\ntargetFramework: net10.0\n")
         File.WriteAllText(
             Path.Combine(sharedDirectory, "Shared.nl"),
-            "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* Pending<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}\n"
+            "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* Pending(): IAsyncEnumerable<int> {\n    yield 1 + await Task.FromResult(1)\n}\n"
         )
         WriteProjectYml(
             directory,
@@ -1462,7 +1462,7 @@ test "nlc check AOT project references report the referenced source decline" {
                 errorMessage := new JsonElement()
                 assert project.TryGetProperty("error", out errorMessage)
                 assert TextOf(errorMessage).Contains("AOT builds require successful N# columnar emission")
-                assert TextOf(errorMessage).Contains("emit.iterator.async-unsupported: generic async iterator methods are not yet lowered")
+                assert TextOf(errorMessage).Contains("emit.iterator.async-await-unsupported: an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)")
             }
             if EquivalentProcessPath(projectRoot, sharedRoot) {
                 sharedProjectFound = true

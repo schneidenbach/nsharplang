@@ -50,13 +50,6 @@ class ColumnarIteratorRealization {
         enclosingBuilderName := enclosingBuilder.Name
         memberName := method.Name
         memberLabel := enclosingBuilderName + "." + memberName
-        if method.IsAsync {
-            return Declined(
-                "emit.iterator.async-unsupported",
-                "async member iterator methods are not yet lowered",
-                memberLabel
-            )
-        }
         if isStatic {
             staticOrdinal := ordinalCounter[0]
             ordinalCounter[0] = staticOrdinal + 1
@@ -81,6 +74,28 @@ class ColumnarIteratorRealization {
                     memberLabel
                 )
             }
+            if method.IsAsync {
+                return EmitAsync(
+                    module,
+                    method,
+                    staticOrdinal,
+                    methodSource,
+                    typeResolution,
+                    staticFactoryIl,
+                    synthesizedTypes,
+                    bodyFacts,
+                    staticMethodParameters,
+                    null,
+                    memberLabel,
+                    null,
+                    null,
+                    null,
+                    null,
+                    structDef.Builder,
+                    staticEnclosingParameters,
+                    ""
+                )
+            }
             return EmitSync(
                 module,
                 method,
@@ -101,9 +116,9 @@ class ColumnarIteratorRealization {
                 staticEnclosingParameters
             )
         }
-        // Synchronous instance machines carry the declaring type's parameters followed by the method's
-        // own parameters, just like static machines. The source row supplies the receiver and field facts
-        // that let the same state-machine builder capture `this` and plan the body as an ordinary member.
+        // Instance machines carry the declaring type's parameters followed by the method's own parameters,
+        // just like static machines. The source row supplies receiver and field facts so both sync and async
+        // builders can capture `this` and plan the body as an ordinary member.
         input := StructInputFor(program, structDef)
         if input == null {
             return Declined(
@@ -169,7 +184,7 @@ class ColumnarIteratorRealization {
             shapeInputName,
             shapeFieldNames,
             shapeFieldCanonicals,
-            false
+            method.IsAsync
         )
         if !shape.Supported {
             return Declined(shape.DeclineSite, shape.DeclineMessage, memberLabel)
@@ -191,10 +206,32 @@ class ColumnarIteratorRealization {
                 memberLabel
             )
         }
-        enclosingType: Type = structDef.Builder
         realizedFieldNames := fieldNames.ToArray()
         realizedFieldHandles := fieldHandles.ToArray()
         realizedFieldCanonicals := fieldCanonicals.ToArray()
+        if method.IsAsync {
+            return EmitAsync(
+                module,
+                method,
+                shapeOrdinal,
+                methodSource,
+                typeResolution,
+                factoryIl,
+                synthesizedTypes,
+                bodyFacts,
+                methodTypeParameters,
+                shape,
+                memberLabel,
+                structDef.Builder,
+                realizedFieldNames,
+                realizedFieldHandles,
+                realizedFieldCanonicals,
+                structDef.Builder,
+                enclosingTypeParameters,
+                shapeInputName
+            )
+        }
+        enclosingType: Type = structDef.Builder
         return EmitSync(
             module,
             method,
@@ -652,49 +689,152 @@ class ColumnarIteratorRealization {
         typeResolution: ColumnarSemanticTypeResolution,
         factoryIl: ILGenerator,
         synthesizedTypes: List<TypeBuilder>,
-        bodyFacts: ColumnarIteratorBodyFacts? = null
+        bodyFacts: ColumnarIteratorBodyFacts? = null,
+        methodTypeParams: Type[]? = null,
+        precomputedShape: ColumnarIteratorShape? = null,
+        memberLabel: string = "",
+        enclosingType: Type? = null,
+        enclosingFieldNames: string[]? = null,
+        enclosingFields: FieldInfo[]? = null,
+        enclosingFieldCanonicals: string[]? = null,
+        declaringType: TypeBuilder? = null,
+        enclosingTypeParams: Type[]? = null,
+        receiverCanonical: string = ""
     ): ColumnarIteratorRealizationResult {
         modifiedMemberReferences := ModifiedMemberReferencesOf(bodyFacts)
-        shape := ColumnarIteratorPlanner.AnalyzeShape(
-            fn.BodyNodes,
-            functionSource,
-            fn.BodyRoot,
-            fn.Name,
-            funcOrdinal,
-            fn.ReturnCanonical,
-            fn.ParamNames,
-            fn.ParamCanonicals,
-            fn.TypeParamNames,
-            false,
-            "",
-            null,
-            null,
-            true
-        )
-        if !shape.Supported {
-            return Declined(shape.DeclineSite, shape.DeclineMessage, fn.Name)
-        }
-        elementType: Type = null
-        if !ColumnarCanonicalTypeResolver.TryResolveType(
-            shape.ElementCanonical,
-            typeResolution.Enums,
-            typeResolution.Structs,
-            typeResolution.Unions,
-            out elementType
-        ) || !ColumnarTypeOfPlanner.IsSupportedType(elementType) {
-            return Declined(
-                "emit.iterator.element-type",
-                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
-                fn.Name
+        declineLabel := memberLabel.Length == 0 ? fn.Name : memberLabel
+        shape := precomputedShape
+        if shape == null {
+            shape = ColumnarIteratorPlanner.AnalyzeShape(
+                fn.BodyNodes,
+                functionSource,
+                fn.BodyRoot,
+                fn.Name,
+                funcOrdinal,
+                fn.ReturnCanonical,
+                fn.ParamNames,
+                fn.ParamCanonicals,
+                fn.TypeParamNames,
+                receiverCanonical.Length > 0,
+                receiverCanonical,
+                enclosingFieldNames,
+                enclosingFieldCanonicals,
+                true
             )
         }
-
-        sm := module.DefineType(
-            shape.TypeName,
-            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
-        )
+        if !shape.Supported {
+            return Declined(shape.DeclineSite, shape.DeclineMessage, declineLabel)
+        }
+        enclosingParameters := enclosingTypeParams ?? System.Type.EmptyTypes
+        methodParameters := methodTypeParams ?? System.Type.EmptyTypes
+        if methodParameters.Length != fn.TypeParamNames.Length {
+            return Declined(
+                "emit.iterator.generic-arity",
+                "the declared method '" + declineLabel + "' has " + methodParameters.Length.ToString() + " type parameter(s) but its generator body names " + fn.TypeParamNames.Length.ToString(),
+                declineLabel
+            )
+        }
+        if enclosingParameters.Length > 0 && declaringType == null {
+            return Declined(
+                "emit.iterator.generic-enclosing",
+                "a machine generic over its declaring type's parameters must be nested in that type for '" + declineLabel + "'",
+                declineLabel
+            )
+        }
+        sm := DefineMachineType(module, declaringType, shape.TypeName)
         table := typeResolution.StructuralTypeReferences
-        table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, null)
+        smTypeParamMap: Dictionary<string, Type>? = null
+        smTypeParams := System.Type.EmptyTypes
+        smSpecialConstraints := System.Array.Empty<int>()
+        smBaseConstraints := System.Array.Empty<Type>()
+        smInterfaceConstraints := System.Array.Empty<Type[]>()
+        if enclosingParameters.Length > 0 || fn.TypeParamNames.Length > 0 {
+            enclosingCount := enclosingParameters.Length
+            methodCount := fn.TypeParamNames.Length
+            parameterNames := new string[](enclosingCount + methodCount)
+            n := 0
+            while n < enclosingCount {
+                parameterNames[n] = enclosingParameters[n].Name
+                n = n + 1
+            }
+            n = 0
+            while n < methodCount {
+                parameterNames[enclosingCount + n] = fn.TypeParamNames[n]
+                n = n + 1
+            }
+            smGps := sm.DefineGenericParameters(parameterNames)
+            smTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
+            smTypeParams = new Type[](smGps.Length)
+            smSpecialConstraints = new int[](smGps.Length)
+            smBaseConstraints = new Type[](smGps.Length)
+            smInterfaceConstraints = new Type[][](smGps.Length)
+            e := 0
+            while e < enclosingCount {
+                enclosingParameter := enclosingParameters[e]
+                if !enclosingParameter.IsGenericParameter || enclosingParameter.GenericParameterPosition != e {
+                    return Declined(
+                        "emit.iterator.generic-enclosing",
+                        "the declaring type's parameter '" + enclosingParameter.Name + "' is not at position " + e.ToString() + " for '" + declineLabel + "'",
+                        declineLabel
+                    )
+                }
+                smTypeParamMap[enclosingParameter.Name] = enclosingParameter
+                smTypeParams[e] = enclosingParameter
+                enclosingSpecial := 0
+                enclosingBase: Type? = null
+                enclosingInterfaces := System.Type.EmptyTypes
+                if !TryCopyEnclosingConstraints(enclosingParameter, smGps[e], out enclosingSpecial, out enclosingBase, out enclosingInterfaces) {
+                    return Declined(
+                        "emit.iterator.generic-constraints",
+                        "the constraints on the declaring type's parameter '" + enclosingParameter.Name + "' could not be preserved on the iterator machine for '" + declineLabel + "'",
+                        declineLabel
+                    )
+                }
+                smSpecialConstraints[e] = enclosingSpecial
+                smBaseConstraints[e] = enclosingBase
+                smInterfaceConstraints[e] = enclosingInterfaces
+                e = e + 1
+            }
+            methodGps := new GenericTypeParameterBuilder[](methodCount)
+            machineOwnedParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+            g := 0
+            while g < methodCount {
+                methodGps[g] = smGps[enclosingCount + g]
+                parameter: Type = methodGps[g]
+                smTypeParamMap[fn.TypeParamNames[g]] = parameter
+                smTypeParams[enclosingCount + g] = parameter
+                machineOwnedParameters[fn.TypeParamNames[g]] = parameter
+                g = g + 1
+            }
+            table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, machineOwnedParameters)
+            methodSpecialConstraints := System.Array.Empty<int>()
+            methodBaseConstraints := System.Array.Empty<Type>()
+            methodInterfaceConstraints := System.Array.Empty<Type[]>()
+            if !ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(methodGps, fn.TypeParamSpecialConstraints, fn.TypeParamTypeConstraints, smTypeParamMap, smTypeParams, typeResolution, out methodSpecialConstraints, out methodBaseConstraints, out methodInterfaceConstraints) {
+                return Declined(
+                    "emit.iterator.generic-constraints",
+                    "iterator generic constraints could not be preserved for '" + declineLabel + "'",
+                    declineLabel
+                )
+            }
+            g = 0
+            while g < methodCount {
+                smSpecialConstraints[enclosingCount + g] = methodSpecialConstraints[g]
+                smBaseConstraints[enclosingCount + g] = methodBaseConstraints[g]
+                smInterfaceConstraints[enclosingCount + g] = methodInterfaceConstraints[g]
+                g = g + 1
+            }
+        } else {
+            table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, null)
+        }
+        elementType: Type = null
+        if !TryResolveIteratorCanonical(shape.ElementCanonical, smTypeParamMap, typeResolution, out elementType) || !ColumnarTypeOfPlanner.IsSupportedType(elementType) {
+            return Declined(
+                "emit.iterator.element-type",
+                "iterator element type '" + shape.ElementCanonical + "' could not be resolved for '" + declineLabel + "'",
+                declineLabel
+            )
+        }
         asyncEnumerable := ColumnarIteratorBodyPlanner.AsyncEnumerableInterfaceTypeOf(elementType)
         asyncEnumerator := ColumnarIteratorBodyPlanner.AsyncEnumeratorInterfaceTypeOf(elementType)
         sm.AddInterfaceImplementation(asyncEnumerable)
@@ -725,17 +865,11 @@ class ColumnarIteratorRealization {
                 // synchronous machine does.
                 i = i + 1
                 continue
-            } else if !ColumnarCanonicalTypeResolver.TryResolveType(
-                shape.FieldCanonicals[i],
-                typeResolution.Enums,
-                typeResolution.Structs,
-                typeResolution.Unions,
-                out fieldType
-            ) || !ColumnarTypeOfPlanner.IsSupportedType(fieldType) {
+            } else if !TryResolveIteratorCanonical(shape.FieldCanonicals[i], smTypeParamMap, typeResolution, out fieldType) || !ColumnarTypeOfPlanner.IsSupportedType(fieldType) {
                 return Declined(
                     "emit.iterator.field-type",
-                    "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + fn.Name + "'",
-                    fn.Name
+                    "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + declineLabel + "'",
+                    declineLabel
                 )
             }
             if role == ColumnarIteratorPlanner.LoopCaptureBoxFieldRole() {
@@ -759,6 +893,23 @@ class ColumnarIteratorRealization {
             CallingConventions.Standard,
             constructorTypes
         )
+        memberSmType: Type = sm
+        memberFields := fields
+        memberCtor: ConstructorInfo = ctor
+        memberCore: MethodInfo = core
+        if smTypeParamMap != null {
+            memberSmType = sm.MakeGenericType(smTypeParams)
+            memberFields = new FieldInfo[](fields.Length)
+            i = 0
+            while i < fields.Length {
+                if fields[i] != null {
+                    memberFields[i] = TypeBuilder.GetField(memberSmType, (FieldBuilder)fields[i])
+                }
+                i = i + 1
+            }
+            memberCtor = TypeBuilder.GetConstructor(memberSmType, ctor)
+            memberCore = TypeBuilder.GetMethod(memberSmType, core)
+        }
         ctorIl := ctor.GetILGenerator()
         ctorIl.Emit(OpCodes.Ldarg_0)
         objectCtor := typeof(object).GetConstructor(System.Type.EmptyTypes)
@@ -768,7 +919,7 @@ class ColumnarIteratorRealization {
         ctorIl.Emit(OpCodes.Stfld, fields[0])
         ctorIl.Emit(OpCodes.Ldarg_0)
         ctorIl.Emit(OpCodes.Ldarg_0)
-        coreHandle: MethodInfo = core
+        coreHandle := memberCore
         ctorIl.Emit(OpCodes.Ldftn, coreHandle)
         actionConstructorTypes := new Type[](2)
         actionConstructorTypes[0] = typeof(object)
@@ -778,37 +929,41 @@ class ColumnarIteratorRealization {
         ctorIl.Emit(OpCodes.Stfld, continuationField)
         ctorIl.Emit(OpCodes.Ret)
 
-        ctorHandle: ConstructorInfo = ctor
+        ctorHandle: ConstructorInfo = memberCtor
         context := new ColumnarIteratorEmitContext(
             fn.BodyNodes,
             functionSource,
             fn.BodyRoot,
             shape,
-            sm,
+            memberSmType,
             elementType,
             shape.FieldNames,
-            fields,
+            memberFields,
             table,
             ctorHandle,
-            null,
-            null,
-            null,
-            null,
-            coreHandle,
+            enclosingType,
+            enclosingFieldNames,
+            enclosingFields,
+            enclosingFieldCanonicals,
+            memberCore,
             bodyFacts,
             sm,
-            null,
-            null,
+            smTypeParamMap == null ? null : memberSmType,
+            smTypeParamMap,
             fields,
             synthesizedTypes,
-            fn.SourceFileId
+            fn.SourceFileId,
+            smSpecialConstraints,
+            smBaseConstraints,
+            smInterfaceConstraints,
+            smTypeParams
         )
         overrideContext := ColumnarIteratorOverrideContext.ForAsync(table, elementType, asyncEnumerable, asyncEnumerator)
         publicImpl := MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot
 
         corePlan := ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context)
         if context.Declined {
-            return Declined(context.DeclineSite, context.DeclineMessage + " in '" + fn.Name + "'", fn.Name)
+            return Declined(context.DeclineSite, context.DeclineMessage + " in '" + declineLabel + "'", declineLabel)
         }
         coreIl := core.GetILGenerator()
         ColumnarCodePlanExecutor.Execute(corePlan, coreIl, modifiedMemberReferences)
@@ -859,7 +1014,47 @@ class ColumnarIteratorRealization {
         getAsyncEnumeratorIl := getAsyncEnumerator.GetILGenerator()
         ColumnarCodePlanExecutor.Execute(getAsyncEnumeratorPlan, getAsyncEnumeratorIl, modifiedMemberReferences)
 
-        factoryPlan := ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(context)
+        factoryContext := context
+        if smTypeParamMap != null {
+            factoryTypeArguments := new Type[](enclosingParameters.Length + methodParameters.Length)
+            enclosingParameters.CopyTo(factoryTypeArguments, 0)
+            methodParameters.CopyTo(factoryTypeArguments, enclosingParameters.Length)
+            if factoryTypeArguments.Length != smTypeParams.Length {
+                return Declined(
+                    "emit.iterator.generic-arity",
+                    "the factory for '" + declineLabel + "' supplies " + factoryTypeArguments.Length.ToString() + " type argument(s) for a machine with " + smTypeParams.Length.ToString(),
+                    declineLabel
+                )
+            }
+            factorySmType := sm.MakeGenericType(factoryTypeArguments)
+            factoryFields := new FieldInfo[](fields.Length)
+            i = 0
+            while i < fields.Length {
+                if fields[i] != null {
+                    factoryFields[i] = TypeBuilder.GetField(factorySmType, (FieldBuilder)fields[i])
+                }
+                i = i + 1
+            }
+            factoryCtor := TypeBuilder.GetConstructor(factorySmType, ctor)
+            factoryEnclosingType := enclosingType
+            if enclosingType != null && declaringType != null {
+                factoryEnclosingType = ColumnarSourceSelfInstantiation.Of(declaringType)
+            }
+            factoryContext = new ColumnarIteratorEmitContext(
+                fn.BodyNodes,
+                functionSource,
+                fn.BodyRoot,
+                shape,
+                factorySmType,
+                elementType,
+                shape.FieldNames,
+                factoryFields,
+                table,
+                factoryCtor,
+                factoryEnclosingType
+            )
+        }
+        factoryPlan := ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(factoryContext)
         ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl, modifiedMemberReferences)
         synthesizedTypes.Add(sm)
         return Completed()

@@ -1732,13 +1732,19 @@ func* ticks(log: List<string>): IEnumerable<int> {
 `async func*` returns `IAsyncEnumerable<T>` and is consumed with `await foreach`. The same
 ordinary-expression surface applies.
 
-Async member iterators are not yet lowered. The member emitter rejects them before collecting the
-receiver and enclosing-type fields, and the shared shape planner also rejects async instance receivers.
-Supporting them requires those captured receiver and enclosing generic-type facts to flow through async
-planning and state-machine emission. Generic async iterator methods are separately rejected by the
-shape planner because method type parameters are not carried into async state-machine types. This is
-separate from using a generic value in a non-generic async iterator and from yielding an async lambda
-from an ordinary generator.
+Async iterators may be instance members and may declare method type parameters. Their state machines
+capture `this`, readable enclosing fields, parameters and locals, and carry the enclosing type and
+method type parameters needed by those captures. An async iterator body stays lazy until the consumer
+calls `MoveNextAsync`; each `await` suspends that same machine, and each `yield` publishes one value.
+`await foreach` disposes the enumerator on normal completion and early exit, so a `finally` runs when a
+consumer breaks. Calling `GetAsyncEnumerator` on the same sequence creates a fresh machine, allowing
+independent enumerations.
+
+N# currently has no `[EnumeratorCancellation]` equivalent. The generated
+`GetAsyncEnumerator(CancellationToken)` accepts the interface token but does not link it to a
+`CancellationToken` parameter on the iterator method or pass it into the body. A method's own token
+parameter can still be captured and used explicitly, but `await foreach` does not flow its consumer
+token into that parameter.
 
 An `await` inside one may be a statement, or the whole value of a declaration, an assignment or a
 `yield`:

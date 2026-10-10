@@ -528,10 +528,9 @@ func MemberIteratorControlsBodyFacts(definition: ColumnarStructDef, resolution: 
     )
 }
 
-// Async members still return before source facts or helper-local IL reads. A synchronous member
-// requires its source row even when the enclosing definition is generic. The static path instead
-// advances its ordinal before attempting that helper-local GetILGenerator.
-test "member iterator retains early rejection and static ordinal before its own IL acquisition" {
+// Async members collect the same source facts as synchronous members before entering the async
+// realization. The static path advances its ordinal before its own IL acquisition.
+test "async member iterator reaches receiver facts before lowering and static ordinal precedes IL acquisition" {
     syncSource := "func* Gen(): IEnumerable<int> { yield 1 }"
     syncProbe := new EmitFixtureIteratorShapeProbe(
         syncSource,
@@ -570,7 +569,7 @@ test "member iterator retains early rejection and static ordinal before its own 
         definition,
         asyncMethod,
         null,
-        true,
+        false,
         null,
         null,
         asyncSource,
@@ -579,8 +578,8 @@ test "member iterator retains early rejection and static ordinal before its own 
         null
     )
     assert !asyncResult.Succeeded
-    assert asyncResult.DeclineSite == "emit.iterator.async-unsupported"
-    assert asyncResult.DeclineMessage == "async member iterator methods are not yet lowered"
+    assert asyncResult.DeclineSite == "emit.iterator.instance-unsupported"
+    assert asyncResult.DeclineMessage == "enclosing type facts are unavailable for 'MemberIteratorEarlyHost.Gen'"
     assert asyncResult.DeclineMember == "MemberIteratorEarlyHost.Gen"
     assert asyncTypes.Count == 0
     assert asyncOrdinal[0] == 12

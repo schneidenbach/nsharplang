@@ -4647,7 +4647,7 @@ sealed class ColumnarIlEmitter {
     }
 
     // Preserve the established host signature while N# owns the complete asynchronous realization.
-    private static func TryEmitAsyncIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, bodyFacts: ColumnarIteratorBodyFacts?): bool {
+    private static func TryEmitAsyncIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, methodTypeParams: Type[], bodyFacts: ColumnarIteratorBodyFacts?): bool {
         result := ColumnarIteratorRealization.EmitAsync(
             module,
             fn,
@@ -4656,7 +4656,8 @@ sealed class ColumnarIlEmitter {
             typeResolution,
             factoryIl,
             synthesizedTypes,
-            bodyFacts
+            bodyFacts,
+            methodTypeParams
         )
         if (result.Succeeded) {
             return true
@@ -5637,7 +5638,7 @@ sealed class ColumnarIlEmitter {
                 mTypeResolution := typeResolution
                 methodOverride := declarationPlan.MethodOverrides.Methods[s][mi]
                 if (m.TypeParamNames.Length > 0) {
-                    if (m.IsAsync) {
+                    if (m.IsAsync && !ColumnarIteratorPlanner.ContainsYield(m.BodyNodes, m.BodyRoot)) {
                         return DeclineStatic("emit.declaration.method-return", "generic async method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                     }
                     // A GENERIC slot's MethodImpl row is written from the name and arity BEFORE the
@@ -5670,7 +5671,17 @@ sealed class ColumnarIlEmitter {
                 let mReturn: System.Type = null
                 mAsyncWrappedReturn: Type? = null
                 if (m.IsAsync) {
-                    if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn, out mAsyncWrappedReturn)) {
+                    if (ColumnarIteratorPlanner.ContainsYield(m.BodyNodes, m.BodyRoot)) {
+                        asyncElementCanonical := ColumnarIteratorPlanner.SequenceElementOf(m.ReturnCanonical)
+                        let asyncElement: System.Type = null
+                        asyncTypeParameters := mTypeParamMap ?? def.GenericParameters
+                        asyncElementResolved := asyncTypeParameters != null ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(asyncElementCanonical, asyncTypeParameters, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out asyncElement) : ColumnarCanonicalTypeResolver.TryResolveType(asyncElementCanonical, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out asyncElement)
+                        asyncElementSupported := asyncElementResolved && (asyncElement.IsGenericParameter || ColumnarTypeOfPlanner.IsSupportedType(asyncElement))
+                        if (!asyncElementSupported) {
+                            return DeclineStatic("emit.declaration.method-return", "async iterator element type '" + asyncElementCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        }
+                        mReturn = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
+                    } else if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn)) {
                         return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                     }
                 } else {
@@ -6646,7 +6657,15 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic(asyncShape.DeclineSite, asyncShape.DeclineMessage, fn.Name, -1, 0)
                 }
                 let asyncElement: System.Type = null
-                if (!ColumnarCanonicalTypeResolver.TryResolveType(asyncShape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out asyncElement) || !ColumnarTypeOfPlanner.IsSupportedType(asyncElement)) {
+                asyncElementResolved := typeParamMap != null ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(asyncShape.ElementCanonical, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out asyncElement) : ColumnarCanonicalTypeResolver.TryResolveType(asyncShape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out asyncElement)
+                asyncElementSupported := false
+                if asyncElementResolved {
+                    asyncElementSupported = asyncElement.IsGenericParameter || ColumnarTypeOfPlanner.IsSupportedType(asyncElement)
+                    if !asyncElementSupported && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(asyncElement) {
+                        asyncElementSupported = ColumnarEmitReflectionFacts.RequiredElementType(asyncElement.GetElementType(), "async iterator array element type").IsGenericParameter
+                    }
+                }
+                if (!asyncElementResolved || !asyncElementSupported) {
                     return DeclineStatic("emit.iterator.element-type", "iterator element type '" + asyncShape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)
                 }
                 returnType = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
@@ -6869,6 +6888,7 @@ sealed class ColumnarIlEmitter {
                         typeResolution,
                         il,
                         displayClasses,
+                        siblingDefinitionsByFunc[f].TypeParams,
                         generatorFacts
                     ) : !TryEmitIteratorStateMachine(
                         module,

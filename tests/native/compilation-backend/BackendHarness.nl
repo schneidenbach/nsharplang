@@ -162,8 +162,8 @@ func GeneratedCSharpFileCount(directory: string): int {
     return Directory.GetFiles(directory, "*.g.cs", SearchOption.AllDirectories).Length
 }
 
-// The declining shape the two "requires columnar emission" rows depend on: generic async iterator
-// methods are analyzed, but their generic state-machine context is not lowered yet.
+// The declining shape the two "requires columnar emission" rows depend on: `await` nested in a
+// larger async-iterator expression still needs a spill slot the state machine does not have.
 func DecliningSource(): string {
-    return "import System.Collections.Generic\nimport System.Threading.Tasks\nasync func* Pending<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}\n\n\nfunc main() {\n    print \"counted\"\n}\n"
+    return "import System.Collections.Generic\nimport System.Threading.Tasks\nasync func* Pending(): IAsyncEnumerable<int> {\n    yield 1 + await Task.FromResult(1)\n}\n\n\nfunc main() {\n    print \"counted\"\n}\n"
 }

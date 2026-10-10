@@ -6,17 +6,17 @@ import System.Reflection
 import System.Reflection.Emit
 
 
-// Sub-slice 3a: the DECISION layer of the synchronous iterator (func*) state machine. This planner owns
-// every structural decision — element type, field layout, state numbering, member/override identities,
+// Sub-slice 3a: the DECISION layer of iterator state machines (`func*` and `async func*`). This planner
+// owns every structural decision — element type, field layout, state numbering, member/override identities,
 // dispatch shape, and the precise decline classification for shapes it cannot lower. It produces FACTS
 // only; sub-slice 3b builds each member body as a schema-4 code plan against exactly these facts, and the
 // C# emitter host defines and resolves handles while this N# owner applies each override at that member's
 // existing attachment point.
 //
-// State numbering: 0 = initial (ready to start), 1..N = resume points (one per `yield return`), -1 =
-// running (set while MoveNext executes), -2 = done. Field layout order (hoist ordering): the state field,
-// the current field, then each captured parameter in signature order, then each hoisted local in first
-// declaration order.
+// State numbering: 0 = initial (ready to start), 1..N = resume points (one per `yield return` in a sync
+// iterator, or per `yield return`/`await` in an async iterator), -1 = running, -2 = done. Field layout:
+// state, current, a captured instance receiver when present, captured parameters in signature order, then
+// hoisted locals in first declaration order. Async machines append awaiter and completion fields.
 class ColumnarIteratorOverrideDeclaration {
     MemberOrdinal: int
     DeclarationIdentity: string
@@ -400,13 +400,6 @@ class ColumnarIteratorPlanner {
         if isInstance && receiverCanonical == "" {
             return Declined("emit.iterator.instance-unsupported", "iterator methods with an instance receiver are not yet lowered")
         }
-        if isAsync && isInstance {
-            return Declined("emit.iterator.async-unsupported", "async iterator methods with an instance receiver are not yet lowered")
-        }
-        if isAsync && typeParamNames.Length > 0 {
-            return Declined("emit.iterator.async-unsupported", "generic async iterator methods are not yet lowered")
-        }
-
         // Element-type inference. A synchronous iterator returns IEnumerable<X>; an `async func*` returns
         // IAsyncEnumerable<X>. The element may be one of the function's own type parameters — the state
         // machine then becomes generic with the parameter flowing into the current/value fields (the host
@@ -444,7 +437,7 @@ class ColumnarIteratorPlanner {
             }
         }
         if isAsync {
-            return BuildSupportedAsyncShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state)
+            return BuildSupportedAsyncShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state, isInstance ? receiverCanonical : "")
         }
         return BuildSupportedShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state, isInstance ? receiverCanonical : "")
     }
@@ -550,13 +543,14 @@ class ColumnarIteratorPlanner {
     }
 
     // The async state-machine shape (`async func*` returning IAsyncEnumerable<T>). Field layout extends
-    // the synchronous hoist order — state, current, captured parameters, hoisted locals — with the async
-    // machinery: one TaskAwaiter field per await site (walk order), then the promise, the synchronous-step
-    // result flag, and the re-drive continuation. Resume states interleave: the k-th suspension point in
-    // body walk order (a `yield return` OR an `await`) resumes at state k+1; MoveNextCore's dispatch treats
-    // both kinds identically and the body planner assigns numbers with one shared counter.
-    static func BuildSupportedAsyncShape(funcName: string, funcOrdinal: int, element: string, paramNames: string[], paramCanonicals: string[], state: ColumnarIteratorWalkState): ColumnarIteratorShape {
-        fieldCount := 2 + paramNames.Length + state.LocalCount + state.LoopCaptureCount + state.AwaitCount + 3
+    // the synchronous hoist order — state, current, optional receiver, captured parameters, hoisted
+    // locals — with the async machinery: one TaskAwaiter field per await site (walk order), then the
+    // promise, the synchronous-step result flag, and the re-drive continuation. Resume states interleave:
+    // the k-th `yield return` or `await` in body walk order resumes at state k+1. The body planner assigns
+    // one shared counter, and MoveNextCore's dispatch treats both kinds identically.
+    static func BuildSupportedAsyncShape(funcName: string, funcOrdinal: int, element: string, paramNames: string[], paramCanonicals: string[], state: ColumnarIteratorWalkState, receiverCanonical: string): ColumnarIteratorShape {
+        receiverCount := receiverCanonical.Length > 0 ? 1 : 0
+        fieldCount := 2 + receiverCount + paramNames.Length + state.LocalCount + state.LoopCaptureCount + state.AwaitCount + 3
         fieldNames := new string[](fieldCount)
         fieldCanonicals := new string[](fieldCount)
         fieldRoles := new int[](fieldCount)
@@ -567,6 +561,12 @@ class ColumnarIteratorPlanner {
         fieldCanonicals[1] = element
         fieldRoles[1] = CurrentFieldRole()
         cursor := 2
+        if receiverCount == 1 {
+            fieldNames[cursor] = "<>__this"
+            fieldCanonicals[cursor] = receiverCanonical
+            fieldRoles[cursor] = CapturedParameterFieldRole()
+            cursor = cursor + 1
+        }
         p := 0
         while p < paramNames.Length {
             fieldNames[cursor] = paramNames[p]
