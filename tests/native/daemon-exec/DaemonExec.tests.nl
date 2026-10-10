@@ -450,13 +450,13 @@ test "a warm check and build re-analyse only the files an edit reaches and answe
         // The first routed compilation of each kind has nothing to reuse.
         prime := RoutedWithStats(workspace, "check", statsPath)
         assert prime.ExitCode == 0
-        assert FilesAnalyzed(statsPath) == 4
+        assert FilesAnalyzed(statsPath) == 4, "prime check counters: " + File.ReadAllText(statsPath)
 
         // A body edit: only the edited file is analysed again.
         WriteSource(workspace, "Alpha.nl", WarmAlpha("10"))
         body := RoutedWithStats(workspace, "check", statsPath)
         assert body.ExitCode == 0
-        assert FilesAnalyzed(statsPath) == 1
+        assert FilesAnalyzed(statsPath) == 1, "body check counters: " + File.ReadAllText(statsPath)
         assert RoutedThroughServer(AssertParity(workspace, ["check"], null))
 
         // A signature edit: the edited file and its caller; Beta and Gamma are reused.
@@ -464,7 +464,7 @@ test "a warm check and build re-analyse only the files an edit reaches and answe
         WriteSource(workspace, "Program.nl", WarmProgramPassingOffset())
         signature := RoutedWithStats(workspace, "check", statsPath)
         assert signature.ExitCode == 0
-        assert FilesAnalyzed(statsPath) == 2
+        assert FilesAnalyzed(statsPath) == 2, "signature check counters: " + File.ReadAllText(statsPath)
         assert RoutedThroughServer(AssertParity(workspace, ["check", "--text"], null))
 
         // The same for build, whose session is its own; the program it emits is the edited one.

@@ -19,7 +19,9 @@ import System.Text
 // field on `CompilerError` must be added to `WriteError`/`ReadError` — `tests/native/incremental-build`
 // compares the serialised field set against the record's own members and fails until it is.
 class IncrementalBuildStamp {
-    static FormatVersion: int => 1
+    static FormatVersion: int => 2
+    static CheckResultKind: int => 1
+    static CheckResultSchemaVersion: int => 1
 
     static func Magic(): string => "NSHARP-INCREMENTAL-STAMP"
 
@@ -28,6 +30,12 @@ class IncrementalBuildStamp {
     OutputPaths: List<string>
     OutputHashes: List<string>
     Diagnostics: List<CompilerError>
+    ResultKind: int
+    CheckSchemaVersion: int
+    CheckExitCode: int
+    CheckOutputToStandardError: bool
+    CheckOutput: string
+    CheckDiagnosticsJson: string
 
     constructor(key: string) {
         Key = key
@@ -35,6 +43,12 @@ class IncrementalBuildStamp {
         OutputPaths = new List<string>()
         OutputHashes = new List<string>()
         Diagnostics = new List<CompilerError>()
+        ResultKind = 0
+        CheckSchemaVersion = 0
+        CheckExitCode = 0
+        CheckOutputToStandardError = false
+        CheckOutput = ""
+        CheckDiagnosticsJson = ""
     }
 
     // `<projectRoot>/obj/nlc/<assembly>.<16 hex digits of the output path>.stamp`: one stamp per
@@ -45,6 +59,14 @@ class IncrementalBuildStamp {
         outputHash := ContentHash.OfText(fullOutput).Substring(0, 16)
         directory := Path.Combine(Path.GetFullPath(projectRoot), "obj", "nlc")
         return Path.Combine(directory, assemblyName + "." + outputHash + ".stamp")
+    }
+
+    // One check result slot per project. It uses the build stamp's envelope,
+    // input entries, checksum and atomic replacement; the key selects output mode and compiler
+    // options, so a different invocation misses and replaces the slot instead of retaining stale variants.
+    static func CheckPathFor(projectRoot: string, assemblyName: string): string {
+        directory := Path.Combine(Path.GetFullPath(projectRoot), "obj", "nlc")
+        return Path.Combine(directory, assemblyName + ".check.stamp")
     }
 
     static func IsInsideProject(projectRoot: string, outputPath: string): bool {
@@ -110,6 +132,12 @@ class IncrementalBuildStamp {
                 }
 
                 stamp := new IncrementalBuildStamp(key)
+                stamp.ResultKind = reader.ReadInt32()
+                stamp.CheckSchemaVersion = reader.ReadInt32()
+                stamp.CheckExitCode = reader.ReadInt32()
+                stamp.CheckOutputToStandardError = reader.ReadBoolean()
+                stamp.CheckOutput = reader.ReadString()
+                stamp.CheckDiagnosticsJson = reader.ReadString()
                 entryCount := reader.ReadInt32()
                 entryIndex := 0
                 while entryIndex < entryCount {
@@ -148,6 +176,35 @@ class IncrementalBuildStamp {
         }
     }
 
+    static func TryReadCheckStamp(path: string, expectedKey: string): IncrementalBuildStamp? {
+        stamp := IncrementalBuildStamp.TryRead(path, expectedKey)
+        if stamp == null {
+            return null
+        }
+        if stamp.ResultKind != IncrementalBuildStamp.CheckResultKind || stamp.CheckSchemaVersion != IncrementalBuildStamp.CheckResultSchemaVersion || !stamp.IsCurrent() {
+            return null
+        }
+        if stamp.CheckDiagnosticsJson.Length == 0 {
+            return null
+        }
+
+        return stamp
+    }
+
+    static func TryReadCheckResult(path: string, expectedKey: string): IncrementalCheckResult? {
+        stamp := IncrementalBuildStamp.TryReadCheckStamp(path, expectedKey)
+        if stamp == null {
+            return null
+        }
+
+        return new IncrementalCheckResult(
+            stamp.CheckOutput,
+            stamp.CheckDiagnosticsJson,
+            stamp.CheckOutputToStandardError,
+            stamp.CheckExitCode
+        )
+    }
+
     // ---- writing ---------------------------------------------------------------------------------
 
     // Best effort: a stamp that cannot be written costs the next build its shortcut and nothing else.
@@ -158,6 +215,12 @@ class IncrementalBuildStamp {
             writer.Write(IncrementalBuildStamp.Magic())
             writer.Write(IncrementalBuildStamp.FormatVersion)
             writer.Write(Key)
+            writer.Write(ResultKind)
+            writer.Write(CheckSchemaVersion)
+            writer.Write(CheckExitCode)
+            writer.Write(CheckOutputToStandardError)
+            writer.Write(CheckOutput)
+            writer.Write(CheckDiagnosticsJson)
             writer.Write(Entries.Count)
             for entry in Entries {
                 writer.Write(entry.Kind)
@@ -318,5 +381,22 @@ class IncrementalBuildStamp {
         }
 
         return reader.ReadString()
+    }
+}
+
+// The output of one completed `nlc check` invocation under the input closure in its stamp. JSON and
+// text modes share the same diagnostics JSON, while `Output` preserves the exact bytes of the
+// selected user-facing stream (including the human elapsed line) for a cold cache hit.
+class IncrementalCheckResult {
+    Output: string
+    DiagnosticsJson: string
+    OutputToStandardError: bool
+    ExitCode: int
+
+    constructor(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int) {
+        Output = output
+        DiagnosticsJson = diagnosticsJson
+        OutputToStandardError = outputToStandardError
+        ExitCode = exitCode
     }
 }

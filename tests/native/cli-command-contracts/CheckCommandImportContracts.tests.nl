@@ -436,7 +436,7 @@ test "nlc check --use-built-references reads a project dependency from the assem
         assert missingMessage.Contains(libYml + "' has no built assembly at '" + libDll + "'"), missingMessage
         assert !File.Exists(libDll), "The check must not have built the dependency itself."
 
-        // Built by its own `nlc build`: the check reads it and writes nothing.
+        // Built by its own `nlc build`: the check reads it without rebuilding or modifying the referenced project.
         build := Nlc("build --project " + CcQuoted(Path.Combine(directory, "Lib")))
         assert build.ExitCode == 0, build.Stdout + build.Stderr
         builtAt := File.GetLastWriteTimeUtc(libDll)

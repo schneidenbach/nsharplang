@@ -519,6 +519,9 @@ class OutputFormatterJsonKernels {
                 member["systemsReport"] = BuildSystemsReport(
                     OutputFormatterNormalizationKernels.NormalizeSystemsReport(project.SystemsReport)
                 )
+            } else if includeSystemsReport && project.SystemsReportJson != null {
+                using systemsDocument := JsonDocument.Parse(project.SystemsReportJson ?? "null")
+                member["systemsReport"] = systemsDocument.RootElement.Clone()
             }
             projectPayloads.Add(member)
 

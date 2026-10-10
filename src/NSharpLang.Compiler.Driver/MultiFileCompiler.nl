@@ -88,6 +88,10 @@ class MultiFileCompiler {
     private readonly _declaredOneProgram: bool
     private _incrementalBuild: bool
     private _wasUpToDate: bool
+    private _checkStampPath: string?
+    private _checkStampKey: string
+    private _checkInputCapture: IncrementalBuildInputCapture?
+    private _checkStampEntries: List<IncrementalInputEntry>?
     private _incrementalState: IncrementalCompilationState?
     private _incrementalPlan: IncrementalCompilationPlan?
     private readonly _pendingRecords: Dictionary<string, IncrementalFileRecord>
@@ -191,9 +195,10 @@ class MultiFileCompiler {
     }
 
     // WHETHER THIS COMPILATION MAY BE ANSWERED BY ITS UP-TO-DATE STAMP (`IncrementalBuildStamp`).
-    // Off unless the caller asks: the stamp lives in the project's `obj/` and describes an output
-    // the caller will keep, which is true of `nlc build`, `run`, `test` and a referenced project's
-    // build, and not of a check (which writes nothing) or an editor's buffers.
+    // Off unless the caller asks: this build stamp lives in the project's `obj/` and describes an
+    // output the caller will keep, which is true of `nlc build`, `run`, `test` and a referenced
+    // project's build. Checks use the same stamp owner through the separate result methods below;
+    // editor buffers cannot use either disk result.
     IncrementalBuild: bool {
         get {
             return _incrementalBuild
@@ -207,6 +212,73 @@ class MultiFileCompiler {
     // emitted, so the units, models, index and systems report are empty. A caller that needs those
     // (a perf report, a query) leaves `IncrementalBuild` off.
     WasUpToDate: bool => _wasUpToDate
+
+    // Reads a persisted check result before any source is parsed. The stamp uses the same input
+    // capture, checksum and atomic replacement as the build stamp; the output-mode and check
+    // options only distinguish which deterministic result is being replayed.
+    func TryReadCheckResult(assemblyName: string, outputMode: int, useBuiltReferences: bool, backendOption: string?): IncrementalCheckResult? {
+        if !CanUseIncrementalCheckStamp() {
+            return null
+        }
+
+        key := ComputeCheckResultKey(assemblyName, outputMode, useBuiltReferences, backendOption)
+        path := IncrementalBuildStamp.CheckPathFor(_projectRoot, assemblyName)
+        _checkStampPath = path
+        _checkStampKey = key
+        _checkInputCapture = null
+        _wasUpToDate = false
+
+        cachedStamp := IncrementalBuildStamp.TryReadCheckStamp(path, key)
+        if cachedStamp != null {
+            _checkStampEntries = cachedStamp.Entries
+            _wasUpToDate = true
+            return new IncrementalCheckResult(
+                cachedStamp.CheckOutput,
+                cachedStamp.CheckDiagnosticsJson,
+                cachedStamp.CheckOutputToStandardError,
+                cachedStamp.CheckExitCode
+            )
+        }
+
+        _checkStampEntries = null
+        capture := new IncrementalBuildInputCapture()
+        capture.CaptureBeforeCompile(_projectRoot, EffectiveConfig(), _sourceFiles)
+        _checkInputCapture = capture
+        return null
+    }
+
+    // Persists a complete versioned result after diagnostics and backend validation are final. The
+    // diagnostics JSON is always retained even when the selected user-facing mode is text.
+    func SaveCheckResult(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int): bool {
+        path := _checkStampPath
+        capture := _checkInputCapture
+        storedEntries := _checkStampEntries
+        if path == null || (capture == null && storedEntries == null) || _checkStampKey.Length == 0 {
+            return false
+        }
+
+        entries := new List<IncrementalInputEntry>()
+        if capture != null {
+            capture.CaptureFileImports(_projectRoot, _compilationUnits)
+            analyzer := _sharedAnalyzerValue
+            if analyzer != null {
+                capture.CaptureMetadataInputs(analyzer.MetadataInputAssemblyPaths(), analyzer.MetadataSearchDirectories())
+            }
+            entries = capture.Entries
+        } else {
+            entries = storedEntries ?? new List<IncrementalInputEntry>()
+        }
+
+        stamp := new IncrementalBuildStamp(_checkStampKey)
+        stamp.ResultKind = IncrementalBuildStamp.CheckResultKind
+        stamp.CheckSchemaVersion = IncrementalBuildStamp.CheckResultSchemaVersion
+        stamp.CheckExitCode = exitCode
+        stamp.CheckOutputToStandardError = outputToStandardError
+        stamp.CheckOutput = output
+        stamp.CheckDiagnosticsJson = diagnosticsJson
+        stamp.Entries.AddRange(entries)
+        return stamp.TryWrite(path ?? "")
+    }
 
     // THE STATE A PREVIOUS COMPILATION OF THIS PROJECT LEFT (`IncrementalCompilationState`), held by
     // a caller that compiles the same project repeatedly in one process. When it is set, the analyzer
@@ -311,6 +383,10 @@ class MultiFileCompiler {
         _workers = 0
         _incrementalBuild = false
         _wasUpToDate = false
+        _checkStampPath = null
+        _checkStampKey = ""
+        _checkInputCapture = null
+        _checkStampEntries = null
         _incrementalState = null
         _incrementalPlan = null
         _pendingRecords = new Dictionary<string, IncrementalFileRecord>(StringComparer.OrdinalIgnoreCase)
@@ -1462,6 +1538,54 @@ class MultiFileCompiler {
             return false
         }
         return IncrementalBuildPolicy.IsEnabled()
+    }
+
+    private func CanUseIncrementalCheckStamp(): bool {
+        // The workspace server owns the project's incremental session and uses it to answer later
+        // edits. Persisted check results serve cold processes; the daemon keeps its in-memory path.
+        if CliInvocationContext.IsRemoteInvocation() {
+            return false
+        }
+        if _sourceTextOverrides.Count > 0 {
+            return false
+        }
+        if _columnarDeclineLog != null || _debugLoggingEnabled {
+            return false
+        }
+        return IncrementalBuildPolicy.IsEnabled()
+    }
+
+    // The same non-file inputs and source identity as the build stamp, plus every check option that
+    // can change its serialized result. The exact file/reference closure is verified from the
+    // `IncrementalBuildInputCapture` entries stored in that same stamp.
+    private func ComputeCheckResultKey(assemblyName: string, outputMode: int, useBuiltReferences: bool, backendOption: string?): string {
+        key := new IncrementalKeyBuilder()
+        key.Add("format", IncrementalBuildStamp.FormatVersion.ToString())
+        key.Add("compiler", IncrementalCompilerIdentity.Current())
+        key.Add("project-root", Path.GetFullPath(_projectRoot))
+        key.Add("assembly", assemblyName)
+        key.Add("purpose", "check")
+        key.Add("output-schema", IncrementalBuildStamp.CheckResultSchemaVersion.ToString())
+        key.Add("output-mode", outputMode.ToString())
+        key.Add("backend-option", backendOption)
+        key.AddBool("use-built-references", useBuiltReferences)
+        key.Add("lint-policy", "check-full-v1")
+        key.AddBool("aot", _aotMode)
+        key.AddBool("reference-assembly", _emitReferenceAssembly)
+        key.AddBool("soa", _soaEnabled)
+        key.AddBool("one-program", _declaredOneProgram)
+        key.Add("config", IncrementalConfigFingerprint.Describe(_config))
+        symbols := new List<string>(_preprocessorSymbols)
+        symbols.Sort(StringComparer.Ordinal)
+        key.Add("defines", string.Join(",", symbols))
+        key.Add("source-count", _sourceFiles.Count.ToString())
+        for sourceFile in _sourceFiles {
+            key.Add("source", Path.GetFullPath(sourceFile))
+        }
+        key.Add("nuget-packages", Environment.GetEnvironmentVariable("NUGET_PACKAGES"))
+        key.Add("user-profile", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
+        key.Add("current-directory", Environment.CurrentDirectory)
+        return key.Build()
     }
 
     // Everything this compilation depends on that is not a file (see `IncrementalBuildInputs`).

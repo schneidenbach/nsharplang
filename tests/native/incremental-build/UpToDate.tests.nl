@@ -220,6 +220,23 @@ test "a corrupt, truncated or foreign stamp is ignored and rewritten" {
     }
 }
 
+test "a check result with a different compiler identity key is a miss" {
+    scratch := IncrementalScratch("check-key")
+    try {
+        path := IncrementalBuildStamp.CheckPathFor(scratch, "Lib")
+        stamp := new IncrementalBuildStamp("check-key/compiler-identity-A")
+        stamp.ResultKind = IncrementalBuildStamp.CheckResultKind
+        stamp.CheckSchemaVersion = IncrementalBuildStamp.CheckResultSchemaVersion
+        stamp.CheckOutput = "[]"
+        stamp.CheckDiagnosticsJson = "[]"
+        assert stamp.TryWrite(path), "the check result stamp should be writable"
+        assert IncrementalBuildStamp.TryReadCheckResult(path, "check-key/compiler-identity-A") != null
+        assert IncrementalBuildStamp.TryReadCheckResult(path, "check-key/compiler-identity-B") == null
+    } finally {
+        IncrementalCleanup(scratch)
+    }
+}
+
 test "a referenced assembly's content invalidates its consumer" {
     scratch := IncrementalScratch("dll")
     try {

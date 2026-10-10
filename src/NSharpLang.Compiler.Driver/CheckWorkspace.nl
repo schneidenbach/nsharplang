@@ -40,6 +40,12 @@ class CheckWorkspaceProjectResult {
     Summary: DiagnosticSummary
     ErrorMessage: string?
     SystemsReport: SystemsReport?
+    SystemsReportJson: string?
+    CheckCompiler: MultiFileCompiler?
+    CheckWasCached: bool
+    CheckOutput: string?
+    CheckOutputToStandardError: bool
+    CheckDiagnosticsJson: string?
 
     constructor(
         ProjectRoot: string,
@@ -55,6 +61,12 @@ class CheckWorkspaceProjectResult {
         this.Summary = Summary
         this.ErrorMessage = ErrorMessage
         this.SystemsReport = SystemsReport
+        SystemsReportJson = null
+        CheckCompiler = null
+        CheckWasCached = false
+        CheckOutput = null
+        CheckOutputToStandardError = false
+        CheckDiagnosticsJson = null
     }
 
     Succeeded: bool => ErrorMessage == null && Summary.Errors == 0

@@ -351,9 +351,10 @@ changed.
 
 The counters are always on (`CompilerWorkCounters` in `src/NSharpLang.Compiler.Model`, one atomic
 increment per event) and process-wide; `--stats` reports the difference across the command. They do
-not move with machine load, so they explain a latency change where a wall clock cannot: on
-2026-10-05 a no-op `nlc check` of the 448-line issue-tracker fixture parsed its 8 files **40** times,
-analyzed them twice and opened **684** reference images. A command routed through the daemon must
+not move with machine load, so they explain a latency change where a wall clock cannot: before the
+check-result stamp, a cold no-op `nlc check` of the 448-line issue-tracker fixture parsed its 8 files
+**40** times, analyzed them twice and opened **684** reference images. A cold in-process hit now
+reports zero parsed, emitted, analyzed or loaded-reference work. A command routed through the daemon must
 report the daemon's work for the request in these counters (snapshot before and after,
 `CompilerWorkCounterSnapshot.Since`), or the numbers would claim the work vanished. It does: a routed
 command carries `--stats` to the workspace server, whose `CliPipeline.ExecuteLocal` takes the
@@ -1003,17 +1004,33 @@ to 0.34 s and 5.87 s to 0.46 s (the tests still run).
 - **Who opts in.** `MultiFileCompiler.IncrementalBuild` is off by default; the CLI's project builds
   and reference builds turn it on. A stamp is kept only for an output INSIDE the project root, so
   `nlc build -o /elsewhere` (the compile-time bench) leaves the source tree untouched and always
-  compiles. `nlc check` (which writes nothing), editor buffers
+  compiles. Editor buffers
   (source overrides), single-file builds, `--perf-report` (which needs the systems analysis) and runs
   with `NSHARP_COLUMNAR_DECLINE_LOG`/`NSHARP_DEBUG_LOG` set always compile. `NSHARP_INCREMENTAL=0`
   turns every shortcut off for the process. `nlc test --no-cache` deletes the test output, which
   invalidates its stamp.
+- **Check results share this owner.** A cold in-process `nlc check` stores its selected output,
+  full diagnostics JSON and exit code in the same checksummed, atomic stamp format at
+  `<projectRoot>/obj/nlc/<assembly>.check.stamp`. The check key carries the compiler identity,
+  project/configuration, source list, AOT/backend/reference switches, lint policy and output mode;
+  its entries are captured by `IncrementalBuildInputCapture`, the same source, project, reference,
+  framework-closure and metadata inventory the build stamp uses. A hit verifies those entries and
+  writes the exact saved stdout or stderr bytes without parsing or binding. Text mode also replays
+  its saved elapsed line. Workspace checks keep one slot under each member project's `obj/`, assemble
+  the workspace envelope from cached member diagnostics, and save assembled human output in the
+  first member's existing check stamp for exact replay when every member hits. The daemon keeps its
+  warm incremental analysis route so its first check seeds semantic state for later edits.
 - **Pinned by** `tests/native/incremental-build` (`UpToDate.tests.nl`): every invalidation axis
   (source edit, add/delete/rename, a test file the build does not compile, `project.yml` comment,
   define, configuration value, compile options, `.editorconfig`, deleted or modified output, corrupt,
   truncated or foreign stamp, a referenced DLL's content) rebuilds and must equal a build with the
   machinery off; a touched-but-identical source stays up to date; and the stamp's `CompilerError`
   field list is compared with the record's own members.
+- **Pinned by** `tests/native/daemon-exec/CheckStamp.tests.nl`: cold JSON/text replay, successful and
+  failing diagnostics, body/signature edits, new/deleted source files, a `project.yml` edit, a
+  referenced project rebuild, truncated/garbled stamps and independent workspace member stamps are
+  compared byte-for-byte with fresh checks; a no-op hit parses zero files. A different compiler
+  identity key is rejected in `tests/native/incremental-build/UpToDate.tests.nl`.
 
 ### Incremental analysis in a warm process — `IncrementalProjectSession`
 

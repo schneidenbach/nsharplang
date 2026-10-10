@@ -33,7 +33,11 @@ func AgentLoopTestRow(size: string, scenario: string, mode: string, wallMs: long
     row.MedianCpuMs = wallMs
     row.MedianPeakRssBytes = 300000000
     row.SourceLines = 448
-    row.Counters = AgentLoopTestCounters(parsed)
+    if scenario == "no-op check" {
+        row.Counters = AgentLoopZeroCounters()
+    } else {
+        row.Counters = AgentLoopTestCounters(parsed)
+    }
     return row
 }
 
@@ -104,7 +108,7 @@ func AgentLoopTestBaseline(): AgentLoopBaseline {
 
 func AgentLoopTestObserved(parsed: long, wallMs: long): List<AgentLoopRow> {
     rows := new List<AgentLoopRow>()
-    rows.Add(AgentLoopTestRow("small", "no-op check", "cold", wallMs, parsed))
+    rows.Add(AgentLoopTestRow("small", "body check", "cold", wallMs, parsed))
     return rows
 }
 
@@ -344,7 +348,7 @@ test "agent-loop bench: the baseline file the harness writes is the baseline fil
     first := parsed.Rows[0]
     assert first.Size == "small" && first.Scenario == "no-op check" && first.Mode == "cold"
     assert first.SourceLines == 448
-    assert AgentLoopCountersEqual(first.Counters ?? AgentLoopTestCounters(-1), AgentLoopTestCounters(40))
+    assert AgentLoopCountersEqual(first.Counters ?? AgentLoopZeroCounters(), AgentLoopZeroCounters())
     assert AgentLoopBaselineRefusal(parsed) == ""
     json := AgentLoopBaselineJson(written)
     assert !json.Contains("medianWallMs")
@@ -421,8 +425,8 @@ test "agent-loop bench: the ratchet lowers counters, refuses a rise, and never t
     baseline := AgentLoopTestBaseline()
     lower := AgentLoopTestObserved(8, 9999)
     assert AgentLoopRatchetCounters(baseline, lower).Count == 0
-    cold := AgentLoopFindRow(baseline.Rows, "small", "no-op check", "cold") ?? lower[0]
-    assert (cold.Counters ?? AgentLoopTestCounters(-1)).FilesParsed == 8
+    cold := AgentLoopFindRow(baseline.Rows, "small", "body check", "cold") ?? lower[0]
+    assert (cold.Counters ?? AgentLoopTestCounters(-1)).FilesParsed == 8, "the accepted ratchet must lower the body-check baseline"
     assert cold.MedianWallMs == 1000
 
     higher := AgentLoopRatchetCounters(baseline, AgentLoopTestObserved(9, 1000))
@@ -618,7 +622,7 @@ test "agent-loop bench: the table states every counter and puts a compared value
 
     plain := AgentLoopRenderTable(observed, null, "")
     assert !plain.Contains("Parenthesised")
-    assert plain.Contains("| small | 448 | no-op check | cold | 0 | 500 |")
+    assert plain.Contains("| small | 448 | body check | cold | 0 | 500 |")
 }
 
 test "agent-loop bench: the committed structural baseline covers cold, warm and daemon-warm rows" {
@@ -641,6 +645,14 @@ test "agent-loop bench: the committed structural baseline covers cold, warm and 
             assert AgentLoopFindRow(baseline.Rows, sizes[i].Name, scenarios[j].Id, AgentLoopModeCold()) != null, sizes[i].Name + " / " + scenarios[j].Id
             assert AgentLoopFindRow(baseline.Rows, sizes[i].Name, scenarios[j].Id, AgentLoopModeWarm()) != null, sizes[i].Name + " / " + scenarios[j].Id
             assert AgentLoopFindRow(baseline.Rows, sizes[i].Name, scenarios[j].Id, AgentLoopModeDaemonWarm()) != null, sizes[i].Name + " / " + scenarios[j].Id
+            if scenarios[j].Id == "no-op check" {
+                coldCheck := AgentLoopFindRow(baseline.Rows, sizes[i].Name, "no-op check", AgentLoopModeCold()) ?? new AgentLoopRow("", "", "")
+                warmCheck := AgentLoopFindRow(baseline.Rows, sizes[i].Name, "no-op check", AgentLoopModeWarm()) ?? new AgentLoopRow("", "", "")
+                daemonCheck := AgentLoopFindRow(baseline.Rows, sizes[i].Name, "no-op check", AgentLoopModeDaemonWarm()) ?? new AgentLoopRow("", "", "")
+                assert (coldCheck.Counters ?? AgentLoopZeroCounters()).FilesParsed == 0, sizes[i].Name + " cold no-op check must parse zero files"
+                assert (warmCheck.Counters ?? AgentLoopZeroCounters()).FilesParsed == 0, sizes[i].Name + " warm no-op check must parse zero files"
+                assert (daemonCheck.Counters ?? AgentLoopZeroCounters()).FilesParsed == 0, sizes[i].Name + " daemon-warm no-op check must parse zero files"
+            }
             j = j + 1
         }
         i = i + 1

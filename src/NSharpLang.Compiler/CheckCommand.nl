@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Diagnostics
 import System.IO
+import System.Text.Json
 import System.Threading.Tasks
 import NSharpLang.Cli
 import NSharpLang.Compiler
@@ -22,11 +23,11 @@ import NSharpLang.Compiler.Performance
 // single-project check keeps schema 1 because tests use its existing `checkedFiles` and `results`;
 // the separate workspace envelope groups each member under schema 2.
 //
-// CHECK WRITES NOTHING. A clean analysis is followed by the IL back end's validation
+// CHECK WRITES NO BUILD OUTPUT. A clean analysis is followed by the IL back end's validation
 // (`MultiFileCompiler.ValidateAnalyzedEmission`), because the refusals that back end can still make
 // (NL103) are decided only by walking the program's bodies; the image it produces stays in memory.
-// No assembly, scratch directory or reference assembly is written, and the stats line counts no
-// emitted assembly.
+// No assembly, scratch directory or reference assembly is written. The incremental check-result
+// stamp is the only project output, and the stats line counts no emitted assembly.
 class CheckCommand {
     static func Execute(args: string[]): int {
         arguments := CheckCommandKernels.GetArgumentSummary(args)
@@ -83,6 +84,19 @@ class CheckCommand {
             // In the workspace server, the previous check of this project hands over its analyses
             // (`WarmIncrementalSessions`), so a body edit re-analyses only the files it can reach.
             warmKey = WarmIncrementalSessions.Attach(compiler, projectDir, "", "check", true, aot)
+            if outputMode != -1 {
+                cached := compiler.TryReadCheckResult(
+                    CompilationReferenceResolver.GetProjectAssemblyName(projectDir, projectConfig ?? ProjectFileParser.CreateDefault(null)),
+                    outputMode,
+                    arguments.UseBuiltReferences,
+                    arguments.BackendOption
+                )
+                if cached != null {
+                    WriteCheckOutput(cached.Output, cached.OutputToStandardError)
+                    return cached.ExitCode
+                }
+            }
+
             compiler.CompileForAnalysis()
             snapshot := service.SnapshotOfCompilation(projectDir, compiler)
             diagnostics := service.GetDiagnostics(snapshot, null)
@@ -104,34 +118,40 @@ class CheckCommand {
                 return EmitError(useText, CheckCommandKernels.GetSystemsReportTextUnavailableMessage(), projectDir)
             }
 
+            diagnosticsJson := OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count)
+            output := diagnosticsJson
+            outputToStandardError := false
             if useText {
+                textOutput := new System.Text.StringBuilder()
                 if summary.Errors == 0 && summary.Warnings == 0 {
                     fileCount := snapshot.SourceFiles.Count
-                    Console.Error.WriteLine(CheckCommandKernels.GetNoErrorsMessage(
+                    textOutput.AppendLine(CheckCommandKernels.GetNoErrorsMessage(
                         fileCount,
                         ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)
                     ))
                 } else {
                     diagnosticText := OutputFormatter.DiagnosticsToText(diagnostics)
-                    writer := Console.Error
-                    writer.Write(diagnosticText)
+                    textOutput.Append(diagnosticText)
                     checkedInMessage := CheckCommandKernels.GetCheckedInMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds))
-                    writer.WriteLine(checkedInMessage)
+                    textOutput.AppendLine(checkedInMessage)
                 }
+                output = textOutput.ToString()
+                outputToStandardError = true
             } else if outputMode == 3 {
-                systemsJson := OutputFormatter.CheckSystemsReportToJson(
+                output = OutputFormatter.CheckSystemsReportToJson(
                     diagnostics,
                     snapshot.ProjectRoot,
                     snapshot.SourceFiles.Count,
                     snapshot.SystemsReport
                 )
-                Console.Write(systemsJson)
             } else {
-                checkJson := OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count)
-                Console.Write(checkJson)
+                output = diagnosticsJson
             }
 
-            return CheckCommandKernels.GetExitCode(summary.Errors)
+            exitCode := CheckCommandKernels.GetExitCode(summary.Errors)
+            compiler.SaveCheckResult(output, diagnosticsJson, outputToStandardError, exitCode)
+            WriteCheckOutput(output, outputToStandardError)
+            return exitCode
         } catch ex: Exception {
             WarmIncrementalSessions.Discard(warmKey)
             if useText {
@@ -192,6 +212,8 @@ class CheckCommand {
                     project,
                     outputMode,
                     aotMode,
+                    arguments.UseBuiltReferences,
+                    arguments.BackendOption,
                     referenceFailure
                 )
             }
@@ -210,26 +232,55 @@ class CheckCommand {
             }
         }
 
+        exitCode := 0
+        if hasErrors {
+            exitCode = 1
+        }
+
         if outputMode == 2 {
-            WriteWorkspaceText(orderedResults, elapsed)
+            textOwner: CheckWorkspaceProjectResult? = null
+            allResultsCached := true
+            for result in orderedResults {
+                if result.CheckCompiler != null && textOwner == null {
+                    textOwner = result
+                }
+                if !result.CheckWasCached {
+                    allResultsCached = false
+                }
+            }
+
+            owner := textOwner
+            if allResultsCached && owner != null && owner.CheckOutputToStandardError && owner.CheckOutput != null {
+                Console.Error.Write(owner.CheckOutput ?? "")
+            } else {
+                output := RenderWorkspaceText(orderedResults, elapsed.ElapsedMilliseconds)
+                Console.Error.Write(output)
+                if owner != null && owner.CheckCompiler != null && owner.CheckDiagnosticsJson != null {
+                    owner.CheckCompiler.SaveCheckResult(
+                        output,
+                        owner.CheckDiagnosticsJson ?? "",
+                        true,
+                        exitCode
+                    )
+                }
+            }
         } else {
             Console.Write(OutputFormatter.CheckWorkspaceToJson(projectDir, orderedResults, outputMode == 3))
         }
 
-        if hasErrors {
-            return 1
-        }
-        return 0
+        return exitCode
     }
 
     private static async func CheckWorkspaceProjectAsync(
         project: CheckWorkspaceProject,
         outputMode: int,
         aotMode: bool,
+        useBuiltReferences: bool,
+        backendOption: string?,
         referenceFailure: string?
     ): Task<CheckWorkspaceProjectResult> {
         await Task.Yield()
-        return CheckWorkspaceProject(project, outputMode, aotMode, referenceFailure)
+        return CheckWorkspaceProject(project, outputMode, aotMode, useBuiltReferences, backendOption, referenceFailure)
     }
 
     private static func ResolveWorkspaceProjectReferences(
@@ -275,6 +326,8 @@ class CheckCommand {
         project: CheckWorkspaceProject,
         outputMode: int,
         aotMode: bool,
+        useBuiltReferences: bool,
+        backendOption: string?,
         referenceFailure: string?
     ): CheckWorkspaceProjectResult {
         emptyDiagnostics := new List<DiagnosticResult>()
@@ -303,6 +356,55 @@ class CheckCommand {
         try {
             config := project.Config
             service := new CodeIntelligenceService()
+            if config != null && project.SourceFiles.Length > 0 && File.Exists(CheckCommandKernels.GetProjectYmlPath(project.ProjectRoot)) {
+                effectiveConfig := config ?? ProjectFileParser.CreateDefault(null)
+                assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(project.ProjectRoot, effectiveConfig)
+                compiler := new MultiFileCompiler(project.SourceFiles, project.ProjectRoot, effectiveConfig, null) { AotMode: aotMode, Workers: 1 }
+                cached := compiler.TryReadCheckResult(assemblyName, outputMode, useBuiltReferences, backendOption)
+                if cached != null {
+                    restored := RestoreWorkspaceProjectResult(project.ProjectRoot, cached)
+                    if restored != null {
+                        restored.CheckCompiler = compiler
+                        restored.CheckWasCached = true
+                        restored.CheckOutput = cached.Output
+                        restored.CheckOutputToStandardError = cached.OutputToStandardError
+                        restored.CheckDiagnosticsJson = cached.DiagnosticsJson
+                        return restored
+                    }
+                }
+
+                compiler.CompileForAnalysis()
+                compiler.ValidateAnalyzedEmission(assemblyName)
+                snapshot := service.SnapshotOfCompilation(project.ProjectRoot, compiler)
+                diagnostics := OutputFormatter.DeduplicateAndSortDiagnostics(service.GetDiagnostics(snapshot, null))
+                summary := OutputFormatter.SummarizeDiagnostics(diagnostics)
+                diagnosticsJson := OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count)
+                resultJson := diagnosticsJson
+                systemsReport: SystemsReport? = null
+                if outputMode == 3 {
+                    systemsReport = snapshot.SystemsReport
+                    resultJson = OutputFormatter.CheckSystemsReportToJson(
+                        diagnostics,
+                        snapshot.ProjectRoot,
+                        snapshot.SourceFiles.Count,
+                        snapshot.SystemsReport
+                    )
+                }
+                exitCode := CheckCommandKernels.GetExitCode(summary.Errors)
+                compiler.SaveCheckResult(resultJson, resultJson, false, exitCode)
+                result := new CheckWorkspaceProjectResult(
+                    project.ProjectRoot,
+                    snapshot.SourceFiles.Count,
+                    diagnostics,
+                    summary,
+                    null,
+                    systemsReport
+                )
+                result.CheckCompiler = compiler
+                result.CheckDiagnosticsJson = resultJson
+                return result
+            }
+
             snapshot := LoadWorkspaceProjectForCheck(service, project, config, aotMode)
             diagnostics := OutputFormatter.DeduplicateAndSortDiagnostics(service.GetDiagnostics(snapshot, null))
             summary := OutputFormatter.SummarizeDiagnostics(diagnostics)
@@ -331,6 +433,78 @@ class CheckCommand {
         }
     }
 
+    private static func RestoreWorkspaceProjectResult(projectRoot: string, cached: IncrementalCheckResult): CheckWorkspaceProjectResult? {
+        try {
+            using document := JsonDocument.Parse(cached.DiagnosticsJson)
+            root := document.RootElement
+            results: JsonElement = default
+            if !root.TryGetProperty("results", out results) && !root.TryGetProperty("diagnostics", out results) {
+                return null
+            }
+
+            diagnostics := new List<DiagnosticResult>()
+            for item in results.EnumerateArray() {
+                diagnostics.Add(new DiagnosticResult(
+                    CachedDiagnosticString(item, "code"),
+                    CachedDiagnosticString(item, "severity"),
+                    CachedDiagnosticString(item, "message"),
+                    CachedDiagnosticString(item, "file"),
+                    CachedDiagnosticInt(item, "line"),
+                    CachedDiagnosticInt(item, "column"),
+                    CachedDiagnosticInt(item, "length"),
+                    CachedDiagnosticOptionalString(item, "sourceSnippet"),
+                    CachedDiagnosticOptionalString(item, "explanation"),
+                    CachedDiagnosticOptionalString(item, "suggestion"),
+                    CachedDiagnosticOptionalString(item, "hint"),
+                    CachedDiagnosticOptionalString(item, "expectedType"),
+                    CachedDiagnosticOptionalString(item, "actualType"),
+                    CachedDiagnosticOptionalString(item, "docsUrl")
+                ))
+            }
+
+            checkedFiles := CachedDiagnosticInt(root, "checkedFiles")
+            restored := new CheckWorkspaceProjectResult(
+                projectRoot,
+                checkedFiles,
+                diagnostics,
+                OutputFormatter.SummarizeDiagnostics(diagnostics),
+                null,
+                null
+            )
+            systemsReport: JsonElement = default
+            if root.TryGetProperty("systemsReport", out systemsReport) {
+                restored.SystemsReportJson = systemsReport.GetRawText()
+            }
+            return restored
+        } catch ex: Exception {
+            return null
+        }
+    }
+
+    private static func CachedDiagnosticString(value: JsonElement, name: string): string {
+        property: JsonElement = default
+        if value.TryGetProperty(name, out property) && property.ValueKind == JsonValueKind.String {
+            return property.GetString() ?? ""
+        }
+        return ""
+    }
+
+    private static func CachedDiagnosticOptionalString(value: JsonElement, name: string): string? {
+        property: JsonElement = default
+        if value.TryGetProperty(name, out property) && property.ValueKind == JsonValueKind.String {
+            return property.GetString()
+        }
+        return null
+    }
+
+    private static func CachedDiagnosticInt(value: JsonElement, name: string): int {
+        property: JsonElement = default
+        if value.TryGetProperty(name, out property) && property.ValueKind == JsonValueKind.Number {
+            return property.GetInt32()
+        }
+        return 0
+    }
+
     private static func LoadWorkspaceProjectForCheck(
         service: CodeIntelligenceService,
         project: CheckWorkspaceProject,
@@ -350,24 +524,24 @@ class CheckCommand {
         )
     }
 
-    private static func WriteWorkspaceText(results: IReadOnlyList<CheckWorkspaceProjectResult>, elapsed: Stopwatch): void {
+    private static func RenderWorkspaceText(results: IReadOnlyList<CheckWorkspaceProjectResult>, elapsedMilliseconds: long): string {
+        builder := new System.Text.StringBuilder()
         for result in results {
-            Console.Error.WriteLine("Project: " + result.ProjectRoot)
+            builder.AppendLine("Project: " + result.ProjectRoot)
             if result.ErrorMessage != null {
-                Console.Error.WriteLine("  Error: " + (result.ErrorMessage ?? ""))
+                builder.AppendLine("  Error: " + (result.ErrorMessage ?? ""))
             } else if result.Summary.Errors == 0 && result.Summary.Warnings == 0 {
-                Console.Error.WriteLine(CheckCommandKernels.GetNoErrorsMessage(
+                builder.AppendLine(CheckCommandKernels.GetNoErrorsMessage(
                     result.CheckedFiles,
-                    ProgramCommandKernels.FormatElapsedMilliseconds(elapsed.ElapsedMilliseconds)
+                    ProgramCommandKernels.FormatElapsedMilliseconds(elapsedMilliseconds)
                 ))
             } else {
-                Console.Error.Write(OutputFormatter.DiagnosticsToText(result.Diagnostics))
-                Console.Error.WriteLine(CheckCommandKernels.GetCheckedInMessage(
-                    ProgramCommandKernels.FormatElapsedMilliseconds(elapsed.ElapsedMilliseconds)
-                ))
+                builder.Append(OutputFormatter.DiagnosticsToText(result.Diagnostics))
+                builder.AppendLine(CheckCommandKernels.GetCheckedInMessage(ProgramCommandKernels.FormatElapsedMilliseconds(elapsedMilliseconds)))
             }
         }
-        Console.Error.WriteLine("  Checked " + results.Count.ToString() + " projects in " + ProgramCommandKernels.FormatElapsedMilliseconds(elapsed.ElapsedMilliseconds) + ".")
+        builder.AppendLine("  Checked " + results.Count.ToString() + " projects in " + ProgramCommandKernels.FormatElapsedMilliseconds(elapsedMilliseconds) + ".")
+        return builder.ToString()
     }
 
     // Validates the analysed program's emission in memory and reports any error the back end adds.
@@ -397,5 +571,13 @@ class CheckCommand {
         }
 
         return 1
+    }
+
+    private static func WriteCheckOutput(output: string, outputToStandardError: bool): void {
+        if outputToStandardError {
+            Console.Error.Write(output)
+        } else {
+            Console.Write(output)
+        }
     }
 }

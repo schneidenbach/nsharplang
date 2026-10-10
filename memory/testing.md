@@ -1439,6 +1439,22 @@ columns. The directly measured `NSharpLang.*` JIT interval was 257 ms on medium 
 that is the current evidence for how much full-compiler NativeAOT could remove from a cold check.
 It is not a NativeAOT benchmark, and it excludes runtime, framework, GC, and startup behavior that
 would still exist in an AOT process.
+**Measured cold check-result stamp (2026-10-09, 9 paired runs per row, base `72cd2ae60`, arm64
+Darwin 24.6.0, 10 cores).** Each value is the median wall time in milliseconds, base → head; ratios
+are the median of paired head/base ratios. No-op checks parse zero files on all three sizes. The
+no-op-build column is the paired median supplied by the task, for the 1.2× target comparison.
+
+| size | no-op check, base → head | ratio | no-op build | check/build | body check, base → head | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| small | 777 → 110 ms | 0.138× | 134 ms | 0.82× | 818 → 842 ms | 1.024× |
+| medium | 1,243 → 180 ms | 0.145× | 153 ms | 1.18× | 760 → 741 ms | 1.008× |
+| large | 2,548 → 121 ms | 0.048× | 172 ms | 0.70× | 2,604 → 2,636 ms | 1.010× |
+
+The no-op relative gate's 95% lower ratio bounds were 0.126×, 0.140× and 0.042× for small,
+medium and large. Cold body edits still take a full check because their changed source invalidates
+the result stamp and a cold process has no semantic models to reuse; the existing daemon session
+continues to re-analyze only the affected files. The head no-op structural rows were re-recorded
+from these real agent-loop runs in `tests/fixtures/agent-loop/agent-loop-baseline.golden.json`.
 
 ### 9. The Installed Toolchain (`tests/native/installed-toolchain-integration`)
 
