@@ -67,31 +67,20 @@ jobs:
     - name: Plan duration-balanced test shards
       id: shard-plan
       run: |
-        mkdir -p artifacts/ci
+        mkdir -p "$RUNNER_TEMP"
         scripts/ci-test-shards.sh plan \
-          --output artifacts/ci/test-shard-plan.json \
+          --output "$RUNNER_TEMP/test-shard-plan.json" \
           --github-output "$GITHUB_OUTPUT" \
           --print
 
     - name: Package shared build outputs
-      run: |
-        mkdir -p artifacts/ci
-        tar -czf artifacts/ci/native-build.tar.gz \
-          src/NSharpLang.Cli/bin src/NSharpLang.Cli/obj \
-          src/NSharpLang.Build.Tasks/bin src/NSharpLang.Build.Tasks/obj \
-          src/NSharpLang.LanguageServer/bin src/NSharpLang.LanguageServer/obj \
-          src/NSharpLang.Playground/bin src/NSharpLang.Playground/obj \
-          src/NSharpLang.Playground.Wasm/bin src/NSharpLang.Playground.Wasm/obj \
-          src/NSharpLang.Compiler/bin src/NSharpLang.Compiler/obj \
-          src/NSharpLang.Compiler.*/bin src/NSharpLang.Compiler.*/obj
+      run: scripts/build-native-prerequisites.sh --archive artifacts/ci/native-build.tar.gz
 
     - name: Upload shared build outputs
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: ci-native-build
-        path: |
-          artifacts/ci/native-build.tar.gz
-          artifacts/ci/test-shard-plan.json
+        path: artifacts/ci/native-build.tar.gz
         if-no-files-found: error
         retention-days: 2
 
@@ -105,7 +94,8 @@ jobs:
     - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       with:
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
-        fetch-depth: 1
+        # Compile-time-bench compares the compiler product diff with its base commit.
+        fetch-depth: 0
 
     - name: Setup .NET
       uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
@@ -116,10 +106,10 @@ jobs:
       uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       with:
         name: ci-native-build
-        path: .ci-build
+        path: ${{ runner.temp }}/ci-build
 
     - name: Restore shared build outputs
-      run: tar -xzf .ci-build/native-build.tar.gz -C .
+      run: tar -xzf "$RUNNER_TEMP/ci-build/native-build.tar.gz" -C .
 
     - name: Run test shard ${{ matrix.shard }}
       env:
@@ -151,6 +141,7 @@ jobs:
 
   compiler-performance:
     name: Compiler performance (${{ matrix.slice }})
+    needs: build-prerequisites
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -166,6 +157,15 @@ jobs:
       uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
       with:
         global-json-file: global.json
+
+    - name: Download shared build outputs
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: ci-native-build
+        path: ${{ runner.temp }}/ci-build
+
+    - name: Restore shared build outputs
+      run: tar -xzf "$RUNNER_TEMP/ci-build/native-build.tar.gz" -C .
 
     - name: Verify pinned compiler bootstrap
       run: python3 scripts/verify-bootstrap.py
@@ -223,10 +223,10 @@ jobs:
       uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       with:
         name: ci-native-build
-        path: .ci-build
+        path: ${{ runner.temp }}/ci-build
 
     - name: Restore shared build outputs
-      run: tar -xzf .ci-build/native-build.tar.gz -C .
+      run: tar -xzf "$RUNNER_TEMP/ci-build/native-build.tar.gz" -C .
 
     # The per-RID toolset: a ReadyToRun compiler host behind the NativeAOT `nlc` front door. The
     # publish fails on any trim/AOT warning, and the smoke run proves the native front door answers

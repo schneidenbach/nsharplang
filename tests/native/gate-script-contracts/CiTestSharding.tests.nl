@@ -7,6 +7,7 @@ test "CI shard discovery assigns every estate and native project once, including
 
     assert run.ExitCode == 0, "The CI shard contract failed: " + run.Report()
     assert run.Stdout.Contains("discovered projects are assigned exactly once across 10 test shards."), run.Stdout
+    assert run.Stdout.Contains("CI test shard contract passed"), run.Stdout
 }
 
 test "CI shard duration planning includes the harness structural checks and keeps timing lanes separate" {
@@ -28,4 +29,7 @@ test "ordinary native shards use the Release CLI while structural and timing har
     assert runner.Contains("\"CompileTimeGate\"") && runner.Contains("\"AgentLoopGate\"")
     assert runner.Contains("--performance-slice")
     assert runner.Contains("--no-cache") && runner.Contains("--json")
+    assert runner.Contains("def extract_native_result(output):"), "Native test JSON extraction must tolerate ordinary stdout before the versioned envelope."
+    assert runner.Contains(".result.json"), "Each native project must persist its validated result in a dedicated artifact file."
+    assert runner.Contains("extract_native_result(\"nested command output with no test envelope\") is not None"), "The no-result path must stay a hard failure."
 }

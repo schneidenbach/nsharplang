@@ -104,9 +104,17 @@ test "compiler performance gates keep load as trend data and carry ratio reports
 
 test "CI runs the paired compiler gates with git history and uploads their trend artifacts" {
     workflow := CompilerPerfSource(".github/workflows/build.yml")
+    shardStart := workflow.IndexOf("  test-shards:")
+    performanceStart := workflow.IndexOf("  compiler-performance:")
+    packageStart := workflow.IndexOf("  package:")
+    shardWorkflow := workflow.Substring(shardStart, performanceStart - shardStart)
+    performanceWorkflow := workflow.Substring(performanceStart, packageStart - performanceStart)
 
     assert workflow.Contains("fetch-depth: 0"), "CI must fetch the compiler history and origin branch needed for deterministic base selection."
+    assert shardWorkflow.Contains("fetch-depth: 0"), "The compile-time-bench native shard must receive full history for base/head selection."
     assert workflow.Contains("compiler-performance:"), "The compiler performance gate must run in its own parallel job."
+    assert performanceWorkflow.Contains("needs: build-prerequisites"), "Performance lanes must wait for the shared build artifact."
+    assert performanceWorkflow.Contains("Download shared build outputs") && performanceWorkflow.Contains("Restore shared build outputs"), "Performance lanes must restore the shared Language Server and other prerequisite outputs."
     assert workflow.Contains("Build head CLI for compiler performance gate"), "The performance lane must build its own head CLI."
     assert workflow.Contains("NSHARP_COMPILER_PERF_CACHE"), "The performance project must retain its isolated base-build cache."
     assert workflow.Contains("slice: [core, small-check, small-build, small-test, medium-check, medium-build, medium-test, medium-lsp, large-lsp]"), "Core-scale, every small/medium check/build/test group, and both LSP project sizes must run in parallel jobs."
@@ -195,4 +203,7 @@ test "the product gate and CI build native prerequisites before their tests thro
     assert workflow.Contains("NSHARP_RUN_DOCKER_INTEGRATION: '1'"), "The discovered installed-toolchain-integration project requires Docker, and CI must force those rows to run."
     planner := NativePrerequisiteSource("scripts/ci-test-shards.sh")
     assert planner.Contains("native_root.glob") && planner.Contains("project.yml"), "Native test project discovery must remain open-ended in the shared planner."
+    assert buildScript.Contains("SHARED_BUILD_OUTPUT_PROJECTS") && buildScript.Contains("\"${NATIVE_PREREQUISITE_PROJECTS[@]}\""), "The shared artifact project set must derive from the prerequisite owner."
+    assert buildScript.Contains("--archive") && buildScript.Contains("tar -czf \"$archive_path\""), "The prerequisite owner must package its owned output directories."
+    assert workflow.Contains("scripts/build-native-prerequisites.sh --archive artifacts/ci/native-build.tar.gz"), "CI must ask the prerequisite owner to create the shared artifact."
 }
