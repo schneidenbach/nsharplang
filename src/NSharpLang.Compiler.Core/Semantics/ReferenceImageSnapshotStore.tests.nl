@@ -5,6 +5,8 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
+import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 import YamlDotNet.Serialization
 
 test "metadata loading uses the captured image when a reference path is rewritten before reflection" {
@@ -102,23 +104,32 @@ test "snapshot path resolver preserves the referenced assembly identity and memb
 }
 
 test "snapshot resolver keeps compiler model types visible through a reference image" {
-    testOutputDirectory := Path.GetDirectoryName(typeof(AnalyzerMetadataLoadPolicy).Assembly.Location) ?? ""
-    modelOutputDirectory := Path.GetFullPath(Path.Combine(testOutputDirectory, "../../../../../NSharpLang.Compiler.Model/bin/Debug/net10.0"))
-    syntaxOutputDirectory := Path.GetFullPath(Path.Combine(testOutputDirectory, "../../../../../NSharpLang.Compiler.Syntax/bin/Debug/net10.0"))
-    modelPath := Path.Combine(modelOutputDirectory, "NSharpLang.Compiler.Model.dll")
-    syntaxPath := Path.Combine(syntaxOutputDirectory, "NSharpLang.Compiler.Syntax.dll")
+    modelPath := typeof(Expression).Assembly.Location
+    syntaxPath := typeof(ExprResult).Assembly.Location
+    modelOutputDirectory := Path.GetDirectoryName(modelPath) ?? ""
+    syntaxOutputDirectory := Path.GetDirectoryName(syntaxPath) ?? ""
     modelFileIdentity := AssemblyName.GetAssemblyName(modelPath)
     modelImageIdentity := ReferenceImageSnapshotStore.AssemblyNameFromImage(File.ReadAllBytes(modelPath))
     assert modelImageIdentity.FullName == modelFileIdentity.FullName, modelImageIdentity.FullName + " != " + modelFileIdentity.FullName
+
+    runtimeDirectory := Path.GetFullPath(RuntimeEnvironment.GetRuntimeDirectory())
+    directories := new List<string>()
+    seenDirectories := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    if seenDirectories.Add(runtimeDirectory) {
+        directories.Add(runtimeDirectory)
+    }
+    if seenDirectories.Add(Path.GetFullPath(modelOutputDirectory)) {
+        directories.Add(Path.GetFullPath(modelOutputDirectory))
+    }
+    if seenDirectories.Add(Path.GetFullPath(syntaxOutputDirectory)) {
+        directories.Add(Path.GetFullPath(syntaxOutputDirectory))
+    }
+
     paths := new List<string>()
-    for path in Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll") {
-        paths.Add(path)
-    }
-    for path in Directory.GetFiles(modelOutputDirectory, "*.dll") {
-        paths.Add(path)
-    }
-    for path in Directory.GetFiles(syntaxOutputDirectory, "*.dll") {
-        paths.Add(path)
+    for directory in directories {
+        for path in Directory.GetFiles(directory, "*.dll") {
+            paths.Add(path)
+        }
     }
 
     images := new ReferenceImageSnapshotStore()
@@ -135,14 +146,10 @@ test "snapshot resolver keeps compiler model types visible through a reference i
         assert node != null, "snapshot resolver did not expose ExprResult.Node"
         assert node.FieldType.FullName == "NSharpLang.Compiler.Ast.Expression", node.FieldType.FullName
 
-        analyzerDirectories := new List<string>()
-        analyzerDirectories.Add(RuntimeEnvironment.GetRuntimeDirectory())
-        analyzerDirectories.Add(modelOutputDirectory)
-        analyzerDirectories.Add(syntaxOutputDirectory)
         analyzerImages := new ReferenceImageSnapshotStore()
         analyzerGate := new object()
         analyzerResolver := new AnalyzerMetadataAssemblyResolver(
-            analyzerDirectories,
+            directories,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<string, string>(StringComparer.Ordinal),
             analyzerGate,
