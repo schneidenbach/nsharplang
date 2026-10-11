@@ -130,6 +130,12 @@ def verify_contract(root=ROOT, duration_path=DURATION_FILE):
     extended_union = [project for shard in extended for project in shard["projects"]]
     if extended_union.count(synthetic) != 1 or set(extended_union) != set(projects + [synthetic]):
         raise AssertionError("A newly discovered project was not assigned exactly once.")
+    envelope = {"schemaVersion": 1, "command": "test", "summary": {}, "results": []}
+    captured = extract_native_result("nested command output\n" + json.dumps(envelope))
+    if captured != envelope:
+        raise AssertionError("A native JSON result after stdout noise was not extracted.")
+    if extract_native_result("nested command output with no test envelope") is not None:
+        raise AssertionError("Native output without a test result must remain a missing result.")
     return len(projects), first
 
 
@@ -228,6 +234,21 @@ def parse_native_result(path, exit_code, project):
     elif not (payload.get("ok") is True and exit_code == 0 and passed > 0 and failed == 0):
         raise RuntimeError("Native test build/run failed for {} (exit {}); incomplete test-failure result.".format(project, exit_code))
     return {"total": total, "passed": passed, "failed": failed, "skipped": skipped}, names
+
+
+def extract_native_result(output):
+    """Find the versioned test envelope when a test itself writes ordinary stdout first."""
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", output):
+        try:
+            payload, _ = decoder.raw_decode(output, match.start())
+        except json.JSONDecodeError:
+            continue
+        if (isinstance(payload, dict) and payload.get("schemaVersion") == 1 and
+                payload.get("command") == "test" and isinstance(payload.get("summary"), dict) and
+                isinstance(payload.get("results"), list)):
+            return payload
+    return None
 
 
 ESTATE_FAILURE_RE = re.compile(r"^\s*Failed\s+(.+?)(?:\s+\[[^\]]+\])?\s*$", re.MULTILINE)
@@ -347,8 +368,12 @@ def run_projects(projects, title, repository_root, artifact_directory, duration_
         record = {"project": project, "seconds": elapsed, "exitCode": process.returncode, "outcome": "infrastructure failure"}
         try:
             if kind == "native":
-                result_path = artifact_directory / (log_name + ".json")
-                result_path.write_text(process.stdout, encoding="utf-8")
+                result_path = artifact_directory / (log_name + ".result.json")
+                if result_path.exists():
+                    result_path.unlink()
+                result_payload = extract_native_result(process.stdout)
+                if result_payload is not None:
+                    result_path.write_text(json.dumps(result_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
                 tests, failed_names = parse_native_result(result_path, process.returncode, project)
             else:
                 tests, failed_names = estate_result(combined_output, process.returncode, project)
