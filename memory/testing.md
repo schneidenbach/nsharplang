@@ -1158,11 +1158,15 @@ performance logic stays in N#; the shell gate only carries artifacts out of its 
 
 CI assigns this project once to the ordinary discovery-driven test shards. It runs every harness
 unit and contract test plus the exact Core and agent-loop structural-counter checks in the explicit
-`NSHARP_COMPILER_PERF_MODE=structural` mode. The dedicated `compiler-performance` matrix runs only
-the paired Core-scale gate or one small/medium check, build, or test scenario group selected for that
-job; each matrix job keeps its head and base CLI on the same runner and uploads its own ratio report.
-Each size/scenario group retains its full paired sample count and both cold and daemon-warm rows.
-This split is CI-only: the
+`NSHARP_COMPILER_PERF_MODE=structural` mode. The dedicated `compiler-performance` matrix runs the
+paired Core-scale gate, the small/medium check, build and test groups, and separate medium/large LSP
+groups; each matrix job keeps its head and base compiler on the same runner and uploads its own ratio
+report. The CLI groups cover all eleven scenarios exactly once per size: four checks (including
+unchanged-check replay), four builds and three `nlc test` rows (no-op, body edit and test-file edit).
+The LSP groups cover all four measured operations exactly once for each project size. These
+partition contracts reject missing or duplicate rows. Each CLI group retains its full paired sample
+count and both cold and daemon-warm rows; LSP rows retain the paired sign-test plus the additional
+row-median ratio and slowdown rule. This split is CI-only: the
 local product gate does not set the mode, so its serial Step 3a run still performs the full timing
 comparison when compiler product inputs changed and keeps the same structural evidence otherwise.
 

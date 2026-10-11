@@ -16,6 +16,8 @@
     "tests/native/analyzer-referenced-members": 5.426,
     "tests/native/analyzer-semantic-model": 1.848,
     "tests/native/as-boxing": 1.005,
+    "tests/native/async-generic-iterators": 0.669,
+    "tests/native/async-member-iterators": 0.547,
     "tests/native/async-task-like": 1.102,
     "tests/native/boolean-code-plan": 0.794,
     "tests/native/canonical-source-order": 1.734,
@@ -107,10 +109,12 @@
     "tests/native/external-generic-methods": 1.264,
     "tests/native/free-function-overloads": 1.371,
     "tests/native/gate-script-contracts": 13.5,
+    "tests/native/generic-instance-iterators": 0.554,
     "tests/native/generic-member-types": 1.491,
     "tests/native/generic-scope-invalid": 1.325,
     "tests/native/generic-static-members": 1.194,
     "tests/native/generic-type-receivers": 0.965,
+    "tests/native/generic-union-call-arguments": 0.423,
     "tests/native/incremental-build": 15.481,
     "tests/native/installed-toolchain-integration": 160.316,
     "tests/native/interface-parameter-modifiers": 1.091,
@@ -159,6 +163,6 @@
     "tests/native/user-generic-methods": 1.377,
     "tests/native/vscode-launch-policy": 0.985
   },
-  "source": "GitHub Actions run 38027661547 project durations; compile-time-bench replaced by 209.401s local structural-only measurement on 2026-10-10",
+  "source": "GitHub Actions run 38027661547 project durations; compile-time-bench replaced by 209.401s local structural-only measurement on 2026-10-10; four new native projects measured locally on 2026-10-11",
   "unseenProjectSeconds": 10.0
 }
