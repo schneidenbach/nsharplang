@@ -70,12 +70,6 @@ func AgentLoopSizes(): List<AgentLoopSize> {
 // minutes, and the counters it would gate are the same code paths `medium` already pins.
 func AgentLoopGateSizeNames(): List<string> {
     names := new List<string>()
-    selectedSize := Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_SIZE") ?? ""
-    if selectedSize == "small" || selectedSize == "medium" {
-        names.Add(selectedSize)
-        return names
-    }
-
     names.Add("small")
     names.Add("medium")
     return names
@@ -150,23 +144,6 @@ func AgentLoopSelectScenarios(scenarioId: string): List<AgentLoopScenario> {
     while i < scenarios.Count {
         if scenarioId == "" || scenarios[i].Id == scenarioId || (scenarioId == "test" && scenarios[i].Command == "test") {
             selected.Add(scenarios[i])
-        }
-
-        i = i + 1
-    }
-
-    return selected
-}
-
-func AgentLoopSelectScenarioGroup(groupName: string): List<AgentLoopScenario> {
-    selected := new List<AgentLoopScenario>()
-    scenarios := AgentLoopScenarios()
-    i := 0
-    while i < scenarios.Count {
-        scenario := scenarios[i]
-        matchesGroup := groupName == "" || (groupName == "check" && scenario.Command == "check") || (groupName == "build" && scenario.Command == "build") || (groupName == "test" && scenario.Command == "test")
-        if matchesGroup {
-            selected.Add(scenario)
         }
 
         i = i + 1
@@ -1314,12 +1291,8 @@ func AgentLoopMeasureLspStructuralRows(headServerDll: string, repositoryRoot: st
     return rows
 }
 
-func AgentLoopMeasureLspRelativeRows(headServerDll: string, baseServerDll: string, repositoryRoot: string, matrix: AgentLoopRelativeMatrix, sizeName: string = ""): string {
+func AgentLoopMeasureLspRelativeRows(headServerDll: string, baseServerDll: string, repositoryRoot: string, matrix: AgentLoopRelativeMatrix): string {
     sizes := AgentLoopLspSizes()
-    if sizeName != "" {
-        sizes = new List<string>()
-        sizes.Add(sizeName)
-    }
     i := 0
     while i < sizes.Count {
         failure := AgentLoopMeasureLspSize(
@@ -1656,14 +1629,10 @@ func AgentLoopMeasureRelativeMatrix(
     sizeNames: List<string>,
     samples: int,
     printProgress: bool,
-    scenarioId: string = "",
-    scenarioGroup: string = ""
+    scenarioId: string = ""
 ): AgentLoopRelativeMatrix {
     result := new AgentLoopRelativeMatrix()
     scenarios := AgentLoopSelectScenarios(scenarioId)
-    if scenarioId == "" && scenarioGroup != "" {
-        scenarios = AgentLoopSelectScenarioGroup(scenarioGroup)
-    }
     if scenarios.Count == 0 {
         throw new InvalidOperationException("unknown agent-loop scenario '" + scenarioId + "'")
     }

@@ -1156,20 +1156,6 @@ reflection test runner as well: its compile-time and agent-loop gates live in se
 and the default xUnit runner would execute those machine-sensitive gates concurrently. The compiler
 performance logic stays in N#; the shell gate only carries artifacts out of its isolated tree.
 
-CI assigns this project once to the ordinary discovery-driven test shards. It runs every harness
-unit and contract test plus the exact Core and agent-loop structural-counter checks in the explicit
-`NSHARP_COMPILER_PERF_MODE=structural` mode. The dedicated `compiler-performance` matrix runs the
-paired Core-scale gate, the small/medium check, build and test groups, and separate medium/large LSP
-groups; each matrix job keeps its head and base compiler on the same runner and uploads its own ratio
-report. The CLI groups cover all eleven scenarios exactly once per size: four checks (including
-unchanged-check replay), four builds and three `nlc test` rows (no-op, body edit and test-file edit).
-The LSP groups cover all four measured operations exactly once for each project size. These
-partition contracts reject missing or duplicate rows. Each CLI group retains its full paired sample
-count and both cold and daemon-warm rows; LSP rows retain the paired sign-test plus the additional
-row-median ratio and slowdown rule. This split is CI-only: the
-local product gate does not set the mode, so its serial Step 3a run still performs the full timing
-comparison when compiler product inputs changed and keeps the same structural evidence otherwise.
-
 **Structural behavior is the primary gate.** `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json`
 pins the stage, phase diagnostic contract, expected exit and `--stats` `CompilerWorkCounters` for
 the current Core build and a deterministic Core-scale project that reaches IL emission. The current
@@ -1250,16 +1236,9 @@ paired Core-scale gate. Options include `--only <substring>`, `--scope corpus|bo
 `--cli <Cli.dll>` and `--out <dir>`.
 
 The 2026-10-09 integration census includes six unique iterator and generic-call projects, bringing
-the compile-time corpus to 197. The separate repository-root workspace census pins 235 member roots
-(including the repository root) and 2,016 checked `.nl` files. The only source addition since
-`0c554b664` is `tests/native/gate-script-contracts/CiTestSharding.tests.nl`; no `.nl` files were
-removed. A fresh Debug CLI repository-root `nlc check` on 2026-10-11 measured 3,164 parse events
-under the unchanged strict cap of three per checked file (6,048 maximum), and 12,021 reference-image
-opens against a dynamically computed maximum of 17,979 (33 shared opens for each of 235 members,
-plus six opens for each of 1,704 resolved reference images). Its 60.858 s wall time was below the
-128 s budget but unjudged because load was 3.22 on 10 cores, above the 2.0 timing threshold. The
-reference-image maximum remains dependency-derived from the discovered member inventory and
-resolved reference closure; the contract verifies it on every run.
+the corpus to 197. The separate repository-root workspace census pins 235 member roots (including
+the repository root) and 2,015 checked `.nl` files; the parse cap and reference-image budget are
+recomputed from the discovered inventory.
 
 The September 2026 absolute wall/RSS baselines remain historical measurements only; their machine,
 load and phase context is retained in the measurement verdicts. They are no longer a pass/fail

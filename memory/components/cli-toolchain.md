@@ -234,14 +234,9 @@ Undefined identifier 'unknownVar'
   (four analyzer workers, emit and exact-identity runtime contexts). This lets the ratchet account for references
   that exist only in built outputs or restored assets while keeping the allowance tied to what each
   member actually uses. The workspace contract pins the current integrated inventory at 235 member
-  roots (including the repository root) and 2,016 checked `.nl` files. Its parse cap remains three
+  roots (including the repository root) and 2,015 checked `.nl` files. Its parse cap remains three
   events per file; the reference-image maximum is recomputed from the discovered member count and
-  each member's resolved reference closure. The 2026-10-11 fresh Debug CLI census measured 3,164
-  parse events (maximum 6,048 at the unchanged cap) and 12,021 reference-image opens against the
-  dynamically computed 17,979 maximum (33 shared opens per member plus six for each of 1,704
-  resolved reference images). Its 60.858 s wall time was unjudged: load was 3.22 on 10 cores, above
-  the 2.0 timing threshold, though below the 128 s budget. Since `0c554b664`, the source inventory gained
-  `tests/native/gate-script-contracts/CiTestSharding.tests.nl` and removed no `.nl` files.
+  each member's resolved reference closure.
 
   Reference counts vary with generated outputs because `AnalyzerReferenceLoadOrchestration` prefers
   a locally built `bin/Debug/<targetFramework>` package assembly and project references load their

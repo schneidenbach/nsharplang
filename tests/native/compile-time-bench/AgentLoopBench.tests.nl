@@ -144,35 +144,6 @@ test "agent-loop bench: paired scenario selection isolates one exact row id with
     assert unknown.Count == 0
 }
 
-test "agent-loop timing groups cover all eleven scenarios once for parallel CI slices" {
-    checks := AgentLoopSelectScenarioGroup("check")
-    builds := AgentLoopSelectScenarioGroup("build")
-    tests := AgentLoopSelectScenarioGroup("test")
-    unknown := AgentLoopSelectScenarioGroup("unknown")
-    seen := new List<string>()
-    for scenario in checks {
-        assert scenario.Command == "check"
-        assert !seen.Contains(scenario.Id), "duplicate timing scenario " + scenario.Id
-        seen.Add(scenario.Id)
-    }
-    for scenario in builds {
-        assert scenario.Command == "build"
-        assert !seen.Contains(scenario.Id), "duplicate timing scenario " + scenario.Id
-        seen.Add(scenario.Id)
-    }
-    for scenario in tests {
-        assert scenario.Command == "test"
-        assert !seen.Contains(scenario.Id), "duplicate timing scenario " + scenario.Id
-        seen.Add(scenario.Id)
-    }
-    assert checks.Count == 4 && builds.Count == 4 && tests.Count == 3
-    assert unknown.Count == 0
-    assert seen.Count == AgentLoopScenarios().Count
-    assert seen.Count == 11
-    assert seen.Contains("no-op check"), "the unchanged-check replay row must be in the check timing slice"
-    assert seen.Contains("no-op test") && seen.Contains("body test") && seen.Contains("test-file test"), "all nlc test rows, including test-file edits, must be in the test timing slice"
-}
-
 test "agent-loop bench: the sizes are the issue-tracker fixture and two synthetic projects, and the gate measures small and medium" {
     small := AgentLoopFindSize("small") ?? new AgentLoopSize("", "", 0, 0)
     assert small.FixtureProject == "tests/fixtures/issue-tracker"
@@ -709,22 +680,6 @@ test "agent-loop LSP rows use exact snapshot and document-activity counters" {
     assert AgentLoopLspCounterFailure(baseline, rows)[0].Contains("projectSnapshotsBuilt=0")
 }
 
-test "agent-loop LSP timing rows cover each measured size and operation exactly once" {
-    sizes := AgentLoopLspSizes()
-    operations := AgentLoopLspOperations()
-    seen := new List<string>()
-    for size in sizes {
-        for operation in operations {
-            key := size + " / " + operation
-            assert !seen.Contains(key), "duplicate LSP timing row " + key
-            seen.Add(key)
-        }
-    }
-    assert sizes.Count == 2 && sizes[0] == "medium" && sizes[1] == "large"
-    assert operations.Count == 4
-    assert seen.Count == 8
-}
-
 // ─── THE GATE ─────────────────────────────────────────────────────────────────────────────────
 
 test "agent-loop gate: exact counter contracts and change-aware paired cold plus daemon-warm timings" {
@@ -747,65 +702,43 @@ test "agent-loop gate: exact counter contracts and change-aware paired cold plus
     headCommit := BenchGitText(gitRoot, "rev-parse HEAD")
     productChanges := BenchFindCompilerProductChanges(gitRoot, baseCommit, headCommit)
     assert productChanges.Error == "", "agent-loop gate: " + productChanges.Error
-    perfMode := Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_MODE") ?? ""
-    if perfMode == "timing" && !productChanges.HasCompilerChanges() {
-        assert productChanges.ProductPaths.Count == 0, "timing-only lane should skip when no compiler product path changed"
-    } else {
-        failures := new List<string>()
-        relative := new AgentLoopRelativeMatrix()
-        baseLabel := "not compared"
-        recordedBaseCommit := baseCommit
-        baseBuildMs := 0L
-        baseCacheHit := false
-        timingStatus := "not compared (no compiler change)"
-        if productChanges.HasCompilerChanges() && perfMode != "structural" {
-            baseCompiler := BenchPrepareBaseCompiler(repositoryRoot)
-            assert baseCompiler.Error == "", "agent-loop gate: " + baseCompiler.Error
-            scenarioGroup := Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_SCENARIO_GROUP") ?? ""
-            sizeNames := AgentLoopGateSizeNames()
-            sizeName := Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_SIZE") ?? ""
-            if sizeName != "" {
-                sizeNames = new List<string>()
-                sizeNames.Add(sizeName)
-            }
-            if perfMode == "timing" && scenarioGroup == "lsp" {
-                lspFailure := AgentLoopMeasureLspRelativeRows(languageServerDll, baseCompiler.LanguageServerDll, repositoryRoot, relative, sizeName)
-                if lspFailure != "" {
-                    failures.Add(lspFailure)
-                }
-            } else {
-                relative = AgentLoopMeasureRelativeMatrix(cliDll, baseCompiler.CliDll, repositoryRoot, sizeNames, AgentLoopRelativeMinimumPairs(), false, "", scenarioGroup)
-                if perfMode != "timing" {
-                    lspFailure := AgentLoopMeasureLspRelativeRows(languageServerDll, baseCompiler.LanguageServerDll, repositoryRoot, relative)
-                    if lspFailure != "" {
-                        failures.Add(lspFailure)
-                    }
-                }
-            }
-            failures.AddRange(AgentLoopRelativeTimingFailures(relative.Timings))
-            failures.AddRange(relative.Failures)
-            baseLabel = "base CLI"
-            recordedBaseCommit = baseCompiler.Commit
-            baseBuildMs = baseCompiler.BuildMs
-            baseCacheHit = baseCompiler.CacheHit
-            timingStatus = "compared by exact sign-test 95% lower bound plus 30 ms slowdown floor"
-        } else if perfMode != "timing" {
-            relative.HeadCounterRows = AgentLoopMeasureStructuralRows(cliDll, repositoryRoot, AgentLoopGateSizeNames(), 3, false)
-            relative.LspCounterRows = AgentLoopMeasureLspStructuralRows(languageServerDll, repositoryRoot, 3)
-        }
-        failures.AddRange(AgentLoopCounterFailures(baseline, relative.HeadCounterRows))
-        if perfMode != "timing" || (Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_SCENARIO_GROUP") ?? "") == "lsp" {
-            failures.AddRange(AgentLoopLspCounterFailure(baseline, relative.LspCounterRows))
-        }
 
-        loadAtEnd := BenchReadMachineLoad()
-        gateElapsedMs := (DateTime.UtcNow.Ticks - gateStarted) / 10000
-        facts := BenchReadEnvironmentFacts(gitRoot)
-        gateLine := AgentLoopRelativeGateRecordLine(failures, timingStatus, baseLabel, recordedBaseCommit, facts.CliCommit, baseBuildMs, baseCacheHit, gateElapsedMs, AgentLoopMachineText(facts), loadAtStart, loadAtEnd)
-        table := "timing: " + timingStatus + "\n\n" + AgentLoopRelativeTimingTable(relative.Timings) + "\n\n## Sensitivity\n\n" + AgentLoopTimingSensitivityTable(relative.HeadCounterRows, relative.Timings) + "\n\n## Head structural counters\n\n" + AgentLoopRenderTable(relative.HeadCounterRows, baseline.Rows, "the committed structural counter baseline " + AgentLoopBaselineRelativePath()) + "\n\n## Language Server structural counters\n\n" + AgentLoopRenderLspTable(relative.LspCounterRows, baseline.LspRows, "the committed structural counter baseline " + AgentLoopBaselineRelativePath())
-        _ = AgentLoopWriteRelativeGateRecord(repositoryRoot, gateLine, table)
-        assert failures.Count == 0, gateLine + "\n" + table
+    failures := new List<string>()
+    relative := new AgentLoopRelativeMatrix()
+    baseLabel := "not compared"
+    recordedBaseCommit := baseCommit
+    baseBuildMs := 0L
+    baseCacheHit := false
+    timingStatus := "not compared (no compiler change)"
+    if productChanges.HasCompilerChanges() {
+        baseCompiler := BenchPrepareBaseCompiler(repositoryRoot)
+        assert baseCompiler.Error == "", "agent-loop gate: " + baseCompiler.Error
+        relative = AgentLoopMeasureRelativeMatrix(cliDll, baseCompiler.CliDll, repositoryRoot, AgentLoopGateSizeNames(), AgentLoopRelativeMinimumPairs(), false)
+        lspFailure := AgentLoopMeasureLspRelativeRows(languageServerDll, baseCompiler.LanguageServerDll, repositoryRoot, relative)
+        if lspFailure != "" {
+            failures.Add(lspFailure)
+        }
+        failures.AddRange(AgentLoopRelativeTimingFailures(relative.Timings))
+        failures.AddRange(relative.Failures)
+        baseLabel = "base CLI"
+        recordedBaseCommit = baseCompiler.Commit
+        baseBuildMs = baseCompiler.BuildMs
+        baseCacheHit = baseCompiler.CacheHit
+        timingStatus = "compared by exact sign-test 95% lower bound plus 30 ms slowdown floor"
+    } else {
+        relative.HeadCounterRows = AgentLoopMeasureStructuralRows(cliDll, repositoryRoot, AgentLoopGateSizeNames(), 3, false)
+        relative.LspCounterRows = AgentLoopMeasureLspStructuralRows(languageServerDll, repositoryRoot, 3)
     }
+    failures.AddRange(AgentLoopCounterFailures(baseline, relative.HeadCounterRows))
+    failures.AddRange(AgentLoopLspCounterFailure(baseline, relative.LspCounterRows))
+
+    loadAtEnd := BenchReadMachineLoad()
+    gateElapsedMs := (DateTime.UtcNow.Ticks - gateStarted) / 10000
+    facts := BenchReadEnvironmentFacts(gitRoot)
+    gateLine := AgentLoopRelativeGateRecordLine(failures, timingStatus, baseLabel, recordedBaseCommit, facts.CliCommit, baseBuildMs, baseCacheHit, gateElapsedMs, AgentLoopMachineText(facts), loadAtStart, loadAtEnd)
+    table := "timing: " + timingStatus + "\n\n" + AgentLoopRelativeTimingTable(relative.Timings) + "\n\n## Sensitivity\n\n" + AgentLoopTimingSensitivityTable(relative.HeadCounterRows, relative.Timings) + "\n\n## Head structural counters\n\n" + AgentLoopRenderTable(relative.HeadCounterRows, baseline.Rows, "the committed structural counter baseline " + AgentLoopBaselineRelativePath()) + "\n\n## Language Server structural counters\n\n" + AgentLoopRenderLspTable(relative.LspCounterRows, baseline.LspRows, "the committed structural counter baseline " + AgentLoopBaselineRelativePath())
+    _ = AgentLoopWriteRelativeGateRecord(repositoryRoot, gateLine, table)
+    assert failures.Count == 0, gateLine + "\n" + table
 }
 
 // ONE LOADED REFERENCE SET PER COMPILATION, AT ANY WORKER COUNT (`SharedReferenceMetadata`). A parallel
