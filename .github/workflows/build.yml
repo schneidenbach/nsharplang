@@ -111,6 +111,12 @@ jobs:
     - name: Restore shared build outputs
       run: tar -xzf "$RUNNER_TEMP/ci-build/native-build.tar.gz" -C .
 
+    - name: Verify pinned compiler bootstrap
+      run: python3 scripts/verify-bootstrap.py
+
+    - name: Restore compiler package references
+      run: dotnet restore src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj --force-evaluate -v q
+
     - name: Run test shard ${{ matrix.shard }}
       env:
         # GitHub's Ubuntu runner has Docker. Require integration rows to run instead of skipping.
@@ -169,6 +175,9 @@ jobs:
 
     - name: Verify pinned compiler bootstrap
       run: python3 scripts/verify-bootstrap.py
+
+    - name: Restore compiler package references
+      run: dotnet restore src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj --force-evaluate -v q
 
     # Each row owns both its head and base CLI on the same runner, preserving paired comparisons.
     - name: Build head CLI for compiler performance gate

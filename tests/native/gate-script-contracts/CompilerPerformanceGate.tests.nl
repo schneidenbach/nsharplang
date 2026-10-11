@@ -112,9 +112,11 @@ test "CI runs the paired compiler gates with git history and uploads their trend
 
     assert workflow.Contains("fetch-depth: 0"), "CI must fetch the compiler history and origin branch needed for deterministic base selection."
     assert shardWorkflow.Contains("fetch-depth: 0"), "The compile-time-bench native shard must receive full history for base/head selection."
+    assert shardWorkflow.Contains("name: Restore compiler package references") && shardWorkflow.Contains("dotnet restore src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj --force-evaluate -v q"), "Every isolated test shard must seed the pinned Runtime package in its own NuGet cache before tests run."
     assert workflow.Contains("compiler-performance:"), "The compiler performance gate must run in its own parallel job."
     assert performanceWorkflow.Contains("needs: build-prerequisites"), "Performance lanes must wait for the shared build artifact."
     assert performanceWorkflow.Contains("Download shared build outputs") && performanceWorkflow.Contains("Restore shared build outputs"), "Performance lanes must restore the shared Language Server and other prerequisite outputs."
+    assert performanceWorkflow.Contains("name: Restore compiler package references") && performanceWorkflow.Contains("dotnet restore src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj --force-evaluate -v q"), "Every performance lane must seed the pinned Runtime package before its head CLI and copied Core builds."
     assert workflow.Contains("Build head CLI for compiler performance gate"), "The performance lane must build its own head CLI."
     assert workflow.Contains("NSHARP_COMPILER_PERF_CACHE"), "The performance project must retain its isolated base-build cache."
     assert workflow.Contains("slice: [core, small-check, small-build, small-test, medium-check, medium-build, medium-test, medium-lsp, large-lsp]"), "Core-scale, every small/medium check/build/test group, and both LSP project sizes must run in parallel jobs."
