@@ -5,6 +5,29 @@ import System.Collections.Generic
 import System.IO
 import System.Text
 
+// One source file's durable analysis inputs and diagnostics from a completed check. Semantic models
+// are deliberately process-local; a cold check reparses source declarations and reanalyses edited
+// bodies while this row supplies the unchanged file's diagnostics and interface summary.
+class IncrementalCheckFileResult {
+    Path: string
+    Summary: IncrementalFileSummary
+    Analyzed: bool
+    ParseErrors: List<CompilerError>
+    AnalysisErrors: List<CompilerError>
+    Dependencies: HashSet<string>
+    ImportedFileHashes: Dictionary<string, string>
+
+    constructor(path: string, summary: IncrementalFileSummary) {
+        Path = path
+        Summary = summary
+        Analyzed = false
+        ParseErrors = new List<CompilerError>()
+        AnalysisErrors = new List<CompilerError>()
+        Dependencies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        ImportedFileHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    }
+}
+
 // THE UP-TO-DATE STAMP: what one successful compilation read, what it wrote, and what it reported.
 //
 // One file per (project, output) under `<projectRoot>/obj/nlc/`. Its layout is a payload followed by
@@ -19,13 +42,14 @@ import System.Text
 // field on `CompilerError` must be added to `WriteError`/`ReadError` — `tests/native/incremental-build`
 // compares the serialised field set against the record's own members and fails until it is.
 class IncrementalBuildStamp {
-    static FormatVersion: int => 2
+    static FormatVersion: int => 6
     static CheckResultKind: int => 1
-    static CheckResultSchemaVersion: int => 1
+    static CheckResultSchemaVersion: int => 5
 
     static func Magic(): string => "NSHARP-INCREMENTAL-STAMP"
 
     Key: string
+    CheckAnalysisReuseKey: string
     Entries: List<IncrementalInputEntry>
     OutputPaths: List<string>
     OutputHashes: List<string>
@@ -36,9 +60,12 @@ class IncrementalBuildStamp {
     CheckOutputToStandardError: bool
     CheckOutput: string
     CheckDiagnosticsJson: string
+    CheckHadDiagnostics: bool
+    CheckFiles: List<IncrementalCheckFileResult>
 
     constructor(key: string) {
         Key = key
+        CheckAnalysisReuseKey = ""
         Entries = new List<IncrementalInputEntry>()
         OutputPaths = new List<string>()
         OutputHashes = new List<string>()
@@ -49,6 +76,8 @@ class IncrementalBuildStamp {
         CheckOutputToStandardError = false
         CheckOutput = ""
         CheckDiagnosticsJson = ""
+        CheckHadDiagnostics = false
+        CheckFiles = new List<IncrementalCheckFileResult>()
     }
 
     // `<projectRoot>/obj/nlc/<assembly>.<16 hex digits of the output path>.stamp`: one stamp per
@@ -110,7 +139,7 @@ class IncrementalBuildStamp {
 
     // The stamp at `path` if it exists, is intact, is this format and carries `expectedKey`; null for
     // every other case. Nothing here throws: an unusable stamp is simply not used.
-    static func TryRead(path: string, expectedKey: string): IncrementalBuildStamp? {
+    static func TryRead(path: string, expectedKey: string?, expectedAnalysisReuseKey: string? = null): IncrementalBuildStamp? {
         payload := IncrementalCacheFile.ReadPayload(path)
         if payload == null {
             return null
@@ -127,17 +156,22 @@ class IncrementalBuildStamp {
                     return null
                 }
                 key := reader.ReadString()
-                if !string.Equals(key, expectedKey, StringComparison.Ordinal) {
+                if expectedKey != null && !string.Equals(key, expectedKey, StringComparison.Ordinal) {
                     return null
                 }
 
                 stamp := new IncrementalBuildStamp(key)
+                stamp.CheckAnalysisReuseKey = reader.ReadString()
+                if expectedAnalysisReuseKey != null && !string.Equals(stamp.CheckAnalysisReuseKey, expectedAnalysisReuseKey, StringComparison.Ordinal) {
+                    return null
+                }
                 stamp.ResultKind = reader.ReadInt32()
                 stamp.CheckSchemaVersion = reader.ReadInt32()
                 stamp.CheckExitCode = reader.ReadInt32()
                 stamp.CheckOutputToStandardError = reader.ReadBoolean()
                 stamp.CheckOutput = reader.ReadString()
                 stamp.CheckDiagnosticsJson = reader.ReadString()
+                stamp.CheckHadDiagnostics = reader.ReadBoolean()
                 entryCount := reader.ReadInt32()
                 entryIndex := 0
                 while entryIndex < entryCount {
@@ -163,6 +197,21 @@ class IncrementalBuildStamp {
                     diagnosticIndex = diagnosticIndex + 1
                 }
 
+                checkFileCount := reader.ReadInt32()
+                checkFileIndex := 0
+                while checkFileIndex < checkFileCount {
+                    filePath := reader.ReadString()
+                    summary := IncrementalSummaryStore.ReadSummary(reader)
+                    fileResult := new IncrementalCheckFileResult(filePath, summary)
+                    fileResult.Analyzed = reader.ReadBoolean()
+                    IncrementalBuildStamp.ReadErrors(reader, fileResult.ParseErrors)
+                    IncrementalBuildStamp.ReadErrors(reader, fileResult.AnalysisErrors)
+                    IncrementalBuildStamp.ReadStringSet(reader, fileResult.Dependencies)
+                    IncrementalBuildStamp.ReadStringMap(reader, fileResult.ImportedFileHashes)
+                    stamp.CheckFiles.Add(fileResult)
+                    checkFileIndex = checkFileIndex + 1
+                }
+
                 if stream.Position != stream.Length {
                     return null
                 }
@@ -181,7 +230,7 @@ class IncrementalBuildStamp {
         if stamp == null {
             return null
         }
-        if stamp.ResultKind != IncrementalBuildStamp.CheckResultKind || stamp.CheckSchemaVersion != IncrementalBuildStamp.CheckResultSchemaVersion || !stamp.IsCurrent() {
+        if !IncrementalBuildStamp.IsCheckResultStamp(stamp) || !stamp.IsCurrent() {
             return null
         }
         if stamp.CheckDiagnosticsJson.Length == 0 {
@@ -189,6 +238,32 @@ class IncrementalBuildStamp {
         }
 
         return stamp
+    }
+
+    // A source edit makes the complete check result stale, but its checksum-protected per-file
+    // records remain candidates for an interface-preserving cold analysis. The caller separately
+    // verifies every non-source input before using them.
+    static func TryReadCheckStampForReuse(path: string, expectedKey: string): IncrementalBuildStamp? {
+        stamp := IncrementalBuildStamp.TryRead(path, expectedKey)
+        if stamp == null || !IncrementalBuildStamp.IsCheckResultStamp(stamp) || stamp.CheckDiagnosticsJson.Length == 0 {
+            return null
+        }
+        return stamp
+    }
+
+    // Per-file summaries can seed a full reanalysis when the source set changes. The separate
+    // analysis identity excludes only the source path set; current project/reference inputs and
+    // every reused file's content hash are still checked by the compiler before reuse.
+    static func TryReadCheckStampForAnalysisReuse(path: string, expectedAnalysisReuseKey: string): IncrementalBuildStamp? {
+        stamp := IncrementalBuildStamp.TryRead(path, null, expectedAnalysisReuseKey)
+        if stamp == null || !IncrementalBuildStamp.IsCheckResultStamp(stamp) || stamp.CheckDiagnosticsJson.Length == 0 {
+            return null
+        }
+        return stamp
+    }
+
+    private static func IsCheckResultStamp(stamp: IncrementalBuildStamp): bool {
+        return stamp.ResultKind == IncrementalBuildStamp.CheckResultKind && stamp.CheckSchemaVersion == IncrementalBuildStamp.CheckResultSchemaVersion
     }
 
     static func TryReadCheckResult(path: string, expectedKey: string): IncrementalCheckResult? {
@@ -215,12 +290,14 @@ class IncrementalBuildStamp {
             writer.Write(IncrementalBuildStamp.Magic())
             writer.Write(IncrementalBuildStamp.FormatVersion)
             writer.Write(Key)
+            writer.Write(CheckAnalysisReuseKey)
             writer.Write(ResultKind)
             writer.Write(CheckSchemaVersion)
             writer.Write(CheckExitCode)
             writer.Write(CheckOutputToStandardError)
             writer.Write(CheckOutput)
             writer.Write(CheckDiagnosticsJson)
+            writer.Write(CheckHadDiagnostics)
             writer.Write(Entries.Count)
             for entry in Entries {
                 writer.Write(entry.Kind)
@@ -237,6 +314,16 @@ class IncrementalBuildStamp {
             writer.Write(Diagnostics.Count)
             for diagnostic in Diagnostics {
                 IncrementalBuildStamp.WriteError(writer, diagnostic)
+            }
+            writer.Write(CheckFiles.Count)
+            for checkFile in CheckFiles {
+                writer.Write(checkFile.Path)
+                IncrementalSummaryStore.WriteSummary(writer, checkFile.Summary)
+                writer.Write(checkFile.Analyzed)
+                IncrementalBuildStamp.WriteErrors(writer, checkFile.ParseErrors)
+                IncrementalBuildStamp.WriteErrors(writer, checkFile.AnalysisErrors)
+                IncrementalBuildStamp.WriteStringSet(writer, checkFile.Dependencies)
+                IncrementalBuildStamp.WriteStringMap(writer, checkFile.ImportedFileHashes)
             }
             writer.Flush()
             payload := stream.ToArray()
@@ -365,7 +452,62 @@ class IncrementalBuildStamp {
         return error
     }
 
-    private static func WriteOptional(writer: BinaryWriter, value: string?) {
+    private static func WriteErrors(writer: BinaryWriter, errors: List<CompilerError>): void {
+        writer.Write(errors.Count)
+        for error in errors {
+            IncrementalBuildStamp.WriteError(writer, error)
+        }
+    }
+
+    private static func ReadErrors(reader: BinaryReader, errors: List<CompilerError>): void {
+        count := reader.ReadInt32()
+        index := 0
+        while index < count {
+            errors.Add(IncrementalBuildStamp.ReadError(reader))
+            index = index + 1
+        }
+    }
+
+    private static func WriteStringSet(writer: BinaryWriter, values: HashSet<string>): void {
+        ordered := new List<string>(values)
+        ordered.Sort(StringComparer.Ordinal)
+        writer.Write(ordered.Count)
+        for value in ordered {
+            writer.Write(value)
+        }
+    }
+
+    private static func ReadStringSet(reader: BinaryReader, values: HashSet<string>): void {
+        count := reader.ReadInt32()
+        index := 0
+        while index < count {
+            values.Add(reader.ReadString())
+            index = index + 1
+        }
+    }
+
+    private static func WriteStringMap(writer: BinaryWriter, values: Dictionary<string, string>): void {
+        keys := new List<string>(values.Keys)
+        keys.Sort(StringComparer.Ordinal)
+        writer.Write(keys.Count)
+        for key in keys {
+            writer.Write(key)
+            writer.Write(values[key])
+        }
+    }
+
+    private static func ReadStringMap(reader: BinaryReader, values: Dictionary<string, string>): void {
+        count := reader.ReadInt32()
+        index := 0
+        while index < count {
+            key := reader.ReadString()
+            value := reader.ReadString()
+            values[key] = value
+            index = index + 1
+        }
+    }
+
+    private static func WriteOptional(writer: BinaryWriter, value: string?): void {
         if value == null {
             writer.Write(false)
             return

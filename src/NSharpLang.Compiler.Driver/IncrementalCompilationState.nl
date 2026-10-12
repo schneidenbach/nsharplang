@@ -207,6 +207,10 @@ class IncrementalCompilationPlan {
         opaqueFiles = new List<string>()
     }
 
+    func DisableReuse(): void {
+        ReusedFiles.Clear()
+    }
+
     // `texts` maps every source's full path to the text the analyzer will see, in compilation order.
     static func Create(state: IncrementalCompilationState, paths: List<string>, texts: Dictionary<string, string>): IncrementalCompilationPlan {
         plan := new IncrementalCompilationPlan()

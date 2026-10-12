@@ -111,6 +111,10 @@ class CodeIntelligenceQueries {
         return CodeIntelligenceDiagnostics.Build(snapshot.ProjectRoot, snapshot.AllErrors, snapshot.SourceFiles, snapshot.CompilationUnits, snapshot.SourceTexts, queryFile)
     }
 
+    static func DiagnosticsWithLintFiles(snapshot: ProjectSnapshot, queryFile: string?, sourceFilesToLint: IReadOnlyList<string>): List<DiagnosticResult> {
+        return CodeIntelligenceDiagnostics.BuildWithLintFiles(snapshot.ProjectRoot, snapshot.AllErrors, snapshot.SourceFiles, snapshot.CompilationUnits, snapshot.SourceTexts, queryFile, sourceFilesToLint)
+    }
+
     // ── Definition and references ───────────────────────────────────────
     static func Definition(snapshot: ProjectSnapshot, queryFile: string, line: int, col: int): DefinitionResult? {
         declaration := CodeIntelligenceNavigation.DefinitionSymbolAtPosition(snapshot, queryFile, line, col)

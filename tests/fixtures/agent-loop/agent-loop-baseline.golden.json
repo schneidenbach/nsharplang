@@ -57,7 +57,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 1, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -217,7 +217,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 1, "filesAnalyzed": 1, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -377,7 +377,7 @@
       "mode": "cold",
       "sourceLines": 80960,
       "exitCode": 0,
-      "counters": {"filesParsed": 161, "emitParses": 161, "filesAnalyzed": 161, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 161, "emitParses": 1, "filesAnalyzed": 1, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "large",
@@ -797,11 +797,11 @@
     }
   ],
   "lspRows": [
-    {"size": "medium", "scenario": "LSP didChange diagnostics", "sourceLines": 10640, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 1, "documentsUpdated": 1, "diagnosticsPublished": 1, "filesParsed": 2, "filesReanalyzed": 1, "filesReused": 39, "projectSnapshotCacheHits": 0, "projectDiskStampScans": 1, "documentAnalysisRuns": 0, "documentCacheReuses": 0, "freshDiagnosticsVerified": 1}},
+    {"size": "medium", "scenario": "LSP didChange diagnostics", "sourceLines": 10640, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 1, "documentsUpdated": 1, "diagnosticsPublished": 1, "filesParsed": 1, "filesReanalyzed": 1, "filesReused": 39, "projectSnapshotCacheHits": 0, "projectDiskStampScans": 1, "documentAnalysisRuns": 0, "documentCacheReuses": 0, "freshDiagnosticsVerified": 1}},
     {"size": "medium", "scenario": "LSP completion after edit", "sourceLines": 10640, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 0, "documentsUpdated": 0, "diagnosticsPublished": 0, "filesParsed": 0, "filesReanalyzed": 0, "filesReused": 0, "projectSnapshotCacheHits": 0, "projectDiskStampScans": 0, "documentAnalysisRuns": 0, "documentCacheReuses": 0, "freshDiagnosticsVerified": 1}},
     {"size": "medium", "scenario": "LSP hover", "sourceLines": 10640, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 0, "documentsUpdated": 0, "diagnosticsPublished": 0, "filesParsed": 0, "filesReanalyzed": 0, "filesReused": 0, "projectSnapshotCacheHits": 1, "projectDiskStampScans": 1, "documentAnalysisRuns": 0, "documentCacheReuses": 0, "freshDiagnosticsVerified": 1}},
     {"size": "medium", "scenario": "LSP unchanged didOpen", "sourceLines": 10640, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 0, "documentsUpdated": 1, "diagnosticsPublished": 1, "filesParsed": 0, "filesReanalyzed": 0, "filesReused": 0, "projectSnapshotCacheHits": 1, "projectDiskStampScans": 0, "documentAnalysisRuns": 0, "documentCacheReuses": 1, "freshDiagnosticsVerified": 1}},
-    {"size": "large", "scenario": "LSP didChange diagnostics", "sourceLines": 80960, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 1, "documentsUpdated": 1, "diagnosticsPublished": 1, "filesParsed": 2, "filesReanalyzed": 1, "filesReused": 159, "projectSnapshotCacheHits": 0, "projectDiskStampScans": 1, "documentAnalysisRuns": 0, "documentCacheReuses": 0, "freshDiagnosticsVerified": 1}},
+    {"size": "large", "scenario": "LSP didChange diagnostics", "sourceLines": 80960, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 1, "documentsUpdated": 1, "diagnosticsPublished": 1, "filesParsed": 1, "filesReanalyzed": 1, "filesReused": 159, "projectSnapshotCacheHits": 0, "projectDiskStampScans": 1, "documentAnalysisRuns": 0, "documentCacheReuses": 0, "freshDiagnosticsVerified": 1}},
     {"size": "large", "scenario": "LSP completion after edit", "sourceLines": 80960, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 0, "documentsUpdated": 0, "diagnosticsPublished": 0, "filesParsed": 0, "filesReanalyzed": 0, "filesReused": 0, "projectSnapshotCacheHits": 0, "projectDiskStampScans": 0, "documentAnalysisRuns": 0, "documentCacheReuses": 0, "freshDiagnosticsVerified": 1}},
     {"size": "large", "scenario": "LSP hover", "sourceLines": 80960, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 0, "documentsUpdated": 0, "diagnosticsPublished": 0, "filesParsed": 0, "filesReanalyzed": 0, "filesReused": 0, "projectSnapshotCacheHits": 1, "projectDiskStampScans": 1, "documentAnalysisRuns": 0, "documentCacheReuses": 0, "freshDiagnosticsVerified": 1}},
     {"size": "large", "scenario": "LSP unchanged didOpen", "sourceLines": 80960, "exitCode": 0, "counters": {"projectSnapshotsBuilt": 0, "documentsUpdated": 1, "diagnosticsPublished": 1, "filesParsed": 0, "filesReanalyzed": 0, "filesReused": 0, "projectSnapshotCacheHits": 1, "projectDiskStampScans": 0, "documentAnalysisRuns": 0, "documentCacheReuses": 1, "freshDiagnosticsVerified": 1}}

@@ -100,7 +100,7 @@ static class IncrementalCacheFile {
 static class IncrementalSummaryStore {
     static func Magic(): string => "NSHARP-INCREMENTAL-SUMMARIES"
 
-    static FormatVersion: int => 1
+    static FormatVersion: int => 5
 
     static func PathFor(projectRoot: string, assemblyName: string): string {
         return Path.Combine(Path.GetFullPath(projectRoot), "obj", "nlc", assemblyName + ".summaries")
@@ -133,18 +133,7 @@ static class IncrementalSummaryStore {
                 count := reader.ReadInt32()
                 index := 0
                 while index < count {
-                    summaryPath := reader.ReadString()
-                    textHash := reader.ReadString()
-                    surfaceHash := reader.ReadString()
-                    opaque := reader.ReadBoolean()
-                    summary := new IncrementalFileSummary(summaryPath, textHash, surfaceHash, opaque)
-                    if reader.ReadBoolean() {
-                        summary.Namespace = reader.ReadString()
-                    }
-                    ReadSet(reader, summary.DeclaredNames)
-                    ReadSet(reader, summary.BaseNames)
-                    ReadSet(reader, summary.ReferencedNames)
-                    ReadSet(reader, summary.Mentions)
+                    summary := IncrementalSummaryStore.ReadSummary(reader)
                     loaded.Add(summary)
                     index = index + 1
                 }
@@ -169,21 +158,7 @@ static class IncrementalSummaryStore {
         writer.Write(IncrementalSummaryStore.Identity())
         writer.Write(summaries.Count)
         for summary in summaries {
-            writer.Write(summary.Path)
-            writer.Write(summary.TextHash)
-            writer.Write(summary.SurfaceHash)
-            writer.Write(summary.Opaque)
-            namespaceName := summary.Namespace
-            if namespaceName == null {
-                writer.Write(false)
-            } else {
-                writer.Write(true)
-                writer.Write(namespaceName)
-            }
-            WriteSet(writer, summary.DeclaredNames)
-            WriteSet(writer, summary.BaseNames)
-            WriteSet(writer, summary.ReferencedNames)
-            WriteSet(writer, summary.Mentions)
+            IncrementalSummaryStore.WriteSummary(writer, summary)
         }
         writer.Flush()
         payload := stream.ToArray()
@@ -191,7 +166,76 @@ static class IncrementalSummaryStore {
         return IncrementalCacheFile.WritePayload(path, payload)
     }
 
-    private static func WriteSet(writer: BinaryWriter, values: HashSet<string>) {
+    static func WriteSummary(writer: BinaryWriter, summary: IncrementalFileSummary): void {
+        writer.Write(summary.Path)
+        writer.Write(summary.TextHash)
+        writer.Write(summary.SurfaceHash)
+        writer.Write(summary.Opaque)
+        writer.Write(summary.HasAttributes)
+        writer.Write(summary.HasSourceFunctionOverloads)
+        WriteSet(writer, summary.TopLevelFunctionNames)
+        WriteStringList(writer, summary.BodyHashes)
+        skeleton := summary.InterfaceSkeleton
+        writer.Write(skeleton != null)
+        if skeleton != null {
+            writer.Write(skeleton)
+        }
+        namespaceName := summary.Namespace
+        if namespaceName == null {
+            writer.Write(false)
+        } else {
+            writer.Write(true)
+            writer.Write(namespaceName)
+        }
+        WriteSet(writer, summary.DeclaredNames)
+        WriteSet(writer, summary.BaseNames)
+        WriteSet(writer, summary.ReferencedNames)
+        WriteSet(writer, summary.Mentions)
+    }
+
+    static func ReadSummary(reader: BinaryReader): IncrementalFileSummary {
+        summaryPath := reader.ReadString()
+        textHash := reader.ReadString()
+        surfaceHash := reader.ReadString()
+        opaque := reader.ReadBoolean()
+        hasAttributes := reader.ReadBoolean()
+        hasSourceFunctionOverloads := reader.ReadBoolean()
+        summary := new IncrementalFileSummary(summaryPath, textHash, surfaceHash, opaque)
+        summary.HasAttributes = hasAttributes
+        summary.HasSourceFunctionOverloads = hasSourceFunctionOverloads
+        ReadSet(reader, summary.TopLevelFunctionNames)
+        ReadStringList(reader, summary.BodyHashes)
+        hasSkeleton := reader.ReadBoolean()
+        if hasSkeleton {
+            summary.InterfaceSkeleton = reader.ReadString()
+        }
+        if reader.ReadBoolean() {
+            summary.Namespace = reader.ReadString()
+        }
+        ReadSet(reader, summary.DeclaredNames)
+        ReadSet(reader, summary.BaseNames)
+        ReadSet(reader, summary.ReferencedNames)
+        ReadSet(reader, summary.Mentions)
+        return summary
+    }
+
+    private static func WriteStringList(writer: BinaryWriter, values: List<string>): void {
+        writer.Write(values.Count)
+        for value in values {
+            writer.Write(value)
+        }
+    }
+
+    private static func ReadStringList(reader: BinaryReader, values: List<string>): void {
+        count := reader.ReadInt32()
+        index := 0
+        while index < count {
+            values.Add(reader.ReadString())
+            index = index + 1
+        }
+    }
+
+    private static func WriteSet(writer: BinaryWriter, values: HashSet<string>): void {
         ordered := new List<string>(values)
         ordered.Sort(StringComparer.Ordinal)
         writer.Write(ordered.Count)
@@ -200,7 +244,7 @@ static class IncrementalSummaryStore {
         }
     }
 
-    private static func ReadSet(reader: BinaryReader, values: HashSet<string>) {
+    private static func ReadSet(reader: BinaryReader, values: HashSet<string>): void {
         count := reader.ReadInt32()
         index := 0
         while index < count {

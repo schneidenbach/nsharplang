@@ -6,6 +6,7 @@ import System.Collections.Generic
 import System.Diagnostics
 import System.IO
 import System.Linq
+import System.Text.Json
 import System.Threading
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
@@ -46,6 +47,38 @@ class MultiFileCompiler {
             TypeDeclarationFiles = typeDeclarationFiles
             Failure = failure
             IsPending = isPending
+        }
+    }
+
+    // One file's parse result and any preprocessing diagnostics, produced independently by a cold
+    // persisted-check parse worker and merged back on the caller in source order.
+    private class MultiFileCompilerFileParse {
+        Result: FileParseAst?
+        PreprocessorErrors: List<CompilerError>
+        Failure: Exception?
+        WasPreparsed: bool
+
+        constructor() {
+            Result = null
+            PreprocessorErrors = new List<CompilerError>()
+            Failure = null
+            WasPreparsed = false
+        }
+    }
+
+    private class MultiFileCompilerParseWorker {
+        Files: List<string>
+        Sources: List<string>
+        Symbols: IReadOnlySet<string>
+        Outcomes: MultiFileCompilerFileParse[]
+        Queue: ConcurrentQueue<int>
+
+        constructor(files: List<string>, sources: List<string>, symbols: IReadOnlySet<string>, outcomes: MultiFileCompilerFileParse[], queue: ConcurrentQueue<int>) {
+            Files = files
+            Sources = sources
+            Symbols = symbols
+            Outcomes = outcomes
+            Queue = queue
         }
     }
 
@@ -90,8 +123,11 @@ class MultiFileCompiler {
     private _wasUpToDate: bool
     private _checkStampPath: string?
     private _checkStampKey: string
+    private _checkStampAnalysisReuseKey: string
     private _checkInputCapture: IncrementalBuildInputCapture?
     private _checkStampEntries: List<IncrementalInputEntry>?
+    private _checkStateSeededFromStamp: bool
+    private _persistedCheckPartial: bool
     private _incrementalState: IncrementalCompilationState?
     private _incrementalPlan: IncrementalCompilationPlan?
     private readonly _pendingRecords: Dictionary<string, IncrementalFileRecord>
@@ -134,6 +170,22 @@ class MultiFileCompiler {
     AllErrors: IReadOnlyList<CompilerError> => _allErrors
     SourceFiles: IReadOnlyList<string> => _sourceFiles
     SourceTexts: IReadOnlyDictionary<string, string> => _sourceTexts
+    FilesToLint: IReadOnlyList<string> {
+        get {
+            plan := _incrementalPlan
+            if !_persistedCheckPartial || plan == null {
+                return _sourceFiles
+            }
+
+            files := new List<string>()
+            for sourceFile in _sourceFiles {
+                if !plan.ReusedFiles.Contains(Path.GetFullPath(sourceFile)) {
+                    files.Add(sourceFile)
+                }
+            }
+            return files
+        }
+    }
 
     // A fresh index wraps the same live stores on every read.
     ProjectIndex: ProjectIndex => new ProjectIndex(_projectBindings, _projectTypeDeclarationFiles)
@@ -222,14 +274,19 @@ class MultiFileCompiler {
         }
 
         key := ComputeCheckResultKey(assemblyName, outputMode, useBuiltReferences, backendOption)
+        analysisReuseKey := ComputeCheckAnalysisReuseKey(assemblyName, outputMode, useBuiltReferences, backendOption)
         path := IncrementalBuildStamp.CheckPathFor(_projectRoot, assemblyName)
         _checkStampPath = path
         _checkStampKey = key
+        _checkStampAnalysisReuseKey = analysisReuseKey
         _checkInputCapture = null
         _wasUpToDate = false
 
-        cachedStamp := IncrementalBuildStamp.TryReadCheckStamp(path, key)
-        if cachedStamp != null {
+        cachedStamp := IncrementalBuildStamp.TryReadCheckStampForReuse(path, key)
+        if cachedStamp == null {
+            cachedStamp = IncrementalBuildStamp.TryReadCheckStampForAnalysisReuse(path, analysisReuseKey)
+        }
+        if cachedStamp != null && cachedStamp.IsCurrent() {
             _checkStampEntries = cachedStamp.Entries
             _wasUpToDate = true
             return new IncrementalCheckResult(
@@ -244,12 +301,43 @@ class MultiFileCompiler {
         capture := new IncrementalBuildInputCapture()
         capture.CaptureBeforeCompile(_projectRoot, EffectiveConfig(), _sourceFiles)
         _checkInputCapture = capture
+
+        hadIncrementalState := _incrementalState != null
+        if cachedStamp != null {
+            if _incrementalState == null {
+                _incrementalState = new IncrementalCompilationState()
+            }
+            SeedPersistedCheckSummaries(cachedStamp, _incrementalState)
+        }
+
+        if cachedStamp != null && !hadIncrementalState {
+            try {
+                if TrySeedPersistedCheckAnalysis(cachedStamp, capture, outputMode) {
+                    return null
+                }
+            } catch {
+                // Persisted state is only an optimization. A stale or unreadable candidate must
+                // fall through to the normal full check rather than fail the user's check.
+                _incrementalState = null
+                _plannedTexts.Clear()
+                _checkStateSeededFromStamp = false
+                _persistedCheckPartial = false
+            }
+        }
+
+        if _incrementalState == null {
+            _incrementalState = new IncrementalCompilationState()
+        }
         return null
     }
 
     // Persists a complete versioned result after diagnostics and backend validation are final. The
     // diagnostics JSON is always retained even when the selected user-facing mode is text.
     func SaveCheckResult(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int): bool {
+        return SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
+    }
+
+    private func SaveCheckResultCore(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int, hasDiagnostics: bool): bool {
         path := _checkStampPath
         capture := _checkInputCapture
         storedEntries := _checkStampEntries
@@ -270,14 +358,229 @@ class MultiFileCompiler {
         }
 
         stamp := new IncrementalBuildStamp(_checkStampKey)
+        stamp.CheckAnalysisReuseKey = _checkStampAnalysisReuseKey
         stamp.ResultKind = IncrementalBuildStamp.CheckResultKind
         stamp.CheckSchemaVersion = IncrementalBuildStamp.CheckResultSchemaVersion
         stamp.CheckExitCode = exitCode
         stamp.CheckOutputToStandardError = outputToStandardError
         stamp.CheckOutput = output
         stamp.CheckDiagnosticsJson = diagnosticsJson
+        stamp.CheckHadDiagnostics = hasDiagnostics
         stamp.Entries.AddRange(entries)
+        for pending in _pendingRecords {
+            fileState := pending.Value
+            saved := new IncrementalCheckFileResult(fileState.Path, fileState.Summary)
+            saved.Analyzed = fileState.Analyzed
+            saved.ParseErrors.AddRange(fileState.ParseErrors)
+            saved.AnalysisErrors.AddRange(fileState.AnalysisErrors)
+            for dependency in fileState.Dependencies {
+                saved.Dependencies.Add(dependency)
+            }
+            for imported in fileState.ImportedFileHashes {
+                saved.ImportedFileHashes[imported.Key] = imported.Value
+            }
+            stamp.CheckFiles.Add(saved)
+        }
         return stamp.TryWrite(path ?? "")
+    }
+
+    private static func CheckJsonHasDiagnostics(diagnosticsJson: string): bool {
+        try {
+            using document := JsonDocument.Parse(diagnosticsJson)
+            results: JsonElement = default
+            if !document.RootElement.TryGetProperty("results", out results) {
+                document.RootElement.TryGetProperty("diagnostics", out results)
+            }
+            if results.ValueKind == JsonValueKind.Array {
+                return results.GetArrayLength() > 0
+            }
+        } catch {
+            // A check whose diagnostics cannot be interpreted cannot safely seed partial analysis.
+            return true
+        }
+
+        return true
+    }
+
+    // A summary is a pure function of a source path and its exact text. Even when the complete
+    // check stamp is stale, summaries for unchanged sources can seed the ordinary full-check plan;
+    // this avoids parsing every source once for the plan and again for semantic analysis.
+    private func SeedPersistedCheckSummaries(stamp: IncrementalBuildStamp, state: IncrementalCompilationState): void {
+        sourcePaths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        for sourceFile in _sourceFiles {
+            sourcePaths.Add(Path.GetFullPath(sourceFile))
+        }
+
+        for saved in stamp.CheckFiles {
+            if saved.Summary == null {
+                continue
+            }
+            try {
+                fullPath := Path.GetFullPath(saved.Path)
+                if !sourcePaths.Contains(fullPath) {
+                    continue
+                }
+                text := File.ReadAllText(fullPath)
+                _plannedTexts[fullPath] = text
+                textHash := ContentHash.OfText(text)
+                if string.Equals(textHash, saved.Summary.TextHash, StringComparison.Ordinal) {
+                    state.SummaryCache[fullPath + "|" + textHash] = saved.Summary
+                }
+            } catch {
+                // An unusable candidate summary only costs the normal full plan to recompute it.
+                continue
+            }
+        }
+    }
+
+    // Seeds the existing incremental compilation owner from the last cold check. The final check
+    // result is still replayed only when every input matches; this path is considered only when the
+    // source set is identical, the old result is clean, and every changed file has the same parsed
+    // interface. The analyzer then reparses the project declarations but analyses only changed
+    // bodies, using the same plan and file records as the warm daemon path.
+    private func TrySeedPersistedCheckAnalysis(stamp: IncrementalBuildStamp, capture: IncrementalBuildInputCapture, outputMode: int): bool {
+        if (outputMode != 1 && outputMode != 2) || stamp.CheckHadDiagnostics || stamp.CheckFiles.Count != _sourceFiles.Count {
+            return false
+        }
+        if !string.Equals(EffectiveConfig().Language.Profile, "default", StringComparison.OrdinalIgnoreCase) {
+            return false
+        }
+
+        sourcePaths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        for sourceFile in _sourceFiles {
+            sourcePaths.Add(Path.GetFullPath(sourceFile))
+        }
+
+        savedByPath := new Dictionary<string, IncrementalCheckFileResult>(StringComparer.OrdinalIgnoreCase)
+        currentSummaries := new Dictionary<string, IncrementalFileSummary>(StringComparer.OrdinalIgnoreCase)
+        oldInputByIdentity := new Dictionary<string, IncrementalInputEntry>(StringComparer.Ordinal)
+        currentInputByIdentity := new Dictionary<string, IncrementalInputEntry>(StringComparer.Ordinal)
+        changedFiles := 0
+        canSeedPartial := true
+
+        for entry in stamp.Entries {
+            identity := CheckInputIdentity(entry)
+            if !oldInputByIdentity.ContainsKey(identity) {
+                oldInputByIdentity[identity] = entry
+            }
+            if entry.Kind == IncrementalInputEntry.FileContent && sourcePaths.Contains(Path.GetFullPath(entry.Path)) {
+                continue
+            }
+            if !entry.IsCurrent() {
+                return false
+            }
+        }
+
+        for entry in capture.Entries {
+            identity := CheckInputIdentity(entry)
+            currentInputByIdentity[identity] = entry
+            oldEntry: IncrementalInputEntry = null
+            if !oldInputByIdentity.TryGetValue(identity, out oldEntry) {
+                return false
+            }
+            if entry.Kind == IncrementalInputEntry.FileContent && sourcePaths.Contains(Path.GetFullPath(entry.Path)) {
+                continue
+            }
+            if !string.Equals(entry.Value, oldEntry.Value, StringComparison.Ordinal) {
+                return false
+            }
+        }
+
+        for saved in stamp.CheckFiles {
+            fullPath := Path.GetFullPath(saved.Path)
+            if !sourcePaths.Contains(fullPath) || saved.Summary == null || saved.Summary.Opaque || saved.Summary.HasAttributes || !saved.Analyzed {
+                return false
+            }
+            if saved.ParseErrors.Count > 0 || saved.AnalysisErrors.Count > 0 || savedByPath.ContainsKey(fullPath) {
+                return false
+            }
+
+            text := ReadSourceText(fullPath)
+            textHash := ContentHash.OfText(text)
+            summary := saved.Summary
+            if !string.Equals(textHash, summary.TextHash, StringComparison.Ordinal) {
+                summary = IncrementalFileSummary.Compute(fullPath, text)
+                stateForSummaries := _incrementalState
+                if stateForSummaries != null {
+                    stateForSummaries.SummaryCache[fullPath + "|" + summary.TextHash] = summary
+                    stateForSummaries.LastSummaryFilesParsed = stateForSummaries.LastSummaryFilesParsed + 1
+                }
+                if summary.Opaque || summary.HasAttributes || !string.Equals(summary.SurfaceHash, saved.Summary.SurfaceHash, StringComparison.Ordinal) {
+                    canSeedPartial = false
+                }
+                changedFiles = changedFiles + 1
+            } else if summary.InterfaceSkeleton == null {
+                // Only unchanged files need a declaration skeleton. The edited file is parsed and
+                // emitted from its full text in this run.
+                canSeedPartial = false
+            }
+            _plannedTexts[fullPath] = text
+            savedByPath[fullPath] = saved
+            currentSummaries[fullPath] = summary
+        }
+
+        if savedByPath.Count != sourcePaths.Count || changedFiles == 0 {
+            return false
+        }
+        topLevelFunctionNames := new HashSet<string>(StringComparer.Ordinal)
+        for summary in currentSummaries.Values {
+            if summary.HasSourceFunctionOverloads {
+                return false
+            }
+            for functionName in summary.TopLevelFunctionNames {
+                if !topLevelFunctionNames.Add(functionName) {
+                    return false
+                }
+            }
+        }
+        if !canSeedPartial {
+            return false
+        }
+        for sourcePath in sourcePaths {
+            if !savedByPath.ContainsKey(sourcePath) {
+                return false
+            }
+            sourceIdentity := IncrementalInputEntry.FileContent.ToString() + "|" + sourcePath
+            if !oldInputByIdentity.ContainsKey(sourceIdentity) || !currentInputByIdentity.ContainsKey(sourceIdentity) {
+                return false
+            }
+        }
+
+        state := new IncrementalCompilationState()
+        for savedEntry in savedByPath {
+            fullPath := savedEntry.Key
+            saved := savedEntry.Value
+            fileState := new IncrementalFileRecord(fullPath, saved.Summary)
+            fileState.Analyzed = saved.Analyzed
+            fileState.ParseErrors.AddRange(saved.ParseErrors)
+            fileState.AnalysisErrors.AddRange(saved.AnalysisErrors)
+            for dependency in saved.Dependencies {
+                fileState.Dependencies.Add(dependency)
+            }
+            for imported in saved.ImportedFileHashes {
+                importedPath := Path.GetFullPath(imported.Key)
+                if sourcePaths.Contains(importedPath) {
+                    // Every source's interface was verified unchanged above. A body-only edit to a
+                    // file imported by path must not invalidate the importing file's analysis.
+                    fileState.ImportedFileHashes[imported.Key] = ContentHash.OfFileOrMissing(imported.Key)
+                } else {
+                    fileState.ImportedFileHashes[imported.Key] = imported.Value
+                }
+            }
+            state.Files[fullPath] = fileState
+            state.SummaryCache[fullPath + "|" + saved.Summary.TextHash] = saved.Summary
+            currentSummary := currentSummaries[fullPath]
+            state.SummaryCache[fullPath + "|" + currentSummary.TextHash] = currentSummary
+        }
+
+        _incrementalState = state
+        _checkStateSeededFromStamp = true
+        _persistedCheckPartial = true
+        return true
+    }
+
+    private static func CheckInputIdentity(entry: IncrementalInputEntry): string {
+        return entry.Kind.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|" + entry.Path
     }
 
     // THE STATE A PREVIOUS COMPILATION OF THIS PROJECT LEFT (`IncrementalCompilationState`), held by
@@ -385,8 +688,11 @@ class MultiFileCompiler {
         _wasUpToDate = false
         _checkStampPath = null
         _checkStampKey = ""
+        _checkStampAnalysisReuseKey = ""
         _checkInputCapture = null
         _checkStampEntries = null
+        _checkStateSeededFromStamp = false
+        _persistedCheckPartial = false
         _incrementalState = null
         _incrementalPlan = null
         _pendingRecords = new Dictionary<string, IncrementalFileRecord>(StringComparer.OrdinalIgnoreCase)
@@ -550,8 +856,15 @@ class MultiFileCompiler {
 
     /// <summary>Pass 1: Parse all source files into ASTs</summary>
     private func ParseAllFiles(): void {
+        if _persistedCheckPartial && ParsePersistedCheckFilesInParallel() {
+            return
+        }
+
         for sourceFile in _sourceFiles {
             if TryReuseParsedFile(sourceFile) {
+                continue
+            }
+            if TryReusePreparedSummaryParse(sourceFile) {
                 continue
             }
 
@@ -562,11 +875,23 @@ class MultiFileCompiler {
             source := ReadSourceText(sourceFile)
             _sourceTexts[Path.GetFullPath(sourceFile)] = source
             AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Read file ({source.Length} bytes)")
+            fullSourcePath := Path.GetFullPath(sourceFile)
+            parseSource := source
+            usedInterfaceSkeleton := false
+            plan := _incrementalPlan
+            if _persistedCheckPartial && plan != null && plan.ReusedFiles.Contains(fullSourcePath) {
+                summary := plan.Summaries[fullSourcePath]
+                skeleton := summary.InterfaceSkeleton
+                if skeleton != null {
+                    parseSource = skeleton
+                    usedInterfaceSkeleton = true
+                }
+            }
             // Resolve conditional-compilation directives (#if/#elif/#else/#endif) so the
             // parser and all downstream stages only see the live branch. The SOURCE-level
             // overload (the one the columnar emit path already uses) blanks dead branches in
             // place, so every surviving line and column is unchanged.
-            live := Preprocessor.ProcessSource(source, _preprocessorSymbols, sourceFile, _allErrors)
+            live := Preprocessor.ProcessSource(parseSource, _preprocessorSymbols, sourceFile, _allErrors)
             AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Preprocessed ({live.Length} bytes)")
             parseResult := ColumnarParserRecovery.ParseFileAst(live, sourceFile)
             AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Parsed compilation unit")
@@ -580,14 +905,149 @@ class MultiFileCompiler {
                 _compilationUnits[sourceFile] = parseResult.CompilationUnit
                 // The analyzer parses the RAW snapshot text under the FULL path; this parse is that
                 // parse exactly when preprocessing changed nothing and the path is already full.
-                fullSourcePath := Path.GetFullPath(sourceFile)
-                if string.Equals(live, source, StringComparison.Ordinal) && string.Equals(fullSourcePath, sourceFile, StringComparison.Ordinal) {
+                if usedInterfaceSkeleton || string.Equals(live, source, StringComparison.Ordinal) && string.Equals(fullSourcePath, sourceFile, StringComparison.Ordinal) {
                     _reusableParses[fullSourcePath] = parseResult
                     reusableParse = parseResult
                 }
             }
             RecordParsedFile(sourceFile, parseResult.CompilationUnit, errorsBefore, reusableParse)
             AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Done parsing {Path.GetFileName(sourceFile)}")
+        }
+    }
+
+    // A cold check has no in-memory ASTs to reuse, even though its persisted records prove that
+    // every unchanged file is semantically reusable. Parse the saved declaration skeletons in
+    // parallel, then merge them in project order so diagnostic ordering stays the serial ordering.
+    // If a skeleton does not parse cleanly, discard every partial parse and let the ordinary full
+    // parse path run with reuse disabled.
+    private func ParsePersistedCheckFilesInParallel(): bool {
+        plan := _incrementalPlan
+        if plan == null || _sourceFiles.Count <= 1 {
+            return false
+        }
+
+        files := new List<string>(_sourceFiles.Count)
+        sources := new List<string>(_sourceFiles.Count)
+        preparsedResults := new List<FileParseAst?>()
+        totalCharacters := 0L
+        sourceIndex := 0
+        for sourceFile in _sourceFiles {
+            preparsedResults.Add(null)
+            fullPath := Path.GetFullPath(sourceFile)
+            source := ReadSourceText(sourceFile)
+            _sourceTexts[fullPath] = source
+            parseSource := source
+            if plan.ReusedFiles.Contains(fullPath) {
+                summary := plan.Summaries[fullPath]
+                skeleton := summary.InterfaceSkeleton
+                if skeleton == null {
+                    return false
+                }
+                parseSource = skeleton
+            } else {
+                summary := plan.Summaries[fullPath]
+                if !summary.HasPreprocessorDirectives {
+                    preparsedResults[sourceIndex] = summary.ParsedSource
+                }
+            }
+            files.Add(sourceFile)
+            sources.Add(parseSource)
+            totalCharacters = totalCharacters + parseSource.Length
+            sourceIndex = sourceIndex + 1
+        }
+
+        outcomes := new MultiFileCompilerFileParse[_sourceFiles.Count]
+        queue := new ConcurrentQueue<int>()
+        index := 0
+        while index < files.Count {
+            outcome := new MultiFileCompilerFileParse()
+            outcomes[index] = outcome
+            prepared := preparsedResults[index]
+            if prepared != null {
+                outcome.Result = prepared
+                outcome.WasPreparsed = true
+            } else {
+                queue.Enqueue(index)
+            }
+            index = index + 1
+        }
+
+        workerCount := CompilerParallelism.WorkerCount(files.Count, totalCharacters)
+        if _workers > 0 {
+            workerCount = Math.Min(_workers, files.Count)
+        }
+        workers := new List<Thread>(workerCount)
+        states := new List<MultiFileCompilerParseWorker>(workerCount)
+        worker := 0
+        while worker < workerCount {
+            state := new MultiFileCompiler.MultiFileCompilerParseWorker(files, sources, _preprocessorSymbols, outcomes, queue)
+            states.Add(state)
+            work: ThreadStart = () => RunPersistedCheckParseWorker(state)
+            thread := new Thread(work, 64 * 1024 * 1024)
+            thread.IsBackground = true
+            thread.Name = "nsharp-check-parse-" + worker.ToString()
+            workers.Add(thread)
+            worker = worker + 1
+        }
+        for started in workers {
+            started.Start()
+        }
+        for joined in workers {
+            joined.Join()
+        }
+
+        invalid := false
+        for outcome in outcomes {
+            if outcome.Failure != null || outcome.Result == null || outcome.Result.Errors.Count > 0 || outcome.PreprocessorErrors.Count > 0 {
+                invalid = true
+                break
+            }
+        }
+        if invalid {
+            plan.DisableReuse()
+            _persistedCheckPartial = false
+            return false
+        }
+
+        index = 0
+        while index < files.Count {
+            sourceFile := files[index]
+            fullPath := Path.GetFullPath(sourceFile)
+            outcome := outcomes[index]
+            errorsBefore := _allErrors.Count
+            if !outcome.WasPreparsed {
+                _parsedFilesCount = _parsedFilesCount + 1
+            }
+            _allErrors.AddRange(outcome.PreprocessorErrors)
+            parseResult := outcome.Result
+            if parseResult == null {
+                throw new InvalidOperationException("Persisted check parse worker produced no result for '" + sourceFile + "'.")
+            }
+            _allErrors.AddRange(parseResult.Errors)
+            unit := parseResult.CompilationUnit
+            reusableParse: FileParseAst? = null
+            if unit != null {
+                _compilationUnits[sourceFile] = unit
+                reusableParse = parseResult
+                _reusableParses[fullPath] = parseResult
+            }
+            RecordParsedFile(sourceFile, unit, errorsBefore, reusableParse)
+            index = index + 1
+        }
+
+        return true
+    }
+
+    private func RunPersistedCheckParseWorker(state: MultiFileCompilerParseWorker): void {
+        index := 0
+        while state.Queue.TryDequeue(out index) {
+            outcome := state.Outcomes[index]
+            try {
+                live := Preprocessor.ProcessSource(state.Sources[index], state.Symbols, state.Files[index], outcome.PreprocessorErrors)
+                outcome.Result = ColumnarParserRecovery.ParseFileAst(live, state.Files[index])
+            } catch ex: Exception {
+                outcome.Failure = ex
+            }
         }
     }
 
@@ -607,6 +1067,9 @@ class MultiFileCompiler {
         }
 
         fileRecord := state.Files[fullPath]
+        if fileRecord.Unit == null {
+            return false
+        }
         _sourceTexts[fullPath] = ReadSourceText(sourceFile)
         _allErrors.AddRange(fileRecord.ParseErrors)
         unit := fileRecord.Unit
@@ -621,6 +1084,43 @@ class MultiFileCompiler {
         return true
     }
 
+    // A persisted-candidate summary was parsed in this process while deciding whether its surface
+    // changed. Reuse that same parse if the check must fall back to a full analysis; the full path
+    // still consumes every source, but does not parse a changed source twice.
+    private func TryReusePreparedSummaryParse(sourceFile: string): bool {
+        plan := _incrementalPlan
+        if plan == null {
+            return false
+        }
+
+        fullPath := Path.GetFullPath(sourceFile)
+        summary: IncrementalFileSummary = null
+        if !plan.Summaries.TryGetValue(fullPath, out summary) || summary.HasPreprocessorDirectives || summary.ParsedSource == null {
+            return false
+        }
+        source := ReadSourceText(sourceFile)
+        if !string.Equals(ContentHash.OfText(source), summary.TextHash, StringComparison.Ordinal) {
+            return false
+        }
+
+        parseResult := summary.ParsedSource
+        if parseResult == null {
+            return false
+        }
+        _sourceTexts[fullPath] = source
+        errorsBefore := _allErrors.Count
+        _allErrors.AddRange(parseResult.Errors)
+        unit := parseResult.CompilationUnit
+        reusableParse: FileParseAst? = null
+        if unit != null {
+            _compilationUnits[sourceFile] = unit
+            _reusableParses[fullPath] = parseResult
+            reusableParse = parseResult
+        }
+        RecordParsedFile(sourceFile, unit, errorsBefore, reusableParse)
+        return true
+    }
+
     private func RecordParsedFile(sourceFile: string, unit: CompilationUnit?, errorsBefore: int, reusableParse: FileParseAst?): void {
         plan := _incrementalPlan
         if plan == null {
@@ -632,7 +1132,39 @@ class MultiFileCompiler {
         fileRecord.Unit = unit
         fileRecord.ReusableParse = reusableParse
         fileRecord.ParseErrors.AddRange(_allErrors.GetRange(errorsBefore, _allErrors.Count - errorsBefore))
+        state := _incrementalState
+        previous: IncrementalFileRecord = null
+        if plan.ReusedFiles.Contains(fullPath) && state != null && state.Files.TryGetValue(fullPath, out previous) && previous.Analyzed && string.Equals(previous.Summary.TextHash, fileRecord.Summary.TextHash, StringComparison.Ordinal) {
+            fileRecord.Analyzed = true
+            fileRecord.AnalysisErrors.AddRange(previous.AnalysisErrors)
+            for dependency in previous.Dependencies {
+                fileRecord.Dependencies.Add(dependency)
+            }
+            for imported in previous.ImportedFileHashes {
+                fileRecord.ImportedFileHashes[imported.Key] = imported.Value
+            }
+        }
         _pendingRecords[fullPath] = fileRecord
+    }
+
+    private func HasSourceFunctionOverloads(): bool {
+        counts := new Dictionary<string, int>(StringComparer.Ordinal)
+        for compilation in _compilationUnits {
+            for declaration in compilation.Value.Declarations {
+                function := declaration as FunctionDeclaration
+                if function == null {
+                    continue
+                }
+                count: int = 0
+                counts.TryGetValue(function.Name, out count)
+                count = count + 1
+                if count > 1 {
+                    return true
+                }
+                counts[function.Name] = count
+            }
+        }
+        return false
     }
 
     /// <summary>Detect circular file-import graphs before semantic analysis so project checks
@@ -1117,6 +1649,16 @@ class MultiFileCompiler {
         phaseTimer.Restart()
         parseMark := CompilerPhaseTimings.Begin(_phaseProject, "parse")
         ParseAllFiles()
+        if _persistedCheckPartial && HasSourceFunctionOverloads() {
+            // The emitter uses per-file semantic bindings to select an overloaded source function.
+            // A cold record has diagnostics and interfaces, not semantic models, so this shape must
+            // go through the complete analyzer before backend validation.
+            plan := _incrementalPlan
+            if plan != null {
+                plan.DisableReuse()
+            }
+            _persistedCheckPartial = false
+        }
         if phaseState != null {
             phaseState.LastParseMilliseconds = phaseTimer.ElapsedMilliseconds
         }
@@ -1437,7 +1979,12 @@ class MultiFileCompiler {
         }
 
         environmentKey := ComputeIncrementalEnvironmentKey()
-        if environmentKey != state.EnvironmentKey || !state.MetadataIsCurrent() {
+        if _checkStateSeededFromStamp {
+            // The persisted check stamp's full input closure was checked before it seeded this
+            // state. Its source records intentionally have no process-local analyzer objects.
+            state.EnvironmentKey = environmentKey
+            _checkStateSeededFromStamp = false
+        } else if environmentKey != state.EnvironmentKey || !state.MetadataIsCurrent() {
             state.Reset(environmentKey)
         }
 
@@ -1562,6 +2109,14 @@ class MultiFileCompiler {
     // of the key even though analysis promises deterministic ordering: a changed execution policy
     // must not be allowed to replay a result produced under a different policy.
     private func ComputeCheckResultKey(assemblyName: string, outputMode: int, useBuiltReferences: bool, backendOption: string?): string {
+        return ComputeCheckKey(assemblyName, outputMode, useBuiltReferences, backendOption, true)
+    }
+
+    private func ComputeCheckAnalysisReuseKey(assemblyName: string, outputMode: int, useBuiltReferences: bool, backendOption: string?): string {
+        return ComputeCheckKey(assemblyName, outputMode, useBuiltReferences, backendOption, false)
+    }
+
+    private func ComputeCheckKey(assemblyName: string, outputMode: int, useBuiltReferences: bool, backendOption: string?, includeSourceSet: bool): string {
         key := new IncrementalKeyBuilder()
         key.Add("format", IncrementalBuildStamp.FormatVersion.ToString())
         key.Add("compiler", IncrementalCompilerIdentity.Current())
@@ -1569,6 +2124,7 @@ class MultiFileCompiler {
         key.Add("assembly", assemblyName)
         key.Add("purpose", "check")
         key.Add("output-schema", IncrementalBuildStamp.CheckResultSchemaVersion.ToString())
+        key.Add("summary-format", IncrementalFileSummary.FormatVersion.ToString())
         key.Add("output-mode", outputMode.ToString())
         key.Add("backend-option", backendOption)
         key.AddBool("use-built-references", useBuiltReferences)
@@ -1581,9 +2137,11 @@ class MultiFileCompiler {
         symbols := new List<string>(_preprocessorSymbols)
         symbols.Sort(StringComparer.Ordinal)
         key.Add("defines", string.Join(",", symbols))
-        key.Add("source-count", _sourceFiles.Count.ToString())
-        for sourceFile in _sourceFiles {
-            key.Add("source", Path.GetFullPath(sourceFile))
+        if includeSourceSet {
+            key.Add("source-count", _sourceFiles.Count.ToString())
+            for sourceFile in _sourceFiles {
+                key.Add("source", Path.GetFullPath(sourceFile))
+            }
         }
         key.Add("nuget-packages", Environment.GetEnvironmentVariable("NUGET_PACKAGES"))
         key.Add("soa-environment", Environment.GetEnvironmentVariable(SoaFeature.EnvironmentVariable))
@@ -1646,6 +2204,11 @@ class MultiFileCompiler {
         if (_sourceFiles.Count == 0) {
             return false
         }
+
+        if _persistedCheckPartial && outputPath == null && TryEmitPersistedCheckSubset(assemblyName) {
+            return true
+        }
+
         emitParseMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.parse")
         sources := new List<string>(_sourceFiles.Count)
         for sourceFile in _sourceFiles {
@@ -1653,7 +2216,18 @@ class MultiFileCompiler {
             if (!_sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out source)) {
                 return false
             }
-            sources.Add(Preprocessor.ProcessSource(source, _preprocessorSymbols, sourceFile, _allErrors))
+            sourceText := source ?? ""
+            plan := _incrementalPlan
+            fullPath := Path.GetFullPath(sourceFile)
+            if _persistedCheckPartial && plan != null && plan.ReusedFiles.Contains(fullPath) {
+                summary := plan.Summaries[fullPath]
+                skeleton := summary.InterfaceSkeleton
+                if skeleton == null {
+                    return false
+                }
+                sourceText = skeleton
+            }
+            sources.Add(Preprocessor.ProcessSource(sourceText, _preprocessorSymbols, sourceFile, _allErrors))
         }
 
         outputConfig := _config
@@ -1723,6 +2297,300 @@ class MultiFileCompiler {
         written := TryEmitReferenceAssembly(outputPath, referenceAssemblyPaths)
         CompilerPhaseTimings.End(writeMark)
         return written
+    }
+
+    // The earlier clean check already validated unchanged bodies through the backend. Re-run code
+    // generation for the changed source and the project declarations its fresh bindings need. A
+    // decline retries the complete project below.
+    private func TryEmitPersistedCheckSubset(assemblyName: string): bool {
+        plan := _incrementalPlan
+        if plan == null {
+            return false
+        }
+
+        changedPath := FindSingleChangedSource(plan)
+        if changedPath == null || _sourceFiles.Count <= 1 {
+            return false
+        }
+        normalizedPath := changedPath ?? ""
+        changedIndex := FindProjectSourceIndex(normalizedPath)
+        if changedIndex < 0 {
+            return false
+        }
+        selected := SelectPersistedCheckEmissionFiles(normalizedPath, plan)
+        if selected == null {
+            return false
+        }
+
+        let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput = null
+        if !TryBuildPersistedSubsetProgram(normalizedPath, changedIndex, selected, plan, out program) {
+            return false
+        }
+
+        PreparePersistedSubsetProgram(program, normalizedPath, changedIndex)
+        return TryEmitPersistedSubsetProgram(program, assemblyName)
+    }
+
+    private func FindSingleChangedSource(plan: IncrementalCompilationPlan): string? {
+        changedPath: string? = null
+        for sourceFile in _sourceFiles {
+            fullPath := Path.GetFullPath(sourceFile)
+            if !plan.ReusedFiles.Contains(fullPath) {
+                if changedPath != null {
+                    return null
+                }
+                changedPath = fullPath
+            }
+        }
+        return changedPath
+    }
+
+    private func FindProjectSourceIndex(sourcePath: string): int {
+        index := 0
+        while index < _sourceFiles.Count {
+            if string.Equals(Path.GetFullPath(_sourceFiles[index]), sourcePath, StringComparison.OrdinalIgnoreCase) {
+                return index
+            }
+            index = index + 1
+        }
+        return -1
+    }
+
+    private func SelectPersistedCheckEmissionFiles(changedPath: string, plan: IncrementalCompilationPlan): HashSet<string>? {
+        changedRecord: IncrementalFileRecord = null
+        if !_pendingRecords.TryGetValue(changedPath, out changedRecord) || changedRecord.Bindings == null {
+            return null
+        }
+
+        selected := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        processed := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        selected.Add(changedPath)
+        AddBoundPersistedSourceFiles(changedPath, changedRecord, selected)
+        AddImportedPersistedSourceFiles(changedPath, changedRecord, selected)
+        AddNamedPersistedSourceFiles(changedPath, plan.Summaries[changedPath].ReferencedNames, plan, selected)
+        outputConfig := _config
+        outputType: string? = null
+        if outputConfig != null {
+            outputType = outputConfig.OutputType
+        }
+        if ColumnarEmissionPlanner.IsExecutableOutput(outputType) {
+            for sourceFile in _sourceFiles {
+                sourcePath := Path.GetFullPath(sourceFile)
+                if plan.Summaries[sourcePath].TopLevelFunctionNames.Contains("main") {
+                    selected.Add(sourcePath)
+                }
+            }
+        }
+
+        while processed.Count < selected.Count {
+            nextPath: string? = null
+            for candidatePath in selected {
+                if !processed.Contains(candidatePath) {
+                    nextPath = candidatePath
+                    break
+                }
+            }
+            if nextPath == null {
+                break
+            }
+
+            currentPath := nextPath ?? ""
+            processed.Add(currentPath)
+            if string.Equals(currentPath, changedPath, StringComparison.OrdinalIgnoreCase) {
+                continue
+            }
+            AddNamedPersistedSourceFiles(currentPath, plan.Summaries[currentPath].Mentions, plan, selected)
+            currentRecord: IncrementalFileRecord = null
+            if _pendingRecords.TryGetValue(currentPath, out currentRecord) {
+                AddImportedPersistedSourceFiles(currentPath, currentRecord, selected)
+            }
+        }
+
+        return selected
+    }
+
+    private func AddBoundPersistedSourceFiles(changedPath: string, fileRecord: IncrementalFileRecord, selected: HashSet<string>): void {
+        bindings := fileRecord.Bindings
+        if bindings == null {
+            return
+        }
+        for binding in bindings.BindingEntries {
+            declarationPath := binding.Value.File
+            if declarationPath != null {
+                AddPersistedSourcePath(changedPath, declarationPath, selected)
+            }
+        }
+    }
+
+    private func AddImportedPersistedSourceFiles(currentPath: string, fileRecord: IncrementalFileRecord, selected: HashSet<string>): void {
+        for imported in fileRecord.ImportedFileHashes {
+            AddPersistedSourcePath(currentPath, imported.Key, selected)
+        }
+    }
+
+    private func AddPersistedSourcePath(currentPath: string, candidatePath: string, selected: HashSet<string>): void {
+        normalizedCandidate := Path.GetFullPath(candidatePath)
+        if string.Equals(normalizedCandidate, currentPath, StringComparison.OrdinalIgnoreCase) {
+            return
+        }
+        for sourceFile in _sourceFiles {
+            sourcePath := Path.GetFullPath(sourceFile)
+            if string.Equals(sourcePath, normalizedCandidate, StringComparison.OrdinalIgnoreCase) {
+                selected.Add(sourcePath)
+                return
+            }
+        }
+    }
+
+    private func AddNamedPersistedSourceFiles(currentPath: string, names: HashSet<string>, plan: IncrementalCompilationPlan, selected: HashSet<string>): void {
+        for sourceFile in _sourceFiles {
+            sourcePath := Path.GetFullPath(sourceFile)
+            if string.Equals(sourcePath, currentPath, StringComparison.OrdinalIgnoreCase) || selected.Contains(sourcePath) {
+                continue
+            }
+            candidateSummary := plan.Summaries[sourcePath]
+            for name in names {
+                if candidateSummary.DeclaredNames.Contains(name) {
+                    selected.Add(sourcePath)
+                    break
+                }
+            }
+        }
+    }
+
+    private func TryBuildPersistedSubsetProgram(changedPath: string, changedIndex: int, selected: HashSet<string>, plan: IncrementalCompilationPlan, out program: NSharpLang.Compiler.Columnar.ColumnarProgramInput): bool {
+        program = null
+
+        emitParseMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.parse")
+        let source: string? = null
+        if !_sourceTexts.TryGetValue(changedPath, out source) {
+            CompilerPhaseTimings.End(emitParseMark)
+            return false
+        }
+        changedFile := _sourceFiles[changedIndex]
+        preprocessorErrors := new List<CompilerError>()
+        sourceText := Preprocessor.ProcessSource(source ?? "", _preprocessorSymbols, changedFile, preprocessorErrors)
+        if preprocessorErrors.Count > 0 {
+            CompilerPhaseTimings.End(emitParseMark)
+            return false
+        }
+        changedEmissionText := sourceText
+        changedSummary := plan.Summaries[changedPath]
+        changedParse := changedSummary.ParsedSource
+        changedUnit: CompilationUnit? = null
+        if changedParse != null {
+            changedUnit = changedParse.CompilationUnit
+        }
+        previousRecord: IncrementalFileRecord = null
+        state := _incrementalState
+        if !changedSummary.HasPreprocessorDirectives && changedUnit != null && state != null && state.Files.TryGetValue(changedPath, out previousRecord) {
+            previousSummary := previousRecord.Summary
+            if previousSummary != null && previousSummary.BodyHashes.Count == changedSummary.BodyHashes.Count {
+                changedTokens := new Lexer(sourceText, changedFile).Tokenize()
+                selectiveText := IncrementalFileSummary.BuildChangedBodyEmissionSource(
+                    sourceText,
+                    changedUnit ?? new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, new List<Declaration>(), 1, 1),
+                    changedTokens,
+                    changedSummary.BodyHashes,
+                    previousSummary.BodyHashes
+                )
+                if selectiveText != null {
+                    changedEmissionText = selectiveText ?? sourceText
+                }
+            }
+        }
+        sources := new List<string>()
+        fileNames := new List<string>()
+        maxIndex := changedIndex
+        sourceScanIndex := changedIndex + 1
+        while sourceScanIndex < _sourceFiles.Count {
+            if selected.Contains(Path.GetFullPath(_sourceFiles[sourceScanIndex])) {
+                maxIndex = sourceScanIndex
+            }
+            sourceScanIndex = sourceScanIndex + 1
+        }
+        sourceIndex := 0
+        while sourceIndex <= maxIndex {
+            sourceFile := _sourceFiles[sourceIndex]
+            if sourceIndex == changedIndex {
+                sources.Add(changedEmissionText)
+                fileNames.Add(sourceFile)
+            } else if selected.Contains(Path.GetFullPath(sourceFile)) {
+                skeleton := plan.Summaries[Path.GetFullPath(sourceFile)].InterfaceSkeleton
+                if skeleton == null {
+                    CompilerPhaseTimings.End(emitParseMark)
+                    return false
+                }
+                sources.Add(skeleton)
+                fileNames.Add(sourceFile)
+            } else {
+                placeholder := PersistedCheckPlaceholder(sourceFile, sourceIndex)
+                sources.Add(placeholder)
+                fileNames.Add(sourceFile)
+            }
+            sourceIndex = sourceIndex + 1
+        }
+        ColumnarDeclineTrace.Reset()
+        emitParses: ColumnarFileProgramCache? = null
+        warmState := _incrementalState
+        if warmState != null {
+            emitParses = warmState.EmitParses
+        }
+        if !ColumnarProgramInputBuilder.TryBuildMultiFile(sources, fileNames, _projectRoot, out program, _workers, emitParses) {
+            CompilerPhaseTimings.End(emitParseMark)
+            return false
+        }
+        CompilerPhaseTimings.End(emitParseMark)
+        return true
+    }
+
+    private func PreparePersistedSubsetProgram(program: NSharpLang.Compiler.Columnar.ColumnarProgramInput, changedPath: string, changedIndex: int): void {
+        sharedAnalyzer := _sharedAnalyzerValue
+        if sharedAnalyzer != null {
+            program.ReferenceMetadata = sharedAnalyzer.ReferenceMetadata
+        }
+        semanticModel: SemanticModel = null
+        if _semanticModels.TryGetValue(changedPath, out semanticModel) {
+            program.SetSemanticModelForFileId(changedIndex, semanticModel)
+        }
+    }
+
+    private static func PersistedCheckPlaceholder(sourceFile: string, sourceIndex: int): string {
+        indexText := sourceIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        if sourceFile.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase) {
+            return "namespace NSharpCheckPlaceholder\ntest \"cold check placeholder\" {}\n"
+        }
+        return "interface __NSharpCheckPlaceholder" + indexText + " {}\n"
+    }
+
+    private func TryEmitPersistedSubsetProgram(program: NSharpLang.Compiler.Columnar.ColumnarProgramInput, assemblyName: string): bool {
+        outputConfig := _config
+        outputType: string? = null
+        if outputConfig != null {
+            outputType = outputConfig.OutputType
+        }
+        isExecutable := ColumnarEmissionPlanner.IsExecutableOutput(outputType)
+        versionConfig := _config
+        version: string? = null
+        if versionConfig != null {
+            version = versionConfig.Version
+        }
+        assemblyVersion := AssemblyVersionUtilities.GetAssemblyVersionOrDefault(version)
+        dependenciesConfig := _config
+        dependencies: List<Reference>? = null
+        if dependenciesConfig != null {
+            dependencies = dependenciesConfig.Dependencies
+        }
+        referenceAssemblyPaths := ExternalAssemblyScan.ResolveReferencePaths(_projectRoot, dependencies)
+        let assembly: byte[] = null
+        codegenMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.codegen")
+        if !ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, "Program", program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths) {
+            CompilerPhaseTimings.End(codegenMark)
+            return false
+        }
+        CompilerPhaseTimings.End(codegenMark)
+        _emittedImage = assembly
+        return true
     }
 
     // The surface of what was just emitted, written only when a caller asked for one.

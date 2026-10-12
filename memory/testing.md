@@ -1479,10 +1479,27 @@ no-op-build column is the paired median supplied by the task, for the 1.2× targ
 | large | 2,548 → 121 ms | 0.048× | 172 ms | 0.70× | 2,604 → 2,636 ms | 1.010× |
 
 The no-op relative gate's 95% lower ratio bounds were 0.126×, 0.140× and 0.042× for small,
-medium and large. Cold body edits still take a full check because their changed source invalidates
-the result stamp and a cold process has no semantic models to reuse; the existing daemon session
-continues to re-analyze only the affected files. The head no-op structural rows were re-recorded
-from these real agent-loop runs in `tests/fixtures/agent-loop/agent-loop-baseline.golden.json`.
+medium and large. The head no-op structural rows were re-recorded from these real agent-loop runs in
+`tests/fixtures/agent-loop/agent-loop-baseline.golden.json`.
+
+**Persisted cold body-edit check (2026-10-12, nine alternating pairs per row, base `99d7b725b`,
+arm64 Darwin 24.6.0, 10 cores).** A clean check stamp now carries per-file summaries and analysis
+records. With an unchanged declaration surface, a cold body edit analyzes exactly one file and
+reuses the other files' diagnostics. The large check improved from 2,369 ms to 489 ms; it remains
+89 ms above the approximate 400 ms target. No-op checks remained between 102 and 118 ms, with paired
+head slowdowns of at most 12 ms.
+
+| size | cold body check, base → head | paired ratio | analyzed files | cold no-op check, base → head | paired ratio |
+|---|---:|---:|---:|---:|---:|
+| small | 796 → 555 ms | 0.697× | 1 | 105 → 106 ms | 1.009× |
+| medium | 735 → 410 ms | 0.559× | 1 | 100 → 102 ms | 1.020× |
+| large | 2,369 → 489 ms | 0.212× | 1 | 106 → 118 ms | 1.104× |
+
+The head no-op checks parsed zero files at every size. Their paired median slowdowns were 1, 2 and
+12 ms, below the benchmark's 30 ms minimum slowdown threshold. The fresh Language Server structural
+run also recorded one parsed file for medium and large `didChange` rows, with one file analyzed and
+39/159 reused. These measurements and the exact structural counters came from the real agent-loop
+harness; the counters are pinned in `tests/fixtures/agent-loop/agent-loop-baseline.golden.json`.
 
 ### 9. The Installed Toolchain (`tests/native/installed-toolchain-integration`)
 

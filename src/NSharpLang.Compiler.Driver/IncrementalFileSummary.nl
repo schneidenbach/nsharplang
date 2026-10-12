@@ -45,7 +45,7 @@ import NSharpLang.Compiler.Columnar
 class IncrementalFileSummary {
 
     // Bumped whenever a summary is computed differently, so a persisted summary cannot be reused.
-    static FormatVersion: int => 4
+    static FormatVersion: int => 10
 
     Path: string
     TextHash: string
@@ -58,6 +58,22 @@ class IncrementalFileSummary {
     // The namespace (or package) the file declares, or null. Not a declared NAME: whether a namespace
     // EXISTS in the project is a property of the whole file set, compared run to run by the plan.
     Namespace: string?
+    // Whether any declaration carries attributes that can make a body participate in systems
+    // effect propagation. A cold check may reuse unchanged analyses only when this is false.
+    HasAttributes: bool
+    HasSourceFunctionOverloads: bool
+    HasPreprocessorDirectives: bool
+    TopLevelFunctionNames: HashSet<string>
+    BodyHashes: List<string>
+    // The parse produced while computing a current-run summary. It is not serialized; a full
+    // fallback can consume it instead of parsing the same changed source a second time.
+    ParsedSource: FileParseAst?
+    // The unchanged declarations with ordinary function/accessor bodies replaced by valid stubs.
+    // Constructors stay intact because definite-assignment validation depends on their bodies. A
+    // cold body edit uses this project surface for binding and backend validation while it reads full
+    // text only for the edited file. This is derived from the source and shares its exact line/column
+    // layout.
+    InterfaceSkeleton: string?
 
     constructor(path: string, contentHash: string, surfaceHash: string, opaque: bool) {
         Path = path
@@ -69,6 +85,13 @@ class IncrementalFileSummary {
         ReferencedNames = new HashSet<string>(StringComparer.Ordinal)
         Mentions = new HashSet<string>(StringComparer.Ordinal)
         Namespace = null
+        HasAttributes = false
+        HasSourceFunctionOverloads = false
+        HasPreprocessorDirectives = false
+        TopLevelFunctionNames = new HashSet<string>(StringComparer.Ordinal)
+        BodyHashes = new List<string>()
+        ParsedSource = null
+        InterfaceSkeleton = null
     }
 
     // The summary of `text`, which is the file's text exactly as the analyzer's project walk reads
@@ -76,9 +99,11 @@ class IncrementalFileSummary {
     static func Compute(path: string, text: string): IncrementalFileSummary {
         contentHash := ContentHash.OfText(text)
         unit: CompilationUnit? = null
+        parsedSource: FileParseAst? = null
         parseErrors := 0
         try {
             parseResult := ColumnarParserRecovery.ParseFileAst(text, path)
+            parsedSource = parseResult
             unit = parseResult.CompilationUnit
             parseErrors = parseResult.Errors.Count
         } catch {
@@ -93,6 +118,15 @@ class IncrementalFileSummary {
         }
 
         opaque := unit == null || parseErrors > 0 || tokens == null
+        hasPreprocessorDirectives := false
+        if tokens != null {
+            for token in tokens {
+                if token.Type == TokenType.PreprocessorDirective {
+                    hasPreprocessorDirectives = true
+                    break
+                }
+            }
+        }
         surfaceBuilder := new StringBuilder()
         bodyWords := new HashSet<string>(StringComparer.Ordinal)
         if tokens != null {
@@ -143,10 +177,18 @@ class IncrementalFileSummary {
 
         walk := new IncrementalDeclarationWalk()
         mentions := new HashSet<string>(StringComparer.Ordinal)
+        topLevelFunctionNames := new HashSet<string>(StringComparer.Ordinal)
+        hasSourceFunctionOverloads := false
         if unit != null {
             AddNamespaceNames(mentions, unit)
             for declaration in unit.Declarations {
                 walk.Visit(declaration, false, 0)
+                function := declaration as FunctionDeclaration
+                if function != null {
+                    if !topLevelFunctionNames.Add(function.Name) {
+                        hasSourceFunctionOverloads = true
+                    }
+                }
                 topLevelName := DeclarationFacts.GetDeclarationName(declaration)
                 if topLevelName != null {
                     mentions.Add(topLevelName)
@@ -168,6 +210,17 @@ class IncrementalFileSummary {
         if unit != null {
             summary.Namespace = AnalyzerProjectSourceProvider.UnitNamespace(unit)
         }
+        summary.HasAttributes = walk.HasAttributes
+        summary.HasSourceFunctionOverloads = hasSourceFunctionOverloads
+        summary.HasPreprocessorDirectives = hasPreprocessorDirectives
+        summary.ParsedSource = parsedSource
+        summary.TopLevelFunctionNames.UnionWith(topLevelFunctionNames)
+        if tokens != null && unit != null {
+            summary.BodyHashes.AddRange(ComputeBodyHashes(unit, tokens))
+        }
+        if !opaque && unit != null && tokens != null {
+            summary.InterfaceSkeleton = BuildInterfaceSkeleton(text, unit, tokens)
+        }
         if opaque {
             AddWords(summary.Mentions, text)
             AddWords(summary.ReferencedNames, text)
@@ -180,6 +233,239 @@ class IncrementalFileSummary {
         }
 
         return summary
+    }
+
+    private static func ComputeBodyHashes(unit: CompilationUnit, tokens: List<Token>): List<string> {
+        starts := new HashSet<long>()
+        CollectBodyStarts(unit.Declarations, starts)
+        hashes := new List<string>()
+        tokenIndex := 0
+        while tokenIndex < tokens.Count {
+            token := tokens[tokenIndex]
+            if token.Type != TokenType.LeftBrace || !starts.Contains(PositionKey(token.Line, token.Column)) {
+                tokenIndex = tokenIndex + 1
+                continue
+            }
+
+            depth := 1
+            closeIndex := tokenIndex + 1
+            while closeIndex < tokens.Count && depth > 0 {
+                current := tokens[closeIndex]
+                if current.Type == TokenType.LeftBrace {
+                    depth = depth + 1
+                } else if current.Type == TokenType.RightBrace {
+                    depth = depth - 1
+                }
+                closeIndex = closeIndex + 1
+            }
+            if depth != 0 {
+                return new List<string>()
+            }
+
+            builder := new StringBuilder()
+            bodyTokenIndex := tokenIndex
+            while bodyTokenIndex < closeIndex {
+                bodyToken := tokens[bodyTokenIndex]
+                tokenKind: int = (int)bodyToken.Type
+                builder.Append(tokenKind.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                builder.Append(":")
+                builder.Append(bodyToken.Value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                builder.Append(":")
+                builder.Append(bodyToken.Value)
+                builder.Append("\n")
+                bodyTokenIndex = bodyTokenIndex + 1
+            }
+            hashes.Add(ContentHash.OfText(builder.ToString()))
+            tokenIndex = closeIndex
+        }
+        return hashes
+    }
+
+    // Strip function, accessor, constructor, setup and test bodies while retaining every source
+    // position and the declaration surface. Non-void bodies receive a typed `default` return so the
+    // backend can still validate the changed body against the unchanged project's declarations.
+    // A source shape that cannot be represented safely returns null, which disables cold reuse.
+    private static func BuildInterfaceSkeleton(source: string, unit: CompilationUnit, tokens: List<Token>): string? {
+        return BuildBodySkeleton(source, unit, tokens, null, null)
+    }
+
+    // Preserve only function-like bodies whose token hash differs from the previous clean check.
+    // Every other body was already backend-validated under this unchanged declaration surface.
+    static func BuildChangedBodyEmissionSource(source: string, unit: CompilationUnit, tokens: List<Token>, currentBodyHashes: List<string>, previousBodyHashes: List<string>): string? {
+        return BuildBodySkeleton(source, unit, tokens, currentBodyHashes, previousBodyHashes)
+    }
+
+    private static func BuildBodySkeleton(source: string, unit: CompilationUnit, tokens: List<Token>, currentBodyHashes: List<string>?, previousBodyHashes: List<string>?): string? {
+        for token in tokens {
+            if token.Type == TokenType.PreprocessorDirective {
+                return null
+            }
+        }
+
+        if previousBodyHashes != null && (currentBodyHashes == null || currentBodyHashes.Count != previousBodyHashes.Count) {
+            return source
+        }
+
+        starts := new HashSet<long>()
+        nonVoidStarts := new HashSet<long>()
+        CollectBodyStarts(unit.Declarations, starts)
+        CollectNonVoidBodyStarts(unit.Declarations, nonVoidStarts)
+        if starts.Count == 0 {
+            return source
+        }
+
+        lineStarts := new List<int>()
+        lineStarts.Add(0)
+        offset := 0
+        while offset < source.Length {
+            if source[offset] == '\r' {
+                if offset + 1 < source.Length && source[offset + 1] == '\n' {
+                    offset = offset + 1
+                }
+                lineStarts.Add(offset + 1)
+            } else if source[offset] == '\n' {
+                lineStarts.Add(offset + 1)
+            }
+            offset = offset + 1
+        }
+
+        chars := source.ToCharArray()
+        tokenIndex := 0
+        bodyIndex := 0
+        while tokenIndex < tokens.Count {
+            token := tokens[tokenIndex]
+            key := PositionKey(token.Line, token.Column)
+            if token.Type != TokenType.LeftBrace || !starts.Contains(key) {
+                tokenIndex = tokenIndex + 1
+                continue
+            }
+
+            openOffset := SourceOffset(lineStarts, token.Line, token.Column)
+            if openOffset < 0 || openOffset >= chars.Length || chars[openOffset] != '{' {
+                return null
+            }
+
+            depth := 1
+            closeIndex := tokenIndex + 1
+            while closeIndex < tokens.Count && depth > 0 {
+                current := tokens[closeIndex]
+                if current.Type == TokenType.LeftBrace {
+                    depth = depth + 1
+                } else if current.Type == TokenType.RightBrace {
+                    depth = depth - 1
+                }
+                closeIndex = closeIndex + 1
+            }
+            if depth != 0 {
+                return null
+            }
+
+            closeToken := tokens[closeIndex - 1]
+            closeOffset := SourceOffset(lineStarts, closeToken.Line, closeToken.Column)
+            if closeOffset <= openOffset || closeOffset >= chars.Length || chars[closeOffset] != '}' {
+                return null
+            }
+
+            preserveChangedBody := false
+            if previousBodyHashes != null && currentBodyHashes != null {
+                preserveChangedBody = !string.Equals(currentBodyHashes[bodyIndex], previousBodyHashes[bodyIndex], StringComparison.Ordinal)
+            }
+            bodyIndex = bodyIndex + 1
+            if preserveChangedBody {
+                tokenIndex = closeIndex
+                continue
+            }
+
+            cursor := openOffset + 1
+            while cursor < closeOffset {
+                if chars[cursor] != '\r' && chars[cursor] != '\n' {
+                    chars[cursor] = ' '
+                }
+                cursor = cursor + 1
+            }
+
+            if nonVoidStarts.Contains(key) {
+                stub := "return default"
+                stubStart := -1
+                cursor = openOffset + 1
+                while cursor < closeOffset && stubStart < 0 {
+                    lineEnd := cursor
+                    while lineEnd < closeOffset && chars[lineEnd] != '\r' && chars[lineEnd] != '\n' {
+                        lineEnd = lineEnd + 1
+                    }
+                    if lineEnd - cursor >= stub.Length {
+                        stubStart = cursor
+                    } else {
+                        cursor = lineEnd
+                        while cursor < closeOffset && (chars[cursor] == '\r' || chars[cursor] == '\n') {
+                            cursor = cursor + 1
+                        }
+                    }
+                }
+                if stubStart < 0 {
+                    return null
+                }
+                cursor = stubStart
+                stubIndex := 0
+                while stubIndex < stub.Length {
+                    chars[cursor] = stub[stubIndex]
+                    stubIndex = stubIndex + 1
+                    cursor = cursor + 1
+                }
+            }
+
+            tokenIndex = closeIndex
+        }
+
+        return new string(chars)
+    }
+
+    private static func SourceOffset(lineStarts: List<int>, line: int, column: int): int {
+        if line <= 0 || line > lineStarts.Count || column <= 0 {
+            return -1
+        }
+        return lineStarts[line - 1] + column - 1
+    }
+
+    private static func CollectNonVoidBodyStarts(declarations: List<Declaration>, starts: HashSet<long>): void {
+        for declaration in declarations {
+            function := declaration as FunctionDeclaration
+            if function != null {
+                if function.Body != null && function.ReturnType != null && TypeReferenceFacts.GetDisplayName(function.ReturnType) != "void" {
+                    starts.Add(PositionKey(function.Body.Line, function.Body.Column))
+                }
+                continue
+            }
+            property := declaration as PropertyDeclaration
+            if property != null {
+                AddBlock(property.GetBody, starts)
+                continue
+            }
+            indexer := declaration as IndexerDeclaration
+            if indexer != null {
+                AddBlock(indexer.GetBody, starts)
+                continue
+            }
+            classDeclaration := declaration as ClassDeclaration
+            if classDeclaration != null {
+                CollectNonVoidBodyStarts(classDeclaration.Members, starts)
+                continue
+            }
+            structDeclaration := declaration as StructDeclaration
+            if structDeclaration != null {
+                CollectNonVoidBodyStarts(structDeclaration.Members, starts)
+                continue
+            }
+            recordDeclaration := declaration as RecordDeclaration
+            if recordDeclaration != null {
+                CollectNonVoidBodyStarts(recordDeclaration.Members, starts)
+                continue
+            }
+            interfaceDeclaration := declaration as InterfaceDeclaration
+            if interfaceDeclaration != null {
+                CollectNonVoidBodyStarts(interfaceDeclaration.Members, starts)
+            }
+        }
     }
 
     // ---- function bodies ------------------------------------------------------------------------
@@ -203,11 +489,6 @@ class IncrementalFileSummary {
         function := declaration as FunctionDeclaration
         if function != null {
             AddBlock(function.Body, starts)
-            return
-        }
-        constructorDeclaration := declaration as ConstructorDeclaration
-        if constructorDeclaration != null {
-            AddBlock(constructorDeclaration.Body, starts)
             return
         }
         property := declaration as PropertyDeclaration
@@ -317,12 +598,14 @@ class IncrementalDeclarationWalk {
     Referenced: HashSet<string>
     BaseNames: HashSet<string>
     Truncated: bool
+    HasAttributes: bool
 
     constructor() {
         Declared = new HashSet<string>(StringComparer.Ordinal)
         Referenced = new HashSet<string>(StringComparer.Ordinal)
         BaseNames = new HashSet<string>(StringComparer.Ordinal)
         Truncated = false
+        HasAttributes = false
     }
 
     func Visit(node: object?, inBaseList: bool, depth: int) {
@@ -373,6 +656,12 @@ class IncrementalDeclarationWalk {
     private func VisitMember(node: object, memberName: string, value: object?, isDeclaration: bool, declaresName: bool, inBaseList: bool, depth: int) {
         if value == null {
             return
+        }
+        if memberName == "Attributes" {
+            collection := value as ICollection
+            if collection != null && collection.Count > 0 {
+                HasAttributes = true
+            }
         }
         if isDeclaration && (memberName == "Body" || memberName == "GetBody" || memberName == "SetBody") {
             return

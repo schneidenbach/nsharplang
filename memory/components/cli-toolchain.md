@@ -1041,6 +1041,18 @@ to 0.34 s and 5.87 s to 0.46 s (the tests still run).
   workspace envelope from cached member diagnostics, and save assembled human output in the first
   member's existing check stamp for exact replay when every member hits. The daemon keeps its warm
   incremental analysis route so its first check seeds semantic state for later edits.
+- **Cold body edits reuse the same incremental owner.** If a check-result stamp is stale only because
+  source content changed, the CLI validates the non-source input closure and source set, reparses the
+  changed files to compare their declaration surfaces, and seeds `IncrementalCompilationState` from
+  the stamp only when every changed surface is unchanged and the prior check had no diagnostics.
+  Unchanged files are parsed from their persisted interface skeletons for project binding, and their
+  saved per-file analysis records are reused; check lint runs only on changed files. Constructors stay
+  intact in those skeletons because their bodies prove field initialization to the backend. Signature,
+  project/reference, file-set, compiler-identity or corrupt-stamp changes, plus opaque, attributed,
+  overloaded or unsupported source shapes, take the complete analysis path. A changed body still runs
+  analysis, lint and backend validation and can report new diagnostics. The changed file's tokenized
+  function-body hashes let the existing columnar emitter retain changed bodies and stub unchanged
+  ones for that validation pass; declaration signatures and source positions stay intact.
 - **Pinned by** `tests/native/incremental-build` (`UpToDate.tests.nl`): every invalidation axis
   (source edit, add/delete/rename, a test file the build does not compile, `project.yml` comment,
   define, configuration value, compile options, `.editorconfig`, deleted or modified output, corrupt,

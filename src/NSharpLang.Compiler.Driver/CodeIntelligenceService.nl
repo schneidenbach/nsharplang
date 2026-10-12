@@ -110,6 +110,10 @@ class CodeIntelligenceService {
         return CodeIntelligenceQueries.Diagnostics(snapshot, fileName)
     }
 
+    func GetDiagnosticsWithLintFiles(snapshot: ProjectSnapshot, fileName: string?, sourceFilesToLint: IReadOnlyList<string>): List<DiagnosticResult> {
+        return CodeIntelligenceQueries.DiagnosticsWithLintFiles(snapshot, fileName, sourceFilesToLint)
+    }
+
     func GetTypeAtPosition(snapshot: ProjectSnapshot, fileName: string, line: int, col: int): TypeResult? {
         return CodeIntelligenceNavigation.TypeAtPosition(snapshot, fileName, line, col)
     }

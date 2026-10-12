@@ -33,6 +33,32 @@ func CheckStampParsedFiles(path: string): long {
     throw new InvalidOperationException("nlc check did not write the filesParsed counter.")
 }
 
+func CheckStampAnalyzedFiles(path: string): long {
+    try {
+        using document := JsonDocument.Parse(File.ReadAllText(path))
+        counters: JsonElement = default
+        filesAnalyzed: JsonElement = default
+        if document.RootElement.TryGetProperty("counters", out counters) && counters.TryGetProperty("filesAnalyzed", out filesAnalyzed) {
+            return filesAnalyzed.GetInt64()
+        }
+    } finally {
+        if File.Exists(path) {
+            File.Delete(path)
+        }
+    }
+
+    throw new InvalidOperationException("nlc check did not write the filesAnalyzed counter.")
+}
+
+func CheckStampMultiFileProject(): string {
+    project := NewWorkspace()
+    File.WriteAllText(Path.Combine(project, "project.yml"), "name: CheckStampMultiProbe\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+    WriteSource(project, "Math.nl", "namespace CheckStampMultiProbe\n\nfunc Twice(value: int): int {\n    return value * 2\n}\n")
+    WriteSource(project, "Use.nl", "namespace CheckStampMultiProbe\n\nfunc Use(): int {\n    return Twice(2)\n}\n")
+    WriteSource(project, "Other.nl", "namespace CheckStampMultiProbe\n\nfunc Other(): int {\n    value := 9\n    return value\n}\n")
+    return project
+}
+
 func CheckStampRun(project: string, args: string[], environment: Dictionary<string, string?>): ProcessRun {
     allArgs := new List<string>()
     allArgs.Add("check")
@@ -107,6 +133,33 @@ test "cold check stamps miss on source, file-set and project configuration edits
         projectFile := Path.Combine(project, "project.yml")
         File.WriteAllText(projectFile, File.ReadAllText(projectFile) + "# cache input change\n")
         CheckStampAssertInvalidatedLikeFresh(project, "project.yml edit")
+    } finally {
+        Directory.Delete(project, true)
+    }
+}
+
+test "a cold body edit reuses unchanged file analyses and matches a full check" {
+    project := CheckStampMultiFileProject()
+    try {
+        CheckStampRun(project, new string[](0), InProcess())
+        mathPath := Path.Combine(project, "Math.nl")
+        File.WriteAllText(mathPath, File.ReadAllText(mathPath).Replace("value * 2", "value * 3"))
+
+        fullEnvironment := InProcess()
+        fullEnvironment["NSHARP_INCREMENTAL"] = "0"
+        fresh := CheckStampRun(project, new string[](0), fullEnvironment)
+        statsPath := CheckStampStatsPath()
+        incremental := CheckStampRun(project, ["--stats=" + statsPath], InProcess())
+        CheckStampAssertSame(fresh, incremental, "multi-file cold body edit")
+        assert CheckStampAnalyzedFiles(statsPath) == 1, "a cold body-only edit must analyze exactly its edited file"
+
+        File.WriteAllText(mathPath, File.ReadAllText(mathPath).Replace("value * 3", "missing * 3"))
+        diagnosticFresh := CheckStampRun(project, new string[](0), fullEnvironment)
+        diagnosticStatsPath := CheckStampStatsPath()
+        diagnosticPartial := CheckStampRun(project, ["--stats=" + diagnosticStatsPath], InProcess())
+        CheckStampAssertSame(diagnosticFresh, diagnosticPartial, "body edit that introduces an analyzer diagnostic")
+        assert diagnosticPartial.ExitCode != 0, "the edited body must report its new diagnostic"
+        assert CheckStampAnalyzedFiles(diagnosticStatsPath) == 1, "a diagnostic body edit must analyze exactly its edited file"
     } finally {
         Directory.Delete(project, true)
     }

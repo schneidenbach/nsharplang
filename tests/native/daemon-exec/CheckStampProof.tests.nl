@@ -3,6 +3,8 @@ namespace NSharpLang.DaemonExec.Tests
 import System
 import System.Collections.Generic
 import System.IO
+import System.Security.Cryptography
+import System.Text
 
 // A forced-fresh control keeps every environment setting of the cached invocation and disables
 // only incremental shortcuts. This makes a miss test compare like-for-like compiler inputs.
@@ -53,18 +55,18 @@ func CheckStampProofSystemsProject(): string {
 }
 
 func CheckStampProofAppSource(bodyVariant: bool, signatureVariant: bool): string {
-    local := "func Local(): int => 2"
+    local := "func Local(): int {\n    return 1000 + 2\n}"
     if signatureVariant {
-        body := "value"
+        body := "value + 1000"
         if bodyVariant {
-            body = "value + 1"
+            body = "value + 1001"
         }
-        local = "func Local(value: int): int => " + body
+        local = "func Local(value: int): int {\n    return " + body + "\n}"
     } else if bodyVariant {
-        local = "func Local(): int => 3"
+        local = "func Local(): int {\n    return 1000 + 3\n}"
     }
 
-    return "namespace CheckStampApp\n\nimport CheckStampReference\n\nfunc Use(): int => Value()\n\n" + local + "\n"
+    return "namespace CheckStampApp\n\nimport CheckStampReference\n\nfunc Use(): int {\n    return Value()\n}\n\n" + local + "\n"
 }
 
 func CheckStampProofAddExtra(app: string, extras: List<string>, suffix: string) {
@@ -72,6 +74,48 @@ func CheckStampProofAddExtra(app: string, extras: List<string>, suffix: string) 
     path := Path.Combine(app, name)
     WriteSource(app, name, "namespace CheckStampApp\n\nfunc Extra" + suffix + "(): int => 7\n")
     extras.Add(path)
+}
+
+// Keep the checksum valid while changing the compiler identity portion of the stamp key. This
+// exercises the same miss as running the next compiler build against a previous compiler's state.
+func CheckStampProofChangeCompilerIdentity(stampPath: string): void {
+    bytes := File.ReadAllBytes(stampPath)
+    payloadLength := bytes.Length - 32
+    assert payloadLength > 0, "the check stamp must contain a payload"
+    input := new MemoryStream(bytes, 0, payloadLength)
+    reader := new BinaryReader(input, Encoding.UTF8)
+    magic := reader.ReadString()
+    version := reader.ReadInt32()
+    key := reader.ReadString()
+    analysisReuseKey := reader.ReadString()
+    tailStart := (int)input.Position
+    tail := new byte[payloadLength - tailStart]
+    Array.Copy(bytes, tailStart, tail, 0, tail.Length)
+    reader.Dispose()
+
+    payloadStream := new MemoryStream()
+    writer := new BinaryWriter(payloadStream, Encoding.UTF8)
+    writer.Write(magic)
+    writer.Write(version)
+    writer.Write(key + "-simulated-compiler-identity-change")
+    writer.Write(analysisReuseKey + "-simulated-compiler-identity-change")
+    writer.Write(tail)
+    writer.Flush()
+    payload := payloadStream.ToArray()
+    writer.Dispose()
+
+    algorithm := SHA256.Create()
+    checksum: byte[] = null
+    try {
+        checksum = algorithm.ComputeHash(payload)
+    } finally {
+        algorithm.Dispose()
+    }
+
+    updated := new byte[payload.Length + checksum.Length]
+    Array.Copy(payload, updated, payload.Length)
+    Array.Copy(checksum, 0, updated, payload.Length, checksum.Length)
+    File.WriteAllBytes(stampPath, updated)
 }
 
 // Every step always follows the requested replay-or-fresh invocation with a full compile under the
@@ -102,7 +146,7 @@ func CheckStampProofRandomSequence(seed: int) {
     useFileName := "Use.nl"
     environment := InProcess()
     random := new Random(seed)
-    kindOrder := [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    kindOrder := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     shuffleIndex := kindOrder.Length - 1
     while shuffleIndex > 0 {
         swapIndex := random.Next(shuffleIndex + 1)
@@ -120,8 +164,8 @@ func CheckStampProofRandomSequence(seed: int) {
         CheckStampRun(app, new string[](0), environment)
 
         step := 0
-        while step < 40 {
-            kind := random.Next(9)
+        while step < 48 {
+            kind := random.Next(10)
             if step < kindOrder.Length {
                 kind = kindOrder[step]
             } else if step % 8 == 0 {
@@ -169,6 +213,11 @@ func CheckStampProofRandomSequence(seed: int) {
                     stamps := Directory.GetFiles(appStampDirectory, "*.check.stamp")
                     assert stamps.Length == 1, "expected the check stamp before corruption"
                     File.WriteAllBytes(stamps[0], [1, 2, 3])
+                } else if kind == 9 {
+                    appStampDirectory := Path.Combine(Path.Combine(app, "obj"), "nlc")
+                    stamps := Directory.GetFiles(appStampDirectory, "*.check.stamp")
+                    assert stamps.Length == 1, "expected the check stamp before compiler identity change"
+                    CheckStampProofChangeCompilerIdentity(stamps[0])
                 }
 
                 if kind == 8 {
@@ -190,9 +239,19 @@ func CheckStampProofRandomSequence(seed: int) {
                 }
 
                 label := "seed " + seed.ToString() + " step " + step.ToString() + " edit " + kind.ToString()
-                replayOrFresh := CheckStampRun(app, currentArgs.ToArray(), environment)
+                statsPath: string? = null
+                invocationArgs := currentArgs.ToArray()
+                if kind == 9 {
+                    statsPath = CheckStampStatsPath()
+                    invocationArgs = CheckStampProofWithStats(invocationArgs, statsPath)
+                }
+                replayOrFresh := CheckStampRun(app, invocationArgs, environment)
                 forcedFresh := CheckStampRun(app, currentArgs.ToArray(), CheckStampProofFreshEnvironment(environment))
                 CheckStampAssertSame(forcedFresh, replayOrFresh, label)
+                if kind == 9 {
+                    assert statsPath != null
+                    assert CheckStampParsedFiles(statsPath) > 0, label + ": compiler identity change must force a full check"
+                }
             } catch ex: Exception {
                 throw new InvalidOperationException("randomized check differential " + seed.ToString() + " step " + step.ToString() + ": " + ex.Message)
             }

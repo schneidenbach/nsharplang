@@ -31,6 +31,10 @@ import NSharpLang.Compiler.Ast
 // call throws rather than being skipped.
 class CodeIntelligenceDiagnostics {
     static func Build(projectRoot: string, allErrors: IReadOnlyList<CompilerError>, sourceFiles: IReadOnlyList<string>, compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, sourceTexts: IReadOnlyDictionary<string, string>, fileFilter: string?): List<DiagnosticResult> {
+        return BuildWithLintFiles(projectRoot, allErrors, sourceFiles, compilationUnits, sourceTexts, fileFilter, null)
+    }
+
+    static func BuildWithLintFiles(projectRoot: string, allErrors: IReadOnlyList<CompilerError>, sourceFiles: IReadOnlyList<string>, compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, sourceTexts: IReadOnlyDictionary<string, string>, fileFilter: string?, sourceFilesToLint: IReadOnlyList<string>?): List<DiagnosticResult> {
         results := new List<DiagnosticResult>()
         filesWithCompilerShadowingErrors := CompilerShadowingErrorFiles(allErrors, projectRoot)
 
@@ -41,7 +45,7 @@ class CodeIntelligenceDiagnostics {
             }
         }
 
-        lintDiagnostics := LintDiagnostics(projectRoot, sourceFiles, compilationUnits, sourceTexts, fileFilter)
+        lintDiagnostics := LintDiagnosticsWithFiles(projectRoot, sourceFiles, compilationUnits, sourceTexts, fileFilter, sourceFilesToLint)
         if filesWithCompilerShadowingErrors.Count > 0 {
             lintDiagnostics = CodeIntelligenceResultKernels.SuppressLintShadowingDiagnosticResults(lintDiagnostics, filesWithCompilerShadowingErrors)
         }
@@ -91,6 +95,10 @@ class CodeIntelligenceDiagnostics {
 
     // ── The lint walk ───────────────────────────────────────────────────
     static func LintDiagnostics(projectRoot: string, sourceFiles: IReadOnlyList<string>, compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, sourceTexts: IReadOnlyDictionary<string, string>, fileFilter: string?): List<DiagnosticResult> {
+        return LintDiagnosticsWithFiles(projectRoot, sourceFiles, compilationUnits, sourceTexts, fileFilter, null)
+    }
+
+    static func LintDiagnosticsWithFiles(projectRoot: string, sourceFiles: IReadOnlyList<string>, compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, sourceTexts: IReadOnlyDictionary<string, string>, fileFilter: string?, sourceFilesToLint: IReadOnlyList<string>?): List<DiagnosticResult> {
         results := new List<DiagnosticResult>()
 
         fileIndex := 0
@@ -99,6 +107,9 @@ class CodeIntelligenceDiagnostics {
             fileIndex = fileIndex + 1
 
             fullPath := Path.GetFullPath(sourceFile)
+            if sourceFilesToLint != null && !ContainsFullPath(sourceFilesToLint, fullPath) {
+                continue
+            }
             if fileFilter != null && !CodeIntelligenceResultKernels.MatchesFilePath(fullPath, fileFilter) {
                 continue
             }
@@ -129,6 +140,15 @@ class CodeIntelligenceDiagnostics {
         }
 
         return results
+    }
+
+    private static func ContainsFullPath(sourceFiles: IReadOnlyList<string>, fullPath: string): bool {
+        for sourceFile in sourceFiles {
+            if string.Equals(Path.GetFullPath(sourceFile), fullPath, StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+        }
+        return false
     }
 
     // `nlc check`'s OWN entry, and the third of the three DiagnosticResult shapes. It differs from

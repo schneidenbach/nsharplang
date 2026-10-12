@@ -81,6 +81,9 @@ class CheckCommand {
             // analysing and loading the reference closure all over again.
             service := new CodeIntelligenceService()
             compiler := new MultiFileCompiler(projectDir, projectConfig, null, true) { AotMode: aot }
+            // Ordinary diagnostics do not expose the full systems-function report. The diagnostic
+            // pass preserves policy findings while avoiding summary work for unannotated cold code.
+            compiler.SystemsDiagnosticsOnly = outputMode != 3
             // In the workspace server, the previous check of this project hands over its analyses
             // (`WarmIncrementalSessions`), so a body edit re-analyses only the files it can reach.
             warmKey = WarmIncrementalSessions.Attach(compiler, projectDir, "", "check", true, aot)
@@ -99,7 +102,7 @@ class CheckCommand {
 
             compiler.CompileForAnalysis()
             snapshot := service.SnapshotOfCompilation(projectDir, compiler)
-            diagnostics := service.GetDiagnostics(snapshot, null)
+            diagnostics := service.GetDiagnosticsWithLintFiles(snapshot, null, compiler.FilesToLint)
             diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics)
             summary := OutputFormatter.SummarizeDiagnostics(diagnostics)
 
@@ -360,6 +363,7 @@ class CheckCommand {
                 effectiveConfig := config ?? ProjectFileParser.CreateDefault(null)
                 assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(project.ProjectRoot, effectiveConfig)
                 compiler := new MultiFileCompiler(project.SourceFiles, project.ProjectRoot, effectiveConfig, null) { AotMode: aotMode, Workers: 1 }
+                compiler.SystemsDiagnosticsOnly = outputMode != 3
                 cached := compiler.TryReadCheckResult(assemblyName, outputMode, useBuiltReferences, backendOption)
                 if cached != null {
                     restored := RestoreWorkspaceProjectResult(project.ProjectRoot, cached)
@@ -376,7 +380,7 @@ class CheckCommand {
                 compiler.CompileForAnalysis()
                 compiler.ValidateAnalyzedEmission(assemblyName)
                 snapshot := service.SnapshotOfCompilation(project.ProjectRoot, compiler)
-                diagnostics := OutputFormatter.DeduplicateAndSortDiagnostics(service.GetDiagnostics(snapshot, null))
+                diagnostics := OutputFormatter.DeduplicateAndSortDiagnostics(service.GetDiagnosticsWithLintFiles(snapshot, null, compiler.FilesToLint))
                 summary := OutputFormatter.SummarizeDiagnostics(diagnostics)
                 diagnosticsJson := OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count)
                 resultJson := diagnosticsJson

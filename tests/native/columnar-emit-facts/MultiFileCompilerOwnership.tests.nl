@@ -279,10 +279,11 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     // parallel checks do not need to touch process environment.
     // `IncrementalBuild`, `WasUpToDate` and `IncrementalState` let a warm caller reuse an unchanged
     // compilation and keep per-file analyses between compilations of the same project.
+    // `FilesToLint` is the lint subset after a cold body-only check reused unaffected analyses.
     // `EmittedImage` is the image the last successful emission produced, and the only place
     // `ValidateAnalyzedEmission` leaves it without writing an assembly.
-    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 19
-    propertyNames := new string[](19)
+    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 20
+    propertyNames := new string[](20)
     propertyNames[0] = "CompilationUnits"
     propertyNames[1] = "SemanticModels"
     propertyNames[2] = "AllErrors"
@@ -302,6 +303,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     propertyNames[16] = "WasUpToDate"
     propertyNames[17] = "IncrementalState"
     propertyNames[18] = "EmittedImage"
+    propertyNames[19] = "FilesToLint"
     propertyIndex := 0
     while propertyIndex < propertyNames.Length {
         property := MultiFileOwnerRequiredProperty(
@@ -322,6 +324,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("Workers"), "Workers").get_PropertyType() == typeof(int)
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("EmittedImage"), "EmittedImage").get_PropertyType() == typeof(byte[])
     assert MultiFileOwnerRequiredProperty(owner.GetProperty("SystemsDiagnosticsOnly"), "SystemsDiagnosticsOnly").get_PropertyType() == typeof(bool)
+    assert MultiFileOwnerRequiredProperty(owner.GetProperty("FilesToLint"), "FilesToLint").get_PropertyType() == typeof(IReadOnlyList<string>)
 
     analysisTypes := new Type[](0)
     analysis := MultiFileOwnerRequiredMethod(
