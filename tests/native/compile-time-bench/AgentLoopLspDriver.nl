@@ -169,7 +169,6 @@ func AgentLoopLspClientStart(client: AgentLoopLspClient, serverDll: string, sour
     // response before any measured operation so a prior file's diagnostics cannot satisfy a wait.
     AgentLoopLspClientWaitForLog(client)
     AgentLoopLspClientDrainToBarrier(client, sourceFiles)
-    client.LogOffset = File.ReadAllText(client.LogPath).Length
 }
 
 func AgentLoopLspClientDrainToBarrier(client: AgentLoopLspClient, sourceFiles: List<string>) {
@@ -201,12 +200,38 @@ func AgentLoopLspClientDrainToBarrier(client: AgentLoopLspClient, sourceFiles: L
             }
             document.Dispose()
             client.PendingMessages.Clear()
-            client.LogOffset = File.ReadAllText(client.LogPath).Length
+            AgentLoopLspClientAdvanceLogOffsetAfterQuiet(client)
             return
         }
         document.Dispose()
     }
     throw new TimeoutException("Timed out waiting for the Language Server diagnostics drain barrier.")
+}
+
+// The server may flush the barrier request's log entries just after sending its response. Wait
+// for a quiet log before advancing the measurement offset so those entries cannot leak into the
+// next operation's structural counters.
+func AgentLoopLspClientAdvanceLogOffsetAfterQuiet(client: AgentLoopLspClient): void {
+    previousLength := -1
+    stableSamples := 0
+    attempt := 0
+    while attempt < 100 {
+        currentLength := File.ReadAllText(client.LogPath).Length
+        if currentLength == previousLength {
+            stableSamples = stableSamples + 1
+            if stableSamples >= 20 {
+                client.LogOffset = currentLength
+                return
+            }
+        } else {
+            previousLength = currentLength
+            stableSamples = 0
+        }
+        Thread.Sleep(5)
+        attempt = attempt + 1
+    }
+
+    throw new IOException("The Language Server log did not become quiet after the measurement barrier.")
 }
 
 func AgentLoopLspClientNotify(client: AgentLoopLspClient, method: string, parameters: Dictionary<string, object?>) {
