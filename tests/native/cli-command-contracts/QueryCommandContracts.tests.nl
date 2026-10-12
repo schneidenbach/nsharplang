@@ -235,6 +235,23 @@ test "nlc query references emits the recorded references envelope root keys, in 
     assert run.ExitCode == 0
     assert run.Stderr.Trim().Length == 0
     assert QcRootKeys(run.Stdout) == QcContractKeys("references")
+
+    document := JsonDocument.Parse(run.Stdout)
+    try {
+        root := document.RootElement
+        assert root.GetProperty("count").GetInt32() == 9, "query references must include every test-block use"
+        testsCount := 0
+        results := root.GetProperty("results").EnumerateArray()
+        while results.MoveNext() {
+            file := results.Current.GetProperty("file").GetString() ?? ""
+            if file.EndsWith("Service.tests.nl", StringComparison.Ordinal) {
+                testsCount = testsCount + 1
+            }
+        }
+        assert testsCount == 5, "Expected all five IssueService uses from Service.tests.nl, got " + testsCount.ToString()
+    } finally {
+        document.Dispose()
+    }
 }
 
 test "nlc query completions emits the recorded completions envelope root keys, in order" {

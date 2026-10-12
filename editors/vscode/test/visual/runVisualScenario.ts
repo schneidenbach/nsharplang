@@ -1,11 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { runTests } from '@vscode/test-electron';
-import {
-    createIsolatedVscodeProfile,
-    createVscodeLaunchArgs,
-    downloadPinnedVscode
-} from '../launchPolicy';
+import { createIsolatedVscodeProfile, createVscodeLaunchArgs, downloadPinnedVscode } from '../launchPolicy';
 
 async function main(): Promise<void> {
     const scenario = requiredEnv('NSHARP_VSCODE_VISUAL_SCENARIO');
@@ -15,7 +11,6 @@ async function main(): Promise<void> {
     const sentinelPath = requiredEnv('NSHARP_VSCODE_VISUAL_SENTINEL');
     const holdSeconds = requiredEnv('NSHARP_VSCODE_VISUAL_HOLD_SECONDS');
     const extensionSourcePath = path.resolve(__dirname, '../../..');
-    const extensionTestsPath = path.resolve(__dirname, 'extensionTestEntry');
     const vscodeCachePath = process.env.NSHARP_VSCODE_TEST_CACHE?.trim()
         || process.env.NSHARP_VSCODE_CACHE_PATH?.trim()
         || path.join(extensionSourcePath, '.vscode-test');
@@ -40,13 +35,15 @@ async function main(): Promise<void> {
 
         await runTests({
             extensionDevelopmentPath: packagedExtensionPath,
-            extensionTestsPath,
+            extensionTestsPath: path.resolve(__dirname, 'extensionTestEntry'),
             extensionTestsEnv: {
                 NSHARP_VSCODE_VISUAL_SCENARIO: scenario,
                 NSHARP_VSCODE_VISUAL_REPORT_PATH: reportPath,
                 NSHARP_VSCODE_VISUAL_SENTINEL: sentinelPath,
                 NSHARP_VSCODE_VISUAL_HOLD_SECONDS: holdSeconds,
-                NSHARP_VSCODE_VISUAL_USER_DATA_DIR: profile.userDataDir
+                NSHARP_VSCODE_VISUAL_USER_DATA_DIR: profile.userDataDir,
+                NSHARP_VSCODE_VISUAL_CLI_DLL: requiredEnv('NSHARP_VSCODE_VISUAL_CLI_DLL'),
+                NSHARP_VSCODE_VISUAL_ORACLE: requiredEnv('NSHARP_VSCODE_VISUAL_ORACLE')
             },
             vscodeExecutablePath,
             launchArgs: createVscodeLaunchArgs(workspacePath, profile)

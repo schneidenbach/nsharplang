@@ -63,6 +63,16 @@ fi
 workspace_source="$(cd "$workspace_source" && pwd)"
 nsharp_require_command node
 nsharp_require_command unzip
+nsharp_require_command dotnet
+
+cli_dll="$NSHARP_REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
+oracle_script="$NSHARP_REPO_ROOT/scripts/lib/vscode-visual-oracle.sh"
+echo "Building the worktree CLI for independent scenario checks."
+dotnet build --disable-build-servers -nr:false "$NSHARP_REPO_ROOT/src/NSharpLang.Cli/Cli.csproj" -c Debug -v q
+if [[ ! -f "$cli_dll" ]]; then
+    echo "Error: fresh CLI build did not produce $cli_dll." >&2
+    exit 1
+fi
 
 task_tmp="$(mktemp -d "${TMPDIR:-/tmp}/nsharp-vscode-visual.XXXXXX")"
 sentinel_path=""
@@ -126,6 +136,8 @@ NSHARP_VSCODE_VISUAL_EXTENSION_PATH="$packaged_extension_path" \
 NSHARP_VSCODE_VISUAL_REPORT_PATH="$report_path" \
 NSHARP_VSCODE_VISUAL_SENTINEL="$sentinel_path" \
 NSHARP_VSCODE_VISUAL_HOLD_SECONDS="$hold_seconds" \
+NSHARP_VSCODE_VISUAL_CLI_DLL="$cli_dll" \
+NSHARP_VSCODE_VISUAL_ORACLE="$oracle_script" \
 node ./out/test/visual/runVisualScenario.js
 
 echo "Visual scenario report: $report_path"

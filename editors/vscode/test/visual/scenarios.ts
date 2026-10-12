@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -12,8 +13,7 @@ import {
     getHover,
     getReferences,
     openDocumentAndWaitForLsp,
-    positionOf,
-    waitForDiagnosticsToSettle
+    positionOf
 } from '../suite/helpers';
 
 export const visualScenarioNames = [
@@ -43,15 +43,65 @@ const renameBefore = 'IssueService';
 const renameAfter = 'IssueTrackerService';
 
 export async function runVisualScenario(name: VisualScenarioName): Promise<Record<string, unknown>> {
+    const before = await editorDiagnosticsOracle('before scenario');
+    let details: Record<string, unknown>;
     switch (name) {
-        case 'rename': return runRenameScenario();
-        case 'hover': return runHoverScenario();
-        case 'definition': return runDefinitionScenario();
-        case 'references': return runReferencesScenario();
-        case 'diagnostics': return runDiagnosticsScenario();
-        case 'completion': return runCompletionScenario();
-        case 'code-action': return runCodeActionScenario();
+        case 'rename': details = await runRenameScenario(); break;
+        case 'hover': details = await runHoverScenario(); break;
+        case 'definition': details = await runDefinitionScenario(); break;
+        case 'references': details = await runReferencesScenario(); break;
+        case 'diagnostics': details = await runDiagnosticsScenario(); break;
+        case 'completion': details = await runCompletionScenario(); break;
+        case 'code-action': details = await runCodeActionScenario(); break;
     }
+    const after = await editorDiagnosticsOracle('after scenario');
+    if (name === 'rename') assertNoNewDiagnostics(before, after);
+    return { ...details!, diagnosticsOracle: { sourceFiles: after.files, before: before.census.length, after: after.census.length, matchedCli: true,
+        messageComparison: 'CLI summary line; VS Code retains its expanded help text' } };
+}
+
+async function editorDiagnosticsOracle(stage: string): Promise<{ files: number; census: string[] }> {
+    const root = workspaceRoot();
+    const uris = await vscode.workspace.findFiles('**/*.nl');
+    const files = uris.map(uri => path.relative(root, uri.fsPath).split(path.sep).join('/'));
+    const documents = await Promise.all(uris.map(uri => vscode.workspace.openTextDocument(uri)));
+    const expected = runVisualOracle<{ census: string[] }>('diagnostics', [
+        process.env.NSHARP_VSCODE_VISUAL_CLI_DLL ?? '', root
+    ], JSON.stringify({ files })).census.sort();
+    let lastActual: string[] = [], deadline = Date.now() + 45_000;
+    while (Date.now() < deadline) {
+        lastActual = documents.flatMap((document, index) => vscode.languages.getDiagnostics(uris[index]).map(diagnostic => {
+            const code = diagnostic.code === undefined ? '' : typeof diagnostic.code === 'string' || typeof diagnostic.code === 'number'
+                ? String(diagnostic.code) : String(diagnostic.code.value);
+            const length = diagnostic.range.end.line === diagnostic.range.start.line
+                ? diagnostic.range.end.character - diagnostic.range.start.character : -1;
+            const message = diagnostic.message.replace(/\r?\n[\s\S]*/, '');
+            return [code, vscode.DiagnosticSeverity[diagnostic.severity].toLowerCase(), files[index],
+                diagnostic.range.start.line + 1, diagnostic.range.start.character + 1, length,
+                message.startsWith(`${code}: `) ? message.slice(code.length + 2) : message].join('|');
+        })).sort();
+        if (lastActual.length === expected.length && lastActual.every((item, index) => item === expected[index]))
+            return { files: files.length, census: expected };
+        await sleep(250);
+    }
+    throw new Error(`Editor diagnostics did not match nlc check ${stage}: ${JSON.stringify({ editor: lastActual, cli: expected })}`);
+}
+
+function runVisualOracle<T>(mode: string, args: string[], input?: string): T {
+    const script = process.env.NSHARP_VSCODE_VISUAL_ORACLE;
+    if (!script) throw new Error('Visual oracle script path was not supplied');
+    const run = childProcess.spawnSync('bash', [script, mode, ...args], {
+        cwd: workspaceRoot(), encoding: 'utf8', input, timeout: 120_000,
+        env: { ...process.env, NLC_NO_DAEMON: '1' }
+    });
+    if (run.error || run.status !== 0) throw new Error(`Independent ${mode} oracle failed: ${run.stderr}\n${run.stdout}`);
+    return JSON.parse(run.stdout) as T;
+}
+
+function assertNoNewDiagnostics(before: { census: string[] }, after: { census: string[] }): void {
+    const prior = new Set(before.census);
+    const introduced = after.census.filter(item => !prior.has(item));
+    assert.deepStrictEqual(introduced, [], `Rename introduced diagnostics: ${introduced.join('\n')}`);
 }
 
 export function writeVisualReport(
@@ -76,87 +126,43 @@ async function runRenameScenario(): Promise<Record<string, unknown>> {
     const source = await openDocumentAndWaitForLsp('backend/Service.nl');
     const declarationPosition = addToPosition(positionOf(source, `class ${renameBefore} {`), 'class '.length);
     const references = await getReferences(source, declarationPosition);
-    assert.ok(references.length >= 3, `Expected at least 3 semantic references, got ${references.length}`);
-
-    const beforeByPath = new Map<string, string>();
-    for (const file of findNlFiles(root)) beforeByPath.set(file, fs.readFileSync(file, 'utf8'));
-
+    const cliReferences = runVisualOracle<any>('references', [
+        process.env.NSHARP_VSCODE_VISUAL_CLI_DLL ?? '', path.join(root, 'backend'), 'Service.nl',
+        `${declarationPosition.line + 1}:${declarationPosition.character + 1}`
+    ]);
+    assert.strictEqual(cliReferences.count, 9, 'Independent CLI reference oracle must include all nine source and test-block uses');
+    const cliLocations = cliReferences.results.map((item: any) => `${path.resolve(root, 'backend', item.file)}:${item.line - 1}:${item.column - 1}`);
+    const providerLocations = references.map(item => `${item.uri.fsPath}:${item.range.start.line}:${item.range.start.character}`);
+    assert.deepStrictEqual(providerLocations.sort(), cliLocations.sort(), 'VS Code references differ from nlc query references');
+    const beforeTokens = runVisualOracle<Record<string, { old: number; new: number }>>('tokens', [root, renameBefore, renameAfter]);
+    assert.strictEqual(beforeTokens['backend/Service.tests.nl']?.old, 5, 'CLI token oracle must find five test-block uses before rename');
     const edit = await executeRename(source, declarationPosition, renameAfter);
     assert.ok(edit, 'Rename provider returned no WorkspaceEdit');
+    const cliEditLocations = cliReferences.results.map((item: any) => `${path.resolve(root, 'backend', item.file)}:${item.line - 1}:${item.column - 1}`);
     const entries = edit!.entries();
-    const changedLocations = new Set<string>();
-    const changesByFile = new Map<string, Array<{
-        range: vscode.Range;
-        startOffset: number;
-        endOffset: number;
-        oldText: string;
-        newText: string;
-    }>>();
-
-    for (const [uri, edits] of entries) {
-        const document = await vscode.workspace.openTextDocument(uri);
-        const changes = edits.map(textEdit => {
-            const oldText = document.getText(textEdit.range);
-            assert.strictEqual(oldText, renameBefore, `Unexpected rename source text: ${JSON.stringify(oldText)}`);
-            assert.strictEqual(textEdit.newText, renameAfter, `Unexpected rename target: ${textEdit.newText}`);
-            const locationKey = `${uri.fsPath}:${textEdit.range.start.line}:${textEdit.range.start.character}`;
-            changedLocations.add(locationKey);
-            return {
-                range: textEdit.range,
-                startOffset: document.offsetAt(textEdit.range.start),
-                endOffset: document.offsetAt(textEdit.range.end),
-                oldText,
-                newText: textEdit.newText
-            };
-        });
-        changesByFile.set(uri.fsPath, changes);
+    const editLocations = entries.flatMap(([uri, edits]) => edits.map(item => `${uri.fsPath}:${item.range.start.line}:${item.range.start.character}`));
+    assert.deepStrictEqual(editLocations.sort(), cliEditLocations.sort(), 'WorkspaceEdit omitted or added a CLI-reported reference');
+    if (!await vscode.workspace.applyEdit(edit!)) throw new Error('VS Code rejected the rename WorkspaceEdit');
+    for (const [uri] of entries) {
+        if (!await (await vscode.workspace.openTextDocument(uri)).save()) throw new Error(`Could not save renamed file ${uri.fsPath}`);
     }
-
-    const expectedLocations = new Set(references.map(location =>
-        `${location.uri.fsPath}:${location.range.start.line}:${location.range.start.character}`));
-    assert.deepStrictEqual(
-        [...changedLocations].sort(),
-        [...expectedLocations].sort(),
-        'Rename edits must cover every semantic reference, with no extra locations'
-    );
-
-    const changedFiles = [...changesByFile.keys()];
-    assert.ok(new Set(changedFiles).size >= 3, `Expected rename to span 3 or more files, got ${changedFiles.length}`);
-    assert.ok(await vscode.workspace.applyEdit(edit!), 'VS Code rejected the rename WorkspaceEdit');
-
-    const reportFiles: Array<Record<string, unknown>> = [];
-    for (const [file, changes] of changesByFile) {
-        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
-        assert.ok(await document.save(), `Could not save renamed file ${file}`);
-        const after = document.getText();
-        const before = beforeByPath.get(file);
-        assert.ok(before !== undefined, `Rename edit targeted a file outside the workspace: ${file}`);
-        const expected = applyTextChanges(before!, changes);
-        assert.strictEqual(after, expected, `Unexpected edits outside the rename ranges in ${file}`);
-        reportFiles.push({
-            file: path.relative(root, file),
-            before,
-            after,
-            ranges: changes.map(change => ({
-                start: serializePosition(change.range.start),
-                end: serializePosition(change.range.end),
-                before: change.oldText,
-                after: change.newText
-            }))
-        });
-    }
-
-    for (const [file, before] of beforeByPath) {
-        if (changesByFile.has(file)) continue;
-        assert.strictEqual(fs.readFileSync(file, 'utf8'), before, `Rename modified an unrelated file: ${file}`);
-    }
+    const afterTokens = runVisualOracle<Record<string, { old: number; new: number }>>('tokens', [root, renameBefore, renameAfter]);
+    assert.strictEqual(Object.values(afterTokens).reduce((total, file) => total + file.old, 0), 0, 'Old symbol remains in an identifier position');
+    assert.strictEqual(afterTokens['backend/Service.tests.nl']?.new, 5, 'Rename must update all five test-block uses');
+    assert.strictEqual(Object.values(afterTokens).reduce((total, file) => total + file.new, 0), cliReferences.count,
+        'New identifier count differs from the independent CLI reference count');
+    const reportFiles = [...new Set([...Object.keys(beforeTokens), ...Object.keys(afterTokens)])].sort().map(file => ({
+        file, beforeIdentifierCount: beforeTokens[file]?.old ?? 0,
+        afterOldIdentifierCount: afterTokens[file]?.old ?? 0,
+        afterNewIdentifierCount: afterTokens[file]?.new ?? 0
+    }));
 
     const serviceFile = path.join(root, 'backend', 'Service.nl');
     const endpointFile = path.join(root, 'backend', 'Endpoints.nl');
     const serviceDoc = await vscode.workspace.openTextDocument(vscode.Uri.file(serviceFile));
     const endpointDoc = await vscode.workspace.openTextDocument(vscode.Uri.file(endpointFile));
-    const serviceRange = firstRange(changesByFile.get(serviceFile), renameAfter);
-    const endpointRange = firstRange(changesByFile.get(endpointFile), renameAfter);
+    const serviceRange = addToPosition(positionOf(serviceDoc, `class ${renameAfter} {`), 'class '.length);
+    const endpointRange = positionOf(endpointDoc, renameAfter);
     await vscode.window.showTextDocument(serviceDoc, {
         viewColumn: vscode.ViewColumn.One,
         preview: false,
@@ -171,6 +177,8 @@ async function runRenameScenario(): Promise<Record<string, unknown>> {
     return {
         symbol: { before: renameBefore, after: renameAfter },
         semanticReferenceCount: references.length,
+        independentCliReferenceCount: cliReferences.count,
+        oldIdentifierOccurrencesAfter: 0,
         files: reportFiles
     };
 }
@@ -220,6 +228,13 @@ async function runReferencesScenario(): Promise<Record<string, unknown>> {
     const source = await openDocumentAndWaitForLsp('backend/Service.nl');
     const position = addToPosition(positionOf(source, `class ${renameBefore} {`), 'class '.length);
     const references = await getReferences(source, position);
+    const cli = runVisualOracle<{ count: number; results: Array<{ file: string; line: number; column: number }> }>('references', [
+        process.env.NSHARP_VSCODE_VISUAL_CLI_DLL ?? '', path.join(workspaceRoot(), 'backend'), 'Service.nl',
+        `${position.line + 1}:${position.character + 1}`
+    ]);
+    const cliLocations = cli.results.map(item => `${path.resolve(workspaceRoot(), 'backend', item.file)}:${item.line - 1}:${item.column - 1}`);
+    assert.deepStrictEqual(references.map(item => `${item.uri.fsPath}:${item.range.start.line}:${item.range.start.character}`).sort(),
+        cliLocations.sort(), 'VS Code references differ from nlc query references');
     assert.ok(references.length >= 3, `Expected at least three references, got ${references.length}`);
     const files = [...new Set(references.map(reference => path.relative(workspaceRoot(), reference.uri.fsPath)))].sort();
     assert.ok(files.length >= 3, `Expected references in at least three files, got ${files.join(', ')}`);
@@ -237,55 +252,31 @@ async function runReferencesScenario(): Promise<Record<string, unknown>> {
 
 async function runDiagnosticsScenario(): Promise<Record<string, unknown>> {
     const document = await openDocumentAndWaitForLsp('backend/Service.nl');
-    const original = document.getText();
-    const baseline = await waitForDiagnosticsToSettle(document.uri, 30_000);
-    const baselineKeys = new Set(baseline.map(diagnosticKey));
     const addition = '\nfunc VisualScenarioBroken( {\n}\n';
-    const start = document.positionAt(original.length);
+    const start = document.positionAt(document.getText().length);
     const insert = new vscode.WorkspaceEdit();
     insert.insert(document.uri, start, addition);
-    assert.ok(await vscode.workspace.applyEdit(insert), 'VS Code rejected the diagnostic introduction edit');
+    if (!await vscode.workspace.applyEdit(insert)) throw new Error('VS Code rejected the diagnostic introduction edit');
+    fs.writeFileSync(document.uri.fsPath, document.getText(), 'utf8');
 
     const insertedLine = start.line + 1;
-    let introduced: vscode.Diagnostic | undefined;
-    try {
-        introduced = await waitForCondition('N# error diagnostic for the inserted syntax error', async () => {
-            const errors = vscode.languages.getDiagnostics(document.uri).filter(item =>
-                item.severity === vscode.DiagnosticSeverity.Error && item.range.start.line >= insertedLine &&
-                (item.source === 'N#' || item.source === 'nsharp'));
-            return errors[0];
-        }, 30_000);
-        assert.ok(introduced, 'No N# error was published for the inserted syntax error');
-
-        await showSelection(document, introduced.range.start, Math.max(1, introduced.range.end.character - introduced.range.start.character));
-        await vscode.commands.executeCommand('workbench.actions.view.problems');
-        await sleep(500);
-
-        const revert = new vscode.WorkspaceEdit();
-        revert.delete(document.uri, new vscode.Range(start, document.positionAt(original.length + addition.length)));
-        assert.ok(await vscode.workspace.applyEdit(revert), 'VS Code rejected the diagnostic revert edit');
-        assert.ok(await document.save(), 'Could not save the restored source file');
-        assert.strictEqual(document.getText(), original, 'Diagnostic scenario did not restore the original file text');
-        const cleared = await waitForCondition('inserted diagnostic to clear', async () => {
-            const current = vscode.languages.getDiagnostics(document.uri);
-            const newErrors = current.filter(item => item.severity === vscode.DiagnosticSeverity.Error && !baselineKeys.has(diagnosticKey(item)));
-            return newErrors.length === 0 ? current : undefined;
-        }, 30_000);
-
-        return {
-            file: path.relative(workspaceRoot(), document.uri.fsPath),
-            introduced: serializeDiagnostic(introduced),
-            diagnosticsAfterRevert: cleared.map(serializeDiagnostic),
-            reverted: true
-        };
-    } finally {
-        if (document.getText() !== original) {
-            const restore = new vscode.WorkspaceEdit();
-            restore.replace(document.uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), original);
-            await vscode.workspace.applyEdit(restore);
-            await document.save();
-        }
-    }
+    const introduced = await waitForCondition('N# error diagnostic for the inserted syntax error', async () => {
+        const errors = vscode.languages.getDiagnostics(document.uri).filter(item =>
+            item.severity === vscode.DiagnosticSeverity.Error && item.range.start.line >= insertedLine &&
+            (item.source === 'N#' || item.source === 'nsharp'));
+        return errors[0];
+    }, 30_000);
+    if (!introduced) throw new Error('No N# error was published for the inserted syntax error');
+    const diagnosticOracle = await editorDiagnosticsOracle('while the inserted syntax error is present');
+    await showSelection(document, introduced.range.start, Math.max(1, introduced.range.end.character - introduced.range.start.character));
+    await vscode.commands.executeCommand('workbench.actions.view.problems');
+    await sleep(750);
+    return {
+        file: path.relative(workspaceRoot(), document.uri.fsPath),
+        introduced: serializeDiagnostic(introduced),
+        diagnosticsCompared: diagnosticOracle.census.length,
+        diagnosticRemainsVisible: true
+    };
 }
 
 async function runCompletionScenario(): Promise<Record<string, unknown>> {
@@ -360,33 +351,8 @@ async function runCodeActionScenario(): Promise<Record<string, unknown>> {
     };
 }
 
-function applyTextChanges(
-    original: string,
-    changes: Array<{ startOffset: number; endOffset: number; newText: string }>
-): string {
-    const sorted = [...changes].sort((left, right) => right.startOffset - left.startOffset);
-    let result = original;
-    let lastStart = Number.POSITIVE_INFINITY;
-    for (const change of sorted) {
-        assert.ok(change.endOffset <= lastStart, 'Rename edits overlap');
-        result = `${result.slice(0, change.startOffset)}${change.newText}${result.slice(change.endOffset)}`;
-        lastStart = change.startOffset;
-    }
-    return result;
-}
-
-function firstRange(
-    changes: Array<{ range: vscode.Range; newText: string }> | undefined,
-    newText: string
-): vscode.Range {
-    const found = changes?.find(change => change.newText === newText);
-    assert.ok(found, `No WorkspaceEdit range found for ${newText}`);
-    return found!.range;
-}
-
-function selectionFor(range: vscode.Range, length: number): vscode.Selection {
-    const end = new vscode.Position(range.start.line, range.start.character + length);
-    return new vscode.Selection(range.start, end);
+function selectionFor(position: vscode.Position, length: number): vscode.Selection {
+    return new vscode.Selection(position, new vscode.Position(position.line, position.character + length));
 }
 
 async function showSelection(document: vscode.TextDocument, position: vscode.Position, length: number): Promise<void> {
@@ -429,14 +395,6 @@ function serializeDiagnostic(diagnostic: vscode.Diagnostic): Record<string, unkn
     };
 }
 
-function diagnosticKey(diagnostic: vscode.Diagnostic): string {
-    return `${diagnostic.code ?? ''}:${diagnostic.severity}:${diagnostic.range.start.line}:${diagnostic.range.start.character}:${diagnostic.message}`;
-}
-
-function serializeDiagnosticSummary(diagnostic: vscode.Diagnostic): Record<string, unknown> {
-    return serializeDiagnostic(diagnostic);
-}
-
 async function waitForCondition<T>(
     description: string,
     probe: () => Promise<T | undefined> | T | undefined,
@@ -455,20 +413,6 @@ function workspaceRoot(): string {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) throw new Error('No workspace folder is open');
     return root;
-}
-
-function findNlFiles(root: string): string[] {
-    const files: string[] = [];
-    const visit = (directory: string) => {
-        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-            if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'bin' || entry.name === 'obj') continue;
-            const fullPath = path.join(directory, entry.name);
-            if (entry.isDirectory()) visit(fullPath);
-            else if (entry.isFile() && entry.name.endsWith('.nl')) files.push(fullPath);
-        }
-    };
-    visit(root);
-    return files.sort();
 }
 
 function completionHtml(labels: string[], total: number): string {

@@ -1081,7 +1081,7 @@ class DaemonServer {
         sw := Stopwatch.StartNew()
 
         try {
-            loaded := service.LoadProject(root)
+            loaded := service.LoadProjectIncludingTests(root)
             snapshots[root] = loaded
             sw.Stop()
             elapsedMilliseconds := sw.ElapsedMilliseconds

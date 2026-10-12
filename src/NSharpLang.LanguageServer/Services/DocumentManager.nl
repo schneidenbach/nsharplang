@@ -585,7 +585,7 @@ class DocumentManager {
         }
 
         try {
-            sourcePaths := ProjectSourcePathsFor(projectRoot, ProjectConfigFileStamp(projectFile), false)
+            sourcePaths := ProjectSourcePathsFor(projectRoot, ProjectConfigFileStamp(projectFile), true)
             return sourcePaths.Contains(Path.GetFullPath(filePath))
         } catch sourcePathFailure: Exception {
             return false
@@ -805,7 +805,10 @@ class DocumentManager {
         projectConfigFileStamp := ProjectConfigFileStamp(projectFile)
         projectSourcePaths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         try {
-            projectSourcePaths = ProjectSourcePathsFor(projectRoot, projectConfigFileStamp, false)
+            // The editor's semantic project is the same source set `nlc check` compiles. Test files
+            // are ordinary N# source whose declarations and test-block bodies participate in the
+            // binding index used by references, rename and navigation.
+            projectSourcePaths = ProjectSourcePathsFor(projectRoot, projectConfigFileStamp, true)
         } catch sourcePathFailure: Exception {
             logProjectSnapshotDegradedWith(EditorWorkspaceFacts.LoadFailedRefusal(projectRoot, sourcePathFailure.Message), sourcePathFailure)
             return null
@@ -906,6 +909,10 @@ class DocumentManager {
     func updateOpenDocumentSemanticState(session: IncrementalProjectSession, snapshot: ProjectSnapshot): void {
         for document in documents.Values {
             filePath := Path.GetFullPath(EditorWorkspaceFacts.UriToFilePath(document.Uri))
+            if !snapshot.SourceFiles.Contains(filePath) {
+                continue
+            }
+
             unit: NSharpLang.Compiler.Ast.CompilationUnit? = null
             if snapshot.CompilationUnits.TryGetValue(filePath, out unit) {
                 document.CompilationUnit = unit
@@ -921,21 +928,24 @@ class DocumentManager {
                 document.Bindings = fileRecord.Bindings
             }
 
+            // A different file's interface can change diagnostics and import usage without changing
+            // this buffer's text. Refresh semantic diagnostics and lint facts from every new project
+            // snapshot; tokenization still reuses unchanged document text.
+            document.Diagnostics = EditorWorkspaceFacts.DiagnosticsForFile(snapshot.AllErrors, snapshot.ProjectRoot, filePath)
             if document.Tokens == null {
                 lexer := new Lexer(document.Text, filePath)
                 document.Tokens = lexer.Tokenize()
                 document.Comments = lexer.Comments
-                document.Diagnostics = EditorWorkspaceFacts.DiagnosticsForFile(snapshot.AllErrors, snapshot.ProjectRoot, filePath)
+            }
 
-                hydratedUnit := document.CompilationUnit
-                if hydratedUnit != null {
-                    projectDir := Path.GetDirectoryName(filePath) ?? snapshot.ProjectRoot
-                    linter := new Linter(LinterConfig.FromEditorConfig(projectDir))
-                    document.LinterDiagnostics = linter.Lint(hydratedUnit, filePath, document.Text)
-                    document.Symbols = EditorSymbolTableFacts.TypeCatalog(hydratedUnit)
-                    document.SymbolsInfo = toSymbolsInfo(EditorSymbolTableFacts.SymbolInfoRows(hydratedUnit, document.Text))
-                    document.SymbolLocations = toSymbolLocations(EditorSymbolTableFacts.SymbolLocationRows(hydratedUnit, document.Text), document.Uri)
-                }
+            hydratedUnit := document.CompilationUnit
+            if hydratedUnit != null {
+                projectDir := Path.GetDirectoryName(filePath) ?? snapshot.ProjectRoot
+                linter := new Linter(LinterConfig.FromEditorConfig(projectDir))
+                document.LinterDiagnostics = linter.Lint(hydratedUnit, filePath, document.Text, snapshot.SourceTexts)
+                document.Symbols = EditorSymbolTableFacts.TypeCatalog(hydratedUnit)
+                document.SymbolsInfo = toSymbolsInfo(EditorSymbolTableFacts.SymbolInfoRows(hydratedUnit, document.Text))
+                document.SymbolLocations = toSymbolLocations(EditorSymbolTableFacts.SymbolLocationRows(hydratedUnit, document.Text), document.Uri)
             }
         }
     }

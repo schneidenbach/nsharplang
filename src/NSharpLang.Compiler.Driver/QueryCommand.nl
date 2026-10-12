@@ -1243,7 +1243,7 @@ static class QueryCommand {
                 config,
                 QuietResolutionOptions()
             )
-            return Service.LoadProject(projectDir, config, null)
+            return Service.LoadProjectIncludingTests(projectDir, config, null)
         } catch ex: Exception {
             Console.Error.WriteLine(QueryCommandKernels.GetFailedAnalyzeProjectMessage(ex.Message))
             return null
@@ -1264,7 +1264,7 @@ static class QueryCommand {
             config,
             QuietResolutionOptions()
         )
-        return Service.LoadProject(projectDir, config, null)
+        return Service.LoadProjectIncludingTests(projectDir, config, null)
     }
 
     static func QuietResolutionOptions(): ReferenceResolutionOptions {

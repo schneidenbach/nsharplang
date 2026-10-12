@@ -373,8 +373,13 @@ class Linter {
         this.config = config ?? LinterConfig.Default()
     }
 
-    func Lint(ast: CompilationUnit, filePath: string? = null, sourceText: string? = null): List<Diagnostic> {
-        state := new LinterWalkState(filePath, sourceText, config)
+    func Lint(
+        ast: CompilationUnit,
+        filePath: string? = null,
+        sourceText: string? = null,
+        projectSourceTexts: IReadOnlyDictionary<string, string>? = null
+    ): List<Diagnostic> {
+        state := new LinterWalkState(filePath, sourceText, config, projectSourceTexts)
         declarationWalk := new LinterDeclarationWalk(state)
         declarationWalk.Visit(ast)
         return state.Diagnostics

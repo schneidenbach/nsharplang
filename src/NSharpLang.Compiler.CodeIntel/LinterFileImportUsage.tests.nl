@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler.Columnar
 
@@ -103,6 +104,30 @@ test "an import naming a file that is not there is left alone rather than report
     // so the silence above is the missing file and nothing else about the shape.
     LfiWrite(directory, "NotThere.nl", "\nclass Later {\n    Tag: string\n}\n")
     assert LfiCensusOfFile(program) == "NL010@2:8+10;"
+
+    Directory.Delete(directory, true)
+}
+
+test "file-import usage follows unsaved project source text instead of a stale disk declaration" {
+    directory := LfiTempDirectory("unsaved-project-source")
+    servicePath := LfiWrite(directory, "Service.nl", "class IssueService {\n}\n")
+    programPath := LfiWrite(directory, "Program.nl", "import \"Service\"\n\nfunc Create(): IssueTrackerService {\n    return new IssueTrackerService()\n}\n")
+    source := File.ReadAllText(programPath)
+    parsed := ColumnarParserRecovery.ParseFileAst(source, programPath)
+    unit := parsed.CompilationUnit
+    if unit == null || parsed.Errors.Count != 0 {
+        throw new InvalidOperationException("the unsaved source fixture did not parse cleanly")
+    }
+
+    linter := new Linter(LinterConfig.Default())
+    staleDiskDiagnostics := linter.Lint(unit, programPath, source)
+    assert staleDiskDiagnostics.Count == 1
+    assert staleDiskDiagnostics[0].Code == "NL010"
+
+    projectSourceTexts := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    projectSourceTexts[Path.GetFullPath(servicePath)] = "class IssueTrackerService {\n}\n"
+    updatedDiagnostics := linter.Lint(unit, programPath, source, projectSourceTexts)
+    assert updatedDiagnostics.Count == 0, "the unsaved target declaration should keep its file import live"
 
     Directory.Delete(directory, true)
 }

@@ -10,6 +10,11 @@ class CodeIntelligenceService {
         return LoadProject(projectRoot, null)
     }
 
+    func LoadProjectIncludingTests(projectRoot: string): ProjectSnapshot {
+        config := ProjectFileParser.ParseFromDirectory(projectRoot)
+        return LoadProjectIncludingTests(projectRoot, config, null)
+    }
+
     func LoadProject(projectRoot: string, sourceTextOverrides: IReadOnlyDictionary<string, string>?): ProjectSnapshot {
         config := ProjectFileParser.ParseFromDirectory(projectRoot)
         return LoadProject(projectRoot, config, sourceTextOverrides)

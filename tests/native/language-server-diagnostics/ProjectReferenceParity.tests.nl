@@ -109,11 +109,6 @@ func LspReferenceParityCliCensus(projectRoot: string, output: string): List<stri
         while enumerator.MoveNext() {
             row := enumerator.Current
             file := row.GetProperty("file").GetString() ?? "unknown"
-            // `nlc check` includes tests; editor project snapshots intentionally cover product files.
-            if file.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase) {
-                continue
-            }
-
             census.Add(LspReferenceParityKey(
                 row.GetProperty("code").GetString() ?? "",
                 row.GetProperty("severity").GetString() ?? "",
@@ -152,9 +147,9 @@ func LspReferenceParityLinterSeverity(severity: DiagnosticSeverity): string {
 }
 
 func LspReferenceParityLspCensus(projectRoot: string, config: ProjectConfig): List<string> {
-    sourceFiles := config.GetSourceFiles(projectRoot, false)
+    sourceFiles := config.GetSourceFiles(projectRoot, true)
     if sourceFiles.Length == 0 {
-        throw new InvalidOperationException("Example project has no product source files: " + projectRoot)
+        throw new InvalidOperationException("Example project has no source files: " + projectRoot)
     }
 
     manager := new DocumentManager(NullLogger<DocumentManager>.Instance)
@@ -167,6 +162,39 @@ func LspReferenceParityLspCensus(projectRoot: string, config: ProjectConfig): Li
     }
 
     publications := manager.GetDiagnosticsToPublish(openUris[0])
+    census := new List<string>()
+    for publication in publications {
+        for error in publication.CompilerDiagnostics {
+            census.Add(LspReferenceParityKey(
+                error.DiagnosticId,
+                LspReferenceParityCompilerSeverity(error.Severity),
+                LspReferenceParityRelativeFile(projectRoot, error.FileName),
+                error.Line,
+                error.Column,
+                error.Length,
+                error.Message
+            ))
+        }
+
+        publicationFile := LspReferenceParityRelativeFile(projectRoot, new Uri(publication.Uri).LocalPath)
+        for diagnostic in publication.LinterDiagnostics {
+            census.Add(LspReferenceParityKey(
+                diagnostic.Code,
+                LspReferenceParityLinterSeverity(diagnostic.Severity),
+                publicationFile,
+                diagnostic.Location.Line,
+                diagnostic.Location.Column,
+                diagnostic.Length,
+                diagnostic.Message
+            ))
+        }
+    }
+
+    census.Sort(StringComparer.Ordinal)
+    return census
+}
+
+func LspReferenceParityPublicationCensus(projectRoot: string, publications: IReadOnlyList<DocumentDiagnosticsPublication>): List<string> {
     census := new List<string>()
     for publication in publications {
         for error in publication.CompilerDiagnostics {
@@ -240,4 +268,71 @@ test "Language Server diagnostics match nlc check for every example project" {
     }
 
     assert issueTrackerSeen, "The examples corpus did not include examples/17-issue-tracker/backend/project.yml"
+}
+
+test "a multi-file rename edit publishes diagnostics matching nlc check for every project file" {
+    root := LscNewWorkspaceRoot()
+    try {
+        LsdWriteFile(root, "project.yml", "name: RenameDiagnosticsParity\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        LsdWriteFile(root, "Service.nl", "namespace RenameDiagnosticsParity\n\nclass IssueService {\n    constructor() {}\n}\n")
+        LsdWriteFile(root, "Endpoints.nl", "namespace RenameDiagnosticsParity\n\nimport \"Service\"\n\nclass Endpoints {\n    Service: IssueService\n    constructor(value: IssueService) {\n        Service = value\n    }\n}\n")
+        LsdWriteFile(root, "Program.nl", "namespace RenameDiagnosticsParity\n\nimport \"Service\"\n\nfunc Create(): IssueService {\n    return new IssueService()\n}\n")
+        LsdWriteFile(root, "Service.tests.nl", "namespace RenameDiagnosticsParity\n\nimport \"Service\"\n\ntest \"construct the service\" {\n    service := new IssueService()\n    assert service != null\n}\n")
+
+        declarationPath := Path.Combine(root, "Service.nl")
+        endpointsPath := Path.Combine(root, "Endpoints.nl")
+        programPath := Path.Combine(root, "Program.nl")
+        testsPath := Path.Combine(root, "Service.tests.nl")
+        initialCli := LspReferenceParityRunCliCheck(root)
+        assert initialCli.ExitCode == 0, "The pre-edit rename project should be clean: " + initialCli.Stdout + initialCli.Stderr
+
+        manager := new DocumentManager(NullLogger<DocumentManager>.Instance)
+        sourceFiles := [declarationPath, endpointsPath, programPath, testsPath]
+        sourceUris := new string[](sourceFiles.Length)
+        index := 0
+        while index < sourceFiles.Length {
+            sourceUris[index] = LsdFileUri(sourceFiles[index])
+            manager.MarkEditorOpen(sourceUris[index])
+            manager.UpdateDocument(sourceUris[index], File.ReadAllText(sourceFiles[index]), 1)
+            index = index + 1
+        }
+        initialPublications := manager.GetDiagnosticsToPublish(sourceUris[0])
+        assert LspReferenceParityPublicationCensus(root, initialPublications).Count == 0
+
+        // VS Code applies a WorkspaceEdit across these buffers before publishing the resulting
+        // diagnostics. Queue every full-text didChange before asking the retained project session
+        // for one snapshot, matching that multi-document edit boundary.
+        manager.UpdateDocumentForChange(sourceUris[0], "namespace RenameDiagnosticsParity\n\nclass IssueTrackerService {\n    constructor() {}\n}\n", 2)
+        manager.UpdateDocumentForChange(sourceUris[1], "namespace RenameDiagnosticsParity\n\nimport \"Service\"\n\nclass Endpoints {\n    Service: IssueTrackerService\n    constructor(value: IssueTrackerService) {\n        Service = value\n    }\n}\n", 2)
+        manager.UpdateDocumentForChange(sourceUris[2], "namespace RenameDiagnosticsParity\n\nimport \"Service\"\n\nfunc Create(): IssueTrackerService {\n    return new IssueTrackerService()\n}\n", 2)
+        manager.UpdateDocumentForChange(sourceUris[3], "namespace RenameDiagnosticsParity\n\nimport \"Service\"\n\ntest \"construct the service\" {\n    service := new IssueTrackerService()\n    assert service != null\n}\n", 2)
+        File.WriteAllText(declarationPath, "namespace RenameDiagnosticsParity\n\nclass IssueTrackerService {\n    constructor() {}\n}\n")
+        File.WriteAllText(endpointsPath, "namespace RenameDiagnosticsParity\n\nimport \"Service\"\n\nclass Endpoints {\n    Service: IssueTrackerService\n    constructor(value: IssueTrackerService) {\n        Service = value\n    }\n}\n")
+        File.WriteAllText(programPath, "namespace RenameDiagnosticsParity\n\nimport \"Service\"\n\nfunc Create(): IssueTrackerService {\n    return new IssueTrackerService()\n}\n")
+        File.WriteAllText(testsPath, "namespace RenameDiagnosticsParity\n\nimport \"Service\"\n\ntest \"construct the service\" {\n    service := new IssueTrackerService()\n    assert service != null\n}\n")
+
+        publications := manager.GetDiagnosticsToPublish(sourceUris[0])
+        cli := LspReferenceParityRunCliCheck(root)
+        assert cli.ExitCode == 0, "The post-edit rename project should be clean: " + cli.Stdout + cli.Stderr
+
+        cliCensus := LspReferenceParityCliCensus(root, cli.Stdout)
+        lspCensus := LspReferenceParityPublicationCensus(root, publications)
+        assert publications.Count == sourceUris.Length, "Every open source file, including Service.tests.nl, must receive diagnostics"
+        assert LspReferenceParityText(lspCensus) == LspReferenceParityText(cliCensus), "Multi-file rename diagnostics diverged from nlc check.\nLSP:\n" + LspReferenceParityText(lspCensus) + "\nCLI:\n" + LspReferenceParityText(cliCensus)
+
+        // Now change only the declaration's interface. Its unchanged dependents must be reanalyzed
+        // and republished from the same snapshot, including the test block that names the old type.
+        manager.UpdateDocumentForChange(sourceUris[0], "namespace RenameDiagnosticsParity\n\nclass IssueArchiveService {\n    constructor() {}\n}\n", 3)
+        File.WriteAllText(declarationPath, "namespace RenameDiagnosticsParity\n\nclass IssueArchiveService {\n    constructor() {}\n}\n")
+        dependentPublications := manager.GetDiagnosticsToPublish(sourceUris[0])
+        dependentCli := LspReferenceParityRunCliCheck(root)
+        assert dependentCli.ExitCode == 1, "The interface-only edit should make its unchanged old-name references invalid: " + dependentCli.Stdout
+        dependentCliCensus := LspReferenceParityCliCensus(root, dependentCli.Stdout)
+        dependentLspCensus := LspReferenceParityPublicationCensus(root, dependentPublications)
+        assert dependentCliCensus.Count > 0, "The CLI did not diagnose unchanged dependent references"
+        assert LspReferenceParityText(dependentLspCensus) == LspReferenceParityText(dependentCliCensus), "Interface changes left stale diagnostics in dependent files.\nLSP:\n" + LspReferenceParityText(dependentLspCensus) + "\nCLI:\n" + LspReferenceParityText(dependentCliCensus)
+        assert LspReferenceParityText(dependentLspCensus).Contains("Service.tests.nl", StringComparison.Ordinal), "The interface change did not publish the test-file diagnostic"
+    } finally {
+        Directory.Delete(root, true)
+    }
 }
