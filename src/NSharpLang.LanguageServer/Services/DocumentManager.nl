@@ -393,7 +393,7 @@ class DocumentManager {
             return null
         }
 
-        logger.LogInformation("LSP structural counters: projectSnapshotsBuilt=0 filesParsed=0 filesReanalyzed=0 filesReused=0 projectSnapshotCacheHits=1 projectDiskStampScans=0")
+        logger.LogInformation("LSP structural counters: projectSnapshotsBuilt=0 filesParsed=0 filesReanalyzed=0 filesReused=0 documentsHydrated=0 projectSnapshotCacheHits=1 projectDiskStampScans=0")
         return new DocumentDiagnosticsPublication(
             uri,
             EditorWorkspaceFacts.DiagnosticsForFile(cached.Snapshot.AllErrors, cached.Snapshot.ProjectRoot, filePath),
@@ -759,20 +759,15 @@ class DocumentManager {
         }
 
         projectRoot := binding.ProjectRoot
-        snapshot := binding.Snapshot
 
-        openDocsInProject := documents.Values.Where(d => EditorWorkspaceFacts.IsPathUnderProject(EditorWorkspaceFacts.UriToFilePath(d.Uri), projectRoot)).OrderBy(d => d.Uri, StringComparer.Ordinal).ToList()
+        openDocsInProject := documents.Values.Where(d => EditorWorkspaceFacts.IsPathUnderProject(EditorWorkspaceFacts.UriToFilePath(d.Uri), projectRoot) && binding.RefreshedFilePaths.Contains(Path.GetFullPath(EditorWorkspaceFacts.UriToFilePath(d.Uri)))).OrderBy(d => d.Uri, StringComparer.Ordinal).ToList()
         openDocsInProject = openDocsInProject.OrderBy(d => d.Uri == doc.Uri ? 0 : 1).ThenBy(d => d.Uri, StringComparer.Ordinal).ToList()
 
         publications := new List<DocumentDiagnosticsPublication>(openDocsInProject.Count)
         for openDoc in openDocsInProject {
             publications.Add(new DocumentDiagnosticsPublication(
                 openDoc.Uri,
-                EditorWorkspaceFacts.DiagnosticsForFile(
-                    snapshot.AllErrors,
-                    snapshot.ProjectRoot,
-                    EditorWorkspaceFacts.UriToFilePath(openDoc.Uri)
-                ),
+                openDoc.Diagnostics ?? new List<CompilerError>(),
                 openDoc.LinterDiagnostics ?? new List<Diagnostic>()
             ))
         }
@@ -829,8 +824,10 @@ class DocumentManager {
         lock projectSnapshotLock {
             cached: CachedProjectSnapshot? = null
             if projectSnapshots.TryGetValue(projectRoot, out cached) && cached.ProjectConfigFileStamp == projectConfigFileStamp && EditorDocumentCacheFacts.SnapshotCacheHit(cached.Stamp, stamp) {
-                logger.LogInformation("LSP structural counters: projectSnapshotsBuilt=0 filesParsed=0 filesReanalyzed=0 filesReused=0 projectSnapshotCacheHits=1 projectDiskStampScans=1")
-                return new ProjectSnapshotBinding(projectRoot, filePath, cached.Snapshot)
+                logger.LogInformation("LSP structural counters: projectSnapshotsBuilt=0 filesParsed=0 filesReanalyzed=0 filesReused=0 documentsHydrated=0 projectSnapshotCacheHits=1 projectDiskStampScans=1")
+                refreshedFilePaths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                refreshedFilePaths.Add(Path.GetFullPath(filePath))
+                return new ProjectSnapshotBinding(projectRoot, filePath, cached.Snapshot, refreshedFilePaths)
             }
 
             try {
@@ -864,14 +861,15 @@ class DocumentManager {
                 }
                 projectSnapshotMs := phaseTimer.ElapsedMilliseconds
                 phaseTimer.Restart()
-                updateOpenDocumentSemanticState(activeSession, loaded)
+                semanticRefresh := updateOpenDocumentSemanticState(activeSession, loaded, filePath)
                 documentHydrationMs := phaseTimer.ElapsedMilliseconds
                 logger.LogInformation(
-                    "LSP structural counters: projectSnapshotsBuilt={ProjectSnapshotsBuilt} filesParsed={FilesParsed} filesReanalyzed={FilesReanalyzed} filesReused={FilesReused} projectSnapshotCacheHits=0 projectDiskStampScans=1",
+                    "LSP structural counters: projectSnapshotsBuilt={ProjectSnapshotsBuilt} filesParsed={FilesParsed} filesReanalyzed={FilesReanalyzed} filesReused={FilesReused} documentsHydrated={DocumentsHydrated} projectSnapshotCacheHits=0 projectDiskStampScans=1",
                     1,
                     activeSession.State.LastFilesParsed,
                     activeSession.State.LastFilesAnalyzed,
-                    activeSession.State.LastFilesReused
+                    activeSession.State.LastFilesReused,
+                    semanticRefresh.HydratedFilePaths.Count
                 )
                 logger.LogDebug(
                     "LSP phase timings: sourceInputsMs={SourceInputsMs} sessionAnalyzeMs={SessionAnalyzeMs} planMs={PlanMs} parseMs={ParseMs} importGraphMs={ImportGraphMs} fileAnalysisMs={FileAnalysisMs} fileAnalyzerMs={FileAnalyzerMs} projectMergeMs={ProjectMergeMs} systemsPolicyMs={SystemsPolicyMs} projectSnapshotMs={ProjectSnapshotMs} documentHydrationMs={DocumentHydrationMs}",
@@ -895,7 +893,7 @@ class DocumentManager {
                     projectRoot,
                     sourceTextOverrides.Count
                 )
-                return new ProjectSnapshotBinding(projectRoot, filePath, loaded)
+                return new ProjectSnapshotBinding(projectRoot, filePath, loaded, semanticRefresh.FilePaths)
             } catch loadFailure: Exception {
                 logProjectSnapshotDegradedWith(EditorWorkspaceFacts.LoadFailedRefusal(projectRoot, loadFailure.Message), loadFailure)
                 return null
@@ -906,20 +904,30 @@ class DocumentManager {
     // Bring the currently tracked document states into line with the same incremental compilation
     // snapshot used for diagnostics and project queries. Per-file bindings stay with the session's
     // IncrementalFileRecord; the public snapshot carries the merged project index.
-    func updateOpenDocumentSemanticState(session: IncrementalProjectSession, snapshot: ProjectSnapshot): void {
+    func updateOpenDocumentSemanticState(session: IncrementalProjectSession, snapshot: ProjectSnapshot, changedFilePath: string): SemanticDocumentRefresh {
+        refreshedFilePaths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        hydratedFilePaths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        sourceFilePaths := new HashSet<string>(snapshot.SourceFiles, StringComparer.OrdinalIgnoreCase)
         for document in documents.Values {
             filePath := Path.GetFullPath(EditorWorkspaceFacts.UriToFilePath(document.Uri))
-            if !snapshot.SourceFiles.Contains(filePath) {
+            if !sourceFilePaths.Contains(filePath) {
                 continue
             }
 
             unit: NSharpLang.Compiler.Ast.CompilationUnit? = null
-            if snapshot.CompilationUnits.TryGetValue(filePath, out unit) {
-                document.CompilationUnit = unit
-            }
+            hasUnit := snapshot.CompilationUnits.TryGetValue(filePath, out unit)
 
             semanticModel: SemanticModel? = null
-            if snapshot.SemanticModels.TryGetValue(filePath, out semanticModel) {
+            hasSemanticModel := snapshot.SemanticModels.TryGetValue(filePath, out semanticModel)
+
+            semanticChanged := hasSemanticModel && !Object.ReferenceEquals(document.SemanticModel, semanticModel)
+            unitChanged := hasUnit && !Object.ReferenceEquals(document.CompilationUnit, unit)
+            needsHydration := document.Tokens == null || semanticChanged || unitChanged
+
+            if hasUnit {
+                document.CompilationUnit = unit
+            }
+            if hasSemanticModel {
                 document.SemanticModel = semanticModel
             }
 
@@ -928,9 +936,13 @@ class DocumentManager {
                 document.Bindings = fileRecord.Bindings
             }
 
-            // A different file's interface can change diagnostics and import usage without changing
-            // this buffer's text. Refresh semantic diagnostics and lint facts from every new project
-            // snapshot; tokenization still reuses unchanged document text.
+            if !needsHydration {
+                continue
+            }
+
+            // Reused semantic models mean the compiler proved this file's bindings are unchanged.
+            // Keep its diagnostics, lint facts and symbol projections intact; an interface change
+            // gives its reanalyzed dependents new models and refreshes those files here.
             document.Diagnostics = EditorWorkspaceFacts.DiagnosticsForFile(snapshot.AllErrors, snapshot.ProjectRoot, filePath)
             if document.Tokens == null {
                 lexer := new Lexer(document.Text, filePath)
@@ -947,7 +959,14 @@ class DocumentManager {
                 document.SymbolsInfo = toSymbolsInfo(EditorSymbolTableFacts.SymbolInfoRows(hydratedUnit, document.Text))
                 document.SymbolLocations = toSymbolLocations(EditorSymbolTableFacts.SymbolLocationRows(hydratedUnit, document.Text), document.Uri)
             }
+            refreshedFilePaths.Add(filePath)
+            hydratedFilePaths.Add(filePath)
         }
+
+        // The triggering buffer is always part of this publication batch, including a recovered
+        // parse path whose snapshot has no semantic model for it.
+        refreshedFilePaths.Add(Path.GetFullPath(changedFilePath))
+        return new SemanticDocumentRefresh(refreshedFilePaths, hydratedFilePaths)
     }
 
     func invalidateProjectSnapshot(filePath: string) {
@@ -1178,7 +1197,10 @@ class DocumentManager {
 
 // The loaded snapshot for one URI, with the project root and file path that were computed on the
 // way to it.
-record ProjectSnapshotBinding(ProjectRoot: string, FilePath: string, Snapshot: ProjectSnapshot) {
+record ProjectSnapshotBinding(ProjectRoot: string, FilePath: string, Snapshot: ProjectSnapshot, RefreshedFilePaths: HashSet<string>) {
+}
+
+record SemanticDocumentRefresh(FilePaths: HashSet<string>, HydratedFilePaths: HashSet<string>) {
 }
 
 record CachedProjectSnapshot(Stamp: string, ProjectConfigFileStamp: string, Snapshot: ProjectSnapshot) {

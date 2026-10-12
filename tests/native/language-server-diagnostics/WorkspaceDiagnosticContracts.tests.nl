@@ -16,7 +16,7 @@ test "publishing diagnostics for an unsaved buffer also publishes every other op
 func Main() {
 }
 
-test "a body edit reuses project analyses and parses and reanalyzes only its source file" {
+test "a body edit reuses project analyses and refreshes only its source file" {
     root := LscNewWorkspaceRoot()
     try {
         LsdWriteFile(root, "project.yml", "name: IncrementalEditor\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
@@ -35,17 +35,19 @@ test "a body edit reuses project analyses and parses and reanalyzes only its sou
         manager.UpdateDocument(firstUri, firstText, 1)
         manager.UpdateDocument(secondUri, secondText, 1)
         manager.GetDiagnosticsToPublish(firstUri)
+        secondModelBefore := manager.GetDocument(secondUri)?.SemanticModel
 
         editedText := "func First(): int { return 2 }"
         manager.UpdateDocumentForChange(firstUri, editedText, 2)
         publications := manager.GetDiagnosticsToPublish(firstUri)
         session := manager.incrementalProjectSessions[root]
 
-        assert publications.Count == 2
+        assert publications.Count == 1, "a body edit must not republish unaffected dependent diagnostics"
         assert publications[0].Uri == firstUri
         assert session.State.LastFilesParsed == 2, "the changed source is parsed once for interface summary and once for full analysis"
         assert session.State.LastFilesAnalyzed == 1
         assert session.State.LastFilesReused == 1
+        assert Object.ReferenceEquals(secondModelBefore, manager.GetDocument(secondUri)?.SemanticModel), "an unaffected dependent must retain its prior semantic model"
     } finally {
         Directory.Delete(root, true)
     }
@@ -70,6 +72,7 @@ test "a signature edit refreshes diagnostics in dependent open files" {
         manager.UpdateDocument(declarationUri, declarationText, 1)
         manager.UpdateDocument(callerUri, callerText, 1)
         manager.GetDiagnosticsToPublish(declarationUri)
+        callerModelBefore := manager.GetDocument(callerUri)?.SemanticModel
 
         editedDeclaration := "func Shared(value: string): string { return value }"
         manager.UpdateDocumentForChange(declarationUri, editedDeclaration, 2)
@@ -77,6 +80,7 @@ test "a signature edit refreshes diagnostics in dependent open files" {
 
         assert publications.Count == 2
         assert publications[0].Uri == declarationUri
+        assert !Object.ReferenceEquals(callerModelBefore, manager.GetDocument(callerUri)?.SemanticModel), "a dependent whose binding changed must be reanalyzed"
         hasCallerDiagnostic := false
         for publication in publications {
             if publication.Uri == callerUri {

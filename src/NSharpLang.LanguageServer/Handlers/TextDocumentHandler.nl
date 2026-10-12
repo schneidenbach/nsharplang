@@ -85,7 +85,10 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
     // instead of publishing diagnostics from a partially applied multi-file edit.
     private async func publishChangedDocumentDiagnostics(uri: string, version: int, projectBatchKey: string, cancellation: CancellationTokenSource): Task<Unit> {
         try {
-            await Task.Delay(75, cancellation.Token)
+            // didChange notifications produced by one WorkspaceEdit arrive consecutively on the
+            // ordered LSP stream. Yield briefly so the project batch can absorb the remaining
+            // documents without imposing a visible debounce on every ordinary body edit.
+            await Task.Delay(1, cancellation.Token)
             if cancellation.IsCancellationRequested {
                 return Unit.Value
             }

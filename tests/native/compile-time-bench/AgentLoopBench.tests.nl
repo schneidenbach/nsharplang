@@ -43,7 +43,7 @@ func AgentLoopTestRow(size: string, scenario: string, mode: string, wallMs: long
 
 func AgentLoopTestBaseline(): AgentLoopBaseline {
     baseline := new AgentLoopBaseline()
-    baseline.SchemaVersion = 5
+    baseline.SchemaVersion = 6
     sizes := AgentLoopSizes()
     scenarios := AgentLoopScenarios()
     i := 0
@@ -79,6 +79,8 @@ func AgentLoopTestBaseline(): AgentLoopBaseline {
             documentAnalysisRuns := 0L
             documentCacheReuses := 0L
             freshDiagnosticsVerified := 1L
+            documentsHydrated := 0L
+            dependentsReanalyzed := 0L
             if lspOperations[j] == "LSP didChange diagnostics" {
                 snapshots = 1
                 updated = 1
@@ -87,17 +89,39 @@ func AgentLoopTestBaseline(): AgentLoopBaseline {
                 reanalyzed = 1
                 diskStampScans = 1
                 if lspSizes[i] == "medium" {
-                    reused = 39
+                    reused = 40
                 } else {
-                    reused = 159
+                    reused = 160
                 }
             } else if lspOperations[j] == "LSP unchanged didOpen" {
                 updated = 1
                 published = 1
                 cacheHits = 1
                 documentCacheReuses = 1
+            } else if lspOperations[j] == "LSP interface edit diagnostics" {
+                snapshots = 1
+                updated = 1
+                published = lspSizes[i] == "medium" ? 41 : 161
+                parsed = 2
+                if lspSizes[i] == "medium" {
+                    parsed = 42
+                    reanalyzed = 41
+                    reused = 0
+                    documentsHydrated = 41
+                    dependentsReanalyzed = 40
+                } else {
+                    parsed = 162
+                    reanalyzed = 161
+                    reused = 0
+                    documentsHydrated = 161
+                    dependentsReanalyzed = 160
+                }
+                diskStampScans = 1
             }
-            row.Counters = new AgentLoopLspCounters(snapshots, updated, published, parsed, reanalyzed, reused, cacheHits, diskStampScans, documentAnalysisRuns, documentCacheReuses, freshDiagnosticsVerified)
+            if lspOperations[j] == "LSP didChange diagnostics" {
+                documentsHydrated = 1
+            }
+            row.Counters = new AgentLoopLspCounters(snapshots, updated, published, parsed, reanalyzed, reused, cacheHits, diskStampScans, documentAnalysisRuns, documentCacheReuses, freshDiagnosticsVerified, documentsHydrated, dependentsReanalyzed)
             baseline.LspRows.Add(row)
             j = j + 1
         }
@@ -371,7 +395,7 @@ test "agent-loop bench: counters that differ between identical samples mark the 
 test "agent-loop bench: the baseline file the harness writes is the baseline file it reads" {
     written := AgentLoopTestBaseline()
     parsed := AgentLoopParseBaseline(AgentLoopBaselineJson(written))
-    assert parsed.SchemaVersion == 5
+    assert parsed.SchemaVersion == 6
     assert parsed.Rows.Count == AgentLoopSizes().Count * AgentLoopScenarios().Count * 3
     assert parsed.LspRows.Count == AgentLoopLspSizes().Count * AgentLoopLspOperations().Count
     first := parsed.Rows[0]
@@ -391,8 +415,8 @@ test "agent-loop bench: a baseline with no rows, an unknown schema or unmeasured
     assert AgentLoopBaselineRefusal(empty).Contains("has no rows")
 
     future := AgentLoopTestBaseline()
-    future.SchemaVersion = 6
-    assert AgentLoopBaselineRefusal(future).Contains("schemaVersion 6")
+    future.SchemaVersion = 7
+    assert AgentLoopBaselineRefusal(future).Contains("schemaVersion 7")
 
     missingDaemonWarm := AgentLoopTestBaseline()
     missingDaemonWarm.Rows.RemoveAt(missingDaemonWarm.Rows.Count - 1)
@@ -664,7 +688,14 @@ test "agent-loop bench: the committed structural baseline covers cold, warm and 
     for row in baseline.LspRows {
         assert AgentLoopLspCountersMeasured(row.Counters), row.Size + " / " + row.Scenario
         if row.Scenario == "LSP unchanged didOpen" && row.Size == "large" {
-            assert (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1)).ProjectSnapshotsBuilt == 0, "an unchanged didOpen in the large project must reuse the project snapshot"
+            assert (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1)).ProjectSnapshotsBuilt == 0, "an unchanged didOpen in the large project must reuse the project snapshot"
+        }
+        if row.Scenario == "LSP didChange diagnostics" {
+            assert (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1)).FilesReanalyzed == 1
+            assert (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1)).DocumentsHydrated == 1
+        }
+        if row.Scenario == "LSP interface edit diagnostics" {
+            assert (row.Counters ?? new AgentLoopLspCounters(-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1)).DependentsReanalyzed > 0
         }
     }
     i := 0
@@ -690,23 +721,24 @@ test "agent-loop bench: the committed structural baseline covers cold, warm and 
 
 test "agent-loop LSP rows use exact snapshot and document-activity counters" {
     operations := AgentLoopLspOperations()
-    assert operations.Count == 4
+    assert operations.Count == 5
     assert operations[0] == "LSP didChange diagnostics"
     assert operations[1] == "LSP completion after edit"
     assert operations[2] == "LSP hover"
     assert operations[3] == "LSP unchanged didOpen"
+    assert operations[4] == "LSP interface edit diagnostics"
 
     baseline := AgentLoopTestBaseline()
     rows := new List<AgentLoopLspRow>()
     opened := new AgentLoopLspRow("large", "LSP unchanged didOpen")
-    opened.Counters = new AgentLoopLspCounters(0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1)
+    opened.Counters = new AgentLoopLspCounters(0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0)
     rows.Add(opened)
     assert AgentLoopLspCounterFailure(baseline, rows).Count == 0
 
     rebuilt := new AgentLoopLspRow("large", "LSP unchanged didOpen")
-    rebuilt.Counters = new AgentLoopLspCounters(1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1)
+    rebuilt.Counters = new AgentLoopLspCounters(1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0)
     rows[0] = rebuilt
-    assert AgentLoopLspCounterFailure(baseline, rows)[0].Contains("projectSnapshotsBuilt=0")
+    assert AgentLoopLspCounterFailure(baseline, rows)[0].Contains("unchanged didOpen must not rebuild")
 }
 
 test "agent-loop LSP timing rows cover each measured size and operation exactly once" {
@@ -721,8 +753,8 @@ test "agent-loop LSP timing rows cover each measured size and operation exactly 
         }
     }
     assert sizes.Count == 2 && sizes[0] == "medium" && sizes[1] == "large"
-    assert operations.Count == 4
-    assert seen.Count == 8
+    assert operations.Count == 5
+    assert seen.Count == 10
 }
 
 // ─── THE GATE ─────────────────────────────────────────────────────────────────────────────────
@@ -769,14 +801,14 @@ test "agent-loop gate: exact counter contracts and change-aware paired cold plus
                 sizeNames.Add(sizeName)
             }
             if perfMode == "timing" && scenarioGroup == "lsp" {
-                lspFailure := AgentLoopMeasureLspRelativeRows(languageServerDll, baseCompiler.LanguageServerDll, repositoryRoot, relative, sizeName)
+                lspFailure := AgentLoopMeasureLspRelativeRows(cliDll, languageServerDll, baseCompiler.LanguageServerDll, repositoryRoot, relative, sizeName)
                 if lspFailure != "" {
                     failures.Add(lspFailure)
                 }
             } else {
                 relative = AgentLoopMeasureRelativeMatrix(cliDll, baseCompiler.CliDll, repositoryRoot, sizeNames, AgentLoopRelativeMinimumPairs(), false, "", scenarioGroup)
                 if perfMode != "timing" {
-                    lspFailure := AgentLoopMeasureLspRelativeRows(languageServerDll, baseCompiler.LanguageServerDll, repositoryRoot, relative)
+                    lspFailure := AgentLoopMeasureLspRelativeRows(cliDll, languageServerDll, baseCompiler.LanguageServerDll, repositoryRoot, relative)
                     if lspFailure != "" {
                         failures.Add(lspFailure)
                     }
@@ -791,7 +823,7 @@ test "agent-loop gate: exact counter contracts and change-aware paired cold plus
             timingStatus = "compared by exact sign-test 95% lower bound plus 30 ms slowdown floor"
         } else if perfMode != "timing" {
             relative.HeadCounterRows = AgentLoopMeasureStructuralRows(cliDll, repositoryRoot, AgentLoopGateSizeNames(), 3, false)
-            relative.LspCounterRows = AgentLoopMeasureLspStructuralRows(languageServerDll, repositoryRoot, 3)
+            relative.LspCounterRows = AgentLoopMeasureLspStructuralRows(cliDll, languageServerDll, repositoryRoot, 3)
         }
         failures.AddRange(AgentLoopCounterFailures(baseline, relative.HeadCounterRows))
         if perfMode != "timing" || (Environment.GetEnvironmentVariable("NSHARP_COMPILER_PERF_SCENARIO_GROUP") ?? "") == "lsp" {

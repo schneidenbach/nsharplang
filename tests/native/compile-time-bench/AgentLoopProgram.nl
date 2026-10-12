@@ -266,7 +266,7 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         } else {
             relative = AgentLoopMeasureRelativeMatrix(options.CliDll, options.BaseCliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.ScenarioId)
         }
-        lspFailure := AgentLoopMeasureLspRelativeRows(languageServerDll, options.BaseLanguageServerDll, repositoryRoot, relative ?? new AgentLoopRelativeMatrix())
+        lspFailure := AgentLoopMeasureLspRelativeRows(options.CliDll, languageServerDll, options.BaseLanguageServerDll, repositoryRoot, relative ?? new AgentLoopRelativeMatrix())
         if lspFailure != "" {
             BenchFailHarness("Language Server paired measurements failed: " + lspFailure)
         }
@@ -276,12 +276,12 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         if !options.LspOnly {
             rows = AgentLoopMeasureStructuralRows(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.ScenarioId)
         }
-        lspRows = AgentLoopMeasureLspStructuralRows(languageServerDll, repositoryRoot, options.Runs)
+        lspRows = AgentLoopMeasureLspStructuralRows(options.CliDll, languageServerDll, repositoryRoot, options.Runs)
     } else {
         if !options.LspOnly {
             rows = AgentLoopMeasureMatrix(options.CliDll, repositoryRoot, options.SizeNames, options.Runs, true, options.Daemon, true, options.ScenarioId)
         }
-        lspRows = AgentLoopMeasureLspStructuralRows(languageServerDll, repositoryRoot, options.Runs)
+        lspRows = AgentLoopMeasureLspStructuralRows(options.CliDll, languageServerDll, repositoryRoot, options.Runs)
     }
 
     baselinePath := AgentLoopBaselinePath(repositoryRoot)
@@ -315,7 +315,7 @@ func AgentLoopMain(args: string[], repositoryRoot: string) {
         }
 
         written := new AgentLoopBaseline()
-        written.SchemaVersion = 5
+        written.SchemaVersion = 6
         if File.Exists(options.WriteBaseline) {
             existing := AgentLoopParseBaseline(File.ReadAllText(options.WriteBaseline))
             written.Rows = AgentLoopMergeRows(existing.Rows, rows)

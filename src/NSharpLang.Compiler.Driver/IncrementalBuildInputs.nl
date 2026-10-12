@@ -290,6 +290,10 @@ static class IncrementalCompilerIdentity {
 // already in the walk.
 static class IncrementalConfigFingerprint {
     static func Describe(config: ProjectConfig?): string {
+        // ProjectConfig getters lazily materialize their defaults. Walk once to settle that
+        // object graph, then fingerprint the stable values returned by the second walk.
+        settled := new StringBuilder()
+        AppendValue(settled, config, 0)
         builder := new StringBuilder()
         AppendValue(builder, config, 0)
         return builder.ToString()
