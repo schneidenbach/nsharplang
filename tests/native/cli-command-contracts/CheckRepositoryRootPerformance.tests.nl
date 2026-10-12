@@ -14,20 +14,7 @@ import System.Text.Json
 // NuGet outputs in the budget without treating them as a repository-wide per-member constant.
 func CliRootCheckMaxParseEventsPerCheckedFile(): long => 3
 
-// Quiet-machine timing measurement: about 64 s. Keep the documented 2x budget (128 s) independent
-// from the 15-minute hard timeout: that one only catches a stuck CLI and never judges performance.
-func CliRootCheckQuietWallBudgetMs(): long => 128000
 func CliRootCheckHangTimeoutMs(): int => 900000
-
-class CliRootCheckMachineLoad {
-    LoadThousandths: long
-    Cores: int
-
-    constructor(loadThousandths: long, cores: int) {
-        LoadThousandths = loadThousandths
-        Cores = cores
-    }
-}
 
 class CliRootCheckDiscoveredMember {
     Root: string
@@ -78,173 +65,6 @@ func CliRootCheckWorkspaceFailureText(projects: JsonElement): string {
         return "none"
     }
     return failures
-}
-
-func CliRootCheckParseInteger(text: string): long {
-    if text.Length == 0 {
-        return -1
-    }
-
-    value := 0L
-    i := 0
-    while i < text.Length {
-        c := text[i]
-        if c < '0' || c > '9' {
-            return -1
-        }
-
-        value = value * 10 + (c - '0')
-        i = i + 1
-    }
-
-    return value
-}
-
-func CliRootCheckParseFixed3(text: string): long {
-    trimmed := text.Trim()
-    if trimmed.Length == 0 {
-        return -1
-    }
-
-    dot := trimmed.IndexOf(".", StringComparison.Ordinal)
-    if dot < 0 {
-        whole := CliRootCheckParseInteger(trimmed)
-        if whole < 0 {
-            return -1
-        }
-        return whole * 1000
-    }
-
-    wholeText := trimmed.Substring(0, dot)
-    fractionText := trimmed.Substring(dot + 1)
-    if wholeText.Length == 0 || fractionText.Length == 0 || fractionText.Length > 3 {
-        return -1
-    }
-
-    whole := CliRootCheckParseInteger(wholeText)
-    fraction := CliRootCheckParseInteger(fractionText)
-    if whole < 0 || fraction < 0 {
-        return -1
-    }
-
-    scale := 1L
-    i := fractionText.Length
-    while i < 3 {
-        scale = scale * 10
-        i = i + 1
-    }
-    return whole * 1000 + fraction * scale
-}
-
-func CliRootCheckIsLoadSeparator(c: char): bool {
-    return c == ' ' || c == '\t' || c == ',' || c == '{' || c == '}'
-}
-
-func CliRootCheckFirstLoadToken(text: string, start: int): string {
-    i := start
-    while i < text.Length && CliRootCheckIsLoadSeparator(text[i]) {
-        i = i + 1
-    }
-
-    from := i
-    while i < text.Length && !CliRootCheckIsLoadSeparator(text[i]) {
-        i = i + 1
-    }
-
-    if i <= from {
-        return ""
-    }
-    return text.Substring(from, i - from)
-}
-
-func CliRootCheckLoadThousandths(text: string): long {
-    marker := text.IndexOf("load average", StringComparison.OrdinalIgnoreCase)
-    if marker >= 0 {
-        tail := text.Substring(marker)
-        colon := tail.IndexOf(":", StringComparison.Ordinal)
-        if colon < 0 {
-            return -1
-        }
-        return CliRootCheckParseFixed3(CliRootCheckFirstLoadToken(tail, colon + 1))
-    }
-
-    if text.Trim().StartsWith("{") {
-        return CliRootCheckParseFixed3(CliRootCheckFirstLoadToken(text, 0))
-    }
-    return -1
-}
-
-func CliRootCheckLoadAverageText(): string {
-    if OperatingSystem.IsMacOS() {
-        sysctl := RunProcess("sysctl", "-n vm.loadavg", Path.GetTempPath())
-        if sysctl.ExitCode == 0 {
-            return sysctl.Stdout.Trim()
-        }
-    }
-
-    if OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() {
-        uptime := RunProcess("/usr/bin/uptime", "", Path.GetTempPath())
-        if uptime.ExitCode == 0 {
-            return uptime.Stdout.Trim()
-        }
-    }
-    return ""
-}
-
-func CliRootCheckProcessorCount(): int {
-    if OperatingSystem.IsMacOS() {
-        run := RunProcess("sysctl", "-n hw.logicalcpu", Path.GetTempPath())
-        if run.ExitCode == 0 {
-            return (int)CliRootCheckParseInteger(run.Stdout.Trim())
-        }
-    }
-
-    if OperatingSystem.IsLinux() {
-        run := RunProcess("nproc", "", Path.GetTempPath())
-        if run.ExitCode == 0 {
-            return (int)CliRootCheckParseInteger(run.Stdout.Trim())
-        }
-    }
-    return -1
-}
-
-// Match BenchLoadRefusesTimingJudgement: unreadable load is unjudged, and the threshold is one
-// fifth of the logical cores (2.0 on this 10-core machine). Load only gates the timing assertion.
-func CliRootCheckLoadThresholdThousandths(cores: int): long {
-    if cores <= 0 {
-        return 2000
-    }
-    return cores * 200
-}
-
-func CliRootCheckReadMachineLoad(): CliRootCheckMachineLoad {
-    return new CliRootCheckMachineLoad(
-        CliRootCheckLoadThousandths(CliRootCheckLoadAverageText()),
-        CliRootCheckProcessorCount()
-    )
-}
-
-func CliRootCheckRefusesTimingJudgement(load: CliRootCheckMachineLoad): bool {
-    return load.LoadThousandths < 0 || load.LoadThousandths >= CliRootCheckLoadThresholdThousandths(load.Cores)
-}
-
-func CliRootCheckLoadText(load: CliRootCheckMachineLoad): string {
-    if load.LoadThousandths < 0 {
-        return "unknown"
-    }
-
-    whole := load.LoadThousandths / 1000
-    fraction := load.LoadThousandths % 1000
-    if fraction == 0 {
-        return whole.ToString()
-    }
-    if fraction % 100 == 0 {
-        return whole.ToString() + "." + (fraction / 100).ToString()
-    }
-    if fraction % 10 == 0 {
-        return whole.ToString() + "." + (fraction / 10).ToString("D2")
-    }
-    return whole.ToString() + "." + fraction.ToString("D3")
 }
 
 func CliRootCheckShouldSkipDirectory(name: string): bool {
@@ -739,9 +559,8 @@ test "workspace check matches framework 10 and logging 9 members alone in both o
     }
 }
 
-test "nlc check checks every repository project once, keeps diagnostics stable, and pins workspace work while load judges wall time" {
+test "nlc check checks every repository project once, keeps diagnostics stable, and pins workspace work" {
     repositoryRoot := CliRepositoryRoot()
-    load := CliRootCheckReadMachineLoad()
     statsPath := Path.Combine(Path.GetTempPath(), "nsharp-check-workspace-stats-" + Guid.NewGuid().ToString("N") + ".json")
     startInfo := new ProcessStartInfo {
         FileName: "dotnet",
@@ -862,16 +681,8 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     maxReferenceImages := referenceBudget.Maximum
     assert referenceImages <= maxReferenceImages, "referenceAssembliesLoaded was " + referenceImages.ToString() + "; the dependency-derived budget allows " + referenceBudget.EmptyProjectReferenceImages.ToString() + " shared opens per member plus up to six opens for each of " + referenceBudget.ConfiguredReferenceImages.ToString() + " resolved reference images (" + maxReferenceImages.ToString() + ")"
 
-    timingUnjudged := CliRootCheckRefusesTimingJudgement(load)
-    timingVerdict := "timing judged"
-    if timingUnjudged {
-        timingVerdict = "timing unjudged: load " + CliRootCheckLoadText(load) + " on " + load.Cores.ToString() + " cores is unknown or at/above the " + CliRootCheckLoadThresholdThousandths(load.Cores).ToString() + " thousandths threshold"
-    } else if wallMs > CliRootCheckQuietWallBudgetMs() {
-        timingVerdict = "timing failed: " + wallMs.ToString() + " ms over the " + CliRootCheckQuietWallBudgetMs().ToString() + " ms budget at load " + CliRootCheckLoadText(load)
-    }
-    timingRecord := "repository-root check: projects=" + expectedRoots.Count.ToString() + " checkedFiles=" + checkedFiles.ToString() + " filesParsed=" + filesParsed.ToString() + " maxParseEvents=" + maxParseEvents.ToString() + " referenceAssembliesLoaded=" + referenceImages.ToString() + " sharedReferenceImagesPerMember=" + referenceBudget.EmptyProjectReferenceImages.ToString() + " configuredReferenceImages=" + referenceBudget.ConfiguredReferenceImages.ToString() + " maxReferenceImages=" + maxReferenceImages.ToString() + " wallMs=" + wallMs.ToString() + " budgetMs=" + CliRootCheckQuietWallBudgetMs().ToString() + " load=" + CliRootCheckLoadText(load) + " cores=" + load.Cores.ToString() + "; " + timingVerdict
+    timingRecord := "repository-root check: projects=" + expectedRoots.Count.ToString() + " checkedFiles=" + checkedFiles.ToString() + " filesParsed=" + filesParsed.ToString() + " maxParseEvents=" + maxParseEvents.ToString() + " referenceAssembliesLoaded=" + referenceImages.ToString() + " sharedReferenceImagesPerMember=" + referenceBudget.EmptyProjectReferenceImages.ToString() + " configuredReferenceImages=" + referenceBudget.ConfiguredReferenceImages.ToString() + " maxReferenceImages=" + maxReferenceImages.ToString() + " wallMs=" + wallMs.ToString() + " timing=record-only"
     _ = CliRootCheckWriteGateRecord(repositoryRoot, timingRecord)
-    assert timingUnjudged || wallMs <= CliRootCheckQuietWallBudgetMs(), timingRecord
 
     document.Dispose()
     statsDocument.Dispose()

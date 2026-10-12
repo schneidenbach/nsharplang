@@ -23,8 +23,10 @@ import System.Threading
 //   * FilesAnalyzed: one compilation unit through `Analyzer.Analyze`.
 //   * AssembliesEmitted: one IL image written by the columnar emitter (reference assemblies are
 //     not counted; they are a by-product of an emitted image).
-//   * ReferenceAssembliesLoaded: one reference image opened from a path -- a MetadataLoadContext
-//     load or an exact-identity executable load. One file opened by two contexts counts twice.
+//   * ReferenceAssembliesLoaded: one compiler-owned reference image opened from a path -- a
+//     MetadataLoadContext load or an exact-identity executable load. Installed shared-framework
+//     and targeting-pack images are excluded because their contents vary by OS and SDK patch, not
+//     by a compiler decision. One compiler-owned file opened by two contexts counts twice.
 //   * FrameworkReferenceBytesHashed: bytes read and hashed from the installed `shared/` or `packs/`
 //     tree by incremental input validation. An up-to-date build must keep this at zero.
 //   * ProcessesSpawned: one child process this process started.
@@ -61,8 +63,10 @@ class CompilerWorkCounters {
         Interlocked.Increment(ref assembliesEmitted)
     }
 
-    func CountReferenceAssemblyLoaded() {
-        Interlocked.Increment(ref referenceAssembliesLoaded)
+    func CountReferenceAssemblyLoaded(path: string) {
+        if !ReferenceImageSnapshotStore.IsInstalledRuntimePath(path) {
+            Interlocked.Increment(ref referenceAssembliesLoaded)
+        }
     }
 
     func CountFrameworkReferenceBytesHashed(bytes: long) {

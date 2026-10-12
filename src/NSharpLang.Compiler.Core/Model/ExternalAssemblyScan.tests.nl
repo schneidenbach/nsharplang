@@ -251,6 +251,18 @@ test "runtime reference closure keys do not read framework image contents" {
     assert delta.FrameworkReferenceBytesHashed == 0
 }
 
+test "reference work counts compiler-owned images and excludes installed framework images" {
+    frameworkPath := typeof(object).get_Assembly().get_Location()
+    compilerPath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+
+    before := CompilerWorkCounters.Shared.Snapshot()
+    CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded(frameworkPath)
+    CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded(compilerPath)
+    delta := CompilerWorkCounters.Shared.Snapshot().Since(before)
+
+    assert delta.ReferenceAssembliesLoaded == 1
+}
+
 test "a reference closure keeps its own file when the default context carries the same identity" {
     sourcePath := typeof(ExternalAssemblyScan).Assembly.Location
     identity := AssemblyName.GetAssemblyName(sourcePath).FullName

@@ -11,7 +11,7 @@
     "emitParses": 280,
     "filesAnalyzed": 280,
     "assembliesEmitted": 3,
-    "referenceAssembliesLoaded": 139,
+    "referenceAssembliesLoaded": 34,
     "frameworkReferenceBytesHashed": 0,
     "processesSpawned": 0
   },
@@ -20,7 +20,7 @@
     "emitParses": 160,
     "filesAnalyzed": 160,
     "assembliesEmitted": 1,
-    "referenceAssembliesLoaded": 36,
+    "referenceAssembliesLoaded": 3,
     "frameworkReferenceBytesHashed": 0,
     "processesSpawned": 0
   }

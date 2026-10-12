@@ -127,7 +127,7 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
     func TryLoadFromPath(context: MetadataLoadContext, assemblyPath: string): Assembly? {
         try {
             loaded := images.LoadFromPath(context, assemblyPath)
-            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
+            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded(assemblyPath)
             return loaded
         } catch loadError: Exception {
             images.Forget(assemblyPath)
