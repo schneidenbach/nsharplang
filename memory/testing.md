@@ -1779,14 +1779,20 @@ content-hashed outputs; source or dependency changes still rebuild the required 
 - FindAllReferences
 - Headless VS Code extension-host smoke tests live under `editors/vscode/src/test`
 - `./scripts/test-vscode-headless.sh` builds the release server, launches VS Code in extension-host mode, exercises diagnostics/completions/hover/definition/references/code actions, and writes `.context/vscode-headless-report.json`; the implementation lives under `tests/scripts/`
+- Headed visual scenarios live under `editors/vscode/test/visual` and use the integration suite's shared helpers.
+- `./scripts/vscode-visual-scenario.sh <scenario> [--hold-seconds N] [--workspace DIR]` packages the extension from the current tree, then uses `@vscode/test-electron` 3.1.0 and the pinned `config.vscodeTestVersion` to launch an isolated headed test instance. It copies the selected workspace to a temporary directory before a scenario edits files.
+- Supported scenarios: `rename`, `hover`, `definition`, `references`, `diagnostics`, `completion`, and `code-action`. Each asserts the provider result and leaves a visible editor state. Rename saves changes in the disposable copy, places `Service.nl` and `Endpoints.nl` side by side, selects the new name, and writes a JSON report with files, ranges, and before/after text.
+- The runner prints the test VS Code PID, window title, report path, and a sentinel path. The window remains open until the requested number of seconds elapses or the sentinel file is touched, then closes through the VS Code command API. Reports live under `.context/vscode-visual-scenarios/`.
+- Visual verification uses the test window only. Agents inspect it with computer-use clicks and screenshots; they do not type into editors or send keystrokes to the user's VS Code. Humans can use the same command.
 
-VS Code integration and headless test launches use the pinned `config.vscodeTestVersion` in
-`editors/vscode/package.json`, isolated user data and extension directories, and
-settings that disable updates, release notes, extension update checks, telemetry, workspace trust,
-and the startup editor. On macOS they remove `com.apple.quarantine` from the downloaded app before
-launch and pass `--use-mock-keychain`; on Linux they use `--password-store=basic`. Five no-GUI Node
-contract tests guard the launch policy and run from `npm run test:smoke` and the shell integration harness.
-Do not reuse the developer's installed VS Code binary or profile for test runs.
+VS Code integration, headless, and visual test launches share `editors/vscode/test/launchPolicy.ts`.
+It pins the VS Code version from `editors/vscode/package.json`, creates isolated user data and
+extension directories, and disables updates, release notes, extension update checks, telemetry,
+workspace trust prompts, and the startup editor. On macOS it removes `com.apple.quarantine` from the
+downloaded app before launch and passes `--use-mock-keychain`; on Linux it uses
+`--password-store=basic`. Five no-GUI Node contract tests guard this shared launch policy and run
+from `npm run test:smoke` and the shell integration harness. Never reuse the developer's installed
+VS Code binary or profile for test runs.
 
 ### Code Intelligence Tests (CLI Toolchain)
 - **`tests/native/query-integration`** — the `nlc query` toolchain has no C# assertion layer as of
@@ -2118,11 +2124,13 @@ For Language Server, LSP, extension, or other IDE-affecting work, do not skip VS
 
 ```bash
 ./scripts/test-all.sh --commit
-./scripts/reload-vscode-extension.sh
+./scripts/vscode-visual-scenario.sh rename --hold-seconds 30
 ```
 
-Then use computer-use to verify the behavior in the installed extension and capture screenshots.
-`AGENTS.md` is authoritative for the exact gate boundary.
+Use computer-use to find the headed test window from its printed PID and title, then capture a
+screenshot that shows the scenario result. The visual runner rebuilds/packages this worktree's
+extension and leaves the user's installed VS Code window and profile untouched. `AGENTS.md` is
+authoritative for the exact gate boundary.
 
 The product-gate entrypoint runs from an isolated temporary copy of the
 repository with separate HOME, temp, NuGet, and npm state. Successful isolated

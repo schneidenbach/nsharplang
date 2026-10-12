@@ -57,10 +57,11 @@ The source code for Roslyn is on this computer and available for you to peruse. 
 ## IDE Tooling Verification (MANDATORY)
 
 ALWAYS: After making ANY changes to the Language Server, LSP handlers, VS Code extension, or anything that affects the developer experience in the IDE:
-1. Rebuild and reinstall the VS Code extension
-2. Use the `computer-use` skill to open VS Code, interact with the editor, and VISUALLY VERIFY the change works
-3. Take screenshots and confirm the feature works as expected in the real editor
-4. Do NOT rely only on unit tests — unit tests pass but the real editor can behave differently (workspace trust, cursor positioning, stale server binaries, etc.)
+1. Run the VS Code-enabled integration gate as required below.
+2. Run the product-owned headed scenario for the behavior being verified, for example `./scripts/vscode-visual-scenario.sh rename --hold-seconds 30`.
+3. Use computer-use to find the separate test window by the PID and title printed by the runner, take a screenshot, and visually confirm the result. The runner packages this worktree's extension, uses the pinned test VS Code and an isolated profile, and copies the workspace into a disposable directory.
+4. Agents may use clicks and screenshots to inspect the test window, but must not type into an editor or send keystrokes to the user's VS Code. Humans can run the same scenario command and inspect the headed window.
+5. Do NOT rely only on unit tests — the real editor can behave differently (workspace trust, cursor positioning, stale server binaries, etc.).
 
 This is non-negotiable. Unit tests are necessary but NOT sufficient for IDE tooling. You must see it work in VS Code with your own eyes (via screencapture).
 
@@ -72,7 +73,7 @@ ALWAYS: For fast iteration, use `./scripts/dev.sh` as the INNER LOOP instead of 
 ALWAYS: While the compiler rewrite/dogfood work is in progress, default to the non-VS-Code product gate for backend-only work. Do not spend VS Code test time unless the change affects Language Server, LSP, VS Code extension, or IDE developer-experience behavior.
 ALWAYS: For backend compiler, analyzer, IL lowering, dogfood, and parity-corpus work that does NOT affect the IDE developer experience, do NOT run the full product gate between every small commit. Use the narrowest relevant `./scripts/dev.sh` slice, a targeted `nlc test --project tests/native/<dir> --filter ...`, or a targeted perf/IL-shape test first. Commit the small slice when that focused evidence matches the risk.
 ALWAYS: Run the full non-VS-Code product gate using `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` at integration checkpoints: before merge/push, before handing off a completed multi-commit sequence, after SDK/runtime/build-script/package changes, after broad shared compiler changes, after benchmark-gate changes, or when focused evidence is ambiguous. This forces a fresh isolated product-gate run without VS Code integration tests; cached whole-gate results and cached per-step results are not accepted as integration-checkpoint evidence. If it fails, fix the failures first.
-ALWAYS: If the change touches the Language Server, LSP handlers, VS Code extension, or anything that affects the developer experience in the IDE, do NOT set `VSCODE_TESTS=skip`. Run the appropriate VS Code-enabled gate with `./scripts/test-all.sh` (or `./scripts/test-all.sh --commit` before committing) in addition to the mandatory visual IDE verification below.
+ALWAYS: If the change touches the Language Server, LSP handlers, VS Code extension, or anything that affects the developer experience in the IDE, do NOT set `VSCODE_TESTS=skip`. Run the appropriate VS Code-enabled gate with `./scripts/test-all.sh` (or `./scripts/test-all.sh --commit` before committing) in addition to the mandatory visual IDE verification above.
 ALWAYS: The test-all.sh script:
   - Runs the compiler-service estate and every native N# test project (gate Step 3a)
   - Runs VS Code smoke tests unless `VSCODE_TESTS=skip` is explicitly set for non-IDE work
@@ -86,7 +87,7 @@ ALWAYS: Testing strategy is layered, not one-size-fits-all:
   - Commit loop for N# compiler work: make a coherent compiler change, run the focused slice that proves it, commit it, and continue. Do not batch unrelated compiler changes behind a full gate, and do not let the gate become the main activity.
   - Scope selection: prefer the narrowest semantically relevant `dev.sh` slice first, then broaden when touching shared compiler, SDK/runtime, build config, fixtures, or anything unmapped. `dev.sh --since` is fail-safe and will run the estate plus every native project for central/unmapped changes.
   - Backend/compiler/SDK/CLI/runtime/docs integration verification: use `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` at the checkpoint boundaries above. This must be fresh; cached whole-gate or per-step results are not integration-checkpoint evidence.
-  - IDE/LSP/VS Code changes: do not skip VS Code tests. Run the VS Code-enabled gate, reload/reinstall the extension, and visually verify the editor behavior with computer-use.
+  - IDE/LSP/VS Code changes: do not skip VS Code tests. Run the VS Code-enabled gate and visually verify the editor behavior with `scripts/vscode-visual-scenario.sh` plus computer-use screenshots. The runner does not operate the user's installed VS Code window or profile.
   - Do not use the full product gate as the daily inner loop. The expensive slices are intentionally reserved for integration checkpoints; see `memory/testing.md` for current profiling data and gate-hotspot evidence.
 ALWAYS: CHECK YOUR OWN WORK
 ALWAYS: CHECK YOUR OWN ASSUMPTIONS
@@ -94,23 +95,20 @@ ALWAYS: `git commit` after a coherent code slice is complete and the focused tes
 
 ## VS Code Extension Development Workflow
 
-ALWAYS: After making ANY changes to the Language Server or LSP handlers, run:
+ALWAYS: After making ANY changes to the Language Server, LSP handlers, VS Code extension, or IDE developer experience, use the isolated visual scenario runner and screenshot workflow above. For example:
 ```bash
-./scripts/reload-vscode-extension.sh
+./scripts/vscode-visual-scenario.sh rename --hold-seconds 30
 ```
 
-This script:
-- Kills VS Code
-- Rebuilds the language server
-- Packages the VSIX
-- Installs the extension
-- Reopens VS Code with a sample project
+Supported scenarios are `rename`, `hover`, `definition`, `references`, `diagnostics`, `completion`, and `code-action`. Pass `--workspace DIR` to use another compatible multi-file N# sample; the runner copies it before scenarios make edits. It prints the JSON report path, test VS Code PID, window title, and a sentinel path. Touch the sentinel to close the window early; otherwise the window closes cleanly when the hold duration expires. Reports are kept under `.context/vscode-visual-scenarios/`.
 
-Files that require extension reload:
+`./scripts/reload-vscode-extension.sh` remains available when a developer specifically wants to refresh their installed extension. Agent verification uses the isolated runner so it does not close or relaunch the user's VS Code.
+
+Files that require headed visual verification:
 - `src/NSharpLang.LanguageServer/**/*.nl` (any Language Server changes)
 - `editors/vscode/**/*.ts` (VS Code extension TypeScript code)
 
-IMPORTANT: Always test LSP changes in VS Code to verify the user experience!
+IMPORTANT: Always test LSP changes in the headed isolated test VS Code window to verify the user experience!
 IMPORTANT: Do not spend VS Code integration-test budget on backend-only compiler/SDK/CLI work. Use `VSCODE_TESTS=skip` for those changes, and reserve VS Code tests plus computer-use verification for IDE-affecting changes.
 
 ## Project Configuration Philosophy

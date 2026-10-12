@@ -766,8 +766,10 @@ immutable growth ceilings (`OWN004`); new code files are refused outright (`OWN0
 source paths above, while all other active production C# paths fail policy validation. DELIVERY rows
 (config, MSBuild, shell and binary surfaces) carry no ceiling but an exact reviewed fingerprint, so
 any drift is reported (`OWN005`) and a new delivery file is admitted only by adding its row in a
-reviewed repin. `tasks/README.md` is the ordered vertical ownership queue and
-`systems-language-closeout/STATUS.md` is its cursor/evidence ledger.
+reviewed repin. On 2026-10-12, E2 admitted the four isolated VS Code visual-scenario TypeScript
+test-harness files at their reviewed current sizes; every prior code ceiling remains unchanged, and
+the scenario shell runner is recorded as a reviewed delivery row. `tasks/README.md` is the ordered
+vertical ownership queue and `systems-language-closeout/STATUS.md` is its cursor/evidence ledger.
 
 ## Build And Test Commands
 
