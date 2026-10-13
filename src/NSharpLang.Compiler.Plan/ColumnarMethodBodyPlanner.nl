@@ -108,6 +108,34 @@ class ColumnarMethodBodyLoopTargetStack {
     }
 }
 
+// Iterator planning allocates one entry label for each source protected region. The shared
+// method-body writer consumes them in source order, including nested regions, so the iterator owner
+// does not have to emit or scan statements inside a claimed protected body.
+class ColumnarMethodBodyRegionEntryCursor {
+    Labels: int[]
+    Position: int
+    End: int
+
+    constructor(labels: int[], start: int) {
+        if labels == null || start < 0 || start > labels.Length {
+            throw new InvalidOperationException("A protected-region label cursor requires a valid label range.")
+        }
+        Labels = labels
+        Position = start
+        End = labels.Length
+    }
+
+    func TryTake(out label: int): bool {
+        label = -1
+        if Position >= End {
+            return false
+        }
+        label = Labels[Position]
+        Position = Position + 1
+        return true
+    }
+}
+
 class ColumnarMethodBodyPlanner {
 
     // Whether this statement always exits via a return — the same columnar subset as the diagnostics
@@ -1004,7 +1032,7 @@ class ColumnarMethodBodyPlanner {
         return false
     }
 
-    private static func TryAppendSimpleStateMachineIf(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack): bool {
+    private static func TryAppendSimpleStateMachineIf(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack, regionCursor: ColumnarMethodBodyRegionEntryCursor?): bool {
         if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.IfStatement || nodes.ChildCount(statement) < 2 || nodes.ChildCount(statement) > 3 {
             return false
         }
@@ -1023,7 +1051,7 @@ class ColumnarMethodBodyPlanner {
         plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), elseLabel)
         thenStatement := nodes.Child(statement, 1)
         thenFallsThrough := StateMachineStatementFallsThrough(nodes, thenStatement)
-        if !TryAppendSimpleStateMachineBodyStatement(nodes, source, thenStatement, bindings, plan, loopTargets) {
+        if !TryAppendSimpleStateMachineBodyStatement(nodes, source, thenStatement, bindings, plan, loopTargets, regionCursor) {
             plan.Rollback(checkpoint)
             return false
         }
@@ -1035,7 +1063,7 @@ class ColumnarMethodBodyPlanner {
                 plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), afterLabel)
             }
             plan.AppendMarkLabel(elseLabel)
-            if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 2), bindings, plan, loopTargets) {
+            if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 2), bindings, plan, loopTargets, regionCursor) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -1046,6 +1074,30 @@ class ColumnarMethodBodyPlanner {
             plan.AppendMarkLabel(elseLabel)
         }
         return true
+    }
+
+    private static func IsSimpleStateMachineRegionTry(nodes: ColumnarNodeTable, node: int): bool {
+        if nodes.ChildCount(node) < 2 || nodes.Kind(nodes.Child(node, 0)) != ColumnarStatementNodeKind.BlockStatement || !IsSimpleStateMachineRegionStatement(nodes, nodes.Child(node, 0)) {
+            return false
+        }
+
+        childCount := nodes.ChildCount(node)
+        finallyNode := -1
+        handlerEnd := childCount
+        if nodes.Kind(nodes.Child(node, childCount - 1)) == ColumnarStatementNodeKind.BlockStatement {
+            finallyNode = nodes.Child(node, childCount - 1)
+            handlerEnd = childCount - 1
+        }
+        catchCount := handlerEnd - 1
+        catchIndex := 0
+        while catchIndex < catchCount {
+            catchClause := nodes.Child(node, catchIndex + 1)
+            if nodes.Kind(catchClause) != ColumnarStatementNodeKind.CatchClause || ColumnarCatchClauseFacts.BindingNode(nodes, catchClause) >= 0 || !IsSimpleStateMachineRegionStatement(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)) {
+                return false
+            }
+            catchIndex += 1
+        }
+        return (catchCount > 0 || finallyNode >= 0) && (finallyNode < 0 || IsSimpleStateMachineRegionStatement(nodes, finallyNode))
     }
 
     private static func IsSimpleStateMachineRegionStatement(nodes: ColumnarNodeTable, node: int): bool {
@@ -1073,6 +1125,9 @@ class ColumnarMethodBodyPlanner {
             }
             return true
         }
+        if kind == ColumnarStatementNodeKind.TryStatement {
+            return IsSimpleStateMachineRegionTry(nodes, node)
+        }
         if kind == ColumnarStatementNodeKind.WhileStatement {
             return nodes.ChildCount(node) == 2 && IsSimpleStateMachineRegionStatement(nodes, nodes.Child(node, 1))
         }
@@ -1088,7 +1143,7 @@ class ColumnarMethodBodyPlanner {
         return kind == ColumnarStatementNodeKind.ExpressionStatement && nodes.ChildCount(node) == 1
     }
 
-    private static func TryAppendSimpleStateMachineTry(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, regionEntryLabel: int, out fallsThrough: bool): bool {
+    private static func TryAppendSimpleStateMachineTry(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, regionCursor: ColumnarMethodBodyRegionEntryCursor, out fallsThrough: bool): bool {
         fallsThrough = true
         if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.TryStatement || nodes.ChildCount(statement) < 2 || nodes.Kind(nodes.Child(statement, 0)) != ColumnarStatementNodeKind.BlockStatement || !IsSimpleStateMachineRegionStatement(nodes, nodes.Child(statement, 0)) {
             return false
@@ -1119,13 +1174,17 @@ class ColumnarMethodBodyPlanner {
             return false
         }
 
+        regionEntryLabel := -1
+        if regionCursor == null || !regionCursor.TryTake(out regionEntryLabel) {
+            return false
+        }
         checkpoint := plan.CreateCheckpoint()
         endLabel := plan.DefineLabel()
         plan.AppendMarkLabel(regionEntryLabel)
         plan.AppendBeginExceptionBlock(endLabel)
         tryNode := nodes.Child(statement, 0)
         tryFallsThrough := StateMachineStatementFallsThrough(nodes, tryNode)
-        if !TryAppendSimpleStateMachineBodyStatement(nodes, source, tryNode, bindings, plan, new ColumnarMethodBodyLoopTargetStack()) {
+        if !TryAppendSimpleStateMachineBodyStatement(nodes, source, tryNode, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), regionCursor) {
             plan.Rollback(checkpoint)
             return false
         }
@@ -1169,7 +1228,7 @@ class ColumnarMethodBodyPlanner {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
             catchBody := ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)
             catchBodyFallsThrough := StateMachineStatementFallsThrough(nodes, catchBody)
-            if !TryAppendSimpleStateMachineBodyStatement(nodes, source, catchBody, bindings, plan, new ColumnarMethodBodyLoopTargetStack()) {
+            if !TryAppendSimpleStateMachineBodyStatement(nodes, source, catchBody, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), regionCursor) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -1184,7 +1243,7 @@ class ColumnarMethodBodyPlanner {
         if finallyNode >= 0 {
             finallyFallsThrough = StateMachineStatementFallsThrough(nodes, finallyNode)
             plan.AppendBeginFinallyBlock()
-            if !TryAppendSimpleStateMachineBodyStatement(nodes, source, finallyNode, bindings, plan, new ColumnarMethodBodyLoopTargetStack()) {
+            if !TryAppendSimpleStateMachineBodyStatement(nodes, source, finallyNode, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), regionCursor) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -1194,11 +1253,21 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
-    static func TryAppendStateMachineTry(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, regionEntryLabel: int, out fallsThrough: bool): bool {
-        return TryAppendSimpleStateMachineTry(nodes, source, statement, bindings, plan, regionEntryLabel, out fallsThrough)
+    static func TryAppendStateMachineTry(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, regionEntryLabels: int[], startRegion: int, out consumedRegions: int, out fallsThrough: bool): bool {
+        consumedRegions = 0
+        fallsThrough = true
+        if regionEntryLabels == null || startRegion < 0 || startRegion >= regionEntryLabels.Length {
+            return false
+        }
+        cursor := new ColumnarMethodBodyRegionEntryCursor(regionEntryLabels, startRegion)
+        if !TryAppendSimpleStateMachineTry(nodes, source, statement, bindings, plan, cursor, out fallsThrough) {
+            return false
+        }
+        consumedRegions = cursor.Position - startRegion
+        return true
     }
 
-    private static func TryAppendSimpleStateMachineWhile(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack): bool {
+    private static func TryAppendSimpleStateMachineWhile(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack, regionCursor: ColumnarMethodBodyRegionEntryCursor?): bool {
         if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.WhileStatement || nodes.ChildCount(statement) != 2 || !IsSimpleStateMachineBodyStatement(nodes, nodes.Child(statement, 1)) {
             return false
         }
@@ -1215,7 +1284,7 @@ class ColumnarMethodBodyPlanner {
         plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
         bodyFallsThrough := StateMachineStatementFallsThrough(nodes, nodes.Child(statement, 1))
         loopTargets.Push(afterLabel, conditionLabel)
-        bodyAppended := TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 1), bindings, plan, loopTargets)
+        bodyAppended := TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 1), bindings, plan, loopTargets, regionCursor)
         loopTargets.Pop()
         if !bodyAppended {
             plan.Rollback(checkpoint)
@@ -1228,13 +1297,13 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
-    private static func TryAppendSimpleStateMachineForCore(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack, appendInitializer: bool): bool {
+    private static func TryAppendSimpleStateMachineForCore(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack, appendInitializer: bool, regionCursor: ColumnarMethodBodyRegionEntryCursor?): bool {
         if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.ForStatement || nodes.ChildCount(statement) != 4 || (appendInitializer && !IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(statement, 0))) || !IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(statement, 2)) || !IsSimpleStateMachineBodyStatement(nodes, nodes.Child(statement, 3)) {
             return false
         }
 
         checkpoint := plan.CreateCheckpoint()
-        if appendInitializer && !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 0), bindings, plan, loopTargets) {
+        if appendInitializer && !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 0), bindings, plan, loopTargets, regionCursor) {
             plan.Rollback(checkpoint)
             return false
         }
@@ -1255,7 +1324,7 @@ class ColumnarMethodBodyPlanner {
         }
         plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
         loopTargets.Push(afterLabel, stepLabel)
-        bodyAppended := TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 3), bindings, plan, loopTargets)
+        bodyAppended := TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 3), bindings, plan, loopTargets, regionCursor)
         loopTargets.Pop()
         if !bodyAppended {
             plan.Rollback(checkpoint)
@@ -1263,7 +1332,7 @@ class ColumnarMethodBodyPlanner {
         }
         if bodyFallsThrough || bodyContainsContinue {
             plan.AppendMarkLabel(stepLabel)
-            if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 2), bindings, plan, loopTargets) {
+            if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 2), bindings, plan, loopTargets, regionCursor) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -1273,23 +1342,23 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
-    private static func TryAppendSimpleStateMachineFor(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack): bool {
-        return TryAppendSimpleStateMachineForCore(nodes, source, statement, bindings, plan, loopTargets, true)
+    private static func TryAppendSimpleStateMachineFor(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack, regionCursor: ColumnarMethodBodyRegionEntryCursor?): bool {
+        return TryAppendSimpleStateMachineForCore(nodes, source, statement, bindings, plan, loopTargets, true, regionCursor)
     }
 
     // The iterator owner still establishes the lexical storage binding for a for-loop declaration.
     // Once that initializer has been emitted and published, the condition, body, and step use the
     // same loop planner as a loop whose initializer is already a machine-field assignment.
     static func TryAppendStateMachineForBodyAfterInitializer(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
-        return TryAppendSimpleStateMachineForCore(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), false)
+        return TryAppendSimpleStateMachineForCore(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), false, null)
     }
 
-    private static func TryAppendSimpleStateMachineBodyStatement(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack): bool {
+    private static func TryAppendSimpleStateMachineBodyStatement(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack, regionCursor: ColumnarMethodBodyRegionEntryCursor?): bool {
         kind := nodes.Kind(node)
         if kind == ColumnarStatementNodeKind.BlockStatement {
             index := 0
             while index < nodes.ChildCount(node) {
-                if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(node, index), bindings, plan, loopTargets) {
+                if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(node, index), bindings, plan, loopTargets, regionCursor) {
                     return false
                 }
                 if !StateMachineStatementFallsThrough(nodes, nodes.Child(node, index)) {
@@ -1300,13 +1369,20 @@ class ColumnarMethodBodyPlanner {
             return true
         }
         if kind == ColumnarStatementNodeKind.IfStatement {
-            return TryAppendSimpleStateMachineIf(nodes, source, node, bindings, plan, loopTargets)
+            return TryAppendSimpleStateMachineIf(nodes, source, node, bindings, plan, loopTargets, regionCursor)
+        }
+        if kind == ColumnarStatementNodeKind.TryStatement {
+            if regionCursor == null {
+                return false
+            }
+            nestedFallsThrough := true
+            return TryAppendSimpleStateMachineTry(nodes, source, node, bindings, plan, regionCursor, out nestedFallsThrough)
         }
         if kind == ColumnarStatementNodeKind.WhileStatement {
-            return TryAppendSimpleStateMachineWhile(nodes, source, node, bindings, plan, loopTargets)
+            return TryAppendSimpleStateMachineWhile(nodes, source, node, bindings, plan, loopTargets, regionCursor)
         }
         if kind == ColumnarStatementNodeKind.ForStatement {
-            return TryAppendSimpleStateMachineFor(nodes, source, node, bindings, plan, loopTargets)
+            return TryAppendSimpleStateMachineFor(nodes, source, node, bindings, plan, loopTargets, regionCursor)
         }
         if kind == ColumnarStatementNodeKind.BreakStatement {
             breakLabel := loopTargets.BreakLabel()
@@ -1380,13 +1456,13 @@ class ColumnarMethodBodyPlanner {
             return stateMachineBody && TryAppendThrowStatement(nodes, source, statement, bindings, plan)
         }
         if kind == ColumnarStatementNodeKind.IfStatement && stateMachineBody {
-            return TryAppendSimpleStateMachineIf(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack())
+            return TryAppendSimpleStateMachineIf(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), null)
         }
         if kind == ColumnarStatementNodeKind.WhileStatement && stateMachineBody {
-            return TryAppendSimpleStateMachineWhile(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack())
+            return TryAppendSimpleStateMachineWhile(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), null)
         }
         if kind == ColumnarStatementNodeKind.ForStatement && stateMachineBody {
-            return TryAppendSimpleStateMachineFor(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack())
+            return TryAppendSimpleStateMachineFor(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), null)
         }
         return false
     }

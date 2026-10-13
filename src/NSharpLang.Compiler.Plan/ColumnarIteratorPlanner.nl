@@ -5314,13 +5314,11 @@ class ColumnarIteratorBodyPlanner {
         }
         if kind == ColumnarStatementNodeKind.TryStatement {
             fallsThrough := true
-            if emit.NextTryRegion < emit.RegionEntryLabels.Length {
-                regionEntryLabel := emit.RegionEntryLabels[emit.NextTryRegion]
-                if ColumnarMethodBodyPlanner.TryAppendStateMachineTry(nodes, source, node, scope.Bindings, emit.Plan, regionEntryLabel, out fallsThrough) {
-                    emit.NextTryRegion += 1
-                    emit.Context.GeneralMethodBodyStatementCount += 1
-                    return fallsThrough
-                }
+            consumedRegions := 0
+            if ColumnarMethodBodyPlanner.TryAppendStateMachineTry(nodes, source, node, scope.Bindings, emit.Plan, emit.RegionEntryLabels, emit.NextTryRegion, out consumedRegions, out fallsThrough) {
+                emit.NextTryRegion += consumedRegions
+                emit.Context.GeneralMethodBodyStatementCount += 1
+                return fallsThrough
             }
             return EmitTryStatement(emit, node)
         }
