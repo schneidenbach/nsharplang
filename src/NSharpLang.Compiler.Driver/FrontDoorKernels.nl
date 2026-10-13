@@ -5,22 +5,12 @@ import System.Collections
 import System.Collections.Generic
 import System.IO
 
-// THE NATIVE FRONT DOOR'S DECISIONS.
+// THE OPTIONAL MANAGED-HOST HANDOFF'S DECISIONS.
 //
-// A per-platform toolset ships `nlc` as a NativeAOT executable in front of the compiler host
-// (`lib/nlc/Cli.dll`, ReadyToRun-compiled). The front door exists to start in a few milliseconds:
-// it answers `--version` and `help` itself and hands every other command to the host, replacing the
-// bash/PowerShell launcher that used to find .NET and start it.
-//
-// WHY THE COMPILER ITSELF IS NOT AHEAD-OF-TIME COMPILED. The code generator binds against RUNTIME
-// types: `PersistedAssemblyBuilder` is created over `typeof(object).Assembly`, and the reference
-// set is paired with executable handles that `ExternalAssemblyScan` loads into the compiler's own
-// process (`AssemblyLoadContext.LoadFromAssemblyPath`, `Assembly.Load`). NativeAOT has neither
-// in-process assembly loading nor the framework's assemblies beyond what was compiled into the
-// image, so under AOT every type from a framework or package the image does not carry would stay
-// metadata-only and its uses would decline at emit — a behaviour change, not a speed-up. `nlc test`
-// and `nlc run` additionally load the emitted assemblies into a collectible context. All of that
-// keeps running unchanged in the JIT host; the front door never loads compiler code.
+// Normal NativeAOT, JIT, and ReadyToRun invocations enter the compiler pipeline directly. The
+// explicit `NSHARP_FRONT_DOOR=1` path remains for launcher-contract checks and starts a separately
+// built managed host; `FrontDoor` performs that handoff. The compiler's NativeAOT path is being
+// brought up in this worktree, so this helper must not be used as a compiler fallback.
 //
 // Everything here is a pure answer so the estate can pin it; `FrontDoor` performs the I/O.
 class FrontDoorKernels {

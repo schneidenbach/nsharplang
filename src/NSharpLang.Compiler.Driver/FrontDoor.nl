@@ -7,14 +7,9 @@ import System.Diagnostics
 import System.IO
 import System.Runtime.InteropServices
 
-// THE NATIVE FRONT DOOR: `nlc` AS A NATIVEAOT EXECUTABLE. The decisions are `FrontDoorKernels`;
-// this class performs them.
-//
-// `CliPipeline.Execute` tests `RuntimeFeature.IsDynamicCodeSupported` first. Under NativeAOT that is a
-// compile-time `false`, so the AOT compiler sees that the front door is the ONLY path and trims
-// the compiler out of the executable: the image carries this class, the help/version text and the
-// .NET base library, and starts in a few milliseconds. In a JIT process the same check is `true`
-// and the pipeline runs every command in-process exactly as before.
+// THE EXPLICIT FRONT DOOR: `nlc` can hand a command to the managed host when
+// `NSHARP_FRONT_DOOR=1`. Normal JIT/R2R and NativeAOT invocations enter `CliPipeline` directly.
+// The decisions are `FrontDoorKernels`; this class performs the hand-off.
 //
 // THE HAND-OFF REPLACES THE PROCESS. On Unix the front door `execve`s `dotnet <lib>/Cli.dll <args>`:
 // the host inherits the process id, the terminal, every descriptor and every signal, so exit codes,
