@@ -771,6 +771,103 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
+    // The first state-machine control-flow claim is deliberately small: an `if` whose branches only
+    // contain simple assignments to already-bound machine fields. The condition and each assignment
+    // still enter through the ordinary append-mode value/binding owners. Rejecting the complete shape
+    // before appending keeps declarations, suspension points, and loop/control targets with the
+    // iterator walker until their lowering contracts are shared as well.
+    private static func IsSimpleStateMachineIfBranch(nodes: ColumnarNodeTable, node: int): bool {
+        if nodes == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        kind := nodes.Kind(node)
+        if kind == ColumnarStatementNodeKind.BlockStatement {
+            index := 0
+            while index < nodes.ChildCount(node) {
+                if !IsSimpleStateMachineIfBranch(nodes, nodes.Child(node, index)) {
+                    return false
+                }
+                index = index + 1
+            }
+            return true
+        }
+        if kind == ColumnarStatementNodeKind.IfStatement {
+            if nodes.ChildCount(node) < 2 || nodes.ChildCount(node) > 3 {
+                return false
+            }
+            branch := 1
+            while branch < nodes.ChildCount(node) {
+                if !IsSimpleStateMachineIfBranch(nodes, nodes.Child(node, branch)) {
+                    return false
+                }
+                branch = branch + 1
+            }
+            return true
+        }
+        if kind != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(node) != 1 {
+            return false
+        }
+
+        assignment := nodes.Child(node, 0)
+        return nodes.Kind(assignment) == ColumnarExpressionNodeKind.AssignmentExpression && nodes.ChildCount(assignment) == 2
+    }
+
+    private static func TryAppendSimpleStateMachineIf(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
+        if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.IfStatement || nodes.ChildCount(statement) < 2 || nodes.ChildCount(statement) > 3 {
+            return false
+        }
+        if !IsSimpleStateMachineIfBranch(nodes, nodes.Child(statement, 1)) || (nodes.ChildCount(statement) == 3 && !IsSimpleStateMachineIfBranch(nodes, nodes.Child(statement, 2))) {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        conditionType := typeof(int)
+        if !TryAppendValue(nodes, source, nodes.Child(statement, 0), bindings, plan, out conditionType) || conditionType != typeof(bool) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        elseLabel := plan.DefineLabel()
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), elseLabel)
+        if !TryAppendSimpleStateMachineIfBranch(nodes, source, nodes.Child(statement, 1), bindings, plan) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        if nodes.ChildCount(statement) == 3 {
+            afterLabel := plan.DefineLabel()
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), afterLabel)
+            plan.AppendMarkLabel(elseLabel)
+            if !TryAppendSimpleStateMachineIfBranch(nodes, source, nodes.Child(statement, 2), bindings, plan) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+            plan.AppendMarkLabel(afterLabel)
+        } else {
+            plan.AppendMarkLabel(elseLabel)
+        }
+        return true
+    }
+
+    private static func TryAppendSimpleStateMachineIfBranch(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
+        kind := nodes.Kind(node)
+        if kind == ColumnarStatementNodeKind.BlockStatement {
+            index := 0
+            while index < nodes.ChildCount(node) {
+                if !TryAppendSimpleStateMachineIfBranch(nodes, source, nodes.Child(node, index), bindings, plan) {
+                    return false
+                }
+                index = index + 1
+            }
+            return true
+        }
+        if kind == ColumnarStatementNodeKind.IfStatement {
+            return TryAppendSimpleStateMachineIf(nodes, source, node, bindings, plan)
+        }
+        return TryAppendAssignmentStatement(nodes, source, node, bindings, plan)
+    }
+
     // Ordinary source statements that need no state-machine suspension semantics. Yield and await
     // are deliberately absent: the state-machine lowerer rewrites those before asking this owner.
     static func TryAppendMethodBodyStatement(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, machineFields: Dictionary<string, ColumnarMethodBodyFieldLocalBinding>): bool {
@@ -804,6 +901,9 @@ class ColumnarMethodBodyPlanner {
                 return stateMachineBody && TryAppendAssignmentStatement(nodes, source, statement, bindings, plan)
             }
             return TryAppendExpressionStatement(nodes, source, statement, bindings, plan)
+        }
+        if kind == ColumnarStatementNodeKind.IfStatement && stateMachineBody {
+            return TryAppendSimpleStateMachineIf(nodes, source, statement, bindings, plan)
         }
         return false
     }

@@ -5263,6 +5263,10 @@ class ColumnarIteratorBodyPlanner {
             return !emit.Context.Declined
         }
         if kind == ColumnarStatementNodeKind.IfStatement {
+            if ColumnarMethodBodyPlanner.TryAppendStateMachineBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)) {
+                emit.Context.GeneralMethodBodyStatementCount += 1
+                return true
+            }
             // if [condition, then, else?]: the join label is defined and jumped to only when the
             // then-branch falls through (otherwise the jump row would be unreachable).
             elseLabel := emit.Plan.DefineLabel()
