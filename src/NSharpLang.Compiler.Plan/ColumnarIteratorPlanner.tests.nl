@@ -1863,8 +1863,8 @@ test "iterator planner shares a bare catch body" {
     assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
 }
 
-test "iterator planner shares an unbound typed catch body" {
-    source := "func* Catch(): IEnumerable<int> { i: int = 0\n try { throw new InvalidOperationException(\"boom\") } catch (InvalidOperationException) { i += 1 }\n yield i }"
+test "iterator planner shares multiple unbound typed catches in source order" {
+    source := "func* Catch(): IEnumerable<int> { i: int = 0\n try { throw new InvalidOperationException(\"boom\") } catch (ArgumentException) { i += 100 } catch (InvalidOperationException) { i += 1 }\n yield i }"
     probe := new ColumnarIteratorShapeProbe(
         source,
         "IEnumerable<int>",
@@ -1874,15 +1874,16 @@ test "iterator planner shares an unbound typed catch body" {
         false
     )
     assert probe.Shape.Supported
-    assert probe.Shape.FieldCount == 4
+    assert probe.Shape.FieldCount == 5
 
     machineType := typeof(ColumnarIteratorRunProbe)
-    fields := new FieldInfo[](4)
+    fields := new FieldInfo[](5)
     fields[0] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "state")
     fields[1] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "current")
     fields[2] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
-    // The handler does not bind the caught value; classification still reserves its fallback slot.
+    // Neither handler binds the caught value; classification still reserves each fallback slot.
     fields[3] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
+    fields[4] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -1895,11 +1896,11 @@ test "iterator planner shares an unbound typed catch body" {
         IteratorStructuralTypeReferences()
     )
 
-    moveNext := MakeIteratorDynamicMethod("TypedCatchMoveNext", typeof(bool), machineType)
+    moveNext := MakeIteratorDynamicMethod("MultipleTypedCatchMoveNext", typeof(bool), machineType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
-    getCurrent := MakeIteratorDynamicMethod("TypedCatchCurrent", typeof(int), machineType)
+    getCurrent := MakeIteratorDynamicMethod("MultipleTypedCatchCurrent", typeof(int), machineType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
-    assert context.GeneralMethodBodyStatementCount == 2, "the initialized local and complete typed catch use the method-body planner"
+    assert context.GeneralMethodBodyStatementCount == 2, "the initialized local and all typed catches use the method-body planner"
 
     machine := new ColumnarIteratorRunProbe()
     invokeArgs := new object[](1)
