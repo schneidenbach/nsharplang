@@ -1602,7 +1602,7 @@ test "iterator tuple declarations use the ordinary method-body statement planner
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
-    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = 7 } else { i = 2 }\n while i < 4 { i = i + 1 }\n for i = i; i < 5; i = i + 1 { }\n while i < n + 7 { yield i\n i = i + 1 } }"
+    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = 7 } else { i = 2 }\n while i < 6 { if i < 5 { i = i + 1\n continue } else { break } }\n for i = i; i < 5; i = i + 1 { }\n while i < n + 7 { yield i\n i = i + 1 } }"
     probe := new ColumnarIteratorShapeProbe(
         source,
         "IEnumerable<int>",
