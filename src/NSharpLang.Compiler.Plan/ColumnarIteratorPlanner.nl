@@ -5178,7 +5178,7 @@ class ColumnarIteratorBodyPlanner {
                 return false
             }
             emit.Context.GeneralMethodBodyStatementCount += 1
-            scope.PublishField(name, must hoisted)
+            scope.PublishField(name, hoisted)
             if isCaptured {
                 scope.PublishBoxedCapture(name, storageField, initializerType)
             }
