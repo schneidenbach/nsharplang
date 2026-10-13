@@ -1602,7 +1602,7 @@ test "iterator tuple declarations use the ordinary method-body statement planner
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
-    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = i + 7\n i + 0 } else { i = i + 2\n i + 0 }\n while i < 6 { if i < 5 { i = i + 1\n continue } else { break } }\n for i = i; i < 5; i = i + 1 { }\n while i < n + 7 { yield i\n i = i + 1 } }"
+    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = i + 7\n CreateTuple() } else { i = i + 2\n CreateTuple() }\n while i < 6 { if i < 5 { i = i + 1\n continue } else { break } }\n for i = i; i < 5; i = i + 1 { }\n while i < n + 7 { yield i\n i = i + 1 } }"
     probe := new ColumnarIteratorShapeProbe(
         source,
         "IEnumerable<int>",
@@ -1631,6 +1631,17 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
         fields,
         IteratorStructuralTypeReferences()
     )
+    tupleFactory := typeof(ColumnarIteratorTupleValueFactory).GetMethod("Create")
+    if tupleFactory == null {
+        throw new InvalidOperationException("ColumnarIteratorTupleValueFactory.Create was not found")
+    }
+    context.RequiredScope().Bindings.SiblingCallables["CreateTuple"] = new ColumnarSiblingCallFacts(
+        tupleFactory,
+        new Type[](0),
+        new int[](0),
+        typeof(ValueTuple<int, int>),
+        0
+    )
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
     getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
@@ -1642,6 +1653,7 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
     ColumnarCodePlanExecutor.Execute(getCurrentPlan, getCurrent.GetILGenerator())
 
     machine := new ColumnarIteratorRunProbe()
+    ColumnarIteratorTupleValueFactory.ResetCalls()
     machine.state = 0
     machine.n = 5
     invokeArgs := new object[](1)
@@ -1664,8 +1676,10 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
     assert results[2] == 9
     assert results[3] == 10
     assert results[4] == 11
+    assert ColumnarIteratorTupleValueFactory.CallsMade() == 1, "the selected branch's shared call statement evaluates once"
 
     results.Clear()
+    ColumnarIteratorTupleValueFactory.ResetCalls()
     machine.state = 0
     machine.n = 0
     moveResult = moveNext.Invoke(target, invokeArgs)
@@ -1680,6 +1694,7 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
     assert results.Count == 2
     assert results[0] == 5
     assert results[1] == 6
+    assert ColumnarIteratorTupleValueFactory.CallsMade() == 1, "the alternate branch's shared call statement evaluates once"
 }
 
 // A run-probe machine with the `.ctor(int)` shape the clone and factory plans construct through.
