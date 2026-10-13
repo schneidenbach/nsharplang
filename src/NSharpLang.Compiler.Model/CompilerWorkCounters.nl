@@ -23,10 +23,11 @@ import System.Threading
 //   * FilesAnalyzed: one compilation unit through `Analyzer.Analyze`.
 //   * AssembliesEmitted: one IL image written by the columnar emitter (reference assemblies are
 //     not counted; they are a by-product of an emitted image).
-//   * ReferenceAssembliesLoaded: one compiler-owned reference image opened from a path -- a
+//   * ReferenceAssembliesLoaded: one compiler-selected reference image opened from a path -- a
 //     MetadataLoadContext load or an exact-identity executable load. Installed shared-framework
-//     and targeting-pack images are excluded because their contents vary by OS and SDK patch, not
-//     by a compiler decision. One compiler-owned file opened by two contexts counts twice.
+//     and targeting-pack images are excluded. Package-cache images outside the project's restored
+//     dependency closure are also excluded: their presence depends on what else the machine built,
+//     not on this compiler request. One selected file opened by two contexts counts twice.
 //   * FrameworkReferenceBytesHashed: bytes read and hashed from the installed `shared/` or `packs/`
 //     tree by incremental input validation. An up-to-date build must keep this at zero.
 //   * ProcessesSpawned: one child process this process started.

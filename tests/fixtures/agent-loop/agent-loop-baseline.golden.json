@@ -73,7 +73,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 3, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -121,7 +121,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 3, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -153,7 +153,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 9, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 3, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 9, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -233,7 +233,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 3, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -281,7 +281,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 3, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -313,7 +313,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 42, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 3, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 42, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",

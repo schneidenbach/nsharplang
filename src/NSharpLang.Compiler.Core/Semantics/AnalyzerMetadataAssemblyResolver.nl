@@ -28,7 +28,9 @@ import System.Reflection
 //   3. THE EXACT NUGET PACKAGE DIRECTORY, lowercased, which is how the cache is laid out.
 //   4. A PREFIX SCAN OF THE CACHE, last and slowest, because it is a guess: `Foo.Bar` may live in a
 //      package called `Foo`. It is the only stage that can bind an assembly the project never named,
-//      which is why nothing else may come after it.
+//      which is why nothing else may come after it. Cache hits count as compiler reference work only
+//      when the package is in the project's restored dependency closure; unrelated packages happen
+//      to present in a machine-wide cache are not structural work for this project.
 //
 // A FAILURE HERE IS NEVER THROWN AND NEVER STOPS THE PROBE. A file that exists but will not load is
 // recorded and the walk CONTINUES to the next candidate — the next target framework, the next
@@ -103,6 +105,8 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
             return null
         }
 
+        packageName := Path.GetFileName(packageDirectory) ?? ""
+        countReference := pinnedPackageVersions.ContainsKey(packageName)
         versionDirectory := PickPackageVersionDirectory(packageDirectory)
         if versionDirectory == null {
             return null
@@ -112,7 +116,7 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
         for targetFramework in targetFrameworks {
             assemblyPath := AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDirectory, targetFramework, simpleName)
             if File.Exists(assemblyPath) {
-                loaded := TryLoadFromPath(context, assemblyPath)
+                loaded := TryLoadFromPath(context, assemblyPath, countReference)
                 if loaded != null {
                     return loaded
                 }
@@ -124,10 +128,12 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
 
     // The one place a candidate file is turned into an assembly, so the record-and-continue rule is
     // written once rather than at each of the three probe stages that can hit a bad file.
-    func TryLoadFromPath(context: MetadataLoadContext, assemblyPath: string): Assembly? {
+    func TryLoadFromPath(context: MetadataLoadContext, assemblyPath: string, countReference: bool): Assembly? {
         try {
             loaded := images.LoadFromPath(context, assemblyPath)
-            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded(assemblyPath)
+            if countReference {
+                CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded(assemblyPath)
+            }
             return loaded
         } catch loadError: Exception {
             images.Forget(assemblyPath)
@@ -161,7 +167,7 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
         for searchDirectory in searchDirectories {
             candidate := AnalyzerMetadataLoadPolicy.SearchDirectoryAssemblyPath(searchDirectory, simpleName)
             if File.Exists(candidate) {
-                fromDirectory := TryLoadFromPath(context, candidate)
+                fromDirectory := TryLoadFromPath(context, candidate, true)
                 if fromDirectory != null {
                     return fromDirectory
                 }
