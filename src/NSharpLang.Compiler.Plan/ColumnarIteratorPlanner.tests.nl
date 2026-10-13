@@ -447,12 +447,14 @@ class ColumnarIteratorRunProbe {
     public current: int
     public n: int
     public i: int
+    public j: int
 
     constructor() {
         state = 0
         current = 0
         n = 0
         i = 0
+        j = 0
     }
 }
 
@@ -1602,7 +1604,7 @@ test "iterator tuple declarations use the ordinary method-body statement planner
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
-    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = i + 7\n CreateTuple() } else { i = i + 2\n CreateTuple() }\n while i < 6 { if i < 5 { i += 1\n continue } else { break } }\n for i = i; i < 5; i++ { }\n while i < n + 7 { yield i\n i++ } }"
+    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = i + 7\n CreateTuple() } else { i = i + 2\n CreateTuple() }\n while i < 6 { if i < 5 { i += 1\n continue } else { break } }\n for j := 0; j < n; j++ { }\n while i < n + 7 { yield i\n i++ } }"
     probe := new ColumnarIteratorShapeProbe(
         source,
         "IEnumerable<int>",
@@ -1612,14 +1614,15 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
         false
     )
     assert probe.Shape.Supported
-    assert probe.Shape.FieldCount == 4
+    assert probe.Shape.FieldCount == 5
 
     smType := typeof(ColumnarIteratorRunProbe)
-    fields := new FieldInfo[](4)
+    fields := new FieldInfo[](5)
     fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
     fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
     fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
     fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "i")
+    fields[4] = ColumnarRuntimeTypeFacts.RequiredField(smType, "j")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -1645,7 +1648,7 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
     getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
-    assert context.GeneralMethodBodyStatementCount == 5, "the hoisted initializer, branch tree with discarded expressions, simple loops, for loop, and hoisted-field assignment must use method-body planning"
+    assert context.GeneralMethodBodyStatementCount == 6, "the hoisted initializer, branch tree with discarded expressions, simple loops, scoped for initializer and shared for-loop body, and hoisted-field assignment must use method-body planning"
 
     moveNext := MakeIteratorDynamicMethod("MoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())

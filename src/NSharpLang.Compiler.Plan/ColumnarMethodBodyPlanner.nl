@@ -1047,13 +1047,13 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
-    private static func TryAppendSimpleStateMachineFor(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack): bool {
-        if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.ForStatement || nodes.ChildCount(statement) != 4 || !IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(statement, 0)) || !IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(statement, 2)) || !IsSimpleStateMachineBodyStatement(nodes, nodes.Child(statement, 3)) {
+    private static func TryAppendSimpleStateMachineForCore(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack, appendInitializer: bool): bool {
+        if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.ForStatement || nodes.ChildCount(statement) != 4 || (appendInitializer && !IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(statement, 0))) || !IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(statement, 2)) || !IsSimpleStateMachineBodyStatement(nodes, nodes.Child(statement, 3)) {
             return false
         }
 
         checkpoint := plan.CreateCheckpoint()
-        if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 0), bindings, plan, loopTargets) {
+        if appendInitializer && !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 0), bindings, plan, loopTargets) {
             plan.Rollback(checkpoint)
             return false
         }
@@ -1090,6 +1090,17 @@ class ColumnarMethodBodyPlanner {
         }
         plan.AppendMarkLabel(afterLabel)
         return true
+    }
+
+    private static func TryAppendSimpleStateMachineFor(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack): bool {
+        return TryAppendSimpleStateMachineForCore(nodes, source, statement, bindings, plan, loopTargets, true)
+    }
+
+    // The iterator owner still establishes the lexical storage binding for a for-loop declaration.
+    // Once that initializer has been emitted and published, the condition, body, and step use the
+    // same loop planner as a loop whose initializer is already a machine-field assignment.
+    static func TryAppendStateMachineForBodyAfterInitializer(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
+        return TryAppendSimpleStateMachineForCore(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), false)
     }
 
     private static func TryAppendSimpleStateMachineBodyStatement(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, loopTargets: ColumnarMethodBodyLoopTargetStack): bool {

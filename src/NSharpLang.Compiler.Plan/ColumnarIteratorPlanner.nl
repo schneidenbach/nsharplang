@@ -5331,6 +5331,11 @@ class ColumnarIteratorBodyPlanner {
             if emit.Context.Declined {
                 return false
             }
+            if ColumnarMethodBodyPlanner.TryAppendStateMachineForBodyAfterInitializer(nodes, source, node, scope.Bindings, emit.Plan) {
+                emit.Context.GeneralMethodBodyStatementCount += 1
+                scope.ExitBindingScope(forMark)
+                return true
+            }
             condLabel := emit.Plan.DefineLabel()
             stepLabel := emit.Plan.DefineLabel()
             afterLabel := emit.Plan.DefineLabel()
