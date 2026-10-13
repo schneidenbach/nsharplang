@@ -449,18 +449,23 @@ func AgentLoopLspClientReadLogCounters(client: AgentLoopLspClient, operation: st
     attempt := 0
     delta := ""
     hasCounterMarker := false
+    hasRequiredIncrementalCounters := false
     requiresIncrementalCounters := client.SupportsVersionedDiagnostics && (operation == "LSP didChange diagnostics" || operation == "LSP interface edit diagnostics")
-    while attempt < 400 {
+    // Log providers may flush the server's structural event after publishDiagnostics, especially
+    // while the paired compiler matrix is keeping the runner busy. The incremental-row wait is
+    // outside the measured LSP interval and gives the complete counter line up to twenty seconds.
+    while attempt < 4000 {
         allText := File.ReadAllText(client.LogPath)
         if allText.Length < client.LogOffset {
             throw new IOException("Language Server log was truncated while measuring a row.")
         }
         delta = allText.Substring(client.LogOffset)
         hasCounterMarker = delta.Contains("LSP structural counters: ")
+        hasRequiredIncrementalCounters = !requiresIncrementalCounters || Regex.IsMatch(delta, "LSP structural counters: .*documentsHydrated=(\\d+)")
         currentLength := allText.Length
         if currentLength == previousLength {
             stableSamples = stableSamples + 1
-            if hasCounterMarker && (requiresIncrementalCounters || stableSamples >= 3) {
+            if hasCounterMarker && hasRequiredIncrementalCounters && stableSamples >= 3 {
                 break
             }
             if stableSamples >= 20 && !requiresIncrementalCounters {
@@ -558,7 +563,11 @@ func AgentLoopLspClientReadLogCounters(client: AgentLoopLspClient, operation: st
     }
     if client.SupportsVersionedDiagnostics {
         if hasIncrementalCounters && !hasHydrationCounters {
-            throw new IOException(operation + " did not log actual document hydration counters.")
+            detail := delta
+            if detail.Length > 2500 {
+                detail = detail.Substring(detail.Length - 2500)
+            }
+            throw new IOException(operation + " did not log actual document hydration counters. Recent server log: " + detail)
         }
         // The compiler's semantic reanalysis counter includes the edited source; the remainder are
         // dependent files whose semantic models were recomputed.
