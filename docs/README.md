@@ -78,6 +78,7 @@ nlc run
 ### Development & Deployment
 
 - **[CI/CD Guide](../website/docs/ci-cd.md)** - Setting up continuous integration and deployment with GitHub Actions, Azure Pipelines, and Docker
+- **[Full-compiler NativeAOT design](design/full-compiler-nativeaot.md)** - measured blockers, type-universe migration slices, and the AOT compatibility gate
 
 ### Examples
 
