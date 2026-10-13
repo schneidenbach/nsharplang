@@ -173,7 +173,7 @@ test "NO descriptor stores a docs URL, so the deleted stored-URL arm cannot come
 
 test "EVERY code is distinct, and the catalog is exactly its two builders" {
     codes := DctCodes()
-    // 114 = 103, plus NL111 (an expression nested past what the toolchain reads), NL413 (a member that
+    // Later additions include NL111 (an expression nested past what the toolchain reads), NL413 (a member that
     // must be called or passed as a delegate), NL414 (a call two overloads match equally well), NL415
     // (a type named bare before `(`, where N# wants `new`), NL328
     // (a field initializer reaching the instance), NL329 (a struct field initializer with no
@@ -192,9 +192,10 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     // reports: an interface the type does not implement, a member the interface does not declare, one
     // slot claimed twice, a modifier word on a member that has no accessibility to state, and a
     // generic interface named without the arguments the implements list writes), NL933 (an attribute
-    // outside its AttributeUsage targets), NL934 (an attribute repeated without AllowMultiple) and
-    // NL935 (an attribute at a position N# has none — a target prefix).
-    assert codes.Count == 117
+    // outside its AttributeUsage targets), NL934 (an attribute repeated without AllowMultiple),
+    // NL935 (an attribute at a position N# has none — a target prefix) and NL353 (an async iterator
+    // with multiple cancellation-token parameters and no unique selection).
+    assert codes.Count == 118
 
     duplicates := 0
     outer := 0
@@ -214,7 +215,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert duplicates == 0
 
     // The builders, counted where they are OBSERVABLE: the linter rows are the ones sourced to the
-    // linter, the rest are the compiler's. 107 + 10 = 117, so nothing is uncounted or double-counted.
+    // linter, the rest are the compiler's. 108 + 10 = 118, so nothing is uncounted or double-counted.
     //
     // The performance and AOT categories are asserted at ZERO, not omitted. A row in either one is
     // a row for a rule this compiler does not produce - that is exactly how NL950-954 and NL960-963
@@ -226,7 +227,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert linterRows == 10
     assert performanceRows == 0
     assert aotRows == 0
-    assert compilerRows == 107
+    assert compilerRows == 108
     assert compilerRows + linterRows == codes.Count
 }
 

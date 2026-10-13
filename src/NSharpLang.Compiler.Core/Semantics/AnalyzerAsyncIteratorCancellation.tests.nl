@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Compiler.Columnar
 
 
 // The cancellation selection rule is source-semantic: it must resolve aliases/imports and the BCL

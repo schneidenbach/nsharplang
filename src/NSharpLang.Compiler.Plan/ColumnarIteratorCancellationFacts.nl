@@ -4,7 +4,7 @@ import System
 import System.Collections.Generic
 import System.Runtime.CompilerServices
 import System.Threading
-import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 
 
 // The iterator's argument/consumer token selection is decided once from the semantic method input and
