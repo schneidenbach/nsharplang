@@ -2398,6 +2398,7 @@ test "iterator planner fault region disposes the enumerator on exception" {
     )
     moveNext := MakeIteratorDynamicMethod("EnumFaultMoveNext", typeof(bool), context.StateMachineType)
     ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    assert context.GeneralMethodBodyStatementCount == 1, "the iterator exception statement must use the method-body statement owner before the enumerator fault cleanup"
 
     machine := new ColumnarIteratorEnumProbe(0)
     machine.xs.Add(1)

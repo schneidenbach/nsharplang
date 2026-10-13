@@ -5386,6 +5386,10 @@ class ColumnarIteratorBodyPlanner {
             return EmitOffStatement(emit, node)
         }
         if kind == ColumnarStatementNodeKind.ThrowStatement {
+            if nodes.ChildCount(node) == 1 && ColumnarMethodBodyPlanner.TryAppendStateMachineBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)) {
+                emit.Context.GeneralMethodBodyStatementCount += 1
+                return false
+            }
             // throw <expression>: the ordinary value owner builds the exception, then `throw`. A bare
             // `throw` (zero children) is the RETHROW — the exception the enclosing catch handler is
             // running for, re-raised with its stack trace intact. Either shape ends its path.

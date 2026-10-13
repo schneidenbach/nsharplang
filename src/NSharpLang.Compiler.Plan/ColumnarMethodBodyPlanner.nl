@@ -768,6 +768,27 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
+    // Throwing an explicit exception expression is an ordinary statement operation. Bare rethrow
+    // remains with the protected-region owner because its validity depends on the active catch frame.
+    static func TryAppendThrowStatement(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
+        if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.ThrowStatement || nodes.ChildCount(statement) != 1 {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        parentFragment := -1
+        if plan.OpenFragmentCount > 0 {
+            parentFragment = plan.OpenFragmentIndices[plan.OpenFragmentCount - 1]
+        }
+        exceptionType := typeof(int)
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(statement, 0), bindings, ColumnarRangeIndexHandles.Resolve(), plan, parentFragment, 0, out exceptionType) || exceptionType == null || exceptionType.IsValueType || !typeof(Exception).IsAssignableFrom(exceptionType) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
+        return true
+    }
+
     // A plain assignment to a live current-instance field is a method-body statement too. In an
     // iterator that field is the generated machine slot for a parameter or a previously declared
     // local; the same binding owner that reads it supplies the exact field handle and receiver type.
@@ -884,7 +905,7 @@ class ColumnarMethodBodyPlanner {
     }
 
     // This state-machine control-flow claim is deliberately small: `if`, `while`, and `for`
-    // statements whose bodies only contain method-body-owned expression statements. Assignments
+    // statements whose bodies only contain method-body-owned statements. Assignments
     // target already-bound machine fields; conditions and values use the ordinary append-mode owners.
     // Rejecting the complete shape before appending keeps declarations, suspension points, and
     // non-loop exits with the iterator walker until their lowering contracts are shared as well.
@@ -926,6 +947,9 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarStatementNodeKind.BreakStatement || kind == ColumnarStatementNodeKind.ContinueStatement {
             return true
         }
+        if kind == ColumnarStatementNodeKind.ThrowStatement {
+            return nodes.ChildCount(node) == 1
+        }
         return kind == ColumnarStatementNodeKind.ExpressionStatement && nodes.ChildCount(node) == 1
     }
 
@@ -939,7 +963,7 @@ class ColumnarMethodBodyPlanner {
 
     private static func StateMachineStatementFallsThrough(nodes: ColumnarNodeTable, node: int): bool {
         kind := nodes.Kind(node)
-        if kind == ColumnarStatementNodeKind.BreakStatement || kind == ColumnarStatementNodeKind.ContinueStatement {
+        if kind == ColumnarStatementNodeKind.BreakStatement || kind == ColumnarStatementNodeKind.ContinueStatement || kind == ColumnarStatementNodeKind.ThrowStatement {
             return false
         }
         if kind == ColumnarStatementNodeKind.BlockStatement {
@@ -1147,6 +1171,9 @@ class ColumnarMethodBodyPlanner {
             plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), continueLabel)
             return true
         }
+        if kind == ColumnarStatementNodeKind.ThrowStatement {
+            return TryAppendThrowStatement(nodes, source, node, bindings, plan)
+        }
         if nodes.ChildCount(node) == 1 {
             inner := nodes.Child(node, 0)
             if nodes.Kind(inner) == ColumnarExpressionNodeKind.AssignmentExpression {
@@ -1195,6 +1222,9 @@ class ColumnarMethodBodyPlanner {
                 return stateMachineBody && TryAppendPostfixStatement(nodes, source, statement, bindings, plan)
             }
             return TryAppendExpressionStatement(nodes, source, statement, bindings, plan)
+        }
+        if kind == ColumnarStatementNodeKind.ThrowStatement {
+            return stateMachineBody && TryAppendThrowStatement(nodes, source, statement, bindings, plan)
         }
         if kind == ColumnarStatementNodeKind.IfStatement && stateMachineBody {
             return TryAppendSimpleStateMachineIf(nodes, source, statement, bindings, plan, new ColumnarMethodBodyLoopTargetStack())
