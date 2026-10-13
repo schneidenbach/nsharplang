@@ -1770,6 +1770,51 @@ test "iterator planner shares a non-suspending try-finally body" {
     assert machine.i == 10, "finally runs before the exception leaves the iterator MoveNext body"
 }
 
+test "iterator planner shares loops inside a protected body" {
+    source := "func* GuardedLoop(): IEnumerable<int> { i: int = 0\n try { while i < 2 { i += 1 } } finally { i += 10 }\n yield i }"
+    probe := new ColumnarIteratorShapeProbe(
+        source,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 3
+
+    machineType := typeof(ColumnarIteratorRunProbe)
+    fields := new FieldInfo[](3)
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        machineType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields,
+        IteratorStructuralTypeReferences()
+    )
+
+    moveNext := MakeIteratorDynamicMethod("ProtectedLoopMoveNext", typeof(bool), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("ProtectedLoopCurrent", typeof(int), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+    assert context.GeneralMethodBodyStatementCount == 2, "the initialized local and complete protected loop use the method-body planner"
+
+    machine := new ColumnarIteratorRunProbe()
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    assert Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    assert Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)) == 12, "the loop completes inside the try before finally updates the machine field"
+    assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+}
+
 test "iterator planner shares a bare catch body" {
     source := "func* Catch(): IEnumerable<int> { i: int = 0\n try { throw new InvalidOperationException(\"boom\") } catch { i += 1 }\n yield i }"
     probe := new ColumnarIteratorShapeProbe(

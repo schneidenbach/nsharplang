@@ -1073,6 +1073,15 @@ class ColumnarMethodBodyPlanner {
             }
             return true
         }
+        if kind == ColumnarStatementNodeKind.WhileStatement {
+            return nodes.ChildCount(node) == 2 && IsSimpleStateMachineRegionStatement(nodes, nodes.Child(node, 1))
+        }
+        if kind == ColumnarStatementNodeKind.ForStatement {
+            return nodes.ChildCount(node) == 4 && IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(node, 0)) && IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(node, 2)) && IsSimpleStateMachineRegionStatement(nodes, nodes.Child(node, 3))
+        }
+        if kind == ColumnarStatementNodeKind.BreakStatement || kind == ColumnarStatementNodeKind.ContinueStatement {
+            return true
+        }
         if kind == ColumnarStatementNodeKind.ThrowStatement {
             return nodes.ChildCount(node) == 1
         }
