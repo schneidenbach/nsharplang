@@ -5583,6 +5583,7 @@ sealed class ColumnarIlEmitter {
                         pinvokeMergedImplementationFlagWord := pinvokeImportForMergeFlags.MergeImplementationFlags(pinvokeCurrentImplementationFlagWord)
                         pinvokeMergedImplementationFlags := (MethodImplAttributes)pinvokeMergedImplementationFlagWord
                         pinvokeMethodForSetFlags.SetImplementationFlags(pinvokeMergedImplementationFlags)
+                        ColumnarIteratorCancellationFacts.EnsureAutomaticEnumeratorCancellationAttribute(m, typeResolution)
                         if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                             return false
                         }
@@ -5610,6 +5611,7 @@ sealed class ColumnarIlEmitter {
                     if (!ColumnarMethodImplAttributes.TryApplyToMethod(smb, m.SourceAttributes, sTypeResolution)) {
                         return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
                     }
+                    ColumnarIteratorCancellationFacts.EnsureAutomaticEnumeratorCancellationAttribute(m, sTypeResolution)
                     if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, sTypeResolution.Enums, m.ParameterSourceAttributes, sTypeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                         return false
                     }
@@ -5727,6 +5729,7 @@ sealed class ColumnarIlEmitter {
                     if (!ColumnarMethodImplAttributes.TryApplyToMethod(declaredGenericInstance, m.SourceAttributes, mTypeResolution)) {
                         return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
                     }
+                    ColumnarIteratorCancellationFacts.EnsureAutomaticEnumeratorCancellationAttribute(m, mTypeResolution)
                     if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(declaredGenericInstance, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, mTypeResolution.Enums, m.ParameterSourceAttributes, mTypeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                         return false
                     }
@@ -5868,6 +5871,7 @@ sealed class ColumnarIlEmitter {
                 if (!ColumnarMethodImplAttributes.TryApplyToMethod(mb, m.SourceAttributes, typeResolution)) {
                     return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
                 }
+                ColumnarIteratorCancellationFacts.EnsureAutomaticEnumeratorCancellationAttribute(m, typeResolution)
                 if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                     return false
                 }
@@ -6817,6 +6821,7 @@ sealed class ColumnarIlEmitter {
             if (!ColumnarMethodImplAttributes.TryApplyToMethod(methods[f], fn.SourceAttributes, typeResolution)) {
                 return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", fn.Name, -1, 0)
             }
+            ColumnarIteratorCancellationFacts.EnsureAutomaticEnumeratorCancellationAttribute(fn, typeResolution)
             if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution, fn.ParamLabeledCanonicals, sourceAttributeQueue)) {
                 return false
             }

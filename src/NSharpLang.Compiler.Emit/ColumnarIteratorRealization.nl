@@ -186,6 +186,11 @@ class ColumnarIteratorRealization {
             shapeFieldCanonicals,
             method.IsAsync
         )
+        ColumnarIteratorPlanner.ApplyCancellationTokenSelection(
+            shape,
+            ColumnarIteratorCancellationFacts.SelectedParameterIndex(method, typeResolution),
+            method.ParamNames
+        )
         if !shape.Supported {
             return Declined(shape.DeclineSite, shape.DeclineMessage, memberLabel)
         }
@@ -722,6 +727,11 @@ class ColumnarIteratorRealization {
                 true
             )
         }
+        ColumnarIteratorPlanner.ApplyCancellationTokenSelection(
+            shape,
+            ColumnarIteratorCancellationFacts.SelectedParameterIndex(fn, typeResolution),
+            fn.ParamNames
+        )
         if !shape.Supported {
             return Declined(shape.DeclineSite, shape.DeclineMessage, declineLabel)
         }
@@ -872,6 +882,8 @@ class ColumnarIteratorRealization {
                 fieldType = typeof(bool)
             } else if role == ColumnarIteratorPlanner.ContinuationFieldRole() {
                 fieldType = typeof(Action)
+            } else if role == ColumnarIteratorPlanner.CombinedCancellationSourceFieldRole() {
+                fieldType = typeof(System.Threading.CancellationTokenSource)
             } else if ColumnarIteratorPlanner.IsUnresolvedCanonical(shape.FieldCanonicals[i]) {
                 // Defined by the body lowering from the initializer's exact CLR type, exactly as the
                 // synchronous machine does.

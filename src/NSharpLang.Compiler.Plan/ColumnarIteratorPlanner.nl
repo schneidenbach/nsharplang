@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 import System.Text
+import System.Threading
 
 
 // Sub-slice 3a: the DECISION layer of iterator state machines (`func*` and `async func*`). This planner
@@ -78,6 +79,11 @@ class ColumnarIteratorShape {
     // async EMISSION slice; the classification here computes element type and resume counts only.
     IsAsync: bool
     AwaitResumeCount: int
+    // The source-method token parameter selected to receive GetAsyncEnumerator's consumer token, or
+    // -1 when this iterator has none. The parameter name joins that source signature position to its
+    // captured machine field without treating arbitrary matching strings as a selection rule.
+    CancellationTokenParameterIndex: int
+    CancellationTokenParameterFieldName: string
     // Protected-region facts, carried from classification to emission (see `ColumnarIteratorWalkState`).
     // `ResumeRegions` is indexed by resume state (1..YieldReturnCount); index 0 is unused.
     TryRegionCount: int
@@ -105,6 +111,8 @@ class ColumnarIteratorShape {
         MemberOverrideRows = memberOverrideRows
         IsAsync = isAsync
         AwaitResumeCount = awaitResumeCount
+        CancellationTokenParameterIndex = -1
+        CancellationTokenParameterFieldName = ""
         TryRegionCount = 0
         TryRegionParents = new int[](0)
         ResumeRegions = new int[](0)
@@ -386,6 +394,14 @@ class ColumnarIteratorPlanner {
         return 10
     }
 
+    static func CombinedCancellationSourceFieldRole(): int {
+        return 11
+    }
+
+    static func CombinedCancellationSourceFieldName(): string {
+        return "<>__combinedTokens"
+    }
+
     static func LoopCaptureBoxFieldName(name: string): string {
         return "<>__loopBox_" + name
     }
@@ -445,6 +461,52 @@ class ColumnarIteratorPlanner {
             return BuildSupportedAsyncShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state, isInstance ? receiverCanonical : "")
         }
         return BuildSupportedShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state, isInstance ? receiverCanonical : "")
+    }
+
+    // Apply the semantic token choice after classification. Keeping this as a separate shape edit
+    // leaves the general iterator classifier independent of CLR attribute and type resolution.
+    static func ApplyCancellationTokenSelection(shape: ColumnarIteratorShape, parameterIndex: int, parameterNames: string[]) {
+        if !shape.Supported || !shape.IsAsync || parameterIndex < 0 || parameterIndex >= parameterNames.Length {
+            return
+        }
+        if shape.CancellationTokenParameterIndex == parameterIndex {
+            return
+        }
+        if shape.CancellationTokenParameterIndex >= 0 {
+            throw new InvalidOperationException("An async iterator shape cannot select two cancellation-token parameters.")
+        }
+
+        insertionIndex := 2
+        while insertionIndex < shape.FieldCount && shape.FieldRoles[insertionIndex] == CapturedParameterFieldRole() {
+            insertionIndex = insertionIndex + 1
+        }
+        nextCount := shape.FieldCount + 1
+        names := new string[](nextCount)
+        canonicals := new string[](nextCount)
+        roles := new int[](nextCount)
+        i := 0
+        while i < nextCount {
+            if i == insertionIndex {
+                names[i] = CombinedCancellationSourceFieldName()
+                canonicals[i] = "System.Threading.CancellationTokenSource"
+                roles[i] = CombinedCancellationSourceFieldRole()
+            } else {
+                previous := i
+                if i > insertionIndex {
+                    previous = i - 1
+                }
+                names[i] = shape.FieldNames[previous]
+                canonicals[i] = shape.FieldCanonicals[previous]
+                roles[i] = shape.FieldRoles[previous]
+            }
+            i = i + 1
+        }
+        shape.FieldCount = nextCount
+        shape.FieldNames = names
+        shape.FieldCanonicals = canonicals
+        shape.FieldRoles = roles
+        shape.CancellationTokenParameterIndex = parameterIndex
+        shape.CancellationTokenParameterFieldName = parameterNames[parameterIndex]
     }
 
     static func BuildSupportedShape(funcName: string, funcOrdinal: int, element: string, paramNames: string[], paramCanonicals: string[], state: ColumnarIteratorWalkState, receiverCanonical: string): ColumnarIteratorShape {
@@ -2615,6 +2677,7 @@ class ColumnarIteratorBodyPlanner {
         // the dispose flag set, so the unwind reaches the end label too — which is exactly why the
         // disposal cannot live only in `DisposeAsync`: that method returns before an unwind that
         // suspended inside a handler has finished.
+        AppendCombinedCancellationSourceDisposal(plan, context, thisArg)
         AppendEnumeratorDisposals(plan, context, thisArg)
         EmitAsyncComplete(emit, 0)
 
@@ -2630,6 +2693,7 @@ class ColumnarIteratorBodyPlanner {
         // does this from a FAULT handler; the async core already has to catch — an exception has to
         // reach the pending call's promise rather than this frame's caller — so the disposal rides
         // the handler it already has.
+        AppendCombinedCancellationSourceDisposal(plan, context, thisArg)
         AppendEnumeratorDisposals(plan, context, thisArg)
         promPool := FieldPool(emit, "<>__promise")
         exViaPromise := plan.DefineLabel()
@@ -2732,6 +2796,7 @@ class ColumnarIteratorBodyPlanner {
         statePool := plan.AddField(context.FieldForName("<>__state"))
         AppendPendingMoveNextGuard(plan, context, thisArg, statePool)
         AppendAsyncDisposeUnwind(plan, context, thisArg, statePool)
+        AppendCombinedCancellationSourceDisposal(plan, context, thisArg)
         AppendEnumeratorDisposals(plan, context, thisArg)
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(ColumnarIteratorPlanner.DoneState()))
@@ -2784,12 +2849,64 @@ class ColumnarIteratorBodyPlanner {
     }
 
     // GetAsyncEnumerator(CancellationToken): clone semantics, exactly the sync GetEnumerator discipline
-    // — every call yields a FRESH machine at the initial state with captured parameters copied. The
-    // token parameter is accepted (the interface signature) and unused: no admitted body reads it yet.
+    // — every call yields a FRESH machine at the initial state with captured parameters copied. When a
+    // source token was selected, preserve the C# EnumeratorCancellation merge rules on that fresh clone.
     static func BuildGetAsyncEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        AppendEnumeratorClone(plan, context)
+        if context.Shape.CancellationTokenParameterIndex < 0 {
+            AppendEnumeratorClone(plan, context, true)
+        } else {
+            smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
+            tokenTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(CancellationTokenRuntimeType()), context.StructuralTypeReferences)
+            consumerTokenArg := plan.AddArgument(1, tokenTypeIdx)
+            cloneLocal := plan.DeclarePlanLocal(smTypeIdx)
+            sourceTokenLocal := plan.DeclarePlanLocal(tokenTypeIdx)
+            consumerTokenLocal := plan.DeclarePlanLocal(tokenTypeIdx)
+            sourceTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(typeof(CancellationTokenSource)), context.StructuralTypeReferences)
+            sourceLocal := plan.DeclarePlanLocal(sourceTypeIdx)
+            AppendEnumeratorClone(plan, context, false)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), cloneLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), cloneLocal)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), plan.AddField(context.FieldForName(context.Shape.CancellationTokenParameterFieldName)))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), sourceTokenLocal)
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), consumerTokenArg)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), consumerTokenLocal)
+            assignConsumerLabel := plan.DefineLabel()
+            keepSourceLabel := plan.DefineLabel()
+            finishedLabel := plan.DefineLabel()
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), sourceTokenLocal)
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(CancellationTokenCanBeCanceledGetter()))
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), assignConsumerLabel)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), consumerTokenLocal)
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(CancellationTokenCanBeCanceledGetter()))
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), keepSourceLabel)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), sourceTokenLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), consumerTokenLocal)
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(CancellationTokenEqualityMethod()))
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), keepSourceLabel)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), sourceTokenLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), consumerTokenLocal)
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(CreateLinkedCancellationSourceMethod()))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), sourceLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), cloneLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), sourceLocal)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(context.FieldForName(ColumnarIteratorPlanner.CombinedCancellationSourceFieldName())))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), cloneLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), sourceLocal)
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(CancellationTokenSourceTokenGetter()))
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(context.FieldForName(context.Shape.CancellationTokenParameterFieldName)))
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), finishedLabel)
+            plan.AppendMarkLabel(assignConsumerLabel)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), cloneLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), consumerTokenLocal)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(context.FieldForName(context.Shape.CancellationTokenParameterFieldName)))
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), finishedLabel)
+            plan.AppendMarkLabel(keepSourceLabel)
+            plan.AppendMarkLabel(finishedLabel)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), cloneLocal)
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        }
         plan.CompleteMethodBody(AsyncEnumeratorInterfaceTypeOf(context.ElementType))
         return plan
     }
@@ -2992,6 +3109,28 @@ class ColumnarIteratorBodyPlanner {
         }
     }
 
+    static func AppendCombinedCancellationSourceDisposal(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int) {
+        if context.Shape.CancellationTokenParameterIndex < 0 {
+            return
+        }
+
+        sourceTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(typeof(CancellationTokenSource)), context.StructuralTypeReferences)
+        sourceLocal := plan.DeclarePlanLocal(sourceTypeIdx)
+        sourceField := plan.AddField(context.FieldForName(ColumnarIteratorPlanner.CombinedCancellationSourceFieldName()))
+        skipLabel := plan.DefineLabel()
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), sourceField)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), sourceLocal)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), sourceLocal)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), skipLabel)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), sourceField)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), sourceLocal)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(CancellationTokenSourceDisposeMethod()))
+        plan.AppendMarkLabel(skipLabel)
+    }
+
     // get_Current(): return the hoisted current field.
     static func BuildGetCurrentPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
@@ -3069,7 +3208,7 @@ class ColumnarIteratorBodyPlanner {
     static func BuildGetEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        AppendEnumeratorClone(plan, context)
+        AppendEnumeratorClone(plan, context, true)
         plan.CompleteMethodBody(EnumeratorInterfaceTypeOf(context.ElementType))
         return plan
     }
@@ -3079,7 +3218,7 @@ class ColumnarIteratorBodyPlanner {
     static func BuildInterfaceGetEnumeratorPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        AppendEnumeratorClone(plan, context)
+        AppendEnumeratorClone(plan, context, true)
         plan.CompleteMethodBody(NonGenericEnumeratorType())
         return plan
     }
@@ -3142,7 +3281,7 @@ class ColumnarIteratorBodyPlanner {
 
     // Shared clone body: new SM(initial) + copy each captured-parameter field from `this` to the clone.
     // The receiver argument enters the pool only when a captured field exists (pools must stay fully used).
-    static func AppendEnumeratorClone(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext) {
+    static func AppendEnumeratorClone(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, appendReturn: bool) {
         ctorPool := AddStateMachineConstructor(plan, context)
         statePool := plan.AddInt32(ColumnarIteratorPlanner.InitialState())
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), statePool)
@@ -3162,7 +3301,9 @@ class ColumnarIteratorBodyPlanner {
                 i = i + 1
             }
         }
-        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        if appendReturn {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        }
     }
 
     static func CapturedFieldCount(context: ColumnarIteratorEmitContext): int {
@@ -6742,6 +6883,61 @@ class ColumnarIteratorBodyPlanner {
 
     static func CancellationTokenRuntimeType(): Type {
         return RequiredRuntimeType("System.Threading.CancellationToken")
+    }
+
+    static func CancellationTokenCanBeCanceledGetter(): MethodInfo {
+        property := typeof(CancellationToken).GetProperty("CanBeCanceled")
+        if property == null {
+            throw new InvalidOperationException("CancellationToken.CanBeCanceled was not found.")
+        }
+        getter := property.GetGetMethod()
+        if getter == null {
+            throw new InvalidOperationException("CancellationToken.CanBeCanceled was not found.")
+        }
+        return getter
+    }
+
+    static func CancellationTokenEqualityMethod(): MethodInfo {
+        parameters := new Type[](2)
+        parameters[0] = typeof(CancellationToken)
+        parameters[1] = typeof(CancellationToken)
+        method := typeof(CancellationToken).GetMethod("op_Equality", parameters)
+        if method == null {
+            throw new InvalidOperationException("CancellationToken.op_Equality was not found.")
+        }
+        return method
+    }
+
+    static func CreateLinkedCancellationSourceMethod(): MethodInfo {
+        parameters := new Type[](2)
+        parameters[0] = typeof(CancellationToken)
+        parameters[1] = typeof(CancellationToken)
+        method := typeof(CancellationTokenSource).GetMethod("CreateLinkedTokenSource", parameters)
+        if method == null {
+            throw new InvalidOperationException("CancellationTokenSource.CreateLinkedTokenSource(CancellationToken, CancellationToken) was not found.")
+        }
+        return method
+    }
+
+    static func CancellationTokenSourceTokenGetter(): MethodInfo {
+        property := typeof(CancellationTokenSource).GetProperty("Token")
+        if property == null {
+            throw new InvalidOperationException("CancellationTokenSource.Token was not found.")
+        }
+        getter := property.GetGetMethod()
+        if getter == null {
+            throw new InvalidOperationException("CancellationTokenSource.Token was not found.")
+        }
+        return getter
+    }
+
+    static func CancellationTokenSourceDisposeMethod(): MethodInfo {
+        parameters := new Type[](0)
+        method := typeof(CancellationTokenSource).GetMethod("Dispose", parameters)
+        if method == null {
+            throw new InvalidOperationException("CancellationTokenSource.Dispose() was not found.")
+        }
+        return method
     }
 
     static func OpenSequenceMethod(definitionName: string, methodName: string): MethodInfo {

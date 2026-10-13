@@ -1133,15 +1133,16 @@ async func* getNumbersAsync(cancellationToken: CancellationToken): IAsyncEnumera
     }
 }
 
-async func printNumbers(consumerToken: CancellationToken) {
-    await foreach num in getNumbersAsync(CancellationToken.None).WithCancellation(consumerToken) {
+async func printNumbers() {
+    await foreach num in getNumbersAsync(CancellationToken.None) {
         print $"Got: {num}"
     }
 }
 ```
 
 When an async iterator has one `CancellationToken` parameter, N# links it automatically with the
-token supplied by `WithCancellation` or `GetAsyncEnumerator(token)`. If the method has multiple token
+token supplied to `GetAsyncEnumerator(token)`. A C# consumer can supply that token with
+`await foreach (... in sequence.WithCancellation(token))`. If the method has multiple token
 parameters, mark exactly one with `[EnumeratorCancellation]` from
 `System.Runtime.CompilerServices`; otherwise [NL353](./errors/NL353.md) explains how to select it.
 The other parameters remain independent. Pass `CancellationToken.None` to work that should ignore

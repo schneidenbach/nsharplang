@@ -1134,6 +1134,15 @@ printf "%s|%s\n" "$native_status" "$(($(date +%s) - native_start))" > "$results_
         rm -rf "$NATIVE_RESULTS_DIR"
     fi
 
+    echo
+    echo "Running the C# async-iterator cancellation interop consumer..."
+    if bash "$REPO_ROOT/tests/scripts/test-async-iterator-cancellation-interop.sh" "$CLI_DLL"; then
+        handle_success "C# async-iterator cancellation interop"
+    else
+        handle_error "C# async-iterator cancellation interop"
+        NATIVE_STEP_OK=0
+    fi
+
     # Only a feed this step packed itself: a supplied one belongs to the caller.
     if [ -n "${NATIVE_SDK_FEED:-}" ]; then
         rm -rf "$NATIVE_SDK_FEED"
