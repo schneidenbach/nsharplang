@@ -481,6 +481,24 @@ test "the check envelope root keys are exactly schemaVersion, command, projectRo
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,projectRoot,checkedFiles,ok,results,summary"
 }
 
+test "check diagnostic strings round trip JSON quotes, escapes, controls, Unicode, and encoder-blocked characters" {
+    message := "quote: \" slash: \\ backspace: \b formfeed: \f tab: \t newline: \n lambda: λ blocked: `Box` & < > + '"
+    diagnostics := new List<DiagnosticResult>()
+    diagnostics.Add(OfjkPlainDiagnostic("NL301", "error", message, "Program.nl", 1, 1, 1))
+
+    json := OutputFormatterJsonKernels.CheckToJson(diagnostics, null, 1)
+    document := JsonDocument.Parse(json)
+    serializedMessage := document.RootElement.GetProperty("results")[0].GetProperty("message").GetString()
+
+    assert serializedMessage == message
+    assert json.Contains("\\u0060Box\\u0060")
+    assert json.Contains("\\u0026")
+    assert json.Contains("\\u003C")
+    assert json.Contains("\\u003E")
+    assert json.Contains("\\u002B")
+    assert json.Contains("\\u0027")
+}
+
 test "the workspace check envelope groups member diagnostics under schema version two" {
     diagnostics := OfjkCheckDiagnosticsFixture()
     member := new CheckWorkspaceProjectResult(

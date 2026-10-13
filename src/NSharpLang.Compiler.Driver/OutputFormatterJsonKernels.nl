@@ -1,6 +1,8 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
+import System
 import System.Collections.Generic
+import System.Text
 import System.Text.Json
 import NSharpLang.Cli
 import NSharpLang.Compiler.Performance
@@ -476,20 +478,124 @@ class OutputFormatterJsonKernels {
 
     static func CheckToJson(results: List<DiagnosticResult>, projectRoot: string?, checkedFiles: int): string {
         summary := OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results)
-        envelope := new Dictionary<string, object>()
-        envelope["schemaVersion"] = 1
-        envelope["command"] = "check"
-
+        builder := new StringBuilder()
+        builder.Append("{\n  \"schemaVersion\": 1,\n  \"command\": \"check\"")
         normalizedProjectRoot := OutputFormatterNormalizationKernels.NormalizePath(projectRoot)
         if normalizedProjectRoot != null {
-            envelope["projectRoot"] = normalizedProjectRoot ?? ""
+            builder.Append(",\n  \"projectRoot\": ")
+            AppendJsonString(builder, normalizedProjectRoot ?? "")
+        }
+        builder.Append(",\n  \"checkedFiles\": ")
+        builder.Append(checkedFiles)
+        builder.Append(",\n  \"ok\": ")
+        okValue := "false"
+        if summary.Errors == 0 {
+            okValue = "true"
+        }
+        builder.Append(okValue)
+        builder.Append(",\n  \"results\": [")
+        index := 0
+        for result in results {
+            if index > 0 {
+                builder.Append(",")
+            }
+
+            builder.Append("\n    {")
+            AppendDiagnosticJson(builder, result)
+            builder.Append("\n    }")
+            index = index + 1
+        }
+        if results.Count > 0 {
+            builder.Append("\n  ")
+        }
+        builder.Append("],\n  \"summary\": {\n    \"errors\": ")
+        builder.Append(summary.Errors)
+        builder.Append(",\n    \"warnings\": ")
+        builder.Append(summary.Warnings)
+        builder.Append(",\n    \"info\": ")
+        builder.Append(summary.Info)
+        builder.Append("\n  }\n}")
+        return builder.ToString()
+    }
+
+    private static func AppendDiagnosticJson(builder: StringBuilder, result: DiagnosticResult) {
+        AppendJsonStringProperty(builder, "code", result.Code, true)
+        AppendJsonStringProperty(builder, "severity", result.Severity, true)
+        AppendJsonStringProperty(builder, "message", result.Message, true)
+        AppendJsonStringProperty(builder, "file", result.File, true)
+        AppendJsonNumberProperty(builder, "line", result.Line, true)
+        AppendJsonNumberProperty(builder, "column", result.Column, true)
+        AppendJsonNumberProperty(builder, "length", result.Length, result.SourceSnippet != null || result.Explanation != null || result.Suggestion != null || result.Hint != null || result.ExpectedType != null || result.ActualType != null || result.DocsUrl != null)
+        if result.SourceSnippet != null {
+            AppendJsonStringProperty(builder, "sourceSnippet", result.SourceSnippet ?? "", result.Explanation != null || result.Suggestion != null || result.Hint != null || result.ExpectedType != null || result.ActualType != null || result.DocsUrl != null)
+        }
+        if result.Explanation != null {
+            AppendJsonStringProperty(builder, "explanation", result.Explanation ?? "", result.Suggestion != null || result.Hint != null || result.ExpectedType != null || result.ActualType != null || result.DocsUrl != null)
+        }
+        if result.Suggestion != null {
+            AppendJsonStringProperty(builder, "suggestion", result.Suggestion ?? "", result.Hint != null || result.ExpectedType != null || result.ActualType != null || result.DocsUrl != null)
+        }
+        if result.Hint != null {
+            AppendJsonStringProperty(builder, "hint", result.Hint ?? "", result.ExpectedType != null || result.ActualType != null || result.DocsUrl != null)
+        }
+        if result.ExpectedType != null {
+            AppendJsonStringProperty(builder, "expectedType", result.ExpectedType ?? "", result.ActualType != null || result.DocsUrl != null)
+        }
+        if result.ActualType != null {
+            AppendJsonStringProperty(builder, "actualType", result.ActualType ?? "", result.DocsUrl != null)
+        }
+        if result.DocsUrl != null {
+            AppendJsonStringProperty(builder, "docsUrl", result.DocsUrl ?? "", false)
+        }
+    }
+
+    private static func AppendJsonStringProperty(builder: StringBuilder, name: string, value: string, trailingComma: bool) {
+        builder.Append("\n      ")
+        AppendJsonString(builder, name)
+        builder.Append(": ")
+        AppendJsonString(builder, value)
+        if trailingComma {
+            builder.Append(",")
+        }
+    }
+
+    private static func AppendJsonNumberProperty(builder: StringBuilder, name: string, value: int, trailingComma: bool) {
+        builder.Append("\n      ")
+        AppendJsonString(builder, name)
+        builder.Append(": ")
+        builder.Append(value)
+        if trailingComma {
+            builder.Append(",")
+        }
+    }
+
+    private static func AppendJsonString(builder: StringBuilder, value: string) {
+        builder.Append('"')
+        for character in value {
+            code := Convert.ToInt32(character)
+            if character == '"' {
+                builder.Append("\\\"")
+            } else if character == '\\' {
+                builder.Append("\\\\")
+            } else if character == '\b' {
+                builder.Append("\\b")
+            } else if character == '\f' {
+                builder.Append("\\f")
+            } else if character == '\n' {
+                builder.Append("\\n")
+            } else if character == '\r' {
+                builder.Append("\\r")
+            } else if character == '\t' {
+                builder.Append("\\t")
+            } else if code < 32 || code > 126 || character == '\'' || character == '&' || character == '+' || character == '<' || character == '>' || character == '`' {
+                builder.Append("\\u")
+                builder.Append(code.ToString("X4"))
+            } else {
+                builder.Append(character.ToString())
+            }
         }
 
-        envelope["checkedFiles"] = checkedFiles
-        envelope["ok"] = summary.Errors == 0
-        envelope["results"] = BuildDiagnosticResults(results)
-        envelope["summary"] = BuildDiagnosticSummary(summary)
-        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+        builder.Append('"')
     }
 
     // Workspace checks have a different, versioned shape: each program owns its diagnostic group,
