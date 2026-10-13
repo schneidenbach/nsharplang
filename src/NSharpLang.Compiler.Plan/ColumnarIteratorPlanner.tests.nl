@@ -460,6 +460,13 @@ class ColumnarIteratorRunProbe {
     }
 }
 
+class ColumnarIteratorCatchRunProbe {
+    public state: int
+    public current: int
+    public i: int
+    public caught: Exception?
+}
+
 class ColumnarIteratorTupleProbe {
     public state: int
     public current: int
@@ -2017,6 +2024,53 @@ test "iterator planner shares an unbound catch filter and finally" {
     }
     assert filterRejected, "a false first-pass filter leaves the original exception unhandled"
     assert machine.i == 10, "finally runs when a filtered catch rejects the exception"
+}
+
+test "iterator planner shares a bound catch filter" {
+    source := "func* CatchBound(): IEnumerable<int> { i: int = 0\n try { throw new InvalidOperationException(\"boom\") } catch caught: Exception when caught.Message == \"boom\" { if caught.Message == \"boom\" { i += 1 } }\n yield i }"
+    probe := new ColumnarIteratorShapeProbe(
+        source,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 4
+
+    machineType := typeof(ColumnarIteratorCatchRunProbe)
+    fields := new FieldInfo[](4)
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "caught")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        machineType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields,
+        IteratorStructuralTypeReferences()
+    )
+
+    moveNext := MakeIteratorDynamicMethod("BoundCatchFilterMoveNext", typeof(bool), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("BoundCatchFilterCurrent", typeof(int), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+    assert context.GeneralMethodBodyStatementCount == 2, "the initialized local and bound filtered catch use the method-body planner"
+
+    machine := new ColumnarIteratorCatchRunProbe()
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    assert Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    assert Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)) == 1
+    assert machine.caught != null && machine.caught.Message == "boom", "the filter binding is stored on the exact machine field before filter evaluation"
+    assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
 }
 
 // A run-probe machine with the `.ctor(int)` shape the clone and factory plans construct through.

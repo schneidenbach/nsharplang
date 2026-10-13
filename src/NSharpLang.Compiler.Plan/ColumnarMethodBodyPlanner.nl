@@ -1092,7 +1092,7 @@ class ColumnarMethodBodyPlanner {
         catchIndex := 0
         while catchIndex < catchCount {
             catchClause := nodes.Child(node, catchIndex + 1)
-            if nodes.Kind(catchClause) != ColumnarStatementNodeKind.CatchClause || ColumnarCatchClauseFacts.BindingNode(nodes, catchClause) >= 0 || !IsSimpleStateMachineRegionStatement(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)) {
+            if nodes.Kind(catchClause) != ColumnarStatementNodeKind.CatchClause || !IsSimpleStateMachineRegionStatement(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)) {
                 return false
             }
             catchIndex += 1
@@ -1143,6 +1143,39 @@ class ColumnarMethodBodyPlanner {
         return kind == ColumnarStatementNodeKind.ExpressionStatement && nodes.ChildCount(node) == 1
     }
 
+    private static func TryResolveStateMachineCatchBindingField(nodes: ColumnarNodeTable, source: string, clause: int, bindings: ColumnarFragmentBindings, catchType: Type, out bindingField: FieldInfo?): bool {
+        bindingField = null
+        bindingNode := ColumnarCatchClauseFacts.BindingNode(nodes, clause)
+        if bindingNode < 0 {
+            return true
+        }
+
+        name := nodes.Text(source, bindingNode)
+        if name.Length == 0 || bindings.CurrentInstance == null || bindings.ReceiverMembers.ContainsKey(name) || bindings.CapturedInstanceFields.ContainsKey(name) || bindings.BoxedCaptures.ContainsKey(name) || bindings.LiftedLocals.ContainsKey(name) || bindings.Locals.ContainsKey(name) || bindings.PlanLocals.ContainsKey(name) || bindings.ParameterOrdinals.ContainsKey(name) {
+            return false
+        }
+
+        selectedField: FieldInfo? = null
+        declaringType := typeof(object)
+        if !ColumnarCurrentInstanceFacts.TryFindField(bindings.CurrentInstance, name, out selectedField, out declaringType) || selectedField == null || selectedField.IsStatic || selectedField.DeclaringType != declaringType || selectedField.FieldType != catchType {
+            return false
+        }
+        bindingField = selectedField
+        return true
+    }
+
+    private static func AppendStateMachineCatchBindingStore(bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, bindingField: FieldInfo) {
+        if bindings.CurrentInstance == null || bindingField == null {
+            throw new InvalidOperationException("A state-machine catch binding requires its exact machine field.")
+        }
+        valueLocal := plan.DeclarePlanLocal(plan.AddType(bindingField.FieldType))
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueLocal)
+        machineArgument := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, bindings.CurrentInstance.ExactType, false)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), machineArgument)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), valueLocal)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(bindingField))
+    }
+
     private static func TryAppendSimpleStateMachineTry(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, regionCursor: ColumnarMethodBodyRegionEntryCursor, out fallsThrough: bool): bool {
         fallsThrough = true
         if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.TryStatement || nodes.ChildCount(statement) < 2 || nodes.Kind(nodes.Child(statement, 0)) != ColumnarStatementNodeKind.BlockStatement || !IsSimpleStateMachineRegionStatement(nodes, nodes.Child(statement, 0)) {
@@ -1162,7 +1195,8 @@ class ColumnarMethodBodyPlanner {
         while catchIndex < catchCount {
             catchClause := nodes.Child(statement, catchIndex + 1)
             catchType := typeof(object)
-            if nodes.Kind(catchClause) != ColumnarStatementNodeKind.CatchClause || ColumnarCatchClauseFacts.BindingNode(nodes, catchClause) >= 0 || !ColumnarCanonicalTypeResolver.TryResolveCatchType(nodes, source, catchClause, out catchType) || !IsSimpleStateMachineRegionStatement(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)) {
+            catchBindingField: FieldInfo? = null
+            if nodes.Kind(catchClause) != ColumnarStatementNodeKind.CatchClause || !ColumnarCanonicalTypeResolver.TryResolveCatchType(nodes, source, catchClause, out catchType) || !TryResolveStateMachineCatchBindingField(nodes, source, catchClause, bindings, catchType, out catchBindingField) || !IsSimpleStateMachineRegionStatement(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)) {
                 return false
             }
             catchIndex += 1
@@ -1201,6 +1235,11 @@ class ColumnarMethodBodyPlanner {
                 plan.Rollback(checkpoint)
                 return false
             }
+            catchBindingField: FieldInfo? = null
+            if !TryResolveStateMachineCatchBindingField(nodes, source, catchClause, bindings, catchType, out catchBindingField) {
+                plan.Rollback(checkpoint)
+                return false
+            }
             catchFilter := ColumnarCatchClauseFacts.FilterGuard(nodes, catchClause)
             exceptionTypePool := plan.AddType(catchType)
             if catchFilter >= 0 {
@@ -1214,7 +1253,11 @@ class ColumnarMethodBodyPlanner {
                 plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
                 plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), filterResultLabel)
                 plan.AppendMarkLabel(matchedLabel)
-                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+                if catchBindingField != null {
+                    AppendStateMachineCatchBindingStore(bindings, plan, catchBindingField)
+                } else {
+                    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+                }
                 filterType := typeof(int)
                 if !TryAppendValue(nodes, source, catchFilter, bindings, plan, out filterType) || filterType != typeof(bool) {
                     plan.Rollback(checkpoint)
@@ -1222,10 +1265,15 @@ class ColumnarMethodBodyPlanner {
                 }
                 plan.AppendMarkLabel(filterResultLabel)
                 plan.AppendBeginFilteredCatchBlock()
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
             } else {
                 plan.AppendBeginCatchBlock(exceptionTypePool)
+                if catchBindingField != null {
+                    AppendStateMachineCatchBindingStore(bindings, plan, catchBindingField)
+                } else {
+                    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+                }
             }
-            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
             catchBody := ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)
             catchBodyFallsThrough := StateMachineStatementFallsThrough(nodes, catchBody)
             if !TryAppendSimpleStateMachineBodyStatement(nodes, source, catchBody, bindings, plan, new ColumnarMethodBodyLoopTargetStack(), regionCursor) {
