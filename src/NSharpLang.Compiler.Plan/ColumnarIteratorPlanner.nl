@@ -5231,6 +5231,10 @@ class ColumnarIteratorBodyPlanner {
                 return !emit.Context.Declined
             }
             if nodes.Kind(inner) == ColumnarExpressionNodeKind.AssignmentExpression {
+                if ColumnarMethodBodyPlanner.TryAppendStateMachineBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)) {
+                    emit.Context.GeneralMethodBodyStatementCount += 1
+                    return true
+                }
                 return EmitAssignment(emit, inner)
             }
             if !ColumnarMethodBodyPlanner.TryAppendMethodBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)) {

@@ -1634,7 +1634,7 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
     getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
-    assert context.GeneralMethodBodyStatementCount == 1, "the annotated initializer must be appended by the shared method-body statement planner"
+    assert context.GeneralMethodBodyStatementCount == 2, "the annotated initializer and assignment to its hoisted field must be appended by the shared method-body statement planner"
 
     moveNext := MakeIteratorDynamicMethod("MoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())

@@ -723,9 +723,67 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
+    // A plain assignment to a live current-instance field is a method-body statement too. In an
+    // iterator that field is the generated machine slot for a parameter or a previously declared
+    // local; the same binding owner that reads it supplies the exact field handle and receiver type.
+    // This entry is enabled only for a rewritten state-machine body: the ordinary method body's
+    // narrower whole-body claim has separate scratch-plan rules for source locals and member writes.
+    static func TryAppendAssignmentStatement(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
+        if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(statement) != 1 {
+            return false
+        }
+
+        assignment := nodes.Child(statement, 0)
+        if nodes.Kind(assignment) != ColumnarExpressionNodeKind.AssignmentExpression || nodes.ChildCount(assignment) != 2 {
+            return false
+        }
+
+        operatorText := nodes.Text(source, assignment)
+        if operatorText.Length != 0 && operatorText != "=" {
+            return false
+        }
+
+        target := nodes.Child(assignment, 0)
+        if nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression {
+            return false
+        }
+
+        selection := ColumnarBoundIdentifierPlanner.EmptySelection()
+        if !ColumnarBoundIdentifierPlanner.TryResolve(nodes, source, target, bindings, out selection) || selection.Kind != ColumnarBoundIdentifierKind.CurrentField || selection.FirstField == null || selection.DeclaringType == null || selection.CurrentInstanceIsAddress || selection.ResultType == null || selection.FirstField.IsInitOnly || selection.FirstField.IsLiteral {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        machineType := selection.CurrentInstanceType
+        if machineType == null || bindings.CurrentInstance == null || machineType != bindings.CurrentInstance.ExactType {
+            return false
+        }
+        machineArgument := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, machineType, false)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), machineArgument)
+        declineReason := ""
+        if !ColumnarStoreTargetPlanner.TryAppendStoredValue(nodes, source, nodes.Child(assignment, 1), bindings, plan, selection.ResultType, out declineReason) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        fieldIndex := plan.AddFieldWithSignature(selection.FirstField, selection.DeclaringType, selection.ResultType, false)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldIndex)
+        return true
+    }
+
     // Ordinary source statements that need no state-machine suspension semantics. Yield and await
     // are deliberately absent: the state-machine lowerer rewrites those before asking this owner.
     static func TryAppendMethodBodyStatement(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, machineFields: Dictionary<string, ColumnarMethodBodyFieldLocalBinding>): bool {
+        return TryAppendMethodBodyStatementCore(nodes, source, statement, bindings, plan, machineFields, false)
+    }
+
+    // Iterator MoveNext planning uses the same method-body statement owners with a distinct binding
+    // contract: plain identifier writes can target exact fields on the generated machine.
+    static func TryAppendStateMachineBodyStatement(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, machineFields: Dictionary<string, ColumnarMethodBodyFieldLocalBinding>): bool {
+        return TryAppendMethodBodyStatementCore(nodes, source, statement, bindings, plan, machineFields, true)
+    }
+
+    private static func TryAppendMethodBodyStatementCore(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, machineFields: Dictionary<string, ColumnarMethodBodyFieldLocalBinding>, stateMachineBody: bool): bool {
         if nodes == null || source == null || bindings == null || plan == null || machineFields == null || statement < 0 || statement >= nodes.Kinds.Length {
             return false
         }
@@ -742,6 +800,9 @@ class ColumnarMethodBodyPlanner {
             return TryAnalyzeTupleDeclaration(nodes, source, statement, bindings, out shape) && shape != null && TryAppendTupleDeclaration(nodes, source, statement, bindings, plan, shape, machineFields)
         }
         if kind == ColumnarStatementNodeKind.ExpressionStatement {
+            if nodes.ChildCount(statement) == 1 && nodes.Kind(nodes.Child(statement, 0)) == ColumnarExpressionNodeKind.AssignmentExpression {
+                return stateMachineBody && TryAppendAssignmentStatement(nodes, source, statement, bindings, plan)
+            }
             return TryAppendExpressionStatement(nodes, source, statement, bindings, plan)
         }
         return false
