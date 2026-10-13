@@ -784,7 +784,8 @@ class ColumnarMethodBodyPlanner {
         }
 
         operatorText := nodes.Text(source, assignment)
-        if operatorText.Length != 0 && operatorText != "=" {
+        compoundOperator := operatorText.Length != 0 && operatorText != "="
+        if compoundOperator && (operatorText.Length != 2 || operatorText[1] != '=') {
             return false
         }
 
@@ -806,9 +807,22 @@ class ColumnarMethodBodyPlanner {
         machineArgument := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, machineType, false)
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), machineArgument)
         declineReason := ""
+        if compoundOperator {
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), machineArgument)
+            fieldPool := plan.AddFieldWithSignature(selection.FirstField, selection.DeclaringType, selection.ResultType, false)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
+        }
         if !ColumnarStoreTargetPlanner.TryAppendStoredValue(nodes, source, nodes.Child(assignment, 1), bindings, plan, selection.ResultType, out declineReason) {
             plan.Rollback(checkpoint)
             return false
+        }
+
+        if compoundOperator {
+            resultType := typeof(int)
+            if !ColumnarPrimitiveBinaryPlanner.TryAppendArithmeticOperator(operatorText.Substring(0, 1), selection.ResultType, bindings, plan, out resultType) || resultType != selection.ResultType {
+                plan.Rollback(checkpoint)
+                return false
+            }
         }
 
         fieldIndex := plan.AddFieldWithSignature(selection.FirstField, selection.DeclaringType, selection.ResultType, false)
