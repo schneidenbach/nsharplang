@@ -648,6 +648,58 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
+    // A source-typed local already has an exact declaration type and generated storage. When the
+    // caller supplies that storage as a method-body binding, keep initializer conversion and the
+    // write (including a captured StrongBox allocation) on this same statement path as inferred
+    // locals. An uninitialized declaration has no value operation; its state-machine owner retains
+    // responsibility for creating a captured box when one is required.
+    static func TryAppendTypedLocalDeclarationWithMachineFields(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, machineFields: Dictionary<string, ColumnarMethodBodyFieldLocalBinding>): bool {
+        if nodes == null || source == null || bindings == null || plan == null || machineFields == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.TypedLocalDeclaration || nodes.ChildCount(statement) != 2 {
+            return false
+        }
+
+        name := nodes.Text(source, nodes.Child(statement, 0))
+        machineBinding: ColumnarMethodBodyFieldLocalBinding? = null
+        if name.Length == 0 || !machineFields.TryGetValue(name, out machineBinding) || machineBinding == null || machineBinding.StorageField == null || machineBinding.ValueType == null || bindings.CurrentInstance == null {
+            return false
+        }
+
+        storageFieldType := machineBinding.StorageField.FieldType
+        strongBoxDefinition := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
+        capturedStorageValid := !machineBinding.IsCaptured
+        if machineBinding.IsCaptured && storageFieldType != null && storageFieldType.IsGenericType {
+            capturedStorageValid = storageFieldType.GetGenericTypeDefinition() == strongBoxDefinition && storageFieldType.GetGenericArguments().Length == 1 && storageFieldType.GetGenericArguments()[0] == machineBinding.ValueType
+        }
+        if storageFieldType == null || (!machineBinding.IsCaptured && storageFieldType != machineBinding.ValueType) || !capturedStorageValid {
+            return false
+        }
+
+        parentFragment := -1
+        if plan.OpenFragmentCount > 0 {
+            parentFragment = plan.OpenFragmentIndices[plan.OpenFragmentCount - 1]
+        }
+        valueNode := nodes.Child(statement, 1)
+        if !ColumnarConstructionPlanner.TryAppendTargetTypedValue(nodes, source, valueNode, bindings, ColumnarRangeIndexHandles.Resolve(), plan, parentFragment, 0, machineBinding.ValueType) {
+            return false
+        }
+
+        valueLocal := plan.DeclarePlanLocal(plan.AddType(bindings.StructuralTypeReferences.SelectRuntimeType(machineBinding.ValueType), bindings.StructuralTypeReferences))
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueLocal)
+        machineType := bindings.CurrentInstance.ExactType
+        machineArgument := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, machineType, false)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), machineArgument)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), valueLocal)
+        if machineBinding.IsCaptured {
+            parameters := new Type[](1)
+            parameters[0] = machineBinding.ValueType
+            constructor := ColumnarClosureBindingPlanner.StrongBoxConstructor(machineBinding.ValueType)
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructorWithSignature(constructor, storageFieldType, parameters))
+        }
+        fieldPool := plan.AddFieldWithSignature(machineBinding.StorageField, machineType, storageFieldType, false)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+        return true
+    }
+
     // A source expression statement whose value is discarded. It enters through the same append-mode
     // value cascade as ordinary expression operands, then contributes only the required pop for a
     // non-void result.
@@ -679,6 +731,9 @@ class ColumnarMethodBodyPlanner {
         }
 
         kind := nodes.Kind(statement)
+        if kind == ColumnarStatementNodeKind.TypedLocalDeclaration {
+            return TryAppendTypedLocalDeclarationWithMachineFields(nodes, source, statement, bindings, plan, machineFields)
+        }
         if kind == ColumnarStatementNodeKind.VariableDeclarationStatement {
             return TryAppendLocalDeclarationWithMachineFields(nodes, source, statement, bindings, plan, machineFields)
         }

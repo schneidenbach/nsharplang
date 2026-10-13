@@ -5102,11 +5102,33 @@ class ColumnarIteratorBodyPlanner {
             typedName := nodes.Text(source, nodes.Child(node, 0))
             if nodes.ChildCount(node) >= 2 {
                 fieldType := emit.Context.FieldForName(typedName).FieldType
-                if emit.Context.IsLoopCaptured(typedName) {
-                    if !AppendFreshLoopCaptureBox(emit, typedName, nodes.Child(node, 1), fieldType, true) {
+                isCaptured := emit.Context.IsLoopCaptured(typedName)
+                initializer := nodes.Child(node, 1)
+                if !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(nodes.Kind(initializer)) {
+                    storageField := emit.Context.FieldForName(typedName)
+                    if isCaptured {
+                        boxField: FieldInfo? = null
+                        if !emit.Context.TryEnsureLoopCaptureBoxUnpublished(typedName, fieldType, out boxField) || boxField == null {
+                            emit.Context.Decline("emit.iterator.lambda-unsupported", "the per-iteration storage for '" + typedName + "' could not be defined")
+                            return false
+                        }
+                        storageField = boxField
+                    }
+                    machineFields := new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)
+                    machineFields[typedName] = new ColumnarMethodBodyFieldLocalBinding(storageField, fieldType, isCaptured)
+                    if !ColumnarMethodBodyPlanner.TryAppendMethodBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, machineFields) {
+                        emit.Context.Decline("emit.iterator.unsupported-shape", "the initialized declaration of typed local '" + typedName + "' could not be lowered by the ordinary method-body planner")
                         return false
                     }
-                } else if !AppendBoundFieldStore(emit, nodes.Child(node, 1), FieldPool(emit, typedName), fieldType) {
+                    emit.Context.GeneralMethodBodyStatementCount += 1
+                    if isCaptured {
+                        scope.PublishBoxedCapture(typedName, storageField, fieldType)
+                    }
+                } else if isCaptured {
+                    if !AppendFreshLoopCaptureBox(emit, typedName, initializer, fieldType, true) {
+                        return false
+                    }
+                } else if !AppendBoundFieldStore(emit, initializer, FieldPool(emit, typedName), fieldType) {
                     return false
                 }
             } else if emit.Context.IsLoopCaptured(typedName) && !AppendFreshLoopCaptureBox(emit, typedName, 0, emit.Context.FieldForName(typedName).FieldType, false) {
@@ -5163,21 +5185,29 @@ class ColumnarIteratorBodyPlanner {
             }
             isCaptured := emit.Context.IsLoopCaptured(name)
             storageField := must hoisted
-            if isCaptured {
-                boxField: FieldInfo? = null
-                if !emit.Context.TryEnsureLoopCaptureBoxUnpublished(name, initializerType, out boxField) || boxField == null {
-                    emit.Context.Decline("emit.iterator.lambda-unsupported", "the per-iteration storage for '" + name + "' could not be defined")
+            if !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(nodes.Kind(nodes.Child(node, 0))) {
+                if isCaptured {
+                    boxField: FieldInfo? = null
+                    if !emit.Context.TryEnsureLoopCaptureBoxUnpublished(name, initializerType, out boxField) || boxField == null {
+                        emit.Context.Decline("emit.iterator.lambda-unsupported", "the per-iteration storage for '" + name + "' could not be defined")
+                        return false
+                    }
+                    storageField = boxField
+                }
+                machineFields := new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)
+                machineFields[name] = new ColumnarMethodBodyFieldLocalBinding(storageField, initializerType, isCaptured)
+                if !ColumnarMethodBodyPlanner.TryAppendMethodBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, machineFields) {
+                    emit.Context.Decline("emit.iterator.unsupported-shape", "the declaration of local '" + name + "' could not be lowered by the ordinary method-body planner")
                     return false
                 }
-                storageField = boxField
-            }
-            machineFields := new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)
-            machineFields[name] = new ColumnarMethodBodyFieldLocalBinding(storageField, initializerType, isCaptured)
-            if !ColumnarMethodBodyPlanner.TryAppendMethodBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, machineFields) {
-                emit.Context.Decline("emit.iterator.unsupported-shape", "the declaration of local '" + name + "' could not be lowered by the ordinary method-body planner")
+                emit.Context.GeneralMethodBodyStatementCount += 1
+            } else if isCaptured {
+                if !AppendFreshLoopCaptureBox(emit, name, nodes.Child(node, 0), initializerType, true) {
+                    return false
+                }
+            } else if !AppendBoundFieldStore(emit, nodes.Child(node, 0), FieldPool(emit, name), initializerType) {
                 return false
             }
-            emit.Context.GeneralMethodBodyStatementCount += 1
             scope.PublishField(name, hoisted)
             if isCaptured {
                 scope.PublishBoxedCapture(name, storageField, initializerType)
