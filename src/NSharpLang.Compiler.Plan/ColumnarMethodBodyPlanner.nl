@@ -35,6 +35,34 @@ import NSharpLang.Compiler
 //      `Execute`s it into the `ILGenerator` on the spot, so it can never contribute rows to an open
 //      body. The door is that path's append-mode counterpart, and it prepares, seals and executes
 //      nothing.
+class ColumnarMethodBodyTupleDeclarationShape {
+    TupleType: Type
+    ValueNode: int
+    TargetNames: string[]
+    ElementFields: FieldInfo[]
+
+    constructor(tupleType: Type, valueNode: int, targetNames: string[], elementFields: FieldInfo[]) {
+        TupleType = tupleType
+        ValueNode = valueNode
+        TargetNames = targetNames
+        ElementFields = elementFields
+    }
+}
+
+// A method-body local whose selected storage is a generated receiver field. Captured loop locals
+// store a fresh StrongBox<T> in StorageField; ordinary hoisted locals store T directly.
+class ColumnarMethodBodyFieldLocalBinding {
+    StorageField: FieldInfo
+    ValueType: Type
+    IsCaptured: bool
+
+    constructor(storageField: FieldInfo, valueType: Type, isCaptured: bool) {
+        StorageField = storageField
+        ValueType = valueType
+        IsCaptured = isCaptured
+    }
+}
+
 class ColumnarMethodBodyPlanner {
 
     // Whether this statement always exits via a return — the same columnar subset as the diagnostics
@@ -493,7 +521,14 @@ class ColumnarMethodBodyPlanner {
         plan.PrepareMethodBody()
         i := 0
         while i < statementCount - 1 {
-            if !TryAppendLocalDeclaration(nodes, source, nodes.Child(bodyRoot, i), bindings, plan) {
+            statementNode := nodes.Child(bodyRoot, i)
+            if nodes.Kind(statementNode) == ColumnarStatementNodeKind.TupleDeconstructionStatement {
+                shape: ColumnarMethodBodyTupleDeclarationShape? = null
+                emptyMachineFields := new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)
+                if !TryAnalyzeTupleDeclaration(nodes, source, statementNode, bindings, out shape) || shape == null || !TryAppendTupleDeclaration(nodes, source, statementNode, bindings, plan, shape, emptyMachineFields) {
+                    return false
+                }
+            } else if !TryAppendLocalDeclaration(nodes, source, statementNode, bindings, plan) {
                 return false
             }
 
@@ -586,6 +621,217 @@ class ColumnarMethodBodyPlanner {
         }
 
         return ColumnarTypeOfPlanner.IsSupportedType(valueType)
+    }
+
+    // Analyze one `:=` tuple declaration using the same append-mode value door the eventual method
+    // body uses. The scratch plan is discarded after type discovery; runtime evaluation appears once,
+    // in `TryAppendTupleDeclaration` below.
+    static func TryAnalyzeTupleDeclaration(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, out shape: ColumnarMethodBodyTupleDeclarationShape?): bool {
+        shape = null
+        if nodes == null || source == null || bindings == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.TupleDeconstructionStatement || nodes.Text(source, statement) != ":=" || nodes.ChildCount(statement) < 3 {
+            return false
+        }
+
+        targetCount := nodes.ChildCount(statement) - 1
+        targetNames := new string[](targetCount)
+        i := 0
+        while i < targetCount {
+            target := nodes.Child(statement, i)
+            if nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression {
+                return false
+            }
+            targetNames[i] = nodes.Text(source, target)
+            if targetNames[i].Length == 0 {
+                return false
+            }
+            i += 1
+        }
+
+        valueNode := nodes.Child(statement, targetCount)
+        scratch := new ColumnarCodePlan()
+        scratch.PrepareMethodBody()
+        tupleType := typeof(int)
+        if !TryAppendValue(nodes, source, valueNode, bindings, scratch, out tupleType) || tupleType == null || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType) {
+            return false
+        }
+        if ValueTupleElementCount(tupleType) != targetCount {
+            return false
+        }
+
+        elementFields := new FieldInfo[](targetCount)
+        i = 0
+        while i < targetCount {
+            field := ValueTupleElementField(tupleType, i + 1)
+            if field == null {
+                return false
+            }
+            elementFields[i] = field
+            i += 1
+        }
+
+        shape = new ColumnarMethodBodyTupleDeclarationShape(tupleType, valueNode, targetNames, elementFields)
+        return true
+    }
+
+    // The ordinary method-body owner for tuple declarations. A plain method records plan locals in the
+    // binding map; a state-machine body supplies exact machine-field bindings. Both paths share RHS
+    // evaluation, tuple extraction, source order, and the one-value evaluation guarantee.
+    static func TryAppendTupleDeclaration(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, shape: ColumnarMethodBodyTupleDeclarationShape, machineFields: Dictionary<string, ColumnarMethodBodyFieldLocalBinding>): bool {
+        if nodes == null || source == null || bindings == null || plan == null || shape == null || machineFields == null || nodes.Kind(statement) != ColumnarStatementNodeKind.TupleDeconstructionStatement || nodes.Text(source, statement) != ":=" || nodes.ChildCount(statement) != shape.TargetNames.Length + 1 {
+            return false
+        }
+
+        i := 0
+        while i < shape.TargetNames.Length {
+            name := shape.TargetNames[i]
+            if name != "_" {
+                if name.Length == 0 || !String.Equals(name, nodes.Text(source, nodes.Child(statement, i)), StringComparison.Ordinal) {
+                    return false
+                }
+                for earlier := 0; earlier < i; earlier += 1 {
+                    if shape.TargetNames[earlier] == name {
+                        return false
+                    }
+                }
+                machineBinding: ColumnarMethodBodyFieldLocalBinding? = null
+                if machineFields.TryGetValue(name, out machineBinding) {
+                    expectedBoxDefinition := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
+                    actualStorageType: Type? = null
+                    if machineBinding != null && machineBinding.StorageField != null {
+                        actualStorageType = machineBinding.StorageField.FieldType
+                    }
+                    capturedStorageValid := false
+                    if machineBinding != null && !machineBinding.IsCaptured {
+                        capturedStorageValid = true
+                    } else if machineBinding != null && actualStorageType != null && actualStorageType.IsGenericType {
+                        capturedStorageValid = actualStorageType.GetGenericTypeDefinition() == expectedBoxDefinition && actualStorageType.GetGenericArguments().Length == 1 && actualStorageType.GetGenericArguments()[0] == machineBinding.ValueType
+                    }
+                    if machineBinding == null || actualStorageType == null || machineBinding.ValueType != shape.ElementFields[i].FieldType || bindings.CurrentInstance == null || (machineBinding.IsCaptured && !capturedStorageValid) || (!machineBinding.IsCaptured && actualStorageType != machineBinding.ValueType) {
+                        return false
+                    }
+                } else if bindings.IsVisibleBindingName(name) {
+                    return false
+                }
+            }
+            i += 1
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        tupleTypeIndex := plan.AddType(bindings.StructuralTypeReferences.SelectRuntimeType(shape.TupleType), bindings.StructuralTypeReferences)
+        tupleLocal := plan.DeclarePlanLocal(tupleTypeIndex)
+        valueType := typeof(int)
+        if !TryAppendValue(nodes, source, shape.ValueNode, bindings, plan, out valueType) || valueType != shape.TupleType {
+            plan.Rollback(checkpoint)
+            return false
+        }
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), tupleLocal)
+
+        instanceArgument := -1
+        instanceType := typeof(object)
+        for targetIndex := 0; targetIndex < shape.TargetNames.Length; targetIndex += 1 {
+            name := shape.TargetNames[targetIndex]
+            if name == "_" {
+                continue
+            }
+
+            fieldBinding: ColumnarMethodBodyFieldLocalBinding? = null
+            hasMachineField := machineFields.TryGetValue(name, out fieldBinding)
+            if hasMachineField {
+                if instanceArgument < 0 {
+                    instanceType = (must bindings.CurrentInstance).ExactType
+                    instanceArgument = ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, instanceType, false)
+                }
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), instanceArgument)
+            }
+            if !AppendTupleElementLoad(plan, tupleLocal, shape.TupleType, targetIndex + 1) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            if hasMachineField {
+                selectedBinding := must fieldBinding
+                if selectedBinding.IsCaptured {
+                    constructor := ColumnarClosureBindingPlanner.StrongBoxConstructor(selectedBinding.ValueType)
+                    parameters := new Type[](1)
+                    parameters[0] = selectedBinding.ValueType
+                    plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructorWithSignature(constructor, selectedBinding.StorageField.FieldType, parameters))
+                }
+                fieldPool := plan.AddFieldWithSignature(selectedBinding.StorageField, instanceType, selectedBinding.StorageField.FieldType, false)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+            } else {
+                localIndex := plan.DeclarePlanLocal(plan.AddType(shape.ElementFields[targetIndex].FieldType))
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
+                bindings.DeclarePlanLocal(name, localIndex, shape.ElementFields[targetIndex].FieldType)
+            }
+        }
+
+        return true
+    }
+
+    static func AppendTupleElementLoad(plan: ColumnarCodePlan, tupleLocal: int, tupleType: Type, ordinal: int): bool {
+        if plan == null || tupleType == null || ordinal < 1 || ordinal > ValueTupleElementCount(tupleType) {
+            return false
+        }
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), tupleLocal)
+        owner := tupleType
+        memberOrdinal := ordinal
+        arguments := owner.GetGenericArguments()
+        while arguments.Length == 8 && memberOrdinal > 7 {
+            restField := owner.GetField("Rest", BindingFlags.Public | BindingFlags.Instance)
+            if restField == null {
+                return false
+            }
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), plan.AddField(restField))
+            owner = restField.FieldType
+            memberOrdinal -= 7
+            arguments = owner.GetGenericArguments()
+        }
+        if memberOrdinal > arguments.Length || arguments.Length == 8 && memberOrdinal == 8 {
+            return false
+        }
+        elementField := owner.GetField("Item" + memberOrdinal.ToString(), BindingFlags.Public | BindingFlags.Instance)
+        if elementField == null {
+            return false
+        }
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), plan.AddField(elementField))
+        return true
+    }
+
+    static func ValueTupleElementCount(tupleType: Type): int {
+        if tupleType == null || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType) {
+            return 0
+        }
+        arguments := tupleType.GetGenericArguments()
+        if arguments.Length != 8 {
+            return arguments.Length
+        }
+        restField := tupleType.GetField("Rest", BindingFlags.Public | BindingFlags.Instance)
+        if restField == null {
+            return 0
+        }
+        return 7 + ValueTupleElementCount(restField.FieldType)
+    }
+
+    static func ValueTupleElementField(tupleType: Type, ordinal: int): FieldInfo? {
+        if tupleType == null || ordinal < 1 || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType) {
+            return null
+        }
+        owner := tupleType
+        memberOrdinal := ordinal
+        arguments := owner.GetGenericArguments()
+        while arguments.Length == 8 && memberOrdinal > 7 {
+            restField := owner.GetField("Rest", BindingFlags.Public | BindingFlags.Instance)
+            if restField == null {
+                return null
+            }
+            owner = restField.FieldType
+            memberOrdinal -= 7
+            arguments = owner.GetGenericArguments()
+        }
+        if memberOrdinal > arguments.Length || arguments.Length == 8 && memberOrdinal == 8 {
+            return null
+        }
+        return owner.GetField("Item" + memberOrdinal.ToString(), BindingFlags.Public | BindingFlags.Instance)
     }
 
     // A void body whose whole content is one `ret`: an EMPTY block, or a block whose single statement

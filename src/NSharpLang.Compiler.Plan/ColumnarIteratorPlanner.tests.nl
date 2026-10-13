@@ -456,6 +456,26 @@ class ColumnarIteratorRunProbe {
     }
 }
 
+class ColumnarIteratorTupleProbe {
+    public state: int
+    public current: int
+    public left: int
+    public right: int
+
+    constructor() {
+        state = 0
+        current = 0
+        left = 0
+        right = 0
+    }
+}
+
+class ColumnarIteratorTupleValueFactory {
+    static func Create(): ValueTuple<int, int> {
+        return new ValueTuple<int, int>(19, 23)
+    }
+}
+
 // A run-probe for the string-element machines (array for..in + string instance call): field order
 // mirrors the planner layout [state, current, xs, <>__index0, x, r].
 class ColumnarIteratorStringProbe {
@@ -1492,6 +1512,80 @@ test "iterator planner admits a lock body without suspension" {
 
     assert probe.Shape.Supported
     assert probe.Shape.YieldReturnCount == 1
+}
+
+test "iterator tuple declarations use the ordinary method-body statement planner" {
+    source := "func* Pair(): IEnumerable<int> { (left, right) := CreateTuple()\n yield left\n yield right\n yield left + right }"
+    probe := new ColumnarIteratorShapeProbe(
+        source,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 4
+
+    machineType := typeof(ColumnarIteratorTupleProbe)
+    fields := new FieldInfo[](4)
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "left")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "right")
+    table := IteratorStructuralTypeReferences()
+    tupleFactory := typeof(ColumnarIteratorTupleValueFactory).GetMethod("Create")
+    if tupleFactory == null {
+        throw new InvalidOperationException("ColumnarIteratorTupleValueFactory.Create was not found.")
+    }
+    bodyFacts := ColumnarIteratorBodyFacts.Empty(table)
+    bodyFacts.SiblingNames = IteratorOne("CreateTuple")
+    bodyFacts.SiblingCallables["CreateTuple"] = new ColumnarSiblingCallFacts(
+        tupleFactory,
+        new Type[](0),
+        new int[](0),
+        typeof(ValueTuple<int, int>),
+        0
+    )
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        machineType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields,
+        table,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        bodyFacts
+    )
+
+    moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
+    assert context.GeneralMethodBodyStatementCount == 1, "the tuple statement must be owned by the ordinary method-body planner"
+    moveNext := MakeIteratorDynamicMethod("UnifiedTupleMoveNext", typeof(bool), machineType)
+    ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("UnifiedTupleCurrent", typeof(int), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+
+    machine := new ColumnarIteratorTupleProbe()
+    machine.state = 0
+    arguments := new object[](1)
+    IteratorSetObject(arguments, 0, machine)
+    target: object? = null
+    values := new List<int>()
+    while Convert.ToBoolean(moveNext.Invoke(target, arguments)) {
+        values.Add(Convert.ToInt32(getCurrent.Invoke(target, arguments)))
+    }
+    assert values.Count == 3
+    assert values[0] == 19
+    assert values[1] == 23
+    assert values[2] == 42
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {

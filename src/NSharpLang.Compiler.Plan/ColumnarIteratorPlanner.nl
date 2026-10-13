@@ -2025,6 +2025,7 @@ class ColumnarIteratorEmitContext {
     SourceFileId: int
     DeclineSite: string
     DeclineMessage: string
+    GeneralMethodBodyStatementCount: int
 
     constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, coreMethod: MethodInfo? = null, bodyFacts: ColumnarIteratorBodyFacts? = null, builder: TypeBuilder? = null, genericMemberType: Type? = null, typeParameters: Dictionary<string, Type>? = null, definitionFields: FieldInfo[]? = null, synthesizedTypes: List<TypeBuilder>? = null, sourceFileId: int = 0, genericSpecialConstraints: int[]? = null, genericBaseConstraints: Type?[]? = null, genericInterfaceConstraints: Type[][]? = null, genericParameters: Type[]? = null) {
         Nodes = nodes
@@ -2055,6 +2056,7 @@ class ColumnarIteratorEmitContext {
         SourceFileId = sourceFileId
         DeclineSite = ""
         DeclineMessage = ""
+        GeneralMethodBodyStatementCount = 0
 
         // THE BODY'S NAME BINDINGS, PUBLISHED ONCE HERE. Every field the machine already has is visible
         // to the body's own code as a field of `this`; an instance machine's enclosing members are
@@ -2144,6 +2146,14 @@ class ColumnarIteratorEmitContext {
     // known. A re-declaration of the same name in disjoint scopes shares one slot exactly when the two
     // declarations agree on the type; disagreeing declarations cannot share a CLR field and decline.
     func TryEnsureHoistedField(name: string, fieldType: Type, out field: FieldInfo): bool {
+        return TryEnsureHoistedFieldCore(name, fieldType, out field, true)
+    }
+
+    func TryEnsureHoistedFieldUnpublished(name: string, fieldType: Type, out field: FieldInfo): bool {
+        return TryEnsureHoistedFieldCore(name, fieldType, out field, false)
+    }
+
+    private func TryEnsureHoistedFieldCore(name: string, fieldType: Type, out field: FieldInfo, publishToScope: bool): bool {
         field = null
         if fieldType == null || fieldType.FullName == "System.Void" || fieldType.IsByRef || fieldType.IsPointer {
             return false
@@ -2161,7 +2171,7 @@ class ColumnarIteratorEmitContext {
                     if !IsStorableInField(existing.FieldType, fieldType) {
                         return false
                     }
-                    if !TryPublishLoopCaptureBox(name, existing.FieldType) {
+                    if publishToScope && !TryPublishLoopCaptureBox(name, existing.FieldType) {
                         return false
                     }
                     field = existing
@@ -2180,8 +2190,10 @@ class ColumnarIteratorEmitContext {
                 Fields[index] = handle
                 definitionHandle: FieldInfo = defined
                 DefinitionFields[index] = definitionHandle
-                RequiredScope().PublishField(name, handle)
-                TryPublishLoopCaptureBox(name, fieldType)
+                if publishToScope {
+                    RequiredScope().PublishField(name, handle)
+                    TryPublishLoopCaptureBox(name, fieldType)
+                }
                 field = handle
                 return true
             }
@@ -2216,6 +2228,10 @@ class ColumnarIteratorEmitContext {
     }
 
     private func TryPublishLoopCaptureBox(name: string, valueType: Type): bool {
+        return TryPublishLoopCaptureBoxCore(name, valueType, true)
+    }
+
+    private func TryPublishLoopCaptureBoxCore(name: string, valueType: Type, publishToScope: bool): bool {
         if !IsLoopCaptured(name) {
             return true
         }
@@ -2239,15 +2255,27 @@ class ColumnarIteratorEmitContext {
             Fields[boxIndex] = boxHandle
             definitionHandle: FieldInfo = defined
             DefinitionFields[boxIndex] = definitionHandle
-            RequiredScope().PublishField(boxName, boxHandle)
+            if publishToScope {
+                RequiredScope().PublishField(boxName, boxHandle)
+            }
         }
-        RequiredScope().PublishBoxedCapture(name, boxHandle, valueType)
+        if publishToScope {
+            RequiredScope().PublishBoxedCapture(name, boxHandle, valueType)
+        }
         return true
     }
 
     func TryEnsureLoopCaptureBox(name: string, valueType: Type, out field: FieldInfo): bool {
+        return TryEnsureLoopCaptureBoxCore(name, valueType, out field, true)
+    }
+
+    func TryEnsureLoopCaptureBoxUnpublished(name: string, valueType: Type, out field: FieldInfo): bool {
+        return TryEnsureLoopCaptureBoxCore(name, valueType, out field, false)
+    }
+
+    private func TryEnsureLoopCaptureBoxCore(name: string, valueType: Type, out field: FieldInfo, publishToScope: bool): bool {
         field = null
-        if !TryPublishLoopCaptureBox(name, valueType) {
+        if !TryPublishLoopCaptureBoxCore(name, valueType, publishToScope) {
             return false
         }
         field = Fields[FieldIndex(ColumnarIteratorPlanner.LoopCaptureBoxFieldName(name))]
@@ -5294,137 +5322,70 @@ class ColumnarIteratorBodyPlanner {
         return false
     }
 
-    // The tuple expression stays with the shared ordinary value owner; this pass only puts each
-    // result into storage that survives the next yield. Assignment-form deconstruction and user
-    // Deconstruct methods are separate slices.
+    // Storage preparation stays iterator-specific. Evaluation and tuple extraction are owned by the
+    // same method-body statement planner used for ordinary methods.
     static func EmitTupleDeconstructionDeclaration(emit: ColumnarMoveNextEmit, node: int): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
-        childCount := nodes.ChildCount(node)
-        if nodes.Text(source, node) != ":=" || childCount < 3 {
-            emit.Context.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction currently requires a declaration with at least two targets")
+        scope := emit.Context.RequiredScope()
+        bindings := scope.Bindings
+        shape: ColumnarMethodBodyTupleDeclarationShape? = null
+        if !ColumnarMethodBodyPlanner.TryAnalyzeTupleDeclaration(nodes, source, node, bindings, out shape) || shape == null {
+            emit.Context.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction requires a supported ValueTuple declaration")
             return false
         }
 
-        targetCount := childCount - 1
-        valueNode := nodes.Child(node, targetCount)
-        tupleType := typeof(int)
-        if !TryDiscoverBoundValueType(emit, valueNode, out tupleType) || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType) {
-            emit.Context.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction requires a supported ValueTuple source")
-            return false
-        }
-        if ValueTupleElementCount(tupleType) != targetCount {
-            emit.Context.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction target count does not match its ValueTuple source")
-            return false
-        }
-
-        tupleLocal := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(tupleType), emit.Context.StructuralTypeReferences))
-        tupleValueType := typeof(int)
-        if !AppendValue(emit, valueNode, out tupleValueType) || tupleValueType != tupleType {
-            emit.Context.Decline("emit.iterator.deconstruction", "iterator tuple deconstruction source changed type while lowering")
-            return false
-        }
-        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), tupleLocal)
-
-        targetIndex := 0
-        while targetIndex < targetCount {
-            target := nodes.Child(node, targetIndex)
-            name := nodes.Text(source, target)
+        machineFields := new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)
+        pendingFields := new FieldInfo[](shape.TargetNames.Length)
+        pendingBoxes := new FieldInfo[](shape.TargetNames.Length)
+        pendingCaptured := new bool[](shape.TargetNames.Length)
+        i := 0
+        while i < shape.TargetNames.Length {
+            name := shape.TargetNames[i]
             if name != "_" {
-                tupleField := ValueTupleElementField(tupleType, targetIndex + 1)
-                if tupleField == null {
-                    emit.Context.Decline("emit.iterator.deconstruction", "ValueTuple element " + (targetIndex + 1).ToString() + " could not be resolved")
-                    return false
-                }
-                field: FieldInfo? = null
-                if !emit.Context.TryEnsureHoistedField(name, tupleField.FieldType, out field) || field == null {
+                valueType := shape.ElementFields[i].FieldType
+                localField: FieldInfo? = null
+                if !emit.Context.TryEnsureHoistedFieldUnpublished(name, valueType, out localField) || localField == null {
                     emit.Context.Decline("emit.iterator.deconstruction", "tuple element '" + name + "' could not be stored in its iterator field")
                     return false
                 }
-
-                LoadThis(emit)
-                if !AppendValueTupleElementLoad(emit, tupleLocal, tupleType, targetIndex + 1) {
-                    emit.Context.Decline("emit.iterator.deconstruction", "ValueTuple element " + (targetIndex + 1).ToString() + " could not be loaded")
-                    return false
-                }
-                if emit.Context.IsLoopCaptured(name) {
-                    if !AppendFreshLoopCaptureBoxFromStack(emit, name, tupleField.FieldType) {
+                pendingFields[i] = localField
+                isCaptured := emit.Context.IsLoopCaptured(name)
+                pendingCaptured[i] = isCaptured
+                storageField := localField
+                if isCaptured {
+                    boxField: FieldInfo? = null
+                    if !emit.Context.TryEnsureLoopCaptureBoxUnpublished(name, valueType, out boxField) || boxField == null {
+                        emit.Context.Decline("emit.iterator.lambda-unsupported", "the per-iteration storage for '" + name + "' could not be defined")
                         return false
                     }
-                } else {
-                    emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(field))
+                    pendingBoxes[i] = boxField
+                    storageField = boxField
                 }
-                emit.Context.RequiredScope().HideEnclosingMember(name)
+                machineFields[name] = new ColumnarMethodBodyFieldLocalBinding(storageField, valueType, isCaptured)
             }
-            targetIndex += 1
+            i += 1
+        }
+
+        if !ColumnarMethodBodyPlanner.TryAppendTupleDeclaration(nodes, source, node, bindings, emit.Plan, shape, machineFields) {
+            emit.Context.Decline("emit.iterator.deconstruction", "tuple declaration could not be lowered by the ordinary method-body planner")
+            return false
+        }
+        emit.Context.GeneralMethodBodyStatementCount += 1
+
+        i = 0
+        while i < shape.TargetNames.Length {
+            name := shape.TargetNames[i]
+            if name != "_" {
+                scope.PublishField(name, pendingFields[i])
+                if pendingCaptured[i] {
+                    scope.PublishBoxedCapture(name, pendingBoxes[i], shape.ElementFields[i].FieldType)
+                }
+                scope.HideEnclosingMember(name)
+            }
+            i += 1
         }
         return true
-    }
-
-    static func AppendValueTupleElementLoad(emit: ColumnarMoveNextEmit, tupleLocal: int, tupleType: Type, ordinal: int): bool {
-        if tupleType == null || ordinal < 1 || ordinal > ValueTupleElementCount(tupleType) {
-            return false
-        }
-        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), tupleLocal)
-        owner := tupleType
-        memberOrdinal := ordinal
-        arguments := owner.GetGenericArguments()
-        while arguments.Length == 8 && memberOrdinal > 7 {
-            restField := owner.GetField("Rest", BindingFlags.Public | BindingFlags.Instance)
-            if restField == null {
-                return false
-            }
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), emit.Plan.AddField(restField))
-            owner = restField.FieldType
-            memberOrdinal -= 7
-            arguments = owner.GetGenericArguments()
-        }
-        if memberOrdinal > arguments.Length || arguments.Length == 8 && memberOrdinal == 8 {
-            return false
-        }
-        elementField := owner.GetField("Item" + memberOrdinal.ToString(), BindingFlags.Public | BindingFlags.Instance)
-        if elementField == null {
-            return false
-        }
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.Plan.AddField(elementField))
-        return true
-    }
-
-    static func ValueTupleElementCount(tupleType: Type): int {
-        if tupleType == null || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType) {
-            return 0
-        }
-        arguments := tupleType.GetGenericArguments()
-        if arguments.Length != 8 {
-            return arguments.Length
-        }
-        restField := tupleType.GetField("Rest", BindingFlags.Public | BindingFlags.Instance)
-        if restField == null {
-            return 0
-        }
-        return 7 + ValueTupleElementCount(restField.FieldType)
-    }
-
-    static func ValueTupleElementField(tupleType: Type, ordinal: int): FieldInfo? {
-        if tupleType == null || ordinal < 1 || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType) {
-            return null
-        }
-        owner := tupleType
-        memberOrdinal := ordinal
-        arguments := owner.GetGenericArguments()
-        while arguments.Length == 8 && memberOrdinal > 7 {
-            restField := owner.GetField("Rest", BindingFlags.Public | BindingFlags.Instance)
-            if restField == null {
-                return null
-            }
-            owner = restField.FieldType
-            memberOrdinal -= 7
-            arguments = owner.GetGenericArguments()
-        }
-        if memberOrdinal > arguments.Length || arguments.Length == 8 && memberOrdinal == 8 {
-            return null
-        }
-        return owner.GetField("Item" + memberOrdinal.ToString(), BindingFlags.Public | BindingFlags.Instance)
     }
 
     // A `for..in` variable is in scope for the loop body alone.

@@ -45,6 +45,10 @@ test "an object array row yields a boxed int, a string and a nested string array
     assert nestedSecond[1] == "Program.nl"
 }
 
+test "ordinary method body planner lowers tuple declarations" {
+    assert SumIteratorPair(19, 23) == 42
+}
+
 test "tuple deconstruction stores bindings across yield suspension" {
     values := new List<int>()
     for value in DeconstructedPair() {

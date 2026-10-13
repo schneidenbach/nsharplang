@@ -40,6 +40,11 @@ func MakeIteratorPair(left: int, right: int): (int, int) {
     return (left, right)
 }
 
+func SumIteratorPair(left: int, right: int): int {
+    (first, second) := MakeIteratorPair(left, right)
+    return first + second
+}
+
 // A tuple declaration whose bindings remain live across multiple yields.
 func* DeconstructedPair(): IEnumerable<int> {
     (left, right) := MakeIteratorPair(19, 23)

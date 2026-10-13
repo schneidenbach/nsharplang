@@ -1,9 +1,9 @@
 # Iterator body lowering unification
 
-**Status:** design and first behavior slice in progress; the architectural PoC is still outstanding
+**Status:** architectural PoC complete; synchronous body lowering is in progress
 **Decision:** lower iterator suspension to ordinary method-body IR before emission; do not keep the iterator value emitter as a fallback.
 
-**PoC checkpoint:** a tuple declaration inside a synchronous iterator now compiles and executes across three yields. The runtime proof passes, but it currently uses the iterator planner's statement emitter for the deconstruction statement. The RHS expression uses the shared columnar value cascade. This proves the storage and suspension shape is representable; it does **not** yet prove the requested single general statement-emitter route. Do not count this slice as the architectural PoC until that route is implemented and the test asserts it.
+**PoC checkpoint:** a tuple declaration inside a synchronous iterator compiles and executes across three yields. Both an ordinary method and the iterator use `ColumnarMethodBodyPlanner.TryAppendTupleDeclaration` for declaration evaluation and extraction. The iterator test asserts the method-body statement route on the production move-next plan, so the old iterator tuple implementation cannot satisfy the proof. Iterator lowering supplies exact state-machine field bindings; the shared planner owns the source expression's single evaluation, tuple extraction, stores, and binding publication. This proves the first shared statement route, not completion of the general body rewrite: the iterator statement walker still owns every other statement shape and remains deletion debt.
 
 ## Problem and decision
 
