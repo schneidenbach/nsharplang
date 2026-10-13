@@ -65,24 +65,29 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
             version := request.TextDocument.Version ?? 0
 
             documentManager.UpdateDocumentForChange(uri, text, version)
+            projectBatchKey := documentManager.GetProjectRootForUri(uri)
             cancellation := new CancellationTokenSource()
             lock pendingChangesLock {
                 previous: CancellationTokenSource? = null
-                if pendingChanges.TryGetValue(uri, out previous) && previous != null {
+                if pendingChanges.TryGetValue(projectBatchKey, out previous) && previous != null {
                     previous.Cancel()
                 }
-                pendingChanges[uri] = cancellation
+                pendingChanges[projectBatchKey] = cancellation
             }
-            return publishChangedDocumentDiagnostics(uri, version, cancellation)
+            return publishChangedDocumentDiagnostics(uri, version, projectBatchKey, cancellation)
         }
 
         return Unit.Task
     }
 
-    // Coalesce a fast sequence of full-text edits. Cancellation prevents an older queued edit from
-    // publishing after a newer version; the incremental session still owns semantic invalidation.
-    private async func publishChangedDocumentDiagnostics(uri: string, version: int, cancellation: CancellationTokenSource): Task<Unit> {
+    // A WorkspaceEdit is delivered as one didChange per document. Debounce by project so the
+    // language server analyzes the complete editor buffer set once the edit batch has arrived,
+    // instead of publishing diagnostics from a partially applied multi-file edit.
+    private async func publishChangedDocumentDiagnostics(uri: string, version: int, projectBatchKey: string, cancellation: CancellationTokenSource): Task<Unit> {
         try {
+            // didChange notifications produced by one WorkspaceEdit arrive consecutively on the
+            // ordered LSP stream. Yield briefly so the project batch can absorb the remaining
+            // documents without imposing a visible debounce on every ordinary body edit.
             await Task.Delay(1, cancellation.Token)
             if cancellation.IsCancellationRequested {
                 return Unit.Value
@@ -101,8 +106,8 @@ class TextDocumentHandler: TextDocumentSyncHandlerBase {
         } finally {
             lock pendingChangesLock {
                 current: CancellationTokenSource? = null
-                if pendingChanges.TryGetValue(uri, out current) && current != null && Object.ReferenceEquals(current, cancellation) {
-                    pendingChanges.Remove(uri)
+                if pendingChanges.TryGetValue(projectBatchKey, out current) && current != null && Object.ReferenceEquals(current, cancellation) {
+                    pendingChanges.Remove(projectBatchKey)
                 }
             }
             cancellation.Dispose()

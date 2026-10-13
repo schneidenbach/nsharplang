@@ -253,10 +253,11 @@ class OwnershipPolicy {
     static ManifestFileName: string => "non-nsharp-growth-ratchet.v2.json"
     static SchemaVersion: int => 2
 
-    static CodeEpochFileCount: int => 223
-    static CodeEpochPathFingerprint: string => "pathset-v2:fbda7fc3d5053525"
-    static CodeEpochFactFingerprint: string => "epochfacts-v2:e9d97310d85a20be"
-    static ReviewedHeadFingerprint: string => "head-v2:fdb9904d2eb16b80"
+    // E2 admits only the reviewed VS Code visual-test harness files. Existing E1 ceilings stay frozen.
+    static CodeEpochFileCount: int => 227
+    static CodeEpochPathFingerprint: string => "pathset-v2:97fe77313c04eb7e"
+    static CodeEpochFactFingerprint: string => "epochfacts-v2:4c440f3312742657"
+    static ReviewedHeadFingerprint: string => "head-v2:d708b465112655dc"
 
     static func IsPermanentBoundaryPath(path: string): bool {
         normalized := NormalizeRelativePath(path)

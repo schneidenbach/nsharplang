@@ -2016,7 +2016,6 @@ class MultiFileCompiler {
         key.AddBool("aot", _aotMode)
         key.AddBool("soa", _soaEnabled)
         key.AddBool("one-program", _declaredOneProgram)
-        key.Add("config", IncrementalConfigFingerprint.Describe(_config))
         symbols := new List<string>(_preprocessorSymbols)
         symbols.Sort(StringComparer.Ordinal)
         key.Add("defines", string.Join(",", symbols))
@@ -2025,6 +2024,10 @@ class MultiFileCompiler {
         key.Add("current-directory", Environment.CurrentDirectory)
         capture := new IncrementalBuildInputCapture()
         capture.CaptureEnvironment(_projectRoot, EffectiveConfig())
+        // Environment capture resolves and normalizes part of the project config (notably the
+        // dependency closure). Fingerprint the value compilation will retain after that first
+        // capture so the next body edit sees the same environment key.
+        key.Add("config", IncrementalConfigFingerprint.Describe(_config))
         for entry in capture.Entries {
             key.Add(entry.Kind.ToString() + "|" + entry.Path, entry.Value)
         }

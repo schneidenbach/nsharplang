@@ -122,7 +122,7 @@ class IncrementalCompilationState {
     }
 
     // Drops everything: the next run analyses and emits every file with a new analyzer.
-    func Reset(environmentKey: string) {
+    func Reset(environmentKey: string): void {
         EnvironmentKey = environmentKey
         RetainedAnalyzer = null
         LastProjectBindings = null

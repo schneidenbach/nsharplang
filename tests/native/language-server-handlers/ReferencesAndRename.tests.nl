@@ -40,9 +40,10 @@ test "find references collects cross-file usages through the compiler project sn
     references := LshReferences(docs, uri, useLine, useCharacter, true)
 
     assert references != null
-    assert LshLocationCount(references) > 0
+    assert LshLocationCount(references) == 9, "The project reference index must include the declaration, product uses and test-block uses"
     // The usage site in Program.nl must be collected, not only the declaration.
     assert LshHasLocationUri(references, uri)
+    assert LshHasLocationEndingWith(references, "/backend/Service.tests.nl"), "test-block references must be indexed in the project snapshot"
 }
 
 test "navigation on duplicate type names picks the namespace-correct declaration" {

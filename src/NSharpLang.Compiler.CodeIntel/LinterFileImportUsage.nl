@@ -4,7 +4,13 @@ import System.Collections.Generic
 import System.IO
 
 class LinterFileImportUsage {
-    static func IsUsed(importSymbol: string, importPath: string?, currentFilePath: string?, codeIdentifiers: HashSet<string>): bool {
+    static func IsUsed(
+        importSymbol: string,
+        importPath: string?,
+        currentFilePath: string?,
+        codeIdentifiers: HashSet<string>,
+        sourceTexts: IReadOnlyDictionary<string, string>? = null
+    ): bool {
         if codeIdentifiers.Contains(importSymbol) {
             return true
         }
@@ -18,9 +24,9 @@ class LinterFileImportUsage {
         }
 
         if importPath != null && currentFilePath != null {
-            resolvedPath := ResolveFileImportPath(importPath, currentFilePath)
+            resolvedPath := ResolveFileImportPath(importPath, currentFilePath, sourceTexts)
             if resolvedPath != null {
-                exportedSymbols := LinterExportedSymbolExtractor.Extract(resolvedPath)
+                exportedSymbols := ExtractExportedSymbols(resolvedPath, sourceTexts)
                 if exportedSymbols.Count > 0 {
                     for exportedSymbol in exportedSymbols {
                         if codeIdentifiers.Contains(exportedSymbol) {
@@ -36,22 +42,42 @@ class LinterFileImportUsage {
         return true
     }
 
-    static func ResolveFileImportPath(importPath: string, currentFilePath: string): string? {
+    static func ResolveFileImportPath(importPath: string, currentFilePath: string, sourceTexts: IReadOnlyDictionary<string, string>? = null): string? {
         fileDir := Path.GetDirectoryName(currentFilePath)
         if fileDir == null {
             return null
         }
 
         candidate := Path.GetFullPath(Path.Combine(fileDir, importPath))
-        if File.Exists(candidate) {
+        if SourceTextExists(sourceTexts, candidate) || File.Exists(candidate) {
             return candidate
         }
 
         candidateWithExtension := Path.GetFullPath(Path.Combine(fileDir, importPath + ".nl"))
-        if File.Exists(candidateWithExtension) {
+        if SourceTextExists(sourceTexts, candidateWithExtension) || File.Exists(candidateWithExtension) {
             return candidateWithExtension
         }
 
         return null
+    }
+
+    private static func SourceTextExists(sourceTexts: IReadOnlyDictionary<string, string>?, filePath: string): bool {
+        if sourceTexts == null {
+            return false
+        }
+
+        text: string? = null
+        return sourceTexts.TryGetValue(Path.GetFullPath(filePath), out text)
+    }
+
+    private static func ExtractExportedSymbols(filePath: string, sourceTexts: IReadOnlyDictionary<string, string>?): List<string> {
+        if sourceTexts != null {
+            text: string? = null
+            if sourceTexts.TryGetValue(Path.GetFullPath(filePath), out text) && text != null {
+                return LinterExportedSymbolExtractor.ExtractFromSource(text, filePath)
+            }
+        }
+
+        return LinterExportedSymbolExtractor.Extract(filePath)
     }
 }

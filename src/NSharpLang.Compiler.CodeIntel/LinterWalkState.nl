@@ -113,6 +113,7 @@ class LinterWalkState {
     config: LinterConfig
     suppressions: LinterSuppressionSet
     sourceText: string?
+    projectSourceTexts: IReadOnlyDictionary<string, string>?
     diagnostics: List<Diagnostic>
 
     declaredVariables: Dictionary<string, (int, int, bool)>
@@ -139,9 +140,10 @@ class LinterWalkState {
 
     Diagnostics: List<Diagnostic> => diagnostics
 
-    constructor(filePath: string?, sourceText: string?, config: LinterConfig) {
+    constructor(filePath: string?, sourceText: string?, config: LinterConfig, projectSourceTexts: IReadOnlyDictionary<string, string>? = null) {
         this.filePath = filePath
         this.sourceText = sourceText
+        this.projectSourceTexts = projectSourceTexts
         this.config = config
         suppressions = LinterSuppressionParser.BuildSuppressions(filePath, sourceText)
         diagnostics = new List<Diagnostic>()
@@ -283,7 +285,7 @@ class LinterWalkState {
             used := false
             label := "import " + imported.Namespace
             if imported.IsFile {
-                used = LinterFileImportUsage.IsUsed(imported.Namespace, imported.FilePath, filePath, allCodeIdentifiers)
+                used = LinterFileImportUsage.IsUsed(imported.Namespace, imported.FilePath, filePath, allCodeIdentifiers, projectSourceTexts)
                 label = "import \"" + (imported.FilePath ?? imported.Namespace) + "\""
             } else {
                 if !namespacesAnswerable {
