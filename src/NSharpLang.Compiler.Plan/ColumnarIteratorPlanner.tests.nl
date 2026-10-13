@@ -1602,7 +1602,7 @@ test "iterator tuple declarations use the ordinary method-body statement planner
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
-    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = 7 } else { i = 2 }\n while i < 6 { if i < 5 { i = i + 1\n continue } else { break } }\n for i = i; i < 5; i = i + 1 { }\n while i < n + 7 { yield i\n i = i + 1 } }"
+    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = i + 7\n i + 0 } else { i = i + 2\n i + 0 }\n while i < 6 { if i < 5 { i = i + 1\n continue } else { break } }\n for i = i; i < 5; i = i + 1 { }\n while i < n + 7 { yield i\n i = i + 1 } }"
     probe := new ColumnarIteratorShapeProbe(
         source,
         "IEnumerable<int>",
@@ -1634,7 +1634,7 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
     getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
-    assert context.GeneralMethodBodyStatementCount == 5, "the annotated initializer, hoisted-field assignments, conditional, non-suspending loops, and for loop must be appended by the shared method-body statement planner"
+    assert context.GeneralMethodBodyStatementCount == 5, "the hoisted initializer, branch tree with discarded expressions, simple loops, for loop, and hoisted-field assignment must use method-body planning"
 
     moveNext := MakeIteratorDynamicMethod("MoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())

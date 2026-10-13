@@ -816,9 +816,9 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
-    // This state-machine control-flow claim is deliberately small: `if` and non-suspending `while`
-    // statements whose bodies only contain simple assignments to already-bound machine fields. The
-    // condition and each assignment still enter through the ordinary append-mode value/binding owners.
+    // This state-machine control-flow claim is deliberately small: `if`, `while`, and `for`
+    // statements whose bodies only contain method-body-owned expression statements. Assignments
+    // target already-bound machine fields; conditions and values use the ordinary append-mode owners.
     // Rejecting the complete shape before appending keeps declarations, suspension points, and
     // non-loop exits with the iterator walker until their lowering contracts are shared as well.
     private static func IsSimpleStateMachineBodyStatement(nodes: ColumnarNodeTable, node: int): bool {
@@ -859,12 +859,7 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarStatementNodeKind.BreakStatement || kind == ColumnarStatementNodeKind.ContinueStatement {
             return true
         }
-        if kind != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(node) != 1 {
-            return false
-        }
-
-        assignment := nodes.Child(node, 0)
-        return nodes.Kind(assignment) == ColumnarExpressionNodeKind.AssignmentExpression && nodes.ChildCount(assignment) == 2
+        return kind == ColumnarStatementNodeKind.ExpressionStatement && nodes.ChildCount(node) == 1
     }
 
     private static func IsSimpleStateMachineFieldAssignment(nodes: ColumnarNodeTable, node: int): bool {
@@ -1074,7 +1069,10 @@ class ColumnarMethodBodyPlanner {
             plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), continueLabel)
             return true
         }
-        return TryAppendAssignmentStatement(nodes, source, node, bindings, plan)
+        if nodes.ChildCount(node) == 1 && nodes.Kind(nodes.Child(node, 0)) == ColumnarExpressionNodeKind.AssignmentExpression {
+            return TryAppendAssignmentStatement(nodes, source, node, bindings, plan)
+        }
+        return TryAppendExpressionStatement(nodes, source, node, bindings, plan)
     }
 
     // Ordinary source statements that need no state-machine suspension semantics. Yield and await
