@@ -5316,7 +5316,7 @@ class ColumnarIteratorBodyPlanner {
             fallsThrough := true
             if emit.NextTryRegion < emit.RegionEntryLabels.Length {
                 regionEntryLabel := emit.RegionEntryLabels[emit.NextTryRegion]
-                if ColumnarMethodBodyPlanner.TryAppendStateMachineTryFinally(nodes, source, node, scope.Bindings, emit.Plan, regionEntryLabel, out fallsThrough) {
+                if ColumnarMethodBodyPlanner.TryAppendStateMachineTry(nodes, source, node, scope.Bindings, emit.Plan, regionEntryLabel, out fallsThrough) {
                     emit.NextTryRegion += 1
                     emit.Context.GeneralMethodBodyStatementCount += 1
                     return fallsThrough
