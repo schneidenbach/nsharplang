@@ -830,6 +830,55 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
+    // A dropped integer postfix step on an exact current-instance field is an ordinary body
+    // statement. The field selection and arithmetic opcode come from the same owners as assignment;
+    // iterator suspension is irrelevant because the statement leaves no value live.
+    static func TryAppendPostfixStatement(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
+        if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(statement) != 1 {
+            return false
+        }
+        postfix := nodes.Child(statement, 0)
+        if nodes.Kind(postfix) != ColumnarExpressionNodeKind.PostfixUnary || nodes.ChildCount(postfix) != 1 {
+            return false
+        }
+        operatorText := nodes.Text(source, postfix)
+        if operatorText != "++" && operatorText != "--" {
+            return false
+        }
+        target := nodes.Child(postfix, 0)
+        if nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression {
+            return false
+        }
+
+        selection := ColumnarBoundIdentifierPlanner.EmptySelection()
+        if !ColumnarBoundIdentifierPlanner.TryResolve(nodes, source, target, bindings, out selection) || selection.Kind != ColumnarBoundIdentifierKind.CurrentField || selection.FirstField == null || selection.DeclaringType == null || selection.ResultType != typeof(int) || selection.FirstField.IsInitOnly || selection.FirstField.IsLiteral {
+            return false
+        }
+        machineType := selection.CurrentInstanceType
+        if machineType == null || bindings.CurrentInstance == null || machineType != bindings.CurrentInstance.ExactType || selection.CurrentInstanceIsAddress {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        machineArgument := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, machineType, false)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), machineArgument)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), machineArgument)
+        fieldIndex := plan.AddFieldWithSignature(selection.FirstField, selection.DeclaringType, selection.ResultType, false)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldIndex)
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+        resultType := typeof(int)
+        arithmeticOperator := "+"
+        if operatorText == "--" {
+            arithmeticOperator = "-"
+        }
+        if !ColumnarPrimitiveBinaryPlanner.TryAppendArithmeticOperator(arithmeticOperator, selection.ResultType, bindings, plan, out resultType) || resultType != selection.ResultType {
+            plan.Rollback(checkpoint)
+            return false
+        }
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldIndex)
+        return true
+    }
+
     // This state-machine control-flow claim is deliberately small: `if`, `while`, and `for`
     // statements whose bodies only contain method-body-owned expression statements. Assignments
     // target already-bound machine fields; conditions and values use the ordinary append-mode owners.
@@ -881,7 +930,7 @@ class ColumnarMethodBodyPlanner {
             return false
         }
         assignment := nodes.Child(node, 0)
-        return nodes.Kind(assignment) == ColumnarExpressionNodeKind.AssignmentExpression && nodes.ChildCount(assignment) == 2
+        return (nodes.Kind(assignment) == ColumnarExpressionNodeKind.AssignmentExpression && nodes.ChildCount(assignment) == 2) || (nodes.Kind(assignment) == ColumnarExpressionNodeKind.PostfixUnary && nodes.ChildCount(assignment) == 1)
     }
 
     private static func StateMachineStatementFallsThrough(nodes: ColumnarNodeTable, node: int): bool {
@@ -1083,8 +1132,14 @@ class ColumnarMethodBodyPlanner {
             plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), continueLabel)
             return true
         }
-        if nodes.ChildCount(node) == 1 && nodes.Kind(nodes.Child(node, 0)) == ColumnarExpressionNodeKind.AssignmentExpression {
-            return TryAppendAssignmentStatement(nodes, source, node, bindings, plan)
+        if nodes.ChildCount(node) == 1 {
+            inner := nodes.Child(node, 0)
+            if nodes.Kind(inner) == ColumnarExpressionNodeKind.AssignmentExpression {
+                return TryAppendAssignmentStatement(nodes, source, node, bindings, plan)
+            }
+            if nodes.Kind(inner) == ColumnarExpressionNodeKind.PostfixUnary {
+                return TryAppendPostfixStatement(nodes, source, node, bindings, plan)
+            }
         }
         return TryAppendExpressionStatement(nodes, source, node, bindings, plan)
     }
@@ -1120,6 +1175,9 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarStatementNodeKind.ExpressionStatement {
             if nodes.ChildCount(statement) == 1 && nodes.Kind(nodes.Child(statement, 0)) == ColumnarExpressionNodeKind.AssignmentExpression {
                 return stateMachineBody && TryAppendAssignmentStatement(nodes, source, statement, bindings, plan)
+            }
+            if nodes.ChildCount(statement) == 1 && nodes.Kind(nodes.Child(statement, 0)) == ColumnarExpressionNodeKind.PostfixUnary {
+                return stateMachineBody && TryAppendPostfixStatement(nodes, source, statement, bindings, plan)
             }
             return TryAppendExpressionStatement(nodes, source, statement, bindings, plan)
         }

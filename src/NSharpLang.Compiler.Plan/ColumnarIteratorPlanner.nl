@@ -5227,6 +5227,10 @@ class ColumnarIteratorBodyPlanner {
                 return !emit.Context.Declined
             }
             if nodes.Kind(inner) == ColumnarExpressionNodeKind.PostfixUnary {
+                if ColumnarMethodBodyPlanner.TryAppendStateMachineBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)) {
+                    emit.Context.GeneralMethodBodyStatementCount += 1
+                    return true
+                }
                 EmitPostfixStep(emit, inner, false)
                 return !emit.Context.Declined
             }
