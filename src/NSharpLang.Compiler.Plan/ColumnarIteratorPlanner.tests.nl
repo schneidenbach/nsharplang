@@ -1709,6 +1709,67 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
     assert ColumnarIteratorTupleValueFactory.CallsMade() == 1, "the alternate branch's shared call statement evaluates once"
 }
 
+test "iterator planner shares a non-suspending try-finally body" {
+    source := "func* Guard(n: int): IEnumerable<int> { i: int = 0\n try { if n == 0 { throw new InvalidOperationException(\"boom\") }\n i += 1 } finally { i += 10 }\n yield i }"
+    probe := new ColumnarIteratorShapeProbe(
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 4
+
+    machineType := typeof(ColumnarIteratorRunProbe)
+    fields := new FieldInfo[](4)
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "n")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        machineType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields,
+        IteratorStructuralTypeReferences()
+    )
+
+    moveNext := MakeIteratorDynamicMethod("TryFinallyMoveNext", typeof(bool), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("TryFinallyCurrent", typeof(int), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+    assert context.GeneralMethodBodyStatementCount == 2, "the initialized local and complete try-finally statement use the method-body planner"
+
+    target: object? = null
+    invokeArgs := new object[](1)
+    machine := new ColumnarIteratorRunProbe()
+    IteratorSetObject(invokeArgs, 0, machine)
+    machine.state = 0
+    machine.n = 1
+    assert Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    assert Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)) == 11, "finally runs before the iterator reaches its following yield"
+    assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+
+    machine.state = 0
+    machine.n = 0
+    machine.i = 0
+    threwBoom := false
+    try {
+        moveNext.Invoke(target, invokeArgs)
+    } catch ex: Exception {
+        innerBox: object? = ex.get_InnerException()
+        threwBoom = innerBox != null && innerBox.GetType() == typeof(InvalidOperationException)
+    }
+    assert threwBoom
+    assert machine.i == 10, "finally runs before the exception leaves the iterator MoveNext body"
+}
+
 // A run-probe machine with the `.ctor(int)` shape the clone and factory plans construct through.
 class ColumnarIteratorCloneProbe {
     public state: int
