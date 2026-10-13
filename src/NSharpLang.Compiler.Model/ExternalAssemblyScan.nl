@@ -1599,7 +1599,7 @@ class ExternalAssemblyScan {
         }
 
         frameworkName := packName.Substring(0, packName.Length - 4)
-        sharedRoots := CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates(RuntimeEnvironment.GetRuntimeDirectory())
+        sharedRoots := DotnetInstallationLocator.SharedRootCandidates(RuntimeEnvironment.GetRuntimeDirectory())
         for sharedRoot in sharedRoots {
             frameworkRoot := CompilationReferenceResolverKernels.GetSharedFrameworkRoot(sharedRoot, frameworkName)
             if Directory.Exists(frameworkRoot) {

@@ -19,6 +19,10 @@ class TargetFrameworkVersionParseResult {
 }
 
 class CompilationReferenceResolverKernels {
+    static func FindDotnetRoot(): string? {
+        return DotnetInstallationLocator.FindRoot()
+    }
+
     static func GetImplicitNSharpRuntimeAssetCandidates(baseDirectory: string, compilerDirectory: string?): string[] {
         candidates := new List<string>()
         candidates.Add(Path.Combine(baseDirectory, "NSharpLang.Runtime.dll"))
@@ -259,17 +263,25 @@ class CompilationReferenceResolverKernels {
         throw new InvalidOperationException(GetNuGetNoPublishedVersionsMessage(packageName))
     }
 
-    static func GetDotnetSharedRootCandidates(runtimeDirectory: string?): string[] {
+    static func GetDotnetSharedRootCandidates(runtimeDirectory: string?, installedDotnetRoot: string? = null): string[] {
         candidates := new List<string>()
         yielded := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 
         current := runtimeDirectory ?? ""
+        foundRuntimeSharedRoot := false
         while !string.IsNullOrWhiteSpace(current) {
             if string.Equals(Path.GetFileName(current), "shared", StringComparison.OrdinalIgnoreCase) {
                 AddSharedRootCandidate(candidates, yielded, current)
+                foundRuntimeSharedRoot = true
             }
 
             current = Path.GetDirectoryName(current) ?? ""
+        }
+
+        // A NativeAOT host passes the installed root explicitly because its runtime directory is
+        // the application directory rather than a directory below `shared/`.
+        if !foundRuntimeSharedRoot && installedDotnetRoot != null {
+            AddSharedRootCandidate(candidates, yielded, Path.Combine(installedDotnetRoot, "shared"))
         }
 
         AddSharedRootCandidate(candidates, yielded, "/usr/local/share/dotnet/shared")

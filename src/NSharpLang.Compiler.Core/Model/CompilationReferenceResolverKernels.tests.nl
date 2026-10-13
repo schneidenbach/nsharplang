@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli
 
 import System
+import System.IO
 import NSharpLang.Compiler
 
 // THE COMPILATION REFERENCE RESOLVER'S SELECTION AND PARSING KERNELS.
@@ -59,6 +60,23 @@ test "the reference filter answers each of the other three kinds from the same l
     projects := CompilationReferenceResolverKernels.FilterReferencesByType(references, ReferenceType.Project)
     assert projects.Count == 1
     assert projects[0].Project == "../Shared/project.yml"
+}
+
+test "a native host can add its installed shared root when its runtime directory has none" {
+    candidates := CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates("/app/nlc", "/installed/dotnet")
+
+    assert candidates.Length == 4, string.Join("|", candidates)
+    assert candidates[0] == Path.Combine("/installed/dotnet", "shared")
+    assert candidates[1] == "/usr/local/share/dotnet/shared"
+    assert candidates[2] == "/opt/homebrew/share/dotnet/shared"
+    assert candidates[3] == "/usr/share/dotnet/shared"
+}
+
+test "a runtime-derived shared root still outranks the optional native host root" {
+    candidates := CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates("/runtime/shared/Microsoft.NETCore.App/10.0.0", "/installed/dotnet")
+
+    assert candidates[0] == "/runtime/shared"
+    assert !candidates.Contains(Path.Combine("/installed/dotnet", "shared"))
 }
 
 // ── the best-score selector ───────────────────────────────────────────────────

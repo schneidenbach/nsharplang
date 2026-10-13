@@ -3,6 +3,7 @@ namespace NSharpLang.Cli
 import System.Collections
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Compiler
 
 // THE NATIVE FRONT DOOR'S DECISIONS (`FrontDoorKernels`). The hand-off itself is proven as a
 // process in `tests/native/cli-command-contracts/FrontDoorContracts.tests.nl`.
@@ -77,7 +78,7 @@ test "the architecture root variables are the ones the .NET host reads" {
 }
 
 test "unix dotnet roots are searched in the launcher script's order" {
-    candidates := FrontDoorKernels.GetDotnetRootCandidates("/arch", "/root", "/opt/homebrew/Cellar/dotnet/10.0.105/bin/dotnet", "/home/ada", false, null, null)
+    candidates := DotnetInstallationLocator.GetRootCandidates("/arch", "/root", "/opt/homebrew/Cellar/dotnet/10.0.105/bin/dotnet", "/home/ada", false, null, null)
 
     expected := new List<string>()
     expected.Add("/arch")
@@ -94,7 +95,7 @@ test "unix dotnet roots are searched in the launcher script's order" {
 }
 
 test "missing variables are skipped and a repeated root is searched once" {
-    candidates := FrontDoorKernels.GetDotnetRootCandidates(null, "/usr/share/dotnet", null, "", false, null, null)
+    candidates := DotnetInstallationLocator.GetRootCandidates(null, "/usr/share/dotnet", null, "", false, null, null)
 
     assert candidates[0] == "/usr/share/dotnet"
     assert candidates.Count == 4, string.Join("\n", candidates)
@@ -102,7 +103,7 @@ test "missing variables are skipped and a repeated root is searched once" {
 }
 
 test "windows dotnet roots end in the Program Files installs" {
-    candidates := FrontDoorKernels.GetDotnetRootCandidates(null, null, null, null, true, "PF", "PF86")
+    candidates := DotnetInstallationLocator.GetRootCandidates(null, null, null, null, true, "PF", "PF86")
 
     assert candidates.Count == 2, string.Join("\n", candidates)
     assert candidates[0] == Path.Combine("PF", "dotnet")
@@ -110,11 +111,11 @@ test "windows dotnet roots end in the Program Files installs" {
 }
 
 test "a root is usable only when it carries a .NET 10 runtime" {
-    assert FrontDoorKernels.HasRequiredRuntime(["9.0.4", "10.0.5"])
-    assert FrontDoorKernels.HasRequiredRuntime(["10.0.0-rc.2.25502.107"])
-    assert !FrontDoorKernels.HasRequiredRuntime(["9.0.4", "8.0.11"])
-    assert !FrontDoorKernels.HasRequiredRuntime(["1.0.0", "100.0.0"])
-    assert !FrontDoorKernels.HasRequiredRuntime(new string[](0))
+    assert DotnetInstallationLocator.HasRequiredRuntime(["9.0.4", "10.0.5"])
+    assert DotnetInstallationLocator.HasRequiredRuntime(["10.0.0-rc.2.25502.107"])
+    assert !DotnetInstallationLocator.HasRequiredRuntime(["9.0.4", "8.0.11"])
+    assert !DotnetInstallationLocator.HasRequiredRuntime(["1.0.0", "100.0.0"])
+    assert !DotnetInstallationLocator.HasRequiredRuntime(new string[](0))
 }
 
 // ── the hand-off ─────────────────────────────────────────────────────────────────────────────

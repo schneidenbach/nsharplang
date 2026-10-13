@@ -34,6 +34,26 @@ class FrontDoorKernels {
         return "Cli.dll"
     }
 
+    static func GetArchitectureRootVariable(architecture: string): string? {
+        if architecture == "Arm64" {
+            return "DOTNET_ROOT_ARM64"
+        }
+        if architecture == "X64" {
+            return "DOTNET_ROOT_X64"
+        }
+        if architecture == "X86" {
+            return "DOTNET_ROOT_X86"
+        }
+        return null
+    }
+
+    static func GetDotnetExecutableName(isWindows: bool): string {
+        if isWindows {
+            return "dotnet.exe"
+        }
+        return "dotnet"
+    }
+
     // `nlc`, `nlc help`/`--help`/`-h` (29) and `nlc --version`/`-v` (30) print text that depends on
     // nothing but the version, which the entry point hands over. Every other command — including an
     // unknown one, whose error text the host owns — runs in the host.
@@ -58,89 +78,6 @@ class FrontDoorKernels {
         }
 
         return candidates
-    }
-
-    // The architecture-specific root variable the .NET host reads before `DOTNET_ROOT`, named by
-    // `RuntimeInformation.ProcessArchitecture.ToString()`.
-    static func GetArchitectureRootVariable(architecture: string): string? {
-        if architecture == "Arm64" {
-            return "DOTNET_ROOT_ARM64"
-        }
-
-        if architecture == "X64" {
-            return "DOTNET_ROOT_X64"
-        }
-
-        if architecture == "X86" {
-            return "DOTNET_ROOT_X86"
-        }
-
-        return null
-    }
-
-    static func GetDotnetExecutableName(isWindows: bool): string {
-        if isWindows {
-            return "dotnet.exe"
-        }
-
-        return "dotnet"
-    }
-
-    // THE SAME SEARCH ORDER THE LAUNCHER SCRIPTS USE (`scripts/lib/toolset.sh`): the architecture
-    // root, `DOTNET_ROOT`, the `dotnet` on PATH (its directory, a Homebrew-style `libexec` beside it,
-    // and its parent), `~/.dotnet`, then the platform's standard install locations.
-    // `dotnetOnPath` is the RESOLVED file the PATH entry points at, symlinks followed.
-    static func GetDotnetRootCandidates(architectureRoot: string?, dotnetRoot: string?, dotnetOnPath: string?, home: string?, isWindows: bool, programFiles: string?, programFilesX86: string?): List<string> {
-        candidates := new List<string>()
-        AddCandidate(candidates, architectureRoot)
-        AddCandidate(candidates, dotnetRoot)
-        if dotnetOnPath != null && dotnetOnPath.Length > 0 {
-            binDirectory := Path.GetDirectoryName(dotnetOnPath)
-            if binDirectory != null && binDirectory.Length > 0 {
-                AddCandidate(candidates, binDirectory)
-                parent := Path.GetDirectoryName(binDirectory)
-                if parent != null && parent.Length > 0 {
-                    if !isWindows {
-                        AddCandidate(candidates, Path.Combine(parent, "libexec"))
-                    }
-
-                    AddCandidate(candidates, parent)
-                }
-            }
-        }
-
-        if home != null && home.Length > 0 {
-            AddCandidate(candidates, Path.Combine(home, ".dotnet"))
-        }
-
-        if isWindows {
-            if programFiles != null && programFiles.Length > 0 {
-                AddCandidate(candidates, Path.Combine(programFiles, "dotnet"))
-            }
-
-            if programFilesX86 != null && programFilesX86.Length > 0 {
-                AddCandidate(candidates, Path.Combine(programFilesX86, "dotnet"))
-            }
-        } else {
-            AddCandidate(candidates, "/opt/homebrew/opt/dotnet/libexec")
-            AddCandidate(candidates, "/usr/local/opt/dotnet/libexec")
-            AddCandidate(candidates, "/usr/local/share/dotnet")
-            AddCandidate(candidates, "/usr/share/dotnet")
-        }
-
-        return candidates
-    }
-
-    // A root is usable when it carries a .NET 10 shared runtime; `runtimeVersions` are the directory
-    // names under `shared/Microsoft.NETCore.App`.
-    static func HasRequiredRuntime(runtimeVersions: string[]): bool {
-        for version in runtimeVersions {
-            if version.StartsWith("10.", StringComparison.Ordinal) {
-                return true
-            }
-        }
-
-        return false
     }
 
     // `dotnet <host> <args...>`: argv[0] is the muxer itself, as a shell would pass it.
@@ -218,14 +155,6 @@ class FrontDoorKernels {
     // The exit status the launcher scripts used for "cannot start": the shell's "command not found".
     static func GetStartFailureExitCode(): int {
         return 127
-    }
-
-    private static func AddCandidate(candidates: List<string>, candidate: string?) {
-        if candidate == null || candidate.Length == 0 {
-            return
-        }
-
-        AddDistinct(candidates, candidate)
     }
 
     private static func AddDistinct(candidates: List<string>, candidate: string) {

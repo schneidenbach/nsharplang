@@ -163,6 +163,14 @@ class AnalyzerMetadataLoadSurface {
         AddSearchDirectory(AppContext.BaseDirectory)
 
         sharedRoot := AnalyzerMetadataLoadPolicy.SharedRootFromRuntimeDirectory(runtimeDirectory)
+        if sharedRoot == null {
+            sharedRoots := DotnetInstallationLocator.SharedRootCandidates(runtimeDirectory)
+            for candidate in sharedRoots {
+                if sharedRoot == null && Directory.Exists(candidate) {
+                    sharedRoot = candidate
+                }
+            }
+        }
         if sharedRoot != null {
             frameworkNames := AnalyzerMetadataLoadPolicy.SharedFrameworkDirectoryNames()
             for frameworkName in frameworkNames {

@@ -982,7 +982,7 @@ sealed class CompilationReferenceResolver {
         frameworkName: string,
         targetFramework: string
     ): string? {
-        candidates := CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates(
+        candidates := DotnetInstallationLocator.SharedRootCandidates(
             RuntimeEnvironment.GetRuntimeDirectory()
         )
         candidateIndex := 0

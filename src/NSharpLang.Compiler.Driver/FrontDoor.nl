@@ -6,6 +6,7 @@ import System.ComponentModel
 import System.Diagnostics
 import System.IO
 import System.Runtime.InteropServices
+import NSharpLang.Compiler
 
 // THE EXPLICIT FRONT DOOR: `nlc` can hand a command to the managed host when
 // `NSHARP_FRONT_DOOR=1`. Normal JIT/R2R and NativeAOT invocations enter `CliPipeline` directly.
@@ -51,7 +52,7 @@ class FrontDoor {
         }
 
         isWindows := OperatingSystem.IsWindows()
-        dotnetRoot := ResolveDotnetRoot(isWindows)
+        dotnetRoot := CompilationReferenceResolverKernels.FindDotnetRoot()
         if dotnetRoot == null {
             Console.Error.WriteLine(FrontDoorKernels.GetMissingDotnetMessage(isWindows))
             return FrontDoorKernels.GetStartFailureExitCode()
@@ -76,7 +77,7 @@ class FrontDoor {
         directories := new List<string>()
         processPath := Environment.ProcessPath
         if processPath != null && processPath.Length > 0 {
-            resolved := ResolveFinalPath(processPath)
+            resolved := DotnetInstallationLocator.ResolveFinalPath(processPath)
             AddDirectoryOf(directories, resolved)
             AddDirectoryOf(directories, processPath)
         }
@@ -87,87 +88,6 @@ class FrontDoor {
         }
 
         return directories
-    }
-
-    static func ResolveDotnetRoot(isWindows: bool): string? {
-        architectureVariable := FrontDoorKernels.GetArchitectureRootVariable(RuntimeInformation.ProcessArchitecture.ToString())
-        architectureRoot: string? = null
-        if architectureVariable != null {
-            architectureRoot = Environment.GetEnvironmentVariable(architectureVariable)
-        }
-
-        candidates := FrontDoorKernels.GetDotnetRootCandidates(
-            architectureRoot,
-            Environment.GetEnvironmentVariable("DOTNET_ROOT"),
-            FindDotnetOnPath(isWindows),
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            isWindows,
-            Environment.GetEnvironmentVariable("ProgramFiles"),
-            Environment.GetEnvironmentVariable("ProgramFiles(x86)")
-        )
-        for candidate in candidates {
-            if IsUsableDotnetRoot(candidate, isWindows) {
-                return Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate))
-            }
-        }
-
-        return null
-    }
-
-    static func IsUsableDotnetRoot(candidate: string, isWindows: bool): bool {
-        if !File.Exists(Path.Combine(candidate, FrontDoorKernels.GetDotnetExecutableName(isWindows))) {
-            return false
-        }
-
-        runtimeRoot := Path.Combine(Path.Combine(candidate, "shared"), "Microsoft.NETCore.App")
-        if !Directory.Exists(runtimeRoot) {
-            return false
-        }
-
-        directories := Directory.GetDirectories(runtimeRoot)
-        names := new string[](directories.Length)
-        index := 0
-        while index < directories.Length {
-            names[index] = Path.GetFileName(directories[index])
-            index = index + 1
-        }
-
-        return FrontDoorKernels.HasRequiredRuntime(names)
-    }
-
-    static func FindDotnetOnPath(isWindows: bool): string? {
-        pathValue := Environment.GetEnvironmentVariable("PATH")
-        if pathValue == null || pathValue.Length == 0 {
-            return null
-        }
-
-        executableName := FrontDoorKernels.GetDotnetExecutableName(isWindows)
-        for entry in pathValue.Split(Path.PathSeparator) {
-            if entry.Length == 0 {
-                continue
-            }
-
-            candidate := Path.Combine(entry, executableName)
-            if File.Exists(candidate) {
-                return ResolveFinalPath(Path.GetFullPath(candidate))
-            }
-        }
-
-        return null
-    }
-
-    static func ResolveFinalPath(path: string): string {
-        try {
-            target := File.ResolveLinkTarget(path, true)
-            if target != null {
-                return target.FullName
-            }
-        } catch {
-            // A dangling or unreadable link is reported by whoever opens the path next.
-            return path
-        }
-
-        return path
     }
 
     static func AddDirectoryOf(directories: List<string>, path: string) {
