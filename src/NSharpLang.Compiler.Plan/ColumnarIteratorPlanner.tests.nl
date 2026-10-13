@@ -471,7 +471,18 @@ class ColumnarIteratorTupleProbe {
 }
 
 class ColumnarIteratorTupleValueFactory {
+    static Calls: int
+
+    static func ResetCalls() {
+        Calls = 0
+    }
+
+    static func CallsMade(): int {
+        return Calls
+    }
+
     static func Create(): ValueTuple<int, int> {
+        Calls = Calls + 1
         return new ValueTuple<int, int>(19, 23)
     }
 }
@@ -1515,7 +1526,7 @@ test "iterator planner admits a lock body without suspension" {
 }
 
 test "iterator tuple declarations use the ordinary method-body statement planner" {
-    source := "func* Pair(): IEnumerable<int> { (left, right) := CreateTuple()\n yield left\n yield right\n yield left + right }"
+    source := "func* Pair(): IEnumerable<int> { CreateTuple()\n (left, right) := CreateTuple()\n yield left\n yield right\n yield left + right }"
     probe := new ColumnarIteratorShapeProbe(
         source,
         "IEnumerable<int>",
@@ -1567,7 +1578,7 @@ test "iterator tuple declarations use the ordinary method-body statement planner
     )
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
-    assert context.GeneralMethodBodyStatementCount == 1, "the tuple statement must be owned by the ordinary method-body planner"
+    assert context.GeneralMethodBodyStatementCount == 2, "the ordinary call and tuple declaration must both be owned by the method-body statement planner"
     moveNext := MakeIteratorDynamicMethod("UnifiedTupleMoveNext", typeof(bool), machineType)
     ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())
     getCurrent := MakeIteratorDynamicMethod("UnifiedTupleCurrent", typeof(int), machineType)
@@ -1575,6 +1586,7 @@ test "iterator tuple declarations use the ordinary method-body statement planner
 
     machine := new ColumnarIteratorTupleProbe()
     machine.state = 0
+    ColumnarIteratorTupleValueFactory.ResetCalls()
     arguments := new object[](1)
     IteratorSetObject(arguments, 0, machine)
     target: object? = null
@@ -1586,6 +1598,7 @@ test "iterator tuple declarations use the ordinary method-body statement planner
     assert values[0] == 19
     assert values[1] == 23
     assert values[2] == 42
+    assert ColumnarIteratorTupleValueFactory.CallsMade() == 2, "the shared expression statement and tuple initializer each evaluate the source call once"
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {

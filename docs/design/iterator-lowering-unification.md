@@ -1,9 +1,11 @@
 # Iterator body lowering unification
 
-**Status:** architectural PoC complete; synchronous body lowering is in progress
+**Status:** architectural PoC complete; synchronous straight-line statement migration is in progress
 **Decision:** lower iterator suspension to ordinary method-body IR before emission; do not keep the iterator value emitter as a fallback.
 
-**PoC checkpoint:** a tuple declaration inside a synchronous iterator compiles and executes across three yields. Both an ordinary method and the iterator use `ColumnarMethodBodyPlanner.TryAppendTupleDeclaration` for declaration evaluation and extraction. The iterator test asserts the method-body statement route on the production move-next plan, so the old iterator tuple implementation cannot satisfy the proof. Iterator lowering supplies exact state-machine field bindings; the shared planner owns the source expression's single evaluation, tuple extraction, stores, and binding publication. This proves the first shared statement route, not completion of the general body rewrite: the iterator statement walker still owns every other statement shape and remains deletion debt.
+**PoC checkpoint:** a tuple declaration inside a synchronous iterator compiles and executes across three yields. Both an ordinary method and the iterator use `ColumnarMethodBodyPlanner.TryAppendTupleDeclaration` for declaration evaluation and extraction. The iterator test asserts the method-body statement route for an ordinary call statement and the tuple declaration on the production MoveNext plan, so the old iterator tuple implementation cannot satisfy the proof. Iterator lowering supplies exact state-machine field bindings; the shared planner owns the source expression's single evaluation, tuple extraction, stores, and binding publication.
+
+**Slice 1 progress:** ordinary inferred locals, tuple declarations, and discarded expression statements now enter `ColumnarMethodBodyPlanner.TryAppendMethodBodyStatement`. Synchronous iterator locals supply exact machine-field bindings; ordinary methods keep plan-local bindings. Awaited local initializers in async iterators remain on the current suspension-aware writer until the async lowering slice. The iterator statement walker still owns yields and other statement forms, so this is an incremental migration point rather than completion of the general body rewrite.
 
 ## Problem and decision
 

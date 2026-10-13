@@ -5117,26 +5117,70 @@ class ColumnarIteratorBodyPlanner {
             return true
         }
         if kind == ColumnarStatementNodeKind.VariableDeclarationStatement {
+            if emit.IsAsync {
+                // Async initializer suspension is still owned by the async state-machine body until
+                // slice 4 rewrites awaits before ordinary statement emission. Keep that path intact
+                // while synchronous declarations move to the shared method-body statement owner.
+                name := nodes.Text(source, node)
+                initializerType := typeof(int)
+                if !TryDiscoverBoundValueType(emit, nodes.Child(node, 0), out initializerType) {
+                    emit.Context.Decline("emit.iterator.unsupported-shape", "the initializer of local '" + name + "' could not be lowered in an async iterator body")
+                    return false
+                }
+                hoisted: FieldInfo? = null
+                if !emit.Context.TryEnsureHoistedField(name, initializerType, out hoisted) {
+                    emit.Context.Decline("emit.iterator.unsupported-shape", "local '" + name + "' cannot be hoisted as '" + initializerType.Name + "' in an async iterator body")
+                    return false
+                }
+                if emit.Context.IsLoopCaptured(name) {
+                    if !AppendFreshLoopCaptureBox(emit, name, nodes.Child(node, 0), initializerType, true) {
+                        return false
+                    }
+                } else if !AppendBoundFieldStore(emit, nodes.Child(node, 0), FieldPool(emit, name), initializerType) {
+                    return false
+                }
+                scope.HideEnclosingMember(name)
+                return true
+            }
+
             // `:=` local declaration: value span = name, child 0 = init. The initializer's type IS the
             // local's type, so it is discovered first (by planning the value into a plan nobody runs),
             // the field is defined from it, and only then do the real rows go down in evaluation order.
             name := nodes.Text(source, node)
+            if name.Length == 0 || scope.Bindings.IsVisibleBindingName(name) {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "local '" + name + "' is already visible in the iterator body")
+                return false
+            }
             initializerType := typeof(int)
             if !TryDiscoverBoundValueType(emit, nodes.Child(node, 0), out initializerType) {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "the initializer of local '" + name + "' could not be lowered in an iterator body")
                 return false
             }
             hoisted: FieldInfo? = null
-            if !emit.Context.TryEnsureHoistedField(name, initializerType, out hoisted) {
+            if !emit.Context.TryEnsureHoistedFieldUnpublished(name, initializerType, out hoisted) {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "local '" + name + "' cannot be hoisted as '" + initializerType.Name + "' in an iterator body")
                 return false
             }
-            if emit.Context.IsLoopCaptured(name) {
-                if !AppendFreshLoopCaptureBox(emit, name, nodes.Child(node, 0), initializerType, true) {
+            isCaptured := emit.Context.IsLoopCaptured(name)
+            storageField := must hoisted
+            if isCaptured {
+                boxField: FieldInfo? = null
+                if !emit.Context.TryEnsureLoopCaptureBoxUnpublished(name, initializerType, out boxField) || boxField == null {
+                    emit.Context.Decline("emit.iterator.lambda-unsupported", "the per-iteration storage for '" + name + "' could not be defined")
                     return false
                 }
-            } else if !AppendBoundFieldStore(emit, nodes.Child(node, 0), FieldPool(emit, name), initializerType) {
+                storageField = boxField
+            }
+            machineFields := new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)
+            machineFields[name] = new ColumnarMethodBodyFieldLocalBinding(storageField, initializerType, isCaptured)
+            if !ColumnarMethodBodyPlanner.TryAppendMethodBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, machineFields) {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "the declaration of local '" + name + "' could not be lowered by the ordinary method-body planner")
                 return false
+            }
+            emit.Context.GeneralMethodBodyStatementCount += 1
+            scope.PublishField(name, must hoisted)
+            if isCaptured {
+                scope.PublishBoxedCapture(name, storageField, initializerType)
             }
             scope.HideEnclosingMember(name)
             return true
@@ -5159,13 +5203,10 @@ class ColumnarIteratorBodyPlanner {
             if nodes.Kind(inner) == ColumnarExpressionNodeKind.AssignmentExpression {
                 return EmitAssignment(emit, inner)
             }
-            statementType := typeof(int)
-            if !AppendValue(emit, inner, out statementType) {
+            if !ColumnarMethodBodyPlanner.TryAppendMethodBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)) {
                 return false
             }
-            if !ColumnarCodePlanExecutor.IsVoidType(statementType) {
-                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
-            }
+            emit.Context.GeneralMethodBodyStatementCount += 1
             return true
         }
         if kind == ColumnarStatementNodeKind.WhileStatement {

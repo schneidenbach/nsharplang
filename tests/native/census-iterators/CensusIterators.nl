@@ -41,6 +41,7 @@ func MakeIteratorPair(left: int, right: int): (int, int) {
 }
 
 func SumIteratorPair(left: int, right: int): int {
+    MakeIteratorPair(left, right)
     (first, second) := MakeIteratorPair(left, right)
     return first + second
 }

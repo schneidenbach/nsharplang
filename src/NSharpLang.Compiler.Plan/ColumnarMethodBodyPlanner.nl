@@ -466,9 +466,10 @@ class ColumnarMethodBodyPlanner {
             return false
         }
 
-        // THE STATEMENT LOOP (015-B6). A claimed value body is now N declaration statements followed by
-        // ONE `return <expression>` — the shape that first makes a body's own name bindings possible.
-        // The last statement carries the arity, so it is checked before a single row is appended.
+        // THE STATEMENT LOOP (015-B6, widened for iterator unification). A claimed value body is a run
+        // of ordinary declarations, tuple declarations or expression statements followed by ONE
+        // `return <expression>`. The shared statement dispatcher owns the prefix; the last statement
+        // carries the arity, so it is checked before a single row is appended.
         statementCount := nodes.ChildCount(bodyRoot)
         if statementCount < 1 {
             return false
@@ -478,12 +479,12 @@ class ColumnarMethodBodyPlanner {
             return false
         }
 
-        // The bindings are built ONCE, before the plan is opened, and handed to the expression door.
-        // `FromRawFacts` wraps the caller's live dictionaries by reference and copies only the type
-        // parameters (a handful of entries at most). The loop REUSES this one binding set across every
-        // statement rather than rebuilding it per row, and each claimed declaration publishes its name
-        // into the set's OWN plan-local map — a fresh dictionary the bindings allocate, never one of the
-        // caller's, so a declined body leaves the emitter's live maps untouched.
+        // The bindings are built ONCE, before the plan is opened, and handed to the expression and
+        // statement doors. `FromRawFacts` wraps the caller's live dictionaries by reference and copies
+        // only the type parameters (a handful of entries at most). The loop REUSES this one binding set
+        // across every statement rather than rebuilding it per row, and each claimed declaration
+        // publishes its name into the set's OWN plan-local map — a fresh dictionary the bindings
+        // allocate, never one of the caller's, so a declined body leaves the emitter's live maps untouched.
         //
         // THE THREE FACTS `015-B5` AND `015-B6` DELIBERATELY LEFT UNROUTED ARE ROUTED HERE (015-B7),
         // because the direct-call claim is the arm that reads them. They are set in the same order and
@@ -519,16 +520,11 @@ class ColumnarMethodBodyPlanner {
         bindings.SetEnclosingTypeDefinition(enclosingTypeDefinition)
 
         plan.PrepareMethodBody()
+        emptyMachineFields := new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)
         i := 0
         while i < statementCount - 1 {
             statementNode := nodes.Child(bodyRoot, i)
-            if nodes.Kind(statementNode) == ColumnarStatementNodeKind.TupleDeconstructionStatement {
-                shape: ColumnarMethodBodyTupleDeclarationShape? = null
-                emptyMachineFields := new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)
-                if !TryAnalyzeTupleDeclaration(nodes, source, statementNode, bindings, out shape) || shape == null || !TryAppendTupleDeclaration(nodes, source, statementNode, bindings, plan, shape, emptyMachineFields) {
-                    return false
-                }
-            } else if !TryAppendLocalDeclaration(nodes, source, statementNode, bindings, plan) {
+            if !TryAppendMethodBodyStatement(nodes, source, statementNode, bindings, plan, emptyMachineFields) {
                 return false
             }
 
@@ -575,7 +571,15 @@ class ColumnarMethodBodyPlanner {
     // satisfied by construction and a call to it could never answer false. It arrives with the first
     // claimed shape that can fall through — a branch — not with this one.
     static func TryAppendLocalDeclaration(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
-        if statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.VariableDeclarationStatement || nodes.ChildCount(statement) != 1 {
+        machineFields := new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)
+        return TryAppendLocalDeclarationWithMachineFields(nodes, source, statement, bindings, plan, machineFields)
+    }
+
+    // The source-local statement owner shared by ordinary methods and rewritten state-machine bodies.
+    // Ordinary methods pass no machine fields and bind a plan local; the iterator lowering passes the
+    // exact generated field selected for a declaration that must survive a suspension.
+    static func TryAppendLocalDeclarationWithMachineFields(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, machineFields: Dictionary<string, ColumnarMethodBodyFieldLocalBinding>): bool {
+        if nodes == null || source == null || bindings == null || plan == null || machineFields == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.VariableDeclarationStatement || nodes.ChildCount(statement) != 1 {
             return false
         }
 
@@ -584,21 +588,108 @@ class ColumnarMethodBodyPlanner {
             return false
         }
 
-        // The INITIALIZER door, not the return door: the host's kind-24 arm runs no target-typed
-        // pre-pass at all, so a shape the kind-20 arm would adopt is claimable here and refused there.
+        machineBinding: ColumnarMethodBodyFieldLocalBinding? = null
+        hasMachineField := machineFields.TryGetValue(name, out machineBinding)
+        // A state-machine declaration's field type was selected from the ordinary uncontextualized
+        // initializer type before its metadata slot was defined. Reuse the ordinary target-typed
+        // value path at that exact type, which is also what the method emitter does when writing a
+        // value into its selected storage. A plain method has no preselected storage and uses the
+        // normal initializer cascade below.
         initializerType := typeof(int)
-        if !TryAppendValue(nodes, source, nodes.Child(statement, 0), bindings, plan, out initializerType) {
+        parentFragment := -1
+        if plan.OpenFragmentCount > 0 {
+            parentFragment = plan.OpenFragmentIndices[plan.OpenFragmentCount - 1]
+        }
+        if hasMachineField {
+            if machineBinding == null || !ColumnarConstructionPlanner.TryAppendTargetTypedValue(nodes, source, nodes.Child(statement, 0), bindings, ColumnarRangeIndexHandles.Resolve(), plan, parentFragment, 0, machineBinding.ValueType) {
+                return false
+            }
+            initializerType = machineBinding.ValueType
+        } else if !TryAppendValue(nodes, source, nodes.Child(statement, 0), bindings, plan, out initializerType) {
             return false
         }
 
-        if !IsClaimedLocalType(initializerType) {
+        if !hasMachineField && !IsClaimedLocalType(initializerType) {
             return false
         }
+        if hasMachineField {
+            storageFieldType: Type? = null
+            if machineBinding != null && machineBinding.StorageField != null {
+                storageFieldType = machineBinding.StorageField.FieldType
+            }
+            strongBoxDefinition := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
+            capturedStorageValid := machineBinding != null && !machineBinding.IsCaptured
+            if machineBinding != null && machineBinding.IsCaptured && storageFieldType != null && storageFieldType.IsGenericType {
+                capturedStorageValid = storageFieldType.GetGenericTypeDefinition() == strongBoxDefinition && storageFieldType.GetGenericArguments().Length == 1 && storageFieldType.GetGenericArguments()[0] == initializerType
+            }
+            if machineBinding == null || machineBinding.ValueType != initializerType || storageFieldType == null || bindings.CurrentInstance == null || !capturedStorageValid || (!machineBinding.IsCaptured && storageFieldType != initializerType) {
+                return false
+            }
 
-        planLocal := plan.DeclarePlanLocal(plan.AddType(initializerType))
-        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), planLocal)
-        bindings.DeclarePlanLocal(name, planLocal, initializerType)
+            valueLocal := plan.DeclarePlanLocal(plan.AddType(bindings.StructuralTypeReferences.SelectRuntimeType(initializerType), bindings.StructuralTypeReferences))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueLocal)
+            machineType := bindings.CurrentInstance.ExactType
+            machineArgument := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, machineType, false)
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), machineArgument)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), valueLocal)
+            if machineBinding.IsCaptured {
+                parameters := new Type[](1)
+                parameters[0] = initializerType
+                constructor := ColumnarClosureBindingPlanner.StrongBoxConstructor(initializerType)
+                plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructorWithSignature(constructor, machineBinding.StorageField.FieldType, parameters))
+            }
+            fieldPool := plan.AddFieldWithSignature(machineBinding.StorageField, machineType, machineBinding.StorageField.FieldType, false)
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+        } else {
+            planLocal := plan.DeclarePlanLocal(plan.AddType(initializerType))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), planLocal)
+            bindings.DeclarePlanLocal(name, planLocal, initializerType)
+        }
         return true
+    }
+
+    // A source expression statement whose value is discarded. It enters through the same append-mode
+    // value cascade as ordinary expression operands, then contributes only the required pop for a
+    // non-void result.
+    static func TryAppendExpressionStatement(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
+        if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(statement) != 1 {
+            return false
+        }
+
+        node := nodes.Child(statement, 0)
+        resultType := typeof(void)
+        parentFragment := -1
+        if plan.OpenFragmentCount > 0 {
+            parentFragment = plan.OpenFragmentIndices[plan.OpenFragmentCount - 1]
+        }
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, parentFragment, 0, out resultType) {
+            return false
+        }
+        if !ColumnarCodePlanExecutor.IsVoidType(resultType) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+        }
+        return true
+    }
+
+    // Ordinary source statements that need no state-machine suspension semantics. Yield and await
+    // are deliberately absent: the state-machine lowerer rewrites those before asking this owner.
+    static func TryAppendMethodBodyStatement(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, machineFields: Dictionary<string, ColumnarMethodBodyFieldLocalBinding>): bool {
+        if nodes == null || source == null || bindings == null || plan == null || machineFields == null || statement < 0 || statement >= nodes.Kinds.Length {
+            return false
+        }
+
+        kind := nodes.Kind(statement)
+        if kind == ColumnarStatementNodeKind.VariableDeclarationStatement {
+            return TryAppendLocalDeclarationWithMachineFields(nodes, source, statement, bindings, plan, machineFields)
+        }
+        if kind == ColumnarStatementNodeKind.TupleDeconstructionStatement {
+            shape: ColumnarMethodBodyTupleDeclarationShape? = null
+            return TryAnalyzeTupleDeclaration(nodes, source, statement, bindings, out shape) && shape != null && TryAppendTupleDeclaration(nodes, source, statement, bindings, plan, shape, machineFields)
+        }
+        if kind == ColumnarStatementNodeKind.ExpressionStatement {
+            return TryAppendExpressionStatement(nodes, source, statement, bindings, plan)
+        }
+        return false
     }
 
     // The host's own local-type gate, in its own order (`ColumnarIlEmitter.cs`'s kind-24 arm): an open
