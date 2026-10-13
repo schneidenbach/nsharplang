@@ -58,8 +58,8 @@ Environment overrides:
   NSHARP_LOCAL_FEED          Local NuGet feed path
   NSHARP_INSTALL_DIR         N# install directory (default: ~/.nsharp)
   NSHARP_ENV_DIR             Directory for the N# shell env file
-  NSHARP_TOOLSET_RID         RID to publish for (default: this machine's, which makes nlc the
-                             NativeAOT front door over a ReadyToRun compiler; 'portable' for IL)
+  NSHARP_TOOLSET_RID         RID to publish for (default: this machine's, which makes nlc a
+                             NativeAOT compiler host beside its ReadyToRun compatibility host)
 EOF
 }
 
@@ -212,7 +212,7 @@ verify_local_toolchain() {
 }
 
 # A local install is for this machine, so it is published for this machine's RID unless told
-# otherwise: the compiler host is ReadyToRun-compiled and `nlc` is the NativeAOT front door.
+# otherwise: it includes a ReadyToRun compatibility host and a full NativeAOT `nlc` host.
 local_toolset_rid() {
     local rid="${NSHARP_TOOLSET_RID:-host}"
     case "$rid" in

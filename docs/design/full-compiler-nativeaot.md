@@ -1,87 +1,131 @@
 # Full-compiler NativeAOT
 
-**Status:** measured migration plan; implementation has not yet switched the compiler host to
-NativeAOT. Owner-approved 2026-10-13.
+**Status:** NativeAOT host is published and runs the full check path for 8 of 21 examples. The other
+13 reach emission and expose reflection, dynamic-code, metadata-universe, or backend blockers. The
+CI smoke gate currently enforces JIT/R2R/AOT parity for the 8 completed check roots. Owner-approved
+2026-10-13.
 
-## Goal and current shape
+## Starting state and target
 
-Today `nlc` has a small NativeAOT front door and a separate ReadyToRun compiler host. The front door
-handles `--version` and help, then starts `dotnet lib/nlc/Cli.dll` for compiler commands. It folds
-`RuntimeFeature.IsDynamicCodeSupported` to false and trims the compiler from its own image. The
-compiler remains JIT/R2R code.
+At the start of this owner-approved work, `nlc` had a NativeAOT front door and a separate
+ReadyToRun compiler host. The front door handled `--version` and help, then started
+`dotnet lib/nlc/Cli.dll` for compiler commands. Its `RuntimeFeature.IsDynamicCodeSupported` branch
+trimmed the compiler from the NativeAOT image, so compiler commands still ran JIT/R2R.
 
-The goal is one `nlc` compiler host that can be published as NativeAOT, perform `check`, `build`, and
-`test` against the example corpus, and preserve current JIT/R2R results. No production C# owner is
-added. `src/NSharpLang.Cli/Program.cs` remains the CLI entry point; compiler and host logic remain
+The target is one `nlc` compiler host published as NativeAOT, performing `check`, `build`, and `test`
+across the example corpus with current JIT/R2R results preserved. The first routing slice removes the
+front-door diversion so NativeAOT enters the same N# `CliPipeline` as JIT/R2R. No production C# owner
+is added. `src/NSharpLang.Cli/Program.cs` remains the CLI entry point; compiler and host logic remain
 N#-owned.
 
 ## Measured source inventory
 
-The census below was rerun in this worktree at `0d3e81633` on 2026-10-13. It scans production `.nl`
-files under the compiler projects, CLI, and TestHost; `*.tests.nl` files are excluded. Counts are
-source call sites, not distinct API members. A method name is counted once per call expression.
+The census below was rerun on 2026-10-13 from this worktree. It scans production `.nl` files under
+the compiler projects, CLI, and TestHost; `*.tests.nl` files and comments are excluded. Counts are
+source call sites, not distinct API members.
 
 | Area | Count | Interpretation |
 |---|---:|---|
 | Production N# files in the compiler/CLI/TestHost closure | 654 | Source files searched |
-| `typeof(...)` expressions | 3,673 | 1,824 in Plan, 1,587 in Emit, 157 in Core, and 105 in the other projects |
-| `typeof(...)` expressions whose operand names a compiler-declared type | 18 direct matches | Most `typeof` operands name CLR/dependency types used by binding and emission. These 18 direct compiler-type handles are static roots, not a count of all reflection over compiler models. |
-| Reflection-style member calls | 1,455 | Broad source scan across type/member lookup, custom-attribute reads, value reads, and invocation. Most operate on user/reference metadata; this is not a count of compiler-type roots. |
+| `typeof(...)` expressions | 3,671 | 1,824 in Plan, 1,587 in Emit, 157 in Core, and 103 in other projects |
+| `typeof(...)` expressions on compiler-declared types | 16 resolved sites | Most `typeof` operands name CLR/dependency types used by binding and emission. The 16 direct compiler-type handles are a small static-root subset, not a count of all reflection over compiler models. |
+| Common reflection API calls | 1,341 | Code-only count of calls to 26 APIs: `GetType`, type/member lookup, custom-attribute reads, value reads, invocation, generic construction, and assignability checks. User/reference metadata and compiler-owned models are mixed in this total. |
+| Compiler-owned AST reflection | 123 `TypeInfoFactoryReflection` calls | Additional string-based AST traversal probes live in `AstNodeFinderCore` and `AstChildrenCore`; all such accesses need typed replacements before the root descriptor can be removed. |
 | `Type.GetType(...)` | 24 | Name-based type resolution sites; each needs an explicit metadata-catalog or static-root verdict. |
-| Runtime assembly loads | 10 | Seven in `ExternalAssemblyScan` and three in TestHost; these load executable assemblies into the compiler process. |
-| Metadata-context assembly loads | 8 | `MetadataLoadContext.LoadFromAssemblyPath/Name`; these read metadata and are retained as the reference model. |
-| `Assembly.Load`, `Assembly.LoadFrom`, and `AssemblyLoadContext` load calls, all forms | 18 | The 10 runtime loads plus 8 metadata-only loads above. |
-| `AppDomain` assembly enumeration | 8 | Runtime-discovered assemblies are also used to seed or reconcile catalogs. |
-| Production `DefineDynamicAssembly` / `DynamicMethod` calls | 0 / 0 | The emitter constructs persisted metadata with one `PersistedAssemblyBuilder`; it does not execute compiler-generated code. |
-| Test-only `DefineDynamicAssembly` calls | 22 | Reflection fixtures in `*.tests.nl`; these are not reachable from the product compiler host. |
-| `ReflectionTestRunner` collectible load sites | 1 direct, plus 2 runner resolution sites | Test execution must move to a child process so the NativeAOT compiler never loads the user's test assembly. |
+| Executable assembly loads | 10 | Seven in `ExternalAssemblyScan` and three in TestHost. These load executable assemblies into the compiler process. |
+| Metadata-context assembly loads | 8 | `MetadataLoadContext.LoadFromAssemblyPath/Name` sites read metadata and are retained as the current reference model. |
+| All `Assembly.Load*` and `AssemblyLoadContext` load sites | 18 | The 10 executable loads plus 8 metadata-only loads above. |
+| `AppDomain` assembly enumeration | 8 | Runtime-discovered assemblies also seed or reconcile catalogs. |
+| Production `DefineDynamicAssembly` / `DynamicMethod` construction | 0 / 0 | The emitter builds persisted metadata with `PersistedAssemblyBuilder`; production code does not directly create a runnable dynamic assembly or `DynamicMethod`. |
+| Dynamic generic construction | 177 `MakeGenericType`; 41 `MakeGenericMethod` | These sites receive `IL3050`/`IL2060` analysis warnings where their instantiations are not statically known. |
+| Test-only `DefineDynamicAssembly` calls | 22 | Reflection fixtures in `*.tests.nl`; they are not reachable from the product compiler host. |
+| Test-host assembly load sites | 3 | `ReflectionTestRunner` and `XunitTestRunner` load emitted test assemblies in-process; this moves to a child-process boundary. |
 
-`Assembly.Load*` is not one homogeneous blocker: the eight metadata-context loads are the desired
+`Assembly.Load*` is not one homogeneous blocker: the eight metadata-context loads are the current
 read-only metadata path. The ten executable loads, load-context inventory, and test-assembly loads
-are the in-process loading debt. The NativeAOT front-door publish currently reports zero IL warnings
-because the compiler is trimmed out; that result says nothing about the full-host warning set. The
-20 compiler-object reflection sites in the earlier trimming inventory remain a focused audit set;
-the first full-host publish must rederive reachability and warnings rather than treating that count as
-a completed root list.
+are the in-process loading debt. The full-host publish now reports **1,549** ILLink/NativeAOT
+warnings with `TrimmerSingleWarn=false`; the top groups are IL3050 (465), IL2070 (254), IL2026
+(243), IL2075 (197), and IL2055 (184). This is the actual compiler-host warning set, unlike the
+old front-door-only publish which trimmed the compiler away.
+
+The current NativeAOT root descriptor retains **208** `NSharpLang.Compiler.Ast.*` declarations plus
+`System.Index`, `System.Range`, and `RuntimeHelpers`. Those roots let analysis and the common
+range/index planner run, but they are transitional: the analyzer still reports IL2075 for
+`TypeInfoFactoryReflection.GetOptionalProperty`. The descriptor must shrink as those string-based AST
+property reads become typed access.
 
 ## The one type universe
 
-The project and framework reference catalog owns one metadata universe, opened through
-`MetadataLoadContext`. A user/reference type used by analysis, member binding, and emission has one
-metadata identity and comes from that catalog. `ExternalAssemblyScan` must stop loading implementation
-assemblies into a process `AssemblyLoadContext`, calling `Assembly.Load`, or using
-`AppDomain.GetAssemblies()` to complete the catalog. Installed framework packs, project outputs,
-NuGet assets, and reference images are resolved by their metadata paths and exact assembly identities.
+The compiler currently has three overlapping representations:
 
-Compiler implementation objects are separate: they are the statically compiled N# host types that
-execute the compiler. A `typeof(CompilerType)` used to anchor one of those types may remain when the
-linker warning and behavior contract require it. It must not stand in for a user/reference type. The
-source `TypeInfo` model remains the semantic representation of declarations being compiled. The
-emitter remains the single persisted-IL writer; `PersistedAssemblyBuilder` is retained as the output
-builder, and attribute emission continues through the raw metadata overload that is NativeAOT-safe.
-Any combination of source-defined generic types and external metadata types that the emitter cannot
-represent must be proved with an N# fixture before the catalog migration is accepted.
+1. Source declarations use `TypeInfo`/`TypeReference` in Compiler.Model.
+2. Reference assemblies use `System.Type` objects created by `MetadataLoadContext`.
+3. Plan and Emit use runtime `System.Type` handles from `typeof(...)`, assembly scans, and static
+   runtime reflection.
 
-`MetadataLoadContext` and `PersistedAssemblyBuilder` are in scope as supported NativeAOT components
-per the owner-approved capability notes. Their use still needs end-to-end compiler evidence with
-ordinary example projects. In particular, a successful API probe does not prove that every
-source/external generic closure, custom attribute, or emitted reference shape is supported.
+One universe means replacing (1) and (2) with one immutable metadata model for source and reference
+types. A type identity must carry exact assembly identity, namespace/nesting, arity, and value/class
+kind. Type shapes must represent generic parameters and substitutions, constructed generics, arrays,
+nullable/byref/pointer forms, tuples, function types, and source-only N# types. The catalog must expose
+base/interface closure, constraints, fields, properties, methods, constructors, explicit interface
+implementations, attributes, nullability, accessibility, and method signatures without loading an
+implementation assembly. Source declarations enter the same catalog as project, framework, and
+NuGet metadata. Lookup, equality, assignability, overload ranking, generic inference, and diagnostics
+must all use those identities rather than `Type.FullName` fallbacks or runtime-vs-MLC special cases.
+
+`ExternalAssemblyScan` then becomes a path/identity/catalog owner only: it reads reference images and
+must stop calling `Assembly.Load`, `Assembly.LoadFrom`, `AssemblyLoadContext.LoadFromAssemblyPath`,
+or `AppDomain.GetAssemblies()` to complete the type catalog. `MetadataLoadContext` is useful as a
+transition reader, but it is not the final model: its custom-context `Type` values cannot cross into
+the current persisted writer for external project types. The current AOT run reaches this concrete
+failure for `AutoDiscovery` and `MultiFileProject`: `The type 'Type: Product'/'Type: Person' was
+created by a custom ReflectionContext and cannot be used here.`
+
+Compiler implementation types remain ordinary statically compiled N# host types. The 16 resolved
+compiler-owned `typeof` sites may stay only when they name a compiler implementation type and the
+linker contract requires that static handle. They must not stand in for a user's or reference's type.
+
+### Emitter boundary: design fork
+
+The current sole writer is the 32,148-line `ColumnarIlEmitter.nl` path backed by
+`PersistedAssemblyBuilder`/`TypeBuilder`/`ILGenerator`. Its member and signature APIs receive
+`System.Type` and reflection handles. A metadata-model `Type` cannot simply be passed through: the
+NativeAOT run above proves that MLC-created custom-context types are rejected in the emitted external
+reference cases. Calling `Assembly.Load` to turn them into runtime types is unavailable under
+NativeAOT and violates the required single metadata universe.
+
+The next implementation slice therefore has two possible writer contracts, and they cannot coexist
+as permanent fallback paths:
+
+1. Keep `PersistedAssemblyBuilder` as the sole writer, but first prove and implement a supported way
+   for it to consume symbolic external type/member references without a runtime `System.Type`.
+2. Replace its handle-building boundary with a metadata-native writer that accepts the new model and
+   writes `TypeRef`/`MemberRef`/signature rows directly through `MetadataBuilder` and
+   `ManagedPEBuilder`, following the same low-level PE pattern Roslyn uses.
+
+The official [`MetadataBuilder` API](https://learn.microsoft.com/dotnet/api/system.reflection.metadata.ecma335.metadatabuilder)
+exposes assembly-reference, type-reference, member-reference, signature, and PE construction
+primitives. That is a demonstrated route for symbolic references; no equivalent public symbolic
+reference input has yet been demonstrated in the current PAB path. The owner-approved AOT capability
+notes establish that `PersistedAssemblyBuilder` itself works under NativeAOT, but do not resolve this
+external metadata-handle boundary. Do not start a second writer or add a runtime-load fallback until
+this choice is settled.
 
 ## Migration slices and size
 
-Sizes are current source/call-site inventory, not calendar estimates. Each slice is accepted only
-when its focused N# tests pass on the managed host and its NativeAOT publish/run check passes. The
-same source owner must serve both hosts; runtime-loading fallbacks and duplicate emitters are not
-acceptable end states.
+Sizes are source/call-site inventory, not calendar estimates. Every accepted slice must retain one
+owner for both JIT/R2R and NativeAOT; no runtime-loading fallback or duplicate emitter is acceptable.
 
-| Slice | Owner and scope | Current size | Acceptance evidence |
+| Slice | Owner and scope | Current size | Status and acceptance evidence |
 |---|---|---:|---|
-| 1. Full-host entry and warning gate | `CliPipeline` and toolset publish script: allow the NativeAOT image to enter the real command pipeline, with trim/AOT analyzers enabled and warnings as errors for completed owners | One 250-line N# dispatch file; existing front-door routing and publish gate | Native image starts, reports version/help, and reports actionable publish diagnostics for unfinished owners; JIT/R2R dispatch tests stay unchanged |
-| 2. Reference metadata ownership | `ExternalAssemblyScan`, `ReferenceImageSnapshotStore`, analyzer resolver; remove runtime assembly pairing and app-domain inventory | 2,241-line scan owner; 18 load sites total, of which 10 are executable loads and 8 metadata reads; 9 app-domain inventory sites | One catalog under CoreCLR and NativeAOT; reference identity, overload/member binding, and `nlc check` parity contracts |
-| 3. Metadata-backed emission | Plan/Emit binding, including type resolution, methods, fields, constructors, generic closures, attributes, and persisted writer inputs | 3,742 `typeof` sites overall, 17 direct compiler-type targets, 1,589 Emit and 1,845 Plan sites; `ColumnarIlEmitter.nl` is 32,148 lines | Existing emit-shape tests, ILVerify, whole-PE/method-body parity for unchanged JIT output, then AOT-published `nlc build` and example execution |
-| 4. Compiler-object reflection and trimming | Internal model serialization, object inspection, and static roots; retain only contract-backed reflection over compiler-owned objects | 20-site focused reflection/root audit; principal owners include 1,185-line `TypeInfoFactories.nl` and 402-line `IncrementalBuildInputs.nl`; full-host IL warning census still pending | Warnings-as-errors publish for completed owners; reflection serialization/format/query contracts under JIT and NativeAOT |
-| 5. Test process boundary | `NSharpLang.TestHost`: stop loading emitted test assemblies in the compiler process; launch the compiled test executable and preserve structured results/exit codes | Seven production N# files; `ReflectionTestRunner.nl` 350 lines, `XunitTestRunner.nl` 543 lines, and `NativeTestLoadContext.nl` | Focused `nlc test` projects under JIT and AOT hosts, including pass/fail, output, timeout, and test-framework cases |
-| 6. Product smoke and compatibility gate | CI-compatible NativeAOT publish/run plus command parity for the 21 example `project.yml` roots | One smoke script and one CI job/step; 21 example roots | Full-host publish with IL warnings as errors; run `nlc check` over every example; compare JIT/R2R and AOT `check`, `build`, and `test` outputs and exit codes |
+| 1. Full-host entry | `CliPipeline` and front-door routing; let every compiler command enter the same N# path under JIT/R2R/AOT | 250-line N# dispatch; front-door kernels | **Done.** `e11cb9843`; native `--version` and real check route pass, and the `RuntimeFeature.IsDynamicCodeSupported` diversion is gone. |
+| 2. Project and framework discovery | Typed YAML mapping and framework-root lookup when `RuntimeEnvironment.GetRuntimeDirectory()` names the native app directory | `ProjectFileParser.nl` 523 lines; new locator 175 lines; 22 parser, 26 resolver, and 13 front-door tests | **Done.** YAML mapping is at `5837fff9c`; the root lookup resolves installed `System.Runtime` under JIT, R2R, and AOT, and its focused estates pass. |
+| 3. Check diagnostics JSON | Remove reflection serialization from the check result, including serializer-compatible string escaping and optional diagnostic fields | One `CheckToJson` writer and one 39-test contract file | **Done for the check envelope.** The CLI contract slice preserves .NET's escaped backtick and HTML-sensitive wire forms; the AOT smoke compares identical JSON on all three hosts. Other CLI JSON envelopes remain unfinished. |
+| 4. Compiler-owned AST trimming | Replace string-based AST property reads with typed access, then remove temporary roots | 123 `TypeInfoFactoryReflection` calls; 208 AST declarations currently rooted; `TypeInfoFactories.nl` 1,185 lines and `AstNodeFinderCore.nl` 600+ lines | **In progress.** A temporary linker descriptor makes analysis runnable; the IL2075 warnings and roots stay until typed access replaces these readers. |
+| 5. Unified reference/source type catalog | Make source declarations and reference metadata share one identity/model; delete executable reference loads and AppDomain inventory | 3,671 `typeof` expressions (3,411 in Plan/Emit); 1,341 common reflection calls; `ExternalAssemblyScan.nl` 2,241 lines; 10 executable loads and 8 MLC loads | **Not started.** Requires the emitter-boundary decision above; tests must cover equality, overloads, generic constraints, attributes, nullability, and project-reference identity. |
+| 6. Metadata-native emission | Move plan/signature/member/IL emission to accept metadata-model handles without constructing runtime types for user/reference assemblies | `ColumnarIlEmitter.nl` 32,148 lines; 1,824 Plan and 1,587 Emit `typeof` sites; 465 IL3050 warnings in the current full-host publish | **Blocked at the design fork.** The MLC-to-PAB external type failures make a direct type-model substitution insufficient. Acceptance needs existing emit-shape estates, ILVerify, JIT/R2R parity, and AOT `build` plus execution. |
+| 7. Test execution boundary | Stop loading emitted test assemblies in the compiler process; launch the test executable and preserve structured results | Three TestHost load sites; `ReflectionTestRunner.nl` 350 lines, `XunitTestRunner.nl` 543 lines | **Not started.** Test pass/fail, output, timeout, and framework protocol must pass on JIT/R2R and NativeAOT. |
+| 8. Product smoke and compatibility gate | Publish the full host, enforce warnings for completed scopes, and compare `check` JSON and exits | `scripts/test-nativeaot-compiler.sh` (120 lines), shared warning-scope helper (20 lines), one CI job step, 21 example roots | **Partial gate landed.** It publishes JIT, R2R, and NativeAOT; rejects warnings in finished owners in both smoke and per-RID toolset publishing; and compares 8 of 21 examples. Grow the manifest as each AOT slice completes. |
 
 The test-only 22 dynamic-assembly fixtures stay in the managed compiler-service estate. They should
 not be rewritten merely to make the NativeAOT compiler host publish; the AOT test process boundary
@@ -107,29 +151,58 @@ machine/load context are recorded in [testing.md §8a](../../memory/testing.md#8
 An earlier EventPipe attribution measured **257 ms of `NSharpLang.*` JIT intervals on medium** and
 **602 ms on large** during a cold `nlc check`; these are the first measured upper-bound signal for
 compiler JIT work removed by AOT. That capture predates the persisted body-edit optimization, so the
-current cached-check rows need fresh JIT/R2R attribution before translating those intervals into a
-current end-to-end forecast. AOT's startup and runtime memory changes are not yet measured. The
-acceptance benchmark will rerun paired cold `check`, `build`, and `test` medians on the same fixture,
-host, and runtime version with the AOT and managed hosts alternating; the measured medians and
-structural counters will replace this estimate when the smoke gate lands.
+current cached-check rows before converting them into a projected median. The direct observation is
+that NativeAOT can remove at most those compiler-JIT intervals from that measured experiment; the
+actual cold check/build/test median improvement is not measured yet. Current AOT checks fail on 13
+examples before they can serve as a full compiler benchmark, and the test process boundary is not
+migrated. Do not turn the older JIT interval into fabricated AOT medians. The acceptance benchmark
+will alternate fresh cold `check`, `build`, and `test` runs on the same fixture, host, and runtime;
+then this table will gain the measured NativeAOT medians and paired differences.
 
-## Initial gate contract
+## AOT smoke and compatibility gate
 
-The NativeAOT smoke gate must publish the full compiler host for the runner RID with
-`EnableTrimAnalyzer=true`, `EnableAotAnalyzer=true`, and IL warnings treated as errors for every
-completed slice. It then runs `--version`, `help`, and `check` against all 21 examples, recording the
-same JSON diagnostics and exit codes as the managed host. As slices complete, their owners move
-under the warnings-as-errors boundary; the gate may not suppress or baseline an unfinished warning
-without naming the owner, call site, and reason.
+`scripts/test-nativeaot-compiler.sh` is wired into the CI package job. It builds the managed host,
+publishes ReadyToRun and NativeAOT hosts for the runner RID, enables both trim and AOT analyzers, and
+compares exact check JSON plus exit codes after clearing each disposable example copy's build/cache
+outputs. The initial manifest contains 8 roots; they pass on JIT, R2R, and NativeAOT. The runner's
+normal native toolset step separately checks the front door's `--version` and an issue-tracker check.
 
-The compatibility checkpoint also runs focused estate/native projects on both hosts. When the test
-process slice completes, the full non-VS-Code product gate runs through both the JIT/R2R toolset and
-the published NativeAOT host. CI uses a Linux host RID and keeps the NativeAOT artifact isolated from
-the normal package/install outputs.
+The full host publish currently has 1,549 analyzer warnings. They remain visible; one shared warning
+scope check fails warnings in the completed root-discovery, typed project-YAML mapping, and check-JSON
+method scopes during both smoke and per-RID toolset publishing, while other warnings stay assigned to
+unfinished owners. The per-RID toolset includes the full NativeAOT `bin/nlc` plus a ReadyToRun
+compatibility `Cli.dll`; its integration test checks a completed AOT example and runs the existing
+`build`/`run`/`test` contract through the ReadyToRun host. The 8-root manifest grows only when a root
+passes on all three hosts. The remaining 13 AOT check failures are recorded by current first refusal:
+
+- `PackagePrivateSimple`, `PackagePrivateTypes`, and `WeatherDemo`: `EqualityComparer<T>.Default` was
+  removed from the reflection surface.
+- `AutoDiscovery` and `MultiFileProject`: an MLC type created by a custom `ReflectionContext` is
+  passed into emission.
+- `InParameters`: dynamic code generation is requested by an emission path.
+- `TestExample`, `MinimalApi`, `TaskCli`, and `IssueTracker`: the runtime reports that the operation
+  is unsupported on this platform.
+- `ExceptionFilters`: the filter's first block child is refused by the emission planner.
+- `ExplicitInterfaceImplementation`: `IEnumerator<string>` cannot be resolved for the emitted
+  explicit implementation.
+- `LockStatement`: the `Task.Run` static member call is not modeled on the AOT route.
+
+All 21 example checks pass on the managed JIT host. The AOT gate currently covers the finished
+subset, not the full product corpus. Focused estates run on the managed host during each slice; the
+full non-VS-Code product gate remains an integration checkpoint after a multi-commit milestone.
 
 ## Current implementation cursor
 
-The current toolset still publishes the trimmed front door plus ReadyToRun compiler host. No
-full-compiler NativeAOT publish/run or AOT-vs-managed median has passed yet. The first implementation
-slice must make the real compiler path reachable in a NativeAOT image, publish it with analyzer
-warnings visible, and turn this source inventory into warning-by-warning migration evidence.
+The full `src/NSharpLang.Cli/Cli.csproj` host now publishes as NativeAOT and runs real checks. It
+passes 8 of the 21 example roots and has exact JIT/R2R/AOT check-JSON parity on those roots. The
+first executed slices are direct compiler routing (`e11cb9843`), typed YAML project parsing
+(`5837fff9c`), framework-root resolution (`f641d7875`), and the NativeAOT-safe check JSON writer
+(`e003cf6c4`). The trim descriptor and CI smoke harness in this milestone let the full host publish
+and keep the eight completed roots warning-clean and parity-checked. The remaining warning scope
+and partial example results are recorded above; build/test parity and cold AOT medians remain open.
+
+The next slice is at a real design fork: decide whether `PersistedAssemblyBuilder` can be retained
+with symbolic metadata handles, or whether its `System.Type`/reflection-handle boundary must be
+replaced by a metadata-native writer. That decision sets the owner and size of the 3,671-site Plan /
+Emit type migration. The in-process reference-load and test-load owners then move to metadata-only
+catalog reads and child processes respectively.

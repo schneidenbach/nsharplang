@@ -3,6 +3,7 @@
 if [[ -z "${NSHARP_REPO_ROOT:-}" ]]; then
     source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 fi
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/nativeaot-warnings.sh"
 
 NSHARP_DEFAULT_INSTALL_DIR="${NSHARP_INSTALL_DIR:-$HOME/.nsharp}"
 
@@ -245,7 +246,7 @@ nsharp_host_rid() {
 }
 
 # NativeAOT compiles for the OS and architecture it runs on; this toolchain assumes no cross
-# linker, so only a host-RID toolset gets the native front door.
+# linker, so only a host-RID toolset gets the native compiler executable.
 nsharp_can_build_native_front_door() {
     [[ "$1" == "$(nsharp_host_rid)" ]]
 }
@@ -269,10 +270,8 @@ nsharp_native_front_door_pack_args() {
     fi
 }
 
-# `bin/nlc` becomes the NativeAOT front door (src/NSharpLang.Compiler.Driver/FrontDoor.nl): it
-# answers --version/help itself and execs `dotnet lib/nlc/Cli.dll` for everything else, so the
-# toolset needs no launcher script for nlc. Any trim/AOT warning fails the publish: the front
-# door is warning-free by construction and must stay that way.
+# `bin/nlc` is the NativeAOT compiler host. The current full-host migration has unfinished warning
+# owners, so the shared scope check fails warnings in completed slices and reports the rest.
 nsharp_publish_native_front_door() {
     local rid="$1"
     local bin_dir="$2"
@@ -286,14 +285,13 @@ nsharp_publish_native_front_door() {
     local temp_root="${TMPDIR:-/tmp}"
     stage="$(mktemp -d "${temp_root%/}/nsharp-front-door.XXXXXX")"
     log="$stage.log"
-    if ! nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet publish src/NSharpLang.Cli/Cli.csproj -c Release -r "$rid" -o "$stage" -p:PublishAot=true ${pack_args[@]+"${pack_args[@]}"} -v q >"$log" 2>&1; then
+    if ! nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet publish src/NSharpLang.Cli/Cli.csproj -c Release -r "$rid" -o "$stage" -p:PublishAot=true -p:EnableTrimAnalyzer=true -p:EnableAotAnalyzer=true -p:ILLinkTreatWarningsAsErrors=false -p:TreatWarningsAsErrors=false -p:TrimmerSingleWarn=false ${pack_args[@]+"${pack_args[@]}"} -v q >"$log" 2>&1; then
         cat "$log" >&2
-        echo "Error: NativeAOT publish of the nlc front door failed for $rid." >&2
+        echo "Error: NativeAOT publish of the nlc compiler host failed for $rid." >&2
         rm -rf "$stage" "$log"
         return 1
     fi
-    if grep -E 'warning IL[0-9]+' "$log" >&2; then
-        echo "Error: the nlc front door must publish without trim/AOT warnings." >&2
+    if ! nsharp_check_nativeaot_warning_scopes "$log"; then
         rm -rf "$stage" "$log"
         return 1
     fi
@@ -311,8 +309,8 @@ nsharp_publish_native_front_door() {
 }
 
 # Without a RID: the portable, framework-dependent IL toolset that runs on every platform (the
-# release archive and the Docker integration rows use it). With a RID: the compiler host is
-# ReadyToRun-compiled for that RID, and on a host of that RID `nlc` is the NativeAOT front door;
+# release archive and the Docker integration rows use it). With a RID: the managed compatibility
+# host is ReadyToRun-compiled, and on a host of that RID `bin/nlc` is the full NativeAOT compiler;
 # elsewhere it keeps the launcher script.
 nsharp_publish_toolset() {
     local output_dir="$1"
@@ -340,11 +338,11 @@ nsharp_publish_toolset() {
     nsharp_write_launchers "$output_dir/bin"
     if [[ -n "$rid" ]]; then
         if nsharp_can_build_native_front_door "$rid"; then
-            nsharp_log "Publishing the NativeAOT nlc front door for $rid"
+            nsharp_log "Publishing the full NativeAOT nlc compiler for $rid"
             nsharp_publish_native_front_door "$rid" "$output_dir/bin"
             front_door="native"
         else
-            nsharp_log "The NativeAOT nlc front door needs a $rid build host; this toolset keeps the launcher script"
+            nsharp_log "The NativeAOT nlc compiler needs a $rid build host; this toolset keeps the launcher script"
         fi
     fi
 

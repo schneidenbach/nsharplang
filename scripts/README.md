@@ -14,7 +14,7 @@ keeps compatibility wrappers for stable commands that automation already uses.
 - `pack-nuget.sh` - build release artifacts into `artifacts/`.
 - `publish-packages.sh` - publish the canonical package set to NuGet or GitHub Packages.
 - `publish-toolset.sh` - publish the package-manager-ready `nsharp-toolset` layout (portable IL, or
-  `--rid <rid>|host` for a ReadyToRun host behind the NativeAOT `nlc` front door).
+  `--rid <rid>|host` for a ReadyToRun compatibility host beside the full NativeAOT `nlc` host).
 - `build-vscode-extension.sh`, `reload-vscode-extension.sh`,
   editor build/reload loops.
 

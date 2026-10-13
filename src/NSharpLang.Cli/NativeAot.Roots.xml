@@ -1,0 +1,18 @@
+<linker>
+  <!--
+    Temporary roots for the reflection-backed compiler-owned AST/model bridge. The AOT migration
+    removes these roots as TypeInfoFactoryReflection and the remaining model consumers move to
+    typed access. Keeping this list local to the full-host publish makes the dependency visible and
+    prevents the editor/runtime consumers from retaining the compiler graph.
+  -->
+  <assembly fullname="NSharpLang.Compiler.Model">
+    <type fullname="NSharpLang.Compiler.Ast.*" preserve="all" />
+  </assembly>
+
+  <!-- The shared range/index handle table resolves these members once through reflection. -->
+  <assembly fullname="System.Private.CoreLib">
+    <type fullname="System.Index" preserve="all" />
+    <type fullname="System.Range" preserve="all" />
+    <type fullname="System.Runtime.CompilerServices.RuntimeHelpers" preserve="all" />
+  </assembly>
+</linker>

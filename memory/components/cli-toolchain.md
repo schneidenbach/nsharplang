@@ -1457,44 +1457,36 @@ For a CLI-only reinstall while debugging packaging, use `./install-local.sh --sk
 | Shape | How | `bin/nlc` | `lib/nlc/Cli.dll` (compiler host) |
 |---|---|---|---|
 | portable (default; release archive, Docker rows) | `publish-toolset.sh` | bash/PowerShell launcher script | IL, JIT-compiled |
-| per-RID | `publish-toolset.sh --rid <rid>` or `--rid host` | NativeAOT front door (on a build host of that RID; otherwise the script) | ReadyToRun for that RID (`nsharp-lsp` stays IL) |
+| per-RID | `publish-toolset.sh --rid <rid>` or `--rid host` | Full NativeAOT compiler host (on a build host of that RID; otherwise the script) | ReadyToRun compatibility host for that RID (`nsharp-lsp` stays IL) |
 
 `scripts/setup-local.sh` publishes for the host RID (`NSHARP_TOOLSET_RID=portable` opts out). The
 toolset's `VERSION` records `rid=` and `nlc=native|script`.
 
-**The front door** (`src/NSharpLang.Compiler.Driver/FrontDoor.nl`, decisions in `FrontDoorKernels.nl`)
-is `Cli.csproj` published with `PublishAot=true`. `CliPipeline.Execute` first tests
-`RuntimeFeature.IsDynamicCodeSupported`; under NativeAOT that is a compile-time `false`, so the AOT
-compiler folds the test and trims the whole compiler out of the image (about 2.6 MB on osx-arm64,
-zero trim/AOT warnings — `nsharp_publish_native_front_door` fails the publish on any `warning IL`).
-The front door prints `--version`/`help` itself and, for every other command, resolves .NET in the
-launcher script's order (`DOTNET_ROOT_<ARCH>`, `DOTNET_ROOT`, `dotnet` on PATH, `~/.dotnet`, the
-standard install locations), exports `DOTNET_ROOT` the way the script did, and `execve`s
-`dotnet lib/nlc/Cli.dll <args>`: same process id, same descriptors, signals and exit code. Windows
-has no `exec`; there it starts the host on the same console and returns its exit code.
-`NSHARP_FRONT_DOOR=1` forces the front-door path inside a JIT process; the host never sees it.
-`tests/native/cli-command-contracts/FrontDoorContracts.tests.nl` proves the hand-off is
-indistinguishable from a direct run (version, help, unknown command, check, run, test), and
-`tests/native/installed-toolchain-integration/NativeFrontDoorToolset.tests.nl` publishes a real
-`--rid host` toolset and drives a project through its native `bin/nlc`. The language server stays
+**Native host and process hand-off.** `Cli.csproj` now publishes the full compiler as NativeAOT;
+`Program.Main` enters the same N# `CliPipeline` used by JIT/R2R. The old `RuntimeFeature` branch that
+trimmed the compiler out has been removed. The N# `FrontDoor` hand-off remains available only when
+`NSHARP_FRONT_DOOR=1` is set, for launcher-contract tests and managed-host delegation. Framework
+root discovery now finds the installed runtime when NativeAOT's
+`RuntimeEnvironment.GetRuntimeDirectory()` points at the app directory. The per-RID toolset keeps a
+ReadyToRun `Cli.dll` compatibility host beside the full NativeAOT `bin/nlc`; `nsharp-lsp` stays
 portable IL in both shapes (a ReadyToRun server is an IDE change and needs VS Code verification).
 
-**Why the compiler is not itself NativeAOT.** The emitter binds RUNTIME types:
-`PersistedAssemblyBuilder` is created over `typeof(object).Assembly`, the plan/emit slices spell
-types as runtime `typeof(...)` handles (about 3,400 sites), and `ExternalAssemblyScan` loads each
-reference's implementation into the compiler's process (`AssemblyLoadContext.LoadFromAssemblyPath`,
-`Assembly.Load`) to supply Reflection.Emit handles. Under NativeAOT neither in-process loading nor
-the framework assemblies beyond the image exist, so every external type would stay metadata-only
-and decline at emit; framework resolution (`RuntimeEnvironment.GetRuntimeDirectory()`) also points
-at the app directory. `nlc test`/`nlc run` additionally load emitted assemblies into a collectible
-context. All of that runs unchanged in the JIT host — the front door's `exec` IS the move to a child
-process, at about 4 ms over invoking the host directly. Making the compiler AOT needs the emitter on
-one metadata (`MetadataLoadContext`) type universe first.
+The current compiler migration is partial: the full host passes exact JIT/R2R/AOT check parity on 8
+of 21 examples. It still has 1,549 trim/AOT analyzer warnings assigned to unfinished owners, and
+13 examples first fail on reflection surface gaps, runtime-type emission, dynamic-code generation,
+or unmodeled emit paths. Current source counts, check results, migration sizes, cold command baselines,
+and the emitter design fork are recorded in
+[full-compiler-nativeaot.md](../../docs/design/full-compiler-nativeaot.md).
+
+The timing table below is historical: its “after” column measures the former front-door plus
+ReadyToRun-host process path, not the current full NativeAOT compiler host. Use the NativeAOT
+smoke gate for correctness; full-host cold `check`/`build`/`test` medians remain unmeasured while the
+compiler and test execution migrations are incomplete.
 
 Measured on osx-arm64 (M-series, `tests/fixtures/issue-tracker`, 534 lines; medians of paired,
 interleaved runs; CPU = user+sys):
 
-| Command | before: launcher script + JIT IL | after: front door + ReadyToRun host |
+| Command | before: launcher script + JIT IL | historical: front door + ReadyToRun host |
 |---|---|---|
 | `nlc --version` (quiet machine) | 40 ms wall (script 19 ms + host 21 ms) | 7 ms wall, 6 ms CPU |
 | `nlc check` (quiet, host only) | 1,360 ms wall, 1,441 ms CPU | 950 ms wall, 979 ms CPU |
@@ -1537,7 +1529,7 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.Driver/ProgramCommandKernels.nl` | Top-level dispatch and help text |
 | `src/NSharpLang.Compiler.Driver/QueryCommand.nl`, `QueryCommandKernels.nl` | `nlc query` dispatch, arguments, output selection and subcommand help |
 | `src/NSharpLang.Compiler.Driver/BuildCommandKernels.nl`, `TestCommandKernels.nl`, `FixCommandKernels.nl` | Build, test and fix command decisions |
-| `src/NSharpLang.Compiler.Driver/FrontDoor.nl` | NativeAOT executable front door and handoff to the managed CLI host |
+| `src/NSharpLang.Compiler.Driver/FrontDoor.nl` | Optional forced process hand-off for launcher-contract checks; normal NativeAOT enters `CliPipeline` directly |
 | `src/NSharpLang.TestHost/CliPipeline.nl`, `TestCommandHost.nl` | Managed command pipeline and `nlc test` orchestration |
 | `src/NSharpLang.Compiler.Driver/MultiFileCompiler.nl` | Multi-file project compilation |
 | `src/NSharpLang.Compiler.Driver/CompilationReferenceResolver.nl`, `ProjectReferenceResolver.nl` | Compiler and project reference resolution |

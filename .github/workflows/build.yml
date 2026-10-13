@@ -237,15 +237,17 @@ jobs:
     - name: Restore shared build outputs
       run: tar -xzf "$RUNNER_TEMP/ci-build/native-build.tar.gz" -C .
 
-    # The per-RID toolset: a ReadyToRun compiler host behind the NativeAOT `nlc` front door. The
-    # publish fails on any trim/AOT warning, and the smoke run proves the native front door answers
-    # --version itself and hands a real check to the host.
-    - name: Native toolset (NativeAOT front door, this runner's RID)
+    # The per-RID toolset includes a ReadyToRun compatibility host and a full NativeAOT compiler
+    # host. The scoped warning check and the three-host example smoke run keep completed slices clean.
+    - name: Native toolset (full NativeAOT compiler, this runner's RID)
       run: |
         ./scripts/publish-toolset.sh --rid host --output artifacts/toolset-native/nsharp --skip-packages --skip-archive
         grep -qx 'nlc=native' artifacts/toolset-native/nsharp/VERSION
         artifacts/toolset-native/nsharp/bin/nlc --version
-        (cd tests/fixtures/issue-tracker && ../../../artifacts/toolset-native/nsharp/bin/nlc check --text)
+        artifacts/toolset-native/nsharp/bin/nlc check --json --project examples/01-hello-world
+
+    - name: Full-compiler NativeAOT smoke and JIT/R2R parity
+      run: ./scripts/test-nativeaot-compiler.sh
 
     - name: Setup Node.js for extension packaging
       uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6

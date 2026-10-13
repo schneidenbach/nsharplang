@@ -607,7 +607,7 @@ door). Where two of them built the same thing, ONE owner was kept:
 | Parallel analysis vs incremental reuse | Reused files skip the workers; only the rest are queued; workers replay every earlier file's import loads, reused included. The shared analyzer stays LAZY (a stamp-answered build loads no reference) and may be the state's retained one | Composes both; no eager reference load on a no-op | throughput's eager `_sharedAnalyzer` in the constructor |
 | Reference metadata (`speed/agent-loop-2`) | ONE `MetadataLoadContext` per compilation (`SharedReferenceMetadata`, Model): the shared analyzer opens it, parallel workers attach, the IL back end's external scan reads it when every file it wants is already loaded from that path; one gate serialises loads, resolver probes and table writes | The analyzer, each worker and the emitter each read the same closure (large rows 151 images, small 501); the context is thread-safe by construction, the resolver's tables are not, hence the gate | per-worker contexts; the scan's private context when the analysis already holds its files |
 | Nested parallelism | A workspace `nlc check` (members already concurrent) analyses each member, and each project reference built for it, on one worker (`ResolutionContext.CompilesConcurrently`) | Measured on the repository root: per-member fan-out opened 548 more reference images for no wall gain and broke the root-check row's per-member ratio | -- |
-| `Cli.csproj` `TieredPGO=false` vs AOT/R2R | Kept as is | It reaches the IL host and the RID toolset's ReadyToRun host through `Cli.runtimeconfig.json` (R2R code still tiers up, straight to tier 1); the NativeAOT front door has no JIT. The front-door guard in `CliPipeline.Execute` runs FIRST, before daemon routing, as a lone constant test so ILC trims the compiler and daemon client | -- |
+| `Cli.csproj` `TieredPGO=false` vs AOT/R2R | Kept as is | Portable IL and ReadyToRun hosts keep their existing runtime configuration; the full NativeAOT image enters the same N# command pipeline directly. Completed NativeAOT warning scopes and the eight-root parity corpus are enforced by the compiler smoke gate | -- |
 | Hermetic gates vs daemon | `dev.sh` and `test-all-core.sh` default `NLC_NO_DAEMON=1`; the agent-loop bench's `--daemon` mode clears it (and `NLC_DAEMON_CHILD`, `NLC_DAEMON`, `CI`) for its spawned commands, so the routed path is still what `--daemon` measures | -- | -- |
 
 ## Current Compiler Debt
@@ -746,10 +746,11 @@ remaining state/control ownership from the active goal:
 - The former Analyzer metadata quarantine is removed with the complete C# class. Its metadata
   lifecycle and existing reflection operations are owned by N#; no metadata-writer rewrite was
   required to achieve that ownership. A broader metadata-writer initiative remains separate from
-  the compiler-only goal unless a concrete ownership dependency is demonstrated. NativeAOT now
-  covers only the `nlc` FRONT DOOR (per-RID toolsets; see `memory/components/cli-toolchain.md`):
-  the compiler stays a ReadyToRun JIT host because the emitter binds runtime types and loads
-  references in-process.
+  the compiler-only goal unless a concrete ownership dependency is demonstrated. The full-compiler
+  NativeAOT migration is now active (see `docs/design/full-compiler-nativeaot.md`): a published
+  compiler host passes JIT/R2R/AOT check parity on 8 of 21 examples, with remaining roots blocked by
+  reflection, runtime-type emission, and unsupported dynamic-code paths. The per-RID toolset keeps
+  its ReadyToRun compatibility host beside the NativeAOT compiler while those slices are migrated.
 
 Sibling assemblies are classified the same way and carry two `(b)` pins — surfaces that retire *with
 their subject* rather than moving, and which are pinned by contract in the meantime:

@@ -1,0 +1,10 @@
+# These roots currently pass a full-host NativeAOT check. Add a root only after the same
+# check diagnostics/exit code pass under JIT, ReadyToRun, and NativeAOT.
+01-hello-world
+11-advanced-features/CheckedUnchecked
+11-advanced-features/ConversionOperators
+11-advanced-features/InterpolatedRawStrings
+11-advanced-features/OperatorOverloading
+11-advanced-features/PreprocessorDirectives
+12-multi-file-projects/SimpleProject
+12-multi-file-projects/imports

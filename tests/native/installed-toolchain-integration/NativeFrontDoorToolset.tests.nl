@@ -9,8 +9,8 @@ import System.Reflection.PortableExecutable
 //
 // The Docker rows install the PORTABLE toolset into a Linux container: that is the release archive,
 // and it runs on every platform. A toolset published with `--rid` for THIS machine (what
-// `scripts/setup-local.sh` installs) is a different product: `bin/nlc` is the NativeAOT front door
-// (`src/NSharpLang.Compiler.Driver/FrontDoor.nl`) and `lib/nlc` is the ReadyToRun compiler host.
+// `scripts/setup-local.sh` installs) is a different product: `bin/nlc` is the full NativeAOT
+// compiler host and `lib/nlc` is the ReadyToRun compatibility host.
 // NativeAOT cannot cross-compile to another OS, so these rows run on the host instead of in the
 // container, against a real `publish-toolset.sh --rid host` output, and drive a project through
 // the native executable exactly as a user's shell would.
@@ -55,6 +55,15 @@ func NativeNlc(toolset: string, arguments: List<string>, workingDirectory: strin
     return ToolchainRunProcess(launch)
 }
 
+func NativeToolsetR2RNlc(toolset: string, arguments: List<string>, workingDirectory: string): ToolchainRun {
+    host := Path.Combine(Path.Combine(Path.Combine(toolset, "lib"), "nlc"), "Cli.dll")
+    launch := new ToolchainLaunch("dotnet", workingDirectory, ToolchainExecTimeoutMilliseconds())
+    launch.Arguments.Add(host)
+    launch.Arguments.AddRange(arguments)
+    launch.WithEnvironment("DOTNET_NOLOGO", "1")
+    return ToolchainRunProcess(launch)
+}
+
 func NativeArguments(text: string): List<string> {
     arguments := new List<string>()
     for part in text.Split(' ', StringSplitOptions.RemoveEmptyEntries) {
@@ -79,13 +88,13 @@ func IsReadyToRun(assemblyPath: string): bool {
     }
 }
 
-test "a host-RID toolset ships nlc as the NativeAOT front door over a ReadyToRun compiler host" {
+test "a host-RID toolset ships a full NativeAOT compiler and a ReadyToRun compatibility host" {
     toolset := NativeToolset()
     version := File.ReadAllText(Path.Combine(toolset, "VERSION"))
     assert version.Contains("\nnlc=native\n"), version
     assert !version.Contains("rid=portable"), version
 
-    // A launcher script starts with `#!`; the front door is a native executable.
+    // A launcher script starts with `#!`; the compiler host is a native executable.
     nlc := Path.Combine(Path.Combine(toolset, "bin"), "nlc")
     head := new byte[](2)
     stream := File.OpenRead(nlc)
@@ -102,13 +111,18 @@ test "a host-RID toolset ships nlc as the NativeAOT front door over a ReadyToRun
     assert !IsReadyToRun(Path.Combine(Path.Combine(Path.Combine(toolset, "lib"), "nsharp-lsp"), "LanguageServer.dll"))
 }
 
-test "the native front door reports the host's version and drives check, build, run and test" {
+test "the NativeAOT compiler checks its completed corpus and the ReadyToRun host preserves commands" {
     toolset := NativeToolset()
     version := NativeNlc(toolset, NativeArguments("--version"), Path.GetTempPath())
     ToolchainAssertSuccess(version, "nlc --version")
     host := ToolchainRunDotnet(NativeArguments(Path.Combine(Path.Combine(Path.Combine(toolset, "lib"), "nlc"), "Cli.dll") + " --version"))
     ToolchainAssertSuccess(host, "dotnet lib/nlc/Cli.dll --version")
     assert version.Stdout == host.Stdout, version.Stdout + " vs " + host.Stdout
+
+    safeProject := Path.Combine(ToolchainRepositoryRoot(), "examples/01-hello-world")
+    aotCheck := NativeNlc(toolset, NativeArguments("check --json --project " + safeProject), ToolchainRepositoryRoot())
+    ToolchainAssertSuccess(aotCheck, "NativeAOT nlc check on examples/01-hello-world")
+    assert aotCheck.Stdout.Contains("\"ok\": true"), aotCheck.Stdout
 
     project := Path.Combine(Path.GetTempPath(), "nsharp-native-front-door-" + Guid.NewGuid().ToString("N").Substring(0, 8))
     Directory.CreateDirectory(project)
@@ -117,21 +131,21 @@ test "the native front door reports the host's version and drives check, build, 
         File.WriteAllText(Path.Combine(project, "Program.nl"), "namespace NativeFrontDoor\n\nfunc Twice(value: int): int => value * 2\n\nfunc main(): int {\n    print $\"twice={Twice(21)}\"\n    return 3\n}\n")
         File.WriteAllText(Path.Combine(project, "Program.tests.nl"), "namespace NativeFrontDoor\n\ntest \"twice doubles\" {\n    assert Twice(4) == 8\n}\n")
 
-        check := NativeNlc(toolset, NativeArguments("check"), project)
-        ToolchainAssertSuccess(check, "nlc check")
+        check := NativeToolsetR2RNlc(toolset, NativeArguments("check"), project)
+        ToolchainAssertSuccess(check, "ReadyToRun nlc check")
         assert check.Stdout.Contains("\"ok\": true"), check.Stdout
 
-        ToolchainAssertSuccess(NativeNlc(toolset, NativeArguments("build"), project), "nlc build")
+        ToolchainAssertSuccess(NativeToolsetR2RNlc(toolset, NativeArguments("build"), project), "ReadyToRun nlc build")
 
-        run := NativeNlc(toolset, NativeArguments("run"), project)
+        run := NativeToolsetR2RNlc(toolset, NativeArguments("run"), project)
         assert run.ExitCode == 3, run.Report("nlc run")
         assert run.Stdout.Contains("twice=42"), run.Stdout
 
-        tests := NativeNlc(toolset, NativeArguments("test --no-cache"), project)
+        tests := NativeToolsetR2RNlc(toolset, NativeArguments("test --no-cache"), project)
         ToolchainAssertSuccess(tests, "nlc test")
         assert tests.Stdout.Contains("Passed: 1, Failed: 0"), tests.Stdout
 
-        unknown := NativeNlc(toolset, NativeArguments("no-such-command"), project)
+        unknown := NativeToolsetR2RNlc(toolset, NativeArguments("no-such-command"), project)
         assert unknown.ExitCode == 1, unknown.Report("nlc no-such-command")
         assert unknown.Stderr.Contains("Unknown command: no-such-command"), unknown.Stderr
     } finally {

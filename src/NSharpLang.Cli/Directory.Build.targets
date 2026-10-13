@@ -1,0 +1,5 @@
+<Project>
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)NativeAot.Roots.xml" />
+  </ItemGroup>
+</Project>
