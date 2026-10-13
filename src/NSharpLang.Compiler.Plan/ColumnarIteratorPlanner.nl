@@ -5244,6 +5244,10 @@ class ColumnarIteratorBodyPlanner {
             return true
         }
         if kind == ColumnarStatementNodeKind.WhileStatement {
+            if ColumnarMethodBodyPlanner.TryAppendStateMachineBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)) {
+                emit.Context.GeneralMethodBodyStatementCount += 1
+                return true
+            }
             // while [condition, body]: the back edge only exists when the body can complete. A
             // `continue` targets the condition, which is where the loop's next iteration begins.
             condLabel := emit.Plan.DefineLabel()

@@ -1602,7 +1602,7 @@ test "iterator tuple declarations use the ordinary method-body statement planner
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
-    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = 7 } else { i = 2 }\n while i < n + 7 { yield i\n i = i + 1 } }"
+    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = 7 } else { i = 2 }\n while i < 5 { i = i + 1 }\n while i < n + 7 { yield i\n i = i + 1 } }"
     probe := new ColumnarIteratorShapeProbe(
         source,
         "IEnumerable<int>",
@@ -1634,7 +1634,7 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
     getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
-    assert context.GeneralMethodBodyStatementCount == 3, "the annotated initializer, hoisted-field assignment, and conditional assignment must be appended by the shared method-body statement planner"
+    assert context.GeneralMethodBodyStatementCount == 4, "the annotated initializer, hoisted-field assignments, conditional, and non-suspending loop must be appended by the shared method-body statement planner"
 
     moveNext := MakeIteratorDynamicMethod("MoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())
@@ -1677,12 +1677,9 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
         hasNext = Convert.ToBoolean(moveResult)
     }
 
-    assert results.Count == 5
-    assert results[0] == 2
-    assert results[1] == 3
-    assert results[2] == 4
-    assert results[3] == 5
-    assert results[4] == 6
+    assert results.Count == 2
+    assert results[0] == 5
+    assert results[1] == 6
 }
 
 // A run-probe machine with the `.ctor(int)` shape the clone and factory plans construct through.
