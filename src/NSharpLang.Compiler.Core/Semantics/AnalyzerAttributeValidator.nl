@@ -148,6 +148,7 @@ class AnalyzerAttributeValidator {
             ValidateAttributeArgumentsOn(functionDecl.Attributes, AnalyzerAttributeUsageFacts.MethodTarget)
             ValidateParameterAttributeArguments(functionDecl.Parameters)
             ValidateNativeImportSignature(functionDecl)
+            ValidateAsyncIteratorCancellation(functionDecl)
             ValidateMethodImplCarrier(functionDecl.Attributes, functionDecl.Body != null || functionDecl.ExpressionBody != null)
             return
         }
@@ -506,6 +507,117 @@ class AnalyzerAttributeValidator {
                 diagnostics.Report(ErrorCode.InvalidParameter, "Native import '" + declaration.Name + "' can't marshal its return type — " + returnRefusal, line, column, NativeImportSignatureFacts.DescribeRepair(returnType), length)
             }
         }
+    }
+
+    // An async iterator has two possible cancellation sources: the token supplied to the method and
+    // the token supplied later to GetAsyncEnumerator. With one CancellationToken parameter the
+    // choice is unambiguous and N# links it automatically. With several, the standard BCL
+    // EnumeratorCancellationAttribute selects the one parameter that receives the consumer token.
+    // Resolve both types through the current reference set and compare metadata identity; a user type
+    // with the same spelling must not silently opt into this runtime contract.
+    func ValidateAsyncIteratorCancellation(declaration: FunctionDeclaration) {
+        if !AnalyzerAmbientContext.HasModifier(declaration, Modifiers.Async) || !AnalyzerAmbientContext.HasModifier(declaration, Modifiers.Generator) {
+            return
+        }
+
+        returnReference := declaration.ReturnType
+        if returnReference == null {
+            return
+        }
+
+        returnType := declarationContext.ResolveDeclaredAlias(typeResolver.ResolveType(returnReference))
+        if !GeneratorSequenceTypeFacts.IsSequenceReturnType(returnType, true) {
+            return
+        }
+
+        expectedToken := externalTypeProbe.ResolveExternalType("System.Threading.CancellationToken") as ReflectionTypeInfo
+        expectedAttribute := externalTypeProbe.ResolveExternalType("System.Runtime.CompilerServices.EnumeratorCancellationAttribute") as ReflectionTypeInfo
+        cancellationCount := 0
+        selectedCount := 0
+        invalidMarker: AttributeNode? = null
+        secondCancellation: Parameter? = null
+
+        for parameter in declaration.Parameters {
+            parameterType := declarationContext.ResolveDeclaredAlias(typeResolver.ResolveType(parameter.Type))
+            reflectedParameterType := parameterType as ReflectionTypeInfo
+            isCancellationToken := expectedToken != null && reflectedParameterType != null && reflectedParameterType.Type == expectedToken.Type
+            if isCancellationToken {
+                cancellationCount += 1
+                if cancellationCount == 2 {
+                    secondCancellation = parameter
+                }
+            }
+
+            attributes := parameter.Attributes
+            if attributes == null {
+                continue
+            }
+
+            for attribute in attributes {
+                resolvedAttribute: Type = typeof(object)
+                if !TryResolveClrAttributeType(attribute.Name, out resolvedAttribute) || expectedAttribute == null || resolvedAttribute != expectedAttribute.Type {
+                    continue
+                }
+
+                if isCancellationToken {
+                    selectedCount += 1
+                } else if invalidMarker == null {
+                    invalidMarker = attribute
+                }
+            }
+        }
+
+        if invalidMarker != null {
+            marker := (AttributeNode)invalidMarker
+            span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(marker)
+            diagnostics.Report(
+                ErrorCode.AsyncIteratorCancellationTokenSelection,
+                "`[EnumeratorCancellation]` on parameter '" + FindParameterNameForAttribute(declaration.Parameters, marker) + "' cannot select a cancellation token because the parameter is not a `CancellationToken`",
+                span.Line,
+                span.Column,
+                "Place `[EnumeratorCancellation]` on a `CancellationToken` parameter of this async iterator.",
+                span.Length
+            )
+            return
+        }
+
+        if cancellationCount < 2 || selectedCount == 1 {
+            return
+        }
+
+        parameterToUnderline := secondCancellation
+        if parameterToUnderline == null && declaration.Parameters.Count > 0 {
+            parameterToUnderline = declaration.Parameters[0]
+        }
+        if parameterToUnderline == null {
+            return
+        }
+
+        span := AnalyzerDiagnosticSpanFacts.GetParameterDiagnosticSpan((Parameter)parameterToUnderline, declaration.Line, declaration.Column)
+        diagnostics.Report(
+            ErrorCode.AsyncIteratorCancellationTokenSelection,
+            "Async iterator '" + declaration.Name + "' has " + cancellationCount.ToString() + " `CancellationToken` parameters, so N# cannot infer which one receives the consumer's cancellation token",
+            span.Line,
+            span.Column,
+            "Mark exactly one `CancellationToken` parameter with `[EnumeratorCancellation]`. Other token parameters remain independent.",
+            span.Length
+        )
+    }
+
+    func FindParameterNameForAttribute(parameters: List<Parameter>, attribute: AttributeNode): string {
+        for parameter in parameters {
+            attributes := parameter.Attributes
+            if attributes == null {
+                continue
+            }
+            for candidate in attributes {
+                if Object.ReferenceEquals(candidate, attribute) {
+                    return parameter.Name
+                }
+            }
+        }
+
+        return "?"
     }
 
     // THE WHOLE RULE FOR ONE DECLARATION'S ATTRIBUTES, IN THE ORDER THAT MAKES THE DIAGNOSTICS READ.

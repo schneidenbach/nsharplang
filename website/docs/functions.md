@@ -1737,11 +1737,33 @@ calls `MoveNextAsync`; each `await` suspends that same machine, and each `yield`
 consumer breaks. Calling `GetAsyncEnumerator` on the same sequence creates a fresh machine, allowing
 independent enumerations.
 
-N# currently has no `[EnumeratorCancellation]` equivalent. The generated
-`GetAsyncEnumerator(CancellationToken)` accepts the interface token but does not link it to a
-`CancellationToken` parameter on the iterator method or pass it into the body. A method's own token
-parameter can still be captured and used explicitly, but `await foreach` does not flow its consumer
-token into that parameter.
+N# follows C#'s `[EnumeratorCancellation]` rule. With exactly one `CancellationToken` parameter,
+the compiler links the method argument and the token supplied later to `GetAsyncEnumerator`; when one
+is the default it passes through the other, and when both are cancellable it links them. The linked
+source is disposed when the enumerator's `DisposeAsync` runs. N# also emits the BCL
+`System.Runtime.CompilerServices.EnumeratorCancellationAttribute` on that parameter, so C# callers
+see the same metadata contract.
+
+When an async iterator has multiple `CancellationToken` parameters, mark exactly one with the BCL
+`[EnumeratorCancellation]` attribute. That parameter receives the linked token; every other token
+parameter remains unchanged. N# reports [NL353](./errors/NL353.md) if the selection is missing,
+ambiguous, or marks a parameter that is not a `CancellationToken`.
+
+Pass `CancellationToken.None` to an operation that should ignore consumer cancellation. Keep an
+unrelated token in a non-`CancellationToken` parameter type, such as a string identifier or a
+domain-specific wrapper, when it is data rather than a cancellation source.
+
+```n#
+import System.Collections.Generic
+import System.Runtime.CompilerServices
+import System.Threading
+import System.Threading.Tasks
+
+async func* rows(sourceToken: CancellationToken, [EnumeratorCancellation] consumerToken: CancellationToken): IAsyncEnumerable<int> {
+    await Task.Delay(100, consumerToken)
+    yield sourceToken.IsCancellationRequested ? 1 : 0
+}
+```
 
 An `await` inside one may be a statement, or the whole value of a declaration, an assignment or a
 `yield`:

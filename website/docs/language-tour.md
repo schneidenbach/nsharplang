@@ -1123,21 +1123,29 @@ Use `async func*` for async iterators and `await foreach` to consume them.
 ```n#
 import System
 import System.Collections.Generic
+import System.Threading
 import System.Threading.Tasks
 
-async func* getNumbersAsync(): IAsyncEnumerable<int> {
+async func* getNumbersAsync(cancellationToken: CancellationToken): IAsyncEnumerable<int> {
     for i := 0; i < 5; i++ {
-        await Task.Delay(100)
+        await Task.Delay(100, cancellationToken)
         yield i
     }
 }
 
-async func main() {
-    await foreach num in getNumbersAsync() {
+async func printNumbers(consumerToken: CancellationToken) {
+    await foreach num in getNumbersAsync(CancellationToken.None).WithCancellation(consumerToken) {
         print $"Got: {num}"
     }
 }
 ```
+
+When an async iterator has one `CancellationToken` parameter, N# links it automatically with the
+token supplied by `WithCancellation` or `GetAsyncEnumerator(token)`. If the method has multiple token
+parameters, mark exactly one with `[EnumeratorCancellation]` from
+`System.Runtime.CompilerServices`; otherwise [NL353](./errors/NL353.md) explains how to select it.
+The other parameters remain independent. Pass `CancellationToken.None` to work that should ignore
+consumer cancellation, and use a non-`CancellationToken` type for an unrelated token value.
 
 ## Lambdas and Closures
 

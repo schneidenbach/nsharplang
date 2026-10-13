@@ -72,6 +72,10 @@ class ErrorSuggestions {
             return "Keep the `when` expression synchronous; put awaited work in the selected `catch` body"
         }
 
+        if code == ErrorCode.AsyncIteratorCancellationTokenSelection {
+            return "Mark exactly one `CancellationToken` parameter with `[EnumeratorCancellation]`; other token parameters remain independent"
+        }
+
         if code == ErrorCode.WrongArgumentCount {
             return "Check the function signature for required parameters"
         }
