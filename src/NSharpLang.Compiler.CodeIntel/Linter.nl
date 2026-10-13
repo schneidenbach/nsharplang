@@ -373,11 +373,22 @@ class Linter {
         this.config = config ?? LinterConfig.Default()
     }
 
+    // Keep the original three-argument production entry point stable. The per-project source map
+    // extends file-import analysis, but callers that bind the public API through reflection still
+    // need the original CLR signature as well as the source-level optional-argument behavior.
     func Lint(
         ast: CompilationUnit,
         filePath: string? = null,
-        sourceText: string? = null,
-        projectSourceTexts: IReadOnlyDictionary<string, string>? = null
+        sourceText: string? = null
+    ): List<Diagnostic> {
+        return Lint(ast, filePath, sourceText, null)
+    }
+
+    func Lint(
+        ast: CompilationUnit,
+        filePath: string?,
+        sourceText: string?,
+        projectSourceTexts: IReadOnlyDictionary<string, string>?
     ): List<Diagnostic> {
         state := new LinterWalkState(filePath, sourceText, config, projectSourceTexts)
         declarationWalk := new LinterDeclarationWalk(state)
