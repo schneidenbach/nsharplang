@@ -234,32 +234,30 @@ Undefined identifier 'unknownVar'
   (four analyzer workers, emit and exact-identity runtime contexts). This lets the ratchet account for references
   that exist only in built outputs or restored assets while keeping the allowance tied to what each
   member actually uses. The workspace contract pins the current integrated inventory at 235 member
-  roots (including the repository root) and 2,016 checked `.nl` files. Its parse cap remains three
+  roots (including the repository root) and 2,017 checked `.nl` files. Its parse cap remains three
   events per file; the reference-image maximum is recomputed from the discovered member count and
   each member's resolved reference closure. The 2026-10-11 fresh Debug CLI census measured 3,164
   parse events (maximum 6,048 at the unchanged cap) and 12,021 reference-image opens against the
   dynamically computed 17,979 maximum (33 shared opens per member plus six for each of 1,704
-  resolved reference images). Its 60.858 s wall time was unjudged: load was 3.22 on 10 cores, above
-  the 2.0 timing threshold, though below the 128 s budget. Since `0c554b664`, the source inventory gained
+  resolved reference images). Those reference counts predate excluding installed framework and
+  targeting-pack images, and the 60.858 s wall time is trend data only. The repository-root contract
+  has no machine-specific timing budget. Since `0c554b664`, the source inventory gained
   `tests/native/gate-script-contracts/CiTestSharding.tests.nl` and removed no `.nl` files.
 
-  Reference counts vary with generated outputs because `AnalyzerReferenceLoadOrchestration` prefers
+  Compiler-owned reference counts vary with generated outputs because `AnalyzerReferenceLoadOrchestration` prefers
   a locally built `bin/Debug/<targetFramework>` package assembly and project references load their
   built output; when those files are absent it resolves package assemblies from the NuGet cache.
   `obj/project.assets.json` also pins the restored package versions when available, while an
-  unrestored project falls back to the installed package version. At `d912a77ca`, the clean state
-  measured 18,284 opens and the fully built `examples/` + `src/` state measured 18,598, identically
-  across three runs in each state. The full-built increase is 314 opens, explained by the different
-  local output and restored-version reference set; both states pass the computed budget. Since
+  unrestored project falls back to the installed package version. Before framework/reference-pack
+  paths were excluded, `d912a77ca` measured 18,284 opens in the clean state and 18,598 in the fully
+  built `examples/` + `src/` state, identically across three runs in each state. Those historical
+  totals include installed framework images and are not comparable to the current counter. Since
   `d4f10f232`, member reference graphs are resolved before concurrent analysis to avoid the shared
   metadata-reference race.
   Earlier fresh worktree/copy runs measured 18,184 opens for 223 members / 1,991 checked files.
-  The reported 5,352-event parse result was not reproduced; it does not point to counter
-  nondeterminism or a source-inventory difference in that earlier reproduction.
-  Its separate 128 s wall budget (the measured ~64 s check × 2) is judged only below one fifth of
-  logical cores (2.0 on the 10-core measurement host); unknown or higher load records timing as
-  unjudged. Workspace completeness, parse counts and the dependency-derived reference-image budget
-  always gate. The separate 15-minute timeout is only a hang detector.
+  Those totals also predate the framework/reference-pack exclusion. Repository-root wall time is
+  record-only; workspace completeness, parse counts and the dependency-derived reference-image
+  budget are the enforced work contracts. The separate 15-minute timeout catches hangs.
 - Exit code 0 = clean, 1 = errors
 - Near-zero-warnings policy: correctness/safety/hygiene diagnostics are build-blocking errors, so a clean `nlc check` (`ok: true`, exit 0) is a strong guarantee rather than "clean modulo warnings." `summary.warnings` is reported but is expected to stay at 0 for well-formed code; pure style is handled by `nlc format`, not surfaced here.
 - JSON by default, `--text` for Elm-style diagnostics
@@ -352,7 +350,7 @@ changed.
 | `counters.emitParses` | Source files tokenized and parsed by the columnar IL pipeline (`ColumnarProgramInputBuilder`) |
 | `counters.filesAnalyzed` | Compilation units through `Analyzer.Analyze` |
 | `counters.assembliesEmitted` | IL images written by the columnar emitter (a reference assembly beside one is not counted) |
-| `counters.referenceAssembliesLoaded` | Reference images opened from a path: MetadataLoadContext loads plus exact-identity executable loads; one file in two contexts counts twice |
+| `counters.referenceAssembliesLoaded` | Compiler-owned reference images opened from a path: MetadataLoadContext loads plus exact-identity executable loads. Installed shared-framework and targeting-pack images are excluded because their inventory varies by OS and SDK patch. Package-cache fallback images count only when their package is in the project's restored dependency closure, so unrelated global-cache contents cannot change the counter; one counted file opened by two contexts counts twice |
 | `counters.frameworkReferenceBytesHashed` | Bytes read and SHA-256 hashed from installed `shared/` framework or `packs/` reference assemblies while validating incremental build inputs; an up-to-date build must report zero |
 | `counters.processesSpawned` | Child processes this process started (`DotnetRunner`, the daemon launcher) |
 | `phases[]` | Optional. One row per (project, phase) the command compiled — `load-references`, `parse`, `import-graph`, `analysis`, `systems-policy`, `lint`, `emit.parse`, `emit.codegen`, `emit.write` — with `wallMs`, `cpuMs` (process CPU across all threads, so CPU above wall is that phase's parallelism), `allocatedBytes` and `calls` (repeated rows folded). Wall-clock data: never gated |

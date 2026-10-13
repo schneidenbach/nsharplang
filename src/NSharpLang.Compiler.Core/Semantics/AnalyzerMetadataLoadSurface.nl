@@ -394,7 +394,7 @@ class AnalyzerMetadataLoadSurface {
             }
 
             loaded := images.LoadFromPath(loadContext, fullPath)
-            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
+            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded(fullPath)
             Register(loaded)
         } catch error: Exception {
             images := ReferenceImages

@@ -87,6 +87,31 @@ func ResolverProbeConsoleIdentity(): AssemblyName {
     return AssemblyName.GetAssemblyName(Path.Combine(ResolverProbeFrameworkDirectory(), "System.Console.dll"))
 }
 
+func ResolverProbePackageAssemblyPath(packageName: string, assemblyName: string): string {
+    packagesRoot := AnalyzerMetadataLoadPolicy.NuGetPackagesRoot(
+        Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+    )
+    packageDirectory := Path.Combine(packagesRoot, packageName.ToLowerInvariant())
+    if !Directory.Exists(packageDirectory) {
+        return ""
+    }
+
+    versionDirectory := AnalyzerMetadataLoadPolicy.PickHighestVersionDirectory(Directory.GetDirectories(packageDirectory))
+    if versionDirectory == null {
+        return ""
+    }
+
+    for targetFramework in AnalyzerMetadataLoadPolicy.FallbackTargetFrameworks() {
+        path := AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDirectory, targetFramework, assemblyName)
+        if File.Exists(path) {
+            return path
+        }
+    }
+
+    return ""
+}
+
 // ── the fixture ──────────────────────────────────────────────────────────────
 
 test "the resolver probe fixture has one identity in two real directories" {
@@ -214,4 +239,36 @@ test "a name no stage can answer resolves to null rather than throwing" {
     // an unresolved reference instead of the resolver deciding the analysis is over.
     absent := new AssemblyName("NSharpLang.NoSuchAssembly.ProbeOnly")
     assert resolver.Resolve(context, absent) == null
+}
+
+test "only restored package references contribute to CompilerWorkCounters, regardless of cache contents" {
+    packageName := "YamlDotNet"
+    packagePath := ResolverProbePackageAssemblyPath(packageName, packageName)
+    assert packagePath != "", "the compiler Core dependency was not restored"
+    packageVersion := Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(packagePath))) ?? "") ?? ""
+    assert packageVersion != "", packagePath
+    identity := AssemblyName.GetAssemblyName(packagePath)
+
+    unpinned := ResolverProbeSurfaceless(ResolverProbeOneDirectory(ResolverProbeFrameworkDirectory()))
+    unpinnedContext := new MetadataLoadContext(unpinned, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
+    beforeUnpinned := CompilerWorkCounters.Shared.Snapshot()
+    unpinnedAssembly := unpinned.Resolve(unpinnedContext, identity)
+    unpinnedDelta := CompilerWorkCounters.Shared.Snapshot().Since(beforeUnpinned)
+    assert unpinnedAssembly != null
+    assert unpinnedDelta.ReferenceAssembliesLoaded == 0, "an unrequested package-cache fallback affected the structural counter"
+
+    pinnedVersions := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    pinnedVersions[packageName] = packageVersion
+    pinned := new AnalyzerMetadataAssemblyResolver(
+        ResolverProbeOneDirectory(ResolverProbeFrameworkDirectory()),
+        pinnedVersions,
+        new Dictionary<string, string>(StringComparer.Ordinal),
+        new object()
+    )
+    pinnedContext := new MetadataLoadContext(pinned, AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName())
+    beforePinned := CompilerWorkCounters.Shared.Snapshot()
+    pinnedAssembly := pinned.Resolve(pinnedContext, identity)
+    pinnedDelta := CompilerWorkCounters.Shared.Snapshot().Since(beforePinned)
+    assert pinnedAssembly != null
+    assert pinnedDelta.ReferenceAssembliesLoaded == 1, "a restored package reference was omitted from the structural counter"
 }

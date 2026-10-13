@@ -2429,6 +2429,10 @@ class Analyzer: IDisposable {
     // friend grants are named here — the one point where the project config and the assembly list
     // meet — rather than being rediscovered by each owner that asks.
     func LoadFromProjectConfig(config: ProjectConfig, projectDirectory: string? = null) {
+        LoadFromProjectConfig(config, projectDirectory, null)
+    }
+
+    func LoadFromProjectConfig(config: ProjectConfig, projectDirectory: string?, testSourcesIncluded: bool?) {
         directory := projectDirectory ?? Environment.CurrentDirectory
         ProjectDefaultNamespaces.Clear()
         if AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies(config.Sdk) {
@@ -2438,7 +2442,7 @@ class Analyzer: IDisposable {
             ProjectDefaultNamespaces.Add("Microsoft.Extensions.Hosting")
         }
         FriendGrants.SetCompilingAssemblyName(CompilationReferenceResolverKernels.GetProjectAssemblyName(directory, config.Name))
-        ReferenceLoadOrchestration.Load(config, directory)
+        ReferenceLoadOrchestration.Load(config, directory, testSourcesIncluded)
         ReferenceSetConfigured = config.Dependencies.Count > 0 && ReferenceLoadFailures.Count == 0
         ExtensionMethodResolution.SetReferenceSetComplete(ReferenceSetConfigured)
     }

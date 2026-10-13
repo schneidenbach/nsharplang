@@ -293,10 +293,9 @@ class AnalyzerReferenceLoadOrchestration {
     // PERFORMING THE PLAN.
     // ---------------------------------------------------------------------------------------------
 
-    // THE ONE FACT THE PLAN CANNOT READ FOR ITSELF. `nlc check` and `nlc build` reach this walk with
-    // the implicit test dependency already added to the config; the language server reaches it with a
-    // config parsed straight from `project.yml`. Asking the directory here is what makes the three
-    // products plan the same set.
+    // THE ONE FACT THE PLAN CANNOT READ FOR ITSELF. A compiler passes whether its actual source list
+    // includes test files. The language server has no compilation file list, so it falls back to the
+    // project tree and loads test metadata when the workspace contains `.tests.nl` files.
     //
     // A DIRECTORY WITH NO `project.yml` IS NOT A PROJECT ROOT AND IS NOT WALKED, and that guard is
     // load-bearing rather than tidy. The language server hands this walk the directory of whatever
@@ -317,14 +316,14 @@ class AnalyzerReferenceLoadOrchestration {
         return Directory.GetFiles(projectDirectory, "*.tests.nl", SearchOption.AllDirectories).Length > 0
     }
 
-    func Load(config: ProjectConfig, projectDirectory: string) {
+    func Load(config: ProjectConfig, projectDirectory: string, testSourcesIncluded: bool? = null) {
         // The versions the project RESTORED are pinned before anything is loaded, so a cache fallback
         // binds the version this project resolved rather than the highest one extracted on the box.
         for entry in GetRestoredPackageVersions(projectDirectory) {
             surface.PinPackageVersion(entry.Key, entry.Value)
         }
 
-        requests := PlanRequests(config, projectDirectory, HasTestSources(projectDirectory))
+        requests := PlanRequests(config, projectDirectory, testSourcesIncluded ?? HasTestSources(projectDirectory))
         for request in requests {
             Perform(request, projectDirectory, config.TargetFramework)
         }

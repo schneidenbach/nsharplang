@@ -399,7 +399,7 @@ class ExternalAssemblyScan {
 
         try {
             owned := selectedContext.LoadFromAssemblyPath(Path.GetFullPath(path))
-            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
+            CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded(path)
             if RuntimeAssemblyHasIdentity(owned, identity) {
                 return owned
             }
@@ -707,7 +707,7 @@ class ExternalAssemblyScan {
             if entry.IsInspectable {
                 try {
                     metadataAssembly := referenceImages.LoadFromPath(context, entry.MetadataPath)
-                    CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded()
+                    CompilerWorkCounters.Shared.CountReferenceAssemblyLoaded(entry.MetadataPath)
                     entry.AttachMetadataAssembly(metadataAssembly)
                 } catch {
                     referenceImages.Forget(entry.MetadataPath)

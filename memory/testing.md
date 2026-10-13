@@ -1176,6 +1176,9 @@ the current Core build and a deterministic Core-scale project that reaches IL em
 head builds Core through emit; its base predecessor can still stop before emit when Core has
 diagnostics. Core's stage and counters are checked on the head build. The generated
 80,960-line/160-file project covers the emit path. Counter checks are exact and machine-independent.
+A `referenceAssembliesLoaded` event counts compiler-owned package, project and explicit reference
+images. Paths under the installed shared-framework and targeting-pack roots are excluded: those
+facades are supplied by the host SDK/runtime and their inventory varies across supported machines.
 A decrease must be reviewed and ratcheted; an increase is a regression to fix. (A new source file in
 the Core build's closure is not a regression: `speed/agent-loop-2` added `SharedReferenceMetadata.nl`
 to Model and moved Core's files parsed/emit-parsed/analysed 468/278/278 -> 469/279/279 in the same
@@ -1251,15 +1254,15 @@ paired Core-scale gate. Options include `--only <substring>`, `--scope corpus|bo
 
 The 2026-10-09 integration census includes six unique iterator and generic-call projects, bringing
 the compile-time corpus to 197. The separate repository-root workspace census pins 235 member roots
-(including the repository root) and 2,016 checked `.nl` files. The only source addition since
+(including the repository root) and 2,017 checked `.nl` files. The only source addition since
 `0c554b664` is `tests/native/gate-script-contracts/CiTestSharding.tests.nl`; no `.nl` files were
 removed. A fresh Debug CLI repository-root `nlc check` on 2026-10-11 measured 3,164 parse events
 under the unchanged strict cap of three per checked file (6,048 maximum), and 12,021 reference-image
 opens against a dynamically computed maximum of 17,979 (33 shared opens for each of 235 members,
-plus six opens for each of 1,704 resolved reference images). Its 60.858 s wall time was below the
-128 s budget but unjudged because load was 3.22 on 10 cores, above the 2.0 timing threshold. The
-reference-image maximum remains dependency-derived from the discovered member inventory and
-resolved reference closure; the contract verifies it on every run.
+plus six opens for each of 1,704 resolved reference images). These are historical counters from
+before installed framework/reference-pack paths were excluded. Wall time is now record-only: this
+correctness test has no absolute timing budget. The reference-image maximum remains dependency-derived
+from the discovered member inventory and resolved reference closure; the contract verifies it on every run.
 
 The September 2026 absolute wall/RSS baselines remain historical measurements only; their machine,
 load and phase context is retained in the measurement verdicts. They are no longer a pass/fail

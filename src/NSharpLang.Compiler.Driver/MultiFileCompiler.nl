@@ -749,7 +749,7 @@ class MultiFileCompiler {
         } else {
             analyzer.LoadSystemAssemblies()
         }
-        analyzer.LoadFromProjectConfig(EffectiveConfig(), _projectRoot)
+        analyzer.LoadFromProjectConfig(EffectiveConfig(), _projectRoot, CompilationIncludesTestSources())
         // A caller that hands over a project configuration compiles these files into ONE assembly —
         // a parsed `project.yml`, or a virtual project like the playground's. A caller with none (a
         // folder of standalone scripts checked as a directory) leaves the analyzer to ask the root.
@@ -762,6 +762,19 @@ class MultiFileCompiler {
         // next compilation.
         analyzer.HoldProjectDiskView()
         return analyzer
+    }
+
+    // Test framework references follow the files this compilation actually contains. Looking at the
+    // project tree instead would make an ordinary build open test-only packages that its source list
+    // excludes, and make the build's reference work depend on another machine's NuGet cache.
+    private func CompilationIncludesTestSources(): bool {
+        for sourceFile in _sourceFiles {
+            if sourceFile.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+        }
+
+        return false
     }
 
     // The label `CompilerPhaseTimings` files this compilation's phases under: the project's name, else

@@ -57,7 +57,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 1, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 1, "assembliesEmitted": 0, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -73,7 +73,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 319, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -89,7 +89,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -105,7 +105,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -121,7 +121,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 0, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -137,7 +137,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 319, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 8, "emitParses": 7, "filesAnalyzed": 7, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -153,7 +153,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 9, "emitParses": 9, "filesAnalyzed": 9, "assembliesEmitted": 0, "referenceAssembliesLoaded": 324, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 9, "emitParses": 9, "filesAnalyzed": 9, "assembliesEmitted": 0, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -169,7 +169,7 @@
       "mode": "cold",
       "sourceLines": 448,
       "exitCode": 0,
-      "counters": {"filesParsed": 9, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 319, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 9, "emitParses": 8, "filesAnalyzed": 8, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "small",
@@ -233,7 +233,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 41, "emitParses": 1, "filesAnalyzed": 1, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 1, "filesAnalyzed": 1, "assembliesEmitted": 0, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -249,7 +249,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 36, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -265,7 +265,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -281,7 +281,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -297,7 +297,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 0, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -313,7 +313,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 36, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 41, "emitParses": 40, "filesAnalyzed": 40, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -329,7 +329,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 42, "emitParses": 42, "filesAnalyzed": 42, "assembliesEmitted": 0, "referenceAssembliesLoaded": 41, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 42, "emitParses": 42, "filesAnalyzed": 42, "assembliesEmitted": 0, "referenceAssembliesLoaded": 8, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
@@ -345,7 +345,7 @@
       "mode": "cold",
       "sourceLines": 10640,
       "exitCode": 0,
-      "counters": {"filesParsed": 42, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 36, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
+      "counters": {"filesParsed": 42, "emitParses": 41, "filesAnalyzed": 41, "assembliesEmitted": 1, "referenceAssembliesLoaded": 0, "frameworkReferenceBytesHashed": 0, "processesSpawned": 0}
     },
     {
       "size": "medium",
