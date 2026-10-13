@@ -1863,6 +1863,53 @@ test "iterator planner shares a bare catch body" {
     assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
 }
 
+test "iterator planner shares an unbound typed catch body" {
+    source := "func* Catch(): IEnumerable<int> { i: int = 0\n try { throw new InvalidOperationException(\"boom\") } catch (InvalidOperationException) { i += 1 }\n yield i }"
+    probe := new ColumnarIteratorShapeProbe(
+        source,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 4
+
+    machineType := typeof(ColumnarIteratorRunProbe)
+    fields := new FieldInfo[](4)
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
+    // The handler does not bind the caught value; classification still reserves its fallback slot.
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        machineType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields,
+        IteratorStructuralTypeReferences()
+    )
+
+    moveNext := MakeIteratorDynamicMethod("TypedCatchMoveNext", typeof(bool), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("TypedCatchCurrent", typeof(int), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+    assert context.GeneralMethodBodyStatementCount == 2, "the initialized local and complete typed catch use the method-body planner"
+
+    machine := new ColumnarIteratorRunProbe()
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    assert Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    assert Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)) == 1
+    assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+}
+
 // A run-probe machine with the `.ctor(int)` shape the clone and factory plans construct through.
 class ColumnarIteratorCloneProbe {
     public state: int

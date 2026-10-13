@@ -1107,9 +1107,10 @@ class ColumnarMethodBodyPlanner {
 
         catchCount := handlerEnd - 1
         catchClause := -1
+        catchType := typeof(object)
         if catchCount == 1 {
             catchClause = nodes.Child(statement, 1)
-            if nodes.Kind(catchClause) != ColumnarStatementNodeKind.CatchClause || nodes.ValueStart(catchClause) >= 0 || ColumnarCatchClauseFacts.BindingNode(nodes, catchClause) >= 0 || ColumnarCatchClauseFacts.FilterGuard(nodes, catchClause) >= 0 || !IsSimpleStateMachineRegionStatement(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)) {
+            if nodes.Kind(catchClause) != ColumnarStatementNodeKind.CatchClause || ColumnarCatchClauseFacts.BindingNode(nodes, catchClause) >= 0 || ColumnarCatchClauseFacts.FilterGuard(nodes, catchClause) >= 0 || !ColumnarCanonicalTypeResolver.TryResolveCatchType(nodes, source, catchClause, out catchType) || !IsSimpleStateMachineRegionStatement(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)) {
                 return false
             }
         } else if catchCount != 0 {
@@ -1138,7 +1139,7 @@ class ColumnarMethodBodyPlanner {
 
         catchFallsThrough := false
         if catchClause >= 0 {
-            exceptionTypePool := plan.AddType(typeof(Exception))
+            exceptionTypePool := plan.AddType(catchType)
             plan.AppendBeginCatchBlock(exceptionTypePool)
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
             catchBody := ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)
