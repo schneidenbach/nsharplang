@@ -446,6 +446,7 @@ class ColumnarIteratorRunProbe {
     public state: int
     public current: int
     public n: int
+    public values: int[]
     public i: int
     public j: int
 
@@ -453,6 +454,7 @@ class ColumnarIteratorRunProbe {
         state = 0
         current = 0
         n = 0
+        values = new int[](0)
         i = 0
         j = 0
     }
@@ -1604,25 +1606,26 @@ test "iterator tuple declarations use the ordinary method-body statement planner
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
-    source := "func* Count(n: int): IEnumerable<int> { i: int = 0\n if n > 0 { i = i + 7\n CreateTuple() } else { i = i + 2\n CreateTuple() }\n while i < 6 { if i < 5 { i += 1\n continue } else { break } }\n for j := 0; j < n; j++ { }\n while i < n + 7 { yield i\n i++ } }"
+    source := "func* Count(n: int, values: int[]): IEnumerable<int> { i: int = 0\n if n > 0 { i = i + 7\n CreateTuple() } else { i = i + 2\n CreateTuple() }\n while i < 6 { if i < 5 { i += 1\n continue } else { break } }\n for j := 0; j < n; j++ { }\n while i < n + 7 { yield i\n values[0] = i\n i++ } }"
     probe := new ColumnarIteratorShapeProbe(
         source,
         "IEnumerable<int>",
-        IteratorOne("n"),
-        IteratorOne("int"),
+        IteratorTwo("n", "values"),
+        IteratorTwo("int", "int[]"),
         IteratorNoStrings(),
         false
     )
     assert probe.Shape.Supported
-    assert probe.Shape.FieldCount == 5
+    assert probe.Shape.FieldCount == 6
 
     smType := typeof(ColumnarIteratorRunProbe)
-    fields := new FieldInfo[](5)
+    fields := new FieldInfo[](6)
     fields[0] = ColumnarRuntimeTypeFacts.RequiredField(smType, "state")
     fields[1] = ColumnarRuntimeTypeFacts.RequiredField(smType, "current")
     fields[2] = ColumnarRuntimeTypeFacts.RequiredField(smType, "n")
-    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "i")
-    fields[4] = ColumnarRuntimeTypeFacts.RequiredField(smType, "j")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(smType, "values")
+    fields[4] = ColumnarRuntimeTypeFacts.RequiredField(smType, "i")
+    fields[5] = ColumnarRuntimeTypeFacts.RequiredField(smType, "j")
     context := new ColumnarIteratorEmitContext(
         probe.Nodes,
         probe.Source,
@@ -1648,7 +1651,7 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
 
     moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
     getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
-    assert context.GeneralMethodBodyStatementCount == 6, "the hoisted initializer, branch tree with discarded expressions, simple loops, scoped for initializer and shared for-loop body, and hoisted-field assignment must use method-body planning"
+    assert context.GeneralMethodBodyStatementCount == 7, "the hoisted initializer, branch tree with discarded expressions, simple loops, scoped for initializer and shared for-loop body, simple indexer store, and hoisted-field assignment must use method-body planning"
 
     moveNext := MakeIteratorDynamicMethod("MoveNext", typeof(bool), smType)
     ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNext.GetILGenerator())
@@ -1659,6 +1662,8 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
     ColumnarIteratorTupleValueFactory.ResetCalls()
     machine.state = 0
     machine.n = 5
+    machine.values = new int[](1)
+    machine.values[0] = -1
     invokeArgs := new object[](1)
     IteratorSetObject(invokeArgs, 0, machine)
 
@@ -1679,12 +1684,15 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
     assert results[2] == 9
     assert results[3] == 10
     assert results[4] == 11
+    assert machine.values[0] == 11, "the shared statement planner stores the last yielded value through the machine's array parameter"
     assert ColumnarIteratorTupleValueFactory.CallsMade() == 1, "the selected branch's shared call statement evaluates once"
 
     results.Clear()
     ColumnarIteratorTupleValueFactory.ResetCalls()
     machine.state = 0
     machine.n = 0
+    machine.values = new int[](1)
+    machine.values[0] = -1
     moveResult = moveNext.Invoke(target, invokeArgs)
     hasNext = Convert.ToBoolean(moveResult)
     while hasNext {
@@ -1697,6 +1705,7 @@ test "iterator planner MoveNext and get_Current plans run a counting iterator se
     assert results.Count == 2
     assert results[0] == 5
     assert results[1] == 6
+    assert machine.values[0] == 6
     assert ColumnarIteratorTupleValueFactory.CallsMade() == 1, "the alternate branch's shared call statement evaluates once"
 }
 

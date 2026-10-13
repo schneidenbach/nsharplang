@@ -791,7 +791,11 @@ class ColumnarMethodBodyPlanner {
 
         target := nodes.Child(assignment, 0)
         if nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression {
-            return false
+            if compoundOperator || !ColumnarStoreTargetPlanner.ClaimsTarget(nodes, target) {
+                return false
+            }
+            declineReason := ""
+            return ColumnarStoreTargetPlanner.TryAppendStore(nodes, source, target, nodes.Child(assignment, 1), bindings, plan, out declineReason)
         }
 
         selection := ColumnarBoundIdentifierPlanner.EmptySelection()
