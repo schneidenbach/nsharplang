@@ -808,10 +808,21 @@ class ColumnarMethodBodyPlanner {
         if kind == ColumnarStatementNodeKind.WhileStatement {
             return nodes.ChildCount(node) == 2 && IsSimpleStateMachineBodyStatement(nodes, nodes.Child(node, 1))
         }
+        if kind == ColumnarStatementNodeKind.ForStatement {
+            return nodes.ChildCount(node) == 4 && IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(node, 0)) && IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(node, 2)) && IsSimpleStateMachineBodyStatement(nodes, nodes.Child(node, 3))
+        }
         if kind != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(node) != 1 {
             return false
         }
 
+        assignment := nodes.Child(node, 0)
+        return nodes.Kind(assignment) == ColumnarExpressionNodeKind.AssignmentExpression && nodes.ChildCount(assignment) == 2
+    }
+
+    private static func IsSimpleStateMachineFieldAssignment(nodes: ColumnarNodeTable, node: int): bool {
+        if nodes == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(node) != 1 {
+            return false
+        }
         assignment := nodes.Child(node, 0)
         return nodes.Kind(assignment) == ColumnarExpressionNodeKind.AssignmentExpression && nodes.ChildCount(assignment) == 2
     }
@@ -877,6 +888,39 @@ class ColumnarMethodBodyPlanner {
         return true
     }
 
+    private static func TryAppendSimpleStateMachineFor(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
+        if nodes == null || source == null || bindings == null || plan == null || statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.ForStatement || nodes.ChildCount(statement) != 4 || !IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(statement, 0)) || !IsSimpleStateMachineFieldAssignment(nodes, nodes.Child(statement, 2)) || !IsSimpleStateMachineBodyStatement(nodes, nodes.Child(statement, 3)) {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 0), bindings, plan) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        conditionLabel := plan.DefineLabel()
+        afterLabel := plan.DefineLabel()
+        plan.AppendMarkLabel(conditionLabel)
+        conditionType := typeof(int)
+        if !TryAppendValue(nodes, source, nodes.Child(statement, 1), bindings, plan, out conditionType) || conditionType != typeof(bool) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
+        if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 3), bindings, plan) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+        if !TryAppendSimpleStateMachineBodyStatement(nodes, source, nodes.Child(statement, 2), bindings, plan) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), conditionLabel)
+        plan.AppendMarkLabel(afterLabel)
+        return true
+    }
+
     private static func TryAppendSimpleStateMachineBodyStatement(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
         kind := nodes.Kind(node)
         if kind == ColumnarStatementNodeKind.BlockStatement {
@@ -894,6 +938,9 @@ class ColumnarMethodBodyPlanner {
         }
         if kind == ColumnarStatementNodeKind.WhileStatement {
             return TryAppendSimpleStateMachineWhile(nodes, source, node, bindings, plan)
+        }
+        if kind == ColumnarStatementNodeKind.ForStatement {
+            return TryAppendSimpleStateMachineFor(nodes, source, node, bindings, plan)
         }
         return TryAppendAssignmentStatement(nodes, source, node, bindings, plan)
     }
@@ -937,6 +984,9 @@ class ColumnarMethodBodyPlanner {
         }
         if kind == ColumnarStatementNodeKind.WhileStatement && stateMachineBody {
             return TryAppendSimpleStateMachineWhile(nodes, source, statement, bindings, plan)
+        }
+        if kind == ColumnarStatementNodeKind.ForStatement && stateMachineBody {
+            return TryAppendSimpleStateMachineFor(nodes, source, statement, bindings, plan)
         }
         return false
     }

@@ -5315,6 +5315,10 @@ class ColumnarIteratorBodyPlanner {
             return EmitLockStatement(emit, node)
         }
         if kind == ColumnarStatementNodeKind.ForStatement {
+            if ColumnarMethodBodyPlanner.TryAppendStateMachineBodyStatement(nodes, source, node, scope.Bindings, emit.Plan, new Dictionary<string, ColumnarMethodBodyFieldLocalBinding>(StringComparer.Ordinal)) {
+                emit.Context.GeneralMethodBodyStatementCount += 1
+                return true
+            }
             // For [init, cond, incr, body]: `init` runs once (its local is a hoisted field), then the
             // while discipline with a trailing increment — the back edge (and the increment before it)
             // only exists when the body can complete.
