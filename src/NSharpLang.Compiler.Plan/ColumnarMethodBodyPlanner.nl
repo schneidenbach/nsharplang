@@ -1108,11 +1108,13 @@ class ColumnarMethodBodyPlanner {
         catchCount := handlerEnd - 1
         catchClause := -1
         catchType := typeof(object)
+        catchFilter := -1
         if catchCount == 1 {
             catchClause = nodes.Child(statement, 1)
-            if nodes.Kind(catchClause) != ColumnarStatementNodeKind.CatchClause || ColumnarCatchClauseFacts.BindingNode(nodes, catchClause) >= 0 || ColumnarCatchClauseFacts.FilterGuard(nodes, catchClause) >= 0 || !ColumnarCanonicalTypeResolver.TryResolveCatchType(nodes, source, catchClause, out catchType) || !IsSimpleStateMachineRegionStatement(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)) {
+            if nodes.Kind(catchClause) != ColumnarStatementNodeKind.CatchClause || ColumnarCatchClauseFacts.BindingNode(nodes, catchClause) >= 0 || !ColumnarCanonicalTypeResolver.TryResolveCatchType(nodes, source, catchClause, out catchType) || !IsSimpleStateMachineRegionStatement(nodes, ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)) {
                 return false
             }
+            catchFilter = ColumnarCatchClauseFacts.FilterGuard(nodes, catchClause)
         } else if catchCount != 0 {
             return false
         }
@@ -1140,7 +1142,28 @@ class ColumnarMethodBodyPlanner {
         catchFallsThrough := false
         if catchClause >= 0 {
             exceptionTypePool := plan.AddType(catchType)
-            plan.AppendBeginCatchBlock(exceptionTypePool)
+            if catchFilter >= 0 {
+                plan.AppendBeginExceptFilterBlock()
+                plan.AppendTypeInstruction(ColumnarCodePlanContract.Isinst(), exceptionTypePool)
+                matchedLabel := plan.DefineLabel()
+                filterResultLabel := plan.DefineLabel()
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), matchedLabel)
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+                plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), filterResultLabel)
+                plan.AppendMarkLabel(matchedLabel)
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+                filterType := typeof(int)
+                if !TryAppendValue(nodes, source, catchFilter, bindings, plan, out filterType) || filterType != typeof(bool) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+                plan.AppendMarkLabel(filterResultLabel)
+                plan.AppendBeginFilteredCatchBlock()
+            } else {
+                plan.AppendBeginCatchBlock(exceptionTypePool)
+            }
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
             catchBody := ColumnarCatchClauseFacts.BodyNode(nodes, catchClause)
             catchFallsThrough = StateMachineStatementFallsThrough(nodes, catchBody)

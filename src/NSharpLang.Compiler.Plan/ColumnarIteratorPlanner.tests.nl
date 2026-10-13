@@ -1910,6 +1910,68 @@ test "iterator planner shares an unbound typed catch body" {
     assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
 }
 
+test "iterator planner shares an unbound catch filter and finally" {
+    source := "func* CatchFilter(n: int): IEnumerable<int> { i: int = 0\n try { throw new InvalidOperationException(\"boom\") } catch (InvalidOperationException) when n > 0 { i += 1 } finally { i += 10 }\n yield i }"
+    probe := new ColumnarIteratorShapeProbe(
+        source,
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 5
+
+    machineType := typeof(ColumnarIteratorRunProbe)
+    fields := new FieldInfo[](5)
+    fields[0] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "state")
+    fields[1] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "current")
+    fields[2] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "n")
+    fields[3] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
+    // The unbound catch reserves a fallback field, but the first-pass filter does not store it.
+    fields[4] = ColumnarRuntimeTypeFacts.RequiredField(machineType, "i")
+    context := new ColumnarIteratorEmitContext(
+        probe.Nodes,
+        probe.Source,
+        probe.BodyRoot,
+        probe.Shape,
+        machineType,
+        typeof(int),
+        probe.Shape.FieldNames,
+        fields,
+        IteratorStructuralTypeReferences()
+    )
+
+    moveNext := MakeIteratorDynamicMethod("CatchFilterMoveNext", typeof(bool), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context), moveNext.GetILGenerator())
+    getCurrent := MakeIteratorDynamicMethod("CatchFilterCurrent", typeof(int), machineType)
+    ColumnarCodePlanExecutor.Execute(ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context), getCurrent.GetILGenerator())
+    assert context.GeneralMethodBodyStatementCount == 2, "the initialized local and filtered try-catch-finally use the method-body planner"
+
+    machine := new ColumnarIteratorRunProbe()
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, machine)
+    target: object? = null
+    machine.n = 1
+    assert Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+    assert Convert.ToInt32(getCurrent.Invoke(target, invokeArgs)) == 11
+    assert !Convert.ToBoolean(moveNext.Invoke(target, invokeArgs))
+
+    machine.state = 0
+    machine.n = 0
+    machine.i = 0
+    filterRejected := false
+    try {
+        moveNext.Invoke(target, invokeArgs)
+    } catch ex: Exception {
+        innerBox: object? = ex.get_InnerException()
+        filterRejected = innerBox != null && innerBox.GetType() == typeof(InvalidOperationException)
+    }
+    assert filterRejected, "a false first-pass filter leaves the original exception unhandled"
+    assert machine.i == 10, "finally runs when a filtered catch rejects the exception"
+}
+
 // A run-probe machine with the `.ctor(int)` shape the clone and factory plans construct through.
 class ColumnarIteratorCloneProbe {
     public state: int
