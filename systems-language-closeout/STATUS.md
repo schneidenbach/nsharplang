@@ -31,6 +31,10 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
+> **2026-10-14 handoff:** `main` == `systems-language` lineage, merged 2026-10-13 (PR #190). The current resume point
+> and next program (metadata-native writer, 68 work packages, owner decisions pending) are in
+> [HANDOFF-2026-10-14.md](HANDOFF-2026-10-14.md).
+
 ### Census wave 21 — current closeout cursor (2026-10-09)
 
 **Tip.** `b30cbefac` on `systems-language`. Agent-loop part 2 and the workspace-reference
