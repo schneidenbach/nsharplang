@@ -182,17 +182,32 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
         }
     }
 
+    // Every reference MSBuild resolved becomes a `dll:` reference, and every `project:` entry one of
+    // them came from leaves the configuration (`SdkEmitTaskKernels.RemoveResolvedProjectReferences`).
     private func AddResolvedDllReferences(config: ProjectConfig) {
         references := References
+        resolvedProjectFiles := new List<string>()
         for reference in references {
             referencePath: string = reference.ItemSpec
             if !string.IsNullOrWhiteSpace(referencePath) {
                 fullPath := Path.GetFullPath(referencePath)
-                if !IsOwnOutput(fullPath) && CompilationReferenceResolverKernels.ShouldAddDllReference(config.Dependencies, fullPath) {
-                    config.Dependencies.Add(new Reference { Dll: fullPath })
+                if !IsOwnOutput(fullPath) {
+                    if CompilationReferenceResolverKernels.ShouldAddDllReference(config.Dependencies, fullPath) {
+                        config.Dependencies.Add(new Reference { Dll: fullPath })
+                    }
+
+                    // Only an output the configuration now holds as a `dll:` entry may replace its
+                    // project, so a project never leaves without its output.
+                    sourceTarget: string = reference.GetMetadata("ReferenceSourceTarget")
+                    sourceProjectFile: string = reference.GetMetadata("MSBuildSourceProjectFile")
+                    if SdkEmitTaskKernels.IsProjectReferenceOutput(sourceTarget) && !string.IsNullOrWhiteSpace(sourceProjectFile) {
+                        resolvedProjectFiles.Add(sourceProjectFile)
+                    }
                 }
             }
         }
+
+        SdkEmitTaskKernels.RemoveResolvedProjectReferences(config.Dependencies, ProjectFile ?? "", resolvedProjectFiles)
     }
 
     private func IsOwnOutput(fullPath: string): bool {

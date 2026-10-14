@@ -153,3 +153,87 @@ test "the writer Cecil scan keeps definitions over earlier forwarders and record
         Directory.Delete(scratch, true)
     }
 }
+
+// A PROJECT LEAVES ONLY WITH ITS OUTPUT. The task drops a `project:` entry when MSBuild handed it that
+// project's output (`ReferenceSourceTarget=ProjectReference`, `MSBuildSourceProjectFile`), and only
+// for an output the configuration now holds as a `dll:` entry: one it just added, or one an equal
+// `dll:` entry already held. An item that is the task's own output never replaces anything.
+func EmitTaskWriteNSharpProject(root: string, name: string): string {
+    directory := Path.Combine(root, name)
+    Directory.CreateDirectory(directory)
+    File.WriteAllText(Path.Combine(directory, "project.yml"), "name: " + name + "\ntargetFramework: net10.0\n")
+    projectFile := Path.Combine(directory, name + ".csproj")
+    File.WriteAllText(projectFile, "<Project Sdk=\"NSharpLang.Sdk\" />\n")
+    return projectFile
+}
+
+func EmitTaskAddProjectDependency(config: object, path: string) {
+    reference := EmitTaskNewInstance(EmitTaskModelAssemblyType("NSharpLang.Compiler.Reference"))
+    EmitTaskSetObjectField(reference, "Project", path)
+    EmitTaskCollectionAdd(EmitTaskConfigDependencies(config), reference)
+}
+
+func EmitTaskDependencyField(config: object, index: int, field: string): string {
+    reference := EmitTaskCollectionItem(EmitTaskConfigDependencies(config), index)
+    return Convert.ToString(EmitTaskObjectField(reference, field)) ?? ""
+}
+
+func EmitTaskProjectReferenceItem(itemSpec: string, sourceProjectFile: string): object {
+    item := EmitTaskNewTaskItem(itemSpec)
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = typeof(string)
+    parameterTypes[1] = typeof(string)
+    setMetadata := EmitTaskRequiredMethod(item.GetType(), "SetMetadata", parameterTypes, "TaskItem.SetMetadata(string, string)")
+    arguments := new object?[](2)
+    EmitTaskPut(arguments, 0, "ReferenceSourceTarget")
+    EmitTaskPut(arguments, 1, "ProjectReference")
+    ignoredTarget := EmitTaskInvoke(item, setMetadata, arguments)
+    _ = ignoredTarget
+    EmitTaskPut(arguments, 0, "MSBuildSourceProjectFile")
+    EmitTaskPut(arguments, 1, sourceProjectFile)
+    ignoredSource := EmitTaskInvoke(item, setMetadata, arguments)
+    _ = ignoredSource
+    return item
+}
+
+test "a project entry leaves the configuration only with an output the task holds as a dll reference" {
+    scratch := EmitTaskScratch("project-references")
+    try {
+        appProject := EmitTaskWriteNSharpProject(scratch, "App")
+        keptProject := EmitTaskWriteNSharpProject(scratch, "Kept")
+        presentProject := EmitTaskWriteNSharpProject(scratch, "Present")
+        ownProject := EmitTaskWriteNSharpProject(scratch, "Own")
+        target := Path.Combine(scratch, "App.dll")
+        keptOutput := Path.Combine(scratch, "Kept.dll")
+        presentOutput := Path.Combine(scratch, "Present.dll")
+
+        config := EmitTaskCreateConfig()
+        EmitTaskAddProjectDependency(config, "../Kept/project.yml")
+        EmitTaskAddProjectDependency(config, "../Present/project.yml")
+        EmitTaskAddProjectDependency(config, "../Own/project.yml")
+        EmitTaskAddDllDependency(config, Path.GetFullPath(presentOutput))
+
+        task := EmitTaskNewTask()
+        EmitTaskSetObjectProperty(task, "TargetAssemblyPath", target)
+        EmitTaskSetObjectProperty(task, "ProjectFile", Path.Combine(Path.GetDirectoryName(appProject) ?? scratch, "project.yml"))
+        itemType := EmitTaskRequiredType("Microsoft.Build.Framework.ITaskItem, Microsoft.Build.Framework")
+        items := Array.CreateInstance(itemType, 3)
+        EmitTaskArraySet(items, 0, EmitTaskProjectReferenceItem(keptOutput, keptProject))
+        EmitTaskArraySet(items, 1, EmitTaskProjectReferenceItem(presentOutput, presentProject))
+        EmitTaskArraySet(items, 2, EmitTaskProjectReferenceItem(target, ownProject))
+        EmitTaskSetObjectProperty(task, "References", items)
+
+        arguments := new object?[](1)
+        EmitTaskPut(arguments, 0, config)
+        ignored := EmitTaskInvokePrivate(task, "AddResolvedDllReferences", 1, arguments)
+        _ = ignored
+
+        // `Kept` and `Present` left; `Own` stayed, because its item was the task's own output.
+        assert EmitTaskCollectionCount(EmitTaskConfigDependencies(config)) == 3
+        assert EmitTaskDependencyField(config, 0, "Project") == "../Own/project.yml"
+        assert EmitTaskDependencyField(config, 1, "Dll") == Path.GetFullPath(presentOutput)
+        assert EmitTaskDependencyField(config, 2, "Dll") == Path.GetFullPath(keptOutput)
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}

@@ -61,21 +61,11 @@ class SdkProjectReferenceProjection {
     }
 
     static func ResolveProjects(projectFile: string, dependencies: IEnumerable<Reference>, existingProjectReferences: string[]): string[] {
-        projectDirectory := Path.GetDirectoryName(Path.GetFullPath(projectFile))
-        if string.IsNullOrWhiteSpace(projectDirectory) {
-            throw new InvalidOperationException("Could not determine the project directory for '" + projectFile + "'.")
-        }
-
+        projectDirectory := ProjectDirectoryOf(projectFile)
         projectDependencies := RestoreCommandKernels.FilterReferencesByType(dependencies, ReferenceType.Project)
         resolved := new List<string>()
         for dependency in projectDependencies {
-            writtenPath := dependency.Project ?? ""
-            candidatePath := writtenPath
-            if !Path.IsPathRooted(writtenPath) {
-                candidatePath = Path.Combine(projectDirectory ?? "", writtenPath)
-            }
-
-            resolved.Add(ProjectReferenceResolver.ResolveMsBuildProjectPath(candidatePath))
+            resolved.Add(ResolveMsBuildProjectFile(projectDirectory, dependency))
         }
 
         existingUnique := RestoreCommandKernels.DeduplicateProjectReferences(existingProjectReferences)
@@ -96,5 +86,28 @@ class SdkProjectReferenceProjection {
         }
 
         return additions
+    }
+
+    static func ProjectDirectoryOf(projectFile: string): string {
+        projectDirectory := Path.GetDirectoryName(Path.GetFullPath(projectFile))
+        if string.IsNullOrWhiteSpace(projectDirectory) {
+            throw new InvalidOperationException("Could not determine the project directory for '" + projectFile + "'.")
+        }
+
+        return projectDirectory ?? ""
+    }
+
+    // THE MSBUILD PROJECT ONE `project:` ENTRY NAMES. `ResolveProjects` turns every entry into a
+    // `ProjectReference` through this, and the emit task asks it again to recognise which entry an
+    // MSBuild-resolved reference came from (`SdkEmitTaskKernels.RemoveResolvedProjectReferences`), so
+    // the two answers cannot disagree.
+    static func ResolveMsBuildProjectFile(projectDirectory: string, dependency: Reference): string {
+        writtenPath := dependency.Project ?? ""
+        candidatePath := writtenPath
+        if !Path.IsPathRooted(writtenPath) {
+            candidatePath = Path.Combine(projectDirectory, writtenPath)
+        }
+
+        return ProjectReferenceResolver.ResolveMsBuildProjectPath(candidatePath)
     }
 }

@@ -1,6 +1,8 @@
 namespace NSharpLang.Cli
 
+import System
 import System.Collections.Generic
+import System.IO
 import NSharpLang.Compiler
 
 // THE SDK'S IL-EMIT TASK — THE DECISIONS EVERY `dotnet build` OF AN N# PROJECT RUNS THROUGH.
@@ -86,6 +88,85 @@ test "a successful emit prints one sentence, and it names the assembly it wrote"
 
 test "legacy analysis gates emission unless a project opts out" {
     assert SdkEmitTaskKernels.ValidatesWithLegacyAnalysisByDefault()
+}
+
+// ── a project MSBuild resolved is bound through the output MSBuild resolved ────
+//
+// Measured before this rule: `dotnet build -c Release` of `NSharpLang.TestHost` bound the stale
+// `bin/Debug` `Compiler.dll` the analyzer probes for a bare `project:` entry, and failed with NL301 on
+// a type the Release `Compiler.dll` it was also handed plainly declared.
+
+test "a reference came from a project only when MSBuild tags it as a project reference" {
+    assert SdkEmitTaskKernels.IsProjectReferenceOutput("ProjectReference")
+    assert SdkEmitTaskKernels.IsProjectReferenceOutput("projectreference")
+    assert !SdkEmitTaskKernels.IsProjectReferenceOutput("ResolveAssemblyReference")
+    assert !SdkEmitTaskKernels.IsProjectReferenceOutput("")
+    assert !SdkEmitTaskKernels.IsProjectReferenceOutput(null)
+}
+
+func SdkEmitWriteProject(root: string, directoryName: string, projectName: string) {
+    directory := Path.Combine(root, directoryName)
+    Directory.CreateDirectory(directory)
+    File.WriteAllText(Path.Combine(directory, "project.yml"), "name: " + projectName + "\ntargetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(directory, projectName + ".csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n")
+}
+
+test "a project entry MSBuild resolved leaves the configuration and every other entry stays in order" {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-sdk-resolved-projects-" + Guid.NewGuid().ToString("N"))
+    try {
+        SdkEmitWriteProject(root, "App", "App")
+        SdkEmitWriteProject(root, "Shared", "Shared")
+        SdkEmitWriteProject(root, "Other", "Other")
+        csharpDirectory := Path.Combine(root, "Lib")
+        Directory.CreateDirectory(csharpDirectory)
+        File.WriteAllText(Path.Combine(csharpDirectory, "Lib.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />\n")
+
+        dependencies := new List<Reference>()
+        dependencies.Add(new Reference { Project: "../Shared/project.yml" })
+        dependencies.Add(new Reference { Nuget: "Alpha" })
+        // A DIFFERENT assembly that only shares the project's file name. Matching is by the project
+        // MSBuild names, never by file name, so this entry stays.
+        dependencies.Add(new Reference { Dll: "vendor/Shared.dll" })
+        dependencies.Add(new Reference { Project: "../Lib/Lib.csproj" })
+        dependencies.Add(new Reference { Project: "../Other/project.yml" })
+        // And the reverse: an unrelated `Other.dll` must not stand in for the unresolved `Other`.
+        dependencies.Add(new Reference { Dll: "vendor/Other.dll" })
+
+        resolved := new List<string>()
+        // MSBuild's own spelling of the project file; the comparison is case-insensitive, as the
+        // projection's dedupe is.
+        resolved.Add(Path.Combine(Path.Combine(root, "Shared"), "SHARED.csproj"))
+        resolved.Add(Path.Combine(csharpDirectory, "Lib.csproj"))
+
+        SdkEmitTaskKernels.RemoveResolvedProjectReferences(dependencies, Path.Combine(Path.Combine(root, "App"), "project.yml"), resolved)
+
+        assert dependencies.Count == 4
+        assert dependencies[0].Nuget == "Alpha"
+        assert dependencies[1].Dll == "vendor/Shared.dll"
+        // `Other` was never resolved by MSBuild (a reference with `ReferenceOutputAssembly=false`,
+        // for one), so it keeps the analyzer's own route.
+        assert dependencies[2].Project == "../Other/project.yml"
+        assert dependencies[3].Dll == "vendor/Other.dll"
+    } finally {
+        if Directory.Exists(root) {
+            Directory.Delete(root, true)
+        }
+    }
+}
+
+test "with no resolved project nothing is removed and no project entry is even resolved" {
+    dependencies := new List<Reference>()
+    // Points nowhere: resolving it would throw, so an untouched list proves it was never resolved.
+    dependencies.Add(new Reference { Project: "../Missing/project.yml" })
+    dependencies.Add(new Reference { Dll: "libs/Local.dll" })
+
+    SdkEmitTaskKernels.RemoveResolvedProjectReferences(dependencies, "/nowhere/App/project.yml", new List<string>())
+    blanks: string[] = ["", "   "]
+    SdkEmitTaskKernels.RemoveResolvedProjectReferences(dependencies, "/nowhere/App/project.yml", blanks)
+
+    assert dependencies.Count == 2
+    assert dependencies[0].Project == "../Missing/project.yml"
+    assert dependencies[1].Dll == "libs/Local.dll"
 }
 
 // ── the reference-assembly scope rewrite ──────────────────────────────────────

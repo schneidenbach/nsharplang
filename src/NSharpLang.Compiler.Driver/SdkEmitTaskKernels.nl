@@ -2,6 +2,7 @@ namespace NSharpLang.Cli
 
 import System
 import System.Collections.Generic
+import System.IO
 import NSharpLang.Compiler
 
 
@@ -140,6 +141,52 @@ class SdkEmitTaskKernels {
     // is the answer the task itself uses when MSBuild passes nothing.
     static func ValidatesWithLegacyAnalysisByDefault(): bool {
         return true
+    }
+
+    // ── A PROJECT MSBUILD RESOLVED IS BOUND THROUGH THE OUTPUT MSBUILD RESOLVED ─────────────────
+    //
+    // `@(ReferencePath)` carries, for every project reference, the output MSBuild built for the
+    // configuration being built, tagged `ReferenceSourceTarget=ProjectReference` and naming the
+    // project it came from in `MSBuildSourceProjectFile`. The task adds that output as a `dll:`
+    // reference, and the `project:` entry it satisfies then LEAVES the configuration, which is what
+    // the CLI's `CompilationReferenceResolver` does with the outputs it builds itself.
+    //
+    // Left in, the entry is also reached the only way a bare `project:` entry can be reached, by
+    // probing `bin/Debug/<tfm>` (`AnalyzerMetadataLoadPolicy.ProjectReferenceOutputPath`) whatever
+    // configuration is being built. That probe is planned before the appended `dll:` rows and wins
+    // the by-identity dedupe. Measured: `dotnet build -c Release` of `NSharpLang.TestHost` failed with
+    // NL301 on `CliError`, because `src/NSharpLang.Compiler/bin/Debug` still held a months-old
+    // `Compiler.dll` while the fresh Release one sat unread beside it.
+    static func IsProjectReferenceOutput(referenceSourceTarget: string?): bool {
+        return string.Equals(referenceSourceTarget ?? "", "ProjectReference", StringComparison.OrdinalIgnoreCase)
+    }
+
+    // Each `project:` entry is matched through the projection that turned it into a
+    // `ProjectReference` in the first place, so an entry and its MSBuild project cannot be paired
+    // differently here than they were there. Paths compare case-insensitively, as the projection's
+    // own dedupe does. Test dependencies are never projected, so they are not touched.
+    static func RemoveResolvedProjectReferences(dependencies: List<Reference>, projectFile: string, resolvedProjectFiles: IEnumerable<string>) {
+        resolved := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        for resolvedProjectFile in resolvedProjectFiles {
+            if !string.IsNullOrWhiteSpace(resolvedProjectFile) {
+                resolved.Add(Path.GetFullPath(resolvedProjectFile))
+            }
+        }
+
+        if resolved.Count == 0 {
+            return
+        }
+
+        projectDirectory := SdkProjectReferenceProjection.ProjectDirectoryOf(projectFile)
+        index := dependencies.Count - 1
+        while index >= 0 {
+            dependency := dependencies[index]
+            if dependency.Type == ReferenceType.Project && resolved.Contains(SdkProjectReferenceProjection.ResolveMsBuildProjectFile(projectDirectory, dependency)) {
+                dependencies.RemoveAt(index)
+            }
+
+            index = index - 1
+        }
     }
 
     // ── THE REFERENCE-ASSEMBLY SCOPE REWRITE ────────────────────────────────────────────────────

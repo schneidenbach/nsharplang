@@ -234,19 +234,27 @@ Undefined identifier 'unknownVar'
   (four analyzer workers, emit and exact-identity runtime contexts). This lets the ratchet account for references
   that exist only in built outputs or restored assets while keeping the allowance tied to what each
   member actually uses. The workspace contract pins the current integrated inventory at 235 member
-  roots (including the repository root) and 2,017 checked `.nl` files. Its parse cap remains three
+  roots (including the repository root) and 2,022 checked `.nl` files. Its parse cap remains three
   events per file; the reference-image maximum is recomputed from the discovered member count and
   each member's resolved reference closure. The 2026-10-11 fresh Debug CLI census measured 3,164
   parse events (maximum 6,048 at the unchanged cap) and 12,021 reference-image opens against the
   dynamically computed 17,979 maximum (33 shared opens per member plus six for each of 1,704
   resolved reference images). Those reference counts predate excluding installed framework and
   targeting-pack images, and the 60.858 s wall time is trend data only. The repository-root contract
-  has no machine-specific timing budget. Since `0c554b664`, the source inventory gained
-  `tests/native/gate-script-contracts/CiTestSharding.tests.nl` and removed no `.nl` files.
+  has no machine-specific timing budget. The latest addition to the inventory is
+  `tests/native/sdk-reference-incrementality/ConfigurationReferenceOutput.tests.nl` (2,021 to 2,022).
 
   Compiler-owned reference counts vary with generated outputs because `AnalyzerReferenceLoadOrchestration` prefers
   a locally built `bin/Debug/<targetFramework>` package assembly and project references load their
   built output; when those files are absent it resolves package assemblies from the NuGet cache.
+  That `bin/Debug` probe only runs for a `project:` entry nobody resolved. `nlc build`/`nlc check`
+  replace each entry with the output they built (`CompilationReferenceResolver`), and the SDK's emit
+  task drops every entry whose project MSBuild resolved (`ReferenceSourceTarget=ProjectReference`,
+  matched on `MSBuildSourceProjectFile` through `SdkProjectReferenceProjection.ResolveMsBuildProjectFile`)
+  after adding that output as a `dll:` reference. So `dotnet build -c Release` binds the Release output
+  MSBuild resolved for a referenced project rather than a stale Debug one. A `project:` entry MSBuild
+  did not resolve as a compile reference, and the read-only routes that build nothing (`nlc query`,
+  daemon snapshots), still probe `bin/Debug`.
   `obj/project.assets.json` also pins the restored package versions when available, while an
   unrestored project falls back to the installed package version. Before framework/reference-pack
   paths were excluded, `d912a77ca` measured 18,284 opens in the clean state and 18,598 in the fully
