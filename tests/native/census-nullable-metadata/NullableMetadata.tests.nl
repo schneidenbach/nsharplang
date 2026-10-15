@@ -125,10 +125,20 @@ test "a named tuple's element annotations survive beside its element names" {
     assert NullableFacts.ReturnState("Pair") == "!<!,?>"
 }
 
+// A class's bare exported members are AUTO-PROPERTIES: the annotation is on the property row, where
+// `NullabilityInfoContext` and Roslyn read it, and on the backing field behind it.
+test "a bare member states its own annotation on its property and on its backing field" {
+    assert NullableFacts.PropertyState(typeof(Signatures), "Label") == "?"
+    assert NullableFacts.PropertyState(typeof(Signatures), "Plain") == "!"
+    assert NullableFacts.PropertyState(typeof(Signatures), "Count") == "!"
+    assert NullableFacts.FieldState(typeof(Signatures), "<Label>k__BackingField") == "?"
+    assert NullableFacts.FieldState(typeof(Signatures), "<Plain>k__BackingField") == "!"
+}
+
 test "a field states its own annotation" {
-    assert NullableFacts.FieldState(typeof(Signatures), "Label") == "?"
-    assert NullableFacts.FieldState(typeof(Signatures), "Plain") == "!"
-    assert NullableFacts.FieldState(typeof(Signatures), "Count") == "!"
+    assert NullableFacts.FieldState(typeof(SignatureFields), "Label") == "?"
+    assert NullableFacts.FieldState(typeof(SignatureFields), "Plain") == "!"
+    assert NullableFacts.FieldState(typeof(SignatureFields), "Count") == "!"
 }
 
 test "an init-only property keeps its annotation on the property and its backing field" {
@@ -141,6 +151,6 @@ test "an init-only property keeps its annotation on the property and its backing
 test "a property states its own annotation, at every depth" {
     assert NullableFacts.PropertyState(typeof(SignatureProperties), "Lookup") == "!<!,?>"
     assert NullableFacts.PropertyState(typeof(SignatureProperties), "Tally") == "!"
-    assert NullableFacts.FieldState(typeof(SignatureProperties), "Names") == "!<?>"
-    assert NullableFacts.FieldState(typeof(SignatureProperties), "Slot") == "?"
+    assert NullableFacts.PropertyState(typeof(SignatureProperties), "Names") == "!<?>"
+    assert NullableFacts.PropertyState(typeof(SignatureProperties), "Slot") == "?"
 }

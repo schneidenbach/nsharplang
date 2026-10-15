@@ -2341,6 +2341,22 @@ class AnalyzerCallAnalysis {
         }
 
         span := spans.GetExpressionDiagnosticSpan(argument.Value)
+        // A PROPERTY IS NAMED AS ONE. The commonest way to meet this rule is a bare `Count: int` in a
+        // class, which is an auto-property (`MemberStorageRules`), so the sentence says what the
+        // member is and the two repairs that keep the call: go through a local, or make the member
+        // the type's own storage.
+        propertyName := ""
+        isBareMember := false
+        if writeTargets.TryNameRefOutProperty(argument.Value, expressionTypes, out propertyName, out isBareMember) {
+            repair := "Copy it into a local, pass the local, and assign the result back to '" + propertyName + "'."
+            if isBareMember {
+                repair = repair + " If callers need its address — 'Interlocked', 'Volatile', a 'TryParse' out — keep the value in a field: a bare camelCase, 'private' or 'static' member is a field."
+            }
+
+            diagnostics.Report(ErrorCode.InvalidSyntax, "'" + propertyName + "' is a property, so it has no storage to pass as the '" + modifier + "' argument", span.Line, span.Column, repair, span.Length)
+            return true
+        }
+
         diagnostics.Report(ErrorCode.InvalidSyntax, "The '" + modifier + "' argument needs an assignable target", span.Line, span.Column, "Use a variable, field, or indexed array/SoA column element as the " + modifier + " argument.", span.Length)
         return true
     }

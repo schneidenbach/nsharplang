@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
 import System.Collections.Generic
+import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 // WHICH OUTLINE ICON A DECLARATION GETS. These are the protocol's own symbol kinds, named here by
@@ -92,17 +93,17 @@ class EditorDocumentSymbolFacts {
 
         classDeclaration := declaration as ClassDeclaration
         if classDeclaration != null {
-            return MakeRow(classDeclaration.Name, EditorSymbolKind.Class, null, classDeclaration.Line, EndLine(declaration.Line, sourceLines), sourceLines, MemberRows(classDeclaration.Members, sourceLines))
+            return MakeRow(classDeclaration.Name, EditorSymbolKind.Class, null, classDeclaration.Line, EndLine(declaration.Line, sourceLines), sourceLines, MemberRows(classDeclaration, classDeclaration.Members, sourceLines))
         }
 
         structDeclaration := declaration as StructDeclaration
         if structDeclaration != null {
-            return MakeRow(structDeclaration.Name, EditorSymbolKind.Struct, null, structDeclaration.Line, EndLine(declaration.Line, sourceLines), sourceLines, MemberRows(structDeclaration.Members, sourceLines))
+            return MakeRow(structDeclaration.Name, EditorSymbolKind.Struct, null, structDeclaration.Line, EndLine(declaration.Line, sourceLines), sourceLines, MemberRows(structDeclaration, structDeclaration.Members, sourceLines))
         }
 
         recordDeclaration := declaration as RecordDeclaration
         if recordDeclaration != null {
-            return MakeRow(recordDeclaration.Name, EditorSymbolKind.Class, "record", recordDeclaration.Line, EndLine(declaration.Line, sourceLines), sourceLines, MemberRows(recordDeclaration.Members, sourceLines))
+            return MakeRow(recordDeclaration.Name, EditorSymbolKind.Class, "record", recordDeclaration.Line, EndLine(declaration.Line, sourceLines), sourceLines, MemberRows(recordDeclaration, recordDeclaration.Members, sourceLines))
         }
 
         soaDeclaration := declaration as SoaRecordDeclaration
@@ -112,7 +113,7 @@ class EditorDocumentSymbolFacts {
 
         interfaceDeclaration := declaration as InterfaceDeclaration
         if interfaceDeclaration != null {
-            return MakeRow(interfaceDeclaration.Name, EditorSymbolKind.Interface, null, interfaceDeclaration.Line, EndLine(declaration.Line, sourceLines), sourceLines, MemberRows(interfaceDeclaration.Members, sourceLines))
+            return MakeRow(interfaceDeclaration.Name, EditorSymbolKind.Interface, null, interfaceDeclaration.Line, EndLine(declaration.Line, sourceLines), sourceLines, MemberRows(interfaceDeclaration, interfaceDeclaration.Members, sourceLines))
         }
 
         enumDeclaration := declaration as EnumDeclaration
@@ -168,9 +169,18 @@ class EditorDocumentSymbolFacts {
         return new List<EditorDocumentSymbolRow>()
     }
 
-    static func MemberRows(members: List<Declaration>, sourceLines: string[]?): List<EditorDocumentSymbolRow> {
+    // A MEMBER'S ROW, with one question only the OWNER can answer: a bare value member of a class or
+    // record that `MemberStorageRules` makes an auto-property is a PROPERTY in the outline, as it is
+    // in reflection and in hover.
+    static func MemberRows(owner: Declaration, members: List<Declaration>, sourceLines: string[]?): List<EditorDocumentSymbolRow> {
         rows := new List<EditorDocumentSymbolRow>()
         for member in members {
+            field := member as FieldDeclaration
+            if field != null && MemberStorageRules.IsAutoPropertyField(owner, field) {
+                rows.Add(MakeRow(field.Name, EditorSymbolKind.Property, DetailText(field.Type), field.Line, field.Line, sourceLines, NoChildren()))
+                continue
+            }
+
             row := SymbolRow(member, sourceLines)
             if row != null {
                 rows.Add(row)

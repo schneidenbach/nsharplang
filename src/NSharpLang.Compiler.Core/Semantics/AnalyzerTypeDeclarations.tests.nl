@@ -2450,21 +2450,21 @@ test "A FIELD DECLARED `override`, `virtual` OR `abstract` IS `NL311` — it can
     TypeDeclRun(overrideHarness, overrideHarness.Declarations.BeginClass(TypeDeclClass("Dog", overrideMembers, null, null, Modifiers.None), overrideHarness.Assignability), null)
     assert overrideHarness.Errors.Count == 1
     assert overrideHarness.Errors[0].Code == ErrorCode.InvalidModifier
-    assert overrideHarness.Errors[0].Message == "'Label' is declared 'override', but a field cannot be virtual, abstract or overridden"
+    assert overrideHarness.Errors[0].Message == "'Label' is declared 'override', but a bare 'Label: <type>' member cannot be virtual, abstract or overridden"
 
     virtualHarness := TypeDeclDefault()
     virtualMembers := new List<Declaration>()
     virtualMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Virtual))
     TypeDeclRun(virtualHarness, virtualHarness.Declarations.BeginClass(TypeDeclClass("Dog", virtualMembers, null, null, Modifiers.None), virtualHarness.Assignability), null)
     assert virtualHarness.Errors.Count == 1
-    assert virtualHarness.Errors[0].Message == "'Label' is declared 'virtual', but a field cannot be virtual, abstract or overridden"
+    assert virtualHarness.Errors[0].Message == "'Label' is declared 'virtual', but a bare 'Label: <type>' member cannot be virtual, abstract or overridden"
 
     abstractHarness := TypeDeclDefault()
     abstractMembers := new List<Declaration>()
     abstractMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Abstract))
     TypeDeclRun(abstractHarness, abstractHarness.Declarations.BeginClass(TypeDeclClass("Dog", abstractMembers, null, null, Modifiers.None), abstractHarness.Assignability), null)
     assert abstractHarness.Errors.Count == 1
-    assert abstractHarness.Errors[0].Message == "'Label' is declared 'abstract', but a field cannot be virtual, abstract or overridden"
+    assert abstractHarness.Errors[0].Message == "'Label' is declared 'abstract', but a bare 'Label: <type>' member cannot be virtual, abstract or overridden"
 
     // THE MODIFIERS A FIELD LEGITIMATELY CARRIES ARE UNTOUCHED. This is the row that keeps the rule
     // from failing live files: `static`, `readonly` and `required` fields are the estate's own shapes.

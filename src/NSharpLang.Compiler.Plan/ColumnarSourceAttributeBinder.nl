@@ -459,7 +459,7 @@ class ColumnarSourceAttributeBinder {
         depth := 0
         while definition != null && depth < 64 {
             property: ColumnarPropertyDef = null
-            if definition.Properties.TryGetValue(memberName, out property) && property != null && property.Setter != null {
+            if (definition.Properties.TryGetValue(memberName, out property) || definition.SettableAutoProperties.TryGetValue(memberName, out property)) && property != null && property.Setter != null {
                 memberType = property.PropertyType
                 isField = false
                 return true
@@ -534,6 +534,10 @@ class ColumnarSourceAttributeApplication {
     MemberFallbackTarget: FieldBuilder?
     FieldTarget: FieldBuilder?
     PropertyTarget: PropertyBuilder?
+    // AN AUTO-PROPERTY IS THE OTHER DECLARATION THAT IS TWO ROWS: the property and the backing field
+    // behind it. `PropertyTarget` is set as for any property and this is the field an attribute that
+    // admits no property lands on.
+    BackingFieldTarget: FieldBuilder?
     ConstructorTarget: ConstructorBuilder?
     Attributes: ColumnarSourceAttributeInput[]
     Resolution: ColumnarSemanticTypeResolution
@@ -545,6 +549,7 @@ class ColumnarSourceAttributeApplication {
         MemberFallbackTarget = null
         FieldTarget = null
         PropertyTarget = null
+        BackingFieldTarget = null
         ConstructorTarget = null
         Attributes = attributes
         Resolution = resolution
@@ -565,9 +570,14 @@ class ColumnarSourceAttributeApplication {
 // the assembly has been defined and before the first `CreateType`.
 class ColumnarSourceAttributeQueue {
     applications: List<ColumnarSourceAttributeApplication>
+    // Every auto-property defined in the program, by backing field. A positional constructor
+    // parameter is queued with the FIELD its member's storage is — that is what the constructor
+    // stores into — and this is how the flush learns that the member is a property.
+    autoPropertiesByBackingField: Dictionary<FieldBuilder, PropertyBuilder>
 
     constructor() {
         applications = new List<ColumnarSourceAttributeApplication>()
+        autoPropertiesByBackingField = new Dictionary<FieldBuilder, PropertyBuilder>()
     }
 
     func TryQueue(attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution, out application: ColumnarSourceAttributeApplication): bool {
@@ -636,6 +646,20 @@ class ColumnarSourceAttributeQueue {
         }
     }
 
+    // AN AUTO-PROPERTY'S ATTRIBUTES GO ON THE PROPERTY wherever the attribute admits one — the row
+    // `PropertyInfo.GetCustomAttributes` reads, as for any property — and on the backing field when it
+    // admits only fields: `[NonSerialized]` describes storage, and C# writes it there with `[field:]`.
+    // The analyzer has already reported (NL933) an attribute that admits neither; it is left on the
+    // property, where the source put it.
+    func QueueAutoProperty(target: PropertyBuilder, backingField: FieldBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
+        autoPropertiesByBackingField[backingField] = target
+        application: ColumnarSourceAttributeApplication = null
+        if TryQueue(attributes, resolution, out application) {
+            application.PropertyTarget = target
+            application.BackingFieldTarget = backingField
+        }
+    }
+
     func QueueConstructor(target: ConstructorBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
         application: ColumnarSourceAttributeApplication = null
         if TryQueue(attributes, resolution, out application) {
@@ -671,6 +695,26 @@ class ColumnarSourceAttributeQueue {
                 parameterTarget := application.ParameterTarget
                 if parameterTarget != null {
                     memberFallback := application.MemberFallbackTarget
+                    memberProperty: PropertyBuilder? = null
+                    if memberFallback != null && autoPropertiesByBackingField.TryGetValue(memberFallback, out memberProperty) && memberProperty != null {
+                        // THE MEMBER IS AN AUTO-PROPERTY: the parameter when the attribute admits one,
+                        // else the property, else — a storage-only attribute — its backing field.
+                        if !AdmitsUsage(attribute, application.Resolution, AnalyzerAttributeUsageFacts.ParameterTarget) {
+                            if AdmitsUsage(attribute, application.Resolution, AnalyzerAttributeUsageFacts.PropertyTarget) {
+                                memberProperty.SetCustomAttribute(plan.Constructor, plan.Blob)
+                                continue
+                            }
+
+                            if AdmitsUsage(attribute, application.Resolution, AnalyzerAttributeUsageFacts.FieldTarget) {
+                                memberFallback.SetCustomAttribute(plan.Constructor, plan.Blob)
+                                continue
+                            }
+                        }
+
+                        parameterTarget.SetCustomAttribute(plan.Constructor, plan.Blob)
+                        continue
+                    }
+
                     if memberFallback != null && !AdmitsParameter(attribute, application.Resolution) {
                         memberFallback.SetCustomAttribute(plan.Constructor, plan.Blob)
                         continue
@@ -688,6 +732,12 @@ class ColumnarSourceAttributeQueue {
 
                 propertyTarget := application.PropertyTarget
                 if propertyTarget != null {
+                    backingFieldTarget := application.BackingFieldTarget
+                    if backingFieldTarget != null && AdmitsOnlyField(attribute, application.Resolution) {
+                        backingFieldTarget.SetCustomAttribute(plan.Constructor, plan.Blob)
+                        continue
+                    }
+
                     propertyTarget.SetCustomAttribute(plan.Constructor, plan.Blob)
                     continue
                 }
@@ -700,6 +750,25 @@ class ColumnarSourceAttributeQueue {
         }
 
         applications.Clear()
+    }
+
+    // WHETHER AN AUTO-PROPERTY'S ATTRIBUTE BELONGS ON ITS BACKING FIELD: it admits fields and not
+    // properties. An unresolvable attribute type stays on the property; the analyzer named it.
+    static func AdmitsOnlyField(attribute: ColumnarSourceAttributeInput, resolution: ColumnarSemanticTypeResolution): bool {
+        return !AdmitsUsage(attribute, resolution, AnalyzerAttributeUsageFacts.PropertyTarget) && AdmitsUsage(attribute, resolution, AnalyzerAttributeUsageFacts.FieldTarget)
+    }
+
+    // Whether the attribute's `[AttributeUsage]` includes `targetBit`. An attribute type that cannot be
+    // resolved answers false for every bit, so it stays where the source wrote it.
+    static func AdmitsUsage(attribute: ColumnarSourceAttributeInput, resolution: ColumnarSemanticTypeResolution, targetBit: int): bool {
+        attributeType: Type = null
+        sourceDefinition: ColumnarStructDef = null
+        if !ColumnarSourceAttributeBinder.TryResolveAttributeType(attribute.Name, resolution, out attributeType, out sourceDefinition) {
+            return false
+        }
+
+        targets := ColumnarAttributeUsageTargets.Of(attributeType, sourceDefinition, resolution)
+        return (targets & targetBit) == targetBit
     }
 
     // WHETHER THIS ATTRIBUTE MAY BE WRITTEN ON A PARAMETER AT ALL. Only a positional constructor

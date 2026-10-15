@@ -115,9 +115,11 @@ class AnalyzerAttributeValidator {
     // none of the walks the type resolver credits: a file whose only use of an import was
     // `[NotNullWhen(true)]` had that import reported dead until this credit existed.
     importUsageCredit: AnalyzerImportUsageCredit?
+    autoPropertyMembers: HashSet<object>
 
     constructor(diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, declarations: AnalyzerDeclarationContext, probe: AnalyzerExternalTypeProbe, resolver: AnalyzerTypeResolver, memberAccessOwner: AnalyzerMemberAccess, literals: AnalyzerLiteralExpressions, clrConversion: AnalyzerClrTypeConversion, knownTypes: AnalyzerWellKnownTypes?) {
         importUsageCredit = null
+        autoPropertyMembers = new HashSet<object>()
         diagnostics = diagnosticSink
         spans = spansOwner
         scopes = scopeStack
@@ -154,8 +156,9 @@ class AnalyzerAttributeValidator {
 
         classDecl := decl as ClassDeclaration
         if classDecl != null {
+            NoteAutoPropertyMembers(classDecl, classDecl.Members)
             ValidateAttributeArgumentsOn(classDecl.Attributes, AnalyzerAttributeUsageFacts.ClassTarget)
-            ValidatePositionalParameterAttributeArguments(classDecl.PrimaryConstructorParameters)
+            ValidatePositionalParameterAttributeArguments(classDecl, classDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(classDecl.Attributes, "a class")
             return
         }
@@ -163,7 +166,7 @@ class AnalyzerAttributeValidator {
         structDecl := decl as StructDeclaration
         if structDecl != null {
             ValidateAttributeArgumentsOn(structDecl.Attributes, AnalyzerAttributeUsageFacts.StructTarget)
-            ValidatePositionalParameterAttributeArguments(structDecl.PrimaryConstructorParameters)
+            ValidatePositionalParameterAttributeArguments(structDecl, structDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(structDecl.Attributes, "a struct")
             ValidateValueTypeMemberMethodImpl(structDecl.Members)
             return
@@ -176,8 +179,9 @@ class AnalyzerAttributeValidator {
                 recordTarget = AnalyzerAttributeUsageFacts.StructTarget
             }
 
+            NoteAutoPropertyMembers(recordDecl, recordDecl.Members)
             ValidateAttributeArgumentsOn(recordDecl.Attributes, recordTarget)
-            ValidatePositionalParameterAttributeArguments(recordDecl.PrimaryConstructorParameters)
+            ValidatePositionalParameterAttributeArguments(recordDecl, recordDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(recordDecl.Attributes, "a record")
             if recordDecl.IsStruct {
                 ValidateValueTypeMemberMethodImpl(recordDecl.Members)
@@ -225,6 +229,12 @@ class AnalyzerAttributeValidator {
 
         fieldDecl := decl as FieldDeclaration
         if fieldDecl != null {
+            if autoPropertyMembers.Contains(fieldDecl) {
+                ValidateAttributeArgumentsOn(fieldDecl.Attributes, AnalyzerAttributeUsageFacts.AutoPropertyDeclarationTargets())
+                ReportMethodImplOnNonCarrier(fieldDecl.Attributes, "an auto-property")
+                return
+            }
+
             ValidateAttributeArgumentsOn(fieldDecl.Attributes, AnalyzerAttributeUsageFacts.FieldTarget)
             ReportMethodImplOnNonCarrier(fieldDecl.Attributes, "a field")
             return
@@ -437,14 +447,41 @@ class AnalyzerAttributeValidator {
         diagnostics.Report(ErrorCode.MethodImplOptionRefusedByClr, "'MethodImplOptions." + option + "' cannot be carried by this member — " + MethodImplAttributeFacts.DescribeRefusalReason(option), span.Line, span.Column, MethodImplAttributeFacts.DescribeRefusalRepair(option), span.Length)
     }
 
+    // THE BARE MEMBERS OF A CLASS OR RECORD THAT ARE AUTO-PROPERTIES (`MemberStorageRules`), noted
+    // when the owner is walked so each member's own visit — which sees only the member — measures its
+    // attributes against the two rows it becomes.
+    func NoteAutoPropertyMembers(owner: Declaration, members: List<Declaration>) {
+        for member in members {
+            field := member as FieldDeclaration
+            if field != null && MemberStorageRules.IsAutoPropertyField(owner, field) {
+                autoPropertyMembers.Add(field)
+            }
+        }
+    }
+
     func ValidateParameterAttributeArguments(parameters: List<Parameter>?) {
         ValidateParameterAttributeArgumentsAs(parameters, AnalyzerAttributeUsageFacts.ParameterTarget)
     }
 
     // A PRIMARY CONSTRUCTOR'S PARAMETERS ARE MEASURED AS THE MEMBERS THEY ALSO DECLARE. Everything
     // else about them is a parameter's rule; only the placement question has a second answer.
-    func ValidatePositionalParameterAttributeArguments(parameters: List<Parameter>?) {
-        ValidateParameterAttributeArgumentsAs(parameters, AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets())
+    //
+    // The member a parameter declares is a FIELD or an AUTO-PROPERTY by `MemberStorageRules`, so the
+    // second answer is whichever of the two that member is.
+    func ValidatePositionalParameterAttributeArguments(owner: Declaration, parameters: List<Parameter>?) {
+        if parameters == null {
+            return
+        }
+
+        for parameter in parameters {
+            target := AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets()
+            if MemberStorageRules.IsAutoPropertyParameter(owner, parameter.Name) {
+                target = AnalyzerAttributeUsageFacts.PositionalPropertyParameterDeclarationTargets()
+            }
+
+            ValidateAttributeArgumentsOn(parameter.Attributes, target)
+            ReportMethodImplOnNonCarrier(parameter.Attributes, "a parameter")
+        }
     }
 
     func ValidateParameterAttributeArgumentsAs(parameters: List<Parameter>?, target: int) {
@@ -1365,6 +1402,14 @@ class AnalyzerAttributeValidator {
     static func DescribeAttributeTargetRepair(target: int): string {
         if target == AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets() {
             return "A positional constructor parameter carries its attribute on the parameter when the attribute allows parameters, and on the field that parameter declares when it allows fields — this one allows neither. Move it to a declaration it allows, or widen the attribute's own '[AttributeUsage(...)]'."
+        }
+
+        if target == AnalyzerAttributeUsageFacts.PositionalPropertyParameterDeclarationTargets() {
+            return "A positional constructor parameter carries its attribute on the parameter when the attribute allows parameters, and otherwise on the property that parameter declares, or on that property's backing field — this one allows none of the three. Move it to a declaration it allows, or widen the attribute's own '[AttributeUsage(...)]'."
+        }
+
+        if target == AnalyzerAttributeUsageFacts.AutoPropertyDeclarationTargets() {
+            return "An auto-property carries its attribute on the property when the attribute allows properties, and on the backing field when it allows only fields — this one allows neither. Move it to a declaration it allows, or widen the attribute's own '[AttributeUsage(...)]'."
         }
 
         return "Move it to one of those declarations, or widen the attribute's own '[AttributeUsage(...)]'."

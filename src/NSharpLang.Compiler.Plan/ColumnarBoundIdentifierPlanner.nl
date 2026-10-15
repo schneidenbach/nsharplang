@@ -470,7 +470,11 @@ class ColumnarBoundIdentifierPlanner {
         selection := EmptySelection()
         if TryResolve(nodes, source, candidate, bindings, out selection) {
             resultType = selection.ResultType
-            directStorage = selection.Kind == ColumnarBoundIdentifierKind.Local || selection.Kind == ColumnarBoundIdentifierKind.Parameter || selection.Kind == ColumnarBoundIdentifierKind.CurrentField || selection.Kind == ColumnarBoundIdentifierKind.ByRefParameter
+            // AN AUTO-PROPERTY IS NOT STORAGE, even though this assembly reaches it through its backing
+            // field: a property read is a copy, so a mutating call on it changes the copy (C#'s rule,
+            // and what a caller in another assembly gets through the getter).
+            currentStorage := selection.Kind == ColumnarBoundIdentifierKind.CurrentField && !ColumnarAutoPropertyEmitter.IsBackingField(selection.FirstField)
+            directStorage = selection.Kind == ColumnarBoundIdentifierKind.Local || selection.Kind == ColumnarBoundIdentifierKind.Parameter || currentStorage || selection.Kind == ColumnarBoundIdentifierKind.ByRefParameter
 
             byRefParameter = selection.Kind == ColumnarBoundIdentifierKind.ByRefParameter
             return true

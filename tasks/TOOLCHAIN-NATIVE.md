@@ -1193,8 +1193,9 @@ both sides of these files — the C# wrote `using LspRange = …`, the N# writes
 that is the single largest textual difference. `TryGetSynchronizedProjectSnapshot(uri, out root,
 out path, out snapshot)` became `SynchronizedProjectSnapshot(uri): ProjectSnapshotBinding?`, because
 the answer and the three values that exist only when it is yes belong together; the state, the LRU,
-the two locks and the snapshot cache are unchanged. `DocumentState`'s members are fields rather
-than auto-properties, because that is what a declared member is in N#.
+the two locks and the snapshot cache are unchanged. `DocumentState`'s members were fields rather
+than auto-properties, because that was what a declared member was in N# at the time; since
+2026-10-15 an exported bare member of a class is an auto-property (`memory/components/member-storage.md`).
 
 **The friend-grant fixture's subject was REWRITTEN, not weakened.** N# emits every type and every
 field as CLR public — casing decides package export, which the CLR cannot see — so the three C#

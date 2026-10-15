@@ -696,6 +696,15 @@ class ColumnarStructDef {
     // point — and the only code that ever touches this field is the accessor pair the emitter wrote.
     // The same reasoning exempts a field-like event's backing delegate from the same rule.
     AutoPropertyBackingFields: HashSet<string>
+    // THE GET/SET AUTO-PROPERTIES, by member name, whose `Fields` entry under the same name is their
+    // storage. Every in-assembly body reaches such a member through that entry — the storage IS the
+    // member, and the accessors are only the other-assembly contract — so the member is deliberately
+    // NOT in `Properties` as well: one name, one entry in the tables a body resolves against. The
+    // property fact lives here for the few owners that must name the PROPERTY: an attribute's named
+    // argument (its blob says FIELD or PROPERTY), an interface slot, and a value-typed receiver, whose
+    // read through a property is a copy (C#'s rule, and what another assembly gets through the getter)
+    // so a mutating call must not take the storage's address.
+    SettableAutoProperties: Dictionary<string, ColumnarPropertyDef>
 
     constructor(builder: TypeBuilder, fieldOrder: string[], fields: Dictionary<string, FieldBuilder>, isReference: bool, isRecord: bool = false, isClosureDisplay: bool = false, declaredTypeName: string = "") {
         if builder == null || fieldOrder == null || fields == null || declaredTypeName == null {
@@ -735,6 +744,7 @@ class ColumnarStructDef {
         Events = new Dictionary<string, ColumnarEventDef>(StringComparer.Ordinal)
         MemberLabeledCanonicals = new Dictionary<string, string>(StringComparer.Ordinal)
         AutoPropertyBackingFields = new HashSet<string>(StringComparer.Ordinal)
+        SettableAutoProperties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
         ExactBaseType = null
     }
 

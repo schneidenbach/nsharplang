@@ -44,9 +44,10 @@ test "the reference-nullable reader really produces the CLASS's member type" {
     assert text != null
     assert text.GetType() == typeof(string)
 
-    field := typeof(MarkupContent).GetField("Value")
-    assert field != null
-    assert field.FieldType == typeof(string)
+    // `Value` is a bare exported member of a class, so an auto-property.
+    property := typeof(MarkupContent).GetProperty("Value")
+    assert property != null
+    assert property.PropertyType == typeof(string)
 }
 
 test "a class that declares HasValue and GetValueOrDefault owns both names" {
@@ -64,9 +65,9 @@ test "a class that declares HasValue and GetValueOrDefault owns both names" {
     assert method != null
     assert method.ReturnType == typeof(string)
 
-    field := typeof(Slot).GetField("HasValue")
-    assert field != null
-    assert field.FieldType == typeof(bool)
+    property := typeof(Slot).GetProperty("HasValue")
+    assert property != null
+    assert property.PropertyType == typeof(bool)
 }
 
 test "the VALUE-type nullable surface is untouched" {

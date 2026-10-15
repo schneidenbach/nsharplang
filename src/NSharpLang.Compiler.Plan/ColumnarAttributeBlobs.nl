@@ -122,6 +122,16 @@ class ColumnarAttributeBlobs {
         return blob.ToArray()
     }
 
+    // `[DebuggerBrowsable(DebuggerBrowsableState.Never)]`: prolog, ONE `int32` fixed argument (an enum
+    // argument is its underlying value, little-endian), no named arguments.
+    static func OneInt32(value: int): byte[] {
+        blob := new List<byte>()
+        WritePrologue(blob)
+        WriteUInt32(blob, value)
+        WriteNamedArgumentCount(blob, 0)
+        return blob.ToArray()
+    }
+
     // `[Nullable(new byte[] { 1, 1, 2 })]`: prolog, ONE fixed argument that is a SZARRAY of bytes,
     // no named arguments. The element form is the same raw byte the single-argument shape writes,
     // behind the plain UInt32 element count every SZARRAY argument carries.

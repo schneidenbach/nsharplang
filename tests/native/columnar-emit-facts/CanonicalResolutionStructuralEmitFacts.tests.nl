@@ -17,12 +17,14 @@ class CanonicalResolutionBox<T> {
 type CanonicalResolutionPayloadAlias = CanonicalResolutionPayload
 type CanonicalResolutionClosedAlias = CanonicalResolutionBox<CanonicalResolutionPayload>
 
+// camelCase, so these are FIELDS (an exported bare member of a class is an auto-property): the
+// contract is the exact FIELD signature each canonical spelling resolves to.
 class CanonicalResolutionSignatures<T> {
-    PayloadField: CanonicalResolutionPayloadAlias
-    ClosedField: CanonicalResolutionClosedAlias
-    TypeParameterField: T
-    TypeParameterArrayField: T[]
-    RuntimeListField: System.Collections.Generic.List<T>
+    payloadField: CanonicalResolutionPayloadAlias
+    closedField: CanonicalResolutionClosedAlias
+    typeParameterField: T
+    typeParameterArrayField: T[]
+    runtimeListField: System.Collections.Generic.List<T>
 
     func ClosedRoundTrip(value: CanonicalResolutionClosedAlias): CanonicalResolutionClosedAlias {
         return value
@@ -104,11 +106,11 @@ test "canonical resolution writes exact field return and parameter signatures" {
     carrier := new CanonicalResolutionSignatures<int>()
     carrierRuntime := CanonicalResolutionRuntimeType(carrier)
 
-    assert CanonicalResolutionRequiredField(carrierRuntime, "PayloadField").get_FieldType() == payloadRuntime
-    assert CanonicalResolutionRequiredField(carrierRuntime, "ClosedField").get_FieldType() == closedRuntime
-    assert CanonicalResolutionRequiredField(carrierRuntime, "TypeParameterField").get_FieldType() == typeof(int)
-    assert CanonicalResolutionRequiredField(carrierRuntime, "TypeParameterArrayField").get_FieldType() == typeof(int[])
-    assert CanonicalResolutionRequiredField(carrierRuntime, "RuntimeListField").get_FieldType() == runtimeList
+    assert CanonicalResolutionRequiredField(carrierRuntime, "payloadField").get_FieldType() == payloadRuntime
+    assert CanonicalResolutionRequiredField(carrierRuntime, "closedField").get_FieldType() == closedRuntime
+    assert CanonicalResolutionRequiredField(carrierRuntime, "typeParameterField").get_FieldType() == typeof(int)
+    assert CanonicalResolutionRequiredField(carrierRuntime, "typeParameterArrayField").get_FieldType() == typeof(int[])
+    assert CanonicalResolutionRequiredField(carrierRuntime, "runtimeListField").get_FieldType() == runtimeList
 
     closedMethod := CanonicalResolutionRequiredMethod(carrierRuntime, "ClosedRoundTrip")
     closedParameters := closedMethod.GetParameters()

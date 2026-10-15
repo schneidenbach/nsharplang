@@ -33,6 +33,11 @@ func EdsField(name: string, fieldType: TypeReference?, line: int): Declaration {
     return declaration
 }
 
+func EdsStruct(name: string, members: Declaration[], line: int): Declaration {
+    declaration: Declaration = new StructDeclaration(name, null, new List<TypeReference>(), EdsDeclarations(members), null, Modifiers.None, new List<AttributeNode>(), line, 1)
+    return declaration
+}
+
 func EdsClass(name: string, members: Declaration[], line: int): Declaration {
     declaration: Declaration = new ClassDeclaration(name, null, null, new List<TypeReference>(), EdsDeclarations(members), null, Modifiers.None, new List<AttributeNode>(), line, 1)
     return declaration
@@ -57,10 +62,23 @@ test "the outline nests a type's members beneath it in source order" {
     assert rows[0].EndLine == 5
     assert rows[0].Children.Count == 2
     assert rows[0].Children[0].Name == "Width"
-    assert rows[0].Children[0].Kind == EditorSymbolKind.Field
+    // A class's exported bare member is an auto-property (`MemberStorageRules`), and the outline
+    // names it as one.
+    assert rows[0].Children[0].Kind == EditorSymbolKind.Property
     assert rows[0].Children[0].Detail == "int"
     assert rows[0].Children[1].Name == "Area"
     assert rows[0].Children[1].Kind == EditorSymbolKind.Function
+}
+
+// A CAMELCASE MEMBER IS THE TYPE'S OWN STORAGE, and so is every member of a struct: both are FIELD rows.
+test "the outline names a class's camelCase member and a struct's member a field" {
+    lines := EdsLines("class Box {\n    width: int\n}\nstruct Pt {\n    X: int\n}\n")
+    unit := EdsUnit([EdsClass("Box", [EdsField("width", EdsSimple("int"), 2)], 1), EdsStruct("Pt", [EdsField("X", EdsSimple("int"), 5)], 4)])
+
+    rows := EditorDocumentSymbolFacts.SymbolRows(unit, lines)
+    assert rows.Count == 2
+    assert rows[0].Children[0].Kind == EditorSymbolKind.Field
+    assert rows[1].Children[0].Kind == EditorSymbolKind.Field
 }
 
 // A DECLARATION THE OUTLINE HAS NO ROW FOR IS SKIPPED, not shown with a guessed kind.
