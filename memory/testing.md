@@ -1183,7 +1183,9 @@ A decrease must be reviewed and ratcheted; an increase is a regression to fix. (
 the Core build's closure is not a regression: `speed/agent-loop-2` added `SharedReferenceMetadata.nl`
 to Model and moved Core's files parsed/emit-parsed/analysed 468/278/278 -> 469/279/279 in the same
 commit that took its reference images 479 -> 129 and the Core-scale emit's 141 -> 36. The batch-3
-integration run measured the current Core counters at 471/280/280; that observed value is now the
+integration run measured the current Core counters at 471/280/280; issue #199 then added
+`AsyncTaskFamily.nl` (Model), `AnalyzerAsyncReturnFamily.nl` (Core) and
+`ColumnarAsyncWrapperSelection.nl` (Plan) to the closure, moving them to 474/282/282, which is the
 checked-in structural baseline.
 
 **Exact structural behavior is always gated; timing runs only when product inputs changed.** Both
