@@ -5292,7 +5292,8 @@ sealed class ColumnarIlEmitter {
             structs,
             structDefsInOrder,
             structTypeResolutions,
-            interfaceDefsInOrder
+            interfaceDefsInOrder,
+            program.AsyncDefaultFamily
         )
 
         // PASS 0a''' (fields and field-like events): with every base list and every duck match
@@ -5499,7 +5500,7 @@ sealed class ColumnarIlEmitter {
                     let sReturn: System.Type = null
                     sAsyncWrappedReturn: Type? = null
                     if (m.IsAsync) {
-                        if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn)) {
+                        if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn)) {
                             return DeclineStatic("emit.declaration.method-return", "async static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                     } else {
@@ -5681,7 +5682,7 @@ sealed class ColumnarIlEmitter {
                             return DeclineStatic("emit.declaration.method-return", "async iterator element type '" + asyncElementCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                         mReturn = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
-                    } else if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn)) {
+                    } else if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn)) {
                         return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                     }
                 } else {
@@ -5789,12 +5790,23 @@ sealed class ColumnarIlEmitter {
                 explicitInterfaceQualifier := ExplicitInterfaceMemberFacts.QualifierOf(m.Name)
                 methodSlotMemberName := ExplicitInterfaceMemberFacts.SimpleNameOf(m.Name)
                 methodDeclarationName := m.Name
+                let namedExplicitInterface: System.Type? = null
                 if (explicitInterfaceQualifier != "") {
-                    let namedExplicitInterface: System.Type? = null
                     if (!ColumnarExplicitInterfaceImplementation.TryResolveNamedInterface(explicitInterfaceQualifier, def, typeResolution, out namedExplicitInterface) || namedExplicitInterface == null) {
                         return DeclineStatic("emit.declaration.explicit-interface", "'" + structs[s].Name + "' does not implement '" + explicitInterfaceQualifier + "', so it cannot implement '" + m.Name + "' explicitly", structs[s].Name, -1, 0)
                     }
-                    methodDeclarationName = ExplicitInterfaceMemberFacts.MetadataName(ExplicitInterfaceMemberFacts.RuntimeInterfaceDisplayName(namedExplicitInterface), methodSlotMemberName)
+                }
+                // AN UNANNOTATED ASYNC MEMBER THAT FILLS A SLOT TAKES THE SLOT'S TASK FAMILY. The
+                // project default was chosen above without the parameters; with them, the slot the
+                // member is about to be registered against decides (`ColumnarAsyncWrapperSelection`).
+                selectableAsyncReturn := mAsyncWrappedReturn
+                if (selectableAsyncReturn != null && !ColumnarInterfaceRealization.WritesTaskLikeReturn(m.ReturnCanonical)) {
+                    selectedAsyncReturn := ColumnarAsyncWrapperSelection.Select(def, m.Name, methodOverride.RequestsBaseOverride, namedExplicitInterface, mReturn, selectableAsyncReturn, mParamTypes, typeResolution.Structs.Values, typeResolution.Structs.StructuralTypeReferences)
+                    mAsyncWrappedReturn = selectedAsyncReturn
+                    mSignatureReturn = selectedAsyncReturn
+                }
+                if (explicitInterfaceQualifier != "") {
+                    methodDeclarationName = ExplicitInterfaceMemberFacts.MetadataName(ExplicitInterfaceMemberFacts.RuntimeInterfaceDisplayName(must namedExplicitInterface), methodSlotMemberName)
                     ColumnarExplicitInterfaceImplementation.AddNamedInterfaceTargets(
                         methodOverride,
                         def,
@@ -5815,47 +5827,13 @@ sealed class ColumnarIlEmitter {
                         return DeclineStatic("emit.declaration.explicit-interface-duplicate", "'" + explicitInterfaceQualifier + "." + methodSlotMemberName + "' is implemented explicitly more than once", structs[s].Name, -1, 0)
                     }
                 } else {
-                    for implementedInterface in def.ImplementedInterfaces {
-                        implementedInterfaceBuilder: Type = implementedInterface.Builder
-                        if (implementedInterfaceBuilder.IsGenericTypeDefinition) {
-                            continue
-                        }
-                        methodOverride.TryAddSourceInterfaceTarget(
-                            implementedInterface,
-                            m.Name,
-                            mSignatureReturn,
-                            mParamTypes,
-                            typeResolution.Structs.StructuralTypeReferences
-                        )
-                    }
-                    for implementedInterfaceType in def.ImplementedInterfaceTypes {
-                        let implementedInterfaceDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-                        implementedInterfaceTypeForGenericCheck := implementedInterfaceType
-                        if (!implementedInterfaceTypeForGenericCheck.IsGenericType) {
-                            continue
-                        }
-                        implementedInterfaceTypeForDefinitionCheck := implementedInterfaceType
-                        if (implementedInterfaceTypeForDefinitionCheck.IsGenericTypeDefinition) {
-                            continue
-                        }
-                        if (!ColumnarSourceDefinitionResolver.TryResolveInterface(implementedInterfaceType, typeResolution.Structs.Values, out implementedInterfaceDef)) {
-                            continue
-                        }
-                        methodOverride.TryAddClosedSourceInterfaceTarget(
-                            implementedInterfaceType,
-                            must implementedInterfaceDef,
-                            m.Name,
-                            mSignatureReturn,
-                            mParamTypes,
-                            typeResolution.Structs.StructuralTypeReferences
-                        )
-                    }
-                    ColumnarExternalInterfaceMethodResolver.AddMatchingTargets(
+                    ColumnarAsyncWrapperSelection.AddImplicitInterfaceTargets(
                         methodOverride,
-                        def.ExternalInterfaces,
+                        def,
                         m.Name,
                         mSignatureReturn,
                         mParamTypes,
+                        typeResolution.Structs.Values,
                         typeResolution.Structs.StructuralTypeReferences
                     )
                 }
@@ -6678,7 +6656,7 @@ sealed class ColumnarIlEmitter {
                     if (fn.TypeParamNames.Length > 0) {
                         return false
                     }
-                    if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn)) {
+                    if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn)) {
                         return DeclineStatic("emit.declaration.function-return", "async function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)
                     }
                 } else {
@@ -6930,7 +6908,7 @@ sealed class ColumnarIlEmitter {
             localFunctionLowering: ColumnarLocalFunctionLowering? = null
             if (fn.LocalFunctions != null) {
                 freeFunctionEnclosingDefinition: ColumnarStructDef? = null
-                if (!TryDeclareLocalFunctions(fn, functionSource, ordinalsByFunc[f], holders.ForFile(fn.SourceFileId), freeFunctionEnclosingDefinition, typeResolution, lambdaCounter, displayClasses, sourceAttributeQueue, siblingDefinitionsByFunc[f], out localFunctionLowering)) {
+                if (!TryDeclareLocalFunctions(fn, functionSource, ordinalsByFunc[f], holders.ForFile(fn.SourceFileId), freeFunctionEnclosingDefinition, typeResolution, lambdaCounter, displayClasses, sourceAttributeQueue, siblingDefinitionsByFunc[f], program.AsyncDefaultFamily, out localFunctionLowering)) {
                     return false
                 }
                 localFuncs = localFunctionLowering.LocalFuncs
@@ -7185,7 +7163,7 @@ sealed class ColumnarIlEmitter {
                 if !TryCreateLocalFunctionEnclosingMethodDefinition(memberMethodBuilder, memberGenerics, out memberEnclosingMethod) {
                     return DeclineStatic("emit.local-function.generic-member-facts", "generic member facts were unavailable for a local function", job.Item1.DeclaredTypeName + "." + job.Item2.Name, -1, 0)
                 }
-                if (!TryDeclareLocalFunctions(job.Item2, methodSource, methodJobOrdinals, job.Item1.Builder, methodJobCurrentStruct, bodyTypeResolution, lambdaCounter, displayClasses, sourceAttributeQueue, memberEnclosingMethod, out memberLocalFunctionLowering)) {
+                if (!TryDeclareLocalFunctions(job.Item2, methodSource, methodJobOrdinals, job.Item1.Builder, methodJobCurrentStruct, bodyTypeResolution, lambdaCounter, displayClasses, sourceAttributeQueue, memberEnclosingMethod, program.AsyncDefaultFamily, out memberLocalFunctionLowering)) {
                     return DeclineStatic("emit.local-function.declaration", "a local function of this member could not be declared", job.Item1.DeclaredTypeName + "." + job.Item2.Name, -1, 0)
                 }
                 memberLocalFuncs = memberLocalFunctionLowering.LocalFuncs
@@ -7796,6 +7774,7 @@ sealed class ColumnarIlEmitter {
         displayClasses: List<TypeBuilder>,
         sourceAttributeQueue: ColumnarSourceAttributeQueue,
         enclosingMethod: ColumnarSiblingMethodDefinition?,
+        asyncDefaultFamily: AsyncTaskFamily,
         out lowering: ColumnarLocalFunctionLowering
     ): bool {
         lowering = null
@@ -7844,7 +7823,7 @@ sealed class ColumnarIlEmitter {
             if (localFn.IsAsync) {
                 let localAsyncInner: System.Type? = null
                 let localAsyncWrapped: System.Type? = null
-                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(localFn.Name, localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localAsyncInner, out localAsyncWrapped)) {
+                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(localFn.Name, localFn.ReturnCanonical, asyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localAsyncInner, out localAsyncWrapped)) {
                     return DeclineStatic("emit.local-function.async-return", "async local function return type '" + localFn.ReturnCanonical + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
                 }
                 localReturn = localAsyncWrapped
@@ -8238,7 +8217,7 @@ sealed class ColumnarIlEmitter {
             if (localFn.IsAsync) {
                 let localAsyncInner: System.Type? = null
                 let localAsyncWrapped: System.Type? = null
-                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(localFn.Name, localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localAsyncInner, out localAsyncWrapped)) {
+                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(localFn.Name, localFn.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localAsyncInner, out localAsyncWrapped)) {
                     return DeclineStatic("emit.local-function.async-return", "async local function return type '" + localFn.ReturnCanonical + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
                 }
                 localBodyReturn = localAsyncInner

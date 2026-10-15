@@ -310,39 +310,43 @@ test "a reflection `in` parameter reads as In, not as Ref — the bit that made 
 }
 
 test "only an async NON-generator is wrapped in the task family" {
-    plain := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("f", false, false, BuiltInTypes.Int)
+    plain := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(false, false, BuiltInTypes.Int, AsyncTaskFamily.ValueTask)
     assert FactoryTypeName(plain) == "int"
 
-    generator := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("f", true, true, BuiltInTypes.Int)
+    generator := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(true, true, BuiltInTypes.Int, AsyncTaskFamily.ValueTask)
     assert FactoryTypeName(generator) == "int"
 
-    wrapped := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("f", true, false, BuiltInTypes.Int)
+    wrapped := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(true, false, BuiltInTypes.Int, AsyncTaskFamily.ValueTask)
     assert FactoryTypeName(wrapped) == "ValueTask<int>"
 }
 
-test "main gets the Task family and everything else ValueTask, case-insensitively" {
-    mainValue := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("main", true, false, BuiltInTypes.Int)
-    assert FactoryTypeName(mainValue) == "Task<int>"
+test "the chosen family decides the wrapper, and a void async is the unit task" {
+    task := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(true, false, BuiltInTypes.Int, AsyncTaskFamily.Task)
+    assert FactoryTypeName(task) == "Task<int>"
 
-    upperMain := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("MAIN", true, false, BuiltInTypes.Int)
-    assert FactoryTypeName(upperMain) == "Task<int>"
-
-    other := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("other", true, false, BuiltInTypes.Int)
-    assert FactoryTypeName(other) == "ValueTask<int>"
+    valueTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(true, false, BuiltInTypes.Int, AsyncTaskFamily.ValueTask)
+    assert FactoryTypeName(valueTask) == "ValueTask<int>"
 
     // A void async is the UNIT task, not a wrapped void.
-    mainVoid := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("main", true, false, BuiltInTypes.Void)
-    assert FactoryTypeName(mainVoid) == "System.Threading.Tasks.Task"
+    taskVoid := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(true, false, BuiltInTypes.Void, AsyncTaskFamily.Task)
+    assert FactoryTypeName(taskVoid) == "System.Threading.Tasks.Task"
 
-    otherVoid := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("other", true, false, BuiltInTypes.Void)
-    assert FactoryTypeName(otherVoid) == "System.Threading.Tasks.ValueTask"
+    valueTaskVoid := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(true, false, BuiltInTypes.Void, AsyncTaskFamily.ValueTask)
+    assert FactoryTypeName(valueTaskVoid) == "System.Threading.Tasks.ValueTask"
+}
+
+test "main gets the Task family case-insensitively, and everything else the project default" {
+    assert AsyncTaskFamilyFacts.EffectiveFamily("main", AsyncTaskFamily.ValueTask) == AsyncTaskFamily.Task
+    assert AsyncTaskFamilyFacts.EffectiveFamily("MAIN", AsyncTaskFamily.ValueTask) == AsyncTaskFamily.Task
+    assert AsyncTaskFamilyFacts.EffectiveFamily("other", AsyncTaskFamily.ValueTask) == AsyncTaskFamily.ValueTask
+    assert AsyncTaskFamilyFacts.EffectiveFamily("other", AsyncTaskFamily.Task) == AsyncTaskFamily.Task
 }
 
 test "an already task-like declared return type is left exactly as written" {
     unitTaskType := FactoryRuntimeType("System.Threading.Tasks.Task, System.Private.CoreLib")
     unitTask: TypeInfo = new ReflectionTypeInfo(unitTaskType)
     assert AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(unitTask)
-    resolved := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("f", true, false, unitTask)
+    resolved := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(true, false, unitTask, AsyncTaskFamily.ValueTask)
     assert Object.ReferenceEquals(resolved, unitTask)
 
     unitValueTaskType := FactoryRuntimeType("System.Threading.Tasks.ValueTask, System.Private.CoreLib")
@@ -354,7 +358,7 @@ test "an already task-like declared return type is left exactly as written" {
     result: TypeInfo = BuiltInTypes.Unknown
     assert AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(genericTask, out result)
     assert FactoryTypeName(result) == "int"
-    resolvedGeneric := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("f", true, false, genericTask)
+    resolvedGeneric := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(true, false, genericTask, AsyncTaskFamily.Task)
     assert Object.ReferenceEquals(resolvedGeneric, genericTask)
 
     // A plain type is neither.
@@ -809,10 +813,10 @@ test "the metadata twins of the unit task family are unit task-like and stay as 
 
         // The call-return rule leaves the declared type EXACTLY as written — no ValueTask wrap.
         resolvedTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f",
             true,
             false,
-            metadataUnitTask
+            metadataUnitTask,
+            AsyncTaskFamily.ValueTask
         )
         assert Object.ReferenceEquals(resolvedTask, metadataUnitTask)
 
@@ -821,10 +825,10 @@ test "the metadata twins of the unit task family are unit task-like and stay as 
         metadataUnitValueTask: TypeInfo = new ReflectionTypeInfo(metadataValueTask)
         assert AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(metadataUnitValueTask)
         resolvedValueTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f",
             true,
             false,
-            metadataUnitValueTask
+            metadataUnitValueTask,
+            AsyncTaskFamily.ValueTask
         )
         assert Object.ReferenceEquals(resolvedValueTask, metadataUnitValueTask)
     } finally {
@@ -850,10 +854,10 @@ test "the metadata generic task family answers its awaited result and stays as w
         assert AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(metadataTaskOfInt, out taskResult)
         assert FactoryTypeName(taskResult) == "int"
         resolvedTask := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f",
             true,
             false,
-            metadataTaskOfInt
+            metadataTaskOfInt,
+            AsyncTaskFamily.ValueTask
         )
         assert Object.ReferenceEquals(resolvedTask, metadataTaskOfInt)
 
@@ -936,10 +940,10 @@ test "an async metadata non-task return still wraps into the ValueTask family" {
         assert metadataString != null
         metadataStringInfo: TypeInfo = new ReflectionTypeInfo(metadataString)
         wrapped := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f",
             true,
             false,
-            metadataStringInfo
+            metadataStringInfo,
+            AsyncTaskFamily.ValueTask
         )
         wrappedGeneric := wrapped as GenericTypeInfo
         assert wrappedGeneric != null
@@ -960,10 +964,10 @@ test "the ValueTask wrap carries the declared metadata type exactly as written" 
         assert metadataString != null
         metadataStringInfo: TypeInfo = new ReflectionTypeInfo(metadataString)
         wrapped := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType(
-            "f",
             true,
             false,
-            metadataStringInfo
+            metadataStringInfo,
+            AsyncTaskFamily.ValueTask
         )
         wrappedGeneric := wrapped as GenericTypeInfo
         assert wrappedGeneric != null

@@ -1,6 +1,8 @@
 namespace NSharpLang.LanguageServerHandlers.Tests
 
 import System
+import System.IO
+import NSharpLang.LanguageServer.Services
 
 test "hover on a keyword explains it as a keyword" {
     docs := LshNewDocs()
@@ -436,5 +438,83 @@ func main(): void
         assert LshParameterCount(signature) == 2
     } finally {
         LshDeleteTree(root)
+    }
+}
+
+// THE EDITOR TYPES AN ASYNC CALL WITH THE PROJECT'S `language.asyncDefaultType`, and an override
+// with its base member's task. Two projects open in ONE language server, because its shared analyzer
+// serves both: the setting must follow the document's project, not whichever loaded first.
+func LshAsyncProject(root: string, name: string, languageSection: string): string {
+    LshWrite(root, "project.yml", "name: " + name + "\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: App.nl\n" + languageSection)
+    source := LshRaw(
+        """
+import System.IO
+import System.Threading
+import System.Threading.Tasks
+
+async func getUser(id: int): string {
+    await Task.Delay(1)
+    return "user" + id.ToString()
+}
+
+class CountingStream: MemoryStream {
+    override async func FlushAsync(_token: CancellationToken) {
+        await Task.Delay(1)
+    }
+}
+
+func main() {
+    pending := getUser(1)
+    flushed := new CountingStream().FlushAsync(CancellationToken.None)
+    System.Console.WriteLine(pending)
+    System.Console.WriteLine(flushed)
+}
+"""
+    )
+    return LshWrite(root, "App.nl", source)
+}
+
+func LshHoverAt(docs: DocumentManager, types: TypeResolver, path: string, marker: string, token: string): string {
+    source := File.ReadAllText(path)
+    line := LshMarkerLine(source, marker)
+    hover := LshHover(docs, types, LshFileUri(path), line, LshLineColumn(source, line, token))
+    assert hover != null, marker
+    return LshHoverMarkdown(hover)
+}
+
+test "hover on an async call shows the project's task type, and an override's base task" {
+    docs := LshNewDocs()
+    types := LshNewTypes()
+    taskRoot := LshTempRoot("nsharp-lsp-async-task-")
+    valueTaskRoot := LshTempRoot("nsharp-lsp-async-valuetask-")
+    try {
+        taskPath := LshAsyncProject(taskRoot, "AsyncTaskDefault", "language:\n  asyncDefaultType: Task\n")
+        valueTaskPath := LshAsyncProject(valueTaskRoot, "AsyncValueTaskDefault", "")
+        LshOpen(docs, LshFileUri(taskPath), File.ReadAllText(taskPath))
+        LshOpen(docs, LshFileUri(valueTaskPath), File.ReadAllText(valueTaskPath))
+
+        taskCall := LshHoverAt(docs, types, taskPath, "pending := getUser(1)", "getUser")
+        assert taskCall.Contains("Task<string>", StringComparison.Ordinal), taskCall
+        assert !taskCall.Contains("ValueTask", StringComparison.Ordinal), taskCall
+
+        valueTaskCall := LshHoverAt(docs, types, valueTaskPath, "pending := getUser(1)", "getUser")
+        assert valueTaskCall.Contains("ValueTask<string>", StringComparison.Ordinal), valueTaskCall
+
+        // `Stream.FlushAsync(CancellationToken)` returns `Task`, so the override does too — under
+        // either project default.
+        for path in [taskPath, valueTaskPath] {
+            overrideCall := LshHoverAt(docs, types, path, "flushed := ", "FlushAsync")
+            assert overrideCall.Contains("Task", StringComparison.Ordinal), overrideCall
+            assert !overrideCall.Contains("ValueTask", StringComparison.Ordinal), overrideCall
+        }
+
+        // Neither document reports anything: the typed results are the ones the emitter builds.
+        for path in [taskPath, valueTaskPath] {
+            diagnostics := LshDocument(docs, LshFileUri(path)).Diagnostics
+            assert diagnostics != null && diagnostics.Count == 0, path
+        }
+    } finally {
+        LshDeleteTree(taskRoot)
+        LshDeleteTree(valueTaskRoot)
     }
 }

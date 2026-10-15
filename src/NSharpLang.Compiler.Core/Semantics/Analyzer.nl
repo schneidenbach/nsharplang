@@ -2433,6 +2433,7 @@ class Analyzer: IDisposable {
     }
 
     func LoadFromProjectConfig(config: ProjectConfig, projectDirectory: string?, testSourcesIncluded: bool?) {
+        ApplyLanguageSettings(config)
         directory := projectDirectory ?? Environment.CurrentDirectory
         ProjectDefaultNamespaces.Clear()
         if AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies(config.Sdk) {
@@ -2446,6 +2447,17 @@ class Analyzer: IDisposable {
         ReferenceSetConfigured = config.Dependencies.Count > 0 && ReferenceLoadFailures.Count == 0
         ExtensionMethodResolution.SetReferenceSetComplete(ReferenceSetConfigured)
     }
+
+    // THE PROJECT'S LANGUAGE SETTINGS THAT CHANGE WHAT A DECLARATION MEANS. Today that is
+    // `language.asyncDefaultType`: which task an unannotated `async func` returns. It is separate
+    // from the reference load above because it is cheap and per PROJECT, while the references are
+    // loaded once per analyzer — the language server's one shared analyzer serves every project in
+    // the workspace, so it applies this before each analysis rather than once.
+    func ApplyLanguageSettings(config: ProjectConfig) {
+        DeclarationContext.SetAsyncDefaultFamily(AsyncTaskFamilyFacts.ForLanguage(config.Language))
+    }
+
+    AsyncDefaultFamily: AsyncTaskFamily => DeclarationContext.AsyncDefaultFamily
 
     // The metadata files this analyzer read and the directories its resolver probes — the reference
     // half of what an incremental build records as this compilation's inputs.

@@ -151,6 +151,25 @@ func main() {
 }
 ```
 
+### Language settings
+
+The optional `language:` section changes how the compiler reads your code:
+
+```yaml
+language:
+  profile: default          # or systems — see the Systems Profile guide
+  asyncDefaultType: Task    # the task an unannotated async func returns: ValueTask (default) or Task
+```
+
+| Key | Values | Default | Effect |
+|-----|--------|---------|--------|
+| `profile` | `default`, `systems` | `default` | `systems` turns on the allocation and AOT policy checks described in [the Systems Profile](./systems.md). |
+| `asyncDefaultType` | `ValueTask`, `Task` | `ValueTask` | The task an `async func` returns when it does not write one. `main`, overrides and interface implementations follow their own rule; see [Implicit Task Wrapping](./functions.md#implicit-task-wrapping). Web projects whose middleware or other convention-based methods must return `Task` usually want `Task`. |
+| `pooledAsync` | `true`, `false` | `false` | Reserved for pooled `ValueTask` builders; it is accepted but has no effect yet. It requires `asyncDefaultType: ValueTask`; combining it with `Task` is a configuration error. |
+
+Every `nlc` command, the language server and the MSBuild SDK read the same section, so a hover in
+VS Code shows the same task type `nlc build` emits.
+
 ## VS Code Setup
 
 The installer runs `code --install-extension nsharp.nsharp` when the `code` CLI is on PATH. If `code` was not available during install, enable it from VS Code with **Shell Command: Install 'code' command in PATH**, then run:

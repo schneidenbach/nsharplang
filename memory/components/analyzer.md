@@ -420,9 +420,25 @@ declared member read off a type's member table (optionally as seen from a declar
   concrete-delegate test, which excludes the two abstract roots.
 - A function's OWN type parameters shadow: each is bound to a `SimpleTypeInfo` of its own name before
   any reference resolves, so `func F<T>(x: T)` names `T` rather than resolving it in scope.
-- THE ASYNC CALL-RETURN RULE: only an async non-generator is wrapped; `main` gets the `Task` family
-  (case-insensitively) and everything else `ValueTask`; a declared type that is already task-like is
-  left exactly as written, which is what lets a function declare `Task<int>` explicitly.
+- THE ASYNC CALL-RETURN RULE: only an async non-generator is wrapped, and a declared type that is
+  already task-like is left exactly as written, which is what lets a function declare `Task<int>`
+  explicitly. WHICH task wraps the rest is `AnalyzerAsyncReturnFamily` (issue #199): `main` gets the
+  `Task` family (case-insensitively); an `override` takes the family of the nearest base member of
+  that name and arity, and any other instance method the family of the interface member it
+  implements (the named interface for an explicit `func IWorker.RunAsync()`), reflected or source,
+  with same-arity overloads that disagree inferring nothing; everything else gets the project's
+  `language.asyncDefaultType` (`AsyncTaskFamily`, `ValueTask` by default). The setting reaches the
+  analyzer through `Analyzer.ApplyLanguageSettings` → `AnalyzerDeclarationContext.AsyncDefaultFamily`:
+  `LoadFromProjectConfig` calls it, `MultiFileCompiler` re-applies it to a retained incremental
+  analyzer, and the language server applies it before EVERY document analysis because its one shared
+  analyzer serves every project in the workspace. The owner-of-a-method question is answered by
+  `AnalyzerDeclarationContext.TryGetMemberOwner`, a per-analysis identity index over every top-level
+  and nested type's members. A member that WRITES the other family than the slot it fills is NL202
+  from `AnalyzerTypeDeclarations.ValidateAsyncSlotReturn`, on the member name, naming the slot and
+  suggesting `: Task`/`: Task<T>` — before this it reached the emitter and declined as "no overridable
+  base member matches". The emitter's half is `ColumnarAsyncWrapperSelection` (see the async local
+  function note below); the native projects `async-slot-inference` and `async-default-type` and the
+  `AnalyzerAsyncReturnFamily` estate rows hold the two halves to one answer.
 
 ### CLR type → TypeInfo conversion
 
@@ -4908,7 +4924,13 @@ parameter list, the contextual typing, the display class — is unchanged.
   measured against the signature by the nested-body boundary, which reports their mismatch there.
 - **An `async` LOCAL FUNCTION is the same shape in a local function's method.** It declares its INNER
   type and the emitted method returns the wrap (`TryComputeAsyncReturnShape`, the same owner a
-  top-level `async func` asks), so every call site sees `ValueTask<T>`; the body sub-emitter is given
+  top-level `async func` asks, in the project's `ColumnarProgramInput.AsyncDefaultFamily`), so every
+  call site sees `ValueTask<T>` — or `Task<T>` under `asyncDefaultType: Task`. An instance method
+  that fills a slot is then offered to the SAME slot matchers its declaration registers with
+  (`ColumnarAsyncWrapperSelection`: base matches for an `override`, a scratch
+  `ColumnarMethodOverrideDeclaration` for interfaces) in the project family first and the other
+  family second, and takes the other family only when a slot accepts it and none accepts the
+  default. The body sub-emitter is given
   the inner type plus the async return shape. `emit.local-function.async` — the decline that said "its
   body is not routed through the async return planner" — is gone.
 - **Emission is the async function's shape, in a lambda's method.** `TryEmitLambdaLiteral` keeps the

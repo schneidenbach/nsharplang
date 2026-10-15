@@ -1,0 +1,8 @@
+name: NSharpLang.AsyncSlotInference.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# No `language.asyncDefaultType`: the project default is ValueTask, so every Task in the tests is
+# inferred from the slot the member fills.

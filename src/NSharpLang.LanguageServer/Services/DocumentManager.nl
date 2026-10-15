@@ -487,6 +487,9 @@ class DocumentManager {
                     analyzer.LoadFromProjectConfig(projectConfig, referenceRoot)
                     loadedProjectDirs.Add(referenceRoot)
                 }
+                // One shared analyzer serves every project in the workspace: the references above
+                // load once per project, but the language settings are this document's project's.
+                analyzer.ApplyLanguageSettings(projectConfig)
             }
 
             // Only run analysis if we have a valid compilation unit

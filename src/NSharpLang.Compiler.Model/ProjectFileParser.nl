@@ -72,6 +72,14 @@ class ProjectFileParser {
             throw new InvalidOperationException("Invalid language.asyncDefaultType: '" + config.Language.AsyncDefaultType + "'. Must be 'Task' or 'ValueTask'.")
         }
 
+        // POOLING IS A `ValueTask` CONCEPT. A pooled builder recycles the state behind a
+        // `ValueTask`, which a caller may await once; a `Task` is a heap object any number of callers
+        // may hold and await, so there is nothing to pool. The pair is a contradiction, not a
+        // preference, and is refused rather than silently ignored.
+        if config.Language.PooledAsync && config.Language.AsyncDefaultType == "Task" {
+            throw new InvalidOperationException("Invalid language.pooledAsync: 'true' requires 'language.asyncDefaultType: ValueTask', but this project sets 'asyncDefaultType: Task'. Pooling recycles ValueTask state and has no meaning for Task; remove 'pooledAsync' or set 'asyncDefaultType: ValueTask'.")
+        }
+
         if config.Language.Profile != "default" && config.Language.Profile != "systems" {
             throw new InvalidOperationException("Invalid language.profile: '" + config.Language.Profile + "'. Must be 'default' or 'systems'.")
         }
