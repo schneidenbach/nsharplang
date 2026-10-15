@@ -15,7 +15,6 @@ import NSharpLang.Compiler
 // the typed locals below only analyse if the analyzer wrapped in `Task`, and the reflection reads
 // only pass if the emitter did too. The COMPILE half builds fixture projects in a temp directory
 // through `MultiFileCompiler`, the way `nlc build` does, for the ASP.NET shapes the issue names.
-
 async func loadUser(id: int): string {
     await Task.Delay(1)
     return "user" + id.ToString()
