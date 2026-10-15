@@ -9951,16 +9951,16 @@ sealed class ColumnarIlEmitter {
                     ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("set_Item"), "open member lookup: idxRecvDef.GetMethod(\"set_Item\")"), "CLR method set_Item")
                     return true
                 }
-                // A MEMBER compound target (`s.X += 1`, `c.X += 1`, `o.i.X += 3` — the post-#22
-                // legacy emitter shape): locator; dup; ldfld; value; op; stfld — the dup'd locator (an
-                // address for value links, an object ref for reference links) makes the
-                // read-modify-write hit the SAME storage. The scalar/string op set matches the
-                // bare-local arm; decimal member compounds decline (unprobed — fallback).
                 // `this.Count += 2` IS THE BARE `Count += 2` SPELLED WITH ITS RECEIVER: the current
                 // instance's own member, never a local.
                 if (_nodes.Kind(compoundTarget) == ColumnarExpressionNodeKind.MemberAccessExpression && ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, UnwrapParenthesizedNode(Child(compoundTarget, 0)))) {
                     return TryEmitCurrentInstanceCompound(ColumnarNodeTextFacts.Text(_nodes, _source, compoundTarget), Child(expr, 1), assignOp)
                 }
+                // A MEMBER compound target (`s.X += 1`, `c.X += 1`, `o.i.X += 3` — the post-#22
+                // legacy emitter shape): locator; dup; ldfld; value; op; stfld — the dup'd locator (an
+                // address for value links, an object ref for reference links) makes the
+                // read-modify-write hit the SAME storage. The scalar/string op set matches the
+                // bare-local arm; decimal member compounds decline (unprobed — fallback).
                 if (_nodes.Kind(compoundTarget) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                     let compoundChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null, -1, false)
                     if (!TryResolveMemberWriteChain(Child(compoundTarget, 0), out compoundChain)) {
