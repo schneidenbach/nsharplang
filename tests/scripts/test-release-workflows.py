@@ -1,10 +1,5 @@
-import os
+import hashlib, json, os, subprocess, tempfile, unittest
 from pathlib import Path
-import subprocess
-import tempfile
-import textwrap
-import unittest
-
 ROOT = Path(__file__).resolve().parents[2]
 
 def run_block(name, marker):
@@ -18,6 +13,9 @@ def run_block(name, marker):
             break
         result.append(line[indent:])
     return '\n'.join(result)
+
+def release_flags(call):
+    return [arg for arg in call if arg.startswith(('--prerelease', '--latest'))]
 
 class CleanupTests(unittest.TestCase):
     def check_cleanup(self, number='190', state='closed', failure=''):
@@ -39,7 +37,6 @@ elif '/matching-refs/' in joined:
             mock.chmod(0o755)
             env=dict(os.environ, PATH=d+':'+os.environ['PATH'], GH_REPO='owner/repo', PR_NUMBER=number, STATE=state, FAILURE=failure)
             result=subprocess.run(['bash','-c',run_block('cleanup-unofficial.yml',"Delete this closed")],env=env,cwd=d,capture_output=True,text=True)
-            import json
             calls=[json.loads(line) for line in (p/'calls.jsonl').read_text().splitlines()] if (p/'calls.jsonl').exists() else []
             return result,calls
     def test_exact_namespace_and_orphan_tags(self):
@@ -61,41 +58,44 @@ elif '/matching-refs/' in joined:
         self.assertFalse(any('delete' in c for c in calls))
 
 class PublishTests(unittest.TestCase):
-    def publish(self, pr='190', state='open', head='abc123'):
+    def publish(self, pr='190', state='open', head='abc123', latest='', order='ahead'):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)
-            (p/'artifacts').mkdir()
-            (p/'artifacts/sdk.nupkg').write_text('test asset')
+            (p/'artifacts/vscode').mkdir(parents=True)
+            for name in ('sdk.nupkg', 'vscode/nsharp.vsix'): (p/'artifacts'/name).write_text(name)
             mock=p/'gh'
             mock.write_text("""#!/usr/bin/env python3
 import json,os,sys
 args=sys.argv[1:]
 with open('calls.jsonl','a') as f: f.write(json.dumps(args)+'\\n')
-if '.state' in args: print(os.environ['STATE'])
-if '.head.sha' in args: print(os.environ['HEAD'])
+reply={'.state':'STATE','.head.sha':'HEAD','.target_commitish':'LATEST','.status':'ORDER'}.get(args[-1])
+if reply and not os.environ[reply]: sys.exit('gh: Not Found (HTTP 404)')
+if reply: print(os.environ[reply])
 """)
             mock.chmod(0o755)
-            env=dict(os.environ, PATH=d+':'+os.environ['PATH'], GH_REPO='owner/repo',
+            env=dict(os.environ, PATH=d+':'+os.environ['PATH'], GH_REPO='owner/repo', RUNNER_TEMP=d, LATEST=latest, ORDER=order,
                      PR_NUMBER=pr, COMMIT='abc123', RUN_ID='100', RUN_ATTEMPT='2', STATE=state, HEAD=head)
             result=subprocess.run(['bash','-c',run_block('build.yml','name: Publish unofficial')],
                                   env=env,cwd=d,capture_output=True,text=True)
-            import json
             calls=[json.loads(line) for line in (p/'calls.jsonl').read_text().splitlines()]
             self.assertEqual(result.returncode,0,result.stderr)
-            return [c for c in calls if c[:2] == ['release','create']]
+            return [c for c in calls if c[:2] == ['release','create']], (p/'SHA256SUMS').exists() and (p/'SHA256SUMS').read_text()
     def test_open_current_pr_publishes_unique_prerelease(self):
-        calls=self.publish()
+        calls,_=self.publish()
         self.assertEqual(len(calls),1)
         self.assertEqual(calls[0][2],'unofficial-pr-190-100-2')
-        self.assertIn('--prerelease',calls[0])
-        self.assertIn('--latest=false',calls[0])
+        self.assertEqual(release_flags(calls[0]),['--prerelease','--latest=false'])
         self.assertIn('artifacts/sdk.nupkg',calls[0])
+    def test_every_asset_is_checksummed_under_its_release_name(self):
+        calls,sums=self.publish()
+        self.assertEqual((sums, calls[0][5].endswith('/SHA256SUMS')), (''.join(f'{hashlib.sha256(n.encode()).hexdigest()}  {Path(n).name}\n' for n in ('sdk.nupkg', 'vscode/nsharp.vsix')), True))
     def test_closed_pr_never_publishes(self):
-        self.assertEqual(self.publish(state='closed'),[])
+        self.assertEqual(self.publish(state='closed'),([],False))
     def test_superseded_commit_never_publishes(self):
-        self.assertEqual(self.publish(head='newer'),[])
-    def test_main_has_separate_namespace(self):
-        self.assertEqual(self.publish(pr='')[0][2],'unofficial-main-100-2')
+        self.assertEqual(self.publish(head='newer'),([],False))
+    def test_main_is_the_latest_full_release_unless_older_than_latest(self):
+        self.assertEqual(self.publish(pr='')[0][0][2],'unofficial-main-100-2')
+        self.assertEqual([release_flags(self.publish(pr='',latest=l,order=o)[0][0]) for l,o in (('','ahead'),('old','ahead'),('old','identical'),('new','behind'))],[['--latest']]*3+[['--latest=false']])
 
 class PackageClosureTests(unittest.TestCase):
     def validate(self, omit='', core_version='1.0.0', duplicate=False, missing_loader=False):

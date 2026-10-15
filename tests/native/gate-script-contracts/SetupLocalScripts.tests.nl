@@ -1,5 +1,6 @@
 namespace NSharpLang.GateScriptContracts.Tests
 
+import System.Collections.Generic
 import System.IO
 
 // ─── THE INSTALLER CONTRACTS ──────────────────────────────────────────────────────────────────
@@ -10,9 +11,9 @@ import System.IO
 // `scripts/setup-local.sh` (what it delegates to), and `scripts/install.sh` (the public
 // curl-to-bash installer). Every row below runs one of them in `--dry-run` or `--help` mode with
 // `HOME` pointed at a throwaway directory, so nothing is ever installed and nothing outside that
-// directory is written. The one row that does a real (non-dry-run) install points `--source` and
+// directory is written. The two rows that do a real (non-dry-run) install point `--source` and
 // `--install-dir` at fake trees under that same throwaway HOME, with a fake `dotnet` and a fake
-// `nlc` on PATH. One additional row sources the shipped package helper directly under dry-run so
+// `nlc` (and, for the VS Code row, a fake `code`) on PATH. One additional row sources the shipped package helper directly under dry-run so
 // its package loop and command boundary can be observed without invoking the entire installer.
 //
 // The generous 180s ceiling is inherited from the deleted C#: these scripts finish in well under a
@@ -206,11 +207,8 @@ test "the public installer's dry-run copies the compiler tools, installs templat
     }
 }
 
-// The one non-dry-run row. It builds a fake toolset and a fake `dotnet`/`nlc` under the throwaway
-// HOME, installs into a path WITH A SPACE IN IT, and then reads back the three artifacts a template
-// restore depends on: the env file, the shared NuGet.config, and the arguments the installer passed
-// to `dotnet`.
-func CustomInstallDirScript(): string {
+// A fake toolset and a fake `dotnet`/`nlc` under the throwaway HOME, shared by the non-dry-run rows.
+func FakeToolsetScript(): string {
     return """
 set -euo pipefail
 mkdir -p "$HOME/fake-bin/shared/Microsoft.NETCore.App/10.0.0"
@@ -234,7 +232,35 @@ NLC
 chmod +x "$HOME/toolset/bin/nlc"
 
 touch "$HOME/toolset/packages/NSharpLang.Templates.1.0.0.nupkg"
+"""
+}
+
+// Installs into a path WITH A SPACE IN IT, and then reads back the three artifacts a template
+// restore depends on: the env file, the shared NuGet.config, and the arguments the installer passed
+// to `dotnet`.
+func CustomInstallDirScript(): string {
+    return FakeToolsetScript() + "\n" + """
 PATH="$HOME/fake-bin:$PATH" scripts/install.sh --source "$HOME/toolset" --install-dir "$HOME/custom root" --skip-vscode --no-path-update
+"""
+}
+
+// Issue #195: the fake `code` behaves like the real CLI, which installs a path only when it ends in
+// `.vsix` and otherwise looks the argument up as a Marketplace ID. BSD `mktemp -t` appends a random
+// suffix, so a temp-file template ending in `.vsix` never reached `code` as a VSIX on macOS.
+func VscodeExtensionInstallScript(): string {
+    return FakeToolsetScript() + "\n" + """
+cat > "$HOME/fake-bin/code" <<'CODE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HOME/code.args"
+if [[ "${1:-}" == "--install-extension" && ( "$2" != *.vsix || ! -f "$2" ) ]]; then
+  echo "Extension '$2' not found." >&2
+  exit 1
+fi
+exit 0
+CODE
+chmod +x "$HOME/fake-bin/code"
+printf 'fake extension' > "$HOME/release-nsharp.vsix"
+PATH="$HOME/fake-bin:$PATH" scripts/install.sh --source "$HOME/toolset" --install-dir "$HOME/nsharp" --vsix-url "file://$HOME/release-nsharp.vsix" --no-path-update
 """
 }
 
@@ -278,7 +304,7 @@ test "every shipped dotnet template's NuGet.config restores from the install-roo
     assert inspectedCount > 0
 }
 
-test "the public installer's dry-run shows the VS Code marketplace install and the vsix-url fallback" {
+test "the public installer's dry-run installs the VS Code extension from the release VSIX, never the Marketplace" {
     home := NewTempDirectory("nsharp-install-vscode-test")
     try {
         run := RunInstaller(
@@ -287,10 +313,34 @@ test "the public installer's dry-run shows the VS Code marketplace install and t
         )
 
         assert run.ExitCode == 0, "install VS Code dry-run failed with " + run.Report()
-        assert run.Stdout.Contains("Installing VS Code extension: nsharp.nsharp")
-        assert run.Stdout.Contains("code --install-extension nsharp.nsharp --force")
-        assert run.Stdout.Contains("curl -fsSL https://example.test/nsharp.vsix -o <temp-vsix>")
-        assert run.Stdout.Contains("code --install-extension <temp-vsix> --force")
+        assert run.Stdout.Contains("Installing VS Code extension nsharp.nsharp from https://example.test/nsharp.vsix")
+        assert run.Stdout.Contains("curl -fsSL https://example.test/nsharp.vsix -o <work-dir>/nsharp.vsix")
+        assert run.Stdout.Contains("code --install-extension <work-dir>/nsharp.vsix --force")
+        assert !run.Stdout.Contains("--install-extension nsharp.nsharp")
+        assert !run.Stdout.Contains("Marketplace")
+    } finally {
+        DeleteTempDirectory(home)
+    }
+}
+
+test "the public installer hands code a downloaded file ending in .vsix and removes it afterwards" {
+    home := NewTempDirectory("nsharp-install-vsix-test")
+    try {
+        run := RunInstaller(home, VscodeExtensionInstallScript())
+
+        assert run.ExitCode == 0, "install with VS Code failed with " + run.Report()
+
+        installCalls := new List<string>()
+        for line in File.ReadAllLines(Path.Combine(home, "code.args")) {
+            if line.StartsWith("--install-extension ") {
+                installCalls.Add(line)
+            }
+        }
+        assert installCalls.Count == 1, "expected one code --install-extension call: " + string.Join(" | ", installCalls)
+        vsix := installCalls[0].Substring("--install-extension ".Length).Replace(" --force", "")
+        assert Path.GetFileName(vsix) == "nsharp.vsix", vsix
+        assert !File.Exists(vsix), "the installer left its downloaded VSIX behind at " + vsix
+        assert File.ReadAllText(Path.Combine(home, "nlc.args")).Contains("doctor --require-vscode")
     } finally {
         DeleteTempDirectory(home)
     }
