@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scrip
 nlc doctor
 ```
 
-This public setup path installs `nlc`, `nsharp-lsp`, the N# templates, SDK restore support, and the VS Code extension when the `code` CLI is available. It also sources `~/.nsharp/env` so this shell has the N# launcher PATH and .NET root settings, and it wires the same env file into future shells.
+This public setup path installs the newest `main` build (GitHub's latest release, checked against its `SHA256SUMS`): `nlc`, `nsharp-lsp`, the N# templates, SDK restore support, and the VS Code extension when the `code` CLI is available. It also sources `~/.nsharp/env` so this shell has the N# launcher PATH and .NET root settings, and it wires the same env file into future shells.
 
 Contributors working from source should clone the repo and run `./install-local.sh`; that path builds `nlc`, `nsharp-lsp`, packages, templates, local launchers, and the VS Code extension from the checkout when the `code` CLI is available.
 
@@ -119,7 +119,7 @@ func main() {
 curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
 ```
 
-This installs templates, the `nlc` CLI, the language server, a reusable `NuGet.config` under `~/.nsharp/`, and the VS Code extension when the `code` CLI is available. The installer first tries the Marketplace extension ID `nsharp.nsharp`, then falls back to the latest GitHub Release asset named `nsharp.vsix`.
+This installs templates, the `nlc` CLI, the language server, a reusable `NuGet.config` under `~/.nsharp/`, and the VS Code extension when the `code` CLI is available. Every download comes from the latest GitHub Release (the newest `main` build) and is verified against that release's `SHA256SUMS` before anything is installed. The extension is not on the VS Code Marketplace yet; the installer installs the release's `nsharp.vsix` directly. If VS Code's `code` command was not on PATH during install, re-run the one-liner after adding it.
 
 ### From The N# CLI
 

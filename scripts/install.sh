@@ -21,7 +21,7 @@ Usage: install.sh [options]
 
 Turnkey installer for the public N# toolchain. Installs the package-manager
 toolset layout: nlc, nsharp-lsp, the N# SDK/template/compiler packages, and the
-VS Code extension when the 'code' CLI is available.
+VS Code extension (the release's nsharp.vsix) when the 'code' CLI is available.
 
 Canonical one-liner:
   curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "\$HOME/.nsharp/env"
@@ -30,8 +30,8 @@ Options:
   --source SOURCE       Toolset directory, .tar.gz archive, or URL
                         (default: latest GitHub release toolset)
   --install-dir DIR     Install directory (default: ~/.nsharp)
-  --vsix-url URL        VSIX fallback URL when Marketplace install fails
-  --no-vsix-fallback    Do not try a VSIX fallback after Marketplace install
+  --vsix-url URL        VS Code extension VSIX to install
+                        (default: latest GitHub release nsharp.vsix)
   --skip-vscode         Do not install/probe the VS Code extension
   --no-path-update      Do not update shell profile files
   --no-verify           Skip SHA256 verification of URL downloads (NOT recommended;
@@ -46,7 +46,7 @@ Version pinning:
 
 Environment:
   NSHARP_TOOLSET_URL    Default toolset URL
-  NSHARP_VSIX_URL       VSIX fallback URL when Marketplace install fails
+  NSHARP_VSIX_URL       Default VS Code extension VSIX URL
   NSHARP_SUMS_URL       SHA256SUMS URL (default: SHA256SUMS next to the download)
   NSHARP_INSTALL_DIR    Install directory (default: ~/.nsharp)
   NSHARP_ENV_FILE       Shell env file (default: <install-dir>/env)
@@ -89,7 +89,6 @@ while [[ $# -gt 0 ]]; do
       VSCODE_VSIX_URL="$2"
       shift
       ;;
-    --no-vsix-fallback) VSCODE_VSIX_URL="" ;;
     --skip-vscode) SKIP_VSCODE=1 ;;
     --no-path-update) UPDATE_PATH=0 ;;
     --no-verify) VERIFY_DOWNLOADS=0 ;;
@@ -455,35 +454,30 @@ install_vscode_extension() {
   fi
 
   if ! command -v code >/dev/null 2>&1; then
-    echo "==> VS Code 'code' CLI not found; skipping extension install. Run 'code --install-extension $VSCODE_EXTENSION_ID' after installing VS Code."
+    echo "==> VS Code 'code' CLI not found; skipping extension install. After installing VS Code and its 'code' command, re-run this installer to add the N# extension."
     return 0
   fi
 
-  echo "==> Installing VS Code extension: $VSCODE_EXTENSION_ID"
-  if [[ "$DRY_RUN" -eq 0 ]]; then
-    if code --install-extension "$VSCODE_EXTENSION_ID" --force; then
-      return 0
-    fi
-    if [[ -n "$VSCODE_VSIX_URL" ]]; then
-      local tmp
-      tmp="$(mktemp -t nsharp-vscode.XXXXXX.vsix)"
-      require_command curl
-      echo "==> Marketplace install failed; trying VSIX fallback: $VSCODE_VSIX_URL"
-      curl -fsSL "$VSCODE_VSIX_URL" -o "$tmp"
-      verify_download "$VSCODE_VSIX_URL" "$tmp" "$(dirname "$tmp")"
-      code --install-extension "$tmp" --force
-      rm -f "$tmp"
-      return 0
-    fi
-    echo "ERROR: failed to install $VSCODE_EXTENSION_ID from the Marketplace and VSIX fallback is disabled." >&2
-    return 1
-  else
-    echo "+ code --install-extension $VSCODE_EXTENSION_ID --force"
-    if [[ -n "$VSCODE_VSIX_URL" ]]; then
-      echo "+ curl -fsSL $VSCODE_VSIX_URL -o <temp-vsix>  # fallback if Marketplace install fails"
-      echo "+ code --install-extension <temp-vsix> --force"
-    fi
+  # The extension ships as the release's nsharp.vsix asset; it is not published to the
+  # VS Code Marketplace. `code` installs a path only when it ends in .vsix (anything else
+  # is treated as a Marketplace ID), so the download keeps that exact file name.
+  echo "==> Installing VS Code extension $VSCODE_EXTENSION_ID from $VSCODE_VSIX_URL"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "+ curl -fsSL $VSCODE_VSIX_URL -o <work-dir>/nsharp.vsix"
+    echo "+ code --install-extension <work-dir>/nsharp.vsix --force"
+    return 0
   fi
+
+  require_command curl
+  local vsix="$WORK_DIR/nsharp.vsix"
+  echo "+ curl -fsSL $VSCODE_VSIX_URL -o $vsix"
+  if ! curl -fsSL "$VSCODE_VSIX_URL" -o "$vsix"; then
+    echo "ERROR: could not download the N# VS Code extension from $VSCODE_VSIX_URL." >&2
+    echo "The N# toolset is installed. Re-run with --skip-vscode to finish without the extension, or pass --vsix-url." >&2
+    exit 1
+  fi
+  verify_download "$VSCODE_VSIX_URL" "$vsix" "$WORK_DIR"
+  run code --install-extension "$vsix" --force
 }
 
 uninstall_nsharp() {

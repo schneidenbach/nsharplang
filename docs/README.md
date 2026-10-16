@@ -163,7 +163,7 @@ result := match value {
 
 ### VS Code Extension
 
-The one-line installer installs `nsharp.nsharp` when the VS Code `code` CLI is available. If VS Code was installed after N#, run `code --install-extension nsharp.nsharp` and verify with `nlc doctor --require-vscode`.
+The one-line installer installs the extension (`nsharp.nsharp`) from the latest GitHub Release's `nsharp.vsix` when the VS Code `code` CLI is available; it is not published to the VS Code Marketplace yet. If VS Code was installed after N#, re-run the one-line installer and verify with `nlc doctor --require-vscode`.
 
 Features:
 - Syntax highlighting

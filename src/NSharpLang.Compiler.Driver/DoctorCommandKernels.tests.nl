@@ -49,7 +49,7 @@ test "every doctor remedy sentence is spelled by a kernel, character for charact
     assert DoctorCommandKernels.GetVscodeSkippedMessage() == "skipped by --skip-vscode"
     assert DoctorCommandKernels.GetVscodeRequiredMissingMessage() == "VS Code 'code' CLI was not found on PATH"
     assert DoctorCommandKernels.GetVscodeOptionalMissingMessage() == "VS Code 'code' CLI was not found; install VS Code or rerun with --require-vscode on developer machines"
-    assert DoctorCommandKernels.GetVscodeExtensionMissingMessage("nsharp.nsharp") == "nsharp.nsharp is not installed; run code --install-extension nsharp.nsharp"
+    assert DoctorCommandKernels.GetVscodeExtensionMissingMessage("nsharp.nsharp") == "nsharp.nsharp is not installed; re-run the N# installer, or download nsharp.vsix from https://github.com/schneidenbach/nsharplang/releases/latest and run code --install-extension nsharp.vsix"
 }
 
 test "the doctor report's header, status line and three check markers are kernel-spelled" {

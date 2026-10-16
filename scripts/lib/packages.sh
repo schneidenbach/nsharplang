@@ -154,5 +154,5 @@ nsharp_print_release_artifact_set() {
     echo "  - NSharpLang.Compiler.Driver - N# compiler driver (CLI command kernels, multi-file compiler, MSBuild tasks)"
     echo "  - NSharpLang.Compiler - Compiler API library"
     echo "  - nsharp-toolset.tar.gz - package-manager-ready nlc and nsharp-lsp payloads"
-    echo "  - nsharp.vsix - stable VS Code extension release asset used by scripts/install.sh fallback"
+    echo "  - nsharp.vsix - stable VS Code extension release asset installed by scripts/install.sh"
 }

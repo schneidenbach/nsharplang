@@ -153,10 +153,10 @@ func main() {
 
 ## VS Code Setup
 
-The installer runs `code --install-extension nsharp.nsharp` when the `code` CLI is on PATH. If `code` was not available during install, enable it from VS Code with **Shell Command: Install 'code' command in PATH**, then run:
+When the `code` CLI is on PATH, the installer downloads `nsharp.vsix` from the latest GitHub Release, verifies it against the release's `SHA256SUMS`, and installs it with `code --install-extension`. The extension is not published to the VS Code Marketplace yet. If `code` was not available during install, enable it from VS Code with **Shell Command: Install 'code' command in PATH**, then re-run the installer:
 
 ```bash
-code --install-extension nsharp.nsharp
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
 nlc doctor --require-vscode
 ```
 
