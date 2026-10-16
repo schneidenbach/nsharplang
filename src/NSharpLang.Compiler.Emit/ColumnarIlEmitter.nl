@@ -1468,6 +1468,21 @@ sealed class ColumnarIlEmitter {
         return owner.Fields.TryGetValue(NSharpLang.Compiler.Columnar.ColumnarAutoPropertyEmitter.BackingFieldName(memberName), out backingField)
     }
 
+    // AN AUTO-PROPERTY'S OWN STORAGE, AS ITS INITIALIZER WRITES IT. `virtual Name: string = "x"` is
+    // stored by the synthesized instance initializer, which runs BEFORE the base constructor — so it
+    // stores the field, as C# does, and never calls a setter an override may have replaced on an
+    // object whose derived part is not constructed yet. A nullable member with no initializer is
+    // stored `null` by the same body for the same reason. Only the declaring type's own property
+    // answers: a base's storage is private to the base.
+    private static func TryFindOwnAutoPropertyBackingField(owner: ColumnarStructDef, memberName: string, out backingField: System.Reflection.Emit.FieldBuilder): bool {
+        backingField = null
+        if (!owner.Properties.ContainsKey(memberName) || !owner.AutoPropertyBackingFields.Contains(NSharpLang.Compiler.Columnar.ColumnarAutoPropertyEmitter.BackingFieldName(memberName))) {
+            return false
+        }
+
+        return owner.Fields.TryGetValue(NSharpLang.Compiler.Columnar.ColumnarAutoPropertyEmitter.BackingFieldName(memberName), out backingField)
+    }
+
     private static func TryFindPropertyOnChain(def: ColumnarStructDef, name: string, out property: ColumnarPropertyDef): bool {
         let columnarDiscard3: NSharpLang.Compiler.Columnar.ColumnarStructDef = null
         return TryFindPropertyOnChain(def, name, out columnarDiscard3, out property)
@@ -5369,7 +5384,7 @@ sealed class ColumnarIlEmitter {
                         return DeclineStatic("emit.declaration.interface-value-member", "'" + st.Name + "." + fieldName + "' fills an interface value slot, so it must have the slot's own type", st.Name, -1, 0)
                     }
                     initProperty := ColumnarAutoPropertyEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], initPropertyVisibility, st.FieldRequiredFlags[fi], initFillsInterfaceSlot, st.FieldTypeCanonicals[fi], true)
-                    sourceAttributeQueue.QueueAutoProperty(initProperty.Property, initProperty.BackingField, st.FieldSourceAttributesAt(fi), typeResolution)
+                    sourceAttributeQueue.QueueAutoProperty(initProperty.Property, must initProperty.BackingField, st.FieldSourceAttributesAt(fi), typeResolution)
                     def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                     // THE STORAGE STILL COUNTS AS INSTANCE STATE. A record's synthesized equality
                     // compares the fields in this list, and an init-only property is part of what the
@@ -5386,6 +5401,10 @@ sealed class ColumnarIlEmitter {
                 // body in this assembly — initializer, constructor, method, object initializer, `with`,
                 // record equality — keeps reading and writing it directly, and only another assembly
                 // goes through the accessors.
+                //
+                // `virtual`, `abstract` AND `override` MAKE IT A SLOT, and then no body may read the
+                // storage, because an override replaces it: the member is registered as a property and
+                // every in-assembly access dispatches (`ColumnarAutoPropertyEmitter`).
                 if (fieldRows.FieldIsAutoProperty[s][fi]) {
                     autoPropertyVisibility := ColumnarDeclarationPlanner.MethodVisibilityAttributes(fieldName, st.FieldVisibilityFlags[fi])
                     let autoSlotType: System.Type? = null
@@ -5393,9 +5412,35 @@ sealed class ColumnarIlEmitter {
                     if (autoFillsInterfaceSlot && !InterfaceValueSlotAccepts(autoSlotType, fieldType)) {
                         return DeclineStatic("emit.declaration.interface-value-member", "'" + st.Name + "." + fieldName + "' fills an interface value slot, so it must have the slot's own type", st.Name, -1, 0)
                     }
-                    autoProperty := ColumnarAutoPropertyEmitter.Define(def, fieldName, fieldType, false, autoPropertyVisibility, st.FieldRequiredFlags[fi], autoFillsInterfaceSlot, st.FieldTypeCanonicals[fi], false)
-                    sourceAttributeQueue.QueueAutoProperty(autoProperty.Property, autoProperty.BackingField, st.FieldSourceAttributesAt(fi), typeResolution)
+                    autoInheritanceKind := ColumnarAutoPropertyEmitter.InheritanceKindOf(st.FieldVirtualFlags[fi], st.FieldAbstractFlags[fi], st.FieldOverrideFlags[fi], st.FieldSealedFlags[fi])
+                    if (ColumnarAutoPropertyEmitter.IsOverride(autoInheritanceKind)) {
+                        overriddenProperty := new ColumnarPropertyOverrideMatch(def, fieldName, fieldType, ColumnarTypeOfPlanner.RequiredVoidType())
+                        if (!overriddenProperty.Matched) {
+                            return DeclineStatic("emit.declaration.override-target", overriddenProperty.DeclineMessage, st.Name, -1, 0)
+                        }
+                        // AN `override` TAKES THE ACCESSIBILITY OF THE SLOT IT REUSES unless the source
+                        // wrote a word of its own — the method rule, for the same reason: the slot's
+                        // accessibility belongs to the type that opened it.
+                        if ((st.FieldVisibilityFlags[fi] & 15) == 0 && overriddenProperty.AccessibilityAttributes >= 0) {
+                            autoPropertyVisibility = overriddenProperty.AccessibilityAttributes
+                        }
+                    }
+                    autoProperty := ColumnarAutoPropertyEmitter.Define(def, fieldName, fieldType, false, autoPropertyVisibility, st.FieldRequiredFlags[fi], autoFillsInterfaceSlot, st.FieldTypeCanonicals[fi], false, autoInheritanceKind)
                     def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
+                    autoStorage := autoProperty.BackingField
+                    if (autoInheritanceKind != ColumnarAutoPropertyEmitter.PlainProperty()) {
+                        // THE STORAGE STILL COUNTS AS INSTANCE STATE, as an `init` property's does: a
+                        // record's synthesized equality compares this list, and C#'s compares the
+                        // backing fields too. An abstract property has none to compare.
+                        if (autoStorage != null) {
+                            sourceAttributeQueue.QueueAutoProperty(autoProperty.Property, autoStorage, st.FieldSourceAttributesAt(fi), typeResolution)
+                            instanceFieldNames.Add(ColumnarAutoPropertyEmitter.BackingFieldName(fieldName))
+                        } else {
+                            sourceAttributeQueue.QueueProperty(autoProperty.Property, st.FieldSourceAttributesAt(fi), typeResolution)
+                        }
+                        continue
+                    }
+                    sourceAttributeQueue.QueueAutoProperty(autoProperty.Property, must autoStorage, st.FieldSourceAttributesAt(fi), typeResolution)
                     if (fieldRows.FieldIsNullable[s][fi]) {
                         def.NullableFields.Add(fieldName)
                     }
@@ -6187,6 +6232,13 @@ sealed class ColumnarIlEmitter {
                         if (IsOverridingEventStorage(def, chain, fieldName)) {
                             continue
                         }
+                        // THE SAME HOLDS FOR AN AUTO-PROPERTY'S STORAGE. `<Name>k__BackingField` is
+                        // private and unspellable, so an overriding auto-property's own field and the
+                        // base's collide in this table and nowhere else — C#'s overriding
+                        // `{ get; set; }` keeps its own field exactly so.
+                        if (def.AutoPropertyBackingFields.Contains(fieldName) && chain.AutoPropertyBackingFields.Contains(fieldName)) {
+                            continue
+                        }
                         if (chain.Fields.ContainsKey(fieldName)) {
                             return false
                         }
@@ -6319,6 +6371,13 @@ sealed class ColumnarIlEmitter {
                 try {
                     while propertyNamesEnumerator.MoveNext() {
                         propName := propertyNamesEnumerator.get_Current()
+                        // AN `override` PROPERTY TAKES THE BASE'S SLOT; it does not shadow it. Its
+                        // accessors reuse the base's (`ColumnarPropertyOverrideMatch` proved both are
+                        // open), so a read through either type dispatches to the same body and no
+                        // resolution can diverge.
+                        if (IsOverridingPropertySlot(def, chain, propName)) {
+                            continue
+                        }
                         if (chain.Fields.ContainsKey(propName)) {
                             return false
                         }
@@ -10308,8 +10367,13 @@ sealed class ColumnarIlEmitter {
                             if (!EmitMemberWriteLocator(writeChain)) {
                                 return false
                             }
+                            // THE SAME SEAM THE FIELD WRITE ABOVE USES, so a value that converts —
+                            // `null` onto a `string?`, a literal onto a `long`, a subtype onto its base —
+                            // stores into a property exactly as it stores into a field. A `virtual`
+                            // auto-property is reached only through this door, and a member's storage
+                            // shape must not decide which values it accepts.
                             let writePropValueType: System.Type? = null
-                            if (!EmitExpression(Child(expr, 1), out writePropValueType) || !TypesEquivalent(writePropValueType, writeProp.PropertyType)) {
+                            if (!TryEmitAssignableValue(Child(expr, 1), writeProp.PropertyType, out writePropValueType)) {
                                 return false
                             }
                             _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(writeProp))
@@ -10536,7 +10600,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             let synthesizedFieldTarget: System.Reflection.Emit.FieldBuilder = null
-            if (_isSynthesizedInitializerBody && _currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out synthesizedFieldTarget) && synthesizedFieldTarget != null) {
+            if (_isSynthesizedInitializerBody && _currentStruct != null && (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out synthesizedFieldTarget) || TryFindOwnAutoPropertyBackingField(_currentStruct, targetName, out synthesizedFieldTarget)) && synthesizedFieldTarget != null) {
                 _il.Emit(OpCodes.Ldarg_0)
                 let columnarDiscard19: System.Type = null
                 if (!TryEmitAssignableValue(Child(expr, 1), synthesizedFieldTarget.FieldType, out columnarDiscard19)) {
@@ -16026,7 +16090,8 @@ sealed class ColumnarIlEmitter {
             }
             _il.Emit(OpCodes.Stloc, withLocal)
             for p := 0; p < withPairCount; p++ {
-                withField := withPlan.Fields[p]
+                withMemberType := withPlan.MemberTypes[p]
+                withMemberName := withPlan.MemberNames[p]
                 if (withPlan.Strategy == ColumnarRecordWithStrategy.ReferenceClone) {
                     _il.Emit(OpCodes.Ldloc, withLocal)
                 } else {
@@ -16034,17 +16099,22 @@ sealed class ColumnarIlEmitter {
                 }
                 withValueNode := Child(idx, 2 + (2 * p))
                 let withValueType: System.Type = null
-                if (TryEmitIntLiteralAsType(withValueNode, withField.FieldType, out withValueType)) {
+                if (TryEmitIntLiteralAsType(withValueNode, withMemberType, out withValueType)) {
                 } else {
                     // constant adoption (`with { X: 10 }` on a small-int field).
                     if (!EmitExpression(withValueNode, out withValueType)) {
-                        return Decline("emit.with.value", "with expression value for field '" + withField.Name + "' could not be emitted", withValueNode)
+                        return Decline("emit.with.value", "with expression value for field '" + withMemberName + "' could not be emitted", withValueNode)
                     }
                 }
-                if (!TypesEquivalent(withValueType, withField.FieldType) && !TryEmitImplicitWidening(withValueType, withField.FieldType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(withValueType, withField.FieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(withValueType, withField.FieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(withValueType, withField.FieldType)) {
-                    return Decline("emit.with.type-mismatch", "with expression value type '" + withValueType.FullName + "' does not match field type '" + withField.FieldType.FullName + "'", withValueNode)
+                if (!TypesEquivalent(withValueType, withMemberType) && !TryEmitImplicitWidening(withValueType, withMemberType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(withValueType, withMemberType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(withValueType, withMemberType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(withValueType, withMemberType)) {
+                    return Decline("emit.with.type-mismatch", "with expression value type '" + withValueType.FullName + "' does not match field type '" + withMemberType.FullName + "'", withValueNode)
                 }
-                _il.Emit(OpCodes.Stfld, withField)
+                withSetter := withPlan.Setters[p]
+                if (withSetter != null) {
+                    _il.Emit(OpCodes.Callvirt, withSetter)
+                } else {
+                    _il.Emit(OpCodes.Stfld, must withPlan.Fields[p])
+                }
             }
             _il.Emit(OpCodes.Ldloc, withLocal)
             columnarResolvedType = withPlan.ResultType
@@ -22264,10 +22334,10 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM or field of int/long/ulong: load, step by one, store —
-    // keeping the PRE-step value on the stack when `keepValue` (N# post-semantics; `m := n++` reads the
-    // old n). double/float decline (the pipeline's `++` on them silently no-ops — known defect bundle);
-    // lifted/boxed captures, property targets, and unsupported receivers decline.
+    // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM, field or current-instance property of int/long/ulong:
+    // load, step by one, store — keeping the PRE-step value on the stack when `keepValue` (N# post-semantics;
+    // `m := n++` reads the old n). double/float decline (the pipeline's `++` on them silently no-ops — known
+    // defect bundle); lifted/boxed captures and unsupported receivers decline.
     private func TryEmitPostfixUnary(idx: int, keepValue: bool, out resolvedClrType: Type): bool {
         resolvedClrType = null
         if (_nodes.ChildCount(idx) != 1) {
@@ -22321,6 +22391,13 @@ sealed class ColumnarIlEmitter {
 
                     resolvedClrType = targetType
                     return true
+                }
+                // A PROPERTY OF THE CURRENT INSTANCE steps through its accessors — a written
+                // `{ get; set }` property, or a `virtual`/`override` auto-property whose storage no
+                // body may touch because an override replaces it. `this` is loaded once and `dup`ed,
+                // as `Count += 1` loads it in `TryEmitCurrentInstanceCompound`.
+                if (_currentStruct != null && _currentStruct.IsReference) {
+                    return TryEmitCurrentInstancePropertyStep(idx, name, keepValue, out resolvedClrType)
                 } else {
                     return false
                 }
@@ -22433,6 +22510,45 @@ sealed class ColumnarIlEmitter {
         }
 
         resolvedClrType = targetType
+        return true
+    }
+
+    private func TryEmitCurrentInstancePropertyStep(idx: int, memberName: string, keepValue: bool, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        currentStruct := _currentStruct
+        if (currentStruct == null) {
+            return false
+        }
+        let ownProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+        let propertyOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef = null
+        if (!TryFindPropertyOnChain(currentStruct, memberName, out propertyOwner, out ownProperty) || propertyOwner == null || ownProperty == null || ownProperty.Setter == null || ownProperty.IsInitOnly) {
+            return false
+        }
+        // A property of a GENERIC BASE would have to be rebound to the base instantiation this type
+        // derives from, which this arm does not model; the type's own accessors rebind to the current
+        // instantiation.
+        if (propertyOwner.Builder.IsGenericTypeDefinition && !Object.ReferenceEquals(propertyOwner, currentStruct)) {
+            return false
+        }
+        propertyType := ownProperty.PropertyType
+        if (!IsSteppableTargetType(propertyType)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldarg_0)
+        _il.Emit(OpCodes.Dup)
+        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(ownProperty.Getter))
+        oldValue: LocalBuilder? = null
+        if (keepValue) {
+            oldValue = _il.DeclareLocal(propertyType)
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Stloc, oldValue)
+        }
+        EmitPostfixStep(propertyType, ColumnarNodeTextFacts.Text(_nodes, _source, idx))
+        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(ownProperty))
+        if (oldValue != null) {
+            _il.Emit(OpCodes.Ldloc, oldValue)
+        }
+        resolvedClrType = propertyType
         return true
     }
 
@@ -31248,6 +31364,16 @@ sealed class ColumnarIlEmitter {
     // WHETHER THIS NAME IS AN `override` EVENT'S OWN STORAGE STANDING OVER THE BASE EVENT'S. Both
     // sides must be events and the derived one must carry the word — a plain derived event of the same
     // name really would hide the base's, which this backend does not model for data members.
+    // A derived property whose getter is virtual WITHOUT NewSlot reuses a base slot — the `override`
+    // shape — over a base PROPERTY of the same name.
+    private static func IsOverridingPropertySlot(def: ColumnarStructDef, chain: ColumnarStructDef, propertyName: string): bool {
+        let derivedProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+        if (!def.Properties.TryGetValue(propertyName, out derivedProperty) || !chain.Properties.ContainsKey(propertyName)) {
+            return false
+        }
+        return ColumnarPropertyOverrideMatch.ReusesSlot(derivedProperty.Getter)
+    }
+
     private static func IsOverridingEventStorage(def: ColumnarStructDef, chain: ColumnarStructDef, fieldName: string): bool {
         let derivedEvent: NSharpLang.Compiler.Columnar.ColumnarEventDef? = null
         if (!def.Events.TryGetValue(fieldName, out derivedEvent)) {

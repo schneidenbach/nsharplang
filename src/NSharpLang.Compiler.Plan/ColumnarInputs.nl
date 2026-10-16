@@ -329,6 +329,8 @@ class ColumnarStructInput {
     // setter to put it on.
     FieldRequiredFlags: bool[]
     FieldInitOnlyFlags: bool[]
+    // `sealed` as written on each row; only an `override` auto-property acts on it.
+    FieldSealedFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
     // The synthesized `.cctor` body: `Name = <expression>` statements, in textual order, for every
@@ -350,7 +352,7 @@ class ColumnarStructInput {
     // stop at the namespace boundary for types alone while it held for every member and free function.
     TopLevelVisibilityAttributes: int
 
-    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null, fieldVirtualFlags: bool[]? = null, fieldAbstractFlags: bool[]? = null, fieldOverrideFlags: bool[]? = null, fieldRequiredFlags: bool[]? = null, fieldInitOnlyFlags: bool[]? = null) {
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null, fieldVirtualFlags: bool[]? = null, fieldAbstractFlags: bool[]? = null, fieldOverrideFlags: bool[]? = null, fieldRequiredFlags: bool[]? = null, fieldInitOnlyFlags: bool[]? = null, fieldSealedFlags: bool[]? = null) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -395,6 +397,7 @@ class ColumnarStructInput {
         FieldOverrideFlags = fieldOverrideFlags ?? new bool[](fieldNames.Length)
         FieldRequiredFlags = fieldRequiredFlags ?? new bool[](fieldNames.Length)
         FieldInitOnlyFlags = fieldInitOnlyFlags ?? new bool[](fieldNames.Length)
+        FieldSealedFlags = fieldSealedFlags ?? new bool[](fieldNames.Length)
     }
 
     // The attributes written on the field at `index`, or none. Every field column is indexed the

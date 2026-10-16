@@ -71,9 +71,39 @@ keeps C#'s `private` backing field registered under `<Name>k__BackingField`.
   this assembly as in any other: `ColumnarAutoPropertyEmitter.IsBackingField` makes the storage
   non-addressable in `ColumnarBoundIdentifierPlanner.TryGetReceiverType` and
   `ColumnarInstanceMemberPlanner.TryAppendAddressableValueReceiver`.
-- A bare member cannot be `virtual`/`abstract`/`override` (NL311): in-assembly code reads the storage
-  directly, which an override could never intercept. Virtual auto-properties (EF lazy-loading
-  proxies) would need accessor-routed in-assembly access; that is a separate feature.
+- `virtual`/`abstract`/`override` make an auto-property a SLOT, and then in-assembly code may no
+  longer read the storage — see "Dispatched auto-properties" below.
+
+## Dispatched auto-properties (`virtual` / `abstract` / `override` / `sealed override`)
+
+**Added 2026-10-16** for EF Core lazy-loading proxies, which subclass entities at run time and require
+virtual navigations. C#'s shapes: `public virtual|abstract|override|sealed override T Name { get; set; }`.
+
+- **Analyzer** (`AnalyzerTypeDeclarations.ValidateFieldInheritanceModifiers`): the words are accepted
+  exactly when `MemberStorageRules` makes the member an auto-property and it is not `init` (an init
+  property's in-type writes store the field, which an override could not intercept — refused, a
+  possible later feature). Every field shape gets its own NL311 sentence (`ReportFieldWithNoSlot`).
+  `abstract` needs an abstract class and no initializer; a record class may declare `virtual` (its
+  CLR type is unsealed, so proxies can override) but not `abstract`; `override` needs a base property
+  with a setter (`ClassifyOverridePropertySetter`, C#'s CS0546); `sealed` needs `override`. A bare
+  auto-property counts as a property for NL324 (`CollectDeclaredMemberNames`).
+- **Emitter** (`ColumnarAutoPropertyEmitter.Define`, inheritance kind 1–4): the storage is C#'s
+  `private` field registered ONLY under `<Name>k__BackingField` (plus `AutoPropertyBackingFields`),
+  and the member is in `Properties` like a written property — never in `Fields` under its name. So
+  every in-assembly read, write, `+=`, `++` (`TryEmitCurrentInstancePropertyStep`), closure
+  (`BodyReferencesEnclosingChain` now counts properties), object initializer and `with`
+  (`ColumnarRecordWithPlan.Setters`) goes through `callvirt`. The ONE direct store is the member's
+  own initializer in the synthesized initializer body (`TryFindOwnAutoPropertyBackingField`), which
+  runs before the base constructor, as C#'s does. Record equality compares the backing field. An
+  abstract property has no field. `override` proves its base slot first
+  (`ColumnarPropertyOverrideMatch`: getter AND setter virtual, not final, same type) and adopts the
+  slot's accessibility when no word is written; the shadowing pass (`IsOverridingPropertySlot`) and
+  the member planner (`ReusesSlot`) treat an override as the same member, not a shadow.
+- `sealed` reaches the emitter as field-word bit 14 (`FieldSealedFlags`).
+
+Known gap, separate from this: a WRITTEN-accessor property (`virtual X: T => …`, `{ get … set … }`)
+ignores `virtual`/`override` in emission — its accessors are emitted non-virtual — so such an
+override does not dispatch. The column `ColumnarPropertyInput` carries no modifier flags.
 
 ## Emitter support added alongside
 
@@ -98,5 +128,6 @@ see properties. Build every C# consumer (`Cli`, `Build.Tasks`, `LanguageServer`,
 against the new seed before believing it.
 
 Tests: `tests/native/auto-properties` (rule, metadata, STJ, EF Core `DbSet` population, copy
-semantics, compound/step), `ColumnarSourceAttributeEmission.tests.nl` (row-for-row shape),
+semantics, compound/step; `VirtualAutoProperties.tests.nl`: dispatch and real EF Core lazy-loading
+proxies), `ColumnarSourceAttributeEmission.tests.nl` (row-for-row shape),
 `census-source-attributes` (attribute routing).
