@@ -439,6 +439,17 @@ declared member read off a type's member table (optionally as seen from a declar
   base member matches". The emitter's half is `ColumnarAsyncWrapperSelection` (see the async local
   function note below); the native projects `async-slot-inference` and `async-default-type` and the
   `AnalyzerAsyncReturnFamily` estate rows hold the two halves to one answer.
+- THERE IS NO POOLED-ASYNC SETTING, AND `language.pooledAsync` IS REFUSED BY NAME. The key was
+  parsed for a long time and consumed by nothing. Pooling (`PoolingAsyncValueTaskMethodBuilder`)
+  recycles the box a SUSPENDED async method lives in; an ordinary N# `async func` never suspends —
+  `await` is the blocking `TryEmitBlockingAwait` lowering in `ColumnarIlEmitter`, and
+  `EmitWrappedAsyncCompletedReturn` builds the result as `new ValueTask<T>(value)` /
+  `default(ValueTask)` — so a `ValueTask` call allocates 0 bytes already (measured: 100,000 calls,
+  0 bytes; `Task<int>` 72 bytes per call). With nothing to pool, `LanguageConfig.RemovedPooledAsync`
+  binds the key (`[YamlMember(Alias = "pooledAsync")]`) only so `ProjectFileParser.ValidateConfig`
+  refuses any value with that reason instead of YamlDotNet's "not found on type". `async-task-like`
+  pins both premises (completed on return across a delay; fewer bytes than calls) — if async bodies
+  ever become real state machines those rows fail and pooling becomes a real question again.
 
 ### CLR type → TypeInfo conversion
 
