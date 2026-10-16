@@ -5,6 +5,9 @@ import System.IO
 
 // THE INSTALL-ROOT DETECTION THAT DECIDES WHAT `nlc new` WRITES INTO A PROJECT'S NuGet FEED.
 //
+// `nlc doctor` checks the packages directory of the same resolved root, so the two commands can
+// never disagree about which install a project restores from.
+//
 // These blocks replace ONE `[Fact]` deleted from `tests/CliParityAuditTests.cs`:
 // `NewCommand_CustomInstallLayoutWithoutEnvironment_WritesDetectedFeed` (25 declaration lines, ONE
 // `Assert.` row). Its row asked `ProjectFeedValue(cliBaseDirectory, null, defaultRoot)` for a
@@ -176,6 +179,27 @@ test "an override is returned as a NORMALIZED directory by Resolve but as a plac
 
     assert NSharpInstallRoot.Resolve(cliBaseDirectory, customRoot, Path.Combine(root, "default")) == customRoot
     assert NSharpInstallRoot.ProjectFeedValue(cliBaseDirectory, customRoot, Path.Combine(root, "default")) == NSharpInstallRoot.InstallRootFeedValue
+
+    Directory.Delete(root, true)
+}
+
+test "the package cache nlc doctor checks follows the same three arms, so a scratch install is never judged by ~/.nsharp" {
+    // `nlc doctor` checks `PackagesDirectory(Resolve())`. It used to hard-code
+    // `~/.nsharp/packages`, so an install into a scratch `NSHARP_INSTALL_DIR` passed or failed on
+    // whatever the user's real install held. Each arm is answered from the SAME complete detected
+    // layout, so only the arm decides the directory.
+    root := MakeToolsetLayout("toolset root", true, true, "lib")
+    customRoot := Path.Combine(root, "toolset root")
+    cliBaseDirectory := Path.Combine(Path.Combine(customRoot, "lib"), "nlc")
+    defaultRoot := Path.Combine(root, "default")
+    scratchRoot := Path.Combine(root, "scratch install")
+
+    // the override wins, and a trailing separator on it does not leak into the checked path
+    assert NSharpInstallRoot.PackagesDirectory(NSharpInstallRoot.Resolve(cliBaseDirectory, scratchRoot + "/", defaultRoot)) == Path.Combine(scratchRoot, "packages")
+    // an empty override is no override — the shell's `${NSHARP_INSTALL_DIR:-...}` agrees
+    assert NSharpInstallRoot.PackagesDirectory(NSharpInstallRoot.Resolve(cliBaseDirectory, "", defaultRoot)) == Path.Combine(customRoot, "packages")
+    // with no override and no detected layout, the default root's packages directory
+    assert NSharpInstallRoot.PackagesDirectory(NSharpInstallRoot.Resolve(Path.Combine(root, "elsewhere"), null, defaultRoot)) == Path.Combine(defaultRoot, "packages")
 
     Directory.Delete(root, true)
 }

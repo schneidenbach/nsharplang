@@ -28,7 +28,7 @@ nlc --version
 nlc doctor
 ```
 
-`nlc doctor` checks the CLI, SDK/template restore path, language server, and the VS Code extension when the `code` CLI is available. The installer also writes `~/.nsharp/env` and updates common shell profiles so new terminals can find `nlc` and the right .NET root.
+`nlc doctor` checks the CLI, the N# package cache of the install it belongs to (`$NSHARP_INSTALL_DIR/packages`, defaulting to `~/.nsharp/packages` — the same feed `nlc new` writes into projects), the template restore path, the language server, and the VS Code extension when the `code` CLI is available. The installer also writes `~/.nsharp/env` and updates common shell profiles so new terminals can find `nlc` and the right .NET root.
 
 Windows gap: the canonical installer is bash-only in this release pass. Use WSL or translate the installer commands to PowerShell until a supported Windows installer exists.
 

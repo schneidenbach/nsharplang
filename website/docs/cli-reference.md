@@ -42,7 +42,7 @@ are maintained against the CLI command kernels.
 | `nlc tree` | Show dependency tree | `--project`, `--depth`, `--json` | `nlc tree --json` |
 | `nlc audit` | Check dependencies for known vulnerabilities | `--project`, `--json` | `nlc audit` |
 | `nlc env` | Show environment and toolchain info | `--json` | `nlc env --json` |
-| `nlc doctor` | Verify CLI, templates/SDK restore, language server, and VS Code extension availability | `--json`, `--require-vscode`, `--skip-vscode` | `nlc doctor --require-vscode` |
+| `nlc doctor` | Verify CLI, the install's package cache (`$NSHARP_INSTALL_DIR/packages`, default `~/.nsharp/packages`), templates, language server, and VS Code extension availability | `--json`, `--require-vscode`, `--skip-vscode` | `nlc doctor --require-vscode` |
 | `nlc restore` | Generate MSBuild compatibility config from `project.yml` | `--project` | `nlc restore` |
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
