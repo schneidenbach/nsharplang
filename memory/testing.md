@@ -1263,6 +1263,9 @@ plus six opens for each of 1,704 resolved reference images). These are historica
 before installed framework/reference-pack paths were excluded. Wall time is now record-only: this
 correctness test has no absolute timing budget. The reference-image maximum remains dependency-derived
 from the discovered member inventory and resolved reference closure; the contract verifies it on every run.
+`tests/native/aspnetcore-hosted-services` (2026-10-16, `nlc test` binding a project's shared
+frameworks) moves the compile-time corpus to 198 and the repository-root census to 236 member roots
+and 2,019 checked files.
 
 The September 2026 absolute wall/RSS baselines remain historical measurements only; their machine,
 load and phase context is retained in the measurement verdicts. They are no longer a pass/fail

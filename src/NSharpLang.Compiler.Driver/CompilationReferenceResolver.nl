@@ -401,7 +401,11 @@ sealed class CompilationReferenceResolver {
         config.TestDependencies.Add(new Reference { Nuget: plan.PackageName, Version: plan.Version })
     }
 
-    private static func ResolveFrameworkReferenceDirectories(
+    // The shared-framework directory each `framework:` reference (and a Web SDK's implicit one)
+    // names, selected by the project's TFM. Compilation references every assembly in these
+    // directories; `nlc test` probes the SAME directories when the test assembly it runs in-process
+    // asks for a framework assembly, so a test executes against exactly what it was compiled against.
+    static func ResolveFrameworkReferenceDirectories(
         projectRoot: string,
         config: ProjectConfig
     ): IReadOnlyList<string> {

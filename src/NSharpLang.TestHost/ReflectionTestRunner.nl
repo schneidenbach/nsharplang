@@ -16,13 +16,13 @@ import System.Threading.Tasks
 // special name and is not a lifecycle name, and that either carries a test attribute OR sits on a
 // type named `NSharpTests`.
 static class ReflectionTestRunner {
-    static func Run(assemblyPath: string, filter: string?, verbose: bool, timeoutMs: int?): NativeTestRun {
+    static func Run(assemblyPath: string, frameworkDirectories: IReadOnlyList<string>, filter: string?, verbose: bool, timeoutMs: int?): NativeTestRun {
         assemblyDirectory := TestCommandKernels.GetAssemblyDirectory(assemblyPath)
         if assemblyDirectory == null {
             throw new InvalidOperationException($"Could not determine the test assembly directory for '{assemblyPath}'.")
         }
 
-        loadContext := new NativeTestLoadContext(assemblyDirectory)
+        loadContext := new NativeTestLoadContext(assemblyDirectory, frameworkDirectories)
 
         try {
             assembly := loadContext.LoadFromAssemblyPath(assemblyPath)

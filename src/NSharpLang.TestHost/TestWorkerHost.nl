@@ -42,14 +42,14 @@ class TestWorkerHost {
 
     // ── Server side ─────────────────────────────────────────────────────────────────────────────
 
-    static func RunIsolated(testFramework: string?, outputPath: string, filter: string?, verbose: bool, outputMode: int, timeoutMs: int?): NativeTestRun {
+    static func RunIsolated(testFramework: string?, outputPath: string, frameworkDirectories: IReadOnlyList<string>, filter: string?, verbose: bool, outputMode: int, timeoutMs: int?): NativeTestRun {
         worker := Acquire()
         resultPath := Path.Combine(Path.GetTempPath(), "nlc-test-run-" + Guid.NewGuid().ToString("N") + ".bin")
         try {
             CliInvocationContext.RegisterCancellation(() => Kill(worker))
             stdoutRelay := StartRelay(worker.StandardOutput.BaseStream, false)
             stderrRelay := StartRelay(worker.StandardError.BaseStream, true)
-            WriteRequest(worker.StandardInput.BaseStream, testFramework, outputPath, filter, verbose, outputMode, timeoutMs, resultPath)
+            WriteRequest(worker.StandardInput.BaseStream, testFramework, outputPath, frameworkDirectories, filter, verbose, outputMode, timeoutMs, resultPath)
             worker.StandardInput.Close()
             worker.WaitForExit()
             stdoutRelay.Join()
@@ -201,11 +201,19 @@ class TestWorkerHost {
 
     // The run a worker is asked for, with this request's directory, environment and culture: the
     // worker was started before the request existed, so it adopts them before it runs anything.
-    static func WriteRequest(target: Stream, testFramework: string?, outputPath: string, filter: string?, verbose: bool, outputMode: int, timeoutMs: int?, resultPath: string) {
+    //
+    // The request format is private to one binary -- the server only ever talks to a worker it
+    // spawned from itself -- so the version only has to tell a worker of this build from a stray one.
+    static func WriteRequest(target: Stream, testFramework: string?, outputPath: string, frameworkDirectories: IReadOnlyList<string>, filter: string?, verbose: bool, outputMode: int, timeoutMs: int?, resultPath: string) {
         using writer := new BinaryWriter(target, new UTF8Encoding(false), true)
-        writer.Write(1)
+        writer.Write(GetRequestVersion())
         writer.Write(testFramework ?? "")
         writer.Write(outputPath)
+        writer.Write(frameworkDirectories.Count)
+        for frameworkDirectory in frameworkDirectories {
+            writer.Write(frameworkDirectory)
+        }
+
         writer.Write(filter != null)
         writer.Write(filter ?? "")
         writer.Write(verbose)
@@ -229,6 +237,10 @@ class TestWorkerHost {
 
         writer.Flush()
         target.Flush()
+    }
+
+    static func GetRequestVersion(): int {
+        return 2
     }
 
     static func EmptyRun(): NativeTestRun {
@@ -256,12 +268,18 @@ class TestWorkerHost {
                 return 0
             }
 
-            if version != 1 {
+            if version != GetRequestVersion() {
                 return 2
             }
 
             testFramework := reader.ReadString()
             outputPath := reader.ReadString()
+            frameworkDirectoryCount := reader.ReadInt32()
+            frameworkDirectories := new List<string>()
+            while frameworkDirectories.Count < frameworkDirectoryCount {
+                frameworkDirectories.Add(reader.ReadString())
+            }
+
             hasFilter := reader.ReadBoolean()
             filterText := reader.ReadString()
             verbose := reader.ReadBoolean()
@@ -300,7 +318,7 @@ class TestWorkerHost {
                 framework = testFramework
             }
 
-            run := TestCommandHost.RunRunnerInProcess(framework, outputPath, filter, verbose, outputMode, timeoutMs)
+            run := TestCommandHost.RunRunnerInProcess(framework, outputPath, frameworkDirectories, filter, verbose, outputMode, timeoutMs)
             Console.Out.Flush()
             Console.Error.Flush()
             WriteResults(resultPath, run)

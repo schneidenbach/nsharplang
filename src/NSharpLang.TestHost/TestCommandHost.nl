@@ -171,8 +171,10 @@ static class TestCommandHost {
                 return CliError.Report(buildFailedMessage)
             }
 
+            // The build referenced these framework directories; the run has to bind against them too.
+            frameworkDirectories := CompilationReferenceResolver.ResolveFrameworkReferenceDirectories(projectRoot, resolvedConfig)
             runStarted := stopwatch.ElapsedMilliseconds
-            testRun := RunSelectedRunner(resolvedConfig, outputPath, filter, verbose, outputMode, timeoutMs)
+            testRun := RunSelectedRunner(resolvedConfig, outputPath, frameworkDirectories, filter, verbose, outputMode, timeoutMs)
             summary := TestCommandKernels.SummarizeNativeTestRun(testRun)
             runTimings := RequestedTimings(timings, buildMilliseconds, stopwatch.ElapsedMilliseconds - runStarted, stopwatch)
 
@@ -210,16 +212,17 @@ static class TestCommandHost {
     static func RunSelectedRunner(
         projectConfig: ProjectConfig,
         outputPath: string,
+        frameworkDirectories: IReadOnlyList<string>,
         filter: string?,
         verbose: bool,
         outputMode: int,
         timeoutMs: int?
     ): NativeTestRun {
         if CliInvocationContext.IsRemoteInvocation() {
-            return TestWorkerHost.RunIsolated(projectConfig.TestFramework, outputPath, filter, verbose, outputMode, timeoutMs)
+            return TestWorkerHost.RunIsolated(projectConfig.TestFramework, outputPath, frameworkDirectories, filter, verbose, outputMode, timeoutMs)
         }
 
-        return RunRunnerInProcess(projectConfig.TestFramework, outputPath, filter, verbose, outputMode, timeoutMs)
+        return RunRunnerInProcess(projectConfig.TestFramework, outputPath, frameworkDirectories, filter, verbose, outputMode, timeoutMs)
     }
 
     // WHICH RUNNER, AND WHOSE STDOUT. In JSON mode the document has to be alone on stdout, so the
@@ -234,6 +237,7 @@ static class TestCommandHost {
     static func RunRunnerInProcess(
         testFramework: string?,
         outputPath: string,
+        frameworkDirectories: IReadOnlyList<string>,
         filter: string?,
         verbose: bool,
         outputMode: int,
@@ -249,10 +253,10 @@ static class TestCommandHost {
         Environment.SetEnvironmentVariable(markerName, "1")
         try {
             if TestCommandKernels.ShouldRunNUnit(testFramework) {
-                return ReflectionTestRunner.Run(outputPath, filter, verbose, timeoutMs)
+                return ReflectionTestRunner.Run(outputPath, frameworkDirectories, filter, verbose, timeoutMs)
             }
 
-            return XunitTestRunner.Run(outputPath, filter, verbose, timeoutMs)
+            return XunitTestRunner.Run(outputPath, frameworkDirectories, filter, verbose, timeoutMs)
         } finally {
             Environment.SetEnvironmentVariable(markerName, previousMarker)
             Console.SetOut(stdout)
