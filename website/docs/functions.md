@@ -1363,15 +1363,86 @@ wants a task is [`NL335`](./errors/NL335.md).
 
 ### Implicit Task Wrapping
 
-N# automatically wraps return values in Task<T>:
+An `async func` declares the type its `return` statements produce, and N# wraps it in a task.
+By default that task is `ValueTask`:
 
 ```n#
 async func getUser(id: int): User {
-    // Compiler wraps User in Task<User>
+    // The call returns ValueTask<User>; a function with no return type returns ValueTask
     user := await database.FindAsync(id)
     return user
 }
 ```
+
+The wrapper is chosen in this order:
+
+1. **A written task type is kept exactly as written.** `async func load(): Task<User>` returns
+   `Task<User>`, and `: ValueTask` returns `ValueTask`, whatever the project default is.
+2. **`main` returns `Task`** (or `Task<int>`), because that is the shape of a .NET async entry
+   point.
+3. **An `override`, or an implementation of an interface member, takes the task of the member it
+   fills.** .NET matches these by their exact return type, so N# reads it from the base class or
+   interface — whether that member comes from a NuGet package, the BCL or your own source:
+
+   ```n#
+   import Microsoft.Extensions.Hosting
+
+   class Ticker: BackgroundService {
+       // BackgroundService.ExecuteAsync returns Task, so this returns Task
+       override async func ExecuteAsync(stoppingToken: CancellationToken) {
+           while !stoppingToken.IsCancellationRequested {
+               await Task.Delay(1000, stoppingToken)
+           }
+       }
+   }
+
+   class Lease: IAsyncDisposable {
+       // IAsyncDisposable.DisposeAsync returns ValueTask, so this returns ValueTask
+       async func DisposeAsync() {
+           await releaseAsync()
+       }
+   }
+   ```
+
+   The member is found by name and parameter count. If a base declares several same-count
+   overloads that disagree about the task, or the member you meant to override is not found, the
+   project default applies; write the return type to say which one you mean. Writing the *other*
+   family is an error ([`NL202`](./errors/NL202.md)) that names the member and the task it returns.
+4. **Everything else uses the project's `language.asyncDefaultType`**, which is `ValueTask` unless
+   `project.yml` says otherwise:
+
+   ```yaml
+   language:
+     asyncDefaultType: Task   # or ValueTask, the default
+   ```
+
+`ValueTask` avoids an allocation when the body completes synchronously, but a `ValueTask` may be
+awaited only once. Choose `Task` for a project whose async members are awaited more than once,
+stored, or handed to APIs that expect `Task`.
+
+**APIs that find a method by name need the setting, not inference.** ASP.NET Core middleware is
+duck-typed: the framework looks up `Invoke`/`InvokeAsync` by name at startup and requires it to
+return `Task`. There is no base member for N# to read, so under the `ValueTask` default the app
+fails at startup with `'Invoke' or 'InvokeAsync' does not return an object of type 'Task'`. Set
+`asyncDefaultType: Task` (the simplest fix for a web project) or annotate the method:
+
+```n#
+class RequestStamp {
+    next: RequestDelegate
+
+    constructor(next: RequestDelegate) {
+        this.next = next
+    }
+
+    async func InvokeAsync(context: HttpContext): Task {
+        context.Response.Headers["X-Stamp"] = "1"
+        await next(context)
+    }
+}
+```
+
+The same applies to any framework that discovers a method by name and requires it to return
+`Task`: when nothing declares the member's type, the project default decides it.
 
 ### Async LINQ
 

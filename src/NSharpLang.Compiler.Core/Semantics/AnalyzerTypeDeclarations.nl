@@ -1228,6 +1228,7 @@ class AnalyzerTypeDeclarations {
                     ValidateOverrideAccessibility(declaredBase, function.Name, Convert.ToInt32(function.Modifiers), 0, spansValue.GetFunctionNameDiagnosticSpan(function))
                 }
 
+                ValidateAsyncSlotReturn(state, function)
                 continue
             }
 
@@ -1885,6 +1886,64 @@ class AnalyzerTypeDeclarations {
         }
 
         return "private"
+    }
+
+    // A .NET SLOT IS MATCHED BY ITS EXACT RETURN TYPE, AND `Task` IS NOT `ValueTask`.
+    //
+    // `override async func ExecuteAsync(token: CancellationToken): ValueTask` over
+    // `BackgroundService.ExecuteAsync` names a slot that exists, is open and has this arity — and that
+    // returns `Task`. The CLR binds the override by exact signature, so this declaration takes no slot
+    // at all; it used to reach the emitter and come back as the columnar decline "no overridable base
+    // member matches 'ExecuteAsync'", which names neither the base, nor the two task types, nor the
+    // fix. An interface implementation fails the same way, and gets the same sentence in the
+    // interface's words.
+    //
+    // ONLY THE WRAPPER IS JUDGED HERE. An UNANNOTATED async member never reaches the report: it takes
+    // its family from this very slot (`AnalyzerAsyncReturnFamily`). What remains is a declaration that
+    // WRITES the other family, and the fix is the slot's family over the declaration's own result.
+    func ValidateAsyncSlotReturn(state: TypeDeclarationState, function: FunctionDeclaration) {
+        slot := functionTypeFactoryValue.AsyncSlotFor(function)
+        if slot == null || slot.Family < 0 {
+            return
+        }
+
+        signature := functionTypeFactoryValue.CreateFromDeclaration(function, TypeName(state))
+        signatureReturn := signature.ReturnType
+        if signatureReturn == null {
+            return
+        }
+
+        declaredReturn: TypeInfo = signatureReturn
+        declaredFamily := AnalyzerAsyncReturnFamily.FamilyOfType(declaredReturn)
+        if declaredFamily < 0 || declaredFamily == slot.Family {
+            return
+        }
+
+        slotFamily := AnalyzerAsyncReturnFamily.FamilyFromOrdinal(slot.Family)
+        slotFamilyName := AsyncTaskFamilyFacts.DisplayName(slotFamily)
+        declaredText := TypeMismatchDisplay.Display(declaredReturn)
+        slotReturn := slot.ReturnType
+        slotText := slotFamilyName
+        if slotReturn != null {
+            slotText = TypeMismatchDisplay.Display(slotReturn)
+        }
+
+        suggestedReturn := slotFamilyName
+        declaredResult: TypeInfo = BuiltInTypes.Unknown
+        if AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(declaredReturn, out declaredResult) {
+            suggestedReturn = slotFamilyName + "<" + TypeMismatchDisplay.Display(declaredResult) + ">"
+        }
+
+        slotName := ExplicitInterfaceMemberFacts.SimpleNameOf(function.Name)
+        relation := "the base member it overrides"
+        if slot.IsInterface {
+            relation = "the interface member it implements"
+        }
+
+        message := "'" + function.Name + "' returns '" + declaredText + "', but " + relation + ", '" + slot.OwnerName + "." + slotName + "', returns '" + slotText + "'"
+        suggestion := "Declare the return as ': " + suggestedReturn + "' to match. .NET binds an override or an interface implementation by its exact return type, and '" + slotFamilyName + "' and '" + AsyncTaskFamilyFacts.DisplayName(AnalyzerAsyncReturnFamily.FamilyFromOrdinal(declaredFamily)) + "' are different types. On an 'async' member you can also leave the return unannotated: N# then takes '" + slotFamilyName + "' from '" + slot.OwnerName + "." + slotName + "'."
+        span := spansValue.GetFunctionNameDiagnosticSpan(function)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, suggestion, span.Length)
     }
 
     // THE SQUIGGLE GOES ON THE MEMBER NAME, not on the `override` keyword and not on `func`. The name

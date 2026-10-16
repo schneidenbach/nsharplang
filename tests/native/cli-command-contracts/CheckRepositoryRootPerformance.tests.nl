@@ -617,8 +617,10 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     expectedSourceMembers := CliRootCheckExpectedSourceMembers(repositoryRoot, expectedRoots)
     referenceBudget := CliRootCheckReferenceImageBudget(expectedRoots)
     // This re-census adds six unique iterator/generic-call projects and 15 N# source files across
-    // new and existing roots to the batch-2 pins of 229 roots and 2,000 checked files.
-    assert expectedRoots.Count == 235, "repository project-root census changed"
+    // new and existing roots to the batch-2 pins of 229 roots and 2,000 checked files; issue #199's
+    // async task-family work then added two native roots (async-slot-inference, async-default-type)
+    // and six source files.
+    assert expectedRoots.Count == 237, "repository project-root census changed"
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
@@ -658,7 +660,7 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert observedRoots.Count == expectedRoots.Count, "not every discovered project root had exactly one result"
     assert foundCoreProject, "the workspace omitted Compiler.Core's result"
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
-    assert checkedFiles == 2017, "repository checked-source-file census changed"
+    assert checkedFiles == 2023, "repository checked-source-file census changed"
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"

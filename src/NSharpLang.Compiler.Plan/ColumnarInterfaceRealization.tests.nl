@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 import System.Threading.Tasks
+import NSharpLang.Compiler
 
 // These controls own the newly moved orchestration decisions. Existing source, closed-source, and
 // external interface resolver suites retain their leaf matching contracts; this file verifies that
@@ -342,7 +343,8 @@ test "duck registration preserves inherited metadata once and skips default-only
         InterfaceRealizationSingleInput(sourceInput),
         InterfaceRealizationSingleDefinition(sourceDefinition),
         resolutions,
-        interfaces
+        interfaces,
+        AsyncTaskFamily.ValueTask
     )
     assert sourceDefinition.ImplementedInterfaces.Count == 2
     assert Object.ReferenceEquals(sourceDefinition.ImplementedInterfaces[0], root)
@@ -354,7 +356,8 @@ test "duck registration preserves inherited metadata once and skips default-only
         InterfaceRealizationSingleInput(sourceInput),
         InterfaceRealizationSingleDefinition(sourceDefinition),
         resolutions,
-        interfaces
+        interfaces,
+        AsyncTaskFamily.ValueTask
     )
     assert sourceDefinition.ImplementedInterfaces.Count == 2
 
@@ -430,7 +433,8 @@ test "duck registration attaches only duck interfaces: a satisfied plain interfa
         InterfaceRealizationSingleInput(sourceInput),
         InterfaceRealizationSingleDefinition(sourceDefinition),
         resolutions,
-        interfaces
+        interfaces,
+        AsyncTaskFamily.ValueTask
     )
     assert sourceDefinition.ImplementedInterfaces.Count == 1
     assert Object.ReferenceEquals(sourceDefinition.ImplementedInterfaces[0], duckMarker)
@@ -527,7 +531,8 @@ test "duck matching continues past ordinary nonmatches but a reached unresolved 
         parameterTypes,
         resolution.Enums,
         resolution.Structs,
-        resolution.Unions
+        resolution.Unions,
+        AsyncTaskFamily.ValueTask
     )
 
     terminalMethods := new List<ColumnarFunctionInput>()
@@ -569,7 +574,8 @@ test "duck matching continues past ordinary nonmatches but a reached unresolved 
         parameterTypes,
         terminalResolution.Enums,
         terminalResolution.Structs,
-        terminalResolution.Unions
+        terminalResolution.Unions,
+        AsyncTaskFamily.ValueTask
     )
 }
 
@@ -736,6 +742,7 @@ test "interface realization keeps async families out states and exact parameter 
     assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
         "worker",
         "Task",
+        AsyncTaskFamily.ValueTask,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
@@ -748,6 +755,7 @@ test "interface realization keeps async families out states and exact parameter 
     assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
         "worker",
         "ValueTask",
+        AsyncTaskFamily.ValueTask,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
@@ -760,6 +768,7 @@ test "interface realization keeps async families out states and exact parameter 
     assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
         "worker",
         "Task<int>",
+        AsyncTaskFamily.ValueTask,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
@@ -772,6 +781,7 @@ test "interface realization keeps async families out states and exact parameter 
     assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
         "worker",
         "ValueTask<int>",
+        AsyncTaskFamily.ValueTask,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
@@ -784,6 +794,7 @@ test "interface realization keeps async families out states and exact parameter 
     assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
         "MAIN",
         "int",
+        AsyncTaskFamily.ValueTask,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
@@ -796,6 +807,7 @@ test "interface realization keeps async families out states and exact parameter 
     assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
         "worker",
         "int",
+        AsyncTaskFamily.ValueTask,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
@@ -808,6 +820,7 @@ test "interface realization keeps async families out states and exact parameter 
     assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
         "MAIN",
         "void",
+        AsyncTaskFamily.ValueTask,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
@@ -820,6 +833,7 @@ test "interface realization keeps async families out states and exact parameter 
     assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
         "worker",
         "void",
+        AsyncTaskFamily.ValueTask,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
@@ -829,9 +843,57 @@ test "interface realization keeps async families out states and exact parameter 
     assert inner == ExecutorVoidType()
     assert wrapped == typeof(ValueTask)
 
+    // A project whose `language.asyncDefaultType` is `Task` wraps the same unannotated bodies in the
+    // Task family; a written task type is untouched by either default.
+    assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
+        "worker",
+        "int",
+        AsyncTaskFamily.Task,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out inner,
+        out wrapped
+    )
+    assert inner == typeof(int)
+    assert wrapped == typeof(Task<int>)
+
+    assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
+        "worker",
+        "void",
+        AsyncTaskFamily.Task,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out inner,
+        out wrapped
+    )
+    assert inner == ExecutorVoidType()
+    assert wrapped == typeof(Task)
+
+    assert ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
+        "worker",
+        "ValueTask<int>",
+        AsyncTaskFamily.Task,
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out inner,
+        out wrapped
+    )
+    assert wrapped == typeof(ValueTask<int>)
+
+    assert ColumnarInterfaceRealization.WritesTaskLikeReturn("Task")
+    assert ColumnarInterfaceRealization.WritesTaskLikeReturn("ValueTask<string>")
+    assert !ColumnarInterfaceRealization.WritesTaskLikeReturn("int")
+    assert !ColumnarInterfaceRealization.WritesTaskLikeReturn("TaskList")
+    assert ColumnarInterfaceRealization.WrapInFamily(typeof(string), AsyncTaskFamily.Task) == typeof(Task<string>)
+    assert ColumnarInterfaceRealization.WrapInFamily(ExecutorVoidType(), AsyncTaskFamily.ValueTask) == typeof(ValueTask)
+
     assert !ColumnarInterfaceRealization.TryComputeAsyncReturnShape(
         "worker",
         "Task<NotAResolvableInner>",
+        AsyncTaskFamily.ValueTask,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,

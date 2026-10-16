@@ -78,14 +78,20 @@ greet("World")
 
 ### Async Functions
 
-Use the `async` keyword for asynchronous functions:
+Use the `async` keyword for asynchronous functions. The declared return type is what the body
+returns; callers get it wrapped in a task:
 
 ```n#
-async func fetchData(): string {
+async func fetchData(): string {   // callers receive ValueTask<string>
     result := await httpClient.GetStringAsync("https://api.example.com/data")
     return result
 }
 ```
+
+The task is `ValueTask` by default, or `Task` when `project.yml` sets
+`language.asyncDefaultType: Task`. An `override` or interface implementation takes the task of the
+member it replaces, and writing the task type (`: Task<string>`) always wins. See
+[Implicit Task Wrapping](./functions.md#implicit-task-wrapping) for the full rule.
 
 ### Lambda Expressions
 

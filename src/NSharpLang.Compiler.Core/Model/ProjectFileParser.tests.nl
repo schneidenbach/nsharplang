@@ -219,6 +219,15 @@ test "the async default type and the pooled-async flag are read from the languag
     unset := ProjectFileParser.Parse(PfpWrite(directory, "name: DefaultProject\n"))
     assert unset.Language.PooledAsync == false
 
+    // The spelling becomes the family the analyzer and the emitter both wrap with.
+    assert AsyncTaskFamilyFacts.ForLanguage(task.Language) == AsyncTaskFamily.Task
+    assert AsyncTaskFamilyFacts.ForLanguage(pooled.Language) == AsyncTaskFamily.ValueTask
+    assert AsyncTaskFamilyFacts.ForLanguage(unset.Language) == AsyncTaskFamily.ValueTask
+
+    // Pooling recycles ValueTask state, so asking for it on Task is refused, not ignored.
+    pooledTask := PfpOutcomeOf(directory, "name: PooledTask\nlanguage:\n  asyncDefaultType: Task\n  pooledAsync: true\n")
+    assert pooledTask == "InvalidOperationException|Invalid language.pooledAsync: 'true' requires 'language.asyncDefaultType: ValueTask', but this project sets 'asyncDefaultType: Task'. Pooling recycles ValueTask state and has no meaning for Task; remove 'pooledAsync' or set 'asyncDefaultType: ValueTask'.", pooledTask
+
     removedNullabilitySwitch := PfpOutcomeOf(directory, "name: ReferencedNullability\nlanguage:\n  enforceReferencedNullability: true\n")
     assert removedNullabilitySwitch.StartsWith("YamlException|", StringComparison.Ordinal), removedNullabilitySwitch
     assert removedNullabilitySwitch.Contains("enforceReferencedNullability"), removedNullabilitySwitch

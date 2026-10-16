@@ -178,6 +178,23 @@ class AnalyzerDeclarationFileFacts {
     }
 }
 
+// WHERE A SOURCE METHOD IS DECLARED: the type declaration whose member list holds it, that type's
+// file, and the declaration it is nested in, if any. The TypeInfo is resolved on first ask and kept
+// for the rest of the analysis (`AnalyzerDeclarationContext.TryGetMemberOwner`).
+class AnalyzerMemberOwnerSite {
+    TypeDeclaration: object
+    FilePath: string
+    Parent: AnalyzerMemberOwnerSite?
+    Resolved: TypeInfo?
+
+    constructor(typeDeclaration: object, filePath: string, parent: AnalyzerMemberOwnerSite?) {
+        TypeDeclaration = typeDeclaration
+        FilePath = filePath
+        Parent = parent
+        Resolved = null
+    }
+}
+
 // Canonical source declaration and declaration-context type resolution. The N# analyzer supplies
 // already parsed units as opaque objects; all source binding policy and identity caches live here.
 class AnalyzerDeclarationContext {
@@ -215,6 +232,16 @@ class AnalyzerDeclarationContext {
     // rewriting the process environment, which every other compilation in the process would read.
     soaEnabledValue: bool
 
+    // THE PROJECT'S `language.asyncDefaultType`, set by the analyzer from the project config. It is
+    // a compilation setting, not per-file state, so `Reset` leaves it alone exactly as it leaves the
+    // SoA gate; a context built without a project behind it wraps in the documented default.
+    asyncDefaultFamilyValue: AsyncTaskFamily
+
+    // WHICH TYPE DECLARES EACH SOURCE METHOD, by declaration identity, built once per analysis on the
+    // first ask. A signature built from a `FunctionDeclaration` alone cannot see the type it sits in,
+    // and the async family of an `override` depends on exactly that type's base.
+    memberOwners: Dictionary<object, AnalyzerMemberOwnerSite>?
+
     constructor() {
         projectRoot = Path.GetFullPath(".")
         assemblies = new List<Assembly>()
@@ -231,9 +258,17 @@ class AnalyzerDeclarationContext {
         projectSourceProviderValue = null
         declaredTypeNames = null
         soaEnabledValue = false
+        asyncDefaultFamilyValue = AsyncTaskFamily.ValueTask
+        memberOwners = null
     }
 
     SoaEnabled: bool => soaEnabledValue
+
+    AsyncDefaultFamily: AsyncTaskFamily => asyncDefaultFamilyValue
+
+    func SetAsyncDefaultFamily(family: AsyncTaskFamily) {
+        asyncDefaultFamilyValue = family
+    }
 
     func SetSoaEnabled(enabled: bool) {
         soaEnabledValue = enabled
@@ -311,10 +346,12 @@ class AnalyzerDeclarationContext {
         missingExternalTypes.Clear()
         projectSourceProviderValue = null
         declaredTypeNames = null
+        memberOwners = null
     }
 
     func AddCompilationUnit(filePath: string, unit: object) {
         declaredTypeNames = null
+        memberOwners = null
         fullPath := Path.GetFullPath(filePath)
         if filesByPath.ContainsKey(fullPath) {
             return
@@ -632,6 +669,86 @@ class AnalyzerDeclarationContext {
         }
         nestedType = BuiltInTypes.Unknown
         return false
+    }
+
+    // THE TYPE WHOSE BODY DECLARES THIS METHOD, or false for a free function, a local function and a
+    // declaration this context never saw. The index is STRUCTURAL — a walk of each file's type
+    // declarations and their member lists, keyed by identity because two types may declare members
+    // of one name — and only the one owner a caller asks about is resolved to a TypeInfo, so a file
+    // that asks once does not pay for resolving every type in the project.
+    func TryGetMemberOwner(member: FunctionDeclaration, out owner: TypeInfo): bool {
+        index := memberOwners
+        if index == null {
+            built := new Dictionary<object, AnalyzerMemberOwnerSite>(ReferenceEqualityComparer.Instance)
+            for fileItem in files {
+                declarations := fileItem.Declarations
+                position := 0
+                while position < declarations.Count {
+                    candidate := declarations[position]
+                    if candidate != null && DeclarationFacts.GetDeclarationMembers(candidate) != null {
+                        IndexMemberOwners(built, new AnalyzerMemberOwnerSite(candidate, fileItem.FilePath, null), 0)
+                    }
+
+                    position = position + 1
+                }
+            }
+
+            memberOwners = built
+            index = built
+        }
+
+        site: AnalyzerMemberOwnerSite? = null
+        owners := index ?? new Dictionary<object, AnalyzerMemberOwnerSite>(ReferenceEqualityComparer.Instance)
+        if owners.TryGetValue(member, out site) && site != null {
+            owner = ResolveMemberOwnerSite(site, 0)
+            return !BuiltInTypes.IsUnknown(owner)
+        }
+
+        owner = BuiltInTypes.Unknown
+        return false
+    }
+
+    func IndexMemberOwners(index: Dictionary<object, AnalyzerMemberOwnerSite>, site: AnalyzerMemberOwnerSite, depth: int) {
+        members := DeclarationFacts.GetDeclarationMembers(site.TypeDeclaration)
+        if members == null || depth > 16 {
+            return
+        }
+
+        for memberItem in members {
+            function := memberItem as FunctionDeclaration
+            if function != null {
+                index[function] = site
+                continue
+            }
+
+            if memberItem != null && DeclarationFacts.GetDeclarationMembers(memberItem) != null {
+                IndexMemberOwners(index, new AnalyzerMemberOwnerSite(memberItem, site.FilePath, site), depth + 1)
+            }
+        }
+    }
+
+    // A top-level type resolves against its file; a nested one through its parent's nested-type table.
+    func ResolveMemberOwnerSite(site: AnalyzerMemberOwnerSite, depth: int): TypeInfo {
+        cached := site.Resolved
+        if cached != null {
+            return cached
+        }
+
+        resolved: TypeInfo = BuiltInTypes.Unknown
+        parent := site.Parent
+        if parent == null {
+            resolved = ResolveDeclarationType(site.TypeDeclaration, site.FilePath)
+        } else if depth <= 16 {
+            parentType := ResolveMemberOwnerSite(parent, depth + 1)
+            nestedName := DeclarationFacts.GetDeclarationName(site.TypeDeclaration)
+            nested: TypeInfo = BuiltInTypes.Unknown
+            if !BuiltInTypes.IsUnknown(parentType) && nestedName != null && TryResolveNestedType(parentType, nestedName ?? "", false, out nested) {
+                resolved = nested
+            }
+        }
+
+        site.Resolved = resolved
+        return resolved
     }
 
     func TryFindMember(owner: TypeInfo, name: string, out selection: AnalyzerMemberSelection): bool {

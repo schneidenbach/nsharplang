@@ -579,6 +579,10 @@ class ColumnarProgramInput {
     // analyzer's). The external type scan reads them instead of opening the reference set again
     // (`ExternalAssemblyScan.OpenWithReferences`); null opens a context of the scan's own.
     ReferenceMetadata: SharedReferenceMetadata?
+    // THE PROJECT'S `language.asyncDefaultType` — the task an unannotated `async` body is wrapped
+    // in when no slot it fills says otherwise. The caller that read `project.yml` sets it; a program
+    // built without one wraps in the documented `ValueTask` default, as the analyzer does.
+    AsyncDefaultFamily: AsyncTaskFamily
 
     static func CreateSingleSource(source: string, functions: IReadOnlyList<ColumnarFunctionInput>, enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, tests: IReadOnlyList<ColumnarTestInput>? = null): ColumnarProgramInput {
         return new ColumnarProgramInput(source, functions, enums, structs, unions, interfaces, BuildSingleSourceFiles(source), tests, null)
@@ -641,6 +645,7 @@ class ColumnarProgramInput {
         Tests = tests
         SemanticModelsByFileId = new Dictionary<int, SemanticModel>()
         ReferenceMetadata = null
+        AsyncDefaultFamily = AsyncTaskFamily.ValueTask
         bindingScope = ColumnarBindingScopeFacts.Create(Sources, Enums, Structs, Unions, Interfaces, ProjectRoot)
 
         StampBindingContexts(bindingScope)
