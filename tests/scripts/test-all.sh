@@ -694,11 +694,30 @@ mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_PACKAGES" "$RUN_DEPS/npm-cache"
 nuget_store materialize "$NUGET_STORE" "$NUGET_STORE_INDEX" "$RUN_PACKAGES" \
     || echo "Could not materialize cached NuGet packages; this run restores them itself." >&2
 
+# THE IL VERIFIER IS THE INVOKING USER'S TOOL. `dotnet tool install --global dotnet-ilverify` puts
+# it in `~/.dotnet/tools`, which is often not on PATH, and the run below swaps HOME for an isolated
+# one, so `scripts/ilverify.sh`'s own `$HOME/.dotnet/tools` fallback cannot see it. Resolve it here,
+# in the user's environment, and hand the absolute path in as NSHARP_ILVERIFY. Finding nothing
+# exports nothing: Step 10b then fails with the script's own "not installed" error.
+resolve_invoking_ilverify() {
+    if [ -n "${NSHARP_ILVERIFY:-}" ]; then
+        printf '%s\n' "$NSHARP_ILVERIFY"
+    elif command -v ilverify >/dev/null 2>&1; then
+        command -v ilverify
+    elif [ -x "$HOME/.dotnet/tools/ilverify" ]; then
+        printf '%s\n' "$HOME/.dotnet/tools/ilverify"
+    fi
+}
+INVOKING_ILVERIFY="$(resolve_invoking_ilverify)"
+
 START_TIME="$(date +%s)"
 
 set +e
 (
     cd "$RUN_REPO"
+    if [ -n "$INVOKING_ILVERIFY" ]; then
+        export NSHARP_ILVERIFY="$INVOKING_ILVERIFY"
+    fi
     export HOME="$RUN_HOME"
     export DOTNET_CLI_HOME="$RUN_HOME"
     export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
