@@ -604,7 +604,21 @@ test "an identifier is not a default the compiler can evaluate" {
 
     reports := DeclarationPolicyErrors(harness, ErrorCode.InvalidDefaultParameterValue)
     assert reports.Count == 1
-    assert reports[0].Message == "The default value for 'a' must be something the compiler can evaluate — use a literal, null, or a simple constant"
+    assert reports[0].Message == "The default value for 'a' must be something the compiler can evaluate — use a literal, null, default, or a simple constant"
+    // A refused default is finished: there is no value to measure against the parameter's type.
+    assert DeclarationPolicyValidate(DeclarationPolicyHarnessNew(), parameters).Count == 0
+}
+
+test "a static member that is not an enum constant is refused with the two spellings that work" {
+    harness := DeclarationPolicyHarnessNew()
+    parameters := new List<Parameter>()
+    minimum := new MemberAccessExpression(new IdentifierExpression("DateTime", 1, 1), "MinValue", false, 1, 1)
+    parameters.Add(DeclarationPolicyParam("since", "DateTime", minimum))
+    DeclarationPolicyValidate(harness, parameters)
+
+    reports := DeclarationPolicyErrors(harness, ErrorCode.InvalidDefaultParameterValue)
+    assert reports.Count == 1
+    assert reports[0].Suggestion == "'DateTime.MinValue' is read when the program runs, so it cannot be stored as a default. Write '= default' for the type's zero value, or make 'since' nullable, default it to null, and choose the value in the body."
 }
 
 test "a `this` parameter and a `params` parameter are skipped by BOTH rules" {
@@ -627,13 +641,24 @@ test "an empty parameter list walks to completion and asks for nothing" {
     assert harness.Errors.Count == 0
 }
 
-test "a walk over ordinary parameters never suspends" {
+// A CONSTANT DEFAULT IS ALSO MEASURED AGAINST ITS PARAMETER'S TYPE, and that measurement is the
+// shell's analysis: each one suspends exactly once, with kind 2, against the declared type. A
+// parameter with no default asks for nothing.
+test "each constant default suspends once for its type check" {
     harness := DeclarationPolicyHarnessNew()
     parameters := new List<Parameter>()
+    parameters.Add(DeclarationPolicyParam("first", "int", null))
     parameters.Add(DeclarationPolicyParam("a", "int", new IntLiteralExpression("1", 1, 1)))
     parameters.Add(DeclarationPolicyParam("b", "string", new StringLiteralExpression("s", 1, 1)))
+    parameters.Add(DeclarationPolicyParam("c", "DateTime", new DefaultExpression(1, 1)))
     steps := DeclarationPolicyValidate(harness, parameters)
-    assert steps.Count == 0
+    assert steps.Count == 3
+    for step in steps {
+        assert step.Kind == 2
+    }
+    assert steps[0].Node is IntLiteralExpression
+    assert steps[2].Node is DefaultExpression
+    assert harness.Errors.Count == 0
 }
 
 // ---- (6) NL339: one type name declared in two files of one namespace ----------------------------

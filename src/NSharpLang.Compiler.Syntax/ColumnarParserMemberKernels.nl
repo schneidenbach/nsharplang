@@ -1695,8 +1695,10 @@ func ParsePrimaryConstructorParameterSpansCore(_source: string, tokens: ParserDe
                 }
             }
 
-            if defaultTokenCount == 1 && (defaultKind == 46 || defaultKind == 44 || defaultKind == 45 || defaultKind == 1 || defaultKind == 4) {
-                defaultLength = tokens.ValueLengths[defaultTokenStart]
+            constantKind := ParameterDefaultConstantKind(tokens.Kinds, defaultTokenStart, pos)
+            if constantKind >= 0 {
+                defaultKind = constantKind
+                defaultLength = tokens.Starts[pos - 1] + tokens.ValueLengths[pos - 1] - defaultStart
             } else if ParserDeclarationDefaultDottedNameSupported(tokens, defaultTokenStart, pos) {
                 defaultKind = ParserDeclarationDefaultMemberAccessKind()
                 defaultLength = tokens.Starts[pos - 1] + tokens.ValueLengths[pos - 1] - defaultStart

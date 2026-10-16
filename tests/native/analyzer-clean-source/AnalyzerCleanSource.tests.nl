@@ -9613,25 +9613,25 @@ test "020 s31 analyzer error codes: a non-constant default value is `NL410`, anc
     assert AcCensus(analysis) == "NL410:InvalidDefaultParameterValue@6:35+8;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, or a simple constant|<null>|Error"
+    assert AcRow(analysis, 0) == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|<null>|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "InvalidDefaultParameterValue") == 1
     assert AcCodeErrorCount(analysis, "InvalidDefaultParameterValue") == 1
-    assert AcCodeRow(analysis, "InvalidDefaultParameterValue") == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, or a simple constant|<null>|Error"
+    assert AcCodeRow(analysis, "InvalidDefaultParameterValue") == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|<null>|Error"
     assert AcCodeAnchor(analysis, "InvalidDefaultParameterValue") == "NL410@6:35+8"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL410:InvalidDefaultParameterValue@6:35+8;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, or a simple constant|<null>|Error"
+    assert AcRow(rich, 0) == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|<null>|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "InvalidDefaultParameterValue") == 1
     assert AcCodeErrorCount(rich, "InvalidDefaultParameterValue") == 1
-    assert AcCodeRow(rich, "InvalidDefaultParameterValue") == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, or a simple constant|<null>|Error"
+    assert AcCodeRow(rich, "InvalidDefaultParameterValue") == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|<null>|Error"
     assert AcCodeAnchor(rich, "InvalidDefaultParameterValue") == "NL410@6:35+8"
 }
 
@@ -20136,7 +20136,7 @@ test "020 s36 analyzer clean source: `TestDefaultParametersWithNullLiteral` pars
 }
 
 test "020 s36 analyzer clean source: `TestDefaultParametersWithNumericExpressions` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersWithNumericExpressions)" {
-    source := "\n            func Calculate(x: int = 2 + 3, y: int = -5, z: float = 3.14) {\n                print x\n            }\n\n            func Main() {\n                Calculate()\n                Calculate(10)\n            }\n        "
+    source := "\n            func Calculate(x: int = 2 + 3, y: int = -5, z: float = 3.14f) {\n                print x\n            }\n\n            func Main() {\n                Calculate()\n                Calculate(10)\n            }\n        "
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Calculate;FunctionDeclaration:Main;"
@@ -20154,6 +20154,16 @@ test "020 s36 analyzer clean source: `TestDefaultParametersWithNumericExpression
     assert AcRow(rich, 0) == "<no-such-error>"
     assert AcHint(rich, 0) == "<no-such-error>"
     assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: a default that is a constant of the WRONG type is `NL202` on the default — `z: float = 3.14` is a `double`, exactly the conversion C# refuses for a default" {
+    source := "\n            func Calculate(z: float = 3.14) {\n                print z\n            }\n        "
+    assert AcParseCensus(source) == ""
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@2:39+4;"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@2:39+4;"
+    assert AcRow(rich, 0) == "TypeMismatch|Parameter 'z' is typed as 'float', but its default value is 'double'|<null>|Error"
 }
 
 test "020 s36 analyzer clean source: `TestDefaultParametersWithBooleanLiterals` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersWithBooleanLiterals)" {

@@ -9,19 +9,22 @@ import NSharpLang.Compiler.Ast
 
 // ONE STEP THE PARAMETER WALK CANNOT TAKE FOR ITSELF.
 //
-// There is exactly ONE kind, and like the import walk's it asks for an EFFECT rather than for an
-// answer:
+// There are two kinds, and both hand the shell a default-value expression to analyse against the
+// parameter's declared type:
 //
-//   1  analyse this default-value expression against this expected type.
+//   1  analyse it for its EFFECT — an SoA table's default, which the walk refuses afterwards
+//      whatever the analysis found. Nothing is carried back.
+//   2  analyse it and ANSWER its type, through `SupplyDefaultType`, together with the assignability
+//      the shell holds — the value rule's constant default, which must also be a value of the type
+//      the parameter declares.
 //
 // The analysis is the shell's expression door, and it must be the shell's: it brackets the ambient
 // expected type with `try` / `finally` so the ambient is restored even if the analysis THROWS, and a
 // guarantee that spans a suspension is one an owner cannot keep. What the walk owns is everything
-// around it — WHICH parameters are checked, in which order, and what the two possible outcomes mean.
+// around it — WHICH parameters are checked, in which order, and what the outcomes mean.
 //
-// The step carries no answer back because there is nothing to carry: the shell discards the type too.
-// What the walk needs to know is whether the analysis REPORTED anything, and it asks the diagnostic
-// sink for its own count on both sides of the suspension rather than being told.
+// Whether the analysis REPORTED anything the walk learns by asking the diagnostic sink for its own
+// count on both sides of the suspension rather than being told.
 //
 // The numbering is this walk's own protocol with its own driver and starts at 1; the other walks'
 // numbers mean different operations and none of them is a shared vocabulary.
@@ -58,6 +61,10 @@ class ParameterWalkState {
     ErrorsBefore: int
     SoaTableName: string
     PendingDefault: Expression?
+    PendingParameter: Parameter?
+    PendingType: TypeInfo?
+    DefaultType: TypeInfo?
+    DefaultAssignable: bool
 
     constructor(parameters: List<Parameter>, line: int, column: int) {
         Phase = 0
@@ -70,6 +77,10 @@ class ParameterWalkState {
         ErrorsBefore = 0
         SoaTableName = ""
         PendingDefault = null
+        PendingParameter = null
+        PendingType = null
+        DefaultType = null
+        DefaultAssignable = true
     }
 }
 
@@ -620,6 +631,17 @@ class AnalyzerDeclarationPolicy {
         state.Pending = 0
     }
 
+    // The answer to a kind-2 step: the type the default analysed to, measured here against the
+    // parameter's declared type with the shell's own assignability — the same constant-aware rule a
+    // local's initializer is held to, so `b: byte = 7` is a `byte` and `b: byte = 300` is not.
+    func SupplyDefaultType(state: ParameterWalkState, answer: TypeInfo, assignability: AnalyzerAssignability) {
+        state.Pending = 0
+        state.DefaultType = answer
+        declared := state.PendingType
+        pendingDefault := state.PendingDefault
+        state.DefaultAssignable = declared == null || pendingDefault == null || assignability.IsAssignableWithConstant(declared, answer, ConstantOperandFacts.FromExpression(pendingDefault))
+    }
+
     func Advance(state: ParameterWalkState): ParameterWalkRequest? {
         if state.Phase == 0 {
             parameterDeclarations.ValidateParamsParameters(state.Parameters, state.Line, state.Column)
@@ -629,6 +651,11 @@ class AnalyzerDeclarationPolicy {
 
         if state.Phase == 2 {
             ResumeSoaDefault(state)
+            return null
+        }
+
+        if state.Phase == 3 {
+            ResumeDefaultType(state)
             return null
         }
 
@@ -668,11 +695,152 @@ class AnalyzerDeclarationPolicy {
         // THE VALUE RULE. Everything the compiler cannot evaluate into metadata.
         if !IsValidDefaultValue(defaultValue, parameter.Type) {
             span := spans.GetExpressionDiagnosticSpan(defaultValue)
-            diagnostics.Report(ErrorCode.InvalidDefaultParameterValue, "The default value for '" + parameter.Name + "' must be something the compiler can evaluate — use a literal, null, or a simple constant", span.Line, span.Column, null, span.Length)
+            diagnostics.Report(ErrorCode.InvalidDefaultParameterValue, "The default value for '" + parameter.Name + "' must be something the compiler can evaluate — use a literal, null, default, or a simple constant", span.Line, span.Column, InvalidDefaultHint(defaultValue, parameter.Name), span.Length)
+            state.Index = state.Index + 1
+            return null
         }
 
+        // THE TYPE RULE, WHICH SUSPENDS. A constant the compiler can store must still be a value of
+        // the parameter's own type: `n: int = null`, `b: byte = 300` and `f: float = 2.5` are
+        // constants, and none of them is a value its parameter can hold. A default that names an
+        // enum member has already been held to the stricter form of this rule — its owner IS the
+        // parameter's type — and is not analysed again: inside a type with a member of the same
+        // name (`Level: int` beside `enum Level`) an expression lookup would find the member.
+        if NamesEnumMember(defaultValue) || IsZeroForEnum(defaultValue, parameter.Type) {
+            state.Index = state.Index + 1
+            return null
+        }
+
+        return BeginDefaultTypeCheck(state, parameter, defaultValue)
+    }
+
+    static func NamesEnumMember(expr: Expression): bool {
+        if expr is MemberAccessExpression {
+            return true
+        }
+
+        unary := expr as UnaryExpression
+        if unary != null {
+            return NamesEnumMember(unary.Operand)
+        }
+
+        binary := expr as BinaryExpression
+        if binary != null {
+            return NamesEnumMember(binary.Left) || NamesEnumMember(binary.Right)
+        }
+
+        return false
+    }
+
+    // THE LITERAL `0` CONVERTS TO EVERY ENUM, as it does in C# (the implicit enumeration
+    // conversion), so `flags: Options = 0` is the enum's zero — the spelling a flags parameter's
+    // "none" is written in.
+    func IsZeroForEnum(expr: Expression, expectedType: TypeReference): bool {
+        literal := expr as IntLiteralExpression
+        if literal == null {
+            return false
+        }
+
+        literalKind := 0
+        magnitude := 1UL
+        if !NumericLiteralFacts.TryParseIntegerLiteral(literal.Value, out literalKind, out magnitude) || literalKind != 0 || magnitude != 0UL {
+            return false
+        }
+
+        resolved := declarationContext.ResolveDeclaredAlias(ExpectedTypeFor(expectedType))
+        nullable := resolved as NullableTypeInfo
+        if nullable != null {
+            resolved = declarationContext.ResolveDeclaredAlias(nullable.InnerType)
+        }
+
+        if resolved is EnumTypeInfo {
+            return true
+        }
+
+        reflectionType := resolved as ReflectionTypeInfo
+        return reflectionType != null && reflectionType.Type.IsEnum
+    }
+
+    // A DOTTED NAME THAT IS NOT AN ENUM MEMBER is almost always a static the author expected to be
+    // a constant — `DateTime.MinValue`, `TimeSpan.Zero`, `Guid.Empty` — and is read at run time. The
+    // two spellings that DO work are what the hint offers.
+    static func InvalidDefaultHint(defaultValue: Expression, parameterName: string): string? {
+        memberAccess := defaultValue as MemberAccessExpression
+        if memberAccess == null {
+            return null
+        }
+
+        ownerName := ""
+        if !AnalyzerAttributeValidator.TryGetQualifiedName(memberAccess.Object, out ownerName) {
+            return null
+        }
+
+        return "'" + ownerName + "." + memberAccess.MemberName + "' is read when the program runs, so it cannot be stored as a default. Write '= default' for the type's zero value, or make '" + parameterName + "' nullable, default it to null, and choose the value in the body."
+    }
+
+    func BeginDefaultTypeCheck(state: ParameterWalkState, parameter: Parameter, defaultValue: Expression): ParameterWalkRequest {
+        parameterType := typeResolver.ResolveDeclaredType(parameter.Type)
+        state.ErrorsBefore = diagnostics.ErrorCount
+        state.PendingDefault = defaultValue
+        state.PendingParameter = parameter
+        state.PendingType = parameterType
+        state.DefaultType = null
+        state.DefaultAssignable = true
+        state.Phase = 3
+        state.Pending = 2
+        return new ParameterWalkRequest(2, defaultValue, parameterType)
+    }
+
+    // AFTER THE ANALYSIS. A default whose analysis reported its own errors already has the better
+    // report; otherwise a value its parameter cannot hold is a type mismatch, reported on the
+    // default with the same two-type rendering a mismatched local initializer gets.
+    func ResumeDefaultType(state: ParameterWalkState) {
+        state.Phase = 1
+        pendingDefault := state.PendingDefault
+        parameter := state.PendingParameter
+        declared := state.PendingType
+        answer := state.DefaultType
+        state.PendingDefault = null
+        state.PendingParameter = null
+        state.PendingType = null
+        state.DefaultType = null
         state.Index = state.Index + 1
-        return null
+
+        if state.DefaultAssignable || diagnostics.ErrorCount > state.ErrorsBefore {
+            return
+        }
+
+        if pendingDefault == null || parameter == null || declared == null || answer == null {
+            return
+        }
+
+        ReportDefaultTypeMismatch(parameter, pendingDefault, declared, answer)
+    }
+
+    func ReportDefaultTypeMismatch(parameter: Parameter, defaultValue: Expression, declared: TypeInfo, answer: TypeInfo) {
+        span := spans.GetExpressionDiagnosticSpan(defaultValue)
+        declaredText := ""
+        answerText := ""
+        TypeMismatchDisplay.Pair(declarationContext, answer, declared, out answerText, out declaredText)
+        message := "Parameter '" + parameter.Name + "' is typed as '" + declaredText + "', but its default value is '" + answerText + "'"
+        // `null` for a value type is the one mismatch with two good answers, so it names both.
+        nullHint: string? = null
+        if defaultValue is NullLiteralExpression {
+            nullHint = "'" + declaredText + "' cannot hold null. Make the parameter nullable ('" + parameter.Name + ": " + declaredText + "? = null'), or write '= default' for its zero value."
+        }
+
+        sourceSnippet := diagnostics.SourceSnippet(span.Line)
+        currentFilePath := diagnostics.CurrentFilePath
+        if sourceSnippet != null && currentFilePath != null {
+            built := ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, answerText, declaredText, message, null, null)
+            if nullHint != null {
+                built.ContextualHint = nullHint
+            }
+            diagnostics.ReportBuilt(built)
+            return
+        }
+
+        diagnostics.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, nullHint, span.Length)
     }
 
     // Answers a request when the parameter's declared type is an SoA table, and null when the SoA rule
@@ -724,11 +892,12 @@ class AnalyzerDeclarationPolicy {
     // WHAT THE COMPILER CAN EVALUATE INTO METADATA
     // ----------------------------------------------------------------------------------------------
 
-    // The six literal forms, a matching enum member, and the unary, binary and array combinations of
-    // those. The recursion carries the SAME expected type down, which is what makes an enum member
-    // valid inside a `|` combination of flags but not inside one against a different enum.
+    // The six literal forms, `default`, a matching enum member, and the unary, binary and array
+    // combinations of those. The recursion carries the SAME expected type down, which is what makes
+    // an enum member valid inside a `|` combination of flags but not inside one against a different
+    // enum.
     func IsValidDefaultValue(expr: Expression, expectedType: TypeReference): bool {
-        if expr is IntLiteralExpression || expr is FloatLiteralExpression || expr is CharLiteralExpression || expr is BoolLiteralExpression || expr is StringLiteralExpression || expr is NullLiteralExpression {
+        if expr is IntLiteralExpression || expr is FloatLiteralExpression || expr is CharLiteralExpression || expr is BoolLiteralExpression || expr is StringLiteralExpression || expr is NullLiteralExpression || expr is DefaultExpression {
             return true
         }
 

@@ -214,29 +214,27 @@ class ColumnarScalarLiteralPlanner {
             return false
         }
 
-        bits := Decimal.GetBits(parsed)
-        if bits.Length != 4 {
-            return false
-        }
+        AppendDecimalValue(parsed, plan)
+        return true
+    }
 
-        lo := bits[0]
-        mid := bits[1]
-        high := bits[2]
+    // One decimal VALUE, however it was spelled: the literal above, or a parameter default that a
+    // call site fills in (`ColumnarParameterDefaultValue`).
+    static func AppendDecimalValue(value: decimal, plan: ColumnarCodePlan) {
+        bits := Decimal.GetBits(value)
         flags := bits[3]
         isNegative := 0
         if flags < 0 {
             isNegative = 1
         }
-        scale := (flags >> 16) & 255
 
-        AppendLdcI4(plan, lo)
-        AppendLdcI4(plan, mid)
-        AppendLdcI4(plan, high)
+        AppendLdcI4(plan, bits[0])
+        AppendLdcI4(plan, bits[1])
+        AppendLdcI4(plan, bits[2])
         AppendLdcI4(plan, isNegative)
-        AppendLdcI4(plan, scale)
+        AppendLdcI4(plan, (flags >> 16) & 255)
         constructorIndex := plan.AddConstructor(RequiredDecimalBitsConstructor())
         plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
-        return true
     }
 
     static func AppendLdcI4(plan: ColumnarCodePlan, value: int) {

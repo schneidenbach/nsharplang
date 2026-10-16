@@ -2236,16 +2236,18 @@ Two rules the compiler enforces about the type-argument list itself:
   CONSTRUCTOR parameter, whose default the call site reads out of the callee's metadata and writes
   as a literal (`new Conn("h")` for `constructor(host: string, port: int = 8080)`; `connect("h")`;
   `c.Url()` for `func Url(scheme: string = "http")`; named arguments such as `total(1, c: 20)`
-  skip the ones in between). What can be filled is a bounded set of constants:
-  - **In your own project** the omitted default is filled for `int`, `bool`, `string` and enum
-    constants and the null reference (`s: string? = null`). A default of any other type — a `long`,
-    `byte` or `uint` integral, a `char`, a `double`, a `decimal` or a nullable value type
-    (`n: int? = null`) — declines at emission with [NL103](./errors/NL103.md) when a call OMITS the argument (for
-    `char` and `double` the declaration itself declines); pass the argument explicitly. A `DateTime` default (`= default`, `= DateTime.MinValue`) is
-    rejected with [NL410](./errors/NL410.md), which asks for a literal, `null` or a simple constant.
-  - **From a referenced assembly** the defaults that can be filled are the null reference, an
-    integral, floating, `char`, `bool`, `string` or enum constant, and a `Nullable<T>` with no value;
-    a `decimal` or `DateTime` default, and a bare `[Optional]` with no constant at all, still decline.
+  skip the ones in between). Every constant default is filled, in your own project and from a
+  referenced assembly alike: the null reference, `default`, a `Nullable<T>` with no value or with a
+  constant, and every integral, floating, `char`, `bool`, `string`, `decimal` and enum constant (see
+  [Optional Parameters](./functions.md#optional-parameters)). What remains:
+  - A default must be a constant of the parameter's type. `DateTime.MinValue` and other values read
+    at run time are [NL410](./errors/NL410.md) — `= default` is the constant zero of any struct — and
+    there is no N# spelling for a non-zero `DateTime` default (C#'s `[DateTimeConstant]`).
+  - A default combining enum members (`flags: Options = Options.A | Options.B`) is accepted by the
+    analyzer but declines at emission with [NL103](./errors/NL103.md); write the single member, or
+    `0`, and combine in the body.
+  - From a referenced assembly, a parameter that is merely `[Optional]` with no constant at all (and
+    a `[DateTimeConstant]` default) still declines; pass the argument explicitly.
 - **Reading a member off a local initialised from an external static call** declines
   (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
   parameter of that type and off a local initialised with `new`, so binding the value differently is

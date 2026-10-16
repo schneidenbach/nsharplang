@@ -459,8 +459,31 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
     return paramCount
 }
 
-func FunctionSignatureDefaultKindSupported(kind: int): bool {
-    return kind == 46 || kind == 44 || kind == 45 || kind == 1 || kind == 4
+// THE CONSTANT SHAPES A PARAMETER DEFAULT IS CAPTURED IN, shared by every parameter list the
+// columnar parser reads (functions and methods, constructors, primary constructors): one literal or
+// keyword token — `null`, `true`, `false`, `default`, an integer, floating, character or string
+// literal — or a sign followed by a numeric literal (`-1`, `-2.5`). Answers the default's kind, the
+// literal's own token kind for a signed one, or -1 for any other shape (a dotted member name is the
+// callers' other shape). The value itself is decided against the parameter's type in the back end.
+func ParameterDefaultConstantKind(kinds: int[], startIndex: int, endIndex: int): int {
+    if startIndex < 0 || endIndex > kinds.Length {
+        return -1
+    }
+
+    tokenCount := endIndex - startIndex
+    if tokenCount == 1 && ParameterDefaultSingleTokenKindSupported(kinds[startIndex]) {
+        return kinds[startIndex]
+    }
+
+    if tokenCount == 2 && (kinds[startIndex] == 89 || kinds[startIndex] == 88) && (kinds[startIndex + 1] == 1 || kinds[startIndex + 1] == 2) {
+        return kinds[startIndex + 1]
+    }
+
+    return -1
+}
+
+func ParameterDefaultSingleTokenKindSupported(kind: int): bool {
+    return kind == 46 || kind == 44 || kind == 45 || kind == 34 || kind == 1 || kind == 2 || kind == 3 || kind == 4
 }
 
 func FunctionSignatureDefaultMemberAccessKind(): int {
@@ -666,8 +689,10 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
                 }
             }
 
-            if defaultTokenCount == 1 && FunctionSignatureDefaultKindSupported(defaultKind) {
-                defaultLength = tokens.ValueLengths[defaultTokenStart]
+            constantKind := ParameterDefaultConstantKind(tokens.Kinds, defaultTokenStart, pos)
+            if constantKind >= 0 {
+                defaultKind = constantKind
+                defaultLength = tokens.Starts[pos - 1] + tokens.ValueLengths[pos - 1] - defaultStart
             } else if FunctionSignatureDefaultDottedNameSupported(tokens, defaultTokenStart, pos) {
                 defaultKind = FunctionSignatureDefaultMemberAccessKind()
                 defaultLength = tokens.Starts[pos - 1] + tokens.ValueLengths[pos - 1] - defaultStart
@@ -1372,10 +1397,6 @@ func ParseConstructorSignatureInfoCore(source: string, tokens: ParserTokenTable,
     return paramCount
 }
 
-func ConstructorSignatureDefaultKindSupported(kind: int): bool {
-    return kind == 46 || kind == 44 || kind == 45 || kind == 1 || kind == 4
-}
-
 func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTable, count: int, ctorIndex: int, outputs: ConstructorSignatureOutputTable): int {
     declarationCapacity := ColumnarDeclarationScratchCapacity(tokens.Kinds, count, ctorIndex)
     if ctorIndex < 0 || ctorIndex >= count || tokens.Kinds[ctorIndex] != 0 {
@@ -1499,8 +1520,10 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
                 }
             }
 
-            if defaultTokenCount == 1 && ConstructorSignatureDefaultKindSupported(defaultKind) {
-                defaultLength = tokens.ValueLengths[defaultTokenStart]
+            constantKind := ParameterDefaultConstantKind(tokens.Kinds, defaultTokenStart, pos)
+            if constantKind >= 0 {
+                defaultKind = constantKind
+                defaultLength = tokens.Starts[pos - 1] + tokens.ValueLengths[pos - 1] - defaultStart
             } else if FunctionSignatureDefaultDottedNameSupported(tokens, defaultTokenStart, pos) {
                 defaultKind = FunctionSignatureDefaultMemberAccessKind()
                 defaultLength = tokens.Starts[pos - 1] + tokens.ValueLengths[pos - 1] - defaultStart

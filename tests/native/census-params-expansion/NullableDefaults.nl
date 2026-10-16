@@ -44,42 +44,36 @@ func AddFileBuilderParameters(): ParameterInfo[] {
     return widest
 }
 
-// Every OPTIONAL parameter of that declaration, rendered as `<kind>=<constant>`, so one row reads
-// the whole tail and a change anywhere in it is visible.
+// Every OPTIONAL parameter of that declaration, rendered as the value its omitted argument is
+// filled with — `null`, or `<constant type>=<constant>` — so one row reads the whole tail and a
+// change anywhere in it is visible. A `Nullable<T>` with a value renders as its `T` constant, which
+// is what the call site pushes before the wrap.
 func AddFileOptionalTail(): string {
     rendered := ""
     for parameter in AddFileBuilderParameters() {
         if parameter.IsOptional {
-            value: object? = null
-            kind := ColumnarExtensionMethodResolver.OptionalDefaultKind(parameter, parameter.ParameterType, out value)
-            text := "<none>"
+            value := ColumnarParameterDefaultValue.FromMetadata(parameter, parameter.ParameterType)
+            text := "<unfillable>"
             if value != null {
-                text = value.ToString() ?? "<none>"
+                if value.Form == ColumnarParameterDefaultValue.NullReferenceForm {
+                    text = "null"
+                } else if value.Form == ColumnarParameterDefaultValue.ZeroValueForm {
+                    text = "zero"
+                } else {
+                    constant := value.Constant
+                    if constant != null {
+                        text = constant.GetType().Name + "=" + (constant.ToString() ?? "")
+                    }
+                }
             }
 
             if rendered.Length > 0 {
                 rendered = rendered + " "
             }
 
-            rendered = rendered + kind.ToString() + "=" + text
+            rendered = rendered + text
         }
     }
 
     return rendered
-}
-
-func NullableValueKind(): int {
-    return ColumnarExtensionMethodResolver.OptionalDefaultKindNullableValue()
-}
-
-func Int32Kind(): int {
-    return ColumnarExtensionMethodResolver.OptionalDefaultKindInt32()
-}
-
-func NullReferenceKind(): int {
-    return ColumnarExtensionMethodResolver.OptionalDefaultKindNullReference()
-}
-
-func StringKind(): int {
-    return ColumnarExtensionMethodResolver.OptionalDefaultKindString()
 }

@@ -360,13 +360,20 @@ class ColumnarSourceAttributeBinder {
         }
 
         text: string = defaultText
-        if defaultKind == (int)TokenType.IntLiteral {
-            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.IntLiteral, text)
-            return true
-        }
+        if defaultKind == (int)TokenType.IntLiteral || defaultKind == (int)TokenType.FloatLiteral {
+            // A SIGNED DEFAULT (`= -1`) is carried as one text with its sign; a written argument
+            // spells the same value as the negation of the literal, and that is the node it becomes.
+            literalKind := defaultKind == (int)TokenType.IntLiteral ? ColumnarAttributeArgumentKind.IntLiteral : ColumnarAttributeArgumentKind.FloatLiteral
+            unsigned := text.Trim()
+            negative := unsigned.Length > 0 && unsigned[0] == '-'
+            if unsigned.Length > 0 && (unsigned[0] == '-' || unsigned[0] == '+') {
+                unsigned = unsigned.Substring(1).Trim()
+            }
 
-        if defaultKind == (int)TokenType.FloatLiteral {
-            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.FloatLiteral, text)
+            node = new ColumnarAttributeArgumentNode(literalKind, unsigned)
+            if negative {
+                node = ColumnarAttributeArgumentNode.Unary(ColumnarAttributeArgumentKind.Negate, node)
+            }
             return true
         }
 
