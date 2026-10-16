@@ -75,6 +75,7 @@ class ColumnarAnonymousTypeTemplate {
 // Templates are defined on first use and appended to the session's synthesized-type list, which bakes
 // them with the closure display classes before the assembly is written.
 class ColumnarAnonymousTypeRegistry {
+
     // C#'s own multiplier for the property-by-property hash.
     private static readonly s_hashMultiplier: int = -1521134295
 

@@ -11,7 +11,6 @@ import System.Runtime.CompilerServices
 // GENERIC class per ordered list of property names, read-only properties over `initonly` fields, value
 // equality, and the `{ Name = Alice, Age = 30 }` rendering. The behavioural tests read the values back
 // through every boundary the program can hand one across; the metadata tests read the emitted type.
-
 test "a property reads back the value it was written with" {
     person := new { Name: "Alice", Age: 30 }
     assert person.Name == "Alice"

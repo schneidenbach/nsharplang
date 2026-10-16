@@ -6,7 +6,6 @@ import System
 // debugger display and the hash seed — pinned on their own, because each is a promise the emitted
 // type makes to every program: the rendering C# prints, a key two bodies agree on, and a seed that
 // never changes from one build of the same source to the next.
-
 func AnonymousNames(first: string, second: string): string[] {
     names := new string[2]
     names[0] = first

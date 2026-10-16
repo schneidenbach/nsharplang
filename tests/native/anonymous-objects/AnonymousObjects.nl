@@ -9,7 +9,6 @@ import System.Linq
 // own: a generic parameter that closes over the synthesized type, an `object` slot, a method of a
 // source class, a lambda, a LINQ projection and a `with` copy. The tests call them and read the
 // values back.
-
 func Echo<T>(value: T): T {
     return value
 }
