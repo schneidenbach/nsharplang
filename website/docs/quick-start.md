@@ -76,7 +76,7 @@ dependencies:
 import Newtonsoft.Json
 
 func main() {
-    obj := new { Name = "Alice", Age = 30 }
+    obj := new { Name: "Alice", Age: 30 }
     json := JsonConvert.SerializeObject(obj)
     print json
 }

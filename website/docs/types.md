@@ -2231,14 +2231,21 @@ Two rules the compiler enforces about the type-argument list itself:
   does not parse, `import System` plus `catch ex: InvalidOperationException` does. (A type used only
   as a catch type, only inside a `Func<…>` in a signature, only in an attribute or only as a type
   argument DOES now count as a use of its import; `NL010` no longer reports those.)
-- A **defaulted parameter is filled only for a member of a referenced assembly**. Omitting the
-  argument works for an external instance, static, extension or CONSTRUCTOR parameter, whose default
-  the call site reads out of the callee's metadata and writes as a literal. A function, method or
-  constructor declared in the SAME project does not yet offer its defaults to a call in that
-  project — pass every argument, or split the declaration into explicit arities. The defaults that can be filled are the null
-  reference, an integral, floating, `char`, `bool`, `string` or enum constant, and a `Nullable<T>`
-  with no value; a `decimal` or `DateTime` default, and a bare `[Optional]` with no constant at all,
-  still decline.
+- **Omitting a defaulted parameter** works for a function, method or constructor declared in the SAME
+  project — including a call from another file — and for an external instance, static, extension or
+  CONSTRUCTOR parameter, whose default the call site reads out of the callee's metadata and writes
+  as a literal (`new Conn("h")` for `constructor(host: string, port: int = 8080)`; `connect("h")`;
+  `c.Url()` for `func Url(scheme: string = "http")`; named arguments such as `total(1, c: 20)`
+  skip the ones in between). What can be filled is a bounded set of constants:
+  - **In your own project** the omitted default is filled for `int`, `bool`, `string` and enum
+    constants and the null reference (`s: string? = null`). A default of any other type — a `long`,
+    `byte` or `uint` integral, a `char`, a `double`, a `decimal` or a nullable value type
+    (`n: int? = null`) — declines at emission with [NL103](./errors/NL103.md) when a call OMITS the argument (for
+    `char` and `double` the declaration itself declines); pass the argument explicitly. A `DateTime` default (`= default`, `= DateTime.MinValue`) is
+    rejected with [NL410](./errors/NL410.md), which asks for a literal, `null` or a simple constant.
+  - **From a referenced assembly** the defaults that can be filled are the null reference, an
+    integral, floating, `char`, `bool`, `string` or enum constant, and a `Nullable<T>` with no value;
+    a `decimal` or `DateTime` default, and a bare `[Optional]` with no constant at all, still decline.
 - **Reading a member off a local initialised from an external static call** declines
   (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
   parameter of that type and off a local initialised with `new`, so binding the value differently is

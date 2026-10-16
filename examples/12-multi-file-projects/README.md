@@ -57,7 +57,7 @@ import MyProject.Models
 package MyProject
 
 func Main() {
-    user := new User { Id = 1, Name = "Alice" }
+    user := new User { Id: 1, Name: "Alice" }
     Console.WriteLine(user.Name)
 }
 ```
