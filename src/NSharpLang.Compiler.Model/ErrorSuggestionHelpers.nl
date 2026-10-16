@@ -117,6 +117,16 @@ class SmartSuggester {
 
 class TypeConversionSuggester {
     static func SuggestConversion(fromType: string, toType: string): string? {
+        // An anonymous object prints as `new { ... }`, and the braces alone never mean "the type the
+        // slot wants": `new { X: 1 }` is always an anonymous object. Naming the type is the fix.
+        if fromType.StartsWith("new {", StringComparison.Ordinal) && !toType.StartsWith("new {", StringComparison.Ordinal) {
+            anonymousHint := "`new { ... }` always creates an anonymous object, which converts only to `object`."
+            if toType.Length > 0 && Char.IsUpper(toType[0]) {
+                anonymousHint = anonymousHint + "\n" + "To create a `" + toType + "`, write the type after `new`: `new " + toType + " { ... }`."
+            }
+            return anonymousHint
+        }
+
         if fromType == "string" && toType == "int" {
             return "Strings and integers are different types. To convert a string to an int,\n" + "you can use int.Parse(yourString) or int.TryParse(yourString, out result)."
         }

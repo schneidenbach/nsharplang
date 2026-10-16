@@ -400,29 +400,10 @@ class AnalyzerExpressionTreeValidator {
         return false
     }
 
-    // AN ANONYMOUS-OBJECT PROJECTION: no written type, no constructor arguments, an initializer, and
-    // every property NAMED and not indexed.
+    // AN ANONYMOUS-OBJECT PROJECTION is the anonymous object the construction walk types — one rule,
+    // asked of the owner that states it.
     static func IsAnonymousObjectCreation(newExpression: NewExpression): bool {
-        if newExpression.Type != null {
-            return false
-        }
-
-        if newExpression.ConstructorArguments.Count != 0 {
-            return false
-        }
-
-        initializer := newExpression.Initializer
-        if initializer == null {
-            return false
-        }
-
-        for property in initializer.Properties {
-            if property.Name == null || property.IndexExpression != null {
-                return false
-            }
-        }
-
-        return true
+        return AnalyzerConstruction.IsAnonymousObjectCreation(newExpression)
     }
 
     // WHAT TO CALL A NODE THE TREE CANNOT HOLD. Seventeen shapes get a phrase of their own; anything

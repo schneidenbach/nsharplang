@@ -15,6 +15,7 @@ This guide covers the type system in N#, including classes, structs, records, di
 - [Classes](#classes)
 - [Structs](#structs)
 - [Records](#records)
+- [Anonymous Objects](#anonymous-objects)
 - [Discriminated Unions](#discriminated-unions)
 - [Duck Interfaces](#duck-interfaces)
 - [Enums](#enums)
@@ -981,6 +982,198 @@ Console.WriteLine(person.FirstName)  // "Alice"
 //
 //   (first, last, age) := person
 ```
+
+## Anonymous Objects
+
+An anonymous object is a value whose type is described by its properties instead of by a name.
+Write `new` followed by `Name: value` pairs, and N# gives the object one read-only property per
+pair, typed by the value:
+
+```n#
+func main() {
+    person := new { Name: "Alice", Age: 30 }
+    print person.Name           // Alice
+    print person.Age + 1        // 31
+    print person                // { Name = Alice, Age = 30 }
+}
+```
+
+They are for values that only need a shape for a moment: a LINQ projection, a payload for a
+serializer, a group key, a row of a quick report. When a shape is passed between functions or
+stored in a field, declare a [record](#records) instead, because an anonymous type has no name to
+write in a signature.
+
+### Reading properties
+
+Every property is typed by its value, and the compiler checks every read. A misspelled name is
+[NL303](./errors/NL303.md) with a suggestion, hover shows `property Name: string`, and
+go-to-definition lands on the name inside the `new { ... }`:
+
+```n#
+func main() {
+    order := new { Id: 42, Lines: ["tea", "cake"], Customer: new { Name: "Bea" } }
+    print order.Lines.Length          // 2
+    print order.Customer.Name         // Bea
+}
+```
+
+### Anonymous objects are read-only
+
+The properties are fixed when the object is created. Assigning one is
+[NL309](./errors/NL309.md). To change a value, make a copy with `with`, which keeps every other
+property:
+
+```n#
+func main() {
+    alice := new { Name: "Alice", Age: 30 }
+    older := alice with { Age: 31 }
+    print older                 // { Name = Alice, Age = 31 }
+    print alice                 // { Name = Alice, Age = 30 }
+}
+```
+
+### Equality, hashing and `ToString`
+
+Anonymous objects compare by value, so they work as dictionary keys, with `Distinct`, `Contains`
+and `GroupBy`, and in tests. Two objects are equal when every property is equal:
+
+```n#
+import System.Linq
+
+func main() {
+    a := new { Name: "Alice", Age: 30 }
+    b := new { Name: "Alice", Age: 30 }
+    print a.Equals(b)                               // True
+    print a.GetHashCode() == b.GetHashCode()        // True
+    print [a, b, new { Name: "Bob", Age: 4 }].Distinct().Count()   // 2
+    print a == b                                    // False: `==` compares references
+}
+```
+
+`==` on two anonymous objects compares references, as it does in C#. Use `Equals` to compare
+values.
+
+`ToString()` lists the properties in written order: `{ Name = Alice, Age = 30 }`, the same text
+C# prints. `print person` and `$"{person}"` show it too, and an object with no properties,
+`new { }`, prints `{ }`.
+
+### When two anonymous objects have the same type
+
+Two anonymous objects have the same type when they list the same property names, in the same
+order, with the same property types. That is what lets them share an array, the two arms of a
+conditional, or a type parameter:
+
+```n#
+func main() {
+    people := [new { Name: "Alice" }, new { Name: "Bob" }]
+    for person in people {
+        print person.Name
+    }
+
+    adult := true
+    label := adult ? new { Text: "adult" } : new { Text: "minor" }
+    print label.Text
+}
+```
+
+`new { Age: 30, Name: "Alice" }` is a different type from `new { Name: "Alice", Age: 30 }`,
+and so is `new { Name: "Alice", Age: 30.5 }`.
+
+### Passing anonymous objects around
+
+An anonymous object can go anywhere an `object` or a type parameter can, and a generic call infers
+the anonymous type, so nothing is lost:
+
+```n#
+import Newtonsoft.Json
+
+func Echo<T>(value: T): T {
+    return value
+}
+
+func main() {
+    person := new { Name: "Alice", Age: 30 }
+    same := Echo(person)
+    print same.Name                                 // Alice
+    print JsonConvert.SerializeObject(person)       // {"Name":"Alice","Age":30}
+}
+```
+
+LINQ projections are the most common use. The element type flows through every later operator:
+
+```n#
+import System.Linq
+
+func main() {
+    words := ["apple", "avocado", "banana"]
+    counts := words.GroupBy(w => w[0]).Select(g => new { Letter: g.Key, Count: g.Count() })
+    for item in counts {
+        print $"{item.Letter}: {item.Count}"        // a: 2, then b: 1
+    }
+}
+```
+
+Property patterns read anonymous objects too:
+
+```n#
+func Describe(age: int): string {
+    person := new { Name: "Bea", Age: age }
+    return match person {
+        { Age: 30, Name: n } => n + " is thirty",
+        _ => "someone else"
+    }
+}
+```
+
+### What a property value can be
+
+A property takes its type from its value, so the value must have one. `null`, a lambda, a bare
+function name and a call that returns nothing have no type of their own, and each is
+[NL203](./errors/NL203.md). Give the value a type first:
+
+```n#
+func main() {
+    nickname: string? = null
+    person := new { Name: "Alice", Nickname: nickname }
+    print person.Nickname ?? "(none)"
+}
+```
+
+Each name can appear once. A repeated name is [NL306](./errors/NL306.md).
+
+### `new { ... }` always creates an anonymous object
+
+The braces alone never mean "the type this slot wants". To create a declared type, name it:
+
+```n#
+class Point {
+    X: int
+}
+
+func main() {
+    p := new Point { X: 1 }     // a Point
+    q := new { X: 1 }           // an anonymous object with an X property
+    print p.X + q.X
+}
+```
+
+Writing `p: Point = new { X: 1 }` is [NL202](./errors/NL202.md), and the hint suggests
+`new Point { ... }`.
+
+### How anonymous objects compile
+
+N# emits anonymous types the way C# does, so .NET libraries see the same shape. Each ordered list
+of property names becomes one sealed, internal, generic class (`<>f__AnonymousType0<...>`), with
+one read-only property per name over a read-only field and a constructor that takes every property.
+Each creation closes that class over its value types, which is how a property can hold a value of a
+type parameter. `Equals`, `GetHashCode` and `ToString` are overridden as described above, and the
+type is marked `[CompilerGenerated]` with a `[DebuggerDisplay]` so debuggers show
+`{ Name = Alice, Age = 30 }`. Serializers and other reflection-based libraries read the public
+getters.
+
+Current limits: a generator (`func*`) body cannot create an anonymous object yet, and neither can an
+`IQueryable` query, because N# does not compile lambdas to expression trees yet. Both decline at
+build time with [NL103](./errors/NL103.md). The browser playground does not run anonymous objects.
 
 ## Discriminated Unions
 

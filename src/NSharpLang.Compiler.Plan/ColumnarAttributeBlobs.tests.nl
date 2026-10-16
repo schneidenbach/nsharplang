@@ -88,6 +88,13 @@ test "the xunit Trait shape matches the bytes CustomAttributeBuilder wrote" {
     assert BlobText(blob) == "1-0-17-78-83-104-97-114-112-68-101-115-99-114-105-112-116-105-111-110-13-97-32-100-101-115-99-114-105-112-116-105-111-110-0-0"
 }
 
+test "a string argument with one named string property writes the PROPERTY marker, the string type, then name and value" {
+    // `[DebuggerDisplay("x", Type = "T")]`: prolog, SerString "x", NumNamed 1, 0x54 PROPERTY, 0x0E
+    // STRING, SerString "Type", SerString "T" -- the shape C# writes for an anonymous type's display.
+    blob := ColumnarAttributeBlobs.StringWithNamedStringProperty("x", "Type", "T")
+    assert BlobText(blob) == "1-0-1-120-1-0-84-14-4-84-121-112-101-1-84"
+}
+
 test "a non-ASCII description is counted in BYTES, not characters" {
     blob := ColumnarAttributeBlobs.TwoStrings("e", "é")
     assert BlobText(blob) == "1-0-1-101-2-195-169-0-0"

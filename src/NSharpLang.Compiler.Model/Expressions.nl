@@ -362,6 +362,9 @@ class NewExpression: Expression {
     ConstructorArguments: List<Argument>
     Initializer: ObjectInitializerExpression?
     ArrayLengthExpression: Expression?
+    // Whether an argument list was WRITTEN, empty or not. It is what separates the target-typed
+    // `new() { X: 1 }` from the anonymous object `new { X: 1 }`, whose trees are otherwise identical.
+    HasArgumentList: bool
 
     constructor(Type: TypeReference?, ConstructorArguments: List<Argument>, Initializer: ObjectInitializerExpression?, Line: int, Column: int, ArrayLengthExpression: Expression? = null): base(Line, Column) {
         this.Type = Type

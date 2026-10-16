@@ -244,13 +244,22 @@ person := new Person {
 
 ### Anonymous Objects
 
+`new { ... }` without a type name creates an anonymous object: a read-only value whose properties
+are the names you write, each typed by its value.
+
 ```n#
 data := new {
     name: "Alice",
     age: 30,
     active: true
 }
+print data.name     // Alice
+print data          // { name = Alice, age = 30, active = True }
 ```
+
+Anonymous objects compare by value with `Equals`, print their properties, copy with `with`, and
+are what LINQ projections and JSON payloads are usually made of. See
+[Anonymous Objects](./types.md#anonymous-objects) for the full rules.
 
 ## Types
 

@@ -557,6 +557,29 @@ class AnalyzerMemberResolution {
             }
         }
 
+        // AN ANONYMOUS OBJECT'S PROPERTIES, then `object`'s instance surface. Its type has no name, so
+        // there is nothing static to reach through it, and no extension can be declared against it
+        // except over `object` or a type parameter — both of which the fall-through below still asks.
+        anonymousObject := current as AnonymousObjectTypeInfo
+        if anonymousObject != null && !includeStaticMembers {
+            anonymousProperty := anonymousObject.FindProperty(memberName)
+            if anonymousProperty != null && AnswersInPosition(anonymousProperty.Type, invocationPosition) {
+                return anonymousProperty.Type
+            }
+
+            // The synthesized `ToString` override renders `{ Name = Alice }` and never answers null,
+            // so it is typed as the `string` it returns rather than as `object.ToString()`'s `string?`
+            // — the same signature shape the nullable members are modelled with.
+            if memberName == "ToString" {
+                return CreateSoaIntrinsic("ToString", BuiltInTypes.String)
+            }
+
+            anonymousObjectMember: TypeInfo = BuiltInTypes.Unknown
+            if TryResolveSourceObjectMember(memberName, out anonymousObjectMember) {
+                return anonymousObjectMember
+            }
+        }
+
         // AN ENUM MEMBER READ OFF THE ENUM TYPE IS THE ENUM TYPE. Instance access falls to the
         // inherited `System.Enum` surface instead — an enum VALUE has no declared members of its own.
         enumType := current as EnumTypeInfo
@@ -634,6 +657,11 @@ class AnalyzerMemberResolution {
     // at all — a method or a nested type — so a caller never tells a developer their method is a field.
     func DescribeValueMemberKind(owner: TypeInfo, memberName: string): string? {
         current := declarationContext.ResolveDeclaredAlias(owner)
+        anonymousOwner := current as AnonymousObjectTypeInfo
+        if anonymousOwner != null && anonymousOwner.FindProperty(memberName) != null {
+            return "property"
+        }
+
         selection := new AnalyzerMemberSelection()
         if declarationContext.TryFindMember(current, memberName, out selection) {
             if selection.KindName == "field" || selection.KindName == "property" || selection.KindName == "event" {

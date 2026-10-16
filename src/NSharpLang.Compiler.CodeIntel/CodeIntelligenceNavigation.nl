@@ -296,6 +296,47 @@ class CodeIntelligenceNavigation {
         return new TypeResult(declaration.Name, resolvedType, declaration.Kind, location, nullability)
     }
 
+    // ── Route 3b: a property declared by its own name in an expression ──
+    // `new { Name: value }` declares `Name` where it is written, and that name is no expression of its
+    // own — the finder below would answer the whole creation. The analyzer records the property's
+    // type at the name, so the caret ON the declaring name answers that type. A property declared by
+    // a type member has no such record and keeps the routes it always had.
+    static func DeclaredPropertyNameTypeAtPosition(snapshot: ProjectSnapshot, filePath: string, semanticModel: SemanticModel?, line: int, col: int): TypeResult? {
+        if semanticModel == null {
+            return null
+        }
+
+        declaration := TryResolveDefinitionViaBindings(snapshot, filePath, line, col)
+        if declaration == null || declaration.Kind != "property" || declaration.Line != line {
+            return null
+        }
+
+        declarationFile := declaration.File ?? ""
+        if !CodeIntelligenceResultKernels.MatchesFilePath(filePath, declarationFile) {
+            return null
+        }
+
+        span := CodeIntelligenceSourceDoor.IdentifierSpanAt(CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, filePath), line, col)
+        if !span.HasValue {
+            return null
+        }
+
+        spanValue := span.Value
+        if spanValue.Item1 != declaration.Column {
+            return null
+        }
+
+        typeInfo := semanticModel.LookupTypeAtPosition(declaration.Line, declaration.Column)
+        if typeInfo == null {
+            return null
+        }
+
+        location := new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, declarationFile), declaration.Line, declaration.Column)
+        resolvedType := NullabilityMetadataReflection.FormatTypeInfo(typeInfo)
+        nullability := NullStateFacts.GetSchemaText(CodeIntelligenceTypeResolution.DefaultNullState(typeInfo))
+        return new TypeResult(declaration.Name, resolvedType, declaration.Kind, location, nullability)
+    }
+
     // ── Route 1: the declared name ──────────────────────────────────────
     // THE SELECTED WORD IS READ FROM SOURCE, NOT FROM THE TREE, because a declaration's own name is
     // exactly the text under the cursor and the tree would answer with the enclosing node. A blank
@@ -443,6 +484,11 @@ class CodeIntelligenceNavigation {
         boundValue := BoundVariableTypeAtPosition(snapshot, filePath, semanticModel, line, col)
         if boundValue != null {
             return boundValue
+        }
+
+        declaredProperty := DeclaredPropertyNameTypeAtPosition(snapshot, filePath, semanticModel, line, col)
+        if declaredProperty != null {
+            return declaredProperty
         }
 
         expr := FindExpressionAtPositionRobust(cu, line, col)

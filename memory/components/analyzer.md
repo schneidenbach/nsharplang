@@ -2569,12 +2569,14 @@ The three callers:
     applicability had no CLR type to reject either candidate with.
 - `ReflectionComparisonIsFullyInformed` GATES THE REPORT, not the choice. NL414 accuses the reader of
   writing a call the LANGUAGE cannot resolve, and that is only honest when the comparison had something
-  to compare. A position where the two parameter types DIFFER and the argument has no type at all — an
-  anonymous object, which types as `unknown` and is therefore assignable to every parameter, or a lambda
-  phase 32 deliberately left unanalysed — means the tie is the compiler's, not the program's, so the
-  candidate is still chosen but nothing is reported. `BadRequest(new { errors: errors })` is that case
-  (`BadRequest(object?)` vs `BadRequest(ModelStateDictionary)`); a METHOD GROUP has a type and is not
-  exempt, which is the `Enumerable.Select` case NL414 exists for.
+  to compare. A position where the two parameter types DIFFER and the argument has no type at all — a
+  lambda phase 32 deliberately left unanalysed — means the tie is the compiler's, not the program's, so
+  the candidate is still chosen but nothing is reported. A METHOD GROUP has a type and is not exempt,
+  which is the `Enumerable.Select` case NL414 exists for. `BadRequest(new { errors: errors })`
+  (`BadRequest(object?)` vs `BadRequest(ModelStateDictionary)`) used to be the anonymous-object
+  instance of the exemption; an anonymous object is now an `AnonymousObjectTypeInfo` with no CLR form,
+  so the N# relation accepts it for `object?` and refuses it for `ModelStateDictionary` and there is
+  no tie at all.
 - `AnalyzerSyntheticCallWalk.BindNSharpCall` — collects the applicable candidates first and compares
   them afterwards, for the same partial-order reason. Oracle: `TypeInfoIdentityFacts.AreEqual` and
   `AnalyzerAssignability.IsAssignable` over the same `GetArgumentComparisonTypes` the SCORER reads, so
@@ -3191,6 +3193,45 @@ For `:=` declarations:
 - Contextual delegate targets (`Action`, `Func`, and other CLR delegates) supply lambda parameter
   and return expectations during call and assignment binding. A lambda with no usable target may
   still contain inference holes rather than being treated as an independently nominal value.
+
+### Anonymous objects (2026-10-16)
+
+`new { Name: value, ... }` — a typeless `new` with no argument list whose entries are all named
+(`AnalyzerConstruction.IsAnonymousObjectCreation`; `NewExpression.HasArgumentList` is what separates
+it from the target-typed `new() { ... }`) — is ALWAYS an anonymous object, never target-typed. The
+walk brackets each value with NO expected type and the result is an `AnonymousObjectTypeInfo`:
+ordered `AnonymousObjectPropertyInfo` (name, value type, name position) plus the creation's file and
+position.
+
+- **Identity** (`TypeInfoIdentityFacts.AreEqual`): same names, same order, identical property types —
+  where it was written does not matter. **Assignability**: to `object`/`object?`, to an identical
+  anonymous shape, nothing else; `ErrorSuggestionHelpers` turns the NL202 into "write the type after
+  `new`". **CLR conversion**: none exact; the binding surrogate is `object`
+  (`IsSurrogateUserDefinedType`), and the TypeInfo binding keeps the real shape, which is how
+  `Select(n => new { ... }).ToList().First()` stays typed.
+- **Members** (`AnalyzerMemberResolution`): properties first, then `object`'s instance surface;
+  `ToString` is modelled as `() -> string` because the synthesized override never answers null.
+  Misses report NL303 (`ShouldReportUndefinedMember`); writes report NL309
+  (`AnalyzerWriteTargets.TryFindAnonymousObjectPropertyWriteTarget`); `with` checks names and types
+  against the properties (NL303/NL202/NL306); property patterns read them
+  (`AnalyzerPropertyPatternBinding.FindPropertyType`).
+- **Values with no type** — `null`, a lambda, a method name, a void call, `never` — are NL203; a
+  repeated name is NL306 (`AnalyzerConstruction.AnonymousPropertyAnswered`).
+- **Bindings**: the property name inside the creation is the declaration (`SymbolDeclaration` kind
+  `property` at the name), every `obj.Name` and `with { Name: ... }` binds to it, and the name's type is
+  recorded in the semantic model at the name so hover on the declaring name answers the property type
+  (`CodeIntelligenceNavigation.DeclaredPropertyNameTypeAtPosition`).
+- **Backend** (`ColumnarAnonymousTypeRegistry`, on `ColumnarEmitContext.AnonymousTypes`): one sealed
+  internal generic `<>f__AnonymousType{n}<<Name>j__TPar, ...>` per ordered NAME list, closed over the
+  value types at each creation; initonly fields, getter-only properties, value `Equals`/`GetHashCode`
+  through `EqualityComparer<T>.Default`, C#'s `{ Name = Alice }` `ToString`, `[CompilerGenerated]` and
+  `[DebuggerDisplay]`. The emitter reads properties through `TryResolveProperty` (member access,
+  preflight typing, property patterns), routes `ToString`/`Equals`/`GetHashCode` through `object`'s
+  slots, and copies `with` by calling the constructor. Generic inference binds closed source generics
+  (`ColumnarGenericCallBindingPlanner.TryUnifyTypeParam`) and array literals admit them
+  (`ColumnarTypeOfPlanner.IsSupportedElementType`).
+- **Not yet**: generator (`func*`) bodies and expression trees — both general gaps of those lowerings —
+  and the browser playground, which refuses typeless construction with PG222.
 
 ### Init and required construction
 

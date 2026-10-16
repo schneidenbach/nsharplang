@@ -2911,3 +2911,66 @@ test "EDITOR PROJECTIONS: typed and contextual lambda parameters project their b
 
     QueryDeleteTemp(projectRoot)
 }
+
+// AN ANONYMOUS OBJECT'S PROPERTIES ARE SYMBOLS LIKE ANY OTHER. The name written in `new { Name: ... }`
+// is the property's declaration: hovering a read of it says `property Name: string`, hovering the
+// declaring name says the same, go-to-definition lands on the declaring name, find-references
+// gathers the declaration and every read, and the local's own type prints as the shape it holds.
+test "anonymous object properties hover, define and gather references like declared ones" {
+    projectRoot := QueryTempRoot()
+    try {
+        QueryWriteProjectYaml(
+            projectRoot,
+            "name: Anonymous\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: App.nl\n"
+        )
+        QueryWriteSource(
+            projectRoot,
+            "App.nl",
+            "namespace Anonymous\n\nfunc main() {\n    person := new { Name: \"Alice\", Age: 30 }\n    print person.Name\n    print person.Age + person.Name.Length\n}\n"
+        )
+
+        snapshot := QueryLoadProject(projectRoot)
+
+        localHover := QueryGetHoverInfo(snapshot, "App.nl", 4, 5)
+        readHover := QueryGetHoverInfo(snapshot, "App.nl", 5, 18)
+        declarationHover := QueryGetHoverInfo(snapshot, "App.nl", 4, 36)
+        if localHover == null || readHover == null || declarationHover == null {
+            throw new InvalidOperationException("The production hover query answered nothing for an anonymous object.")
+        }
+
+        assert QueryText(localHover, "Signature") == "local person: new { Name: string, Age: int }"
+        assert QueryText(readHover, "Kind") == "property"
+        assert QueryText(readHover, "Signature") == "property Name: string"
+        assert QueryText(declarationHover, "Signature") == "property Age: int"
+
+        definition := QueryFindDefinition(snapshot, "App.nl", 6, 31)
+        if definition == null {
+            throw new InvalidOperationException("The production definition query answered nothing for an anonymous property.")
+        }
+
+        assert QueryText(definition, "Name") == "Name"
+        assert QueryText(definition, "Kind") == "property"
+        assert QueryInt(definition, "Line") == 4
+        assert QueryInt(definition, "Column") == 21
+
+        references := QueryFindReferences(snapshot, "App.nl", 4, 21)
+        positions := new List<string>()
+        index := 0
+        while index < references.Count {
+            item := references[index]
+            if item != null {
+                position := QueryText(item, "Line") + ":" + QueryText(item, "Column")
+                if !positions.Contains(position) {
+                    positions.Add(position)
+                }
+            }
+            index = index + 1
+        }
+
+        positions.Sort(StringComparer.Ordinal)
+        assert string.Join(",", positions) == "4:21,5:18,6:31"
+        assert QueryDefinitionReferenceCount(references) == 1
+    } finally {
+        QueryDeleteTemp(projectRoot)
+    }
+}

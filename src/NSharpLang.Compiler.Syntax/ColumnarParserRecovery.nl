@@ -8951,9 +8951,11 @@ class ColumnarParserRecovery {
         // them apart. The initializer carries its own `{`/`}` span. With no parens at all the two stay
         // equal, which reads as "single line" — correct for `new Foo` and `new Foo { … }` alike.
         constructorArgumentsEndLine := line
+        hasArgumentList := false
 
         if Check(TokenType.LeftParen) {
             // Target-typed new: `new(args)` (Parser.cs :5220).
+            hasArgumentList = true
             Advance()
             targetTypedArguments := ParseArgumentList()
             constructorArgumentsEndLine = Previous().Line
@@ -8984,6 +8986,7 @@ class ColumnarParserRecovery {
                 }
                 if Check(TokenType.LeftParen) {
                     // constructor args (Parser.cs :5248)
+                    hasArgumentList = true
                     Advance()
                     typedArguments := ParseArgumentList()
                     constructorArgumentsEndLine = Previous().Line
@@ -9044,10 +9047,12 @@ class ColumnarParserRecovery {
                             sizedInitializer.EndLine = sizedBraceEndLine
                             sizedNew := new NewExpression(newType, constructorArguments, sizedInitializer, line, column, arrayLength)
                             sizedNew.EndLine = constructorArgumentsEndLine
+                            sizedNew.HasArgumentList = hasArgumentList
                             sizedResult.Node = sizedNew
                         } else {
                             sizedNewBare := new NewExpression(newType, constructorArguments, null, line, column, arrayLength)
                             sizedNewBare.EndLine = constructorArgumentsEndLine
+                            sizedNewBare.HasArgumentList = hasArgumentList
                             sizedResult.Node = sizedNewBare
                         }
                     }
@@ -9086,10 +9091,12 @@ class ColumnarParserRecovery {
                 initializer.EndLine = initializerBraceEndLine
                 initializedNew := new NewExpression(newType, constructorArguments, initializer, line, column, null)
                 initializedNew.EndLine = constructorArgumentsEndLine
+                initializedNew.HasArgumentList = hasArgumentList
                 newResult.Node = initializedNew
             } else {
                 bareNew := new NewExpression(newType, constructorArguments, null, line, column, null)
                 bareNew.EndLine = constructorArgumentsEndLine
+                bareNew.HasArgumentList = hasArgumentList
                 newResult.Node = bareNew
             }
         }
