@@ -93,8 +93,11 @@ class ColumnarExtensionMethodSelection {
             throw new InvalidOperationException("A selected extension method requires an exact static handle and a valid explicit-argument count.")
         }
 
-        if isSelected && paramsElementType != null && explicitArgumentCount < parameterTypes.Length - 2 {
-            throw new InvalidOperationException("An expanded extension call must supply every fixed argument of the selected signature.")
+        // It may also supply FEWER than the fixed slots, when each one it omits fills from its metadata
+        // default — `route.Produces<Todo>()` over `(int statusCode = 200, string? contentType = null,
+        // params string[] additionalContentTypes)` — so an expanded count is bounded only below.
+        if isSelected && paramsElementType != null && parameterTypes.Length < 2 {
+            throw new InvalidOperationException("An expanded extension call requires a signature with a params slot after its receiver.")
         }
 
         IsSelected = isSelected
@@ -487,7 +490,8 @@ class ColumnarExtensionMethodResolver {
     // an argument that is a packed ELEMENT rather than a parameter is its own inference rule, and no
     // call site has needed it: the shapes this exists for (`LoggerExtensions.LogDebug` and its four
     // siblings, whose tail is `params object?[]`) are all non-generic. A generic `params` extension
-    // therefore still declines rather than being guessed at.
+    // therefore still declines here rather than being guessed at; a site that WRITES its type
+    // arguments has nothing to infer, and `ResolveExplicitExpanded` packs its tail.
     static func ResolveExpanded(candidates: List<ColumnarExtensionMethodCandidate>, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarExtensionMethodSelection {
         explicitCount := argumentTypes.Length
         bestScore := -1
@@ -537,8 +541,60 @@ class ColumnarExtensionMethodResolver {
     // The closed signature is SUBSTITUTED from the declaration, for the reason `TryClose` states: a
     // type argument the compilation is itself writing produces a handle that reports the definition's
     // own parameters.
+    //
+    // This collects the NORMAL-FORM candidates: every slot past the supplied arguments fills from its
+    // metadata default. `CollectExplicitExpanded` collects the same closures in their packed form.
     static func CollectExplicit(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, selected: List<ColumnarExtensionMethodCandidate>): bool {
-        if index == null || receiverType == null || memberName == null || typeArguments == null || typeArguments.Length == 0 || argumentCount < 0 || selected == null {
+        candidates := new List<ColumnarExtensionMethodCandidate>()
+        if selected == null || !TryGetExplicitCandidates(index, receiverType, memberName, typeArguments, argumentCount, out candidates) {
+            return false
+        }
+
+        for indexed in candidates {
+            if indexed != null && indexed.ParameterTypes.Length - 1 >= argumentCount {
+                closed := CloseExplicitOrNull(indexed, receiverType, typeArguments)
+                if closed != null && TrailingDefaultsFillable(indexed.Method, closed.ParameterTypes, 1 + argumentCount) {
+                    selected.Add(closed)
+                }
+            }
+        }
+
+        return selected.Count > 0
+    }
+
+    // THE EXPANDED HALF OF THE SAME RULE. A written type-argument list closes a `params` tail as
+    // completely as it closes every other slot, so the inference question that keeps generic
+    // definitions out of `ResolveExpanded` is never asked here: `app.UseMiddleware<Stamp>()` closes
+    // `UseMiddleware<TMiddleware>(this IApplicationBuilder, params object?[] args)` from what the
+    // site wrote and packs its zero trailing arguments into an empty `object?[]`, exactly as C# does.
+    static func CollectExplicitExpanded(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, selected: List<ColumnarExtensionMethodCandidate>): bool {
+        candidates := new List<ColumnarExtensionMethodCandidate>()
+        if selected == null || !TryGetExplicitCandidates(index, receiverType, memberName, typeArguments, argumentCount, out candidates) {
+            return false
+        }
+
+        for indexed in candidates {
+            parameters: ParameterInfo[]? = null
+            if indexed != null {
+                parameters = ParametersOrNull(indexed.Method)
+            }
+
+            if parameters != null {
+                closed := CloseExplicitOrNull(indexed, receiverType, typeArguments)
+                if closed != null && ExplicitExpandedParameterTypesOrNull(parameters, closed.ParameterTypes, argumentCount) != null {
+                    selected.Add(closed)
+                }
+            }
+        }
+
+        return selected.Count > 0
+    }
+
+    // The bucket an explicit site searches, after the checks both forms share: a bindable receiver,
+    // written type arguments the closure can use, and a name the index knows.
+    static func TryGetExplicitCandidates(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, out candidates: List<ColumnarExtensionMethodCandidate>): bool {
+        candidates = new List<ColumnarExtensionMethodCandidate>()
+        if index == null || receiverType == null || memberName == null || typeArguments == null || typeArguments.Length == 0 || argumentCount < 0 {
             return false
         }
 
@@ -552,36 +608,48 @@ class ColumnarExtensionMethodResolver {
             }
         }
 
-        candidates := new List<ColumnarExtensionMethodCandidate>()
-        if !index.TryGet(memberName, out candidates) {
-            return false
+        return index.TryGet(memberName, out candidates)
+    }
+
+    // One generic definition of the written arity, closed over the written type arguments, or null
+    // when the arity differs, the runtime refuses the closure, or the closed receiver slot does not
+    // accept the receiver.
+    static func CloseExplicitOrNull(indexed: ColumnarExtensionMethodCandidate, receiverType: Type, typeArguments: Type[]): ColumnarExtensionMethodCandidate? {
+        if !indexed.Method.IsGenericMethodDefinition || indexed.Method.GetGenericArguments().Length != typeArguments.Length {
+            return null
         }
 
-        for indexed in candidates {
-            if indexed != null && indexed.Method.IsGenericMethodDefinition && indexed.Method.GetGenericArguments().Length == typeArguments.Length && indexed.ParameterTypes.Length - 1 >= argumentCount {
-                closedMethod := ColumnarRuntimeGenericMethodResolver.CloseOrNull(indexed.Method, typeArguments)
-                closedParameterTypes := ColumnarRuntimeGenericMethodResolver.ClosedParameterTypesOrNull(indexed.Method, typeArguments)
-                closedReturnType := ColumnarRuntimeGenericMethodResolver.SubstituteMethodTypeArguments(indexed.ReturnType, typeArguments)
-                if closedMethod != null && closedParameterTypes != null && closedReturnType != null && ReferenceAssignableFrom(closedParameterTypes[0], receiverType) && TrailingDefaultsFillable(indexed.Method, closedParameterTypes, 1 + argumentCount) {
-                    selected.Add(new ColumnarExtensionMethodCandidate(closedMethod, indexed.DeclaringType, closedParameterTypes, closedReturnType))
-                }
-            }
+        closedMethod := ColumnarRuntimeGenericMethodResolver.CloseOrNull(indexed.Method, typeArguments)
+        closedParameterTypes := ColumnarRuntimeGenericMethodResolver.ClosedParameterTypesOrNull(indexed.Method, typeArguments)
+        closedReturnType := ColumnarRuntimeGenericMethodResolver.SubstituteMethodTypeArguments(indexed.ReturnType, typeArguments)
+        if closedMethod == null || closedParameterTypes == null || closedReturnType == null || !ReferenceAssignableFrom(closedParameterTypes[0], receiverType) {
+            return null
         }
 
-        return selected.Count > 0
+        return new ColumnarExtensionMethodCandidate(closedMethod, indexed.DeclaringType, closedParameterTypes, closedReturnType)
     }
 
     // The unique candidate for a site whose arguments cannot all be typed before emission — a lambda
     // written at an explicitly-closed extension call. More than one surviving candidate is a decline,
-    // because the argument types are exactly what would have chosen between them.
+    // because the argument types are exactly what would have chosen between them. The expanded form
+    // is asked only when NO candidate exists in normal form, for the reason `Resolve` states.
     static func ResolveExplicitUnique(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int): ColumnarExtensionMethodSelection {
         candidates := new List<ColumnarExtensionMethodCandidate>()
-        if !CollectExplicit(index, receiverType, memberName, typeArguments, argumentCount, candidates) || candidates.Count != 1 {
+        if CollectExplicit(index, receiverType, memberName, typeArguments, argumentCount, candidates) {
+            if candidates.Count != 1 {
+                return ColumnarExtensionMethodSelection.None()
+            }
+
+            chosen := candidates[0]
+            return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, argumentCount, null)
+        }
+
+        expanded := new List<ColumnarExtensionMethodCandidate>()
+        if !CollectExplicitExpanded(index, receiverType, memberName, typeArguments, argumentCount, expanded) || expanded.Count != 1 {
             return ColumnarExtensionMethodSelection.None()
         }
 
-        chosen := candidates[0]
-        return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, argumentCount, null)
+        return ExpandedExplicitSelection(expanded[0], argumentCount)
     }
 
     // The same candidate set, ranked by the argument-flow scorer every other call selection uses.
@@ -590,42 +658,124 @@ class ColumnarExtensionMethodResolver {
             return ColumnarExtensionMethodSelection.None()
         }
 
+        explicitCount := argumentTypes.Length
         candidates := new List<ColumnarExtensionMethodCandidate>()
-        if !CollectExplicit(index, receiverType, memberName, typeArguments, argumentTypes.Length, candidates) {
+        if CollectExplicit(index, receiverType, memberName, typeArguments, explicitCount, candidates) {
+            bestScore := -1
+            bestParameterCount := 0
+            bestCount := 0
+            bestIndex := -1
+            candidateIndex := 0
+            while candidateIndex < candidates.Count {
+                closedParameterTypes := candidates[candidateIndex].ParameterTypes
+                leading := ExplicitParameterTypes(closedParameterTypes, explicitCount)
+                score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
+                if score >= 0 {
+                    parameterCount := closedParameterTypes.Length
+                    if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {
+                        bestScore = score
+                        bestParameterCount = parameterCount
+                        bestCount = 1
+                        bestIndex = candidateIndex
+                    } else if score == bestScore && parameterCount == bestParameterCount {
+                        bestCount = bestCount + 1
+                    }
+                }
+
+                candidateIndex = candidateIndex + 1
+            }
+
+            if bestCount == 1 && bestIndex >= 0 {
+                chosen := candidates[bestIndex]
+                return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, explicitCount, null)
+            }
+
+            // A normal-form AMBIGUITY is two equally good answers, not "nothing bound", so it
+            // declines here rather than being settled by the packed form.
+            if bestCount > 1 {
+                return ColumnarExtensionMethodSelection.None()
+            }
+        }
+
+        return ResolveExplicitExpanded(index, receiverType, memberName, typeArguments, argumentTypes, argumentFacts)
+    }
+
+    // THE EXPANDED TIER OF AN EXPLICIT SITE, scored exactly as `ResolveExpanded` scores an inferred
+    // one: against the per-argument types the packing produces.
+    static func ResolveExplicitExpanded(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarExtensionMethodSelection {
+        explicitCount := argumentTypes.Length
+        candidates := new List<ColumnarExtensionMethodCandidate>()
+        if !CollectExplicitExpanded(index, receiverType, memberName, typeArguments, explicitCount, candidates) {
             return ColumnarExtensionMethodSelection.None()
         }
 
-        explicitCount := argumentTypes.Length
         bestScore := -1
         bestParameterCount := 0
         bestCount := 0
-        bestIndex := -1
-        candidateIndex := 0
-        while candidateIndex < candidates.Count {
-            closedParameterTypes := candidates[candidateIndex].ParameterTypes
-            leading := ExplicitParameterTypes(closedParameterTypes, explicitCount)
-            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
-            if score >= 0 {
-                parameterCount := closedParameterTypes.Length
-                if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {
-                    bestScore = score
-                    bestParameterCount = parameterCount
-                    bestCount = 1
-                    bestIndex = candidateIndex
-                } else if score == bestScore && parameterCount == bestParameterCount {
-                    bestCount = bestCount + 1
+        selected: ColumnarExtensionMethodCandidate? = null
+        for candidate in candidates {
+            parameters := ParametersOrNull(candidate.Method)
+            if parameters != null {
+                expanded := ExplicitExpandedParameterTypesOrNull(parameters, candidate.ParameterTypes, explicitCount)
+                if expanded != null {
+                    score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expanded, argumentTypes, argumentFacts)
+                    if score >= 0 {
+                        parameterCount := candidate.ParameterTypes.Length
+                        if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {
+                            bestScore = score
+                            bestParameterCount = parameterCount
+                            bestCount = 1
+                            selected = candidate
+                        } else if score == bestScore && parameterCount == bestParameterCount {
+                            bestCount = bestCount + 1
+                        }
+                    }
                 }
             }
-
-            candidateIndex = candidateIndex + 1
         }
 
-        if bestCount != 1 || bestIndex < 0 {
+        if bestCount != 1 || selected == null {
             return ColumnarExtensionMethodSelection.None()
         }
 
-        chosen := candidates[bestIndex]
-        return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, explicitCount, null)
+        return ExpandedExplicitSelection(selected, explicitCount)
+    }
+
+    // THE PER-ARGUMENT PARAMETER TYPES OF AN EXPANDED EXPLICIT CALL. A site that supplies every fixed
+    // argument packs the rest, exactly as `ColumnarParamsExpansion` lays it out. One that supplies
+    // FEWER packs nothing: each fixed slot it omits must fill from its metadata default, and the
+    // tail is an empty array — the C# reading of `route.Produces<Todo>()`, whose `statusCode` and
+    // `contentType` are defaulted and whose `params` tail has no argument at all.
+    static func ExplicitExpandedParameterTypesOrNull(parameters: ParameterInfo[], parameterTypes: Type[], argumentCount: int): Type[]? {
+        if ColumnarParamsExpansion.ElementTypeOrNull(parameters, parameterTypes) == null || argumentCount < 0 {
+            return null
+        }
+
+        fixedCount := ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 1)
+        if argumentCount >= fixedCount {
+            return ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, parameterTypes, 1, argumentCount)
+        }
+
+        omitted := 1 + argumentCount
+        while omitted < parameterTypes.Length - 1 {
+            if !CanFillOptional(parameters[omitted], parameterTypes[omitted]) {
+                return null
+            }
+
+            omitted = omitted + 1
+        }
+
+        return ExplicitParameterTypes(parameterTypes, argumentCount)
+    }
+
+    static func ExpandedExplicitSelection(candidate: ColumnarExtensionMethodCandidate, explicitCount: int): ColumnarExtensionMethodSelection {
+        parameters := ParametersOrNull(candidate.Method)
+        elementType := ColumnarParamsExpansion.ElementTypeOrNull(parameters, candidate.ParameterTypes)
+        if elementType == null {
+            return ColumnarExtensionMethodSelection.None()
+        }
+
+        return new ColumnarExtensionMethodSelection(true, candidate.Method, candidate.DeclaringType, candidate.ParameterTypes, candidate.ReturnType, explicitCount, elementType)
     }
 
     // A non-generic candidate resolves as itself. A generic method DEFINITION resolves by inferring

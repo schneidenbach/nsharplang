@@ -2397,6 +2397,23 @@ number you wrote is not a candidate at all, so writing too many or too few repor
 rather than closing the wrong one. The receiver may be a value type (`JsonElement` above) — an
 extension's receiver is its first argument, so the struct's value is passed, never its address.
 
+A written type argument closes a `params` tail too, so the ASP.NET registrations that pair one with
+a type argument work as they do in C#. Arguments after the fixed parameters are packed into the
+array, none at all is an empty array, and defaulted parameters before the tail may be left out:
+
+```n#
+import Microsoft.AspNetCore.Builder
+
+// RequestTimer and Tagger are middleware classes; Todo is the response type.
+func configure(app: WebApplication) {
+    app.UseMiddleware<RequestTimer>()                 // params object?[] args — empty
+    app.UseMiddleware<Tagger>("blue", 7)              // both reach Tagger's constructor
+    route := app.MapGet("/todo", () => "todo")
+    route.Produces<Todo>()                            // statusCode = 200, contentType = null
+    route.Produces<Todo>(201, "text/plain", "application/xml")
+}
+```
+
 ### Extensions over a type parameter
 
 A type parameter constrained to an interface IS that interface for an extension call:
