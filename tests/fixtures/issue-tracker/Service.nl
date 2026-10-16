@@ -29,7 +29,7 @@ class IssueService {
             Id: nextId,
             Title: title,
             Description: description,
-            Status: new IssueStatus.Open {  },
+            Status: new IssueStatus.Open { },
             Priority: priority,
             CreatedAt: DateTime.UtcNow,
             Tags: tags
