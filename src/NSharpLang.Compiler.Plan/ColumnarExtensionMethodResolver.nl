@@ -770,6 +770,10 @@ class ColumnarExtensionMethodResolver {
 
     static func ExpandedExplicitSelection(candidate: ColumnarExtensionMethodCandidate, explicitCount: int): ColumnarExtensionMethodSelection {
         parameters := ParametersOrNull(candidate.Method)
+        if parameters == null {
+            return ColumnarExtensionMethodSelection.None()
+        }
+
         elementType := ColumnarParamsExpansion.ElementTypeOrNull(parameters, candidate.ParameterTypes)
         if elementType == null {
             return ColumnarExtensionMethodSelection.None()
