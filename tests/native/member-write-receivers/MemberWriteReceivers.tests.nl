@@ -8,27 +8,27 @@ test "a field write through a reference-typed array element changes the shared o
     d := new Dog()
     roster: Dog[] = [new Dog(), d]
     RenameFirst(roster, "max")
-    assert roster[0].Name == "max"
-    assert roster[1].Name == "rex"
+    assert roster[0].name == "max"
+    assert roster[1].name == "rex"
 }
 
 test "a field write through a reference-typed call result changes the object the call returned" {
     d := new Dog()
     RenameThroughCall(d, "bo")
-    assert d.Name == "bo"
+    assert d.name == "bo"
 }
 
 test "a field write through a list indexer result changes the element the list holds" {
     dogs := new List<Dog>()
     dogs.Add(new Dog())
     RenameThroughList(dogs, "lulu")
-    assert dogs[0].Name == "lulu"
+    assert dogs[0].name == "lulu"
 }
 
 test "parentheses around the receiver are transparent" {
     roster: Dog[] = [new Dog()]
     RenameThroughParens(roster, "paren")
-    assert roster[0].Name == "paren"
+    assert roster[0].name == "paren"
 }
 
 test "a property setter runs through both receiver shapes" {
@@ -44,9 +44,9 @@ test "compound and postfix writes read and write the same object" {
     d := new Dog()
     roster: Dog[] = [d]
     AgeUpFirst(roster, 10)
-    assert d.Age == 11
+    assert d.age == 11
     BirthdayThroughCall(d)
-    assert d.Age == 12
+    assert d.age == 12
 }
 
 test "a value-typed field of a reference-typed receiver is written in place" {
@@ -54,8 +54,8 @@ test "a value-typed field of a reference-typed receiver is written in place" {
     roster: Dog[] = [d]
     MoveSpotFirst(roster, 3)
     MoveSpotThroughCall(d, 4)
-    assert d.Spot.X == 3
-    assert d.Spot.Y == 4
+    assert d.spot.X == 3
+    assert d.spot.Y == 4
 }
 
 // ---- value-typed array elements -----------------------------------------------------------------
@@ -97,18 +97,18 @@ test "a ref argument reaches a value-typed array element's field and a call resu
     assert points[0].X == 100
     d := new Dog()
     BumpAgeThroughCall(d)
-    assert d.Age == 101
+    assert d.age == 101
 }
 
 test "a ref argument to a reference-typed field passes the field's slot, not the object it holds" {
     d := new Dog()
     SwapName(d)
-    assert d.Name == "swapped:rex"
+    assert d.name == "swapped:rex"
     roster: Dog[] = [d]
     SwapNameFirst(roster)
-    assert d.Name == "swapped:swapped:rex"
+    assert d.name == "swapped:swapped:rex"
     SwapNameThroughCall(d)
-    assert d.Name == "swapped:swapped:swapped:rex"
+    assert d.name == "swapped:swapped:swapped:rex"
 }
 
 // ---- evaluation order ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ test "a call receiver is evaluated before the assigned value" {
     d := new Dog()
     TracedCallWrite(trace, d, 3)
     assert trace.Text() == "receiver,value"
-    assert d.Age == 3
+    assert d.age == 3
 }
 
 test "a compound write evaluates its call receiver exactly once" {
@@ -134,7 +134,7 @@ test "a compound write evaluates its call receiver exactly once" {
     d := new Dog()
     TracedCallCompound(trace, d, 4)
     assert trace.Text() == "receiver,value"
-    assert d.Age == 5
+    assert d.age == 5
 }
 
 test "an out-of-range element index throws before the assigned value is evaluated" {

@@ -3931,7 +3931,9 @@ Analyzer coverage is split deliberately across:
   spelling: a computed property's getter takes Virtual|Final|NewSlot, and a plain FIELD of that name
   gets a synthesized `get_Name` over it, because a CLR field cannot fill a property slot. The
   implementer gets NO second `PropertyInfo` row of that name — its `Name` stays the field its source
-  says it is. The slot is get-only on purpose: a read slot is one every implementer can fill, and N#
+  says it is. (Since 2026-10-15 a class's or record's exported bare `Name: T` is an AUTO-PROPERTY —
+  see [member-storage.md](member-storage.md) — whose own getter takes the slot; the synthesized
+  reader remains for a struct's field.) The slot is get-only on purpose: a read slot is one every implementer can fill, and N#
   has no body-less accessor with which to spell a settable one.
   DUCK MATCHING HAD TO LEARN THE SAME SHAPE: `RequiredDuckInterfaceSatisfied` counted only the
   interface's `Methods`, so an interface declaring no `func` at all matched EVERY type in the program

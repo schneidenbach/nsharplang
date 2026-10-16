@@ -162,7 +162,7 @@ test "an enum's and its members' attributes reach the emitted rows" {
 }
 
 test "a field's attribute reaches the emitted field row" {
-    assembly := SourceAttributeAssembly("import System\nclass Probe {\n    [Obsolete(\"field gone\")]\n    static Shared: int = 3\n    Value: int\n    constructor() {\n        Value = 1\n    }\n}\n")
+    assembly := SourceAttributeAssembly("import System\nclass Probe {\n    [Obsolete(\"field gone\")]\n    static Shared: int = 3\n    value: int\n    constructor() {\n        value = 1\n    }\n}\n")
     owner := assembly.GetType("Probe")
     assert owner != null
     field := owner.GetField("Shared", BindingFlags.Public | BindingFlags.Static)
@@ -170,9 +170,39 @@ test "a field's attribute reaches the emitted field row" {
     fieldAttributes := field.GetCustomAttributesData()
     assert fieldAttributes.Count == 1
     assert fieldAttributes.get_Item(0).get_AttributeType() == typeof(ObsoleteAttribute)
-    plain := owner.GetField("Value")
+    plain := owner.GetField("value")
     assert plain != null
     assert plain.GetCustomAttributesData().Count == 0
+}
+
+// AN EXPORTED BARE MEMBER OF A CLASS IS AN AUTO-PROPERTY, ROW FOR ROW AS C# EMITS
+// `public int Value { get; set; }` (`MemberStorageRules`): a property and no public field, accessors
+// stamped `[CompilerGenerated]`, and a `<Value>k__BackingField` stamped `[CompilerGenerated]` and
+// `[DebuggerBrowsable(Never)]`. A property-targeted attribute lands on the property and a field-only
+// one on the backing field, which is where C#'s `[field: ...]` would put it.
+test "an exported bare member is an auto-property with C#'s rows, and its attributes are routed by usage" {
+    assembly := SourceAttributeAssembly("import System\nclass Probe {\n    [Obsolete(\"use Other\")]\n    Value: int\n    [NonSerialized]\n    Cache: string = \"\"\n}\n")
+    owner := must assembly.GetType("Probe")
+    assert owner.GetField("Value") == null
+    property := must owner.GetProperty("Value")
+    assert property.CanRead && property.CanWrite
+    propertyAttributes := property.GetCustomAttributesData()
+    assert propertyAttributes.Count == 1
+    assert propertyAttributes.get_Item(0).get_AttributeType() == typeof(ObsoleteAttribute)
+    getter := must property.GetGetMethod()
+    setter := must property.GetSetMethod()
+    assert getter.IsPublic && !getter.IsVirtual && setter.IsPublic
+    assert getter.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), false)
+    assert setter.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), false)
+    assert setter.ReturnParameter.GetRequiredCustomModifiers().Length == 0
+    backing := must owner.GetField("<Value>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
+    assert backing.IsAssembly
+    assert backing.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), false)
+    browsable := backing.GetCustomAttribute(typeof(System.Diagnostics.DebuggerBrowsableAttribute)) as System.Diagnostics.DebuggerBrowsableAttribute
+    assert browsable != null && browsable.State == System.Diagnostics.DebuggerBrowsableState.Never
+    cacheBacking := must owner.GetField("<Cache>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
+    assert cacheBacking.IsNotSerialized
+    assert !(must owner.GetProperty("Cache")).IsDefined(typeof(NonSerializedAttribute), false)
 }
 
 // AN OMITTED OPTIONAL ARGUMENT IS WRITTEN AS THE PARAMETER'S DECLARED DEFAULT. Exact arity used to be

@@ -296,14 +296,14 @@ test "020 s24 binding map: an identifier inside an INTERPOLATION HOLE binds to i
     assert BindingReferences(analysis, 4, 21) == "decl=name:local@3:5 usages=1[4:21;]"
 }
 
-test "020 s24 binding map: a MEMBER ACCESS inside an interpolation hole binds to the record's field declaration (was AnalyzerBindingMapTests.AnalyzerBindingMap_InterpolatedMemberAccess_ResolvesToFieldDeclaration)" {
+test "020 s24 binding map: a MEMBER ACCESS inside an interpolation hole binds to the record's auto-property declaration (was AnalyzerBindingMapTests.AnalyzerBindingMap_InterpolatedMemberAccess_ResolvesToFieldDeclaration)" {
     source := "\nrecord Person {\n    Name: string\n}\n\nfunc test() {\n    person := new Person { Name: \"Spencer\" }\n    print $\"Hello, {person.Name}!\"\n}"
     assert BindingParseCensus(source) == ""
     analysis := BindingAnalyze(source)
 
     assert BindingAnalysisCensus(analysis) == ""
     assert BindingMapKind(analysis) == "BindingMap"
-    assert BindingAt(analysis, 8, 28) == "Name:field@3:5"
+    assert BindingAt(analysis, 8, 28) == "Name:property@3:5"
 }
 
 test "020 s24 binding map: an identifier inside a RAW-STRING interpolation hole binds exactly as it does inside an ordinary one, three lines below its declaration (was AnalyzerBindingMapTests.AnalyzerBindingMap_InterpolatedRawStringIdentifier_ResolvesToDeclaration)" {
@@ -316,14 +316,14 @@ test "020 s24 binding map: an identifier inside a RAW-STRING interpolation hole 
     assert BindingAt(analysis, 5, 9) == "name:local@3:5"
 }
 
-test "020 s24 binding map: a member access OUTSIDE any interpolation binds to the same field declaration as the interpolated one, so the hole is not a special case (was AnalyzerBindingMapTests.AnalyzerBindingMap_MemberAccess_ResolvesToPropertyDeclaration)" {
+test "020 s24 binding map: a member access OUTSIDE any interpolation binds to the same auto-property declaration as the interpolated one, so the hole is not a special case (was AnalyzerBindingMapTests.AnalyzerBindingMap_MemberAccess_ResolvesToPropertyDeclaration)" {
     source := "\nrecord Person {\n    Name: string\n}\n\nfunc test() {\n    person := new Person { Name: \"Spencer\" }\n    print person.Name\n}"
     assert BindingParseCensus(source) == ""
     analysis := BindingAnalyze(source)
 
     assert BindingAnalysisCensus(analysis) == ""
     assert BindingMapKind(analysis) == "BindingMap"
-    assert BindingAt(analysis, 8, 18) == "Name:field@3:5"
+    assert BindingAt(analysis, 8, 18) == "Name:property@3:5"
 }
 
 test "020 s24 binding map: a local's TYPE ANNOTATION binds to the class declaration, whose Kind is `class` and whose anchor is the NAME rather than the keyword (was AnalyzerBindingMapTests.AnalyzerBindingMap_TypeAnnotation_RecordsBindingToTypeDeclaration)" {

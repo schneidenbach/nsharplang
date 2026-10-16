@@ -99,23 +99,27 @@ class GenericSeedCounter {
     }
 }
 
+// A `ref` argument needs storage, so the target is a camelCase FIELD — an exported bare member of a
+// class is an auto-property, which has none — and `Value` reads it.
 class GenericNamedRecorder {
-    Value: int
+    value: int
     Order: List<string>
 
+    Value: int => value
+
     constructor() {
-        Value = 1
+        value = 1
         Order = new List<string>()
     }
 
     func AddressValue(): int {
         Order.Add("value")
-        Value = 9
+        value = 9
         return 42
     }
 
     func Set(): int {
-        return GenericSet<int>(target: ref Value, value: AddressValue())
+        return GenericSet<int>(target: ref value, value: AddressValue())
     }
 }
 
@@ -368,19 +372,22 @@ class ReceiverOrderRecorder {
     }
 }
 
+// An `out` argument needs storage too: a camelCase field, read through `Value`.
 class ReorderedOutAlias {
-    Value: int
+    value: int
+
+    Value: int => value
 
     constructor() {
-        Value = 0
+        value = 0
     }
 
     func Parse(): bool {
-        return Int32.TryParse(result: out Value, s: MutateThenText())
+        return Int32.TryParse(result: out value, s: MutateThenText())
     }
 
     func MutateThenText(): string {
-        Value = 9
+        value = 9
         return "42"
     }
 }

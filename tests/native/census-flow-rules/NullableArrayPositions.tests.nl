@@ -54,14 +54,14 @@ test "the four spellings reach the CLR as the arrays they name" {
     assert shelf.Both == null
 
     shelfType := typeof(Shelf)
-    labelsField := shelfType.GetField("Labels")
-    countsField := shelfType.GetField("Counts")
-    assert labelsField != null
-    assert countsField != null
+    labelsProperty := shelfType.GetProperty("Labels")
+    countsProperty := shelfType.GetProperty("Counts")
+    assert labelsProperty != null
+    assert countsProperty != null
 
     // `string?[]` is an array OF `string`: the `?` is an annotation on the element, so the CLR type
     // is unchanged. `int?[]` is an array of `Nullable<int>`, which IS a different CLR element type —
     // the whole reason both spellings have to parse in every position.
-    assert labelsField.FieldType == typeof(string[])
-    assert countsField.FieldType.GetElementType() == typeof(Nullable<int>)
+    assert labelsProperty.PropertyType == typeof(string[])
+    assert countsProperty.PropertyType.GetElementType() == typeof(Nullable<int>)
 }

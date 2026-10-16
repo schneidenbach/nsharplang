@@ -58,6 +58,17 @@ class AnalyzerAttributeUsageFacts {
         return propertyBit | methodBit
     }
 
+    // WHAT A BARE AUTO-PROPERTY OFFERS. `Name: string` in a class becomes a property and the
+    // `<Name>k__BackingField` behind it (`MemberStorageRules`), and N# has no `[field: ...]` prefix to
+    // choose between them, so the declaration admits an attribute declared for either: the property
+    // wherever the attribute allows one — where serializers, ORMs and binders look — and the backing
+    // field for a storage-only attribute such as `[NonSerialized]`.
+    static func AutoPropertyDeclarationTargets(): int {
+        propertyBit := AnalyzerAttributeUsageFacts.PropertyTarget
+        fieldBit := AnalyzerAttributeUsageFacts.FieldTarget
+        return propertyBit | fieldBit
+    }
+
     // WHAT A POSITIONAL CONSTRUCTOR PARAMETER OFFERS. `record Options(Summary: bool)` is one
     // declaration that becomes two metadata rows — the constructor's parameter and the field it
     // stores into — and N# has no `[property: ...]`/`[field: ...]` prefix to choose between them. So
@@ -67,6 +78,15 @@ class AnalyzerAttributeUsageFacts {
         parameterBit := AnalyzerAttributeUsageFacts.ParameterTarget
         fieldBit := AnalyzerAttributeUsageFacts.FieldTarget
         return parameterBit | fieldBit
+    }
+
+    // THE SAME DECLARATION WHEN THE MEMBER IT DECLARES IS AN AUTO-PROPERTY (`record Person(Name:
+    // string)`): the parameter, the property, or — for a storage-only attribute — the backing field.
+    static func PositionalPropertyParameterDeclarationTargets(): int {
+        parameterBit := AnalyzerAttributeUsageFacts.ParameterTarget
+        propertyBit := AnalyzerAttributeUsageFacts.PropertyTarget
+        fieldBit := AnalyzerAttributeUsageFacts.FieldTarget
+        return parameterBit | propertyBit | fieldBit
     }
 
     // `[AttributeUsage]` OMITTED MEANS ALL TARGETS, ONCE, INHERITED — the CLR's own defaults, which are
@@ -120,8 +140,12 @@ class AnalyzerAttributeUsageFacts {
             return "a property"
         }
 
+        if target == AnalyzerAttributeUsageFacts.AutoPropertyDeclarationTargets() {
+            return "an auto-property"
+        }
+
         // SO DOES A POSITIONAL CONSTRUCTOR PARAMETER, for the same reason: one declaration, two rows.
-        if target == AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets() {
+        if target == AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets() || target == AnalyzerAttributeUsageFacts.PositionalPropertyParameterDeclarationTargets() {
             return "a positional constructor parameter"
         }
 

@@ -2170,7 +2170,7 @@ test "IDE D2: a project-declared member still hovers to its declaration and carr
 
     // THE NON-REGRESSION. A source receiver has no CLR type, so the reflected route declines and the
     // declaration route answers exactly as it always did — with a file and no declaring type.
-    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "field Label: string|field|"
+    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "property Label: string|property|"
 
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
@@ -2317,7 +2317,7 @@ test "chip B: a project-declared member's documentation is unchanged, and a memb
 
     // AND THE SIGNATURE IS STILL THERE. A documentation lookup that finds nothing must subtract
     // nothing — the feature can only ever add a line.
-    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "field Label: string|field|"
+    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "property Label: string|property|"
 
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
@@ -2499,7 +2499,7 @@ test "IDE D1: a member inside an interpolated-string hole hovers to its DECLARED
 
     // Every member in a hole used to report `string` — the type of the enclosing interpolated
     // string, which was the only node the visitor could reach on that line.
-    assert QueryText(hover, "Signature") == "field Value: int"
+    assert QueryText(hover, "Signature") == "property Value: int"
 
     QueryDeleteTemp(projectRoot)
 }
@@ -2776,14 +2776,14 @@ test "EDITOR PROJECTIONS: source member hover and completion preserve required i
     valueDeclarationLine := FindLineInFile(programPath, "required init Value")
     valueDeclarationColumn := FindColumnInFile(programPath, valueDeclarationLine, "Value")
     valueDeclarationHover := EditorProjectionHover(snapshot, valueDeclarationLine, valueDeclarationColumn)
-    assert QueryText(valueDeclarationHover, "Signature") == "field required init Value: T"
-    assert QueryText(valueDeclarationHover, "Kind") == "field"
+    assert QueryText(valueDeclarationHover, "Signature") == "property required init Value: T"
+    assert QueryText(valueDeclarationHover, "Kind") == "property"
 
     valueUseLine := FindLineInFile(programPath, "return box.Value")
     valueUseColumn := FindColumnInFile(programPath, valueUseLine, "Value")
     valueUseHover := EditorProjectionHover(snapshot, valueUseLine, valueUseColumn)
-    assert QueryText(valueUseHover, "Signature") == "field required init Value: string"
-    assert QueryText(valueUseHover, "Kind") == "field"
+    assert QueryText(valueUseHover, "Signature") == "property required init Value: string"
+    assert QueryText(valueUseHover, "Kind") == "property"
 
     valueDefinition := QueryFindDefinition(snapshot, "Program.nl", valueUseLine, valueUseColumn)
     if valueDefinition == null {
@@ -2803,7 +2803,7 @@ test "EDITOR PROJECTIONS: source member hover and completion preserve required i
     plainUseLine := FindLineInFile(programPath, "return box.Plain")
     plainUseColumn := FindColumnInFile(programPath, plainUseLine, "Plain")
     plainUseHover := EditorProjectionHover(snapshot, plainUseLine, plainUseColumn)
-    assert QueryText(plainUseHover, "Signature") == "field required init Plain: int"
+    assert QueryText(plainUseHover, "Signature") == "property required init Plain: int"
     plainCompletions := QueryGetCompletions(snapshot, "Program.nl", plainUseLine, plainUseColumn, false)
     plainCompletion := QueryCompletionItemNamed(plainCompletions, "properties", "Plain")
     if plainCompletion == null {
@@ -2843,14 +2843,14 @@ test "EDITOR PROJECTIONS: exact declaration spans keep same-line sibling and nes
     siblingLine := FindLineInFile(programPath, "class First { required init Name")
     firstNameColumn := FindColumnInFileAt(programPath, siblingLine, "Name", 1)
     secondNameColumn := FindColumnInFileAt(programPath, siblingLine, "Name", 2)
-    assert QueryText(EditorProjectionHover(snapshot, siblingLine, firstNameColumn), "Signature") == "field required init Name: string"
-    assert QueryText(EditorProjectionHover(snapshot, siblingLine, secondNameColumn), "Signature") == "field Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, siblingLine, firstNameColumn), "Signature") == "property required init Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, siblingLine, secondNameColumn), "Signature") == "property Name: string"
 
     nestedLine := FindLineInFile(programPath, "class Outer { class InnerFirst")
     innerFirstNameColumn := FindColumnInFileAt(programPath, nestedLine, "Name", 1)
     innerSecondNameColumn := FindColumnInFileAt(programPath, nestedLine, "Name", 2)
-    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerFirstNameColumn), "Signature") == "field required init Name: string"
-    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerSecondNameColumn), "Signature") == "field Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerFirstNameColumn), "Signature") == "property required init Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerSecondNameColumn), "Signature") == "property Name: string"
 
     QueryDeleteTemp(projectRoot)
 }

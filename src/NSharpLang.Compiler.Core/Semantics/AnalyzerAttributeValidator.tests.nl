@@ -2130,3 +2130,47 @@ test "an element that is not an integer constant refuses the whole array argumen
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.NoMatchingOverload
 }
+
+// AN AUTO-PROPERTY IS TWO ROWS — the property and its backing field — so a bare exported member of a
+// class admits an attribute declared for EITHER (`MemberStorageRules`); one declared for neither is
+// refused under the name of the declaration the developer wrote. The class is walked first, which is
+// what tells each member's own visit that it is an auto-property; a camelCase member stays a field.
+func AutoPropertyClass(member: FieldDeclaration): ClassDeclaration {
+    members := new List<Declaration>()
+    members.Add(member)
+    return new ClassDeclaration("Box", null, null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), 1, 1)
+}
+
+func AutoPropertyAttributeErrorCount(targets: string): int {
+    harness := AttrUsageHarness(targets, false)
+    member := new FieldDeclaration("Value", null, null, Modifiers.None, PropertyModifier.None, AttrNodes(AttrNode("Marker", AttrArgs())), 2, 5)
+    harness.Validator.ValidateDeclarationAttributeArguments(AutoPropertyClass(member))
+    harness.Validator.ValidateDeclarationAttributeArguments(member)
+    return harness.Errors.Count
+}
+
+test "an auto-property admits an attribute declared for properties, and one declared for fields" {
+    assert AutoPropertyAttributeErrorCount("Property") == 0
+    assert AutoPropertyAttributeErrorCount("Field") == 0
+}
+
+test "an auto-property refuses an attribute declared for neither of its rows, naming an auto-property" {
+    harness := AttrUsageHarness("Method", false)
+    member := new FieldDeclaration("Value", null, null, Modifiers.None, PropertyModifier.None, AttrNodes(AttrNode("Marker", AttrArgs())), 2, 5)
+    harness.Validator.ValidateDeclarationAttributeArguments(AutoPropertyClass(member))
+    harness.Validator.ValidateDeclarationAttributeArguments(member)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeTargetInvalid
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' cannot be applied to an auto-property — it is declared for functions"
+}
+
+test "a camelCase member of a class is a field, and refuses a property-only attribute" {
+    harness := AttrUsageHarness("Property", false)
+    member := new FieldDeclaration("value", null, null, Modifiers.None, PropertyModifier.None, AttrNodes(AttrNode("Marker", AttrArgs())), 2, 5)
+    harness.Validator.ValidateDeclarationAttributeArguments(AutoPropertyClass(member))
+    harness.Validator.ValidateDeclarationAttributeArguments(member)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' cannot be applied to a field — it is declared for properties"
+}

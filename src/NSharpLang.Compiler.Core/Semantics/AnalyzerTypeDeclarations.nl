@@ -1465,15 +1465,17 @@ class AnalyzerTypeDeclarations {
         diagnosticsValue.Report(ErrorCode.InvalidModifier, message, span.Line, span.Column, suggestion, span.Length)
     }
 
-    // A FIELD CANNOT TAKE PART IN INHERITANCE AT ALL, AND N# LETS ONE BE WRITTEN AS IF IT COULD.
+    // A BARE MEMBER CANNOT TAKE PART IN INHERITANCE, AND N# LETS ONE BE WRITTEN AS IF IT COULD.
     //
-    // MEASURED, because the answer decides the rule: the parser chooses field or property from what
+    // MEASURED, because the answer decides the rule: the parser chooses the declaration form from what
     // FOLLOWS the type and never from the modifiers, so `virtual Label: string`, `abstract Label:
     // string` and `override Label: string` all build a `FieldDeclaration`, while `Label: string => …`
-    // and `Label: string { get … }` build a `PropertyDeclaration`. The emitted metadata agrees: a bare
-    // `Auto: string` is a CLR FIELD and only the accessor forms are properties. A CLR field is never
-    // virtual, never abstract and can never be overridden, so all three words are meaningless there —
-    // and they were accepted in silence, which reads as a promise the runtime does not keep.
+    // and `Label: string { get … }` build a `PropertyDeclaration`. A bare member is emitted as a CLR
+    // field or as an auto-property (`MemberStorageRules`), and neither has a slot to dispatch through:
+    // a field has none at all, and an auto-property's accessors are the compiler's, non-virtual — this
+    // assembly reads and writes its storage directly, which an override could never intercept. So all
+    // three words are meaningless there, and they were accepted in silence, which reads as a promise
+    // the runtime does not keep.
     //
     // The report is `NL311` for the same reason the override family is: the fault is the MODIFIER, not
     // the name. The suggestion names the two ways out, because both are real: give the member an
@@ -1533,7 +1535,7 @@ class AnalyzerTypeDeclarations {
 
     func ReportFieldInheritanceModifierFault(field: FieldDeclaration, modifierName: string) {
         span := spansValue.GetFieldNameDiagnosticSpan(field)
-        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + field.Name + "' is declared '" + modifierName + "', but a field cannot be virtual, abstract or overridden", span.Line, span.Column, "Give it an accessor — '" + field.Name + ": <type> => <expression>' or a 'get'/'set' block — so it becomes a property, or drop '" + modifierName + "'.", span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + field.Name + "' is declared '" + modifierName + "', but a bare '" + field.Name + ": <type>' member cannot be virtual, abstract or overridden", span.Line, span.Column, "Give it an accessor — '" + field.Name + ": <type> => <expression>' or a 'get'/'set' block — so it becomes a property, or drop '" + modifierName + "'.", span.Length)
     }
 
     // ---- `abstract` on a member that has nowhere to be abstract ------------------------------------

@@ -62,6 +62,7 @@ class DeclaredMemberInfo {
     hasBodyValue: bool
     hasSetsRequiredMembersAttributeValue: bool
     sourceDeclarationValue: FunctionDeclaration?
+    isAutoPropertyValue: bool
 
     Name: string => nameValue
     ContainingType: string => containingTypeValue
@@ -143,7 +144,13 @@ class DeclaredMemberInfo {
     HasSetsRequiredMembersAttribute: bool => hasSetsRequiredMembersAttributeValue
     SourceDeclaration: FunctionDeclaration? => sourceDeclarationValue
 
-    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null, hasSetsRequiredMembersAttribute: bool = false, memberNullabilityPostconditions: NullabilityMemberPostcondition[]? = null, sourceDeclaration: FunctionDeclaration? = null) {
+    // A BARE `Name: T` MEMBER THAT `MemberStorageRules` MAKES A PROPERTY. Its `Kind` is already
+    // `Property` and `HasSetter` is true; this bit says the accessors are compiler-written over a
+    // `<Name>k__BackingField`, which is what hover and `nlc query` call an auto-property.
+    IsAutoProperty: bool => isAutoPropertyValue
+
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null, hasSetsRequiredMembersAttribute: bool = false, memberNullabilityPostconditions: NullabilityMemberPostcondition[]? = null, sourceDeclaration: FunctionDeclaration? = null, isAutoProperty: bool = false) {
+        isAutoPropertyValue = isAutoProperty
         hasSetsRequiredMembersAttributeValue = hasSetsRequiredMembersAttribute
         sourceDeclarationValue = sourceDeclaration
         doesNotReturnValue = doesNotReturn

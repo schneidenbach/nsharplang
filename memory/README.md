@@ -284,6 +284,7 @@ one; that is how the runbook is exercised without touching the committed seed.
 | Lexer | [components/lexer.md](components/lexer.md) | Tokenization, strings, operators |
 | Parser | [components/parser.md](components/parser.md) | AST construction, precedence, patterns |
 | Analyzer | [components/analyzer.md](components/analyzer.md) | Types, scopes, semantic checking |
+| Member storage | [components/member-storage.md](components/member-storage.md) | When a bare `Name: T` is an auto-property vs a field, and why |
 | CLI Toolchain | [components/cli-toolchain.md](components/cli-toolchain.md) | `check`, `fix`, `query`, daemon, completions, JSON schemas |
 | Error Reporting | [components/error-reporting.md](components/error-reporting.md) | Error codes, formatting, suggestions |
 

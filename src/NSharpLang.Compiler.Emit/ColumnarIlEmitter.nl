@@ -1465,7 +1465,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        return owner.Fields.TryGetValue(NSharpLang.Compiler.Columnar.ColumnarInitRequiredMemberEmitter.BackingFieldName(memberName), out backingField)
+        return owner.Fields.TryGetValue(NSharpLang.Compiler.Columnar.ColumnarAutoPropertyEmitter.BackingFieldName(memberName), out backingField)
     }
 
     private static func TryFindPropertyOnChain(def: ColumnarStructDef, name: string, out property: ColumnarPropertyDef): bool {
@@ -5369,14 +5369,38 @@ sealed class ColumnarIlEmitter {
                     if (initFillsInterfaceSlot && !InterfaceValueSlotAccepts(initSlotType, fieldType)) {
                         return DeclineStatic("emit.declaration.interface-value-member", "'" + st.Name + "." + fieldName + "' fills an interface value slot, so it must have the slot's own type", st.Name, -1, 0)
                     }
-                    ColumnarInitRequiredMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], initPropertyVisibility, st.FieldRequiredFlags[fi], initFillsInterfaceSlot, st.FieldTypeCanonicals[fi])
+                    initProperty := ColumnarAutoPropertyEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], initPropertyVisibility, st.FieldRequiredFlags[fi], initFillsInterfaceSlot, st.FieldTypeCanonicals[fi], true)
+                    sourceAttributeQueue.QueueAutoProperty(initProperty.Property, initProperty.BackingField, st.FieldSourceAttributesAt(fi), typeResolution)
                     def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                     // THE STORAGE STILL COUNTS AS INSTANCE STATE. A record's synthesized equality
                     // compares the fields in this list, and an init-only property is part of what the
                     // record IS, so its backing field belongs here even though no body can name it.
                     if (!fieldRows.FieldIsStatic[s][fi]) {
-                        instanceFieldNames.Add(ColumnarInitRequiredMemberEmitter.BackingFieldName(fieldName))
+                        instanceFieldNames.Add(ColumnarAutoPropertyEmitter.BackingFieldName(fieldName))
                     }
+                    continue
+                }
+
+                // AN EXPORTED INSTANCE MEMBER OF A CLASS OR RECORD IS A GET/SET AUTO-PROPERTY
+                // (`MemberStorageRules`): what EF Core maps, what System.Text.Json serializes and what
+                // model binding binds. Its storage is registered under the member's own name, so every
+                // body in this assembly — initializer, constructor, method, object initializer, `with`,
+                // record equality — keeps reading and writing it directly, and only another assembly
+                // goes through the accessors.
+                if (fieldRows.FieldIsAutoProperty[s][fi]) {
+                    autoPropertyVisibility := ColumnarDeclarationPlanner.MethodVisibilityAttributes(fieldName, st.FieldVisibilityFlags[fi])
+                    let autoSlotType: System.Type? = null
+                    autoFillsInterfaceSlot := TryFindDeclaredInterfaceValueMember(st.BaseNames, typeResolution, fieldName, out autoSlotType) || TryFindImplementedInterfaceValueMember(def, fieldName, out autoSlotType)
+                    if (autoFillsInterfaceSlot && !InterfaceValueSlotAccepts(autoSlotType, fieldType)) {
+                        return DeclineStatic("emit.declaration.interface-value-member", "'" + st.Name + "." + fieldName + "' fills an interface value slot, so it must have the slot's own type", st.Name, -1, 0)
+                    }
+                    autoProperty := ColumnarAutoPropertyEmitter.Define(def, fieldName, fieldType, false, autoPropertyVisibility, st.FieldRequiredFlags[fi], autoFillsInterfaceSlot, st.FieldTypeCanonicals[fi], false)
+                    sourceAttributeQueue.QueueAutoProperty(autoProperty.Property, autoProperty.BackingField, st.FieldSourceAttributesAt(fi), typeResolution)
+                    def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
+                    if (fieldRows.FieldIsNullable[s][fi]) {
+                        def.NullableFields.Add(fieldName)
+                    }
+                    instanceFieldNames.Add(fieldName)
                     continue
                 }
 
@@ -6078,7 +6102,7 @@ sealed class ColumnarIlEmitter {
                     continue
                 }
                 fieldName := fieldRows.FieldNames[s][fi]
-                if (def.Properties.ContainsKey(fieldName)) {
+                if (def.Properties.ContainsKey(fieldName) || def.SettableAutoProperties.ContainsKey(fieldName)) {
                     continue
                 }
                 let fieldSlotType: System.Type? = null
@@ -9906,6 +9930,11 @@ sealed class ColumnarIlEmitter {
                     ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("set_Item"), "open member lookup: idxRecvDef.GetMethod(\"set_Item\")"), "CLR method set_Item")
                     return true
                 }
+                // `this.Count += 2` IS THE BARE `Count += 2` SPELLED WITH ITS RECEIVER: the current
+                // instance's own member, never a local.
+                if (_nodes.Kind(compoundTarget) == ColumnarExpressionNodeKind.MemberAccessExpression && ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, UnwrapParenthesizedNode(Child(compoundTarget, 0)))) {
+                    return TryEmitCurrentInstanceCompound(ColumnarNodeTextFacts.Text(_nodes, _source, compoundTarget), Child(expr, 1), assignOp)
+                }
                 // A MEMBER compound target (`s.X += 1`, `c.X += 1`, `o.i.X += 3` — the post-#22
                 // legacy emitter shape): locator; dup; ldfld; value; op; stfld — the dup'd locator (an
                 // address for value links, an object ref for reference links) makes the
@@ -9922,8 +9951,18 @@ sealed class ColumnarIlEmitter {
                     if (compoundOwnerTb != null) {
                         let compoundMemberField: System.Reflection.Emit.FieldBuilder = null
                         compoundOwnerDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, compoundOwnerTb)
-                        if (compoundOwnerDef == null || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(compoundOwnerDef, compoundMemberName, out compoundMemberField)) {
+                        if (compoundOwnerDef == null) {
                             return false
+                        }
+                        if (!ColumnarSourceMemberChainResolver.TryFindFieldOnChain(compoundOwnerDef, compoundMemberName, out compoundMemberField)) {
+                            let compoundSourceGetter: System.Reflection.MethodInfo? = null
+                            let compoundSourceSetter: System.Reflection.MethodInfo? = null
+                            let compoundSourcePropertyType: System.Type? = null
+                            if (!TryFindSourcePropertyAccessors(compoundOwnerDef, compoundMemberName, out compoundSourceGetter, out compoundSourceSetter, out compoundSourcePropertyType)) {
+                                return false
+                            }
+                            let compoundSourceResultType: System.Type? = null
+                            return TryEmitPropertyReadModifyWrite(compoundChain, compoundSourceGetter, compoundSourceSetter, compoundSourcePropertyType, Child(expr, 1), assignOp, false, false, out compoundSourceResultType)
                         }
                         compoundField = compoundMemberField
                     } else {
@@ -9933,7 +9972,20 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                         compoundField = compoundChain.ReceiverType.GetField(compoundMemberName)
-                        if (compoundField == null || compoundField.IsStatic || compoundField.IsInitOnly || compoundField.IsLiteral) {
+                        if (compoundField == null) {
+                            // A REFLECTED PROPERTY — a C# `{ get; set; }`, or an N# bare member another
+                            // assembly compiled (`MemberStorageRules`) — is read through its getter,
+                            // combined, and stored through its setter, on the same evaluated receiver.
+                            let compoundReflectedGetter: System.Reflection.MethodInfo? = null
+                            let compoundReflectedSetter: System.Reflection.MethodInfo? = null
+                            let compoundReflectedType: System.Type? = null
+                            if (!TryFindReflectedPropertyAccessors(compoundChain.ReceiverType, compoundMemberName, out compoundReflectedGetter, out compoundReflectedSetter, out compoundReflectedType)) {
+                                return false
+                            }
+                            let compoundReflectedResultType: System.Type? = null
+                            return TryEmitPropertyReadModifyWrite(compoundChain, compoundReflectedGetter, compoundReflectedSetter, compoundReflectedType, Child(expr, 1), assignOp, false, false, out compoundReflectedResultType)
+                        }
+                        if (compoundField.IsStatic || compoundField.IsInitOnly || compoundField.IsLiteral) {
                             return false
                         }
                     }
@@ -9984,7 +10036,7 @@ sealed class ColumnarIlEmitter {
                             compoundType = ColumnarEmitReflectionFacts.RequiredElementType(compoundType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
                         }
                     } else {
-                        return false
+                        return TryEmitCurrentInstanceCompound(compoundName, Child(expr, 1), assignOp)
                     }
                 }
 
@@ -22309,13 +22361,32 @@ sealed class ColumnarIlEmitter {
         if (!TryResolveMemberWriteChain(Child(target, 0), out chain)) {
             return false
         }
+        memberName := ColumnarNodeTextFacts.Text(_nodes, _source, target)
+        stepOperator := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
         ownerBuilder := chain.ReceiverType as TypeBuilder
         if (ownerBuilder == null) {
-            return false
+            // A REFLECTED OWNER'S PROPERTY steps through its accessors: `counter.Value++` on a type a
+            // referenced assembly declared — a C# `{ get; set; }` or an N# bare member.
+            let reflectedGetter: System.Reflection.MethodInfo? = null
+            let reflectedSetter: System.Reflection.MethodInfo? = null
+            let reflectedType: System.Type? = null
+            if (chain.ReceiverType == null || chain.ReceiverType.IsGenericParameter || RuntimeTypeShapeFacts.ContainsBuilderBoundType(chain.ReceiverType) || chain.ReceiverType.GetField(memberName) != null || !TryFindReflectedPropertyAccessors(chain.ReceiverType, memberName, out reflectedGetter, out reflectedSetter, out reflectedType)) {
+                return false
+            }
+            return TryEmitPropertyReadModifyWrite(chain, reflectedGetter, reflectedSetter, reflectedType, -1, stepOperator, true, keepValue, out resolvedClrType)
         }
         ownerDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, ownerBuilder)
-        if (ownerDef == null || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(ownerDef, ColumnarNodeTextFacts.Text(_nodes, _source, target), out field) || field == null) {
+        if (ownerDef == null) {
             return false
+        }
+        if (!ColumnarSourceMemberChainResolver.TryFindFieldOnChain(ownerDef, memberName, out field) || field == null) {
+            let sourceGetter: System.Reflection.MethodInfo? = null
+            let sourceSetter: System.Reflection.MethodInfo? = null
+            let sourcePropertyType: System.Type? = null
+            if (!TryFindSourcePropertyAccessors(ownerDef, memberName, out sourceGetter, out sourceSetter, out sourcePropertyType)) {
+                return false
+            }
+            return TryEmitPropertyReadModifyWrite(chain, sourceGetter, sourceSetter, sourcePropertyType, -1, stepOperator, true, keepValue, out resolvedClrType)
         }
 
         targetType := field.FieldType
@@ -22341,6 +22412,163 @@ sealed class ColumnarIlEmitter {
         }
 
         resolvedClrType = targetType
+        return true
+    }
+
+    // A COMPOUND ASSIGNMENT TO A MEMBER OF THE CURRENT INSTANCE: `Count += 2` inside the type that
+    // declares `Count` (or inherits it). The receiver is `this` — loaded once and `dup`ed — and the
+    // member is its storage when the chain declares a field of that name (a field, or a get/set
+    // auto-property, whose storage this assembly reaches directly), else its accessors. The receiver
+    // condition is the one the `Count++` arm uses: a reference type's `this`, or a constructor's.
+    private func TryEmitCurrentInstanceCompound(memberName: string, valueNode: int, assignOp: string): bool {
+        if (_currentStruct == null || !(_currentStruct.IsReference || _isConstructorBody)) {
+            return false
+        }
+        let ownField: System.Reflection.Emit.FieldBuilder = null
+        if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, memberName, out ownField) && ownField != null) {
+            if (ownField.IsInitOnly || ownField.IsLiteral) {
+                return false
+            }
+            // A field of a GENERIC BASE would have to be rebound to the base instantiation this type
+            // derives from, which this arm does not model; the type's own generic fields rebind to
+            // the current instantiation.
+            fieldOwner := ownField.DeclaringType
+            if (fieldOwner != null && fieldOwner.IsGenericTypeDefinition && !Object.ReferenceEquals(fieldOwner, _currentStruct.Builder)) {
+                return false
+            }
+            boundField := ColumnarSourceSelfInstantiation.BindField(ownField)
+            fieldType := ownField.FieldType
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldfld, boundField)
+            let fieldValueType: System.Type? = null
+            if (!TryEmitIntLiteralAsType(valueNode, fieldType, out fieldValueType) && !EmitExpression(valueNode, out fieldValueType)) {
+                return false
+            }
+            if (!TryEmitCompoundOperation(assignOp, fieldType, fieldValueType)) {
+                return false
+            }
+            _il.Emit(OpCodes.Stfld, boundField)
+            return true
+        }
+        let ownProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+        if (!_currentStruct.IsReference || !TryFindPropertyOnChain(_currentStruct, memberName, out ownProperty) || ownProperty == null || ownProperty.Setter == null || ownProperty.IsInitOnly) {
+            return false
+        }
+        propertyType := ownProperty.PropertyType
+        _il.Emit(OpCodes.Ldarg_0)
+        _il.Emit(OpCodes.Dup)
+        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(ownProperty.Getter))
+        let propertyValueType: System.Type? = null
+        if (!TryEmitIntLiteralAsType(valueNode, propertyType, out propertyValueType) && !EmitExpression(valueNode, out propertyValueType)) {
+            return false
+        }
+        if (!TryEmitCompoundOperation(assignOp, propertyType, propertyValueType)) {
+            return false
+        }
+        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(ownProperty))
+        return true
+    }
+
+    // A PROPERTY'S READ-MODIFY-WRITE: `p.Count += 2`, `p.Count++`. The receiver is evaluated ONCE —
+    // the chain's locator, `dup`ed — then the getter reads, the operation combines, and the setter
+    // stores, exactly as C# lowers the same statement. A value-typed owner is reached by address and
+    // its accessors are `call`ed; a reference owner's are `callvirt`ed. `valueNode` is the right-hand
+    // side of a compound assignment (`isStep` false, `op` its operator) or -1 for a step (`isStep`
+    // true, `op` the `++`/`--` text); `keepValue` leaves the PRE-step value on the stack, N#'s postfix
+    // semantics.
+    private func TryEmitPropertyReadModifyWrite(chain: ColumnarMemberWriteChain, getter: MethodInfo, setter: MethodInfo, propertyType: Type, valueNode: int, op: string, isStep: bool, keepValue: bool, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (getter == null || setter == null || propertyType == null || getter.IsStatic || setter.IsStatic) {
+            return false
+        }
+        if (isStep && !IsSteppableTargetType(propertyType)) {
+            return false
+        }
+        if (!EmitMemberWriteLocator(chain)) {
+            return false
+        }
+        ownerIsValue := chain.ReceiverType != null && !IsReferenceWriteLink(chain.ReceiverType)
+        getterOpcode := OpCodes.Call
+        if (getter.IsVirtual && !ownerIsValue) {
+            getterOpcode = OpCodes.Callvirt
+        }
+        setterOpcode := OpCodes.Call
+        if (setter.IsVirtual && !ownerIsValue) {
+            setterOpcode = OpCodes.Callvirt
+        }
+        _il.Emit(OpCodes.Dup)
+        _il.Emit(getterOpcode, getter)
+        if (isStep) {
+            oldValue: LocalBuilder? = null
+            if (keepValue) {
+                oldValue = _il.DeclareLocal(propertyType)
+                _il.Emit(OpCodes.Stloc, oldValue)
+                _il.Emit(OpCodes.Ldloc, oldValue)
+            }
+            EmitPostfixStep(propertyType, op)
+            _il.Emit(setterOpcode, setter)
+            if (oldValue != null) {
+                _il.Emit(OpCodes.Ldloc, oldValue)
+            }
+            resolvedClrType = propertyType
+            return true
+        }
+        let valueType: System.Type? = null
+        if (!TryEmitIntLiteralAsType(valueNode, propertyType, out valueType) && !EmitExpression(valueNode, out valueType)) {
+            return false
+        }
+        if (!TryEmitCompoundOperation(op, propertyType, valueType)) {
+            return false
+        }
+        _il.Emit(setterOpcode, setter)
+        resolvedClrType = propertyType
+        return true
+    }
+
+    // A SOURCE PROPERTY WITH BOTH ACCESSORS, on the owner's chain: an explicit `{ get; set }` property
+    // or a base's. An `init` setter is not a read-modify-write target, and a GENERIC owner declines:
+    // its accessors would have to be rebound to the receiver's instantiation, which this arm does not
+    // model.
+    private func TryFindSourcePropertyAccessors(ownerDef: ColumnarStructDef, memberName: string, out getter: MethodInfo, out setter: MethodInfo, out propertyType: Type): bool {
+        getter = null
+        setter = null
+        propertyType = null
+        let property: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+        let propertyOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef = null
+        if (!TryFindPropertyOnChain(ownerDef, memberName, out propertyOwner, out property) || property == null || property.Setter == null || property.IsInitOnly || propertyOwner.Builder.IsGenericTypeDefinition) {
+            return false
+        }
+        getter = property.Getter
+        setter = property.Setter
+        propertyType = property.PropertyType
+        return true
+    }
+
+    // A REFLECTED INSTANCE PROPERTY WITH A PUBLIC GETTER AND A PUBLIC, ORDINARY SETTER. An `init`
+    // setter is refused here for the reason the plain write refuses it: the CLR's marker is a required
+    // modifier, and a MemberRef to it would resolve to nothing.
+    private func TryFindReflectedPropertyAccessors(ownerType: Type, memberName: string, out getter: MethodInfo, out setter: MethodInfo, out propertyType: Type): bool {
+        getter = null
+        setter = null
+        propertyType = null
+        let property: System.Reflection.PropertyInfo? = null
+        try {
+            property = ownerType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
+        } catch {
+            return false
+        }
+        if (property == null || property.GetIndexParameters().Length != 0) {
+            return false
+        }
+        propertyGetter := property.GetGetMethod()
+        propertySetter := property.GetSetMethod()
+        if (propertyGetter == null || propertySetter == null || !SetterSignatureSurvivesAMemberRef(propertySetter)) {
+            return false
+        }
+        getter = propertyGetter
+        setter = propertySetter
+        propertyType = property.PropertyType
         return true
     }
 

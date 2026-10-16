@@ -10,6 +10,13 @@ import System.Collections.Generic
 // `?`s written in N# source SURVIVED into metadata. A same-compilation caller never notices: it
 // binds against the source types. Only a reader coming in through reflection, as the analyzer does
 // for a REFERENCED N# assembly, can see whether the annotation was written down.
+// A STRUCT's members are fields, so these three are the field rows the annotation is read off.
+struct SignatureFields {
+    Label: string?
+    Plain: string
+    Count: int
+}
+
 class Signatures {
     Label: string?
     Plain: string

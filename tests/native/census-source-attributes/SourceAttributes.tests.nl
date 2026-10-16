@@ -275,9 +275,44 @@ test "an attribute chaining to an external base constructor passes its argument 
 // then dropped from the assembly, because the struct member scan yielded a field's name and type as
 // TEXT with no declaration position for the attribute reader to scan back from.
 test "an instance field's attribute is emitted on the field row" {
-    field := must typeof(FieldCarrier).GetField("Value")
+    field := must typeof(FieldCarrier).GetField("value")
     found := must (field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "on the instance field"
+}
+
+test "an auto-property's attribute is emitted on the property row" {
+    property := must typeof(AutoPropertyCarrier).GetProperty("Value")
+    found := must (property.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
+    assert found.Tag == "on the property"
+    storage := must typeof(AutoPropertyCarrier).GetField("<Value>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
+    assert storage.GetCustomAttribute(typeof(MarkAttribute), false) == null
+    assert typeof(AutoPropertyCarrier).GetField("Value") == null
+}
+
+test "an auto-property's field-only attribute is emitted on its backing field" {
+    storage := must typeof(AutoPropertyCarrier).GetField("<Cached>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
+    found := must (storage.GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute)
+    assert found.Note == "on the storage"
+    assert (must typeof(AutoPropertyCarrier).GetProperty("Cached")).GetCustomAttribute(typeof(MemberOnlyAttribute), false) == null
+}
+
+test "an external attribute on an auto-property is emitted on the property" {
+    property := must typeof(AutoPropertyCarrier).GetProperty("Legacy")
+    found := must (property.GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute)
+    assert found.Message == "property went away"
+}
+
+test "an auto-property's attribute carries enum, flags and boxed arguments like any other position" {
+    property := must typeof(AutoPropertyCarrier).GetProperty("Described")
+    found := must (property.GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute)
+    assert found.Level == Level.High
+    assert found.Targets == AttributeTargets.Property
+    assert (must found.Payload).ToString() == "property payload"
+}
+
+test "an auto-property the source wrote no attribute on carries none" {
+    property := must typeof(AutoPropertyCarrier).GetProperty("Plain")
+    assert property.GetCustomAttributes(false).Length == 0
 }
 
 test "a static field's attribute is emitted on the field row" {
@@ -295,13 +330,13 @@ test "a const field carries both its literal value and its attribute" {
 }
 
 test "an external attribute on a field is emitted" {
-    field := must typeof(FieldCarrier).GetField("Legacy")
+    field := must typeof(FieldCarrier).GetField("legacy")
     found := must (field.GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute)
     assert found.Message == "field went away"
 }
 
 test "a field's attribute carries enum, flags and boxed arguments like any other position" {
-    field := must typeof(FieldCarrier).GetField("Described")
+    field := must typeof(FieldCarrier).GetField("described")
     found := must (field.GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute)
     assert found.Level == Level.High
     assert found.Targets == AttributeTargets.Field
@@ -310,7 +345,7 @@ test "a field's attribute carries enum, flags and boxed arguments like any other
 }
 
 test "a field the source wrote no attribute on carries none" {
-    field := must typeof(FieldCarrier).GetField("Plain")
+    field := must typeof(FieldCarrier).GetField("plain")
     assert field.GetCustomAttributes(false).Length == 0
 }
 
@@ -377,7 +412,10 @@ test "the emitted custom attribute rows name the constructors the source chose" 
         assert row.NamedArguments.Count == 1
         named := row.NamedArguments[0]
         assert named.MemberName == "Count"
-        assert named.IsField
+        // `MarkAttribute.Count` is a bare exported member of a class, so an auto-property, and the
+        // blob names a PROPERTY — exactly what C# writes for `[Mark(Count = 42)]` over
+        // `public int Count { get; set; }`. Naming it a field would make the row unreadable.
+        assert !named.IsField
     }
     assert marks == 1
 }
@@ -387,8 +425,14 @@ test "the emitted custom attribute rows name the constructors the source chose" 
 // Everything below reads the EMITTED assembly for `record Positional(...)`. Before this, an
 // attribute written on a positional parameter made the whole type decline at `parse.struct` — the
 // member scan refused the `[` outright — so none of these rows existed at all.
-func PositionalField(name: string): FieldInfo {
-    return must typeof(Positional).GetField(name)
+// `record Positional(...)`'s members are AUTO-PROPERTIES, so each parameter declares a property and a
+// backing field beside it.
+func PositionalProperty(name: string): PropertyInfo {
+    return must typeof(Positional).GetProperty(name)
+}
+
+func PositionalBackingField(name: string): FieldInfo {
+    return must typeof(Positional).GetField("<" + name + ">k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
 }
 
 func PositionalParameter(name: string): ParameterInfo {
@@ -403,43 +447,44 @@ func PositionalParameter(name: string): ParameterInfo {
     throw new InvalidOperationException("Positional constructor has no parameter named '" + name + "'.")
 }
 
-test "an attribute declared for fields lands on the field a positional parameter declares" {
-    found := must (PositionalField("Summary").GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute)
+test "an attribute declared for fields lands on the backing field of the property a positional parameter declares" {
+    found := must (PositionalBackingField("Summary").GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute)
     assert found.Note == "on the member"
     assert PositionalParameter("Summary").GetCustomAttribute(typeof(MemberOnlyAttribute), false) == null
+    assert PositionalProperty("Summary").GetCustomAttribute(typeof(MemberOnlyAttribute), false) == null
 }
 
 test "an attribute declared for parameters lands on the parameter" {
     assert PositionalParameter("Name").GetCustomAttribute(typeof(ArgumentOnlyAttribute), false) != null
-    assert PositionalField("Name").GetCustomAttribute(typeof(ArgumentOnlyAttribute), false) == null
+    assert PositionalProperty("Name").GetCustomAttribute(typeof(ArgumentOnlyAttribute), false) == null
 }
 
 // THE PARAMETER WINS THE TIE. The source wrote a parameter, and the fallback only moves an attribute
 // that could not have been written there at all.
 test "an attribute declared for both rows lands on the parameter" {
     assert PositionalParameter("Rank").GetCustomAttribute(typeof(EitherAttribute), false) != null
-    assert PositionalField("Rank").GetCustomAttribute(typeof(EitherAttribute), false) == null
+    assert PositionalBackingField("Rank").GetCustomAttribute(typeof(EitherAttribute), false) == null
 }
 
 test "an attribute declared for every target lands on the parameter" {
     found := must (PositionalParameter("Wide").GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)
     assert found.Tag == "wide open"
-    assert PositionalField("Wide").GetCustomAttribute(typeof(MarkAttribute), false) == null
+    assert PositionalProperty("Wide").GetCustomAttribute(typeof(MarkAttribute), false) == null
 }
 
 // AN EXTERNAL ATTRIBUTE IS ROUTED BY THE USAGE IT DECLARES, read from metadata rather than from a
 // declaration — and it is the same decision. `[Obsolete]` is declared for every DECLARATION and for
-// no parameter, so it lands on the field; `[CompilerGenerated]` is declared for `All` and stays on
+// no parameter, so it lands on the property; `[CompilerGenerated]` is declared for `All` and stays on
 // the parameter the source wrote it on.
-test "an external attribute whose usage excludes parameters lands on the field" {
-    found := must (PositionalField("Legacy").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute)
+test "an external attribute whose usage excludes parameters lands on the property" {
+    found := must (PositionalProperty("Legacy").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute)
     assert found.Message == "the field went away"
     assert PositionalParameter("Legacy").GetCustomAttribute(typeof(ObsoleteAttribute), false) == null
 }
 
 test "an external attribute whose usage admits parameters stays on the parameter" {
     assert PositionalParameter("Generated").GetCustomAttribute(typeof(CompilerGeneratedAttribute), false) != null
-    assert PositionalField("Generated").GetCustomAttribute(typeof(CompilerGeneratedAttribute), false) == null
+    assert PositionalProperty("Generated").GetCustomAttribute(typeof(CompilerGeneratedAttribute), false) == null
 }
 
 // THE CENSUS SHAPE, VERBATIM. C# writes `[property: JsonIgnore(Condition = ...)] bool Summary =
@@ -447,13 +492,13 @@ test "an external attribute whose usage admits parameters stays on the parameter
 // prefix and reaches the same row, because `JsonIgnore` is declared for properties and fields and
 // for no parameter.
 test "the shape the census found reaches the member the serializer reads" {
-    found := must (PositionalField("Ignored").GetCustomAttribute(typeof(JsonIgnoreAttribute), false) as JsonIgnoreAttribute)
+    found := must (PositionalProperty("Ignored").GetCustomAttribute(typeof(JsonIgnoreAttribute), false) as JsonIgnoreAttribute)
     assert found.Condition == JsonIgnoreCondition.WhenWritingDefault
     assert PositionalParameter("Ignored").GetCustomAttribute(typeof(JsonIgnoreAttribute), false) == null
 }
 
 test "a positional parameter the source wrote no attribute on carries none on either row" {
-    assert PositionalField("Plain").GetCustomAttributes(false).Length == 0
+    assert PositionalProperty("Plain").GetCustomAttributes(false).Length == 0
     assert PositionalParameter("Plain").GetCustomAttribute(typeof(MarkAttribute), false) == null
     assert PositionalParameter("Plain").GetCustomAttribute(typeof(MemberOnlyAttribute), false) == null
 }
@@ -506,8 +551,10 @@ test "an explicit constructor's parameter carries its attribute" {
 
 // A CONSTRUCTOR'S PARAMETER IS NOT A MEMBER, so a field of the same name never takes its attribute.
 test "an explicit constructor's parameter never routes to a field of the same name" {
-    field := must typeof(ExplicitParameterCarrier).GetField("Value")
-    assert field.GetCustomAttribute(typeof(MarkAttribute), false) == null
+    property := must typeof(ExplicitParameterCarrier).GetProperty("Value")
+    assert property.GetCustomAttribute(typeof(MarkAttribute), false) == null
+    storage := must typeof(ExplicitParameterCarrier).GetField("<Value>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
+    assert storage.GetCustomAttribute(typeof(MarkAttribute), false) == null
 }
 
 // AN ENUM MEMBER'S ATTRIBUTES REACH THE LITERAL FIELD THE MEMBER BECAME. Every one of these was a
@@ -582,9 +629,9 @@ test "a string-backed enum member's attribute is emitted on its literal field" {
 // A NESTED ENUM'S TYPE STILL LOADS, which is the assertion the whole materialization order exists
 // for: the class that names it has a field, a constructor and an interpolation over it.
 test "a nested enum's member carries its attribute and the host still loads" {
-    // The nested enum is reached through the FIELD THAT NAMES IT, which is the signature the
+    // The nested enum is reached through the MEMBER THAT NAMES IT, which is the signature the
     // materialization order exists to keep loadable.
-    nestedType := (must typeof(EnumHost).GetField("Current")).FieldType
+    nestedType := (must typeof(EnumHost).GetProperty("Current")).PropertyType
     assert nestedType.IsEnum
     field := must nestedType.GetField("First", BindingFlags.Public | BindingFlags.Static)
     found := must (field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute)

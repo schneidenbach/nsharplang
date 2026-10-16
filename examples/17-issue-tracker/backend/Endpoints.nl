@@ -18,7 +18,6 @@ class Routes {
     constructor(svc: IssueService) {
         service = svc
         jsonOptions = new JsonSerializerOptions {
-            IncludeFields: true,
             PropertyNameCaseInsensitive: true,
             PropertyNamingPolicy: JsonNamingPolicy.CamelCase
         }

@@ -28,7 +28,20 @@ test "a returned value and the mutation agree, in that order" {
 test "a struct FIELD of a class is mutated in place" {
     holder := new Holder()
     assert holder.BumpTwice() == 2
-    assert holder.Counter.Read() == 2
+    assert holder.counter.Read() == 2
+}
+
+test "a struct AUTO-PROPERTY of a class is read as a copy, from inside the type and from outside" {
+    holder := new PropertyHolder()
+    assert holder.BumpTwice() == 0
+    holder.Counter.Bump()
+    assert holder.Counter.Read() == 0
+
+    // Replacing the whole value is how a struct-typed property changes.
+    bumped := holder.Counter
+    bumped.Bump()
+    holder.Counter = bumped
+    assert holder.Counter.Read() == 1
 }
 
 test "a struct parameter is this frame's own variable, and copying in is value semantics" {

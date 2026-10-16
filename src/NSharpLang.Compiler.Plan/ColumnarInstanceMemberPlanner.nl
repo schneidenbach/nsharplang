@@ -316,7 +316,11 @@ class ColumnarInstanceMemberPlanner {
 
             memberName := RewriteTupleMemberName(nodes, source, receiver, nodes.Text(source, candidate), bindings)
             selection := EmptySelection()
-            if !TrySelect(receiverType, memberName, bindings, out selection) || selection.Kind != ColumnarInstanceMemberKind.Field || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.ResultType, expectedType) {
+            // AN AUTO-PROPERTY'S STORAGE IS NOT AN ADDRESSABLE RECEIVER. This assembly reaches the
+            // member through its backing field, but the member is a property, and a property read is
+            // a copy: `holder.Counter.Bump()` bumps a copy here exactly as it does through the getter
+            // in another assembly, and as it does in C#.
+            if !TrySelect(receiverType, memberName, bindings, out selection) || selection.Kind != ColumnarInstanceMemberKind.Field || ColumnarAutoPropertyEmitter.IsBackingField(selection.Field) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.ResultType, expectedType) {
                 plan.Rollback(checkpoint)
                 return false
             }

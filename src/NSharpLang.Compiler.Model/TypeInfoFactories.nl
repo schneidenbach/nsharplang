@@ -150,6 +150,7 @@ class NominalTypeInfoFactory {
         source := TypeInfoFactoryReflection.GetRequiredList(owner, "Members")
         result := new DeclaredMemberInfo[](source.Count)
         containingType := TypeInfoFactoryReflection.GetRequiredString(owner, "Name")
+        ownerIsReference := DeclaresReferenceType(owner)
 
         index := 0
         while index < source.Count {
@@ -158,7 +159,7 @@ class NominalTypeInfoFactory {
                 throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Members' entries to be declarations.")
             }
 
-            result[index] = CreateDeclaredMemberInfo(containingType, item)
+            result[index] = CreateDeclaredMemberInfo(containingType, item, ownerIsReference)
             index = index + 1
         }
 
@@ -227,13 +228,36 @@ class NominalTypeInfoFactory {
         return result
     }
 
-    static func CreateDeclaredMemberInfo(containingType: string, member: object): DeclaredMemberInfo {
+    // A `class`, or a `record` that is not a `record struct`: the declarations whose exported value
+    // members are auto-properties (`MemberStorageRules`). Every other owner's are fields.
+    static func DeclaresReferenceType(owner: object): bool {
+        ownerTypeName := owner.GetType().Name
+        if ownerTypeName == "ClassDeclaration" {
+            return true
+        }
+
+        if ownerTypeName == "RecordDeclaration" {
+            return !TypeInfoFactoryReflection.GetRequiredBool(owner, "IsStruct")
+        }
+
+        return false
+    }
+
+    static func CreateDeclaredMemberInfo(containingType: string, member: object, ownerIsReference: bool = false): DeclaredMemberInfo {
         typeName := member.GetType().Name
         name := GetOptionalString(member, "Name")
         kind := GetDeclaredMemberKind(typeName)
+        // A BARE VALUE MEMBER THE STORAGE RULE MAKES A PROPERTY IS A PROPERTY TO THE ANALYZER TOO. Its
+        // syntax is a `FieldDeclaration`, but what every reader of the member sees — reflection, a
+        // serializer, `ref`, NL322's copy rule, hover — is a property with a setter, so that is the
+        // kind it is given here, where the kind is decided once for every consumer.
+        isAutoProperty := kind == DeclaredMemberKind.Field && MemberStorageRules.IsAutoPropertyDeclaration(ownerIsReference, name, GetModifierBits(member))
+        if isAutoProperty {
+            kind = DeclaredMemberKind.Property
+        }
         typeParameters := GetTypeParameterArray(member)
         genericConstraints := GetGenericConstraintArray(member)
-        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16) || HasOptionalModifier(member, 1024), HasOptionalModifier(member, 512) || HasOptionalModifier(member, 1024), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member), HasMemberBody(member), HasDoesNotReturnAttribute(member), GetParameterReachabilityFactArray(member), GetParameterNullabilityFactArray(member), HasSetsRequiredMembersAttribute(member), GetMemberNullabilityPostconditionArray(member), member as FunctionDeclaration)
+        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16) || HasOptionalModifier(member, 1024), HasOptionalModifier(member, 512) || HasOptionalModifier(member, 1024), isAutoProperty || HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member), HasMemberBody(member), HasDoesNotReturnAttribute(member), GetParameterReachabilityFactArray(member), GetParameterNullabilityFactArray(member), HasSetsRequiredMembersAttribute(member), GetMemberNullabilityPostconditionArray(member), member as FunctionDeclaration, isAutoProperty)
     }
 
     static func GetGenericConstraintArray(owner: object): GenericConstraint[] {

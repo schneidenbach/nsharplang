@@ -142,9 +142,12 @@ test "an ordinary settable member carries no init marker" {
     assert getter != null
     assert getter.ReturnParameter.GetRequiredCustomModifiers().Length == 0
 
-    notes := typeof(Configuration).GetField("Notes")
+    // A bare `Notes: string = ""` is an ordinary get/set auto-property: its setter carries no marker.
+    notes := typeof(Configuration).GetProperty("Notes")
     assert notes != null
-    assert !notes.IsInitOnly
+    notesSetter := notes.GetSetMethod()
+    assert notesSetter != null
+    assert notesSetter.ReturnParameter.GetRequiredCustomModifiers().Length == 0
 }
 
 test "an init-only member's storage is a private compiler-generated backing field" {

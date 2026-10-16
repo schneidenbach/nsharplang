@@ -308,28 +308,50 @@ class DefaultCarrier {
 // comes from a referenced assembly, and a field of a VALUE type. A field declares its attributes at
 // its own member position, which the member scan records, so the same backward scan that finds a
 // method's finds a field's.
+// The instance members are camelCase because that is what makes them FIELDS: an exported bare member
+// of a class is an auto-property (`MemberStorageRules`), whose attributes `AutoPropertyCarrier` pins.
 class FieldCarrier {
     [Mark("on the instance field")]
-    Value: int
+    value: int
 
     [Mark("on the static field")]
     static Shared: int = 3
 
     [Obsolete("field went away")]
-    Legacy: string = ""
+    legacy: string = ""
 
     [Mark("on the const")]
     const Limit: int = 10
 
     [Levelled(Level.High, AttributeTargets.Field, "field payload")]
+    described: string = ""
+
+    plain: int
+
+    constructor() {
+        value = 1
+        plain = 0
+    }
+}
+
+// AN AUTO-PROPERTY IS ONE DECLARATION AND TWO METADATA ROWS — the property and its backing field —
+// and N# has no `[field: ...]` prefix to pick between them. The attribute's own `[AttributeUsage]`
+// picks: the PROPERTY wherever it allows one, which is where serializers, ORMs and validators read
+// it, and the backing field for an attribute declared for fields only.
+class AutoPropertyCarrier {
+    [Mark("on the property")]
+    Value: int
+
+    [MemberOnly("on the storage")]
+    Cached: int
+
+    [Obsolete("property went away")]
+    Legacy: string = ""
+
+    [Levelled(Level.High, AttributeTargets.Property, "property payload")]
     Described: string = ""
 
     Plain: int
-
-    constructor() {
-        Value = 1
-        Plain = 0
-    }
 }
 
 struct FieldPoint {
@@ -364,12 +386,13 @@ class DerivedCarrier: BaseCarrier {
     }
 }
 
-// A POSITIONAL CONSTRUCTOR PARAMETER IS ONE DECLARATION AND TWO METADATA ROWS: the constructor's
-// parameter, and the field that parameter stores into. C# picks between them with a target prefix
-// (`[property: JsonIgnore]`); N# has no prefix at any position, so the ATTRIBUTE'S OWN
-// `[AttributeUsage]` picks instead. A parameter is what the source literally wrote, so it wins
-// wherever the attribute allows one; an attribute that allows no parameter goes on the field. An
-// attribute that allows neither is refused by `NL933`, which names both rows.
+// A POSITIONAL CONSTRUCTOR PARAMETER IS ONE DECLARATION AND SEVERAL METADATA ROWS: the constructor's
+// parameter, and the member that parameter stores into — a record's exported member is an
+// auto-property, so that is the property and its backing field; a camelCase capture or a value type's
+// member is a field. C# picks between them with a target prefix (`[property: JsonIgnore]`); N# has no
+// prefix at any position, so the ATTRIBUTE'S OWN `[AttributeUsage]` picks instead. A parameter is what
+// the source literally wrote, so it wins wherever the attribute allows one; otherwise the property,
+// otherwise the field. An attribute that allows none of them is refused by `NL933`.
 [AttributeUsage(AttributeTargets.Field)]
 class MemberOnlyAttribute: Attribute {
     Note: string

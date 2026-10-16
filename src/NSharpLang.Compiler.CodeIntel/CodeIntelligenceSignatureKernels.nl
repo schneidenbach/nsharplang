@@ -58,7 +58,7 @@ class CodeIntelligenceSignatureKernels {
         sourceText := CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, unitMatch.FilePath)
         declarations := unit.Declarations
         for declarationItem in declarations {
-            signature := SourceMemberSignatureInDeclaration(declarationItem, declaration, resolvedType, false, sourceText)
+            signature := SourceMemberSignatureInDeclaration(declarationItem, declaration, resolvedType, null, sourceText)
             if signature != null {
                 return signature
             }
@@ -67,11 +67,20 @@ class CodeIntelligenceSignatureKernels {
         return null
     }
 
-    static func SourceMemberSignatureInDeclaration(candidate: Declaration, declaration: SymbolDeclaration, resolvedType: string?, ownerIsInterface: bool, sourceText: string?): SourceMemberSignature? {
+    // `owner` is the declaration `candidate` is a member of, or null at the top level. A bare value
+    // member is a property inside an interface (instance members only) and inside a class or record
+    // whenever `MemberStorageRules` makes it an auto-property, so the hover names what reflection shows.
+    static func SourceMemberSignatureInDeclaration(candidate: Declaration, declaration: SymbolDeclaration, resolvedType: string?, owner: Declaration?, sourceText: string?): SourceMemberSignature? {
         field := candidate as FieldDeclaration
         if field != null && SourceMemberMatches(field.Name, field.Line, field.Column, declaration, sourceText) {
             kind := "field"
+            interfaceOwner := owner as InterfaceDeclaration
+            ownerIsInterface := interfaceOwner != null
             if ownerIsInterface && !CodeIntelligenceDisplayText.HasModifier(CodeIntelligenceDisplayText.ModifierMask(field.Modifiers), 16) {
+                kind = "property"
+            }
+
+            if MemberStorageRules.IsAutoPropertyField(owner, field) {
                 kind = "property"
             }
 
@@ -88,12 +97,10 @@ class CodeIntelligenceSignatureKernels {
             return null
         }
 
-        candidateIsInterface := candidate as InterfaceDeclaration
-        childOwnerIsInterface := candidateIsInterface != null
         for memberItem in members {
             member := memberItem as Declaration
             if member != null {
-                signature := SourceMemberSignatureInDeclaration(member, declaration, resolvedType, childOwnerIsInterface, sourceText)
+                signature := SourceMemberSignatureInDeclaration(member, declaration, resolvedType, candidate, sourceText)
                 if signature != null {
                     return signature
                 }

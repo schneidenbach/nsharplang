@@ -1575,8 +1575,9 @@ class AnalyzerWriteTargets {
     // Everything else — a call result, a slice, a `string` index, a SoA record's own member, a
     // property — is a copy, and handing a callee the address of a copy is a silent defect.
     func IsRefOutArgumentTarget(target: Expression, expressionTypes: Dictionary<object, TypeInfo>?): bool {
-        if target as IdentifierExpression != null {
-            return true
+        identifier := target as IdentifierExpression
+        if identifier != null {
+            return !NamesCurrentTypeProperty(identifier.Name)
         }
 
         member := target as MemberAccessExpression
@@ -1592,6 +1593,98 @@ class AnalyzerWriteTargets {
         parenthesized := target as ParenthesizedExpression
         if parenthesized != null {
             return IsRefOutArgumentTarget(parenthesized.Inner, expressionTypes)
+        }
+
+        return false
+    }
+
+    // A BARE NAME IS ADDRESSABLE UNLESS IT NAMES A PROPERTY OF THE ENCLOSING TYPE. A local or a
+    // parameter of that name wins, as it does for every other read; a member reached by elimination is
+    // looked up on the type (its own declaration first, then the bases), and a PROPERTY there — written
+    // with accessors, or a bare `Name: T` that `MemberStorageRules` makes one — has no storage to hand
+    // a callee, whichever spelling the source used.
+    func NamesCurrentTypeProperty(name: string): bool {
+        property: DeclaredMemberInfo? = null
+        return TryFindCurrentTypeProperty(name, out property)
+    }
+
+    func TryFindCurrentTypeProperty(name: string, out property: DeclaredMemberInfo?): bool {
+        property = null
+        if !scopesValue.IsCurrentTypeMemberReference(name) {
+            return false
+        }
+
+        currentType := scopesValue.CurrentTypeScope()
+        if currentType == null {
+            return false
+        }
+
+        selection := new AnalyzerMemberSelection()
+        if !declarationContextValue.TryFindMember(currentType, name, out selection) {
+            return false
+        }
+
+        member := selection.Member
+        if member == null || member.Kind != DeclaredMemberKind.Property {
+            return false
+        }
+
+        property = member
+        return true
+    }
+
+    // THE NAME OF THE PROPERTY A `ref`/`out` TARGET WRITES, when it writes one: a bare name of the
+    // enclosing type's, or a member hop whose owner declares a property of that name. The call arm
+    // asks this only after the target was refused, to say WHY in the member's own words.
+    //
+    // `isBareMember` says the property is a bare `Name: T` the storage rule made one — the case where
+    // "declare it as a field" is a repair the author can make.
+    func TryNameRefOutProperty(target: Expression, expressionTypes: Dictionary<object, TypeInfo>?, out propertyName: string, out isBareMember: bool): bool {
+        propertyName = ""
+        isBareMember = false
+        parenthesized := target as ParenthesizedExpression
+        if parenthesized != null {
+            return TryNameRefOutProperty(parenthesized.Inner, expressionTypes, out propertyName, out isBareMember)
+        }
+
+        identifier := target as IdentifierExpression
+        if identifier != null {
+            currentProperty: DeclaredMemberInfo? = null
+            if TryFindCurrentTypeProperty(identifier.Name, out currentProperty) && currentProperty != null {
+                propertyName = identifier.Name
+                isBareMember = currentProperty.IsAutoProperty
+                return true
+            }
+
+            return false
+        }
+
+        member := target as MemberAccessExpression
+        if member == null || expressionTypes == null {
+            return false
+        }
+
+        receiverType: TypeInfo = BuiltInTypes.Unknown
+        if !expressionTypes.TryGetValue(member.Object, out receiverType) {
+            return false
+        }
+
+        selection := new AnalyzerMemberSelection()
+        resolvedOwner := declarationContextValue.ResolveDeclaredAlias(NonNullableType(receiverType))
+        if declarationContextValue.TryFindMember(resolvedOwner, member.MemberName, out selection) && selection.Member != null && selection.Member.Kind == DeclaredMemberKind.Property {
+            propertyName = member.MemberName
+            isBareMember = selection.Member.IsAutoProperty
+            return true
+        }
+
+        reflected := NormalizeReflectionOwner(resolvedOwner) as ReflectionTypeInfo
+        if reflected == null || IsTypeBuilder(reflected.Type) || reflected.Type.IsGenericTypeDefinition {
+            return false
+        }
+
+        if reflected.Type.GetProperty(member.MemberName) != null {
+            propertyName = member.MemberName
+            return true
         }
 
         return false

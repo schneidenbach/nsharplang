@@ -310,8 +310,10 @@ class Product {
     // Expression-bodied property
     DisplayName: string => $"{Name} (${Price})"
 
-    // Full property with getter and setter
+    // A camelCase member is a field: the storage behind the full property below
     stock: int
+
+    // Full property with getter and setter
     Stock: int {
         get { return stock }
         set {
@@ -323,6 +325,95 @@ class Product {
     }
 }
 ```
+
+### Fields and properties
+
+N# has one spelling for a value member — `Name: T`, with or without `= initializer` — and the CLR has
+two shapes it can take. N# picks the shape for you, by one rule: **the members other code is meant to
+see are properties, and a type's own storage is a field.**
+
+A bare member is an **auto-property** — exactly C#'s `public T Name { get; set; }` — when all of these
+hold:
+
+- it is declared in a **`class` or `record`** (not a `struct`, `record struct` or union case);
+- it is an **instance** member (not `static`);
+- it is not **`readonly`** or **`const`**, which are field words;
+- it is **exported**: PascalCase with no visibility word, or written `public`, `protected` or
+  `internal`.
+
+Everything else is a **field**: a camelCase member or a `private` one, a `static` member, a `readonly`
+or `const` member, and every member of a struct.
+
+```n#
+class Order {
+    Id: int                        // property: public int Id { get; set; }
+    Customer: string = ""          // property, initialized in every constructor
+    protected Notes: string = ""   // property, protected accessors
+    lines: List<string> = []       // field: the type's own storage
+    private Total: decimal = 0.0   // field: written private
+    static Count: int = 0          // field: static state
+    readonly Created: DateTime = DateTime.UtcNow   // field: initonly
+}
+
+struct Point {
+    X: double                      // field: struct members are storage
+    Y: double
+}
+```
+
+**Why it matters.** EF Core maps properties, System.Text.Json serializes properties, and ASP.NET model
+binding binds properties — none of them see a field by default. A `DbContext` written
+`People: DbSet<Person>`, a DTO written `Name: string`, and a `[FromBody]` request record all work
+because those members are properties:
+
+```n#
+import Microsoft.EntityFrameworkCore
+
+class AppDb: DbContext {
+    People: DbSet<Person>          // a property, so EF Core populates it
+}
+
+record CreatePerson(Name: string, Age: int)   // positional members are properties too
+```
+
+A primary constructor's parameter declares a member of its own name, and that member follows the same
+rule: `record Person(Name: string)` declares the property `Name`, while `class Service(logger:
+ILogger)` keeps the camelCase capture `logger` a field.
+
+**The emitted shape is C#'s.** The property row carries the member's attributes, its nullability and
+its tuple element names; the storage is a `<Name>k__BackingField` stamped `[CompilerGenerated]` and
+`[DebuggerBrowsable(Never)]`, and both accessors are `[CompilerGenerated]`. Reflection shows the
+property and no public field:
+
+```n#
+typeof(Order).GetProperty("Customer")   // the property
+typeof(Order).GetField("Customer")      // null
+```
+
+Code in the **same assembly** reads and writes the backing field directly — the instruction a JIT
+makes of a trivial accessor once it inlines it — so an auto-property costs nothing over a field in
+your own hot paths. (That is why the backing field is `internal` rather than C#'s `private`: nothing
+outside the assembly can name it either way.) Code in another assembly goes through the accessors.
+
+**Attributes.** An attribute written on an auto-property goes on the **property** when its
+`[AttributeUsage]` allows properties — where serializers, ORMs and validators read it — and on the
+**backing field** when it allows only fields, as C#'s `[field: NonSerialized]` does. An attribute that
+allows neither is [NL933](./errors/NL933.md).
+
+**A property is a value, not storage.** Two rules follow, and both are C#'s:
+
+- `ref` and `out` cannot name a property. `Interlocked.Increment(ref Count)` on an auto-property is an
+  error that says so; keep state you pass by reference in a camelCase, `private` or `static` member.
+- Reading a struct-typed property yields a **copy**. `holder.Position.X = 1` is
+  [NL322](./errors/NL322.md), and a method call that mutates the struct (`holder.Counter.Bump()`)
+  mutates the copy. Keep a mutable struct you want to change in place in a camelCase field.
+
+Compound assignment and `++`/`--` work on properties as they do on fields: `order.Id += 1` reads
+through the getter and stores through the setter, evaluating `order` once.
+
+`init Name: T` is always a property (`{ get; init; }`, see below), and a member with an explicit
+accessor block or `=> expression` is always a property. A bare member cannot be `virtual`, `abstract`
+or `override` ([NL311](./errors/NL311.md)); write the accessors when a member needs a slot.
 
 ### Init-only Properties
 
@@ -647,11 +738,13 @@ lifts it. Measured on an emitted assembly:
 | `func unexported()` (camelCase) | `assembly` |
 | an `enum`, `struct`, `record` or `union`, by its own casing | `public` / `assembly` |
 | a field, whatever its casing | `public` |
+| an auto-property (`Name: T` in a class or record) | its accessors by the method rule: `public`, or the written word |
 
 So an `internalsVisibleTo:` grant admits a library's **camelCase types, functions and methods**. A
 FIELD is still emitted `public`, so a grant exposes nothing extra at one — reaching a camelCase field
 from another namespace is refused by the compiler's package rule, which every assembly enforces and
-which a friend grant does not lift. Write the grant when a consumer needs the unexported surface (a
+which a friend grant does not lift. (See [Fields and properties](#fields-and-properties) for which
+bare members are fields.) Write the grant when a consumer needs the unexported surface (a
 test project is the usual case); a consumer that only needs exported names never needs one.
 
 Those `protected virtual` members are extension points, so you may **override** them, and the same
@@ -1093,6 +1186,9 @@ union Result<T> {
 ```
 
 The emitted shape is an abstract union base with sealed case types and public fields for exported payload members.
+Union payloads stay fields even though a class's exported members are properties (see
+[Fields and properties](#fields-and-properties)): a case is a pattern-matched value whose payload the
+case constructor sets, not an object a serializer or ORM fills in.
 
 ## Duck Interfaces
 

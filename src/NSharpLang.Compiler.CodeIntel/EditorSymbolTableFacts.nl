@@ -269,19 +269,19 @@ class EditorSymbolTableFacts {
 
             classDeclaration := declaration as ClassDeclaration
             if classDeclaration != null {
-                rows.Add(TypeRow(classDeclaration.Name, EditorSymbolTableKind.Class, null, classDeclaration.Line, classDeclaration.Modifiers, MemberRows(classDeclaration.Name, classDeclaration.Members, lines), lines))
+                rows.Add(TypeRow(classDeclaration.Name, EditorSymbolTableKind.Class, null, classDeclaration.Line, classDeclaration.Modifiers, MemberRows(classDeclaration, classDeclaration.Name, classDeclaration.Members, lines), lines))
                 continue
             }
 
             structDeclaration := declaration as StructDeclaration
             if structDeclaration != null {
-                rows.Add(TypeRow(structDeclaration.Name, EditorSymbolTableKind.Struct, null, structDeclaration.Line, structDeclaration.Modifiers, MemberRows(structDeclaration.Name, structDeclaration.Members, lines), lines))
+                rows.Add(TypeRow(structDeclaration.Name, EditorSymbolTableKind.Struct, null, structDeclaration.Line, structDeclaration.Modifiers, MemberRows(structDeclaration, structDeclaration.Name, structDeclaration.Members, lines), lines))
                 continue
             }
 
             recordDeclaration := declaration as RecordDeclaration
             if recordDeclaration != null {
-                rows.Add(TypeRow(recordDeclaration.Name, EditorSymbolTableKind.Record, null, recordDeclaration.Line, recordDeclaration.Modifiers, MemberRows(recordDeclaration.Name, recordDeclaration.Members, lines), lines))
+                rows.Add(TypeRow(recordDeclaration.Name, EditorSymbolTableKind.Record, null, recordDeclaration.Line, recordDeclaration.Modifiers, MemberRows(recordDeclaration, recordDeclaration.Name, recordDeclaration.Members, lines), lines))
                 continue
             }
 
@@ -293,7 +293,7 @@ class EditorSymbolTableFacts {
 
             interfaceDeclaration := declaration as InterfaceDeclaration
             if interfaceDeclaration != null {
-                rows.Add(TypeRow(interfaceDeclaration.Name, EditorSymbolTableKind.Interface, null, interfaceDeclaration.Line, interfaceDeclaration.Modifiers, MemberRows(interfaceDeclaration.Name, interfaceDeclaration.Members, lines), lines))
+                rows.Add(TypeRow(interfaceDeclaration.Name, EditorSymbolTableKind.Interface, null, interfaceDeclaration.Line, interfaceDeclaration.Modifiers, MemberRows(interfaceDeclaration, interfaceDeclaration.Name, interfaceDeclaration.Members, lines), lines))
                 continue
             }
 
@@ -361,7 +361,7 @@ class EditorSymbolTableFacts {
     // THE MEMBERS A TYPE CARRIES: methods, properties, fields and constructors, in source order.
     // A CONSTRUCTOR IS NAMED AFTER ITS TYPE rather than after itself, because that is the name a
     // caller writes after `new`.
-    static func MemberRows(ownerName: string, members: List<Declaration>, lines: string[]): List<EditorSymbolInfoRow> {
+    static func MemberRows(owner: Declaration, ownerName: string, members: List<Declaration>, lines: string[]): List<EditorSymbolInfoRow> {
         rows := new List<EditorSymbolInfoRow>()
 
         for member in members {
@@ -384,7 +384,14 @@ class EditorSymbolTableFacts {
                     fieldType = fieldDeclaration.Type.ToString()
                 }
 
-                rows.Add(new EditorSymbolInfoRow(fieldDeclaration.Name, EditorSymbolTableKind.Field, fieldType, LeadingDocumentation(lines, fieldDeclaration.Line), NoParameters(), NoMembers(), fieldDeclaration.Modifiers))
+                // A bare member `MemberStorageRules` makes an auto-property is a PROPERTY here too, so
+                // completion, semantic tokens and workspace symbols name what reflection shows.
+                fieldKind := EditorSymbolTableKind.Field
+                if MemberStorageRules.IsAutoPropertyField(owner, fieldDeclaration) {
+                    fieldKind = EditorSymbolTableKind.Property
+                }
+
+                rows.Add(new EditorSymbolInfoRow(fieldDeclaration.Name, fieldKind, fieldType, LeadingDocumentation(lines, fieldDeclaration.Line), NoParameters(), NoMembers(), fieldDeclaration.Modifiers))
                 continue
             }
 
