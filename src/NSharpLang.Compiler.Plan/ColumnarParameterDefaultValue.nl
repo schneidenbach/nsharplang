@@ -22,6 +22,7 @@ import NSharpLang.Compiler
 // hold and stay with those callers; everything else — the null reference, `default`, and every
 // boolean, character, string, integral, floating and decimal literal, signed or not — is here.
 class ColumnarParameterDefaultValue {
+
     // `null` for a reference type: `ldnull`, and a null `Constant` row.
     static NullReferenceForm: int => 1
     // The all-zero value of a value type that has no constant spelling — a struct's `default`, a
