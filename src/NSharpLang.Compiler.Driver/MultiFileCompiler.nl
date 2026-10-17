@@ -2220,7 +2220,12 @@ class MultiFileCompiler {
     // Emit the whole assembly through the standalone columnar backend; with no output path the image
     // is kept in memory only.
     private func TryEmitWithColumnarBackend(assemblyName: string, outputPath: string?): bool {
+        ColumnarDeclineTrace.Reset()
         if (_sourceFiles.Count == 0) {
+            // A project whose only sources are `*.tests.nl` reaches here: `nlc build` compiles the
+            // product, test sources belong to `nlc test`/`nlc check`, and Go's `go build` refuses the
+            // same shape with "no non-test Go files". Say so instead of declining without a reason.
+            DeclineWithReason("emit.no-sources", "the project has no source files to compile; files named *.tests.nl are test sources that `nlc build` does not compile (run `nlc test` or `nlc check` for them)")
             return false
         }
 
@@ -2233,6 +2238,7 @@ class MultiFileCompiler {
         for sourceFile in _sourceFiles {
             let source: string? = null
             if (!_sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out source)) {
+                DeclineWithReason("emit.source-unread", "the source text of '" + Path.GetFileName(sourceFile) + "' was not read before emission")
                 return false
             }
             sourceText := source ?? ""
@@ -2242,6 +2248,7 @@ class MultiFileCompiler {
                 summary := plan.Summaries[fullPath]
                 skeleton := summary.InterfaceSkeleton
                 if skeleton == null {
+                    DeclineWithReason("emit.skeleton-missing", "the cached interface skeleton of '" + Path.GetFileName(sourceFile) + "' is missing")
                     return false
                 }
                 sourceText = skeleton
@@ -2724,11 +2731,20 @@ class MultiFileCompiler {
         return false
     }
 
+    // A decline the driver itself makes (before or after the code generator ran) records its reason
+    // in the same trace the generator's declines use, so no `columnar backend declined` message is
+    // ever shown without one.
+    private func DeclineWithReason(siteId: string, message: string): void {
+        ColumnarDeclineTrace.Record(siteId, message, -1, 0, "")
+    }
+
     private func BuildColumnarDeclineDiagnostic(): ColumnarDeclineDiagnostic {
         records := ColumnarDeclineTrace.Snapshot()
         WriteColumnarDeclineTrace(records)
         if (records.Count == 0) {
-            return ColumnarDeclineDiagnostic.Empty
+            // Every decline path records its reason. Reaching here means one did not; the message
+            // says so, because an unexplained decline cannot be reduced and must be reported.
+            return new ColumnarDeclineDiagnostic("the code generator stopped without recording a reason; this is a compiler bug, please report it with the project that produced it", null, 0, 0, 1)
         }
 
         primary := records[0]
