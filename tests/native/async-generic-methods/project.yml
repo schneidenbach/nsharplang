@@ -1,0 +1,9 @@
+name: NSharpLang.AsyncGenericMethods.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# Unannotated async bodies return the Task family, so `.Result` / `.Wait()` are available on every result.
+language:
+  asyncDefaultType: Task

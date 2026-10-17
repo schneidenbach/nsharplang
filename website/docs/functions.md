@@ -1326,6 +1326,49 @@ async func getValue(): ValueTask<int> {
 }
 ```
 
+### Bare `return` in a task-returning function
+
+A unit `async` function (`: Task`, `: ValueTask`, or no return annotation) may leave early with a bare
+`return`. The task completes with no value, enclosing `finally` blocks run, and it works before or
+after the first `await`, inside loops and inside `try`:
+
+```n#
+async func work(x: int): Task {
+    if x == 0 {
+        return              // completes the task
+    }
+    await Task.Delay(1)
+    print "after delay " + x.ToString()
+}
+```
+
+### Generic async functions
+
+An `async` METHOD (static or instance) may declare its own type parameters. The result is
+`Task<T>` (or the project's `language.asyncDefaultType` family), exactly as in C#:
+
+```n#
+import System.Text.Json
+
+class Rd {
+    static async func Read<T>(text: string): T {
+        await Task.Delay(1)
+        return must JsonSerializer.Deserialize<T>(text, new JsonSerializerOptions())
+    }
+}
+
+func main() {
+    n := Rd.Read<int>("5").Result      // type argument written
+    s := Rd.Read<string>("\"x\"").Result
+}
+```
+
+Type arguments are inferred from arguments where they can be, a constraint (`where T : class`)
+applies, and a `T` local may live across an `await`.
+
+A generic `async` free function and a generic `async` local function are not supported yet; declare
+the generic async function as a method on a type instead.
+
 ### Async Void
 
 ```n#
@@ -2200,8 +2243,8 @@ func passThrough<T>(value: T): T {
 The compiler preserves the two owners in CLR metadata: a capture-free local copies enclosing
 parameters onto its synthesized static method, while a capturing local places them on its display
 type. Declaring a local parameter with the same name as an enclosing parameter is still NL316; use a
-distinct name such as `U`. An `async` generic local function is not supported, for the same reason a
-generic `async func` is not supported.
+distinct name such as `U`. An `async` generic local function is not supported yet; declare it as a method
+(see [Generic async functions](#generic-async-functions)).
 
 ### Scope: a local function is visible in its whole block
 

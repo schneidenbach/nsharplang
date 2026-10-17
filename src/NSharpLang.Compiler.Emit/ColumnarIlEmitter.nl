@@ -5538,9 +5538,6 @@ sealed class ColumnarIlEmitter {
                     let sGenericBuilder: System.Reflection.Emit.MethodBuilder? = null
                     sTypeResolution := typeResolution
                     if (m.TypeParamNames.Length > 0) {
-                        if (m.IsAsync) {
-                            return DeclineStatic("emit.declaration.method-return", "generic async static method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
-                        }
                         if (ColumnarFunctionModifierFlags.HasNativeImportModifier(m.ModifierFlags)) {
                             return DeclineStatic("emit.declaration.method-generic", "native-import method '" + structs[s].Name + "." + m.Name + "' cannot declare type parameters", structs[s].Name, -1, 0)
                         }
@@ -5559,7 +5556,8 @@ sealed class ColumnarIlEmitter {
                     let sReturn: System.Type = null
                     sAsyncWrappedReturn: Type? = null
                     if (m.IsAsync) {
-                        if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn)) {
+                        sAsyncShapeResolved := sTypeParamMap != null ? ColumnarInterfaceRealization.TryComputeGenericAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, sTypeParamMap, sTypeResolution.Enums, sTypeResolution.Structs, sTypeResolution.Unions, out sReturn, out sAsyncWrappedReturn) : ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn)
+                        if (!sAsyncShapeResolved) {
                             return DeclineStatic("emit.declaration.method-return", "async static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                     } else {
@@ -5698,9 +5696,6 @@ sealed class ColumnarIlEmitter {
                 mTypeResolution := typeResolution
                 methodOverride := declarationPlan.MethodOverrides.Methods[s][mi]
                 if (m.TypeParamNames.Length > 0) {
-                    if (m.IsAsync && !ColumnarIteratorPlanner.ContainsYield(m.BodyNodes, m.BodyRoot)) {
-                        return DeclineStatic("emit.declaration.method-return", "generic async method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
-                    }
                     // A GENERIC slot's MethodImpl row is written from the name and arity BEFORE the
                     // signature exists (see `DeclaresGenericMethodSlot`), and that decision cannot be
                     // made from a qualified name — so an explicit implementation of a generic interface
@@ -5741,7 +5736,7 @@ sealed class ColumnarIlEmitter {
                             return DeclineStatic("emit.declaration.method-return", "async iterator element type '" + asyncElementCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                         mReturn = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
-                    } else if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn)) {
+                    } else if (!(mTypeParamMap != null ? ColumnarInterfaceRealization.TryComputeGenericAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mTypeParamMap, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn) : ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn))) {
                         return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                     }
                 } else {
@@ -6722,12 +6717,13 @@ sealed class ColumnarIlEmitter {
                 returnType = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
             } else {
                 if (fn.IsAsync) {
-                    // ASYNC (the sync-lowering mirror): generic async declines; the declared return
-                    // resolves to the INNER type and the METHOD signature wraps it — ValueTask(/T) by
-                    // default, Task(/T) for `main` (the legacy emitter's entry-point rule), explicit task-like
-                    // annotations keep their declared family.
+                    // ASYNC (the sync-lowering mirror): the declared return resolves to the INNER type and
+                    // the METHOD signature wraps it — ValueTask(/T) by default, Task(/T) for `main` (the
+                    // legacy emitter's entry-point rule), explicit task-like annotations keep their
+                    // declared family. A generic async FREE function is not modeled yet; generic async
+                    // METHODS are (see `TryComputeGenericAsyncReturnShape`).
                     if (fn.TypeParamNames.Length > 0) {
-                        return false
+                        return DeclineStatic("emit.declaration.function-return", "generic async free function is not modeled for '" + fn.Name + "'", fn.Name, -1, 0)
                     }
                     if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn)) {
                         return DeclineStatic("emit.declaration.function-return", "async function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)
@@ -7075,18 +7071,18 @@ sealed class ColumnarIlEmitter {
                 job.Item5,
                 job.Item6,
                 job.Item4,
-                false,
                 mil,
                 job.Item1,
                 job.Item1,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
                 false,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 job.Item1.GenericParameters,
                 null,
                 null
@@ -7321,18 +7317,18 @@ sealed class ColumnarIlEmitter {
                 new Dictionary<string, int>(StringComparer.Ordinal),
                 new Dictionary<string, Type>(StringComparer.Ordinal),
                 ColumnarTypeOfPlanner.RequiredVoidType(),
-                false,
                 staticInitializerIl,
                 null,
                 staticInitializerDef,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
                 false,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 staticInitializerDef.GenericParameters,
                 null,
                 null
@@ -7658,18 +7654,18 @@ sealed class ColumnarIlEmitter {
                     new Dictionary<string, int>(StringComparer.Ordinal),
                     new Dictionary<string, Type>(StringComparer.Ordinal),
                     ColumnarTypeOfPlanner.RequiredVoidType(),
-                    false,
                     testIl,
                     null,
                     null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
                     false,
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
                     null,
                     null,
                     null
@@ -7970,7 +7966,7 @@ sealed class ColumnarIlEmitter {
         visibleLocalFuncNames: List<string>
     ): bool {
         if (localFn.IsAsync) {
-            return DeclineStatic("emit.local-function.generic-async", "a generic local function cannot be `async` — the state machine has no type arguments to carry", fn.Name + "." + localFn.Name, -1, 0)
+            return DeclineStatic("emit.local-function.generic-async", "a generic `async` local function is not modeled yet — declare the generic async function as a method instead", fn.Name + "." + localFn.Name, -1, 0)
         }
         runsOnDisplay := closure != null && closure.IsDisplayMethod(localFn.Name)
         runsOnEnclosingInstance := closure != null && closure.IsInstanceMethod(localFn.Name)
@@ -25117,10 +25113,11 @@ sealed class ColumnarIlEmitter {
             inferenceOrdinals,
             inferenceParamTypes,
             ColumnarTypeOfPlanner.RequiredVoidType(),
-            false,
             _il,
             _currentStruct,
             _enclosingType,
+            false,
+            false,
             _boxedCaptures,
             _localFuncs,
             _declaredLocalFuncNodes,
@@ -25128,7 +25125,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
-            false,
             _typeParameters,
             null,
             null

@@ -1716,7 +1716,10 @@ on the new owner. `StrongBox<T>` construction and field access use `TypeBuilder.
 before bake. The generic ones ride a SEPARATE map on `ColumnarLocalFunctionLowering`
 (`GenericLocalFuncs`) because the direct map's entries are handles a call site dispatches without
 closing. The same model applies inside a generic method on a non-generic source type. An `async`
-generic local function remains refused (`emit.local-function.generic-async`).
+generic local function remains refused (`emit.local-function.generic-async`). Generic async METHODS (static and instance) resolve
+their task return through `ColumnarInterfaceRealization.TryComputeGenericAsyncReturnShape`; async lowering is
+synchronous, so no state-machine type needs the type arguments. A generic async free function is refused at
+`emit.declaration.function-return`.
 
 **THE CONTEXTUAL-TIER GATE ASKS ALL THREE METHOD-GROUP SHAPES** (2026-09-14, stream CAPTURE3).
 `ColumnarIlEmitter.IsContextualDelegateValueNode` — the predicate `HasContextualDelegateArgument`
