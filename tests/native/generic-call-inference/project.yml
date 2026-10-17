@@ -1,0 +1,13 @@
+name: NSharpLang.GenericCallInference.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# `AddSingleton<T>(sp => ...)` is the registration shape that motivated the lambda rows; the other
+# rows use only the shared framework, plus the immutable collections for a generic `params` factory.
+dependencies:
+  - nuget: Microsoft.Extensions.DependencyInjection
+    version: 10.0.7
+  - nuget: System.Collections.Immutable
+    version: 10.0.7

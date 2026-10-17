@@ -2,8 +2,10 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Numerics
 import System.Reflection
+import System.Reflection.Emit
 
 class RuntimeGenericInProbe {
     static func Echo<T>(in value: T): T {
@@ -286,9 +288,9 @@ test "a written type-argument count the declaration does not have selects nothin
     assert !ColumnarExplicitRuntimeGenericMethodResolver.Resolve(hashOwner, "Combine", GenericMethodTypes1(typeof(byte)), 2, true).IsSelected
 }
 
-// CONSTRAINTS ARE ENFORCED BY `MakeGenericMethod`, so a violated one drops the candidate here rather
-// than throwing at emit. `Enum.Parse<TEnum>(string) where TEnum : struct, Enum` takes an enum and
-// nothing else.
+// `CloseOrNull` checks the declared constraints before closure; `MakeGenericMethod` is an additional
+// runtime check, but it does not validate TypeBuilder-bound arguments. `Enum.Parse<TEnum>(string) where
+// TEnum : struct, Enum` takes an enum and nothing else.
 test "a written type argument the declared constraints refuse selects nothing" {
     enumOwner := typeof(Enum)
 
@@ -328,4 +330,515 @@ test "an open or builder-bound owner selects nothing" {
     listDefinition := typeof(List<int>).GetGenericTypeDefinition()
 
     assert !ColumnarExplicitRuntimeGenericMethodResolver.Resolve(listDefinition, "ConvertAll", GenericMethodTypes1(typeof(string)), 1, false).IsSelected
+}
+
+// ── declared constraints are enforced over types this compilation is still writing ───────────────
+//
+// `MakeGenericMethod` validates constraints for runtime types only; over a TypeBuilder it accepts
+// anything, so inference that reaches a source `struct` would close `where T : class` and emit
+// unverifiable IL. `SatisfiesConstraints` is the arbiter, asked by every closure.
+class ConstraintProbe {
+    static func NeedsClass<T>(value: T): T where T: class {
+        return value
+    }
+
+    static func NeedsStruct<T>(value: T): T where T: struct {
+        return value
+    }
+
+    static func NeedsNew<T>(value: T): T where T: new() {
+        return value
+    }
+
+    static func NeedsDisposable<T>(value: T): T where T: IDisposable {
+        return value
+    }
+
+    static func NeedsMemoryStream<T>(value: T): T where T: MemoryStream {
+        return value
+    }
+}
+
+class ConstraintReferenceArgument<T> where T: class {
+}
+
+class ConstraintValueArgument<T> where T: struct {
+}
+
+class ConstraintEnumArgument<T> where T: Enum {
+}
+
+class ConstraintNewArgument<T> where T: new() {
+}
+
+class ConstraintDisposableArgument<T> where T: IDisposable {
+}
+
+class ConstraintMemoryStreamArgument<T> where T: MemoryStream {
+}
+
+class ConstraintUnboundedArgument<T> {
+}
+
+func ConstraintProbeMethod(name: string): MethodInfo {
+    method := typeof(ConstraintProbe).GetMethod(name)
+    if method == null {
+        throw new InvalidOperationException("Constraint probe method not found: " + name)
+    }
+    return method
+}
+
+func ConstraintProbeClosable(name: string, argument: Type): bool {
+    return ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod(name), GenericMethodTypes1(argument)) != null
+}
+
+// An uncreated source-shaped type: a class, or a struct when `isStruct`.
+func ConstraintProbeSourceType(isStruct: bool, createRuntimeType: bool = false): Type {
+    identity := "ConstraintProbeSource" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    parent := isStruct ? typeof(ValueType) : typeof(object)
+    attributes := TypeAttributes.Public
+    if isStruct {
+        attributes = attributes | TypeAttributes.Sealed | TypeAttributes.SequentialLayout
+    }
+    owner := module.DefineType("Shape", attributes, parent)
+    if !isStruct {
+        constructor := owner.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes)
+        il := constructor.GetILGenerator()
+        il.Emit(OpCodes.Ldarg_0)
+        objectConstructor := typeof(object).GetConstructor(Type.EmptyTypes)
+        if objectConstructor == null {
+            throw new InvalidOperationException("Object constructor not found")
+        }
+        il.Emit(OpCodes.Call, objectConstructor)
+        il.Emit(OpCodes.Ret)
+    }
+    if createRuntimeType {
+        return owner.CreateType()
+    }
+    return owner
+}
+
+func ConstraintProbeSourceClassWithoutPublicParameterlessConstructor(): Type {
+    identity := "ConstraintProbeNoNewSource" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType("Shape", TypeAttributes.Public, typeof(object))
+    constructor := owner.DefineConstructor(MethodAttributes.Private, CallingConventions.Standard, Type.EmptyTypes)
+    il := constructor.GetILGenerator()
+    il.Emit(OpCodes.Ldarg_0)
+    objectConstructor := typeof(object).GetConstructor(Type.EmptyTypes)
+    if objectConstructor == null {
+        throw new InvalidOperationException("Object constructor not found")
+    }
+    il.Emit(OpCodes.Call, objectConstructor)
+    il.Emit(OpCodes.Ret)
+    return owner.CreateType()
+}
+
+func ConstraintProbeSourceMemoryStreamSubtype(): Type {
+    identity := "ConstraintProbeMemoryStreamSource" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    return module.DefineType("Shape", TypeAttributes.Public, typeof(MemoryStream))
+}
+
+test "a source struct does not close a class-constrained generic method" {
+    sourceStruct := ConstraintProbeSourceType(true)
+    sourceClass := ConstraintProbeSourceType(false)
+
+    assert !ConstraintProbeClosable("NeedsClass", sourceStruct)
+    assert ConstraintProbeClosable("NeedsClass", sourceClass)
+    assert !ConstraintProbeClosable("NeedsClass", typeof(int))
+    assert ConstraintProbeClosable("NeedsClass", typeof(string))
+    assert ConstraintProbeClosable("NeedsClass", typeof(IDisposable))
+}
+
+test "a source class does not close a struct-constrained generic method" {
+    assert ConstraintProbeClosable("NeedsStruct", ConstraintProbeSourceType(true))
+    assert !ConstraintProbeClosable("NeedsStruct", ConstraintProbeSourceType(false))
+    assert ConstraintProbeClosable("NeedsStruct", typeof(int))
+    assert !ConstraintProbeClosable("NeedsStruct", typeof(int?))
+    assert !ConstraintProbeClosable("NeedsStruct", typeof(string))
+}
+
+test "a new() constraint refuses a type with no public parameterless constructor" {
+    assert ConstraintProbeClosable("NeedsNew", typeof(List<int>)), "List<T> has a public parameterless constructor"
+    assert ConstraintProbeClosable("NeedsNew", typeof(int)), "value types satisfy new()"
+    assert !ConstraintProbeClosable("NeedsNew", typeof(int?)), "nullable value types do not satisfy new()"
+    assert !ConstraintProbeClosable("NeedsNew", ConstraintProbeSourceType(false)), "an uncreated source class cannot prove its public constructor before it is baked"
+    assert ConstraintProbeClosable("NeedsNew", ConstraintProbeSourceType(false, true)), "a runtime class with a public parameterless constructor satisfies new()"
+    assert !ConstraintProbeClosable("NeedsNew", ConstraintProbeSourceClassWithoutPublicParameterlessConstructor()), "a source class with only a private constructor does not satisfy new()"
+    assert !ConstraintProbeClosable("NeedsNew", typeof(Stream)), "abstract classes do not satisfy new()"
+    assert !ConstraintProbeClosable("NeedsNew", typeof(string)), "string has no public parameterless constructor"
+}
+
+test "a type constraint refuses an argument that does not derive from or implement it" {
+    assert ConstraintProbeClosable("NeedsDisposable", typeof(MemoryStream))
+    assert !ConstraintProbeClosable("NeedsDisposable", typeof(string))
+    assert !ConstraintProbeClosable("NeedsDisposable", ConstraintProbeSourceType(false))
+    assert !ConstraintProbeClosable("NeedsDisposable", ConstraintProbeSourceType(true))
+}
+
+test "a source class satisfies a generic type constraint through its external base" {
+    assert ConstraintProbeClosable("NeedsMemoryStream", ConstraintProbeSourceMemoryStreamSubtype())
+}
+
+test "open type arguments must prove the special and declared constraints" {
+    reference := typeof(ConstraintReferenceArgument<object>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    value := typeof(ConstraintValueArgument<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    enumeration := typeof(ConstraintEnumArgument<DayOfWeek>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    constructor := typeof(ConstraintNewArgument<List<int>>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    disposable := typeof(ConstraintDisposableArgument<MemoryStream>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    memoryStream := typeof(ConstraintMemoryStreamArgument<MemoryStream>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    unconstrained := typeof(ConstraintUnboundedArgument<object>).GetGenericTypeDefinition().GetGenericArguments()[0]
+
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsClass"), GenericMethodTypes1(reference)) != null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsClass"), GenericMethodTypes1(value)) == null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsClass"), GenericMethodTypes1(enumeration)) == null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsClass"), GenericMethodTypes1(unconstrained)) == null
+
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsStruct"), GenericMethodTypes1(value)) != null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsStruct"), GenericMethodTypes1(reference)) == null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsStruct"), GenericMethodTypes1(unconstrained)) == null
+
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsNew"), GenericMethodTypes1(constructor)) != null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsNew"), GenericMethodTypes1(unconstrained)) == null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsDisposable"), GenericMethodTypes1(disposable)) != null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsDisposable"), GenericMethodTypes1(memoryStream)) != null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsClass"), GenericMethodTypes1(memoryStream)) != null
+    assert ColumnarRuntimeGenericMethodResolver.CloseOrNull(ConstraintProbeMethod("NeedsDisposable"), GenericMethodTypes1(unconstrained)) == null
+}
+
+class ConstraintExtensionProbe {
+    static func ReferenceOnly<T>(_receiver: T): int where T: class {
+        return 1
+    }
+}
+
+func ConstraintExtensionProbeCandidate(): ColumnarExtensionMethodCandidate {
+    method := typeof(ConstraintExtensionProbe).GetMethod("ReferenceOnly")
+    if method == null || method.DeclaringType == null {
+        throw new InvalidOperationException("Constraint extension probe method not found")
+    }
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = method.GetParameters()[0].ParameterType
+    return new ColumnarExtensionMethodCandidate(method, method.DeclaringType, parameterTypes, method.ReturnType)
+}
+
+test "extension inference declines a source struct for a class-constrained receiver" {
+    sourceStruct := ConstraintProbeSourceType(true)
+    sourceClass := ConstraintProbeSourceType(false)
+    candidate := ConstraintExtensionProbeCandidate()
+    noArguments := new Type[](0)
+    noFacts := ColumnarDirectCallArgumentFacts.Empty(0)
+    structTypeArguments := GenericMethodTypes1(sourceStruct)
+    classTypeArguments := GenericMethodTypes1(sourceClass)
+
+    assert ColumnarExtensionMethodResolver.ResolveCandidateShape(candidate, sourceStruct, noArguments, noFacts, 0) == null
+    assert ColumnarExtensionMethodResolver.ResolveCandidateShape(candidate, sourceClass, noArguments, noFacts, 0) != null
+    assert ColumnarExtensionMethodResolver.CloseExplicitOrNull(candidate, sourceStruct, structTypeArguments) == null
+    assert ColumnarExtensionMethodResolver.CloseExplicitOrNull(candidate, sourceClass, classTypeArguments) != null
+}
+
+func NullExpandedExtensionProbeMethod(): MethodInfo {
+    identity := "NullExpandedExtensionProbe" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+    methodBuilder := owner.DefineMethod("Pack", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard)
+    methodTypeParameter := methodBuilder.DefineGenericParameters(["T"])[0]
+    receiverType := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(GenericMethodTypes1(methodTypeParameter))
+    methodBuilder.SetReturnType(typeof(int))
+    methodBuilder.SetParameters(GenericMethodTypes2(receiverType, methodTypeParameter.MakeArrayType()))
+    methodBuilder.DefineParameter(1, ParameterAttributes.None, "receiver")
+    packedParameter := methodBuilder.DefineParameter(2, ParameterAttributes.None, "values")
+    paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+    if paramArrayConstructor == null {
+        throw new InvalidOperationException("ParamArrayAttribute constructor not found")
+    }
+    packedParameter.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+    il := methodBuilder.GetILGenerator()
+    il.Emit(OpCodes.Ldc_I4_0)
+    il.Emit(OpCodes.Ret)
+
+    createdOwner := owner.CreateType()
+    method := createdOwner.GetMethod("Pack")
+    if method == null {
+        throw new InvalidOperationException("Dynamic expanded-extension probe method not found")
+    }
+    return method
+}
+
+test "expanded extension inference skips a null literal after binding from the receiver" {
+    method := NullExpandedExtensionProbeMethod()
+    if method.DeclaringType == null {
+        throw new InvalidOperationException("Null expansion probe method did not retain its declaring type")
+    }
+
+    parameters := method.GetParameters()
+    assert method.IsGenericMethodDefinition, "the params probe must remain an open generic definition"
+    assert parameters.Length == 2, "the extension shape has a receiver and a params slot"
+    assert ColumnarExtensionMethodResolver.IsParamsParameter(parameters[1]), "the final slot must carry ParamArrayAttribute"
+    parameterTypes := new Type[](parameters.Length)
+    index := 0
+    while index < parameters.Length {
+        parameterTypes[index] = parameters[index].ParameterType
+        index = index + 1
+    }
+    candidate := new ColumnarExtensionMethodCandidate(method, method.DeclaringType, parameterTypes, method.ReturnType)
+    argumentTypes := new Type[](1)
+    argumentTypes[0] = typeof(object)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.IsNullLiteral[0] = true
+
+    callTypes := new Type[](2)
+    callTypes[0] = typeof(List<int>)
+    callTypes[1] = typeof(object)
+    callFacts := ColumnarDirectCallArgumentFacts.Empty(2)
+    callFacts.IsNullLiteral[1] = true
+    sharedInference := ColumnarRuntimeGenericMethodResolver.InferAndClose(method, callTypes, callFacts, true, false)
+    assert sharedInference != null, "the shared expanded inference loop must bind T from the receiver and skip the packed null literal"
+    assert sharedInference.ParameterTypes[1] == typeof(int[]), "the shared closure must substitute T in the params array"
+
+    expanded := ColumnarExtensionMethodResolver.ResolveExpandedShape(candidate, typeof(List<int>), argumentTypes, facts)
+    assert expanded != null, "the receiver must bind T before the packed null literal is skipped"
+    assert expanded.ParameterTypes[1] == typeof(int[]), "the closed params parameter must use the receiver's int type"
+}
+
+// These overload pairs isolate the cross-tier tie-break used after both resolvers have independently
+// found an applicable candidate. List<string> converts by reference to both `IEnumerable<string>`
+// and `object`; the first target is more specific. `Identical<T>(object)` closes to the same parameter
+// list as the non-generic overload, where the non-generic member wins.
+class CrossTierOverloadProbe {
+    static func Choose<T>(_values: IEnumerable<T>): int {
+        return 1
+    }
+
+    static func Choose(_values: object): int {
+        return 2
+    }
+
+    static func Optional<T>(_values: IEnumerable<T>, _mode: string? = null): int {
+        return 1
+    }
+
+    static func Optional(_values: object, _mode: string? = null): int {
+        return 2
+    }
+
+    static func Identical<T>(_value: T): int {
+        return 1
+    }
+
+    static func Identical(_value: object): int {
+        return 2
+    }
+}
+
+interface CrossTierLeftTarget {
+}
+
+interface CrossTierRightTarget {
+}
+
+class CrossTierBothTargets: CrossTierLeftTarget, CrossTierRightTarget {
+}
+
+class CrossTierIncomparableProbe {
+    static func Choose<T>(_value: CrossTierLeftTarget, _witness: T): int {
+        return 1
+    }
+
+    static func Choose(_value: CrossTierRightTarget, _witness: string): int {
+        return 2
+    }
+}
+
+class CrossTierOptionalArityProbe {
+    static func Optional<T>(_value: T, _first: string? = null): int {
+        return 1
+    }
+
+    static func Optional(_value: object, _first: string? = null, _second: string? = null): int {
+        return 2
+    }
+}
+
+class CrossTierGenericAmbiguityProbe {
+    static func OptionalChoose<T>(_value: IComparable<T>, _witness: T, _mode: string? = null): int {
+        return 1
+    }
+
+    static func OptionalChoose<T>(_value: IFormattable, _witness: T, _mode: string? = null): int {
+        return 2
+    }
+
+    static func OptionalChoose(_value: object, _witness: int, _mode: string? = null): int {
+        return 3
+    }
+}
+
+func CrossTierMethodOrThrow(method: MethodInfo?): MethodInfo {
+    if method == null {
+        throw new InvalidOperationException("A selected cross-tier candidate did not carry a method")
+    }
+    return method
+}
+
+// The ordinary resolver deliberately defers a weaker conversion when a generic candidate of the
+// same arity is present. These rows isolate the cross-tier better-member reducer, so construct its
+// non-generic tier result from the reflected declaration after the test has established that the
+// supplied argument converts to it.
+func CrossTierNonGenericSelection(owner: Type, memberName: string, parameterCount: int): ColumnarOrdinaryRuntimeDirectCallSelection {
+    for candidate in owner.GetMethods() {
+        if candidate.Name == memberName && candidate.IsStatic && !candidate.IsGenericMethod {
+            parameters := candidate.GetParameters()
+            if parameters != null && parameters.Length == parameterCount {
+                parameterTypes := new Type[](parameters.Length)
+                index := 0
+                while index < parameters.Length {
+                    parameterTypes[index] = parameters[index].ParameterType
+                    index = index + 1
+                }
+                return ColumnarOrdinaryRuntimeDirectCallResolver.Selected(owner, candidate, parameterTypes, true)
+            }
+        }
+    }
+
+    throw new InvalidOperationException("Non-generic cross-tier probe method not found: " + memberName)
+}
+
+test "more-specific generic parameter types win normal and optional cross-tier comparisons" {
+    owner := typeof(CrossTierOverloadProbe)
+    argumentTypes := new Type[](1)
+    argumentTypes[0] = typeof(List<string>)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+
+    normalNonGeneric := CrossTierNonGenericSelection(owner, "Choose", 1)
+    normalGeneric := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "Choose", argumentTypes, facts, true)
+    assert normalNonGeneric.IsSelected, "object overload should be viable"
+    assert normalGeneric.IsSelected, "the generic interface overload should infer string from List<string>"
+    normalBest := ColumnarRuntimeGenericMethodResolver.BetterSelection(normalNonGeneric, normalGeneric, argumentTypes, facts)
+    assert CrossTierMethodOrThrow(normalBest.Method).IsGenericMethod, "the more-specific IEnumerable<string> parameter should win"
+
+    optionalNonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(owner, "Optional", argumentTypes, facts, true)
+    optionalGeneric := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(owner, "Optional", argumentTypes, facts, true)
+    assert optionalNonGeneric.IsSelected, "object optional overload should be viable"
+    assert optionalGeneric.IsSelected, "generic interface optional overload should infer string"
+    optionalBest := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(optionalNonGeneric, optionalGeneric, argumentTypes, facts)
+    assert CrossTierMethodOrThrow(optionalBest.Method).IsGenericMethod, "the more-specific optional parameter should win"
+}
+
+test "optional cross-tier fallback ignores differing omitted-tail lengths" {
+    owner := typeof(CrossTierOptionalArityProbe)
+    argumentTypes := new Type[](1)
+    argumentTypes[0] = typeof(object)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+
+    nonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(owner, "Optional", argumentTypes, facts, true)
+    generic := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(owner, "Optional", argumentTypes, facts, true)
+    assert nonGeneric.IsSelected
+    assert generic.IsSelected
+    best := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(nonGeneric, generic, argumentTypes, facts)
+    assert best.IsSelected
+    assert !CrossTierMethodOrThrow(best.Method).IsGenericMethod
+    assert best.ParameterTypes.Length == 3
+}
+
+test "generic optional-family ambiguity falls through to the viable non-generic candidate" {
+    owner := typeof(CrossTierGenericAmbiguityProbe)
+    argumentTypes := new Type[](2)
+    argumentTypes[0] = typeof(int)
+    argumentTypes[1] = typeof(int)
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+
+    nonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(owner, "OptionalChoose", argumentTypes, facts, true)
+    generic := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(owner, "OptionalChoose", argumentTypes, facts, true)
+    assert nonGeneric.IsSelected, "the non-generic fallback should be viable"
+    assert !generic.IsSelected, "the incomparable generic pair should remain ambiguous"
+    best := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(nonGeneric, generic, argumentTypes, facts)
+    assert best.IsSelected, "a viable non-generic candidate should survive generic-family ambiguity"
+    assert !CrossTierMethodOrThrow(best.Method).IsGenericMethod, "generic-family ambiguity should fall through to the non-generic candidate"
+}
+
+test "identical closed parameter lists prefer the non-generic candidate" {
+    owner := typeof(CrossTierOverloadProbe)
+    argumentTypes := new Type[](1)
+    argumentTypes[0] = typeof(object)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+
+    nonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(owner, "Identical", argumentTypes, facts, true)
+    generic := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "Identical", argumentTypes, facts, true)
+    assert nonGeneric.IsSelected, "the non-generic overload should be viable"
+    assert generic.IsSelected, "the generic overload should be viable"
+    best := ColumnarRuntimeGenericMethodResolver.BetterSelection(nonGeneric, generic, argumentTypes, facts)
+    assert !CrossTierMethodOrThrow(best.Method).IsGenericMethod, "incomparable parameter targets should keep the documented non-generic fallback"
+}
+
+test "incomparable generic and non-generic candidates keep the documented non-generic fallback" {
+    owner := typeof(CrossTierIncomparableProbe)
+    argumentTypes := new Type[](2)
+    argumentTypes[0] = typeof(CrossTierBothTargets)
+    argumentTypes[1] = typeof(string)
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+
+    nonGeneric := CrossTierNonGenericSelection(owner, "Choose", 2)
+    generic := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "Choose", argumentTypes, facts, true)
+    assert nonGeneric.IsSelected
+    assert generic.IsSelected
+    best := ColumnarRuntimeGenericMethodResolver.BetterSelection(nonGeneric, generic, argumentTypes, facts)
+    assert !CrossTierMethodOrThrow(best.Method).IsGenericMethod
+}
+
+test "generic Array overloads beat the broader non-generic overloads" {
+    owner := typeof(Array)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    sortArguments := new Type[](1)
+    sortArguments[0] = typeof(int[])
+
+    sortNonGeneric := CrossTierNonGenericSelection(owner, "Sort", 1)
+    sortGeneric := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "Sort", sortArguments, facts, true)
+    assert sortNonGeneric.IsSelected, "Array.Sort(Array) should be viable"
+    assert sortGeneric.IsSelected, "Array.Sort<T>(T[]) should be viable"
+    sortBest := ColumnarRuntimeGenericMethodResolver.BetterSelection(sortNonGeneric, sortGeneric, sortArguments, facts)
+    assert CrossTierMethodOrThrow(sortBest.Method).IsGenericMethod, "int[] is more specific than Array"
+
+    indexArguments := new Type[](2)
+    indexArguments[0] = typeof(int[])
+    indexArguments[1] = typeof(int)
+    indexFacts := ColumnarDirectCallArgumentFacts.Empty(2)
+    indexNonGeneric := CrossTierNonGenericSelection(owner, "IndexOf", 2)
+    indexGeneric := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "IndexOf", indexArguments, indexFacts, true)
+    assert indexNonGeneric.IsSelected, "Array.IndexOf(Array, object) should be viable"
+    assert indexGeneric.IsSelected, "Array.IndexOf<T>(T[], T) should be viable"
+    indexBest := ColumnarRuntimeGenericMethodResolver.BetterSelection(indexNonGeneric, indexGeneric, indexArguments, indexFacts)
+    assert CrossTierMethodOrThrow(indexBest.Method).IsGenericMethod, "int[] and int are more specific than Array and object"
+}
+
+class ProtectedGenericMethodProbe {
+    protected func Hidden<T>(value: T): T {
+        return value
+    }
+}
+
+class ProtectedGenericDerivedMethodProbe: ProtectedGenericMethodProbe {
+}
+
+test "external generic lookup does not admit a protected method inherited from a base" {
+    method := typeof(ProtectedGenericDerivedMethodProbe).GetMethod("Hidden", BindingFlags.Instance | BindingFlags.NonPublic)
+    assert method != null
+    assert !method.IsPublic
+    assert method.DeclaringType == typeof(ProtectedGenericMethodProbe)
+
+    selection := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(
+        typeof(ProtectedGenericDerivedMethodProbe),
+        "Hidden",
+        GenericMethodTypes1(typeof(int)),
+        1,
+        false
+    )
+    assert !selection.IsSelected
 }

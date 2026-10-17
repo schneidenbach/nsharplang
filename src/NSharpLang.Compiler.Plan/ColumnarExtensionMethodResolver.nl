@@ -119,13 +119,14 @@ class ColumnarExtensionMethodSelection {
 // static class) over the referenced-assembly runtime scan; selection reuses the shared direct-call
 // argument scoring so an extension and an ordinary call never disagree about conversion preference.
 //
-// This owner is intentionally narrow: reference-type receivers only, exact fixed arity or a
-// trailing run of optional parameters whose metadata default is null. Generic candidates close by
-// EXACT structural inference from the receiver and explicit argument types (`IEnumerable<int>`
-// receiver -> Enumerable.Take<int>); partial inference, builder-bound type arguments,
-// interface/variance receiver widening (`List<int>` against `IEnumerable<TSource>`), and
-// trailing-optional filling on generic candidates all decline. Anything outside the admitted
-// surface leaves the call to its later owner.
+// This owner is intentionally narrow: reference-type receivers only, exact fixed arity, a trailing run
+// of optional parameters whose metadata default is fillable, or a `params` tail. Generic candidates
+// close by EXACT structural inference from the receiver and the SUPPLIED argument types
+// (`IEnumerable<int>` receiver -> Enumerable.Take<int>; `DbSet<Person>` -> FromSqlRaw<Person>, with a
+// source-declared type argument); a method type parameter no supplied argument binds, a closure the
+// declared constraints refuse, and interface/variance receiver widening (`List<int>` against
+// `IEnumerable<TSource>`) all decline. Anything outside the admitted surface leaves the call to its
+// later owner.
 class ColumnarExtensionMethodResolver {
 
     // ATTRIBUTES ARE MATCHED BY FULL NAME, NEVER BY TYPE IDENTITY, and the two `Type.GetType` lookups
@@ -442,7 +443,7 @@ class ColumnarExtensionMethodResolver {
         for indexed in candidates {
             candidate: ColumnarExtensionMethodCandidate? = null
             if indexed != null {
-                candidate = ResolveCandidateShape(indexed, receiverType, argumentTypes, explicitCount)
+                candidate = ResolveCandidateShape(indexed, receiverType, argumentTypes, argumentFacts, explicitCount)
             }
 
             if candidate != null && CandidateAppliesToReceiver(candidate, receiverType) {
@@ -486,12 +487,11 @@ class ColumnarExtensionMethodResolver {
     // per-argument types the packing produces. The scorer is the shared one, given the expanded list,
     // so `LogDebug("started")` picks the same conversion story an ordinary two-parameter call would.
     //
-    // GENERIC DEFINITIONS ARE DELIBERATELY OUTSIDE THIS TIER. Inferring a method type argument from
-    // an argument that is a packed ELEMENT rather than a parameter is its own inference rule, and no
-    // call site has needed it: the shapes this exists for (`LoggerExtensions.LogDebug` and its four
-    // siblings, whose tail is `params object?[]`) are all non-generic. A generic `params` extension
-    // therefore still declines here rather than being guessed at; a site that WRITES its type
-    // arguments has nothing to infer, and `ResolveExplicitExpanded` packs its tail.
+    // A GENERIC DEFINITION CLOSES BY INFERENCE FIRST. `set.FromSqlRaw(sql, n)` against `FromSqlRaw<TEntity>(
+    // this DbSet<TEntity> source, string sql, params object[] parameters)` binds `TEntity` from the
+    // receiver, and a type parameter the packed tail mentions (`Create<T>(this X x, params T[] items)`)
+    // binds from every packed argument, each unified against the tail's element type. A site that
+    // WRITES its type arguments has nothing to infer, and `ResolveExplicitExpanded` packs its tail.
     static func ResolveExpanded(candidates: List<ColumnarExtensionMethodCandidate>, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarExtensionMethodSelection {
         explicitCount := argumentTypes.Length
         bestScore := -1
@@ -499,8 +499,16 @@ class ColumnarExtensionMethodResolver {
         bestCount := 0
         bestElementType: Type? = null
         selected: ColumnarExtensionMethodCandidate? = null
-        for candidate in candidates {
-            if candidate != null && !candidate.Method.IsGenericMethodDefinition && CandidateAppliesToReceiver(candidate, receiverType) {
+        for indexed in candidates {
+            // A generic definition is closed first, by inferring its type arguments from the receiver,
+            // the fixed arguments and every PACKED argument; the closed candidate is then scored as
+            // any other is.
+            candidate: ColumnarExtensionMethodCandidate? = indexed
+            if indexed != null && indexed.Method.IsGenericMethodDefinition {
+                candidate = ResolveExpandedShape(indexed, receiverType, argumentTypes, argumentFacts)
+            }
+
+            if candidate != null && CandidateAppliesToReceiver(candidate, receiverType) {
                 parameters := ParametersOrNull(candidate.Method)
                 if parameters != null {
                     expanded := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, candidate.ParameterTypes, 1, explicitCount)
@@ -563,10 +571,10 @@ class ColumnarExtensionMethodResolver {
     }
 
     // THE EXPANDED HALF OF THE SAME RULE. A written type-argument list closes a `params` tail as
-    // completely as it closes every other slot, so the inference question that keeps generic
-    // definitions out of `ResolveExpanded` is never asked here: `app.UseMiddleware<Stamp>()` closes
-    // `UseMiddleware<TMiddleware>(this IApplicationBuilder, params object?[] args)` from what the
-    // site wrote and packs its zero trailing arguments into an empty `object?[]`, exactly as C# does.
+    // completely as it closes every other slot, so there is no inference question here:
+    // `app.UseMiddleware<Stamp>()` closes `UseMiddleware<TMiddleware>(this IApplicationBuilder,
+    // params object?[] args)` from what the site wrote and packs its zero trailing arguments into an
+    // empty `object?[]`, exactly as C# does.
     static func CollectExplicitExpanded(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, selected: List<ColumnarExtensionMethodCandidate>): bool {
         candidates := new List<ColumnarExtensionMethodCandidate>()
         if selected == null || !TryGetExplicitCandidates(index, receiverType, memberName, typeArguments, argumentCount, out candidates) {
@@ -612,21 +620,19 @@ class ColumnarExtensionMethodResolver {
     }
 
     // One generic definition of the written arity, closed over the written type arguments, or null
-    // when the arity differs, the runtime refuses the closure, or the closed receiver slot does not
-    // accept the receiver.
+    // when the arity differs, a declared constraint fails, Reflection cannot close the method, or the
+    // closed receiver slot does not accept the receiver.
     static func CloseExplicitOrNull(indexed: ColumnarExtensionMethodCandidate, receiverType: Type, typeArguments: Type[]): ColumnarExtensionMethodCandidate? {
         if !indexed.Method.IsGenericMethodDefinition || indexed.Method.GetGenericArguments().Length != typeArguments.Length {
             return null
         }
 
-        closedMethod := ColumnarRuntimeGenericMethodResolver.CloseOrNull(indexed.Method, typeArguments)
-        closedParameterTypes := ColumnarRuntimeGenericMethodResolver.ClosedParameterTypesOrNull(indexed.Method, typeArguments)
-        closedReturnType := ColumnarRuntimeGenericMethodResolver.SubstituteMethodTypeArguments(indexed.ReturnType, typeArguments)
-        if closedMethod == null || closedParameterTypes == null || closedReturnType == null || !ReferenceAssignableFrom(closedParameterTypes[0], receiverType) {
+        closed := ColumnarRuntimeGenericMethodResolver.CloseSubstituted(indexed.Method, typeArguments)
+        if closed == null || !ReferenceAssignableFrom(closed.ParameterTypes[0], receiverType) {
             return null
         }
 
-        return new ColumnarExtensionMethodCandidate(closedMethod, indexed.DeclaringType, closedParameterTypes, closedReturnType)
+        return new ColumnarExtensionMethodCandidate(closed.Method, indexed.DeclaringType, closed.ParameterTypes, closed.ReturnType)
     }
 
     // The unique candidate for a site whose arguments cannot all be typed before emission — a lambda
@@ -783,146 +789,64 @@ class ColumnarExtensionMethodResolver {
     }
 
     // A non-generic candidate resolves as itself. A generic method DEFINITION resolves by inferring
-    // EVERY method type argument from the receiver and explicit argument types, then closing the
-    // definition into an exact runtime handle. The generic surface is deliberately exact: the arity
-    // must match with no optional filling, inference is structural unification only, and a closure
-    // the runtime rejects (a violated constraint) is not a candidate.
-    static func ResolveCandidateShape(candidate: ColumnarExtensionMethodCandidate, receiverType: Type, argumentTypes: Type[], explicitCount: int): ColumnarExtensionMethodCandidate? {
-        method := candidate.Method
-        if !method.IsGenericMethodDefinition {
+    // EVERY method type argument from the receiver and the SUPPLIED argument types, then closing the
+    // definition into an exact runtime handle. Inference is structural unification only, an omitted
+    // trailing optional contributes nothing to it (so a type parameter only the omitted tail mentions
+    // stays unbound and loses the candidate), and a closure the declared constraints refuse is not a
+    // candidate.
+    static func ResolveCandidateShape(candidate: ColumnarExtensionMethodCandidate, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, explicitCount: int): ColumnarExtensionMethodCandidate? {
+        if !candidate.Method.IsGenericMethodDefinition {
             return candidate
         }
 
-        if candidate.ParameterTypes.Length - 1 != explicitCount {
+        return InferExtensionCandidate(candidate, receiverType, argumentTypes, argumentFacts, explicitCount, false)
+    }
+
+    // The expanded form of the same inference, for a candidate whose last parameter is a `params`
+    // array: slots before the tail unify with their own arguments and every packed argument with the
+    // tail's ELEMENT type.
+    static func ResolveExpandedShape(candidate: ColumnarExtensionMethodCandidate, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarExtensionMethodCandidate? {
+        parameters := ParametersOrNull(candidate.Method)
+        if parameters == null || parameters.Length != candidate.ParameterTypes.Length || parameters.Length < 2 || !IsParamsParameter(parameters[parameters.Length - 1]) {
             return null
         }
 
-        typeParameters := method.GetGenericArguments()
-        if typeParameters == null || typeParameters.Length == 0 {
+        return InferExtensionCandidate(candidate, receiverType, argumentTypes, argumentFacts, argumentTypes.Length, true)
+    }
+
+    // The one inference loop both shapes share: the receiver unifies with slot 0, then each supplied
+    // argument with the slot `ArgumentSlotTypesOrNull` names for it. A `null` literal carries no type
+    // and binds nothing, as it does for a static call. The runtime generic resolver owns the loop;
+    // disabling inference widening preserves this extension resolver's exact structural matching.
+    static func InferExtensionCandidate(candidate: ColumnarExtensionMethodCandidate, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, explicitCount: int, expanded: bool): ColumnarExtensionMethodCandidate? {
+        if argumentTypes == null || argumentFacts == null || explicitCount < 0 || explicitCount > argumentTypes.Length {
             return null
         }
+        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
 
-        inferred := new Type[](typeParameters.Length)
-        if !TryUnifyCandidateSlot(candidate.ParameterTypes[0], receiverType, typeParameters, inferred) {
-            return null
-        }
-
+        callTypes := new Type[](explicitCount + 1)
+        callTypes[0] = receiverType
+        callFacts := ColumnarDirectCallArgumentFacts.Empty(explicitCount + 1)
         argumentIndex := 0
         while argumentIndex < explicitCount {
-            if !TryUnifyCandidateSlot(candidate.ParameterTypes[argumentIndex + 1], argumentTypes[argumentIndex], typeParameters, inferred) {
-                return null
-            }
-
+            callTypes[argumentIndex + 1] = argumentTypes[argumentIndex]
+            callFacts.IsNullLiteral[argumentIndex + 1] = argumentFacts.IsNullLiteral[argumentIndex]
             argumentIndex = argumentIndex + 1
         }
 
-        // Partial inference never closes, and a builder-bound type argument stays with later owners:
-        // MakeGenericMethod over Reflection.Emit builders is outside this exact-handle surface.
-        for inferredArgument in inferred {
-            if inferredArgument == null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(inferredArgument) {
-                return null
-            }
-        }
-
-        closedMethod: MethodInfo? = null
-        try {
-            closedMethod = method.MakeGenericMethod(inferred)
-        } catch {
+        // The shared infer-close-substitute helper enforces complete inference and declared
+        // constraints, then substitutes both parameters and the return type from the definition.
+        closed := ColumnarRuntimeGenericMethodResolver.InferAndClose(candidate.Method, callTypes, callFacts, expanded, false)
+        if closed == null {
             return null
         }
 
-        if closedMethod == null {
-            return null
-        }
-
-        closedParameters := closedMethod.GetParameters()
-        if closedParameters == null || closedParameters.Length != candidate.ParameterTypes.Length {
-            return null
-        }
-
-        closedParameterTypes := ParameterTypesOrNull(closedParameters)
-        if closedParameterTypes == null {
-            return null
-        }
-
-        closedReturnType := closedMethod.ReturnType
-        if closedReturnType == null || closedReturnType.ContainsGenericParameters {
-            return null
-        }
-
-        return new ColumnarExtensionMethodCandidate(closedMethod, candidate.DeclaringType, closedParameterTypes, closedReturnType)
+        return new ColumnarExtensionMethodCandidate(closed.Method, candidate.DeclaringType, closed.ParameterTypes, closed.ReturnType)
     }
 
-    // Structural unification of one declared slot against one actual type. A slot without open
-    // generic parameters carries no inference (ordinary scoring validates it); a naked method type
-    // parameter binds its position exactly once; constructed shapes must carry the SAME generic
-    // definition (or both be SZ arrays) and unify their arguments pairwise. Interface and variance
-    // widening (`List<int>` against `IEnumerable<TSource>`) is deliberately outside this owner.
-    static func TryUnifyCandidateSlot(parameterType: Type, actualType: Type, typeParameters: Type[], inferred: Type[]): bool {
-        if parameterType == null || actualType == null {
-            return false
-        }
-
-        if !parameterType.ContainsGenericParameters {
-            return true
-        }
-
-        if parameterType.IsGenericParameter {
-            position := MethodTypeParameterOrdinal(parameterType, typeParameters)
-            if position < 0 {
-                return false
-            }
-
-            existing := inferred[position]
-            if existing == null {
-                inferred[position] = actualType
-                return true
-            }
-
-            return existing == actualType
-        }
-
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameterType) {
-            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(actualType) {
-                return false
-            }
-
-            parameterElement := parameterType.GetElementType()
-            actualElement := actualType.GetElementType()
-            if parameterElement == null || actualElement == null {
-                return false
-            }
-
-            return TryUnifyCandidateSlot(parameterElement, actualElement, typeParameters, inferred)
-        }
-
-        if !parameterType.IsGenericType || !actualType.IsGenericType {
-            return false
-        }
-
-        if parameterType.GetGenericTypeDefinition() != actualType.GetGenericTypeDefinition() {
-            return false
-        }
-
-        parameterArguments := parameterType.GetGenericArguments()
-        actualArguments := actualType.GetGenericArguments()
-        if parameterArguments.Length != actualArguments.Length {
-            return false
-        }
-
-        pairIndex := 0
-        while pairIndex < parameterArguments.Length {
-            if !TryUnifyCandidateSlot(parameterArguments[pairIndex], actualArguments[pairIndex], typeParameters, inferred) {
-                return false
-            }
-
-            pairIndex = pairIndex + 1
-        }
-
-        return true
-    }
-
-    // The definition's own generic arguments are the identity anchors for inference positions.
+    // Contextual extension inference shares the method type parameters' identity anchors when it
+    // closes delegate signatures. Keep this owner-visible ordinal query alongside the shared loop so
+    // the contextual path and ordinary extension path use the same method-parameter positions.
     static func MethodTypeParameterOrdinal(parameterType: Type, typeParameters: Type[]): int {
         ordinal := 0
         while ordinal < typeParameters.Length {

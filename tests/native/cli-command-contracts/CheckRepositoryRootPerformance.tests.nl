@@ -632,7 +632,9 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     // framework row and the project.yml reference-page contract.
     // The async bare-return and generic async-method slices added three native roots and three N#
     // source files.
-    assert expectedRoots.Count == 249, "repository project-root census changed"
+    // Generic-call inference added two native roots (generic-call-inference and
+    // generic-call-inference-efcore) and one source file in each.
+    assert expectedRoots.Count == 251, "repository project-root census changed"
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
@@ -674,7 +676,8 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
     // Issue #260's AtomicFile support, its estate row, and the nlc run project regression added
     // three checked N# files.
-    assert checkedFiles == 2062, "repository checked-source-file census changed"
+    // The generic-call inference projects add two checked N# source files.
+    assert checkedFiles == 2064, "repository checked-source-file census changed"
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"

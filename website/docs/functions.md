@@ -2501,9 +2501,10 @@ func create(name: string, age: int): User {
 
 ### Which overload a call means
 
-When more than one overload accepts a call, N# picks between them with the same rule C# uses
-(ECMA-334 §12.6.4.3, "better function member"), and it applies to overloads you declared and to
-overloads read out of a referenced assembly alike:
+When more than one overload accepts a call, N# compares candidates by the quality of their argument
+conversions, for overloads you declared and overloads read out of a referenced assembly alike. This
+uses C#'s better-function-member rule (ECMA-334 §12.6.4.3) as a model, with the generic and optional-call
+divergences described below:
 
 > A candidate is **better** than another when, for **every** argument, its parameter is at least as
 > good a conversion target, and for **at least one** argument it is strictly better.
@@ -2535,9 +2536,9 @@ func awaitAll(work: List<Task<int>>): int[] {
 ```
 
 Declaration order is **not** a tiebreak, and neither is the order a referenced assembly's metadata
-happens to list its methods in. When two candidates are still tied after every rule above, the call
-is ambiguous and N# reports [NL414](./errors/NL414.md) rather than choosing for you — see that page
-for the three ways to say which overload you meant.
+happens to list its methods in. When two candidates remain tied and no documented generic/optional
+fallback below applies, the call is ambiguous and N# reports [NL414](./errors/NL414.md) rather than
+choosing for you — see that page for the three ways to say which overload you meant.
 
 ## Extension Methods
 
@@ -2560,10 +2561,10 @@ short := text.Truncate(10)  // "This is a..."
 
 ### Calling an extension method
 
-An extension call is resolved the way C# resolves one. The receiver's static type is converted to
-the `this` parameter's type by the ordinary assignability relation, and the method's type arguments
-are then inferred from the receiver and from the arguments. That is one rule, and it is why the
-receiver can be almost anything:
+For the extension-call shapes supported below, N# uses C#-style receiver and argument inference. The
+receiver's static type is converted to the `this` parameter's type by the ordinary assignability
+relation, and the method's type arguments are inferred from the receiver and from the arguments. This
+is why the receiver can be almost anything:
 
 ```n#
 import System.Collections.Generic
@@ -2587,8 +2588,10 @@ func examples(items: List<Query>, words: string[], text: string, map: Dictionary
 The element type may be a type your own project declares — `List<Query>` above is an
 `IEnumerable<Query>` exactly as `List<string>` is an `IEnumerable<string>`.
 
-A lambda argument is typed by the parameter it is passed to, so the compiler chooses the method
-first and types the lambda afterwards. A method group works wherever a lambda does.
+A lambda argument is typed by the selected parameter, so the compiler chooses the method first and
+types the lambda afterwards when the other arguments or an explicit type-argument list identify one
+candidate. Same-arity delegate targets that need the lambda body to choose between them remain
+declined, as described below. A method group works where its target type identifies one candidate.
 
 ### Writing the type arguments out
 
@@ -2630,6 +2633,57 @@ func configure(app: WebApplication) {
     byId.Produces<Todo>()                             // `{id}` binds to the lambda's `id`
 }
 ```
+
+### Inferred type arguments with optional and `params` parameters
+
+Leaving the type argument to inference works when the call omits defaulted parameters or fills a
+`params` tail. Only the arguments you write take part in inference:
+
+```n#
+import System.Text.Json
+import Microsoft.EntityFrameworkCore
+
+func shapes(set: DbSet<Person>, name: string) {
+    json := JsonSerializer.Serialize(5)                          // Serialize<int>(5, options = null)
+    q := set.FromSqlRaw("SELECT * FROM People WHERE Name = {0}", name)  // TEntity from the receiver
+    all := RelationalQueryableExtensions.FromSqlRaw(set, "SELECT * FROM People")
+}
+```
+
+A call whose array argument is already built passes it through unpacked, and a type parameter that only
+an omitted parameter mentions cannot be inferred (write it). When a generic and a non-generic overload
+both apply, the compiler compares better conversions for each argument. A strictly more-specific
+parameter list wins. When the supplied targets tie or are incomparable, the current resolver keeps the
+non-generic overload. This also applies to optional calls where candidates omit different numbers of
+parameters. C# can leave those calls ambiguous because its tie-break also compares applicable
+parameter counts; that part of overload resolution is not implemented yet. An ambiguity within the
+generic candidate set is also treated as if no generic candidate won, so a viable non-generic overload
+can be selected where C# would leave the whole call ambiguous.
+This selects `Task<int[]>` for `Task.WhenAll(first, second)` over two `Task<int>` values and also
+preserves the typed results of `WhenAny`, `Array.Sort` and `Array.IndexOf`.
+Constraints on the type parameters (`class`, `struct`, `new()`, type constraints) are checked before an
+overload is considered. An uncreated source class cannot yet prove a `new()` constraint because its
+constructor metadata is unavailable; that closure is declined until constructor facts can be read.
+A null literal contributes no inferred type; the receiver or another argument must bind that type
+parameter.
+
+### Written type arguments with a lambda
+
+When you write the type arguments, an inline lambda is bound after they are fixed: it can only convert to
+a delegate parameter with the same number of parameters, which is how
+`services.AddSingleton<Svc>(sp => new Svc())` chooses the factory overload over the instance one. Two
+same-arity overloads such as `Action<T>` and `Func<T, int>` both accept `_ => ...`, and parameterless
+`Action` and `Func<T>` both accept `() => ...`; those calls remain declined. Overloads that differ only
+by what the lambda body returns (`Task.Run<int>(() => 1)`) also remain ambiguous. Assign the lambda to a
+typed local.
+
+A public generic method inherited from an external base is callable bare, through `this`, or through an
+expression receiver, with its type arguments written (`Set<Person>()` inside a `DbContext` subclass).
+Protected generic methods from external bases are not resolved yet. The call must be in the class body;
+inside a lambda or local function, the receiver is a closure and inherited lookup is not resolved yet.
+A same-named method declared by the class hides the inherited generic method at every arity in N#.
+For example, `Set<Person>()` is rejected in a class that also declares `Set(int)`, while C# lookup can
+continue to a base method when the derived declaration has a different generic arity.
 
 ### Extensions over a type parameter
 
@@ -2678,6 +2732,9 @@ func main() {
     Console.WriteLine(5.Map(x => x * 2))      // 10         T from the receiver, R from the lambda
 }
 ```
+
+Cross-project extension lookup does not yet discover N# `this` functions declared in a referenced N#
+project.
 
 A value-type receiver closes `T` on the value type itself, so the value is passed as-is, not boxed.
 Inside the function, `value` has every member `object` gives every type, plus the members of its
