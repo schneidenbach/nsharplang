@@ -1824,8 +1824,9 @@ with it. It built EVERY one-parameter lambda as `Func<HttpContext, R>` regardles
 parameter type, so `(id: int) => …` was a delegate over a method it does not match (ilverify:
 "Unrecognized arguments for delegate .ctor"); `TrySelectAspNetLambdaHandlerDelegate` now picks the
 NATURAL delegate over the written types, as C# does for a lambda converted to `System.Delegate`, and
-`TryEmitLambdaLiteral` declines (`emit.lambda.parameter-type-mismatch`) a written parameter type that
-is not the target delegate's. And it emitted the route string BEFORE learning the handler was not a
+`TryEmitLambdaLiteral` declines (`emit.lambda.parameter-type-mismatch`) a written parameter type the
+target delegate cannot bind — anything but the delegate's own type or a reference type its reference
+parameter converts to (`(value: object) => …` as a `Func<string, int>` stays legal). And it emitted the route string BEFORE learning the handler was not a
 shape it lowers (`f as Delegate`, `(Delegate)f`), so the extension tier re-emitted the arguments and
 the receiver was lost — `InvalidProgramException` at startup. `IsAspNetRouteHandlerShape` asks first.
 `tests/native/lambda-parameter-names` pins both through the real route table.

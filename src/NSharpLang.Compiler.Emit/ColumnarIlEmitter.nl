@@ -1557,13 +1557,17 @@ sealed class ColumnarIlEmitter {
         if !TryResolveLambdaParameterTypes(lambdaIdx, delegateParamTypes, false, out signatureTypes) {
             return false
         }
-        // A WRITTEN PARAMETER TYPE MUST BE THE DELEGATE'S OWN. The synthesized method takes the written
-        // types, and `newobj` over a method whose signature is not the delegate's is unverifiable
-        // ("Unrecognized arguments for delegate .ctor") and wrong the moment `Invoke` is called. C#
-        // requires the same identity (CS1661); an emitter target that picked the wrong delegate must
-        // decline here rather than build that delegate.
+        // A WRITTEN PARAMETER TYPE MUST BE ONE THE DELEGATE CAN BIND. The synthesized method takes the
+        // written types, and `newobj` over a method whose signature the delegate cannot bind is
+        // unverifiable ("Unrecognized arguments for delegate .ctor") and wrong the moment `Invoke` is
+        // called. The written type may be the delegate's own, or — the contravariance N# accepts —
+        // a reference type the delegate's reference parameter converts to (`(value: object) => …` as a
+        // `Func<string, int>`), which the CLR binds without a stub. Anything else (`(id: int) => …`
+        // as a `Func<HttpContext, …>`) is an emitter target that picked the wrong delegate, and it
+        // declines here rather than build that delegate. A type this compilation is still writing
+        // answers no assignability question, so it is left to the checks that already own it.
         for writtenIndex := 0; writtenIndex < signatureTypes.Length; writtenIndex++ {
-            if (!TypesEquivalent(signatureTypes[writtenIndex], delegateParamTypes[writtenIndex])) {
+            if (!IsBindableLambdaParameterType(signatureTypes[writtenIndex], delegateParamTypes[writtenIndex])) {
                 return DeclineMember("emit.lambda.parameter-type-mismatch", "lambda parameter " + (writtenIndex + 1).ToString() + " is written as '" + signatureTypes[writtenIndex].ToString() + "' but the target delegate takes '" + delegateParamTypes[writtenIndex].ToString() + "'", lambdaIdx, "lambda")
             }
         }
@@ -1776,6 +1780,17 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Ldftn, closureMethod)
         _il.Emit(OpCodes.Newobj, delegateCtor)
         return true
+    }
+
+    private static func IsBindableLambdaParameterType(written: Type, delegateParameter: Type): bool {
+        if (TypesEquivalent(written, delegateParameter)) {
+            return true
+        }
+        if (written.IsGenericParameter || delegateParameter.IsGenericParameter || RuntimeTypeShapeFacts.ContainsBuilderBoundType(written) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateParameter)) {
+            return true
+        }
+
+        return !written.IsValueType && !delegateParameter.IsValueType && !written.IsByRef && !delegateParameter.IsByRef && written.IsAssignableFrom(delegateParameter)
     }
 
     // THE TYPE A LAMBDA BODY IS LEXICALLY INSIDE, which is the anchor every bare STATIC member read
