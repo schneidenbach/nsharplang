@@ -251,6 +251,15 @@ static class TestCommandHost {
         markerName := DaemonExecKernels.GetDaemonChildEnvironmentVariable()
         previousMarker := Environment.GetEnvironmentVariable(markerName)
         Environment.SetEnvironmentVariable(markerName, "1")
+        // A hosted application's content root (`WebApplicationFactory`) is handed over for the length of
+        // the run; a setting the caller already made wins.
+        contentRootSettings := new List<string>()
+        for setting in TestCommandKernels.ReadContentRootEnvironment(Path.GetDirectoryName(outputPath) ?? "") {
+            if Environment.GetEnvironmentVariable(setting.Key) == null {
+                Environment.SetEnvironmentVariable(setting.Key, setting.Value)
+                contentRootSettings.Add(setting.Key)
+            }
+        }
         try {
             if TestCommandKernels.ShouldRunNUnit(testFramework) {
                 return ReflectionTestRunner.Run(outputPath, frameworkDirectories, filter, verbose, timeoutMs)
@@ -258,6 +267,9 @@ static class TestCommandHost {
 
             return XunitTestRunner.Run(outputPath, frameworkDirectories, filter, verbose, timeoutMs)
         } finally {
+            for settingName in contentRootSettings {
+                Environment.SetEnvironmentVariable(settingName, null)
+            }
             Environment.SetEnvironmentVariable(markerName, previousMarker)
             Console.SetOut(stdout)
         }

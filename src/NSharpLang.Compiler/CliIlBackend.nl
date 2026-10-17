@@ -351,6 +351,7 @@ class CliIlBackend {
 
         if references != null {
             references.CopyRuntimeAssets(outputDir)
+            DependencyManifestWriter.Write(config, references, outputAssemblyPath)
         }
 
         return outputAssemblyPath

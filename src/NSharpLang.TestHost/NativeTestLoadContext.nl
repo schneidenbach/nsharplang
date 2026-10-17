@@ -2,6 +2,7 @@ namespace NSharpLang.Cli
 
 import System.Collections.Generic
 import System.Reflection
+import System.Runtime.InteropServices
 import System.Runtime.Loader
 
 // THE ONE COLLECTIBLE LOAD CONTEXT `nlc test` OWNS.
@@ -38,5 +39,15 @@ class NativeTestLoadContext: AssemblyLoadContext {
         }
 
         return null
+    }
+
+    // A package's `runtimes/<rid>/native/*` library, found by the host's RID fallback order.
+    protected override func LoadUnmanagedDll(unmanagedDllName: string): IntPtr {
+        libraryPath := TestCommandKernels.FindNativeLibraryPath(assemblyDirectoryValue, unmanagedDllName, RuntimeInformation.RuntimeIdentifier)
+        if libraryPath != null {
+            return LoadUnmanagedDllFromPath(libraryPath)
+        }
+
+        return IntPtr.Zero
     }
 }

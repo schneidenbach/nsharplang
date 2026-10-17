@@ -210,6 +210,17 @@ nlc completion bash > /etc/bash_completion.d/nlc
 - `nlc publish --self-contained` is planned, not implemented. It exits 1 with guidance instead of producing an artifact that only appears self-contained.
 
 
+## Dependencies At Run Time: NuGet Assets, `deps.json` And Project References
+
+`nlc build` resolves a `nuget:` dependency the way `dotnet build` does, and writes the same run-time facts beside the output.
+
+- **Framework selection follows NuGet's nearest-framework rule.** For `net10.0`, a package's dependency groups and its `lib/` and `ref/` folders are reduced to the best compatible framework: `net10.0`, then `net9.0` ... `net5.0`, then `netcoreapp3.1` ..., then `netstandard2.1`, `netstandard2.0`, then the group with no framework. A platform-qualified framework (`net8.0-android34.0`, `net8.0-ios17.0`) is compatible only with a target that names the same platform, so `Microsoft.EntityFrameworkCore.Sqlite` no longer pulls in its Android native package.
+- **Native and RID-specific assets are copied.** `runtimes/<rid>/native/*` and `runtimes/<rid>/lib/<tfm>/*` of every package are copied under the output directory with their `runtimes/<rid>/...` layout, for every RID the package ships (the output stays portable across machines, as `dotnet build` output does). A `lib/` folder under a RID is chosen by the same nearest-framework rule.
+- **`<assembly>.deps.json` is written next to every built assembly.** It lists the application, each package (with its `sha512`, `path` and `hashPath` from the NuGet cache), the other assemblies copied beside the output, and a `runtimeTargets` row per RID-specific file. The .NET host reads it to build the trusted-assembly list and to pick the native library for the RID it runs on (`osx-arm64` -> `osx` -> `unix` -> `any`), so `nlc run` of an EF Core / SQLite application finds `e_sqlite3`. `<assembly>.runtimeconfig.json` is still written for executables.
+- **`nlc test` finds native libraries too.** Tests run inside the CLI's own process, which never reads the test project's `deps.json`; the runner applies the same RID fallback to the `runtimes/<rid>/native` files in the test output directory when a test assembly's package asks for a native library.
+- **A `project:` reference flows its dependencies.** Like MSBuild's `ProjectReference`, the packages (compile-time and run-time assets) and shared frameworks (`framework:`, or `sdk: Microsoft.NET.Sdk.Web`) the referenced project declares are references of the referencing project as well, transitively. A type that only the referenced project's package defines (`HtmlDocument` from `HtmlAgilityPack`) can be used, and its namespace imported (`import HtmlAgilityPack`), without declaring the package again.
+- **`WebApplicationFactory<TEntryPoint>`.** When a test project references `Microsoft.AspNetCore.Mvc.Testing` and a `project:` application, `nlc test` copies the application's `<app>.deps.json` into the test output directory, which is what the package's own MSBuild targets do and what `WebApplicationFactory` requires.
+
 ## Diagnostic Colour
 
 `nlc build` and `nlc run` write human-readable diagnostics to standard error and colour them with

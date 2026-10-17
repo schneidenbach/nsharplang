@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.IO.Compression
 import System.Net.Http
+import System.Reflection
 import System.Runtime.InteropServices
 import System.Text
 import System.Text.Json
@@ -66,6 +67,9 @@ sealed class CompilationReferenceResolver {
 
         AddImplicitTestDependencies(projectRoot, config, options)
         AddImplicitNSharpRuntimeAsset(result)
+        if options.BuildProjectReferences {
+            ProjectReferenceFlow.AddTransitiveFrameworkReferences(projectRoot, config)
+        }
 
         frameworkDirectories := ResolveFrameworkReferenceDirectories(projectRoot, config)
         for frameworkDirectory in frameworkDirectories {
@@ -108,11 +112,17 @@ sealed class CompilationReferenceResolver {
 
             for assemblyPath in packageAssets.CompileAssemblies {
                 AddDllReference(config, assemblyPath)
+                result.AddCompileReference(assemblyPath)
             }
 
             for runtimeAsset in packageAssets.RuntimeAssemblies {
                 AddDllReference(config, runtimeAsset)
+                result.AddCompileReference(runtimeAsset)
                 result.AddRuntimeAsset(runtimeAsset)
+            }
+
+            for packageFile in packageAssets.RuntimeFiles {
+                result.AddPackageFile(packageFile)
             }
         }
 
@@ -155,7 +165,27 @@ sealed class CompilationReferenceResolver {
                 AddDllReference(config, transitiveOutput)
                 result.AddProjectOutput(transitiveOutput)
             }
+            // THE SAME HOLDS FOR ITS PACKAGES: `PackageReference` flows through a `ProjectReference`
+            // at compile time and at run time. A type the referenced project exposes from a package
+            // only IT declares (`HtmlDocument` from HtmlAgilityPack) must bind in this project's
+            // compilation, and the package's files are copied beside this project's output
+            // (`result.Add` below carries them).
+            for transitiveCompileReference in referencedOutput.References.CompileReferences {
+                AddDllReference(config, transitiveCompileReference)
+            }
             result.AddRuntimeAsset(referencedOutput.OutputAssemblyPath)
+            // `WebApplicationFactory<TEntryPoint>` reads the application's own `<app>.deps.json` from the
+            // TEST output directory; Microsoft.AspNetCore.Mvc.Testing's MSBuild targets copy it there
+            // and so does this.
+            if CompilationReferenceResolverKernels.FlowsReferencedDependencyManifest(selectedVersions) {
+                result.AddRuntimeAsset(Path.ChangeExtension(referencedOutput.OutputAssemblyPath, ".deps.json"))
+                // ...and it finds the application's content root (its views, `wwwroot`, settings) through
+                // `MvcTestingAppManifest.json`: the application's assembly name -> its project directory.
+                result.AddContentRoot(
+                    AssemblyName.GetAssemblyName(referencedOutput.OutputAssemblyPath).FullName,
+                    referencedProjectRoot
+                )
+            }
             result.Add(referencedOutput.References)
             config.Dependencies.Remove(projectReference)
             projectIndex = projectIndex + 1
@@ -270,6 +300,7 @@ sealed class CompilationReferenceResolver {
             }
 
             references.CopyRuntimeAssets(outputDirectory)
+            DependencyManifestWriter.Write(config, references, builtAssemblyPath)
             resolvedOutput = new ResolvedProjectReference(
                 builtAssemblyPath,
                 references
@@ -566,6 +597,17 @@ sealed class CompilationReferenceResolver {
         while runtimeIndex < runtimeAssemblies.Count {
             assets.RuntimeAssemblies.Add(runtimeAssemblies[runtimeIndex])
             runtimeIndex = runtimeIndex + 1
+        }
+
+        runtimeFiles := NuGetRuntimeAssetSelector.Select(
+            packageIdentity.Id ?? packageName,
+            packageIdentity.Version ?? Path.GetFileName(versionDirectory),
+            versionDirectory,
+            targetFramework,
+            runtimeAssemblies
+        )
+        for runtimeFile in runtimeFiles {
+            assets.AddRuntimeFile(runtimeFile)
         }
 
         if CompilationReferenceResolverKernels.ShouldUseRuntimeAssembliesForCompile(

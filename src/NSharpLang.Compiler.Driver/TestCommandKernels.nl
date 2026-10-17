@@ -205,6 +205,68 @@ class TestCommandKernels {
         return null
     }
 
+    // WHERE A TEST RUN FINDS A NATIVE LIBRARY A TEST ASSEMBLY'S PACKAGES ASK FOR. The build copies a
+    // package's `runtimes/<rid>/native/*` files under the test output directory (the layout a
+    // `deps.json` names), but `nlc test` runs inside the CLI's own process, whose host never read
+    // that manifest. This applies the host's rule instead: a file beside the assemblies first, then
+    // each RID of the running machine's fallback order (`osx-arm64` -> `osx` -> `unix` -> `any`).
+    static func FindNativeLibraryPath(assemblyDirectory: string, libraryName: string, runtimeIdentifier: string): string? {
+        fileNames := CompilationReferenceResolverKernels.GetNativeLibraryFileNames(libraryName, OperatingSystem.IsWindows(), OperatingSystem.IsMacOS())
+        for fileName in fileNames {
+            candidate := Path.Combine(assemblyDirectory, fileName)
+            if File.Exists(candidate) {
+                return candidate
+            }
+        }
+
+        runtimesDirectory := Path.Combine(assemblyDirectory, "runtimes")
+        for rid in CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks(runtimeIdentifier) {
+            nativeDirectory := Path.Combine(Path.Combine(runtimesDirectory, rid), "native")
+            for fileName in fileNames {
+                candidate := Path.Combine(nativeDirectory, fileName)
+                if File.Exists(candidate) {
+                    return candidate
+                }
+            }
+        }
+
+        return null
+    }
+
+    // THE HOSTED APPLICATIONS' CONTENT ROOTS, as the environment `WebApplicationFactory<TEntryPoint>`
+    // reads them. A test project that references Microsoft.AspNetCore.Mvc.Testing gets a
+    // `MvcTestingAppManifest.json` (assembly full name -> project directory) beside its assembly, the
+    // file the package's MSBuild targets write. The factory looks for that file relative to the
+    // CURRENT directory, which `dotnet test` sets to the output directory and `nlc test` leaves at the
+    // project directory, so the same facts are handed over as its documented
+    // `TEST_CONTENTROOT_<ASSEMBLYNAME>` settings instead -- they do not depend on the directory.
+    static func ReadContentRootEnvironment(outputDirectory: string): Dictionary<string, string> {
+        settings := new Dictionary<string, string>(StringComparer.Ordinal)
+        manifestPath := Path.Combine(outputDirectory, "MvcTestingAppManifest.json")
+        if !File.Exists(manifestPath) {
+            return settings
+        }
+
+        using manifest := JsonDocument.Parse(File.ReadAllText(manifestPath))
+        if manifest.RootElement.ValueKind != JsonValueKind.Object {
+            return settings
+        }
+
+        for entry in manifest.RootElement.EnumerateObject() {
+            contentRoot := entry.Value.GetString()
+            if contentRoot == null || contentRoot == "~" {
+                continue
+            }
+
+            assemblyName := new AssemblyName(entry.Name).Name
+            if assemblyName != null {
+                settings["TEST_CONTENTROOT_" + assemblyName.ToUpperInvariant()] = contentRoot
+            }
+        }
+
+        return settings
+    }
+
     static func ShouldRunNUnit(testFramework: string?): bool {
         return string.Equals(testFramework ?? "", "nunit", StringComparison.OrdinalIgnoreCase)
     }

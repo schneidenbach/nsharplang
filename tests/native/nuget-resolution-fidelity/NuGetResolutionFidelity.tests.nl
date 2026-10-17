@@ -228,3 +228,105 @@ test "a package nlc build installed is one dotnet restore can resolve with no so
         Directory.Delete(scratch, true)
     }
 }
+
+// A PACKAGE THAT SHIPS NATIVE ASSETS, built by hand so the row needs no network and no real
+// native library. The host reads the application's `deps.json` to build `NATIVE_DLL_SEARCH_DIRECTORIES`
+// from its `runtimeTargets` rows for the RID it runs on, so the directory appearing there is the
+// host's own witness that the manifest resolves `runtimes/<rid>/native/*` -- which is what the
+// `e_sqlite3` of Microsoft.EntityFrameworkCore.Sqlite needs and `DllNotFoundException` said was missing.
+test "nlc build copies a package's native assets and writes the deps.json the host resolves them through" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("native-assets")
+    try {
+        cache := Path.Combine(scratch, "packages")
+        Directory.CreateDirectory(cache)
+        leaf := ResolutionBuildLeaf(cli, scratch, "1.0.0", "leaf-1")
+        packageDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Native", "1.0.0")
+        ResolutionWriteNuspec(packageDirectory, "NlcResolution.Native", "1.0.0", ResolutionNoDependencies())
+        ResolutionInstallLibrary(packageDirectory, leaf)
+        nativeFiles := [
+            "osx-arm64/native/libfake.dylib",
+            "osx-x64/native/libfake.dylib",
+            "linux-x64/native/libfake.so",
+            "linux-arm64/native/libfake.so",
+            "linux-musl-x64/native/libfake.so",
+            "win-x64/native/fake.dll",
+            "win-arm64/native/fake.dll",
+            "android-arm64/native/libfake.so"
+        ]
+        for nativeFile in nativeFiles {
+            path := Path.Combine(Path.Combine(packageDirectory, "runtimes"), nativeFile)
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? "")
+            File.WriteAllText(path, "not a real library")
+        }
+
+        appDirectory := Path.Combine(scratch, "app")
+        source := "namespace ResolutionApp\n\nimport System\nimport ResolutionLeaf\n\nfunc main() {\n    print LeafMarker.Name()\n    print AppContext.GetData(\"NATIVE_DLL_SEARCH_DIRECTORIES\")\n}\n"
+        ResolutionWriteProject(appDirectory, ResolutionAppProjectYml(ResolutionDependency("NlcResolution.Native", "1.0.0")), "Program.nl", source)
+        build := ResolutionRunInCache(ResolutionQuote(cli) + " build", appDirectory, cache)
+        ResolutionRequireSuccess(build, "nlc build of the native-assets sample")
+
+        output := ResolutionOutputDirectory(appDirectory)
+        assert File.Exists(Path.Combine(output, "ResolutionLeaf.dll"))
+        assert File.Exists(Path.Combine(output, "runtimes/osx-arm64/native/libfake.dylib"))
+        assert File.Exists(Path.Combine(output, "runtimes/linux-x64/native/libfake.so"))
+        assert File.Exists(Path.Combine(output, "runtimes/win-x64/native/fake.dll"))
+        manifest := File.ReadAllText(Path.Combine(output, "ResolutionApp.deps.json"))
+        assert manifest.Contains("\"NlcResolution.Native/1.0.0\""), manifest
+        assert manifest.Contains("\"runtimes/linux-x64/native/libfake.so\""), manifest
+
+        run := ResolutionRunDotnet(ResolutionQuote(Path.Combine(output, "ResolutionApp.dll")), appDirectory)
+        ResolutionRequireSuccess(run, "running the native-assets sample")
+        assert run.Stdout.Contains("leaf-1"), run.Output()
+        assert run.Stdout.Contains("runtimes"), "the host did not resolve a runtimes/<rid>/native directory from deps.json: " + run.Output()
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
+// THE PACKAGE ONLY THE REFERENCED PROJECT DECLARES. `Maker.Make()` returns a type of a package the
+// consuming project never lists; before the package flowed through the `project:` reference, naming
+// or touching a member of that type declined emission with 'Could not load file or assembly'.
+test "a project reference flows its package so the consumer can use the package's types" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("package-flow")
+    try {
+        cache := Path.Combine(scratch, "packages")
+        Directory.CreateDirectory(cache)
+        leafDirectory := Path.Combine(scratch, "leaf")
+        ResolutionWriteProject(
+            leafDirectory,
+            "name: FlowLeaf\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n",
+            "Leaf.nl",
+            "namespace FlowLeaf\n\nclass Marker {\n    func Describe(): string {\n        return \"from the package\"\n    }\n}\n"
+        )
+        build := ResolutionRunDotnet(ResolutionQuote(cli) + " build", leafDirectory)
+        ResolutionRequireSuccess(build, "nlc build of the flow leaf")
+        packageDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Flow", "1.0.0")
+        ResolutionWriteNuspec(packageDirectory, "NlcResolution.Flow", "1.0.0", ResolutionNoDependencies())
+        ResolutionInstallLibrary(packageDirectory, Path.Combine(ResolutionOutputDirectory(leafDirectory), "FlowLeaf.dll"))
+
+        ResolutionWriteProject(
+            Path.Combine(scratch, "lib"),
+            "name: FlowLib\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n" + ResolutionDependency("NlcResolution.Flow", "1.0.0"),
+            "Lib.nl",
+            "namespace FlowLib\n\nimport FlowLeaf\n\nclass Maker {\n    static func Make(): Marker {\n        return new Marker()\n    }\n}\n"
+        )
+        appDirectory := Path.Combine(scratch, "app")
+        ResolutionWriteProject(
+            appDirectory,
+            "name: FlowApp\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - project: ../lib/project.yml\n",
+            "Program.nl",
+            "namespace FlowApp\n\nimport FlowLib\n\nfunc main() {\n    marker := Maker.Make()\n    print marker.Describe()\n}\n"
+        )
+        appBuild := ResolutionRunInCache(ResolutionQuote(cli) + " build", appDirectory, cache)
+        ResolutionRequireSuccess(appBuild, "nlc build of the project that only references the library")
+        output := ResolutionOutputDirectory(appDirectory)
+        assert File.Exists(Path.Combine(output, "FlowLeaf.dll")), "the package's assembly was not copied beside the consumer"
+        run := ResolutionRunDotnet(ResolutionQuote(Path.Combine(output, "FlowApp.dll")), appDirectory)
+        ResolutionRequireSuccess(run, "running the project that only references the library")
+        assert run.Stdout.Trim() == "from the package", run.Output()
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}

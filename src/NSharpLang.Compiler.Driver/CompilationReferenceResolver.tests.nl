@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Net.Http
 import System.Reflection
+import System.Text.Json
 import NSharpLang.Cli
 import NSharpLang.Compiler
 
@@ -522,4 +523,234 @@ test "a product source is a .nl outside bin and obj that is not a row" {
     options := ResolverBuiltOptions()
     assert CompilationReferenceResolverKernels.GetProjectReferenceResolutionOptions(options).UseBuiltProjectReferences
     assert !CompilationReferenceResolverKernels.GetProjectReferenceResolutionOptions(new ReferenceResolutionOptions()).UseBuiltProjectReferences
+}
+
+test "framework selection never picks a platform-specific group or folder for a platform-neutral target" {
+    // Microsoft.EntityFrameworkCore.Sqlite's closure lists an Android group before the plain one;
+    // both scored as `net8.0`, so the first (Android) won and the app shipped the Android native
+    // package. NuGet's FrameworkReducer never reduces `net10.0` to `net8.0-android`.
+    groups: string?[] = ["net8.0-android34.0", "net8.0-ios17.0", "net8.0", "netstandard2.0"]
+    assert CompilationReferenceResolverKernels.SelectBestDependencyGroupIndex(groups, "net10.0") == 2
+
+    withoutPlain: string?[] = ["net8.0-android34.0", "netstandard2.0"]
+    assert CompilationReferenceResolverKernels.SelectBestDependencyGroupIndex(withoutPlain, "net10.0") == 1
+
+    onlyPlatform: string?[] = ["net8.0-android34.0", "net9.0-ios18.0"]
+    assert CompilationReferenceResolverKernels.SelectBestDependencyGroupIndex(onlyPlatform, "net10.0") == -1
+
+    folders: string[] = ["net8.0-android34.0", "net9.0", "net8.0", "netstandard2.1", "net48"]
+    assert CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(folders, "net10.0") == 1
+
+    // A platform target accepts its own platform and the neutral frameworks, nothing else.
+    windowsFolders: string[] = ["net8.0-android34.0", "net8.0", "net10.0-windows7.0"]
+    assert CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(windowsFolders, "net10.0-windows7.0") == 2
+    assert CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(windowsFolders, "net10.0-windows") == 2
+    androidFolders: string[] = ["net8.0-ios17.0", "net8.0-android34.0", "net8.0"]
+    assert CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(androidFolders, "net9.0-android35.0") == 1
+}
+
+test "the runtime identifier fallback walks from the exact RID to any" {
+    macOs := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("osx-arm64")
+    assert string.Join(",", macOs) == "osx-arm64,osx,unix-arm64,unix,any"
+
+    versionedMac := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("osx.14-arm64")
+    assert string.Join(",", versionedMac) == "osx.14-arm64,osx.14,osx-arm64,osx,unix-arm64,unix,any"
+
+    ubuntu := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("ubuntu.22.04-x64")
+    assert string.Join(",", ubuntu) == "ubuntu.22.04-x64,ubuntu.22.04,ubuntu-x64,ubuntu,linux-x64,linux,unix-x64,unix,any"
+
+    alpine := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("linux-musl-arm64")
+    assert string.Join(",", alpine) == "linux-musl-arm64,linux-musl,linux-arm64,linux,unix-arm64,unix,any"
+
+    windows := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("win10-x64")
+    assert string.Join(",", windows) == "win10-x64,win10,win-x64,win,any"
+
+    assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net10.0") == ".NETCoreApp,Version=v10.0"
+    assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net9.0-windows") == ".NETCoreApp,Version=v9.0"
+}
+
+test "a native library is found beside the assemblies, then by the RID fallback order" {
+    scratch := ResolverNewTempDirectory("native-probe")
+    try {
+        isWindows := OperatingSystem.IsWindows()
+        isMacOS := OperatingSystem.IsMacOS()
+        fileName := CompilationReferenceResolverKernels.GetNativeLibraryFileNames("probe", isWindows, isMacOS)[1]
+        family := "unix"
+        runtimeIdentifier := "linux-x64"
+        if isWindows {
+            family = "win"
+            runtimeIdentifier = "win-x64"
+        } else if isMacOS {
+            runtimeIdentifier = "osx-arm64"
+        }
+
+        decoy := Path.Combine(scratch, "runtimes/any/native/" + fileName)
+        expected := Path.Combine(scratch, "runtimes/" + family + "/native/" + fileName)
+        ResolverWrite(decoy, "any")
+        assert TestCommandKernels.FindNativeLibraryPath(scratch, "probe", runtimeIdentifier) == decoy
+        ResolverWrite(expected, "family")
+        assert TestCommandKernels.FindNativeLibraryPath(scratch, "probe", runtimeIdentifier) == expected
+        beside := Path.Combine(scratch, fileName)
+        ResolverWrite(beside, "beside")
+        assert TestCommandKernels.FindNativeLibraryPath(scratch, "probe", runtimeIdentifier) == beside
+        assert TestCommandKernels.FindNativeLibraryPath(scratch, "missing", runtimeIdentifier) == null
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
+test "a package's runtimes layout is copied beside the output and named by deps.json runtimeTargets rows" {
+    scratch := ResolverNewTempDirectory("runtime-targets")
+    packagesRoot := Path.Combine(scratch, "packages")
+    try {
+        versionDirectory := ResolverWritePackage(packagesRoot, "Native.Pkg", "1.2.3", "", null, ResolverFrameworkAssembly("System.Text.Json.dll"))
+        ResolverWrite(Path.Combine(versionDirectory, "native.pkg.1.2.3.nupkg.sha512"), "abc==\n")
+        ResolverWrite(Path.Combine(versionDirectory, "runtimes/osx-arm64/native/libnative.dylib"), "mac")
+        ResolverWrite(Path.Combine(versionDirectory, "runtimes/linux-x64/native/libnative.so"), "linux")
+        ResolverWrite(Path.Combine(versionDirectory, "runtimes/linux-x64/native/_._"), "")
+        ResolverWrite(Path.Combine(versionDirectory, "runtimes/win-x64/native/native.dll"), "windows")
+        windowsOnly := Path.Combine(versionDirectory, "runtimes/win/lib/net8.0")
+        Directory.CreateDirectory(windowsOnly)
+        File.Copy(ResolverFrameworkAssembly("System.Collections.dll"), Path.Combine(windowsOnly, "Win.Only.dll"), true)
+        olderWindows := Path.Combine(versionDirectory, "runtimes/win/lib/netstandard2.0")
+        Directory.CreateDirectory(olderWindows)
+        File.Copy(ResolverFrameworkAssembly("System.Collections.dll"), Path.Combine(olderWindows, "Win.Older.dll"), true)
+
+        assets := ResolverPackageAssets("Native.Pkg", "1.2.3", "net10.0", new ResolutionContext(packagesRoot))
+        assert assets.RuntimeFiles.Count == 5
+        relativePaths := new List<string>()
+        for runtimeFile in assets.RuntimeFiles {
+            relativePaths.Add(runtimeFile.RelativePath)
+        }
+        assert relativePaths.Contains("lib/net10.0/System.Text.Json.dll")
+        assert relativePaths.Contains("runtimes/osx-arm64/native/libnative.dylib")
+        assert relativePaths.Contains("runtimes/linux-x64/native/libnative.so")
+        assert relativePaths.Contains("runtimes/win-x64/native/native.dll")
+        assert relativePaths.Contains("runtimes/win/lib/net8.0/Win.Only.dll")
+        assert !relativePaths.Contains("runtimes/win/lib/netstandard2.0/Win.Older.dll")
+        assert !relativePaths.Contains("runtimes/linux-x64/native/_._")
+
+        outputDirectory := Path.Combine(scratch, "out")
+        Directory.CreateDirectory(outputDirectory)
+        result := new ReferenceResolutionResult()
+        for runtimeFile in assets.RuntimeFiles {
+            result.AddPackageFile(runtimeFile)
+        }
+        for runtimeAssembly in assets.RuntimeAssemblies {
+            result.AddRuntimeAsset(runtimeAssembly)
+        }
+        result.CopyRuntimeAssets(outputDirectory)
+        assert File.Exists(Path.Combine(outputDirectory, "System.Text.Json.dll"))
+        assert File.Exists(Path.Combine(outputDirectory, "runtimes/osx-arm64/native/libnative.dylib"))
+        assert File.Exists(Path.Combine(outputDirectory, "runtimes/linux-x64/native/libnative.so"))
+        assert File.Exists(Path.Combine(outputDirectory, "runtimes/win/lib/net8.0/Win.Only.dll"))
+
+        ResolverWrite(Path.Combine(scratch, "project.yml"), "name: App\nversion: 2.0.0\noutputType: exe\ntargetFramework: net10.0")
+        config := ResolverParseProject(scratch)
+        assemblyPath := Path.Combine(outputDirectory, "App.dll")
+        File.Copy(ResolverFrameworkAssembly("System.Runtime.dll"), assemblyPath, true)
+        DependencyManifestWriter.Write(config, result, assemblyPath)
+
+        manifestPath := Path.Combine(outputDirectory, "App.deps.json")
+        assert File.Exists(manifestPath)
+        using manifest := JsonDocument.Parse(File.ReadAllText(manifestPath))
+        root := manifest.RootElement
+        targetName := ".NETCoreApp,Version=v10.0"
+        assert root.GetProperty("runtimeTarget").GetProperty("name").GetString() == targetName
+        target := root.GetProperty("targets").GetProperty(targetName)
+        assert target.GetProperty("App/2.0.0").GetProperty("runtime").GetProperty("App.dll").ValueKind == JsonValueKind.Object
+        packageNode := target.GetProperty("Native.Pkg/1.2.3")
+        assert packageNode.GetProperty("runtime").GetProperty("lib/net10.0/System.Text.Json.dll").ValueKind == JsonValueKind.Object
+        mac := packageNode.GetProperty("runtimeTargets").GetProperty("runtimes/osx-arm64/native/libnative.dylib")
+        assert mac.GetProperty("rid").GetString() == "osx-arm64"
+        assert mac.GetProperty("assetType").GetString() == "native"
+        windowsManaged := packageNode.GetProperty("runtimeTargets").GetProperty("runtimes/win/lib/net8.0/Win.Only.dll")
+        assert windowsManaged.GetProperty("rid").GetString() == "win"
+        assert windowsManaged.GetProperty("assetType").GetString() == "runtime"
+        libraries := root.GetProperty("libraries")
+        assert libraries.GetProperty("App/2.0.0").GetProperty("type").GetString() == "project"
+        library := libraries.GetProperty("Native.Pkg/1.2.3")
+        assert library.GetProperty("type").GetString() == "package"
+        assert library.GetProperty("sha512").GetString() == "sha512-abc=="
+        assert library.GetProperty("path").GetString() == "native.pkg/1.2.3"
+        assert library.GetProperty("hashPath").GetString() == "native.pkg.1.2.3.nupkg.sha512"
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
+test "a project reference flows the packages and frameworks only it declares into the referencing project" {
+    projectRoot := ResolverNewTempDirectory("transitive-package")
+    packagesRoot := Path.Combine(projectRoot, "packages")
+    try {
+        ResolverWriteNewtonsoftPackage(packagesRoot)
+        ResolverWrite(
+            Path.Combine(projectRoot, "lib/project.yml"),
+            "name: CLib\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\nsdk: Microsoft.NET.Sdk.Web\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n  - nuget: Newtonsoft.Json\n    version: 13.0.3"
+        )
+        ResolverWrite(Path.Combine(projectRoot, "lib/Lib.nl"), "func Greeting(): string {\n    return \"hello\"\n}")
+        ResolverWrite(
+            Path.Combine(projectRoot, "tests/project.yml"),
+            "name: CTests\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../lib/project.yml"
+        )
+        testsRoot := Path.Combine(projectRoot, "tests")
+        config := ResolverParseProject(testsRoot)
+        options := new ReferenceResolutionOptions()
+        options.PackagesFolder = packagesRoot
+        result := CompilationReferenceResolver.AddResolvedDllReferences(testsRoot, config, options)
+
+        assert ResolverContainsDll(config, "Newtonsoft.Json.dll"), "The referenced project's package did not reach the referencing project's compilation."
+        assert ResolverContainsDll(config, "CLib.dll")
+        newtonsoftRuntime := Path.Combine(packagesRoot, "newtonsoft.json/13.0.3/lib/net6.0/Newtonsoft.Json.dll")
+        assert ResolverContainsPath(result.RuntimeAssets, newtonsoftRuntime)
+        assert ResolverContainsPath(result.CompileReferences, newtonsoftRuntime)
+        frameworks := CompilationReferenceResolverKernels.GetFrameworkReferenceNames(config.Sdk, config.Dependencies)
+        assert string.Join(",", frameworks) == "Microsoft.AspNetCore.App"
+        assert ResolverContainsDll(config, "Microsoft.AspNetCore.dll")
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "a test project that hosts an application in-process receives the application's deps.json" {
+    projectRoot := ResolverNewTempDirectory("mvc-testing")
+    packagesRoot := Path.Combine(projectRoot, "packages")
+    try {
+        ResolverWritePackage(packagesRoot, "Microsoft.AspNetCore.Mvc.Testing", "1.0.0", "", null, null)
+        ResolverWrite(Path.Combine(projectRoot, "app/project.yml"), "name: N6App\nversion: 1.0.0\nentry: Program.nl\noutputType: exe\ntargetFramework: net10.0")
+        ResolverWrite(Path.Combine(projectRoot, "app/Program.nl"), "func main() {\n    print \"hello\"\n}")
+        ResolverWrite(
+            Path.Combine(projectRoot, "tests/project.yml"),
+            "name: N6Tests\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../app/project.yml\n  - nuget: Microsoft.AspNetCore.Mvc.Testing\n    version: 1.0.0"
+        )
+        ResolverWrite(
+            Path.Combine(projectRoot, "plain/project.yml"),
+            "name: PlainTests\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../app/project.yml"
+        )
+        options := new ReferenceResolutionOptions()
+        options.PackagesFolder = packagesRoot
+
+        testsRoot := Path.Combine(projectRoot, "tests")
+        result := CompilationReferenceResolver.AddResolvedDllReferences(testsRoot, ResolverParseProject(testsRoot), options)
+        appManifest := Path.Combine(projectRoot, "app/bin/Debug/net10.0/N6App.deps.json")
+        assert File.Exists(appManifest)
+        assert File.ReadAllText(appManifest).Contains("N6App/1.0.0")
+        assert ResolverContainsPath(result.RuntimeAssets, appManifest)
+
+        appRoot := Path.GetFullPath(Path.Combine(projectRoot, "app"))
+        assert result.ContentRoots.Count == 1
+        outputDirectory := Path.Combine(projectRoot, "tests-out")
+        result.CopyRuntimeAssets(outputDirectory)
+        assert File.Exists(Path.Combine(outputDirectory, "N6App.deps.json"))
+        contentRootSettings := TestCommandKernels.ReadContentRootEnvironment(outputDirectory)
+        assert contentRootSettings.Count == 1
+        assert contentRootSettings["TEST_CONTENTROOT_N6APP"] == appRoot
+
+        plainRoot := Path.Combine(projectRoot, "plain")
+        plain := CompilationReferenceResolver.AddResolvedDllReferences(plainRoot, ResolverParseProject(plainRoot), options)
+        assert !ResolverContainsPath(plain.RuntimeAssets, appManifest), "Only a project that hosts the application in-process needs its deps.json."
+        assert plain.ContentRoots.Count == 0
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
 }
