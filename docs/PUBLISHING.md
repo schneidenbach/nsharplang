@@ -147,7 +147,7 @@ curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scrip
 
 ### `nlc doctor` reports missing templates or tools
 
-Re-run the installer with the exact source you intended:
+Doctor checks the package cache of the install named by `NSHARP_INSTALL_DIR` (set by `$NSHARP_INSTALL_DIR/env`), falling back to `~/.nsharp`, so source the env file of the install you mean to verify. Re-run the installer with the exact source you intended:
 
 ```bash
 ./scripts/install.sh --source ./artifacts/toolset/nsharp-toolset.tar.gz

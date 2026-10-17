@@ -1450,6 +1450,13 @@ The script:
 
 For a CLI-only reinstall while debugging packaging, use `./install-local.sh --skip-vscode --no-path-update`.
 
+`nlc doctor`'s `nsharp-packages` check reads the same install root as `nlc new`
+(`NSharpInstallRoot.PackagesDirectory()`): `$NSHARP_INSTALL_DIR/packages` when the variable is set,
+else a detected custom toolset layout's `packages/`, else `~/.nsharp/packages`. A scratch install
+(`install.sh --install-dir DIR`, then `source DIR/env`) is therefore judged by its own cache, never
+by the user's real install. `tests/native/cli-command-contracts/DoctorCommandContracts.tests.nl`
+proves it through the shipped CLI with a populated and an empty scratch install directory.
+
 ### Native front door and per-RID toolsets
 
 `scripts/publish-toolset.sh` publishes two toolset shapes from the same sources:
