@@ -737,6 +737,12 @@ class AnalyzerClrTypeConversion {
         if newtypeType != null {
             return true
         }
+        // An anonymous object's synthesized class is a source type too, and `object` is the one CLR
+        // type it is known to be.
+        anonymousObjectType := candidate as AnonymousObjectTypeInfo
+        if anonymousObjectType != null {
+            return true
+        }
         return false
     }
 

@@ -39,6 +39,10 @@ sealed class ColumnarEmitContext {
     ModifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?
     LambdaCounter: int[]?
     DisplayClasses: List<TypeBuilder>?
+    // THE ANONYMOUS-OBJECT TEMPLATES OF THIS ASSEMBLY PASS. Shared like the display-class list, so
+    // every body that writes the same `new { ... }` shape reaches the same synthesized type. Null in
+    // contexts that synthesize no types.
+    AnonymousTypes: ColumnarAnonymousTypeRegistry?
     // The sibling free functions this body can call by bare name, and their labelled return
     // spellings. Both are a FILE's view, so both come from `ForSourceFile`.
     Siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
@@ -50,7 +54,7 @@ sealed class ColumnarEmitContext {
     private freeFunctions: ColumnarFreeFunctionScope?
     private holders: ColumnarFreeFunctionHolders?
 
-    constructor(enums: Dictionary<string, ColumnarEnumDef>, structs: IReadOnlyDictionary<string, ColumnarStructDef>, unions: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCases: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, freeFunctionScope: ColumnarFreeFunctionScope? = null, freeFunctionHolders: ColumnarFreeFunctionHolders? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null, referenceMetadata: SharedReferenceMetadata? = null) {
+    constructor(enums: Dictionary<string, ColumnarEnumDef>, structs: IReadOnlyDictionary<string, ColumnarStructDef>, unions: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCases: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, freeFunctionScope: ColumnarFreeFunctionScope? = null, freeFunctionHolders: ColumnarFreeFunctionHolders? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null, referenceMetadata: SharedReferenceMetadata? = null, anonymousTypes: ColumnarAnonymousTypeRegistry? = null) {
         Enums = enums
         Structs = structs
         Unions = unions
@@ -59,6 +63,7 @@ sealed class ColumnarEmitContext {
         holders = freeFunctionHolders
         LambdaCounter = lambdaCounter
         DisplayClasses = displayClasses
+        AnonymousTypes = anonymousTypes
         ReferenceAssemblyPaths = referenceAssemblyPaths
         ReferenceMetadata = referenceMetadata
         GenericInterfaceConstraints = genericInterfaceConstraints
@@ -74,7 +79,7 @@ sealed class ColumnarEmitContext {
     }
 
     private func Copy(): ColumnarEmitContext {
-        clone := new ColumnarEmitContext(Enums, Structs, Unions, UnionCases, freeFunctions, holders, LambdaCounter, DisplayClasses, ReferenceAssemblyPaths, GenericInterfaceConstraints, ModifiedMemberReferences, ReferenceMetadata)
+        clone := new ColumnarEmitContext(Enums, Structs, Unions, UnionCases, freeFunctions, holders, LambdaCounter, DisplayClasses, ReferenceAssemblyPaths, GenericInterfaceConstraints, ModifiedMemberReferences, ReferenceMetadata, AnonymousTypes)
         clone.TypeResolutionEnums = TypeResolutionEnums
         clone.TypeResolutionStructs = TypeResolutionStructs
         clone.TypeResolutionUnions = TypeResolutionUnions

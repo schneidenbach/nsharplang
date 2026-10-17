@@ -6861,7 +6861,7 @@ sealed class ColumnarIlEmitter {
         displayClasses := new List<TypeBuilder>()
         // THE EMIT SESSION'S ENVIRONMENT, BUILT ONCE. Every body emitter below is handed a derivation
         // of this instead of the fourteen arguments each construction site used to spell by hand.
-        emitContext := new ColumnarEmitContext(enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, freeFunctionScope, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, null, modifiedMemberReferences, program.ReferenceMetadata)
+        emitContext := new ColumnarEmitContext(enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, freeFunctionScope, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, null, modifiedMemberReferences, program.ReferenceMetadata, new ColumnarAnonymousTypeRegistry(module, displayClasses))
         for f := 0; f < funcs.Count; f++ {
             fn := funcs[f]
             typeResolution := typeResolutionsByFunc[f]
@@ -14850,6 +14850,15 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = runtimeMember.ResultType
                 return true
             }
+            // AN ANONYMOUS OBJECT'S PROPERTY: the template's getter rebound onto the receiver's
+            // instantiation. The template is synthesized, so no source definition answers for it.
+            let anonymousGetter: System.Reflection.MethodInfo? = null
+            let anonymousPropertyType: System.Type? = null
+            if (_context.AnonymousTypes != null && _context.AnonymousTypes.TryResolveProperty(structReceiverType, member, out anonymousGetter, out anonymousPropertyType) && anonymousGetter != null && anonymousPropertyType != null) {
+                _il.Emit(OpCodes.Callvirt, anonymousGetter)
+                columnarResolvedType = anonymousPropertyType
+                return true
+            }
             fieldStruct := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, structReceiverType)
             if (fieldStruct == null) {
                 // A CLOSED user-generic receiver (`Box<int>`): resolve on the OPEN definition (own
@@ -15989,6 +15998,10 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(idx, 0), out withReceiverType)) {
                 return Decline("emit.with.receiver", "with expression receiver could not be emitted", Child(idx, 0))
             }
+            let withAnonymousTemplate: NSharpLang.Compiler.Columnar.ColumnarAnonymousTypeTemplate? = null
+            if (_context.AnonymousTypes != null && _context.AnonymousTypes.TryFind(withReceiverType, out withAnonymousTemplate) && withAnonymousTemplate != null) {
+                return TryEmitAnonymousObjectWith(idx, withReceiverType, withAnonymousTemplate, withNames, out columnarResolvedType)
+            }
             withTb := withReceiverType as TypeBuilder
             let withPlan: ColumnarRecordWithPlan? = null
             if (withTb != null) {
@@ -16597,87 +16610,91 @@ sealed class ColumnarIlEmitter {
         }
     }
 
+    // `new { Name: value, ... }` — each value is evaluated in written order onto the stack, the shape's
+    // template is closed over the values' types, and its constructor takes them all at once. The
+    // template itself (generic, read-only, value equality, `{ Name = Alice }` rendering) is the
+    // session registry's; this site only instantiates it.
     private func TryEmitAnonymousObjectInitializer(idx: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        if (_programHolder == null || _lambdaCounter == null || _displayClasses == null) {
-            return false
+        anonymousTypes := _context.AnonymousTypes
+        if (anonymousTypes == null) {
+            return Decline("emit.anonymous-object.no-registry", "an anonymous object cannot be synthesized in this context", idx)
         }
         childCount := _nodes.ChildCount(idx)
         if ((childCount % 2) != 0) {
-            return false
+            return Decline("emit.anonymous-object.shape", "an anonymous object entry is missing its name or value", idx)
         }
         propertyCount := childCount / 2
         names := new string[propertyCount]
-        valueNodes := new int[propertyCount]
         seen := new HashSet<string>(StringComparer.Ordinal)
         for p := 0; p < propertyCount; p++ {
             nameNode := Child(idx, 2 * p)
             if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
-                return false
+                return Decline("emit.anonymous-object.shape", "an anonymous object property name must be an identifier", nameNode)
             }
             name := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
             if (!seen.Add(name)) {
-                return false
+                return Decline("emit.anonymous-object.duplicate", "an anonymous object declares property '" + name + "' more than once", nameNode)
             }
             names[p] = name
-            valueNodes[p] = Child(idx, (2 * p) + 1)
         }
 
-        // As with a display class: an anonymous object type is module-level and places nothing on
-        // the holder.
-        module := _programHolder.Module()
-        lambdaCounterForAnonymousType := _lambdaCounter
-        anonymousTypeOrdinal := lambdaCounterForAnonymousType[0]
-        lambdaCounterForAnonymousType[0] = anonymousTypeOrdinal + 1
-        anonymousTypeOrdinalText := anonymousTypeOrdinal.ToString()
-        anonymousTypeName := "<>f__AnonymousObject" + anonymousTypeOrdinalText
-        anonymousType := module.DefineType(
-            anonymousTypeName,
-            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
-        )
-        ctor := anonymousType.DefineDefaultConstructor(MethodAttributes.Public)
-        setters := new MethodBuilder[propertyCount]
+        propertyTypes := new Type[propertyCount]
         for p := 0; p < propertyCount; p++ {
-            field := anonymousType.DefineField("<" + names[p] + ">k__BackingField", typeof(object), FieldAttributes.Private)
-            property := anonymousType.DefineProperty(names[p], PropertyAttributes.None, typeof(object), Type.EmptyTypes)
-            getter := anonymousType.DefineMethod(
-                "get_" + names[p],
-                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
-                typeof(object),
-                Type.EmptyTypes
-            )
-            getterIl := getter.GetILGenerator()
-            getterIl.Emit(OpCodes.Ldarg_0)
-            getterIl.Emit(OpCodes.Ldfld, field)
-            getterIl.Emit(OpCodes.Ret)
-
-            setter := anonymousType.DefineMethod(
-                "set_" + names[p],
-                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
-                ColumnarTypeOfPlanner.RequiredVoidType(),
-                [typeof(object)]
-            )
-            setterIl := setter.GetILGenerator()
-            setterIl.Emit(OpCodes.Ldarg_0)
-            setterIl.Emit(OpCodes.Ldarg_1)
-            setterIl.Emit(OpCodes.Stfld, field)
-            setterIl.Emit(OpCodes.Ret)
-            property.SetGetMethod(getter)
-            property.SetSetMethod(setter)
-            setters[p] = setter
-        }
-        _displayClasses.Add(anonymousType)
-
-        _il.Emit(OpCodes.Newobj, ctor)
-        for p := 0; p < propertyCount; p++ {
-            _il.Emit(OpCodes.Dup)
+            valueNode := Child(idx, (2 * p) + 1)
             let valueType: System.Type? = null
-            if (!EmitExpression(valueNodes[p], out valueType) || !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, typeof(object), _structRegistry, _il)) {
+            if (!EmitExpression(valueNode, out valueType) || valueType == null) {
                 return false
             }
-            _il.Emit(OpCodes.Callvirt, setters[p])
+            if (valueType == ColumnarTypeOfPlanner.RequiredVoidType() || !ColumnarTypeOfPlanner.IsSupportedType(valueType)) {
+                return Decline("emit.anonymous-object.property-type", "anonymous object property '" + names[p] + "' has no storable type", valueNode)
+            }
+            propertyTypes[p] = valueType
         }
-        columnarResolvedType = anonymousType
+
+        template := anonymousTypes.GetOrDefine(names)
+        closedType := template.Close(propertyTypes)
+        _il.Emit(OpCodes.Newobj, template.ConstructorOn(closedType))
+        columnarResolvedType = closedType
+        return true
+    }
+
+    // `anonymous with { Name: value }` — the receiver is already on the stack. The replacement values
+    // are evaluated in written order into temporaries, then the template's constructor is called with
+    // every property in declaration order: a replaced one from its temporary, the rest read back off
+    // the receiver. The copy is the receiver's own instantiation, so its type never changes.
+    private func TryEmitAnonymousObjectWith(idx: int, receiverType: Type, template: NSharpLang.Compiler.Columnar.ColumnarAnonymousTypeTemplate, names: string[], out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        receiverLocal := _il.DeclareLocal(receiverType)
+        _il.Emit(OpCodes.Stloc, receiverLocal)
+        replacements := new LocalBuilder[template.Names.Length]
+        replaced := new bool[template.Names.Length]
+        for p := 0; p < names.Length; p++ {
+            index := template.IndexOf(names[p])
+            valueNode := Child(idx, 2 + (2 * p))
+            if (index < 0 || replaced[index]) {
+                return Decline("emit.with.anonymous-member", "with expression names '" + names[p] + "', which this anonymous object does not have or sets twice", valueNode)
+            }
+            propertyType := NSharpLang.Compiler.Columnar.ColumnarAnonymousTypeTemplate.PropertyTypeOn(receiverType, index)
+            let replacementType: System.Type = null
+            if (!TryEmitAssignableValue(valueNode, propertyType, out replacementType)) {
+                return Decline("emit.with.value", "with expression value for anonymous property '" + names[p] + "' could not be emitted", valueNode)
+            }
+            replacement := _il.DeclareLocal(propertyType)
+            _il.Emit(OpCodes.Stloc, replacement)
+            replacements[index] = replacement
+            replaced[index] = true
+        }
+        for i := 0; i < template.Names.Length; i++ {
+            if (replaced[i]) {
+                _il.Emit(OpCodes.Ldloc, replacements[i])
+            } else {
+                _il.Emit(OpCodes.Ldloc, receiverLocal)
+                _il.Emit(OpCodes.Callvirt, template.GetterOn(receiverType, i))
+            }
+        }
+        _il.Emit(OpCodes.Newobj, template.ConstructorOn(receiverType))
+        columnarResolvedType = receiverType
         return true
     }
 
@@ -16788,6 +16805,16 @@ sealed class ColumnarIlEmitter {
                 }
                 return false
             }
+        }
+
+        // `{ Name: n }` against an anonymous object reads the template's property on the instantiation.
+        let anonymousPatternGetter: System.Reflection.MethodInfo? = null
+        let anonymousPatternType: System.Type? = null
+        if (_context.AnonymousTypes != null && _context.AnonymousTypes.TryResolveProperty(ownerType, member, out anonymousPatternGetter, out anonymousPatternType) && anonymousPatternGetter != null && anonymousPatternType != null) {
+            _il.Emit(OpCodes.Ldloc, ownerLocal)
+            _il.Emit(OpCodes.Callvirt, anonymousPatternGetter)
+            memberType = anonymousPatternType
+            return StoreReadablePatternMember(memberType, out memberLocal)
         }
 
         let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
@@ -23522,6 +23549,17 @@ sealed class ColumnarIlEmitter {
             return false
         }
         columnarSwitchValue11 := _nodes.Kind(node)
+        if columnarSwitchValue11 == ColumnarExpressionNodeKind.AnonymousObjectInitializer {
+            return TryGetPreflightAnonymousObjectType(node, out columnarResolvedType)
+        }
+        // `anonymous with { ... }` is a copy of the receiver's own instantiation.
+        if columnarSwitchValue11 == ColumnarExpressionNodeKind.WithExpression && _nodes.ChildCount(node) >= 1 && _context.AnonymousTypes != null {
+            let withReceiverPreflightType: System.Type? = null
+            if (TryGetPreflightExpressionType(Child(node, 0), out withReceiverPreflightType) && withReceiverPreflightType != null && _context.AnonymousTypes.IsAnonymousType(withReceiverPreflightType)) {
+                columnarResolvedType = withReceiverPreflightType
+                return true
+            }
+        }
         if columnarSwitchValue11 == ColumnarExpressionNodeKind.IntLiteralExpression {
             text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             if (text.Length > 0 && (text[^1] == 'm' || text[^1] == 'M')) {
@@ -24518,6 +24556,38 @@ sealed class ColumnarIlEmitter {
 
     private func CanUseExtensionReceiverConversion(sourceType: Type, targetType: Type): bool => TypesEquivalent(sourceType, targetType) || CanUseImplicitNumericWidening(sourceType, targetType) || CanUseSpanConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(sourceType, targetType, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(sourceType, targetType, _structRegistry) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(sourceType, targetType) || CanUseAnonymousUnionConversion(sourceType, targetType)
 
+    // The type `new { Name: value, ... }` will produce, asked before anything is emitted: the shape's
+    // template closed over each value's preflight type. Exactly the closing the emission performs, so
+    // the two never disagree about which instantiation a creation is.
+    private func TryGetPreflightAnonymousObjectType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        anonymousTypes := _context.AnonymousTypes
+        childCount := _nodes.ChildCount(node)
+        if (anonymousTypes == null || (childCount % 2) != 0) {
+            return false
+        }
+        propertyCount := childCount / 2
+        names := new string[propertyCount]
+        propertyTypes := new Type[propertyCount]
+        for p := 0; p < propertyCount; p++ {
+            nameNode := Child(node, 2 * p)
+            if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
+                return false
+            }
+            names[p] = ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+            let valueType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(node, (2 * p) + 1), out valueType) || valueType == null || valueType == ColumnarTypeOfPlanner.RequiredVoidType() || !ColumnarTypeOfPlanner.IsSupportedType(valueType)) {
+                return false
+            }
+            propertyTypes[p] = valueType
+        }
+        if (new HashSet<string>(names, StringComparer.Ordinal).Count != names.Length) {
+            return false
+        }
+        columnarResolvedType = anonymousTypes.GetOrDefine(names).Close(propertyTypes)
+        return true
+    }
+
     private func TryGetPreflightMemberAccessType(node: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         receiver := Child(node, 0)
@@ -24560,6 +24630,12 @@ sealed class ColumnarIlEmitter {
         // chain rooted at a LOCAL copy of that field answered.
         let sourceReceiverType: System.Type? = null
         if (TryGetPreflightExpressionType(receiver, out sourceReceiverType) && sourceReceiverType != null) {
+            let anonymousGetter: System.Reflection.MethodInfo? = null
+            let anonymousPropertyType: System.Type? = null
+            if (_context.AnonymousTypes != null && _context.AnonymousTypes.TryResolveProperty(sourceReceiverType, member, out anonymousGetter, out anonymousPropertyType) && anonymousPropertyType != null) {
+                columnarResolvedType = anonymousPropertyType
+                return true
+            }
             sourceOwner := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, sourceReceiverType)
             if (sourceOwner != null) {
                 let sourceField: System.Reflection.Emit.FieldBuilder? = null
@@ -26368,9 +26444,11 @@ sealed class ColumnarIlEmitter {
         // The member is chosen by ordinary scoped resolution asked of `object`; the receiver is
         // already on the stack, and a source VALUE type is boxed first, which is what a `constrained.`
         // callvirt on a struct with no override of its own amounts to. A member the source chain
-        // DOES declare never reaches here: its own resolution answered tiers above.
+        // DOES declare never reaches here: its own resolution answered tiers above. A synthesized
+        // anonymous-object type is the same case with no source definition behind it: its
+        // `ToString`/`Equals`/`GetHashCode` are overrides, so `callvirt` on `object`'s slot reaches them.
         let objectInheritedOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-        if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) && ColumnarSourceDefinitionResolver.TryResolveStruct(receiverType, _structRegistry.Values, out objectInheritedOwner) && objectInheritedOwner != null) {
+        if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) && ((ColumnarSourceDefinitionResolver.TryResolveStruct(receiverType, _structRegistry.Values, out objectInheritedOwner) && objectInheritedOwner != null) || (_context.AnonymousTypes != null && _context.AnonymousTypes.IsAnonymousType(receiverType)))) {
             objectInheritedSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(object), member, argCount, false)
             if (objectInheritedSelection.IsSelected && objectInheritedSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, objectInheritedSelection)) {
                 if (receiverType.IsValueType) {
@@ -30022,20 +30100,32 @@ sealed class ColumnarIlEmitter {
                     0
                 )
             }
-            if (plan.ValueType == typeof(string) && plan.Format == null) {
+            // A VALUE OF A TYPE THIS COMPILATION IS STILL BUILDING — a class, a struct, an anonymous
+            // object — is appended as `object`. `AppendFormatted<T>` cannot be closed over a type that
+            // has no runtime identity yet, and the `object` form formats it the same way: through
+            // `IFormattable` when the type implements it, through its own `ToString()` otherwise. A
+            // value type is boxed on the way, which is what passing it as `object` means.
+            appendedValueType := ColumnarEmitReflectionFacts.RequiredType(plan.ValueType, "formatted interpolation value type")
+            if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(appendedValueType) && !IsKnownEnumType(appendedValueType) && !appendedValueType.IsGenericParameter) {
+                if (appendedValueType.IsValueType) {
+                    _il.Emit(OpCodes.Box, appendedValueType)
+                }
+                appendedValueType = typeof(object)
+            }
+            if (appendedValueType == typeof(string) && plan.Format == null) {
                 ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, handlerType.GetMethod("AppendFormatted", [typeof(string)]), "CLR method AppendFormatted")
             } else {
                 if (plan.Format != null) {
                     _il.Emit(OpCodes.Ldstr, plan.Format)
                     appendFormattedDefinition := FindAppendFormattedGeneric(handlerType, true)
                     appendFormattedTypeArguments := new Type[](1)
-                    appendFormattedTypeArguments[0] = ColumnarEmitReflectionFacts.RequiredType(plan.ValueType, "formatted interpolation value type")
+                    appendFormattedTypeArguments[0] = appendedValueType
                     appendFormattedMethod := appendFormattedDefinition.MakeGenericMethod(appendFormattedTypeArguments)
                     _il.Emit(OpCodes.Call, appendFormattedMethod)
                 } else {
                     appendFormattedDefinition := FindAppendFormattedGeneric(handlerType, false)
                     appendFormattedTypeArguments := new Type[](1)
-                    appendFormattedTypeArguments[0] = ColumnarEmitReflectionFacts.RequiredType(plan.ValueType, "formatted interpolation value type")
+                    appendFormattedTypeArguments[0] = appendedValueType
                     appendFormattedMethod := appendFormattedDefinition.MakeGenericMethod(appendFormattedTypeArguments)
                     _il.Emit(OpCodes.Call, appendFormattedMethod)
                 }
@@ -30463,7 +30553,8 @@ sealed class ColumnarIlEmitter {
         return emittedExpression
     }
 
-    private func IsSupportedParsedInterpolationHoleType(columnarResolvedType: Type): bool => columnarResolvedType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(columnarResolvedType) && (!RuntimeTypeShapeFacts.ContainsBuilderBoundType(columnarResolvedType) || IsKnownEnumType(columnarResolvedType))
+    // A builder-bound value is admitted: the append step formats it through `object`.
+    private func IsSupportedParsedInterpolationHoleType(columnarResolvedType: Type): bool => columnarResolvedType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(columnarResolvedType)
 
     private func CanEmitInterpolationCast(sourceType: Type, targetType: Type): bool {
         if (TypesEquivalent(sourceType, targetType)) {

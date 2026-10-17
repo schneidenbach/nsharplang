@@ -62,6 +62,11 @@ class NullabilityTypeDisplay {
             return FormatTupleType(tupleType)
         }
 
+        anonymousObject := typeInfo as AnonymousObjectTypeInfo
+        if anonymousObject != null {
+            return FormatAnonymousObjectType(anonymousObject)
+        }
+
         generic := typeInfo as GenericTypeInfo
         if generic != null {
             return generic.Name + "<" + FormatTypeList(generic.TypeArguments, ", ") + ">"
@@ -173,6 +178,27 @@ class NullabilityTypeDisplay {
         }
 
         return result + ")"
+    }
+
+    // `new { Name: string, Age: int }`, and `new { }` for an object with no properties.
+    static func FormatAnonymousObjectType(anonymousObject: AnonymousObjectTypeInfo): string {
+        if anonymousObject.Properties.Count == 0 {
+            return "new { }"
+        }
+
+        result := "new { "
+        index := 0
+        while index < anonymousObject.Properties.Count {
+            if index > 0 {
+                result = result + ", "
+            }
+
+            property := anonymousObject.Properties[index]
+            result = result + property.Name + ": " + FormatTypeInfo(property.Type)
+            index = index + 1
+        }
+
+        return result + " }"
     }
 
     static func FormatTypeList(types: List<TypeInfo>, separator: string): string {

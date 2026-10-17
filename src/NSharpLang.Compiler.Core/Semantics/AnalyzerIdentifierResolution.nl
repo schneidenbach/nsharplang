@@ -108,6 +108,13 @@ class AnalyzerIdentifierResolution {
     // One call per analysis, from the analyzer's own reset block. The semantic model and the binding
     // map are REPLACED per analysis rather than cleared, so they arrive here instead of being held
     // from construction — the same door `AnalyzerTypeResolver` takes them through.
+    // THE TYPE OF A NAME WRITTEN AT A POSITION THAT IS NOT AN EXPRESSION — an anonymous object's
+    // property name in `new { Name: value }` — recorded where the name is, the same table every
+    // identifier's own type is read back from.
+    func RecordNameType(line: int, column: int, typeInfo: TypeInfo) {
+        semanticModelValue.RecordExpressionType(line, column, typeInfo)
+    }
+
     func BeginAnalysis(unit: CompilationUnit?, semanticModel: SemanticModel, bindings: BindingMap) {
         compilationUnitValue = unit
         semanticModelValue = semanticModel

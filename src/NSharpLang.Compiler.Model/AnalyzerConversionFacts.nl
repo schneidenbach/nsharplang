@@ -95,7 +95,8 @@ class AnalyzerConversionFacts {
         functionType := candidate as FunctionTypeInfo
         unionType := candidate as UnionTypeInfo
         anonymousUnionType := candidate as AnonymousUnionTypeInfo
-        if classType != null || interfaceType != null || arrayType != null || functionType != null || unionType != null || anonymousUnionType != null {
+        anonymousObjectType := candidate as AnonymousObjectTypeInfo
+        if classType != null || interfaceType != null || arrayType != null || functionType != null || unionType != null || anonymousUnionType != null || anonymousObjectType != null {
             return true
         }
 
@@ -223,6 +224,10 @@ class AnalyzerConversionFacts {
         }
 
         if (candidate as AnonymousUnionTypeInfo) != null {
+            return true
+        }
+
+        if (candidate as AnonymousObjectTypeInfo) != null {
             return true
         }
 

@@ -364,6 +364,15 @@ class AnalyzerWriteTargets {
             return true
         }
 
+        // AN ANONYMOUS OBJECT IS READ-ONLY, ALL OF IT. Its properties are what its creation wrote, and
+        // the synthesized type has no setter to call — so the fix is a new object, not a modifier.
+        anonymousPropertyName := ""
+        if TryFindAnonymousObjectPropertyWriteTarget(target, expressionTypes, out anonymousPropertyName) {
+            anonymousSpan := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
+            diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "'" + anonymousPropertyName + "' is a property of an anonymous object, and anonymous objects are read-only — it can't be " + action, anonymousSpan.Line, anonymousSpan.Column, "Create a new anonymous object with the value you want, or declare a class or record when the value has to change.", anonymousSpan.Length)
+            return true
+        }
+
         propertyName := ""
         if !TryFindReadOnlyPropertyWriteTarget(target, expressionTypes, out propertyName) {
             return false
@@ -371,6 +380,29 @@ class AnalyzerWriteTargets {
 
         span := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
         diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Property '" + propertyName + "' is read-only — it can't be " + action, span.Line, span.Column, "Use a variable, field, settable property, or indexed element as the target.", span.Length)
+        return true
+    }
+
+    // A WRITE TO ONE OF AN ANONYMOUS OBJECT'S PROPERTIES, through any receiver whose analysed type is
+    // the anonymous type.
+    func TryFindAnonymousObjectPropertyWriteTarget(target: Expression, expressionTypes: Dictionary<object, TypeInfo>?, out propertyName: string): bool {
+        propertyName = ""
+        member := target as MemberAccessExpression
+        if member == null || expressionTypes == null {
+            return false
+        }
+
+        receiverType: TypeInfo = BuiltInTypes.Unknown
+        if !expressionTypes.TryGetValue(member.Object, out receiverType) {
+            return false
+        }
+
+        anonymousReceiver := declarationContextValue.ResolveDeclaredAlias(NonNullableType(receiverType)) as AnonymousObjectTypeInfo
+        if anonymousReceiver == null || anonymousReceiver.FindProperty(member.MemberName) == null {
+            return false
+        }
+
+        propertyName = member.MemberName
         return true
     }
 

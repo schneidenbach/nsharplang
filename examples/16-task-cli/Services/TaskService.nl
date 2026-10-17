@@ -49,7 +49,7 @@ class TaskService {
         task := new TaskItem {
             Id: nextId,
             Title: title,
-            Status: new Status.Todo {  },
+            Status: new Status.Todo { },
             Priority: priority,
             Tags: tags,
             DueDate: dueDate,
@@ -80,7 +80,7 @@ class TaskService {
             return new CommandResult.Error($"Task #{id} not found")
         }
 
-        updated := tasks[index] with { Status: new Status.Done {  } }
+        updated := tasks[index] with { Status: new Status.Done { } }
         tasks[index] = updated
         return new CommandResult.Success($"Completed task #{id}: {updated.Title}")
     }
@@ -92,7 +92,7 @@ class TaskService {
             return new CommandResult.Error($"Task #{id} not found")
         }
 
-        updated := tasks[index] with { Status: new Status.InProgress {  } }
+        updated := tasks[index] with { Status: new Status.InProgress { } }
         tasks[index] = updated
         return new CommandResult.Success($"Started task #{id}: {updated.Title}")
     }

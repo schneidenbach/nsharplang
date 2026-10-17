@@ -1279,6 +1279,12 @@ class ColumnarTypeOfPlanner {
         if IsSupportedValueTuple(valueType) {
             return true
         }
+        // A CLOSED INSTANTIATION OF A TYPE THIS COMPILATION DECLARES — `Box<string>`, or the
+        // `<>f__AnonymousType0<string, int>` an anonymous object is — is an element like its open
+        // definition is: `[box, box]` and `[person, other]` are the same array shape.
+        if IsClosedSourceGeneric(valueType) {
+            return true
+        }
         return !valueType.IsValueType && IsSupportedCatalogType(valueType)
     }
 
