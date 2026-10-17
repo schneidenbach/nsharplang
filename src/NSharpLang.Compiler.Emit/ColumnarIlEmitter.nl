@@ -85,7 +85,6 @@ sealed class ColumnarIlEmitter {
     private readonly _asyncReturnType: Type?
     private readonly _asyncResultType: Type?
     private readonly _asyncReturnsValueTask: bool
-    private readonly _asyncBareReturnDeclines: bool
     private _finallyDepth: int
     // How many `catch` HANDLER BODIES this emitter is writing inside, and the `_finallyDepth` the
     // innermost of them opened at. IL `rethrow` is valid only in a handler's own funclet, so a bare
@@ -173,9 +172,6 @@ sealed class ColumnarIlEmitter {
     // for `main`). _returnType holds the INNER declared type so every return-value check works
     // unchanged; returns WRAP before storing into the protected slot; the whole body runs inside
     // the fault guard (EmitBody) whose catch converts the exception to a faulted task.
-
-    // True when the async unit-ness came from an EXPLICIT `: Task`/`: ValueTask` annotation — a
-    // bare `return` is then a pipeline NL305 (the unit-task exemption covers fall-through only).
 
     // Set while a FINALLY handler's statements emit: control transfers OUT of a finally (return, or
     // break/continue to a loop outside it) are illegal IL. The analyzer now rejects those shapes with
@@ -541,7 +537,7 @@ sealed class ColumnarIlEmitter {
     // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
     // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
 
-    private constructor(context: ColumnarEmitContext, nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, typeParameters: IReadOnlyDictionary<string, Type>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null) {
+    private constructor(context: ColumnarEmitContext, nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null) {
         // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
@@ -570,7 +566,6 @@ sealed class ColumnarIlEmitter {
         _isConstructorBody = isConstructorBody
         _isSynthesizedInitializerBody = isSynthesizedInitializerBody
         _asyncReturnType = asyncReturnType
-        _asyncBareReturnDeclines = asyncBareReturnDeclines
         if (asyncReturnType != null) {
             if (returnType == ColumnarTypeOfPlanner.RequiredVoidType()) {
                 _asyncResultType = null
@@ -1662,7 +1657,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
                 asyncReturnType,
-                false,
                 placement.TypeParametersForBody,
                 null,
                 null
@@ -1749,7 +1743,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             asyncReturnType,
-            false,
             null,
             null,
             null
@@ -1833,7 +1826,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
-            false,
             null,
             null,
             null
@@ -2447,7 +2439,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
-            false,
             placement.TypeParametersForBody,
             null,
             null
@@ -4736,7 +4727,6 @@ sealed class ColumnarIlEmitter {
             null,
             null,
             null,
-            false,
             def.GenericParameters,
             null,
             null
@@ -7039,11 +7029,6 @@ sealed class ColumnarIlEmitter {
                 fnParamTupleNames,
                 null,
                 asyncWrappedByFunc[f],
-                match fn.ReturnCanonical {
-                    "Task" => true,
-                    "ValueTask" => true,
-                    _ => false
-                },
                 bodyTypeParamMap,
                 localFunctionDisplay,
                 genericLocalFuncs
@@ -7090,11 +7075,10 @@ sealed class ColumnarIlEmitter {
                 job.Item5,
                 job.Item6,
                 job.Item4,
+                false,
                 mil,
                 job.Item1,
                 job.Item1,
-                false,
-                false,
                 null,
                 null,
                 null,
@@ -7275,11 +7259,6 @@ sealed class ColumnarIlEmitter {
                 methodJobParamTupleNames,
                 null,
                 job.Item6,
-                match job.Item2.ReturnCanonical {
-                    "Task" => true,
-                    "ValueTask" => true,
-                    _ => false
-                },
                 memberBodyTypeParameters,
                 memberLocalFunctionClosure,
                 memberGenericLocalFuncs
@@ -7342,11 +7321,10 @@ sealed class ColumnarIlEmitter {
                 new Dictionary<string, int>(StringComparer.Ordinal),
                 new Dictionary<string, Type>(StringComparer.Ordinal),
                 ColumnarTypeOfPlanner.RequiredVoidType(),
+                false,
                 staticInitializerIl,
                 null,
                 staticInitializerDef,
-                false,
-                false,
                 null,
                 null,
                 null,
@@ -7424,7 +7402,6 @@ sealed class ColumnarIlEmitter {
                 ctorJobParamTupleNames,
                 null,
                 null,
-                false,
                 job.Struct.GenericParameters,
                 null,
                 null
@@ -7681,11 +7658,10 @@ sealed class ColumnarIlEmitter {
                     new Dictionary<string, int>(StringComparer.Ordinal),
                     new Dictionary<string, Type>(StringComparer.Ordinal),
                     ColumnarTypeOfPlanner.RequiredVoidType(),
+                    false,
                     testIl,
                     null,
                     null,
-                    false,
-                    false,
                     null,
                     null,
                     null,
@@ -8325,11 +8301,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 declaringScopeBindings,
                 localAsyncReturn,
-                match localFn.ReturnCanonical {
-                    "Task" => true,
-                    "ValueTask" => true,
-                    _ => false
-                },
                 localTypeParamMap,
                 localClosureView,
                 lowering.GenericLocalFuncs
@@ -9360,14 +9331,9 @@ sealed class ColumnarIlEmitter {
                 }
                 if (_protectedDepth > 0) {
                     if (_asyncReturnType != null) {
-                        // a bare `return` in a UNIT async body — legal ONLY when the unit-ness
-                        // is IMPLICIT (no annotation): the pipeline's NL305 unit-task exemption
-                        // covers fall-through bodies, and a bare return under an EXPLICIT
-                        // Task/ValueTask annotation is rejected as a non-value return path
-                        // (review-probe-pinned boundary). Wrap and route through the async tail.
-                        if (_asyncBareReturnDeclines) {
-                            return false
-                        }
+                        // a bare `return` in a UNIT async body completes the task, whether the unit-ness
+                        // is implicit or written as `: Task`/`: ValueTask` (C# semantics): wrap and
+                        // route through the async tail, which also runs any enclosing `finally`.
                         EmitWrappedAsyncCompletedReturn(false)
                         _il.Emit(OpCodes.Stloc, _protectedResult)
                     }
@@ -25151,11 +25117,10 @@ sealed class ColumnarIlEmitter {
             inferenceOrdinals,
             inferenceParamTypes,
             ColumnarTypeOfPlanner.RequiredVoidType(),
+            false,
             _il,
             _currentStruct,
             _enclosingType,
-            false,
-            false,
             _boxedCaptures,
             _localFuncs,
             _declaredLocalFuncNodes,
