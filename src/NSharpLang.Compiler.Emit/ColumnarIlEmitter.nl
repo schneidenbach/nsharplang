@@ -18392,6 +18392,36 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Box, receiverType)
         }
 
+        paramsElementType := selection.ParamsElementType
+        if (paramsElementType != null) {
+            // THE PACKED FORM: the fixed arguments are pushed as any call's are, a fixed slot the site
+            // omitted fills from its metadata default, and the rest — none at all for
+            // `app.UseMiddleware<Stamp>()` — fill a fresh array that is then the signature's last
+            // ordinary argument.
+            fixedCount := ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 1)
+            suppliedFixedCount := Math.Min(argCount, fixedCount)
+            for a := 0; a < suppliedFixedCount; a++ {
+                if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), parameterTypes[a + 1], true)) {
+                    return false
+                }
+            }
+            packedParameters := (must selection.Method).GetParameters()
+            if (packedParameters == null || packedParameters.Length != parameterTypes.Length) {
+                return false
+            }
+            for omitted := 1 + suppliedFixedCount; omitted <= fixedCount; omitted++ {
+                if (!ColumnarExtensionMethodResolver.TryEmitOptionalDefault(_il, packedParameters[omitted], parameterTypes[omitted])) {
+                    return false
+                }
+            }
+            if (!TryEmitExpandedParamsValue(callIdx, suppliedFixedCount, argCount, parameterTypes[^1], paramsElementType)) {
+                return false
+            }
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, selection.Method, "selected runtime member method")
+            resolvedClrType = selection.ReturnType
+            return true
+        }
+
         for a := 0; a < argCount; a++ {
             if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), parameterTypes[a + 1], true)) {
                 return false

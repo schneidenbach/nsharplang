@@ -3001,6 +3001,17 @@ delegate's RETURN position, repeating while anything moves.
   (`IsSupportedReceiverParameter` excludes only by-ref, pointer and BARE type-parameter slots), which
   is what `JsonSerializer.Deserialize<TValue>(this JsonElement, ...)` needs; the receiver is pushed by
   VALUE there, and boxed when the declared slot is a reference type.
+- An explicit site reaches a `params` TAIL through `CollectExplicitExpanded` /
+  `ResolveExplicitExpanded`, asked only when nothing bound in normal form (a normal-form ambiguity
+  still declines). The inferred `ResolveExpanded` keeps generic definitions out because inferring
+  from a packed element is its own rule; written type arguments infer nothing, so the explicit tier
+  admits them. `ExplicitExpandedParameterTypesOrNull` also lets the site omit DEFAULTED fixed slots
+  before the tail, which then packs nothing — `route.Produces<Todo>()` over `(int statusCode = 200,
+  string? contentType = null, params string[])`. `TryEmitExplicitGenericExtensionCall` pushes the
+  supplied fixed arguments, fills omitted ones with `TryEmitOptionalDefault`, then
+  `TryEmitExpandedParamsValue`. Before this, `app.UseMiddleware<Stamp>()` passed analysis and declined
+  at `emit.call.generic-unresolved`; `tests/native/census-generic-params-extension` runs the
+  `tests/fixtures/web-generic-middleware` WebApplication pipeline that proves it.
 - A CONSTRUCTOR ARGUMENT WITH NO TYPE OF ITS OWN is `ColumnarIlEmitter.TryEmitContextualConstruction`:
   the constructor is selected first (by the written arity, and among same-arity overloads by whether
   each written argument CAN match the declared parameter), then each argument is emitted against its
