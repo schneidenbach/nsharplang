@@ -31919,7 +31919,7 @@ sealed class ColumnarIlEmitter {
             usable := true
             defaultIndex := 0
             while defaultIndex < parameterTypes.Length {
-                if !claimed[defaultIndex] && !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(candidate.Parameters[defaultIndex], parameterTypes[defaultIndex]) {
+                if !claimed[defaultIndex] && !ColumnarExtensionMethodResolver.CanFillOptional(candidate.Parameters[defaultIndex], parameterTypes[defaultIndex]) {
                     usable = false
                     break
                 }
@@ -32259,12 +32259,7 @@ sealed class ColumnarIlEmitter {
                 // AN EXTERNAL BASE'S OMITTED ARGUMENT COMES FROM ITS OWN METADATA; a source one comes
                 // from the declaration columns this program parsed.
                 if chainedMetadataParameters != null {
-                    if !ColumnarParameterDefaultEmitter.TryEmitMetadataDefaultArgument(
-                        _il,
-                        chainedMetadataParameters[argumentIndex],
-                        chainedParameterTypes[argumentIndex],
-                        out ignoredDefaultResultType
-                    ) {
+                    if !ColumnarExtensionMethodResolver.TryEmitOptionalDefault(_il, chainedMetadataParameters[argumentIndex], chainedParameterTypes[argumentIndex]) {
                         return false
                     }
                 } else if !ColumnarParameterDefaultEmitter.TryEmitConstructorDefaultArgument(

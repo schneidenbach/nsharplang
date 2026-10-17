@@ -251,6 +251,50 @@ message1 := greet("Alice")              // "Hello, Alice!"
 message2 := greet("Bob", "Hi")          // "Hi, Bob!"
 ```
 
+A default is a **constant**: it is stored in the parameter's metadata and copied into every call
+that leaves the argument out, exactly as C# does it. Any constant of the parameter's type works —
+every integral, floating, `char`, `bool`, `string` and `decimal` literal (signed or not), `null` for a
+reference or nullable parameter, and `default` for the type's zero value:
+
+```n#
+import System
+
+func page(size: byte = 50, offset: long = 0, cursor: string? = null): string {
+    from := cursor ?? "start"
+    return $"{from}:{size}@{offset}"
+}
+
+func pad(text: string, fill: char = ' ', width: int = -1): string {
+    return width < 0 ? text : text.PadLeft(width, fill)
+}
+
+func price(amount: decimal, rate: decimal = 0.2m): decimal {
+    return amount * (1m + rate)
+}
+
+func shifted(start: DateTime = default, days: int? = null): DateTime {
+    return start.AddDays(days ?? 0)
+}
+
+func main() {
+    print page()                 // start:50@0
+    print pad("7", width: 3)     // "  7"
+    print price(10m)             // 12.0
+    print shifted().Year         // 1
+}
+```
+
+A literal follows the same rule as any other assignment, so `size: byte = 50` is a `byte` and
+`size: byte = 300` is a type mismatch ([NL202](./errors/NL202.md)) on the default; so are
+`n: int = null` (write `n: int? = null`, or `= default` for `0`) and `ratio: float = 2.5` (write
+`2.5f`). The literal `0` is also every enum's zero (`flags: Options = 0`). A value read at run time
+— `DateTime.MinValue`, `TimeSpan.Zero`, a call — is not a constant and is
+[NL410](./errors/NL410.md); `= default` is the constant spelling of a struct's zero value.
+
+C# and every other .NET consumer see these defaults: each one is written as the `Constant` row C#
+writes for it (`[Optional]` plus `[DecimalConstant]` for a `decimal`), so a C# caller can omit the
+argument too.
+
 Enum members are compile-time constructor defaults too. The enum owner is bound
 where the constructor is declared, so imports at a call site cannot change it.
 

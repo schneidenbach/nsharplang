@@ -2878,73 +2878,35 @@ class ColumnarConstructionPlanner {
         return result
     }
 
-    static func CanUseConstructorDefault(nodes: ColumnarNodeTable, expectedType: Type, defaultKind: int, defaultText: string, bindings: ColumnarFragmentBindings): bool {
-        if defaultKind == 46 {
-            return !expectedType.IsValueType
-        }
-        if defaultKind == 44 || defaultKind == 45 {
-            return expectedType == typeof(bool)
-        }
-        if defaultKind == 1 {
-            value := 0
-            return expectedType == typeof(int) && Int32.TryParse(defaultText, out value)
-        }
-        if defaultKind == 4 {
-            return expectedType == typeof(string)
+    // AN OMITTED ARGUMENT'S VALUE, as the parameter's own type: a literal, `null` or `default`
+    // through `ColumnarParameterDefaultValue`, or a member of the parameter's enum resolved in this
+    // fragment's scope. Null is a default this call cannot fill, and the caller declines.
+    static func ConstructorDefaultValueFor(nodes: ColumnarNodeTable, expectedType: Type, defaultKind: int, defaultText: string, bindings: ColumnarFragmentBindings): ColumnarParameterDefaultValue? {
+        if ColumnarParameterDefaultValue.IsSourceLiteralKind(defaultKind) {
+            return ColumnarParameterDefaultValue.FromSource(defaultKind, defaultText, expectedType)
         }
         if defaultKind != 1000 {
-            return false
-        }
-
-        stringValue := ""
-        intValue := 0
-        return TryResolveStringEnumDefault(nodes, expectedType, defaultText, bindings, out stringValue) || TryResolveNumericEnumDefault(nodes, expectedType, defaultText, bindings, out intValue)
-    }
-
-    static func TryAppendConstructorDefault(nodes: ColumnarNodeTable, plan: ColumnarCodePlan, expectedType: Type, defaultKind: int, defaultText: string, bindings: ColumnarFragmentBindings): bool {
-        if !CanUseConstructorDefault(nodes, expectedType, defaultKind, defaultText, bindings) {
-            return false
-        }
-        if defaultKind == 46 {
-            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
-            return true
-        }
-        if defaultKind == 44 {
-            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
-            return true
-        }
-        if defaultKind == 45 {
-            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
-            return true
-        }
-        if defaultKind == 1 {
-            intValue := 0
-            if !Int32.TryParse(defaultText, out intValue) {
-                return false
-            }
-            valueIndex := plan.AddInt32(intValue)
-            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
-            return true
-        }
-        if defaultKind == 4 {
-            valueIndex := plan.AddString(StringLiteralDecoder.Decode(defaultText, false))
-            plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
-            return true
+            return null
         }
 
         stringValue := ""
         if TryResolveStringEnumDefault(nodes, expectedType, defaultText, bindings, out stringValue) {
-            valueIndex := plan.AddString(stringValue)
-            plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
-            return true
+            return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, expectedType, stringValue)
         }
         intValue := 0
         if TryResolveNumericEnumDefault(nodes, expectedType, defaultText, bindings, out intValue) {
-            valueIndex := plan.AddInt32(intValue)
-            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
-            return true
+            return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, expectedType, intValue)
         }
-        return false
+        return null
+    }
+
+    static func CanUseConstructorDefault(nodes: ColumnarNodeTable, expectedType: Type, defaultKind: int, defaultText: string, bindings: ColumnarFragmentBindings): bool {
+        return ConstructorDefaultValueFor(nodes, expectedType, defaultKind, defaultText, bindings) != null
+    }
+
+    static func TryAppendConstructorDefault(nodes: ColumnarNodeTable, plan: ColumnarCodePlan, expectedType: Type, defaultKind: int, defaultText: string, bindings: ColumnarFragmentBindings): bool {
+        defaultValue := ConstructorDefaultValueFor(nodes, expectedType, defaultKind, defaultText, bindings)
+        return defaultValue != null && defaultValue.AppendTo(plan)
     }
 
     static func TryResolveStringEnumDefault(nodes: ColumnarNodeTable, expectedType: Type, defaultText: string, bindings: ColumnarFragmentBindings, out value: string): bool {

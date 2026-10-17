@@ -1598,10 +1598,14 @@ class Analyzer: IDisposable {
         step := DeclarationPolicy.NextStep(state)
         while step != null {
             kind := step.Kind
-            if kind == 1 {
-                AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
+            if kind == 2 {
+                DeclarationPolicy.SupplyDefaultType(state, AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false), Assignability)
+            } else {
+                if kind == 1 {
+                    AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
+                }
+                DeclarationPolicy.Supply(state)
             }
-            DeclarationPolicy.Supply(state)
             step = DeclarationPolicy.NextStep(state)
         }
     }

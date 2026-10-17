@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Globalization
 import System.Reflection
 import NSharpLang.Compiler
 
@@ -160,57 +159,16 @@ class ColumnarExternalFreeFunctions {
         return special
     }
 
-    // AN OMITTED ARGUMENT'S DEFAULT, in the spelling a source default is carried in: the literal's
-    // token kind and its written text (`null` 46, `true` 44, `false` 45, an `int` 1, a `string` 4 as
-    // its quoted literal). A default this cannot spell -- another type, or a string that would need
-    // an escape -- is left undescribed, so a call that omits it declines rather than guessing.
+    // AN OMITTED ARGUMENT'S DEFAULT, in the spelling a source default is carried in (the literal's
+    // token kind and its written text), so the sibling planner fills it exactly as it fills a source
+    // declaration's. What the metadata default is, and how it is spelled, is
+    // `ColumnarParameterDefaultValue`'s; a default it cannot spell is left undescribed, so a call
+    // that omits it declines rather than guessing.
     static func TryReadDefault(parameter: ParameterInfo, out kind: int, out text: string): bool {
         kind = -1
         text = ""
-        if !parameter.HasDefaultValue {
-            return false
-        }
-
-        value := parameter.RawDefaultValue
-        if value == null {
-            kind = 46
-            text = "null"
-            return true
-        }
-
-        boxed: object = value
-        trueValue: object = true
-        falseValue: object = false
-        if boxed.Equals(trueValue) {
-            kind = 44
-            text = "true"
-            return true
-        }
-        if boxed.Equals(falseValue) {
-            kind = 45
-            text = "false"
-            return true
-        }
-
-        parameterType := parameter.ParameterType
-        if parameterType.FullName == "System.Int32" {
-            kind = 1
-            text = Convert.ToInt32(boxed, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)
-            return true
-        }
-        if parameterType.FullName == "System.String" {
-            written := boxed.ToString() ?? ""
-            for character in written {
-                if character == '"' || character == '\\' || character == '{' || character == '}' || Char.IsControl(character) {
-                    return false
-                }
-            }
-            kind = 4
-            text = "\"" + written + "\""
-            return true
-        }
-
-        return false
+        defaultValue := ColumnarParameterDefaultValue.FromMetadata(parameter, parameter.ParameterType)
+        return defaultValue != null && defaultValue.TrySpellSource(out kind, out text)
     }
 
     static func DeclaresAttribute(attributes: IList<CustomAttributeData>, fullName: string): bool {

@@ -621,6 +621,8 @@ test "compile-time bench: the corpus is the 200 project.yml projects under examp
     assert BenchListContains(projects, "tests/native/census-static-field-references")
     assert BenchListContains(projects, "tests/fixtures/census-named-arguments-metadata-defaults")
     assert BenchListContains(projects, "tests/native/census-named-arguments")
+    assert BenchListContains(projects, "tests/fixtures/census-parameter-defaults-library")
+    assert BenchListContains(projects, "tests/native/census-parameter-defaults")
     assert BenchListContains(projects, "tests/native/census-init-required")
     assert BenchListContains(projects, "tests/native/census-generic-signatures")
     assert BenchListContains(projects, "tests/native/census-closures")

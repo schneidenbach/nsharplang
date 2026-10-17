@@ -99,14 +99,14 @@ test "parameter-default emitter defines method rows with exact metadata and sour
     defaultKinds[0] = 44
     defaultKinds[1] = 1
     defaultKinds[2] = 4
-    defaultKinds[3] = 4
+    defaultKinds[3] = 46
     defaultKinds[4] = ColumnarParameterDefaultEmitter.MemberAccessKind
     defaultKinds[5] = ColumnarParameterDefaultEmitter.MemberAccessKind
     defaultTexts := new string[](6)
     defaultTexts[0] = "true"
     defaultTexts[1] = "19"
     defaultTexts[2] = "\"line\\nvalue\""
-    defaultTexts[3] = null
+    defaultTexts[3] = "null"
     defaultTexts[4] = "TextState.Ready"
     defaultTexts[5] = "DayOfWeek.Friday"
 
@@ -186,10 +186,10 @@ test "parameter-default emitter defines constructor rows with bool and null meta
     names[1] = "label"
     kinds := new int[](2)
     kinds[0] = 45
-    kinds[1] = 4
+    kinds[1] = 46
     texts := new string[](2)
     texts[0] = "false"
-    texts[1] = null
+    texts[1] = "null"
 
     assert ColumnarParameterDefaultEmitter.DefineConstructorParameterMetadata(
         constructorBuilder,
@@ -259,9 +259,9 @@ test "parameter-default emitter bounds default columns uses object fallback and 
     )
 
     // The second declared signature is an eligible source enum, but its row has no supplied type.
-    // The C# owner falls back to object and declines after DefineParameter has already committed the
-    // first row and the failing optional row; baking normalizes that unset row by clearing HasDefault.
-    // It must not synthesize a third row.
+    // The owner falls back to object, finds no default an `object` parameter can hold, and declines
+    // after the first row and BEFORE the row it cannot complete: no half-written optional row, and
+    // no third row.
     assert !ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(
         method,
         suppliedTypes,
@@ -283,9 +283,8 @@ test "parameter-default emitter bounds default columns uses object fallback and 
     assert parameters[0].get_Name() == "first"
     assert Convert.ToInt32(parameters[0].get_Attributes()) == 4114
     assert Convert.ToBoolean(parameters[0].get_RawDefaultValue())
-    assert parameters[1].get_Name() == "fallback"
-    assert Convert.ToInt32(parameters[1].get_Attributes()) == 16
-    assert parameters[1].get_IsOptional()
+    assert parameters[1].get_Name() == null
+    assert !parameters[1].get_IsOptional()
     assert !parameters[1].get_HasDefaultValue()
     assert parameters[2].get_Name() == null
     assert !parameters[2].get_IsOptional()
@@ -321,9 +320,8 @@ test "parameter-default emitter bounds default columns uses object fallback and 
     assert constructorParameters[0].get_Name() == "first"
     assert Convert.ToInt32(constructorParameters[0].get_Attributes()) == 4114
     assert Convert.ToBoolean(constructorParameters[0].get_RawDefaultValue())
-    assert constructorParameters[1].get_Name() == "fallback"
-    assert Convert.ToInt32(constructorParameters[1].get_Attributes()) == 16
-    assert constructorParameters[1].get_IsOptional()
+    assert constructorParameters[1].get_Name() == null
+    assert !constructorParameters[1].get_IsOptional()
     assert !constructorParameters[1].get_HasDefaultValue()
     assert constructorParameters[2].get_Name() == null
     assert !constructorParameters[2].get_IsOptional()
@@ -440,7 +438,7 @@ test "parameter-default emitter checks constructor default eligibility at the ex
     texts[1] = "true"
     texts[2] = "false"
     texts[3] = "-27"
-    texts[4] = null
+    texts[4] = "\"ready\""
     texts[5] = "TextState.Ready"
     texts[6] = "not-an-int"
 
@@ -585,8 +583,8 @@ test "parameter-default emitter emits executable call defaults and leaves a null
     intIl.Emit(OpCodes.Ret)
     assert BoundInvokeText(intMethod, new object[](0)) == "-27"
 
-    // Kind 4 preserves null in parameter metadata above, but omitted constructor arguments are
-    // emitted as an empty runtime string by the original compiler contract.
+    // A string default is its decoded literal; a string kind with no literal text at all is not a
+    // default, and declines rather than inventing an empty string.
     stringMethod := BoundDynamicMethod(
         "ParameterDefaultStringCall",
         typeof(string),
@@ -598,13 +596,16 @@ test "parameter-default emitter emits executable call defaults and leaves a null
         stringIl,
         typeof(string),
         4,
-        null,
+        "\"\"",
         registry,
         out stringType
     )
     assert stringType == typeof(string)
     stringIl.Emit(OpCodes.Ret)
     assert BoundInvokeText(stringMethod, new object[](0)) == ""
+    noTextType: Type? = typeof(object)
+    assert !ColumnarParameterDefaultEmitter.TryEmitConstructorDefaultArgument(BoundDynamicMethod("ParameterDefaultNoTextCall", typeof(string), noParameters).GetILGenerator(), typeof(string), 4, null, registry, out noTextType)
+    assert noTextType == null
 
     sourceMethod := BoundDynamicMethod(
         "ParameterDefaultSourceStringCall",
@@ -672,24 +673,23 @@ test "a metadata default is planned from its boxed constant" {
     parameters := MetadataDefaultProbeParameters()
     assert parameters.Length == 4
 
-    kind := 0
-    bits := 0L
-    text := ""
     // `argumentTexts: string[]? = null`
-    assert ColumnarParameterDefaultEmitter.TryPlanMetadataDefault(parameters[2], parameters[2].get_ParameterType(), out kind, out bits, out text)
-    assert kind == ColumnarParameterDefaultEmitter.NullMetadataDefault
+    nullDefault := ColumnarParameterDefaultValue.FromMetadata(parameters[2], parameters[2].get_ParameterType())
+    assert nullDefault != null
+    assert nullDefault.Form == ColumnarParameterDefaultValue.NullReferenceForm
 
     // `isStringArgumentList: bool = true`
-    assert ColumnarParameterDefaultEmitter.TryPlanMetadataDefault(parameters[3], typeof(bool), out kind, out bits, out text)
-    assert kind == ColumnarParameterDefaultEmitter.Int32MetadataDefault
-    assert bits == 1L
+    boolDefault := ColumnarParameterDefaultValue.FromMetadata(parameters[3], typeof(bool))
+    assert boolDefault != null
+    assert boolDefault.Form == ColumnarParameterDefaultValue.ConstantForm
+    assert Convert.ToBoolean(boolDefault.Constant)
 
     // A parameter with no default supplies nothing, and neither does a default whose type is not the
     // parameter's own — an omitted argument is not a conversion site.
-    assert !ColumnarParameterDefaultEmitter.TryPlanMetadataDefault(parameters[0], typeof(string), out kind, out bits, out text)
-    assert !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(parameters[3], typeof(int))
-    assert !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(parameters[2], typeof(int))
-    assert ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(parameters[3], typeof(bool))
+    assert ColumnarParameterDefaultValue.FromMetadata(parameters[0], typeof(string)) == null
+    assert !ColumnarExtensionMethodResolver.CanFillOptional(parameters[3], typeof(int))
+    assert !ColumnarExtensionMethodResolver.CanFillOptional(parameters[2], typeof(int))
+    assert ColumnarExtensionMethodResolver.CanFillOptional(parameters[3], typeof(bool))
 }
 
 test "a metadata default emits at the parameter's own type" {
@@ -700,26 +700,12 @@ test "a metadata default emits at the parameter's own type" {
         ExecutorVoidType(),
         noParameters
     )
-    emittedType: Type? = null
-    assert ColumnarParameterDefaultEmitter.TryEmitMetadataDefaultArgument(
-        emitted.GetILGenerator(),
-        parameters[3],
-        typeof(bool),
-        out emittedType
-    )
-    assert emittedType == typeof(bool)
+    assert ColumnarExtensionMethodResolver.TryEmitOptionalDefault(emitted.GetILGenerator(), parameters[3], typeof(bool))
 
     refused := BoundDynamicMethod(
         "ParameterDefaultMetadataRefused",
         ExecutorVoidType(),
         noParameters
     )
-    refusedType: Type? = typeof(string)
-    assert !ColumnarParameterDefaultEmitter.TryEmitMetadataDefaultArgument(
-        refused.GetILGenerator(),
-        parameters[0],
-        typeof(string),
-        out refusedType
-    )
-    assert refusedType == null
+    assert !ColumnarExtensionMethodResolver.TryEmitOptionalDefault(refused.GetILGenerator(), parameters[0], typeof(string))
 }
