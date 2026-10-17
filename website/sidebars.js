@@ -30,7 +30,7 @@ const sidebars = {
       label: 'Tooling',
       collapsed: false,
       items: [
-        'cli-reference', 'project-yml',
+        'cli-reference',
         'debugging',
         'ci-cd',
       ],

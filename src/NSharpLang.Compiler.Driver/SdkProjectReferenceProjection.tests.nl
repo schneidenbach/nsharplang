@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.IO
+import NSharpLang.Cli
 
 func SdkProjectReferenceTree(): string {
     root := Path.Combine(Path.GetTempPath(), "nsharp-sdk-project-reference-" + Guid.NewGuid().ToString("N"))
@@ -84,6 +85,34 @@ test "SDK references leave out Microsoft.NETCore.App, which MSBuild already refe
     } finally {
         Directory.Delete(root, true)
     }
+}
+
+test "under the Web SDK Microsoft.AspNetCore.App is implicit too, and under BlazorWebAssembly it is not" {
+    root := SdkProjectReferenceTree()
+    try {
+        app := Path.Combine(root, "App")
+        dependencies := "dependencies:\n" + "  - framework: Microsoft.AspNetCore.App\n" + "  - framework: Microsoft.NETCore.App\n" + "  - framework: Microsoft.WindowsDesktop.App\n"
+        File.WriteAllText(Path.Combine(app, "project.yml"), "name: App\nsdk: Microsoft.NET.Sdk.Web\n" + dependencies)
+        web := SdkProjectReferenceProjection.Resolve(Path.Combine(app, "project.yml"), new string[](0))
+        assert string.Join("|", web.FrameworkReferences) == "Microsoft.WindowsDesktop.App"
+
+        File.WriteAllText(Path.Combine(app, "project.yml"), "name: App\nsdk: Microsoft.NET.Sdk.BlazorWebAssembly\n" + dependencies)
+        blazor := SdkProjectReferenceProjection.Resolve(Path.Combine(app, "project.yml"), new string[](0))
+        assert string.Join("|", blazor.FrameworkReferences) == "Microsoft.AspNetCore.App|Microsoft.WindowsDesktop.App"
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "the MSBuild-implicit framework rule is an exact SDK id match" {
+    assert CompilationReferenceResolverKernels.IsMsBuildImplicitFramework("Microsoft.NET.Sdk", "Microsoft.NETCore.App")
+    assert CompilationReferenceResolverKernels.IsMsBuildImplicitFramework("Microsoft.NET.Sdk", "microsoft.netcore.app")
+    assert !CompilationReferenceResolverKernels.IsMsBuildImplicitFramework("Microsoft.NET.Sdk", "Microsoft.AspNetCore.App")
+    assert CompilationReferenceResolverKernels.IsMsBuildImplicitFramework("Microsoft.NET.Sdk.Web", "Microsoft.AspNetCore.App")
+    assert CompilationReferenceResolverKernels.IsMsBuildImplicitFramework("microsoft.net.sdk.web", "Microsoft.AspNetCore.App")
+    assert !CompilationReferenceResolverKernels.IsMsBuildImplicitFramework("Microsoft.NET.Sdk.BlazorWebAssembly", "Microsoft.AspNetCore.App")
+    assert !CompilationReferenceResolverKernels.IsMsBuildImplicitFramework("Microsoft.NET.Sdk.WebAssembly", "Microsoft.AspNetCore.App")
+    assert !CompilationReferenceResolverKernels.IsMsBuildImplicitFramework("Microsoft.NET.Sdk.Web", "Microsoft.WindowsDesktop.App")
 }
 
 test "SDK references do not add an existing generated-props project row again" {

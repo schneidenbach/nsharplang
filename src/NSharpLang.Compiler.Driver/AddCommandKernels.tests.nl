@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
+import System.IO
 import NSharpLang.Compiler
 
 // THE `nlc add` ARGUMENT, PACKAGE-SPEC, DEPENDENCY-PROBE AND MESSAGE KERNELS.
@@ -194,6 +195,32 @@ test "a directory passed to --path is written as the project.yml inside it, in t
     assert AddCommandKernels.GetProjectFileReferencePath("/") == "/project.yml"
 }
 
+test "a project duplicate is decided by the full path an entry resolves to, not by its spelling" {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-add-kernels-root")
+    dependencies := [
+        new Reference { Nuget: "../Nuget/project.yml" },
+        new Reference { Project: "../Lib/./project.yml" },
+        new Reference { Project: "   " }
+    ]
+    paths := AddCommandKernels.GetProjectDependencyPaths(dependencies, root)
+
+    // only the project row, and as a normalized full path
+    assert paths.Count == 1
+    assert paths[0] == Path.GetFullPath(Path.Combine(root, "../Lib/project.yml"))
+    assert AddCommandKernels.ContainsPath(paths, Path.GetFullPath(Path.Combine(root, "../Lib/project.yml")))
+    assert AddCommandKernels.ContainsPath(paths, Path.GetFullPath(Path.Combine(root, "../lib/PROJECT.yml")))
+    assert !AddCommandKernels.ContainsPath(paths, Path.GetFullPath(Path.Combine(root, "../Other/project.yml")))
+}
+
+test "only a project.yml is an N# project file, and the written entry uses forward slashes" {
+    assert AddCommandKernels.IsProjectFileName("project.yml")
+    assert AddCommandKernels.IsProjectFileName("PROJECT.yml")
+    assert !AddCommandKernels.IsProjectFileName("Lib.csproj")
+    assert !AddCommandKernels.IsProjectFileName("other.yml")
+    assert AddCommandKernels.GetWrittenProjectReferencePath("..\\Lib\\project.yml") == "../Lib/project.yml"
+    assert AddCommandKernels.GetWrittenProjectReferencePath("../Lib/project.yml") == "../Lib/project.yml"
+}
+
 // ── the user-facing sentences ─────────────────────────────────────────────────
 
 test "the add usage message carries BOTH spellings on two lines" {
@@ -220,5 +247,6 @@ test "the add command's sentences are exactly these" {
     assert AddCommandKernels.GetPackageAddedMessage("Serilog", "3.1.0") == "Added Serilog@3.1.0 to project.yml"
     assert AddCommandKernels.GetProjectReferenceAddedMessage("../Shared/project.yml") == "Added project reference '../Shared/project.yml' to project.yml"
     assert AddCommandKernels.GetProjectReferenceNotFoundMessage("../Missing", "/work/Missing") == "Project reference '../Missing' not found (resolved to /work/Missing). Pass a project.yml file or a directory that contains one."
+    assert AddCommandKernels.GetNotAProjectFileMessage("../Lib/Lib.csproj") == "'../Lib/Lib.csproj' is not an N# project. Pass a project.yml file or a directory that contains one; reference a prebuilt assembly with a dll: entry instead."
     assert AddCommandKernels.GetProjectDirectoryWithoutProjectFileMessage("../Empty") == "'../Empty' is a directory with no project.yml in it. Pass a project.yml file or a directory that contains one."
 }

@@ -10,6 +10,14 @@ class Reference {
     Project: string?
     Framework: string?
 
+    // WHAT THE ROW SAID THAT THE ROW CANNOT MEAN, recorded by `ReferenceConverter` while it reads a
+    // mapping and refused by `ProjectFileParser.ValidateConfig`: a key that is not one of the five a
+    // dependency takes, a second kind (`nuget:` and `dll:` in one entry), `version:` on anything but a
+    // NuGet entry, or a nested value. The converter used to drop each of these silently and keep the
+    // first kind in nuget > dll > project > framework order, so a typo or a pasted MSBuild attribute
+    // changed what the project referenced with no word said. Null when the row is well formed.
+    Problem: string?
+
     Type: ReferenceType => GetReferenceType()
 
     Value: string => GetValue()

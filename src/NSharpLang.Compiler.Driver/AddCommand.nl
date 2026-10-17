@@ -91,33 +91,86 @@ class AddCommand {
         }
     }
 
-    static func DeclaresProjectReference(projectYml: string, localPath: string): bool {
+    static func DeclaresProjectReference(projectYml: string, projectRoot: string, targetFullPath: string): bool {
         try {
             config := ProjectFileParser.Parse(projectYml)
-            return AddCommandKernels.ProjectDependencyExists(config.Dependencies, localPath)
+            existing := new List<string>()
+            for path in AddCommandKernels.GetProjectDependencyPaths(config.Dependencies, projectRoot) {
+                existing.Add(PhysicalPath(path))
+            }
+
+            return AddCommandKernels.ContainsPath(existing, PhysicalPath(targetFullPath))
         } catch {
             return false
         }
     }
 
+    // THE PATH WITH EVERY SYMBOLIC LINK ON IT RESOLVED, so `/var/x` and `/private/var/x` on macOS --
+    // or a symlinked checkout and its real directory -- compare as the one file they are. Each
+    // segment is resolved in turn; a segment that does not exist (yet) is kept as written.
+    static func PhysicalPath(path: string): string {
+        full := Path.GetFullPath(path)
+        current := Path.GetPathRoot(full) ?? ""
+        segments := full.Substring(current.Length).Split(Path.DirectorySeparatorChar)
+        for segment in segments {
+            if segment.Length == 0 {
+                continue
+            }
+
+            next := Path.Combine(current, segment)
+            try {
+                let target: FileSystemInfo? = null
+                if Directory.Exists(next) {
+                    target = Directory.ResolveLinkTarget(next, true)
+                } else if File.Exists(next) {
+                    target = File.ResolveLinkTarget(next, true)
+                }
+
+                if target != null {
+                    next = target.FullName
+                }
+            } catch {
+                // An unreadable link keeps its own spelling; the comparison is then by that spelling.
+                next = Path.Combine(current, segment)
+            }
+
+            current = next
+        }
+
+        return current
+    }
+
+    // `--path` NAMES AN N# PROJECT: a `project.yml`, or a directory holding one, which is written as
+    // `<dir>/project.yml`. A `.csproj` or any other file is refused, because `nlc build` cannot build
+    // it. The duplicate check compares the FULL PATHS the entries resolve to, so `../Lib`,
+    // `../Lib/./project.yml` and an absolute spelling of the same file are one reference. The entry
+    // is written with `/` separators, since project.yml is shared across platforms.
     static func AddProjectReference(projectYml: string, writtenPath: string): int {
         projectRoot := Path.GetDirectoryName(Path.GetFullPath(projectYml)) ?? Environment.CurrentDirectory
         localPath := writtenPath
-        resolvedPath := CompilationReferenceResolverKernels.ResolveProjectReferencePath(projectRoot, writtenPath)
-        if Directory.Exists(resolvedPath) {
-            if !File.Exists(Path.Combine(resolvedPath, "project.yml")) {
+        resolvedPath := Path.GetFullPath(CompilationReferenceResolverKernels.ResolveProjectReferencePath(projectRoot, writtenPath))
+        targetPath := resolvedPath
+        isDirectory := Directory.Exists(resolvedPath)
+        if isDirectory {
+            targetPath = Path.Combine(resolvedPath, "project.yml")
+            if !File.Exists(targetPath) {
                 return CommandOutputKernels.Error(AddCommandKernels.GetProjectDirectoryWithoutProjectFileMessage(writtenPath))
             }
 
             localPath = AddCommandKernels.GetProjectFileReferencePath(writtenPath)
         }
 
-        if DeclaresProjectReference(projectYml, localPath) {
+        localPath = AddCommandKernels.GetWrittenProjectReferencePath(localPath)
+        if DeclaresProjectReference(projectYml, projectRoot, targetPath) {
             return CommandOutputKernels.Error(AddCommandKernels.GetDuplicateProjectReferenceMessage(localPath))
         }
 
-        if !Directory.Exists(resolvedPath) && !File.Exists(resolvedPath) {
-            return CommandOutputKernels.Error(AddCommandKernels.GetProjectReferenceNotFoundMessage(writtenPath, Path.GetFullPath(resolvedPath)))
+        if !isDirectory && !File.Exists(resolvedPath) {
+            return CommandOutputKernels.Error(AddCommandKernels.GetProjectReferenceNotFoundMessage(writtenPath, resolvedPath))
+        }
+
+        if !AddCommandKernels.IsProjectFileName(Path.GetFileName(targetPath)) {
+            return CommandOutputKernels.Error(AddCommandKernels.GetNotAProjectFileMessage(writtenPath))
         }
 
         lineArray := File.ReadAllLines(projectYml)

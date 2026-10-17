@@ -1,6 +1,8 @@
 namespace NSharpLang.Cli.Commands
 
+import System
 import System.Collections.Generic
+import System.IO
 import NSharpLang.Compiler
 
 class AddArgumentSummary {
@@ -128,6 +130,39 @@ class AddCommandKernels {
         return false
     }
 
+    // THE SAME PROJECT, HOWEVER IT IS SPELLED. Each existing `project:` entry resolved against the
+    // project directory, as a full path; `AddCommand` resolves symbolic links in these and in the new
+    // target before `ContainsPath` compares them, case-insensitively as the spelling probe above is.
+    static func GetProjectDependencyPaths(dependencies: IReadOnlyList<Reference>, projectRoot: string): List<string> {
+        paths := new List<string>()
+        for dependency in dependencies {
+            project := dependency.Project
+            if project != null && project.Trim().Length > 0 {
+                paths.Add(Path.GetFullPath(CompilationReferenceResolverKernels.ResolveProjectReferencePath(projectRoot, project)))
+            }
+        }
+
+        return paths
+    }
+
+    static func ContainsPath(paths: IReadOnlyList<string>, target: string): bool {
+        for path in paths {
+            if string.Equals(path, target, StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func IsProjectFileName(fileName: string): bool {
+        return string.Equals(fileName, "project.yml", StringComparison.OrdinalIgnoreCase)
+    }
+
+    static func GetWrittenProjectReferencePath(path: string): string {
+        return path.Replace('\\', '/')
+    }
+
     // A `project:` ENTRY NAMES A PROJECT FILE, NEVER A DIRECTORY. Both build front doors read it that
     // way: `nlc build` validates the entry as a file, and `dotnet build` maps it to the `.csproj`
     // beside a `project.yml`. `nlc add --path ../Lib` therefore writes `../Lib/project.yml` -- the
@@ -210,6 +245,10 @@ class AddCommandKernels {
 
     static func GetProjectDirectoryWithoutProjectFileMessage(localPath: string): string {
         return "'" + localPath + "' is a directory with no project.yml in it. Pass a project.yml file or a directory that contains one."
+    }
+
+    static func GetNotAProjectFileMessage(localPath: string): string {
+        return "'" + localPath + "' is not an N# project. Pass a project.yml file or a directory that contains one; reference a prebuilt assembly with a dll: entry instead."
     }
 
     static func GetFrameworkAddedMessage(packageName: string): string {

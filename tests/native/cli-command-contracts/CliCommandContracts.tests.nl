@@ -2911,9 +2911,12 @@ test "nlc add --path with a directory writes the project.yml inside it, and that
     assert added.Stdout.Contains("Added project reference '../MathLib/project.yml' to project.yml")
     assert File.ReadAllText(Path.Combine(app, "project.yml")).Contains("  - project: ../MathLib/project.yml\n")
 
-    again := NlcIn(app, "add --path ../MathLib")
-    assert again.ExitCode == 1
-    assert again.Stderr.Contains("Project reference '../MathLib/project.yml' is already in dependencies.")
+    // The same project in three other spellings is one reference, decided by its full path.
+    for spelling in ["../MathLib", "../MathLib/./project.yml", "\"" + Path.Combine(library, "project.yml") + "\""] {
+        again := NlcIn(app, "add --path " + spelling)
+        assert again.ExitCode == 1, spelling + ": " + again.Stdout
+        assert again.Stderr.Contains("is already in dependencies."), spelling + ": " + again.Stderr
+    }
 
     run := NlcIn(app, "run")
     assert run.ExitCode == 0, run.Stdout + run.Stderr
@@ -2922,7 +2925,7 @@ test "nlc add --path with a directory writes the project.yml inside it, and that
     Directory.Delete(root, true)
 }
 
-test "nlc add --path refuses a missing path and a directory with no project.yml, and writes nothing" {
+test "nlc add --path refuses a missing path, a directory with no project.yml and a csproj, and writes nothing" {
     root := NewTempDirectory("nlc-add-path-refused")
     app := Path.Combine(root, "App")
     Directory.CreateDirectory(app)
@@ -2939,6 +2942,12 @@ test "nlc add --path refuses a missing path and a directory with no project.yml,
     empty := NlcIn(app, "add --path ../Empty")
     assert empty.ExitCode == 1
     assert empty.Stderr.Contains("'../Empty' is a directory with no project.yml in it.")
+
+    // A .csproj is not an N# project: `nlc build` could not build the entry, so it is not written.
+    File.WriteAllText(Path.Combine(Path.Combine(root, "Empty"), "Lib.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />\n")
+    csproj := NlcIn(app, "add --path ../Empty/Lib.csproj")
+    assert csproj.ExitCode == 1
+    assert csproj.Stderr.Contains("'../Empty/Lib.csproj' is not an N# project.")
 
     assert File.ReadAllText(Path.Combine(app, "project.yml")) == before
 

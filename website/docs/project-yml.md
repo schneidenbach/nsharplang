@@ -1,6 +1,7 @@
 ---
 sidebar_label: project.yml Reference
 title: project.yml Reference
+displayed_sidebar: docsSidebar
 ---
 
 # project.yml Reference
@@ -30,15 +31,17 @@ dependencies:
 
 | Key | Values | Default | Meaning |
 |-----|--------|---------|---------|
-| `name` | text | the directory name | The assembly name, so `name: Orders` builds `Orders.dll`. |
+| `name` | text | see meaning | The assembly name, so `name: Orders` builds `Orders.dll`. **Always set it.** When it is missing, `nlc build` names the assembly after the project directory, but `dotnet build`, `nlc pack` and a project that references this one use the name of the *current working directory* instead, so the two only agree when you run from the project directory. |
 | `version` | `major.minor.patch[-suffix]` | none | Assembly, file and package version. |
 | `entry` | path | none | The file that holds `main`. If you set it, the file must exist. |
 | `outputType` | `exe`, `library` | `exe` | Whether the build makes a program or a library. Only these two lowercase spellings are accepted. |
 | `targetFramework` | `net10.0`, … | `net10.0` | The target framework moniker. It decides which shared-framework version and which NuGet assets are used. |
-| `sdk` | MSBuild SDK id | `Microsoft.NET.Sdk` | The base SDK. `Microsoft.NET.Sdk.Web` (any id that contains `Web`) also references `Microsoft.AspNetCore.App`. See [Shared frameworks](#shared-frameworks-framework). |
+| `sdk` | MSBuild SDK id | `Microsoft.NET.Sdk` | The base MSBuild SDK `dotnet build` uses. Under `nlc`, an id that contains `Web` also references `Microsoft.AspNetCore.App`; under `dotnet build`, only `Microsoft.NET.Sdk.Web` does. See [Shared frameworks](#shared-frameworks-framework). |
+| `backend` | `il` | `il` | The code generator. `il` is the only value. |
 | `dependencies` | list | empty | Packages, frameworks, projects and DLLs. See [Dependencies](#dependencies). |
 | `testDependencies` | list of NuGet entries | empty | Packages that only test builds (`nlc test`) see. |
 | `testFramework` | `xunit`, `nunit` | `xunit` | The test framework `nlc test` and `dotnet test` use. |
+| `excludeTests` | `true`, `false` | `false` | `true` leaves `*.tests.nl` files out of `dotnet build`. `nlc build` never compiles test files; `nlc test` does. |
 | `defines` | list of symbols | empty | Conditional-compilation symbols for `#if`. See the [CLI reference](./cli-reference.md). |
 | `exclude` | list of glob patterns | empty | `.nl` files to leave out of the build. Patterns are matched against paths relative to the project directory and support `*` and `**/`. |
 | `debugType` | `none`, `portable`, `embedded`, `full`, `pdbonly` | `none` | Passed to MSBuild as `DebugType` when you build with `dotnet build`. |
@@ -48,7 +51,15 @@ dependencies:
 
 ## Dependencies
 
-`dependencies:` is a list. Each entry has exactly one kind: `nuget`, `framework`, `project` or `dll`.
+`dependencies:` is a list. Each entry has exactly one kind: `nuget`, `framework`, `project` or `dll`,
+and a `nuget` entry may also have a `version`. Anything else is refused when the project is read,
+with the entry's position: two kinds in one entry, a key that is not one of these five (keys are not
+case-sensitive), `version` on a non-NuGet entry, or a nested value:
+
+```text
+Invalid dependencies entry 2: 'nugget' is not a dependency key. Each entry names exactly one of nuget, framework, project or dll, and a nuget entry may also give a version.
+```
+
 You can edit the list by hand or with [`nlc add`](./cli-reference.md):
 
 | Command | Writes |
@@ -76,10 +87,11 @@ dependencies:
   supported. If you leave the version out, `nlc` uses the highest version already in your NuGet
   global packages folder, or the latest stable version on nuget.org if there is none, but
   `dotnet build` refuses the entry with `error NU1015: The following PackageReference item(s) do not
-  have a version specified`. `nlc add` always writes a version.
-- The packages a package depends on come along automatically. When two packages ask for different
-  versions of the same package, NuGet's rules decide which one wins: a direct reference first, then
-  the nearest one.
+  have a version specified` (measured with the .NET 10 SDK). `nlc add` always writes a version.
+- The packages a package depends on come along automatically. When more than one version of the
+  same package is asked for, a version you list directly in `dependencies:` always wins. Otherwise
+  the **highest** version asked for anywhere in the graph wins, however deep it is, which is what
+  `dotnet restore` resolves.
 - Packages are downloaded into the NuGet global packages folder (`~/.nuget/packages`, or
   `$NUGET_PACKAGES`). After a package is restored, its assemblies are copied next to your program.
 
@@ -96,6 +108,11 @@ see every assembly in that framework, using the installed version that matches `
 `nlc` stops with an error if no matching version is installed. `sdk: Microsoft.NET.Sdk.Web` adds
 `Microsoft.AspNetCore.App` for you.
 
+`dotnet build` already references `Microsoft.NETCore.App` in every project, and
+`Microsoft.AspNetCore.App` in a `sdk: Microsoft.NET.Sdk.Web` project. The SDK does not pass those
+entries on to MSBuild again, so writing them in project.yml (which `nlc` needs) causes no NETSDK1086
+warning.
+
 ### Other N# projects (`project`)
 
 ```yaml
@@ -106,7 +123,10 @@ dependencies:
 A `project:` entry is the path to another N# project's `project.yml`, relative to this project's
 directory. The path has to name the file. A bare directory is rejected with an error that shows the
 entry to write instead. `nlc add --path ../Orders.Domain` accepts the directory and writes the
-`project.yml` path for you.
+`project.yml` path for you, with `/` separators. It refuses a path that does not exist, a directory
+without a `project.yml`, and any other file such as a `.csproj`, and it treats different spellings
+of the same file (`../Orders.Domain`, `../Orders.Domain/./project.yml`, an absolute path) as one
+reference.
 
 - `nlc build` builds the referenced project first, compiles against its output, and copies that
   output next to yours. You can also use the referenced project's own `project:` dependencies
@@ -129,6 +149,11 @@ dependencies:
 A `dll:` entry is the path to an assembly file, absolute or relative to the project directory. The
 file must exist. The project compiles against it, and both `nlc build` and `dotnet build` copy it
 next to the output. With `dotnet build` it is also listed in the program's `.deps.json`.
+
+Point `dll:` at an implementation assembly (the one from a `lib/` folder or a project's `bin/`),
+not at a reference assembly from a `ref/` folder. Reference assemblies have no code to run, and the
+two build commands handle them differently: `dotnet build` looks for the matching implementation
+next to a standard `ref/` layout, while `nlc build` uses and copies the file you named.
 
 ## What a project can see without any dependencies
 
@@ -242,6 +267,9 @@ dependencies:
   - framework: Microsoft.NETCore.App
 ```
 
+Writing `- framework: Microsoft.AspNetCore.App` as well, as the `nsharp-webapi` template does, is
+harmless: `nlc` reads it once and `dotnet build` does not see it twice.
+
 Libraries and console programs that use `Microsoft.Extensions.*` packages that ship in ASP.NET Core
 (dependency injection, hosting, configuration, logging) need `framework: Microsoft.AspNetCore.App`,
 or `sdk: Microsoft.NET.Sdk.Web`, or the matching `nuget:` packages.
@@ -252,7 +280,7 @@ or `sdk: Microsoft.NET.Sdk.Web`, or the matching `nuget:` packages.
 |---|---|---|
 | No dependencies | The fixed set of assemblies listed above | All of `Microsoft.NETCore.App` |
 | `nuget:` | Restored and resolved by `nlc` | `PackageReference` |
-| `framework:` | Every assembly in the shared framework | `FrameworkReference` (`Microsoft.NETCore.App` is already implicit) |
+| `framework:` | Every assembly in the shared framework | `FrameworkReference`, except a framework MSBuild already references (`Microsoft.NETCore.App`; `Microsoft.AspNetCore.App` under `sdk: Microsoft.NET.Sdk.Web`) |
 | `project:` | Builds the referenced N# project | `ProjectReference` to the referenced `.csproj` |
 | `dll:` | Compile reference, copied to the output | `Reference`, copied to the output and listed in `.deps.json` |
 

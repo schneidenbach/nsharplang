@@ -4,7 +4,7 @@
   "codeEpochFileCount": 227,
   "codeEpochPathFingerprint": "pathset-v2:97fe77313c04eb7e",
   "codeEpochFactFingerprint": "epochfacts-v2:4c440f3312742657",
-  "reviewedHeadFingerprint": "head-v2:1d5a59bb85bad1fd",
+  "reviewedHeadFingerprint": "head-v2:bc85e19ee3dcccb4",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":446,"currentNonBlankLines":391,"currentBytes":0,"currentFingerprint":"text-v1:c4fff4cafe6f3d2a"},
@@ -429,7 +429,7 @@
     {"path":"website/docusaurus.config.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":118,"currentLines":118,"epochNonBlankLines":108,"currentNonBlankLines":108,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:5ea86b1ae9061454"},
     {"path":"website/package-lock.json","language":"json-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":18504,"currentNonBlankLines":18504,"currentBytes":0,"currentFingerprint":"text-v1:dc3df6a928c4bfb2"},
     {"path":"website/package.json","language":"json-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":48,"currentNonBlankLines":48,"currentBytes":0,"currentFingerprint":"text-v1:58e6306e3b1a4a1a"},
-    {"path":"website/sidebars.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":57,"currentLines":57,"epochNonBlankLines":55,"currentNonBlankLines":55,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:009d8d1984436894"},
+    {"path":"website/sidebars.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":57,"currentLines":57,"epochNonBlankLines":55,"currentNonBlankLines":55,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:98d789085844dfd0"},
     {"path":"website/src/css/custom.css","language":"product-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":1174,"currentNonBlankLines":1011,"currentBytes":0,"currentFingerprint":"text-v1:24c9342caae4033a"},
     {"path":"website/src/lib/tutorialValidation.mjs","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":35,"currentLines":35,"epochNonBlankLines":29,"currentNonBlankLines":29,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:fbf67ce22028c315"},
     {"path":"website/src/lib/tutorialValidation.test.mjs","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":65,"currentLines":65,"epochNonBlankLines":57,"currentNonBlankLines":57,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:f86501c2e2b2b25a"},

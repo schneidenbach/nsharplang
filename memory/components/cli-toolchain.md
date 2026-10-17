@@ -864,13 +864,18 @@ nlc format --stdin < Program.nl
 
 ### `project.yml` dependencies and the implicit reference set
 
-User-facing reference: `website/docs/project-yml.md` (sidebar: Tooling → project.yml Reference).
+User-facing reference: `website/docs/project-yml.md`. It is NOT listed in `website/sidebars.js`: that file is an
+existing-debt JavaScript row in the ownership ratchet at its 57-line ceiling, so the page uses
+`displayed_sidebar: docsSidebar` and is reached from getting-started / quick-start links. Listing it needs
+an owner decision about the ratchet (or a sidebar that is not JavaScript).
 
 - **Parser.** `ReferenceConverter` (`src/NSharpLang.Compiler.Model/ReferenceConverter.nl`) reads
   each `dependencies:` / `testDependencies:` entry. A scalar is a NuGet package (`Name` or
   `Name@version`); a mapping takes `nuget` (also `Name@version`), `version`, `dll`, `project`,
-  `framework`, and silently ignores any other key. `Reference.Type` picks the first of
-  nuget > dll > project > framework. `ProjectFileParser.ValidateConfig` checks that `dll:` and
+  `framework`. Anything else -- an unknown key, two kinds in one entry, `version` on a non-NuGet entry,
+  a nested value -- is recorded as `Reference.Problem` and refused by
+  `ProjectFileParser.RejectMalformedReferences` ("Invalid dependencies entry N: ...") before empty rows
+  are filtered (so a typo-only row is not dropped silently). `ProjectFileParser.ValidateConfig` checks that `dll:` and
   `project:` paths exist; a `project:` that names a directory with a `project.yml` gets an error
   that shows the entry to write. Versions are exact; ranges are not supported.
   `testDependencies` contributes only its NuGet rows.
@@ -890,8 +895,10 @@ User-facing reference: `website/docs/project-yml.md` (sidebar: Tooling → proje
   fails if the page and `CommonAssemblyNames` drift.
 - **`dotnet build` (NSharpLang.Sdk)** maps the same file through `SdkProjectReferenceProjection`
   and the `LoadProjectReferences` task: `nuget` → `PackageReference`, `framework` →
-  `FrameworkReference` (except `Microsoft.NETCore.App`, which MSBuild references implicitly; an
-  explicit one draws NETSDK1086), `project` → `ProjectReference` to the `.csproj` beside the
+  `FrameworkReference` (except what MSBuild already references --
+  `CompilationReferenceResolverKernels.IsMsBuildImplicitFramework`: `Microsoft.NETCore.App` always,
+  `Microsoft.AspNetCore.App` when `sdk` is exactly `Microsoft.NET.Sdk.Web`; an explicit one draws
+  NETSDK1086. `nlc` itself still uses the looser "sdk contains Web" test), `project` → `ProjectReference` to the `.csproj` beside the
   referenced `project.yml`, and `dll` → `Reference` (absolute path), so MSBuild copies it to the
   output and records it in `.deps.json`. Before the `dll` row existed, `dotnet build` compiled
   against a `dll:` but the program failed at run time with "Could not load file or assembly".
@@ -899,8 +906,9 @@ User-facing reference: `website/docs/project-yml.md` (sidebar: Tooling → proje
   disagree on a project with no `framework: Microsoft.NETCore.App`**: `dotnet build` compiles code
   that `nlc build` rejects.
 - **`nlc add --path <dir>`** writes `project: <dir>/project.yml`
-  (`AddCommandKernels.GetProjectFileReferencePath`), and refuses a missing path or a directory
-  with no `project.yml`. It used to write the bare directory, which every build then rejected.
+  (`AddCommandKernels.GetProjectFileReferencePath`, `/` separators), refuses a missing path, a
+  directory with no `project.yml` and any non-`project.yml` file (a `.csproj`), and detects duplicates
+  by resolved full path (`ProjectDependencyTargets`). It used to write the bare directory, which every build then rejected.
 
 ### `nlc tree` — Dependency Tree
 

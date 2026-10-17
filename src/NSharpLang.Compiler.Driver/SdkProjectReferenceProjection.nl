@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Cli
 import NSharpLang.Cli.Commands
 
 class SdkPackageReferenceProjection {
@@ -51,23 +52,24 @@ class SdkProjectReferenceProjection {
             i = i + 1
         }
 
-        frameworkReferences := ResolveFrameworks(dependencies)
+        frameworkReferences := ResolveFrameworks(config.Sdk, dependencies)
         projectReferences := ResolveProjects(projectFile, dependencies, existingProjectReferences)
         dllReferences := ResolveDlls(projectFile, dependencies)
         return new SdkReferenceProjection(packageReferences, frameworkReferences, projectReferences, dllReferences)
     }
 
-    // `framework: Microsoft.NETCore.App` IS ALREADY THERE UNDER MSBUILD. The .NET SDK references the
-    // base shared framework implicitly, and an explicit `FrameworkReference` to it draws NETSDK1086
-    // on every `dotnet build`. `nlc` has no such implicit reference -- it reads the entry to see the
-    // whole of Microsoft.NETCore.App -- so the entry is meaningful in project.yml and is left out of
-    // the MSBuild projection only.
-    static func ResolveFrameworks(dependencies: IEnumerable<Reference>): string[] {
+    // A FRAMEWORK MSBUILD ALREADY REFERENCES IS NOT PROJECTED AGAIN. The base SDK always references
+    // `Microsoft.NETCore.App` and `Microsoft.NET.Sdk.Web` also references `Microsoft.AspNetCore.App`
+    // (`CompilationReferenceResolverKernels.IsMsBuildImplicitFramework`); an explicit
+    // `FrameworkReference` to either draws NETSDK1086 on every `dotnet build`. `nlc` has no implicit
+    // framework of its own, so the project.yml entry still matters there and is dropped from the
+    // MSBuild projection only.
+    static func ResolveFrameworks(sdk: string, dependencies: IEnumerable<Reference>): string[] {
         frameworkDependencies := RestoreCommandKernels.FilterReferencesByType(dependencies, ReferenceType.Framework)
         frameworks := new List<string>()
         for dependency in frameworkDependencies {
             name := dependency.Framework ?? ""
-            if !string.Equals(name, "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase) {
+            if !CompilationReferenceResolverKernels.IsMsBuildImplicitFramework(sdk, name) {
                 frameworks.Add(name)
             }
         }
