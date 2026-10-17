@@ -1081,6 +1081,14 @@ runtime assets remain verifier references rather than being mistaken for N#
 outputs. Standalone `scripts/ilverify.sh` and CI build the product surface and
 selected native regression assemblies themselves before verification.
 
+`scripts/ilverify.sh` resolves the verifier as `NSHARP_ILVERIFY` (an explicit
+executable path; anything else is a hard error), then `ilverify` on PATH, then
+`~/.dotnet/tools/ilverify`, and exits 2 with install instructions when none
+exists. Because the full gate runs with HOME swapped for an isolated run home,
+`tests/scripts/test-all.sh` resolves the invoking user's tool the same way
+before the swap and hands it in as `NSHARP_ILVERIFY`, so a global tool that is
+installed but off PATH still runs in Step 10b.
+
 ### 7a. The Slice Edit -> Test Cycle
 The completed Compiler.Core split makes one slice's edit -> test cycle fast. The measurement is
 `./scripts/dev.sh --estate <Rows>` after a warm run: a one-line body edit (a comment inside the first
