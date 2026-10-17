@@ -4256,6 +4256,34 @@ test "the reflection runner loads the emitted assembly into a private collectibl
     }
 }
 
+// A `framework:` REFERENCE RESOLVES INSIDE THE PRIVATE CONTEXT TOO. The build references
+// `shared/Microsoft.AspNetCore.App/<version>/` but never copies it, and the CLI's own host bound
+// only `Microsoft.NETCore.App`, so before `NativeTestLoadContext` probed the project's framework
+// directories this run died with `Could not load file or assembly 'Microsoft.Extensions.Hosting.
+// Abstractions'`. The framework assembly lands in the SAME collectible context as the emitted one,
+// so it is unloaded with the run. The xunit route is `tests/native/aspnetcore-hosted-services`.
+test "the reflection runner runs a BackgroundService from a framework reference in its private context" {
+    directory := NewTempDirectory("nlc-test-reflection-framework")
+    WriteProjectYml(
+        directory,
+        "name: ReflectionRunnerFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ntestFramework: nunit\n\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n"
+    )
+    File.WriteAllText(Path.Combine(directory, "Worker.nl"), "namespace ReflectionRunnerFixture\n" + "\n" + "import System.Threading\n" + "import System.Threading.Tasks\n" + "import Microsoft.Extensions.Hosting\n" + "\n" + "class SignallingWorker: BackgroundService {\n" + "    Ran: TaskCompletionSource<bool>\n" + "\n" + "    constructor() {\n" + "        Ran = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)\n" + "    }\n" + "\n" + "    protected override async func ExecuteAsync(stoppingToken: CancellationToken): Task {\n" + "        Ran.TrySetResult(!stoppingToken.IsCancellationRequested)\n" + "        await Task.CompletedTask\n" + "    }\n" + "}\n")
+    File.WriteAllText(Path.Combine(directory, "Suite.tests.nl"), "namespace ReflectionRunnerFixture\n" + "\n" + "import System\n" + "import System.Runtime.Loader\n" + "import System.Threading\n" + "import System.Threading.Tasks\n" + "import Microsoft.Extensions.Hosting\n" + "\n" + "class NSharpTests {\n" + "    async func RunsABackgroundServiceFromThePrivateContext(): Task {\n" + "        worker := new SignallingWorker()\n" + "        await worker.StartAsync(CancellationToken.None)\n" + "        ran := await worker.Ran.Task.WaitAsync(TimeSpan.FromSeconds(10))\n" + "        await worker.StopAsync(CancellationToken.None)\n" + "        if !ran {\n" + "            throw new InvalidOperationException(\"the worker ran after its stop\")\n" + "        }\n" + "        frameworkContext := AssemblyLoadContext.GetLoadContext(typeof(BackgroundService).Assembly)\n" + "        testContext := AssemblyLoadContext.GetLoadContext(typeof(NSharpTests).Assembly)\n" + "        if !Object.ReferenceEquals(frameworkContext, testContext) {\n" + "            throw new InvalidOperationException(\"the framework assembly is not in the run's own context\")\n" + "        }\n" + "    }\n" + "}\n")
+    try {
+        run := NlcIn(directory, "test --no-cache --json")
+
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("summary").GetProperty("total").GetInt32() == 1, run.Stdout
+        assert root.GetProperty("summary").GetProperty("passed").GetInt32() == 1, run.Stdout
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 // DISCOVERY, THE LIFECYCLE ORDER, THE TWO AWAITABLE SHAPES, `[Ignore]` AND THE UNWRAP, IN ONE RUN.
 //
 // The four lifecycle names and `Dispose` are excluded from discovery and invoked by the runner
