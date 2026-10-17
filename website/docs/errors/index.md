@@ -206,6 +206,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL933`](./NL933.md) | An attribute applied to a declaration its `[AttributeUsage]` excludes. |
 | [`NL934`](./NL934.md) | An attribute applied twice where its `[AttributeUsage]` allows only one. |
 | [`NL935`](./NL935.md) | An attribute written at a position N# has none — a target prefix. |
+| [`NL936`](./NL936.md) | `nlc build` found no source file to compile — the project has only test files, or no `.nl` files at all. |
 
 ## Systems policy — `NSYSxxx`
 

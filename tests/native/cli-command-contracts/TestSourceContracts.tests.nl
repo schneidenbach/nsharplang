@@ -14,7 +14,7 @@ func WriteTestSourceProject(directory: string) {
     WriteProjectYml(directory, "name: TestSources\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
 }
 
-test "nlc build of a library made only of test files fails with a reason, never a bare decline" {
+test "nlc build of a library made only of test files reports NL936, not a columnar decline" {
     directory := NewTempDirectory("nlc-tests-only-build")
     try {
         WriteTestSourceProject(directory)
@@ -24,14 +24,36 @@ test "nlc build of a library made only of test files fails with a reason, never 
 
         assert run.ExitCode == 1, run.Stdout + run.Stderr
         output := run.Stdout + run.Stderr
-        assert output.Contains("emit.no-sources"), output
-        assert output.Contains("*.tests.nl"), output
-        assert output.Contains("nlc test"), output
+        assert output.Contains("No source files to build"), output
+        assert output.Contains("This project contains only test files (*.tests.nl), which `nlc build` does not compile."), output
+        assert output.Contains("Run `nlc test` to run them or `nlc check` to type-check them, or add a non-test .nl file."), output
+        assert output.Contains("docs/errors/NL936"), output
+        assert !output.Contains("columnar backend declined"), output
+        assert !output.Contains("NL103"), output
 
         // The same directory is still runnable by `nlc test`.
         tested := NlcIn(directory, "test")
         assert tested.ExitCode == 0, tested.Stdout + tested.Stderr
         assert tested.Stdout.Contains("Passed: 1"), tested.Stdout
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc build of a project with no .nl files at all reports NL936 with its own wording" {
+    directory := NewTempDirectory("nlc-no-sources-build")
+    try {
+        WriteTestSourceProject(directory)
+
+        run := NlcIn(directory, "build")
+
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        output := run.Stdout + run.Stderr
+        assert output.Contains("No source files to build"), output
+        assert output.Contains("This project has no .nl source files, so there is nothing to compile."), output
+        assert output.Contains("docs/errors/NL936"), output
+        assert !output.Contains("only test files"), output
+        assert !output.Contains("columnar backend declined"), output
     } finally {
         Directory.Delete(directory, true)
     }
@@ -74,7 +96,11 @@ test "nlc fix --include-review-needed removes an unused import from a test file 
         run := NlcIn(directory, "fix --include-review-needed")
 
         assert run.ExitCode == 0, run.Stdout + run.Stderr
-        assert run.Stdout.Contains("\"filesModified\": 2"), run.Stdout
+        fixDocument := JsonDocument.Parse(run.Stdout)
+        fixRoot := fixDocument.RootElement
+        assert fixRoot.GetProperty("filesModified").GetInt32() == 2
+        assert fixRoot.GetProperty("ok").GetBoolean()
+        fixDocument.Dispose()
         assert !File.ReadAllText(testPath).Contains("import System.Text")
         assert !File.ReadAllText(Path.Combine(directory, "Lib.nl")).Contains("import System.Text")
 
@@ -101,6 +127,27 @@ test "nlc lint reports an unused import in a test file" {
         first := ElementAt(root.GetProperty("results"), 0)
         assert TextOf(first.GetProperty("code")) == "NL010"
         assert TextOf(first.GetProperty("file")) == "Lib.tests.nl"
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "assert throws a project type that is not an exception is refused at the type, never swapped for the framework type of the same name" {
+    directory := NewTempDirectory("nlc-assert-throws-shadow")
+    try {
+        WriteTestSourceProject(directory)
+        File.WriteAllText(Path.Combine(directory, "Lib.nl"), "namespace L\n\nclass TimeoutException {\n}\n\nfunc quiet() {\n}\n")
+        File.WriteAllText(Path.Combine(directory, "Lib.tests.nl"), "namespace L\n\ntest \"shadow\" {\n    assert throws TimeoutException {\n        quiet()\n    }\n}\n")
+
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        first := ElementAt(document.RootElement.GetProperty("results"), 0)
+        assert TextOf(first.GetProperty("message")).Contains("Assert throws type must be assignable to System.Exception"), run.Stdout
+        assert TextOf(first.GetProperty("file")) == "Lib.tests.nl"
+        assert first.GetProperty("line").GetInt32() == 4
         document.Dispose()
     } finally {
         Directory.Delete(directory, true)

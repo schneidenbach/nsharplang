@@ -2957,10 +2957,13 @@ test "should throw on divide by zero" {
 }
 ```
 
-The type may be any exception type: a framework type, a type from a referenced assembly, or one
-declared in your project or test file. Like a `catch` clause, `assert throws T` passes when the body
-throws `T` or a type derived from `T`. If the body completes without throwing, the assertion fails
-with `Expected exception of type T was not thrown`; a different exception type propagates unchanged.
+The type is written as a plain name that resolves to an exception: a framework type, a type from a
+referenced assembly (add the `import` it needs), or one declared in your project or test file. Qualified
+names (`Outer.Nested`) and nested types are not accepted yet. Like a `catch` clause, `assert throws T`
+passes when the body throws `T` or a type derived from `T`. If the body completes without throwing, the
+assertion fails with `Expected exception of type T was not thrown`; a different exception type
+propagates unchanged, with its original stack trace. A type that does not derive from `Exception` is
+refused at the type.
 
 ### Table-Driven Tests
 

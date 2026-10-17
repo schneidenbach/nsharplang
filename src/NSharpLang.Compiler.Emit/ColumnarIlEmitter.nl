@@ -695,16 +695,25 @@ sealed class ColumnarIlEmitter {
     // resolved by the body-type route, which sees this file's imports, this compilation's own
     // declarations (TypeBuilders) and every referenced assembly. The corelib-only exception index
     // answered for none of the project-declared types, so `assert throws BoomException` declined at
-    // `emit.statement.block-child` while the same type worked in `catch`. The index stays as the
-    // fallback so no previously answered spelling stops being answered.
+    // `emit.statement.block-child` while the same type worked in `catch`.
+    //
+    // WHAT THE WRITTEN NAME RESOLVES TO IS FINAL. A project `class TimeoutException` that does not
+    // derive from `Exception` shadows `System.TimeoutException`; it is not catchable, and falling
+    // back to the corelib type of the same simple name would assert a different type than the one
+    // written. The analyzer reports that case at the written type; the emitter refuses it too. The
+    // corelib index answers only for a spelling the body route cannot resolve at all.
     private func TryResolveAssertThrowsType(assertNode: int, out expectedType: Type): bool {
         expectedType = null
+        writtenText := ColumnarNodeTextFacts.Text(_nodes, _source, assertNode)
         let writtenType: System.Type? = null
-        if (TryResolveBodyType(ColumnarNodeTextFacts.Text(_nodes, _source, assertNode), out writtenType) && ColumnarCanonicalTypeResolver.IsCatchableExceptionType(writtenType, typeof(Exception))) {
+        if TryResolveBodyType(writtenText, out writtenType) {
+            if !ColumnarCanonicalTypeResolver.IsCatchableExceptionType(writtenType, typeof(Exception)) {
+                return false
+            }
             expectedType = writtenType
             return true
         }
-        return ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(ColumnarNodeTextFacts.Text(_nodes, _source, assertNode), out expectedType)
+        return ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(writtenText, out expectedType)
     }
 
     // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
@@ -11402,7 +11411,7 @@ sealed class ColumnarIlEmitter {
             assertThrowsOk := _il.DefineLabel()
             _il.Emit(OpCodes.Ldloc, assertThrowsMissed)
             _il.Emit(OpCodes.Brfalse, assertThrowsOk)
-            _il.Emit(OpCodes.Ldstr, "Expected exception of type " + expectedExceptionType.Name + " was not thrown")
+            _il.Emit(OpCodes.Ldstr, "Expected exception of type " + ColumnarNodeTextFacts.Text(_nodes, _source, idx) + " was not thrown")
             ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]), "required CLR constructor with the emitted signature")
             _il.Emit(OpCodes.Throw)
             _il.MarkLabel(assertThrowsOk)

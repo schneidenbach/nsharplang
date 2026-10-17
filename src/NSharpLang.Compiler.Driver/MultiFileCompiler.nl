@@ -1728,7 +1728,7 @@ class MultiFileCompiler {
             ReadAllSourceTexts()
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot)
             let decline: NSharpLang.Compiler.ColumnarDeclineDiagnostic? = null
-            if (!EmitOnWideStackThread(assemblyName, outputPath, out decline)) {
+            if (!ReportNoBuildableSources() && !EmitOnWideStackThread(assemblyName, outputPath, out decline)) {
                 _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionErrorFor(
                     assemblyName,
                     AotMode,
@@ -1808,6 +1808,14 @@ class MultiFileCompiler {
             }
         }
         if hasValidationErrors {
+            return new MultiFileCompilationResult(
+                false,
+                _allErrors,
+                null
+            )
+        }
+
+        if ReportNoBuildableSources() {
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
@@ -2262,6 +2270,8 @@ class MultiFileCompiler {
             outputType = outputConfig.OutputType
         }
         isExecutable := ColumnarEmissionPlanner.IsExecutableOutput(outputType)
+        // The persisted-check subset attempt above may have recorded declines of its own; the
+        // complete walk below starts from a clean trace so they cannot be reported as its reason.
         ColumnarDeclineTrace.Reset()
         let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput = null
         emitParses: ColumnarFileProgramCache? = null
@@ -2731,6 +2741,41 @@ class MultiFileCompiler {
         return false
     }
 
+    // NL936 -- THE PROJECT HAS NOTHING TO BUILD. `nlc build` compiles the product, and `*.tests.nl`
+    // files belong to `nlc test` and `nlc check` (the way `go build` ignores `_test.go`), so a project
+    // whose only sources are test files reaches emission with an empty file list. That is a fact about
+    // the PROJECT, found before any code generation runs, and is reported as its own diagnostic rather
+    // than as a code generator that "declined" a shape. A project with no `.nl` file at all (or none
+    // left after its `exclude` patterns) gets its own wording. Returns true when it reported.
+    private func ReportNoBuildableSources(): bool {
+        if _sourceFiles.Count > 0 {
+            return false
+        }
+
+        testFileCount := 0
+        projectConfig := _config
+        if projectConfig != null {
+            for projectFile in projectConfig.GetSourceFiles(_projectRoot, true) {
+                if ProjectSourceFileFilter.ProjectSourceFilterIsTestFile(projectFile) {
+                    testFileCount++
+                }
+            }
+        }
+
+        explanation := "This project has no .nl source files, so there is nothing to compile."
+        suggestion := "Add a .nl file next to project.yml, or check the `exclude` patterns in project.yml if the files you expected are being skipped."
+        if testFileCount > 0 {
+            explanation = "This project contains only test files (*.tests.nl), which `nlc build` does not compile."
+            suggestion = "Run `nlc test` to run them or `nlc check` to type-check them, or add a non-test .nl file."
+        }
+
+        _allErrors.Add(new CompilerError(ErrorCode.NoSourcesToBuild, "No source files to build", 0, 0, ErrorSeverity.Error) {
+            HumanExplanation: explanation,
+            Suggestion: suggestion
+        })
+        return true
+    }
+
     // A decline the driver itself makes (before or after the code generator ran) records its reason
     // in the same trace the generator's declines use, so no `columnar backend declined` message is
     // ever shown without one.
@@ -2742,9 +2787,10 @@ class MultiFileCompiler {
         records := ColumnarDeclineTrace.Snapshot()
         WriteColumnarDeclineTrace(records)
         if (records.Count == 0) {
-            // Every decline path records its reason. Reaching here means one did not; the message
-            // says so, because an unexplained decline cannot be reduced and must be reported.
-            return new ColumnarDeclineDiagnostic("the code generator stopped without recording a reason; this is a compiler bug, please report it with the project that produced it", null, 0, 0, 1)
+            // The driver's own early exits record a reason, and the parser and code generator record
+            // at their decline sites; an exit that records nothing would otherwise print an
+            // unexplained decline. Say so, so it can be reported and reduced.
+            return new ColumnarDeclineDiagnostic("the code generator declined without recording where; please report this with the project that produced it", null, 0, 0, 1)
         }
 
         primary := records[0]

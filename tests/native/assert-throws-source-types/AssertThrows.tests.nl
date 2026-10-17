@@ -1,7 +1,9 @@
 namespace NSharpLang.AssertThrowsSourceTypes.Tests
 
 import System
+import System.Text.Json
 import NSharpLang.AssertThrowsSourceTypes
+import NSharpLang.AssertThrowsSourceTypes.Other
 
 class LocalBoomException: Exception {
     constructor(m: string): base(m) {}
@@ -59,4 +61,26 @@ test "assert throws a project type does not swallow a different exception" {
         escaped = ex.Message
     }
     assert escaped == "x"
+}
+
+test "assert throws accepts an exception type imported from another namespace of the project" {
+    assert throws OtherNamespaceException {
+        ThrowOther()
+    }
+}
+
+test "assert throws accepts an exception type from a referenced assembly" {
+    assert throws JsonException {
+        JsonDocument.Parse("{")
+    }
+}
+
+test "a non-matching exception keeps the stack trace of the frame that threw it" {
+    trace := ""
+    try {
+        WrongThrow()
+    } catch ex: BoomException {
+        trace = ex.StackTrace ?? ""
+    }
+    assert trace.Contains("Boom"), trace
 }
