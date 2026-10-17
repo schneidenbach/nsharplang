@@ -23,17 +23,20 @@ class SdkReferenceProjection {
     PackageReferences: SdkPackageReferenceProjection[]
     FrameworkReferences: string[]
     ProjectReferences: string[]
+    DllReferences: string[]
 
-    constructor(packageReferences: SdkPackageReferenceProjection[], frameworkReferences: string[], projectReferences: string[]) {
+    constructor(packageReferences: SdkPackageReferenceProjection[], frameworkReferences: string[], projectReferences: string[], dllReferences: string[]) {
         PackageReferences = packageReferences
         FrameworkReferences = frameworkReferences
         ProjectReferences = projectReferences
+        DllReferences = dllReferences
     }
 }
 
 // The complete reference projection that the SDK adds before MSBuild constructs its restore and
-// build graphs. N# owns selection, metadata, path resolution, ordering, and deduplication; the
-// MSBuild task only transports the resulting rows into item collections.
+// build graphs: packages, frameworks, projects and prebuilt DLLs. N# owns selection, metadata, path
+// resolution, ordering, and deduplication; the MSBuild task only transports the resulting rows into
+// item collections.
 class SdkProjectReferenceProjection {
     static func Resolve(projectFile: string, existingProjectReferences: string[]): SdkReferenceProjection {
         config := ProjectFileParser.Parse(projectFile)
@@ -48,16 +51,50 @@ class SdkProjectReferenceProjection {
             i = i + 1
         }
 
+        frameworkReferences := ResolveFrameworks(dependencies)
+        projectReferences := ResolveProjects(projectFile, dependencies, existingProjectReferences)
+        dllReferences := ResolveDlls(projectFile, dependencies)
+        return new SdkReferenceProjection(packageReferences, frameworkReferences, projectReferences, dllReferences)
+    }
+
+    // `framework: Microsoft.NETCore.App` IS ALREADY THERE UNDER MSBUILD. The .NET SDK references the
+    // base shared framework implicitly, and an explicit `FrameworkReference` to it draws NETSDK1086
+    // on every `dotnet build`. `nlc` has no such implicit reference -- it reads the entry to see the
+    // whole of Microsoft.NETCore.App -- so the entry is meaningful in project.yml and is left out of
+    // the MSBuild projection only.
+    static func ResolveFrameworks(dependencies: IEnumerable<Reference>): string[] {
         frameworkDependencies := RestoreCommandKernels.FilterReferencesByType(dependencies, ReferenceType.Framework)
-        frameworkReferences := new string[](frameworkDependencies.Count)
-        i = 0
-        while i < frameworkDependencies.Count {
-            frameworkReferences[i] = frameworkDependencies[i].Framework ?? ""
-            i = i + 1
+        frameworks := new List<string>()
+        for dependency in frameworkDependencies {
+            name := dependency.Framework ?? ""
+            if !string.Equals(name, "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase) {
+                frameworks.Add(name)
+            }
         }
 
-        projectReferences := ResolveProjects(projectFile, dependencies, existingProjectReferences)
-        return new SdkReferenceProjection(packageReferences, frameworkReferences, projectReferences)
+        return frameworks.ToArray()
+    }
+
+    // A `dll:` ENTRY IS AN MSBUILD `Reference` TOO. The compiler reads the entry straight from
+    // project.yml, so `dotnet build` compiled against it without this row -- but MSBuild never heard
+    // of the assembly, so it was neither copied beside the output nor written into `.deps.json`, and
+    // the built program failed at its first use with "Could not load file or assembly". As a
+    // `Reference` item MSBuild resolves it the way `nlc build` does: copied to the output directory and
+    // recorded as a runtime dependency. Paths resolve against the project directory, as `nlc` resolves
+    // them, and the rows keep source order with exact duplicates removed.
+    static func ResolveDlls(projectFile: string, dependencies: IEnumerable<Reference>): string[] {
+        projectDirectory := Path.GetDirectoryName(Path.GetFullPath(projectFile)) ?? ""
+        dllDependencies := RestoreCommandKernels.FilterReferencesByType(dependencies, ReferenceType.Dll)
+        resolved := new List<string>()
+        seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        for dependency in dllDependencies {
+            fullPath := Path.GetFullPath(AnalyzerMetadataLoadPolicy.ResolvedReferencePath(projectDirectory, dependency.Dll ?? ""))
+            if seen.Add(fullPath) {
+                resolved.Add(fullPath)
+            }
+        }
+
+        return resolved.ToArray()
     }
 
     static func ResolveProjects(projectFile: string, dependencies: IEnumerable<Reference>, existingProjectReferences: string[]): string[] {

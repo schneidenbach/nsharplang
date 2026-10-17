@@ -862,6 +862,46 @@ nlc format --stdin < Program.nl
 - `--diff` prints unified hunks against the formatter output
 - `./scripts/test-all.sh` includes a formatting gate for `examples`, `templates`, and `tests/fixtures/issue-tracker`; intentionally malformed diagnostic fixtures are not part of that gate.
 
+### `project.yml` dependencies and the implicit reference set
+
+User-facing reference: `website/docs/project-yml.md` (sidebar: Tooling → project.yml Reference).
+
+- **Parser.** `ReferenceConverter` (`src/NSharpLang.Compiler.Model/ReferenceConverter.nl`) reads
+  each `dependencies:` / `testDependencies:` entry. A scalar is a NuGet package (`Name` or
+  `Name@version`); a mapping takes `nuget` (also `Name@version`), `version`, `dll`, `project`,
+  `framework`, and silently ignores any other key. `Reference.Type` picks the first of
+  nuget > dll > project > framework. `ProjectFileParser.ValidateConfig` checks that `dll:` and
+  `project:` paths exist; a `project:` that names a directory with a `project.yml` gets an error
+  that shows the entry to write. Versions are exact; ranges are not supported.
+  `testDependencies` contributes only its NuGet rows.
+- **`nlc build`/`check`/LSP references** come from `CompilationReferenceResolver.AddResolvedDllReferences`:
+  every DLL in each `framework:` shared-framework directory (a `sdk` containing `Web` adds
+  `Microsoft.AspNetCore.App`; `CompilationReferenceResolverKernels.GetFrameworkReferenceNames`),
+  NuGet compile/runtime assets, built `project:` outputs (transitively), and `dll:` paths. Below
+  that sits the **implicit set**: `ExternalAssemblyScan.CommonAssemblyNames()` (33 curated
+  assembly names loaded by simple name from the host runtime, shared with the analyzer through
+  `AnalyzerMetadataLoadPolicy.CommonAssemblyNames`) plus the namespace → assembly rows in
+  `AnalyzerImports.BuildAssemblyMappings`. It is **not** all of Microsoft.NETCore.App: types such as
+  `IServiceProvider` (System.ComponentModel), `System.Security.Claims`, `XmlDocument`,
+  `BigInteger`, `System.Collections.Immutable` and `System.Threading.Channels` give NL201/NL704
+  until the project adds `- framework: Microsoft.NETCore.App`. `Microsoft.AspNetCore.App` alone
+  does not bring the base framework. The docs page lists the 33 names between
+  `implicit-assemblies` markers; `tests/native/error-docs-contract/ProjectYmlReference.tests.nl`
+  fails if the page and `CommonAssemblyNames` drift.
+- **`dotnet build` (NSharpLang.Sdk)** maps the same file through `SdkProjectReferenceProjection`
+  and the `LoadProjectReferences` task: `nuget` → `PackageReference`, `framework` →
+  `FrameworkReference` (except `Microsoft.NETCore.App`, which MSBuild references implicitly; an
+  explicit one draws NETSDK1086), `project` → `ProjectReference` to the `.csproj` beside the
+  referenced `project.yml`, and `dll` → `Reference` (absolute path), so MSBuild copies it to the
+  output and records it in `.deps.json`. Before the `dll` row existed, `dotnet build` compiled
+  against a `dll:` but the program failed at run time with "Could not load file or assembly".
+  MSBuild always passes the whole Microsoft.NETCore.App reference pack, so **the two front doors
+  disagree on a project with no `framework: Microsoft.NETCore.App`**: `dotnet build` compiles code
+  that `nlc build` rejects.
+- **`nlc add --path <dir>`** writes `project: <dir>/project.yml`
+  (`AddCommandKernels.GetProjectFileReferencePath`), and refuses a missing path or a directory
+  with no `project.yml`. It used to write the bare directory, which every build then rejected.
+
 ### `nlc tree` — Dependency Tree
 
 `tree` is an active dependency-inspection command, not future work:

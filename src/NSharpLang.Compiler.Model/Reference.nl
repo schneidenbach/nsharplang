@@ -56,6 +56,17 @@ class Reference {
                 projectPath = Path.Combine(projectDirectory, projectValue)
             }
 
+            // A DIRECTORY IS THE LIKELY MISTAKE HERE, and its fix is one path segment, so the message
+            // spells the entry that works instead of only reporting a missing file.
+            if Directory.Exists(projectPath) && File.Exists(Path.Combine(projectPath, "project.yml")) {
+                separator := "/"
+                if projectValue.EndsWith("/") || projectValue.EndsWith("\\") {
+                    separator = ""
+                }
+
+                throw new FileNotFoundException("Project reference '" + projectValue + "' names a directory, but a project: entry must name the project file. Write 'project: " + projectValue + separator + "project.yml' instead.")
+            }
+
             if !File.Exists(projectPath) {
                 throw new FileNotFoundException("Project file not found: " + projectValue + " (resolved to " + projectPath + ")")
             }

@@ -2891,6 +2891,60 @@ test "nlc add rejects a duplicate project reference, and that arm offers NO reme
     Directory.Delete(directory, true)
 }
 
+test "nlc add --path with a directory writes the project.yml inside it, and that entry builds" {
+    // `nlc add --path ../MathLib` is the example `nlc add --help` prints, and it used to write
+    // `project: ../MathLib` verbatim -- an entry every later `nlc build` refused with "Project file
+    // not found". The written entry is the file now, and the proof is that the consumer builds.
+    root := NewTempDirectory("nlc-add-path-directory")
+    library := Path.Combine(root, "MathLib")
+    app := Path.Combine(root, "App")
+    Directory.CreateDirectory(library)
+    Directory.CreateDirectory(app)
+    WriteProjectYml(library, "name: MathLib\nversion: 1.0.0\ntargetFramework: net10.0\noutputType: library\n")
+    File.WriteAllText(Path.Combine(library, "Calc.nl"), "namespace MathLib\n\nclass Calc {\n    static func Add(a: int, b: int): int {\n        return a + b\n    }\n}\n")
+    WriteProjectYml(app, "name: App\nversion: 1.0.0\ntargetFramework: net10.0\nentry: main.nl\noutputType: exe\n")
+    File.WriteAllText(Path.Combine(app, "main.nl"), "import MathLib\n\nfunc main() {\n    print Calc.Add(2, 3).ToString()\n}\n")
+
+    added := NlcIn(app, "add --path ../MathLib/")
+
+    assert added.ExitCode == 0, added.Stderr
+    assert added.Stdout.Contains("Added project reference '../MathLib/project.yml' to project.yml")
+    assert File.ReadAllText(Path.Combine(app, "project.yml")).Contains("  - project: ../MathLib/project.yml\n")
+
+    again := NlcIn(app, "add --path ../MathLib")
+    assert again.ExitCode == 1
+    assert again.Stderr.Contains("Project reference '../MathLib/project.yml' is already in dependencies.")
+
+    run := NlcIn(app, "run")
+    assert run.ExitCode == 0, run.Stdout + run.Stderr
+    assert run.Stdout.Contains("5")
+
+    Directory.Delete(root, true)
+}
+
+test "nlc add --path refuses a missing path and a directory with no project.yml, and writes nothing" {
+    root := NewTempDirectory("nlc-add-path-refused")
+    app := Path.Combine(root, "App")
+    Directory.CreateDirectory(app)
+    Directory.CreateDirectory(Path.Combine(root, "Empty"))
+    WriteProjectYml(app, "name: App\nversion: 1.0.0\ntargetFramework: net10.0\noutputType: exe\n")
+    before := File.ReadAllText(Path.Combine(app, "project.yml"))
+
+    missing := NlcIn(app, "add --path ../Missing")
+    assert missing.ExitCode == 1
+    assert missing.Stdout.Trim().Length == 0
+    assert missing.Stderr.Contains("Project reference '../Missing' not found (resolved to ")
+    assert missing.Stderr.Contains("Pass a project.yml file or a directory that contains one.")
+
+    empty := NlcIn(app, "add --path ../Empty")
+    assert empty.ExitCode == 1
+    assert empty.Stderr.Contains("'../Empty' is a directory with no project.yml in it.")
+
+    assert File.ReadAllText(Path.Combine(app, "project.yml")) == before
+
+    Directory.Delete(root, true)
+}
+
 // ═══ THE TWO CROSS-COMMAND SENTENCES ══════════════════════════════════════════════════════════
 
 test "nlc update and nlc remove share their missing-package sentence WORD FOR WORD" {

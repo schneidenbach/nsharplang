@@ -53,6 +53,7 @@
       <Output TaskParameter="PackageReferences" ItemName="PackageReference" />
       <Output TaskParameter="FrameworkReferences" ItemName="FrameworkReference" />
       <Output TaskParameter="ProjectReferences" ItemName="ProjectReference" />
+      <Output TaskParameter="DllReferences" ItemName="Reference" />
     </LoadProjectReferences>
 
     <PropertyGroup Condition="'$(AssemblyName)' != ''">

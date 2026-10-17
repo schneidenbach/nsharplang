@@ -22,7 +22,7 @@ func SdkProjectReferenceTree(): string {
     return root
 }
 
-test "SDK references map package metadata frameworks and projects in source order while excluding DLLs" {
+test "SDK references map package metadata frameworks projects and DLLs in source order" {
     root := SdkProjectReferenceTree()
     try {
         projectFile := Path.Combine(Path.Combine(root, "App"), "project.yml")
@@ -38,6 +38,49 @@ test "SDK references map package metadata frameworks and projects in source orde
         assert projected.ProjectReferences.Length == 2
         assert projected.ProjectReferences[0] == Path.Combine(Path.Combine(root, "Shared"), "Shared.csproj")
         assert projected.ProjectReferences[1] == Path.Combine(Path.Combine(root, "Other"), "Other.csproj")
+        // A `dll:` row becomes an MSBuild `Reference`, resolved against the project directory, so
+        // `dotnet build` copies it beside the output exactly as `nlc build` does.
+        assert projected.DllReferences.Length == 1
+        assert projected.DllReferences[0] == Path.Combine(Path.Combine(root, "App"), "Local.dll")
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "SDK DLL references keep an absolute path and drop a second spelling of the same file" {
+    root := SdkProjectReferenceTree()
+    try {
+        app := Path.Combine(root, "App")
+        vendor := Path.Combine(root, "Vendor")
+        Directory.CreateDirectory(vendor)
+        File.WriteAllText(Path.Combine(vendor, "Vendor.dll"), "")
+        local := Path.Combine(app, "Local.dll")
+        File.WriteAllText(
+            Path.Combine(app, "project.yml"),
+            "name: App\n" + "dependencies:\n" + "  - dll: ../Vendor/Vendor.dll\n" + "  - dll: " + local + "\n" + "  - dll: ./Local.dll\n"
+        )
+        projected := SdkProjectReferenceProjection.Resolve(Path.Combine(app, "project.yml"), new string[](0))
+        assert projected.DllReferences.Length == 2
+        assert projected.DllReferences[0] == Path.Combine(vendor, "Vendor.dll")
+        assert projected.DllReferences[1] == local
+        assert projected.PackageReferences.Length == 0
+        assert projected.ProjectReferences.Length == 0
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "SDK references leave out Microsoft.NETCore.App, which MSBuild already references implicitly" {
+    root := SdkProjectReferenceTree()
+    try {
+        app := Path.Combine(root, "App")
+        File.WriteAllText(
+            Path.Combine(app, "project.yml"),
+            "name: App\n" + "dependencies:\n" + "  - framework: Microsoft.NETCore.App\n" + "  - framework: Microsoft.AspNetCore.App\n" + "  - framework: microsoft.netcore.app\n"
+        )
+        projected := SdkProjectReferenceProjection.Resolve(Path.Combine(app, "project.yml"), new string[](0))
+        assert projected.FrameworkReferences.Length == 1
+        assert projected.FrameworkReferences[0] == "Microsoft.AspNetCore.App"
     } finally {
         Directory.Delete(root, true)
     }

@@ -184,6 +184,16 @@ test "a project probe matches only the project field, and is case-insensitive ov
     assert !AddCommandKernels.PackageOrFrameworkDependencyExists(dependencies, "../Shared/project.yml")
 }
 
+test "a directory passed to --path is written as the project.yml inside it, in the user's own spelling" {
+    assert AddCommandKernels.GetProjectFileReferencePath("../MathLib") == "../MathLib/project.yml"
+    assert AddCommandKernels.GetProjectFileReferencePath("../MathLib/") == "../MathLib/project.yml"
+    assert AddCommandKernels.GetProjectFileReferencePath("libs\\Shared\\") == "libs\\Shared/project.yml"
+    assert AddCommandKernels.GetProjectFileReferencePath("Shared") == "Shared/project.yml"
+    assert AddCommandKernels.GetProjectFileReferencePath(".") == "./project.yml"
+    // the root itself keeps its one separator rather than losing it to the trim
+    assert AddCommandKernels.GetProjectFileReferencePath("/") == "/project.yml"
+}
+
 // ── the user-facing sentences ─────────────────────────────────────────────────
 
 test "the add usage message carries BOTH spellings on two lines" {
@@ -209,4 +219,6 @@ test "the add command's sentences are exactly these" {
     assert AddCommandKernels.GetFrameworkAddedMessage("Microsoft.AspNetCore.App") == "Added framework reference 'Microsoft.AspNetCore.App' to project.yml"
     assert AddCommandKernels.GetPackageAddedMessage("Serilog", "3.1.0") == "Added Serilog@3.1.0 to project.yml"
     assert AddCommandKernels.GetProjectReferenceAddedMessage("../Shared/project.yml") == "Added project reference '../Shared/project.yml' to project.yml"
+    assert AddCommandKernels.GetProjectReferenceNotFoundMessage("../Missing", "/work/Missing") == "Project reference '../Missing' not found (resolved to /work/Missing). Pass a project.yml file or a directory that contains one."
+    assert AddCommandKernels.GetProjectDirectoryWithoutProjectFileMessage("../Empty") == "'../Empty' is a directory with no project.yml in it. Pass a project.yml file or a directory that contains one."
 }

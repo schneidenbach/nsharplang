@@ -100,9 +100,24 @@ class AddCommand {
         }
     }
 
-    static func AddProjectReference(projectYml: string, localPath: string): int {
+    static func AddProjectReference(projectYml: string, writtenPath: string): int {
+        projectRoot := Path.GetDirectoryName(Path.GetFullPath(projectYml)) ?? Environment.CurrentDirectory
+        localPath := writtenPath
+        resolvedPath := CompilationReferenceResolverKernels.ResolveProjectReferencePath(projectRoot, writtenPath)
+        if Directory.Exists(resolvedPath) {
+            if !File.Exists(Path.Combine(resolvedPath, "project.yml")) {
+                return CommandOutputKernels.Error(AddCommandKernels.GetProjectDirectoryWithoutProjectFileMessage(writtenPath))
+            }
+
+            localPath = AddCommandKernels.GetProjectFileReferencePath(writtenPath)
+        }
+
         if DeclaresProjectReference(projectYml, localPath) {
             return CommandOutputKernels.Error(AddCommandKernels.GetDuplicateProjectReferenceMessage(localPath))
+        }
+
+        if !Directory.Exists(resolvedPath) && !File.Exists(resolvedPath) {
+            return CommandOutputKernels.Error(AddCommandKernels.GetProjectReferenceNotFoundMessage(writtenPath, Path.GetFullPath(resolvedPath)))
         }
 
         lineArray := File.ReadAllLines(projectYml)
