@@ -229,6 +229,14 @@ class AnalyzerAttributeValidator {
 
         fieldDecl := decl as FieldDeclaration
         if fieldDecl != null {
+            // AN ABSTRACT AUTO-PROPERTY HAS NO BACKING FIELD, so the property is the only row an
+            // attribute written on it can land on.
+            if autoPropertyMembers.Contains(fieldDecl) && (Convert.ToInt32(fieldDecl.Modifiers) & Convert.ToInt32(Modifiers.Abstract)) != 0 {
+                ValidateAttributeArgumentsOn(fieldDecl.Attributes, AnalyzerAttributeUsageFacts.PropertyTarget)
+                ReportMethodImplOnNonCarrier(fieldDecl.Attributes, "a property")
+                return
+            }
+
             if autoPropertyMembers.Contains(fieldDecl) {
                 ValidateAttributeArgumentsOn(fieldDecl.Attributes, AnalyzerAttributeUsageFacts.AutoPropertyDeclarationTargets())
                 ReportMethodImplOnNonCarrier(fieldDecl.Attributes, "an auto-property")

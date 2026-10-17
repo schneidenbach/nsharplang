@@ -472,9 +472,10 @@ func ColumnarStructFieldFlagIsEvent(flags: int): bool {
     return (flags & 256) != 0
 }
 
-// Bits 9, 10 and 11: `virtual`, `abstract` and `override` as written on the member. Only an EVENT row
-// can act on them — an event's accessors are ordinary methods, so they take ordinary virtual slots —
-// and a plain field carrying one is refused by the analyzer before emission is asked.
+// Bits 9, 10 and 11: `virtual`, `abstract` and `override` as written on the member. An EVENT row and
+// an AUTO-PROPERTY row act on them — both have accessors, which are ordinary methods and take
+// ordinary virtual slots — and a plain field carrying one is refused by the analyzer before emission
+// is asked.
 func ColumnarStructFieldFlagIsVirtual(flags: int): bool {
     return (flags & 512) != 0
 }
@@ -496,6 +497,12 @@ func ColumnarStructFieldFlagIsRequired(flags: int): bool {
 
 func ColumnarStructFieldFlagIsInitOnly(flags: int): bool {
     return (flags & 8192) != 0
+}
+
+// Bit 14: `sealed` as written on the member. Only an `override` auto-property acts on it — it closes
+// the slot the override took, as `sealed override` does on a method.
+func ColumnarStructFieldFlagIsSealed(flags: int): bool {
+    return (flags & 16384) != 0
 }
 
 // Property prefix flags share the existing integer output column: bit 0 is static, bit 1 is the

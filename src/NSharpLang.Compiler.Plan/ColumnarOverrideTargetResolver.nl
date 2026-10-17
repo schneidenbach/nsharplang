@@ -411,3 +411,145 @@ class ColumnarOverrideTargetResolver {
         return target != null
     }
 }
+
+// THE BASE SLOT AN `override` AUTO-PROPERTY TAKES.
+//
+// `override Name: T` replaces BOTH accessors, as C#'s `public override T Name { get; set; }` does, so
+// the base has to open both: a `get_Name` and a `set_Name` that are virtual, not sealed, and typed
+// `T`. The CLR then binds each accessor to its slot by name and signature — no MethodImpl row, which
+// is what C# emits — and that binding is silent when it misses: a non-newslot virtual with nothing to
+// reuse simply opens a new slot, and a base-typed caller never reaches the override. So the slot is
+// proved here and a miss is a decline that says which half is missing, never an emitted type that
+// dispatches to the wrong body.
+//
+// The walk is the method walk's: a base being emitted in this compilation answers from its own
+// declaration table, whose accessor builders carry the virtual-ness the baked type will; past the
+// source chain, metadata answers through `ColumnarBaseMethodMatch`, which asks for non-public slots
+// too (`protected virtual` is the shape most worth catching).
+class ColumnarPropertyOverrideMatch {
+    readonly matchedValue: bool
+    readonly accessibilityValue: int
+    readonly declineMessageValue: string
+
+    Matched: bool => matchedValue
+    // The metadata accessibility bits of the base GETTER, which an override that wrote no
+    // accessibility word adopts — the slot's accessibility belongs to the type that opened it.
+    AccessibilityAttributes: int => accessibilityValue
+    DeclineMessage: string => declineMessageValue
+
+    constructor(owner: ColumnarStructDef, name: string, propertyType: Type, voidType: Type) {
+        if owner == null || name == null || propertyType == null || voidType == null {
+            throw new InvalidOperationException("A property-override lookup requires its owner, name and type.")
+        }
+
+        matched := false
+        accessibility := -1
+        decline := ""
+        sourceAnswered := false
+        typeName := owner.Builder.Name
+
+        current: ColumnarStructDef? = owner.BaseDef
+        depth := 0
+        while current != null && !sourceAnswered && depth <= 64 {
+            property: ColumnarPropertyDef? = null
+            if current.Properties.TryGetValue(name, out property) && property != null {
+                sourceAnswered = true
+                setter := property.Setter
+                if !IsOpenSlot(property.Getter) {
+                    decline = "'" + typeName + "." + name + "' overrides '" + current.Builder.Name + "." + name + "', whose getter is not virtual"
+                } else if setter == null || !IsOpenSlot(setter) {
+                    decline = "'" + typeName + "." + name + "' is a get/set auto-property, but '" + current.Builder.Name + "." + name + "' has no virtual setter to override"
+                } else if !SameDeclaredType(owner, property.PropertyType, propertyType, depth) {
+                    decline = "'" + typeName + "." + name + "' must have the type of the property it overrides"
+                } else {
+                    matched = true
+                    accessibility = ColumnarBaseMethodMatch.AccessibilityAttributesOf(property.Getter)
+                }
+            } else if current.SettableAutoProperties.ContainsKey(name) || current.Fields.ContainsKey(name) {
+                sourceAnswered = true
+                decline = "'" + typeName + "." + name + "' overrides '" + current.Builder.Name + "." + name + "', which is not virtual"
+            }
+
+            current = current.BaseDef
+            depth = depth + 1
+        }
+
+        if !sourceAnswered {
+            getterParameters := new Type[](0)
+            setterParameters := new Type[](1)
+            setterParameters[0] = propertyType
+            getterMatch := new ColumnarBaseMethodMatch(owner.ExactBaseType, "get_" + name, propertyType, getterParameters)
+            setterMatch := new ColumnarBaseMethodMatch(owner.ExactBaseType, "set_" + name, voidType, setterParameters)
+            if !getterMatch.Matched {
+                decline = "no overridable base property matches '" + name + "' for '" + typeName + "'"
+            } else if !setterMatch.Matched {
+                decline = "'" + typeName + "." + name + "' is a get/set auto-property, but the base property '" + name + "' has no overridable setter"
+            } else {
+                matched = true
+                accessibility = ColumnarBaseMethodMatch.AccessibilityAttributesOf(getterMatch.RequiredTarget())
+            }
+        }
+
+        matchedValue = matched
+        accessibilityValue = accessibility
+        declineMessageValue = decline
+    }
+
+    // WHETHER AN ACCESSOR TAKES A BASE'S SLOT rather than opening its own: virtual with NewSlot clear,
+    // the `override` shape. A member lookup that meets the base's declaration after this one has met
+    // the same member again, not a second member that shadows it.
+    static func ReusesSlot(accessor: MethodInfo): bool {
+        word := (int)accessor.Attributes
+        return (word & 0x0040) != 0 && (word & 0x0100) == 0
+    }
+
+    // An accessor opens the slot when it is virtual and NOT final — the method walk's test.
+    static func IsOpenSlot(accessor: MethodBuilder): bool {
+        word := (int)accessor.Attributes
+        return (word & 0x0040) != 0 && (word & 0x0020) == 0 && (word & 0x0010) == 0
+    }
+
+    // THE BASE PROPERTY'S TYPE, AS THE OVERRIDING TYPE SEES IT. Both sides are builders from this one
+    // emission, so identity is object identity — except across a generic base: `class Box: Holder<int>`
+    // sees `Holder<T>.Value: T` as `int`, so the DIRECT base's own type parameter is substituted from
+    // the overriding type's exact base. A type that mentions a type parameter in any other way
+    // (`List<T>`, or a parameter of a base further up) is left to the CLR's own name-and-signature
+    // binding; a type with no parameter in it is a definite mismatch.
+    static func SameDeclaredType(owner: ColumnarStructDef, baseType: Type, overridingType: Type, depth: int): bool {
+        if ColumnarSourceBaseMethodMatch.SameSourceTypeIdentity(baseType, overridingType) {
+            return true
+        }
+
+        if !MentionsTypeParameter(baseType) {
+            return false
+        }
+
+        exactBase := owner.ExactBaseType
+        if depth == 0 && baseType.IsGenericParameter && exactBase != null && exactBase.IsGenericType && !exactBase.IsGenericTypeDefinition {
+            arguments := exactBase.GetGenericArguments()
+            position := baseType.GenericParameterPosition
+            return position >= 0 && position < arguments.Length && ColumnarSourceBaseMethodMatch.SameSourceTypeIdentity(arguments[position], overridingType)
+        }
+
+        return true
+    }
+
+    static func MentionsTypeParameter(candidate: Type): bool {
+        if candidate.IsGenericParameter {
+            return true
+        }
+        if candidate.HasElementType {
+            element := candidate.GetElementType()
+            return element != null && MentionsTypeParameter(element)
+        }
+        if !candidate.IsGenericType || candidate is TypeBuilder {
+            return false
+        }
+        for argument in candidate.GetGenericArguments() {
+            if MentionsTypeParameter(argument) {
+                return true
+            }
+        }
+        return false
+    }
+}

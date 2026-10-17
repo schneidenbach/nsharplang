@@ -395,6 +395,7 @@ Code in the **same assembly** reads and writes the backing field directly — th
 makes of a trivial accessor once it inlines it — so an auto-property costs nothing over a field in
 your own hot paths. (That is why the backing field is `internal` rather than C#'s `private`: nothing
 outside the assembly can name it either way.) Code in another assembly goes through the accessors.
+The one exception is a `virtual`, `abstract` or `override` member, below.
 
 **Attributes.** An attribute written on an auto-property goes on the **property** when its
 `[AttributeUsage]` allows properties — where serializers, ORMs and validators read it — and on the
@@ -413,8 +414,96 @@ Compound assignment and `++`/`--` work on properties as they do on fields: `orde
 through the getter and stores through the setter, evaluating `order` once.
 
 `init Name: T` is always a property (`{ get; init; }`, see below), and a member with an explicit
-accessor block or `=> expression` is always a property. A bare member cannot be `virtual`, `abstract`
-or `override` ([NL311](./errors/NL311.md)); write the accessors when a member needs a slot.
+accessor block or `=> expression` is always a property.
+
+#### `virtual`, `abstract` and `override` auto-properties
+
+Because an exported bare member of a class is an auto-property, it can take part in inheritance the
+way C#'s can. Each word gives the C# shape:
+
+| N# | C# |
+|----|----|
+| `virtual Name: T` | `public virtual T Name { get; set; }` |
+| `abstract Name: T` | `public abstract T Name { get; set; }` |
+| `override Name: T` | `public override T Name { get; set; }` |
+| `sealed override Name: T` | `public sealed override T Name { get; set; }` |
+
+The case this exists for is **EF Core's lazy-loading proxies**, which generate a subclass of your
+entity at run time and override each navigation property to load it on first read. They require
+every navigation to be virtual:
+
+```n#
+import System.Collections.Generic
+import Microsoft.EntityFrameworkCore
+
+class Author {
+    Id: int
+    Name: string = ""
+    virtual Books: ICollection<Book> = new List<Book>()
+}
+
+class Book {
+    Id: int
+    Title: string = ""
+    virtual Author: Author?          // loaded on first read through the proxy
+}
+
+class Library: DbContext {
+    Authors: DbSet<Author>
+    Books: DbSet<Book>
+
+    protected override func OnConfiguring(options: DbContextOptionsBuilder) {
+        options.UseLazyLoadingProxies().UseSqlite("Data Source=library.db")
+    }
+}
+```
+
+The same works between your own classes:
+
+```n#
+class Gauge {
+    virtual Label: string = "gauge"
+
+    func Describe(): string => "[" + Label + "]"   // dispatches: an override's value is read
+}
+
+class LoudGauge: Gauge {
+    override Label: string = "LOUD"
+}
+
+abstract class Shape {
+    abstract Name: string                          // a slot, no storage
+    func Show(): string => "shape " + Name
+}
+
+class Square: Shape {
+    override Name: string = "square"
+}
+```
+
+What changes when a member is a slot:
+
+- **Every access dispatches, including your own.** An override replaces both accessors, so the
+  declaring type's methods, closures, `+=`, `++`, object initializers and `with` all go through
+  them — `new LoudGauge().Describe()` is `"[LOUD]"`. That is the price C# pays for a virtual
+  property too: a virtual call where a plain auto-property is a direct field access.
+- **An initializer stores the backing field**, as C#'s does: it runs before the base constructor,
+  so it never calls a setter an override has replaced on an object that is not constructed yet.
+- **An override owns its own storage**, exactly like C#'s overriding `{ get; set; }`.
+  `base.Label` reads the base's.
+- **An abstract member has no storage**, so it takes no initializer, and only an abstract class may
+  declare one. A concrete class that inherits it must override it ([NL324](./errors/NL324.md)).
+- **`override` needs a base property with a setter.** A bare member overrides both accessors, so a
+  get-only base (`Exception.Message`) cannot be overridden this way.
+- **An `override` with no accessibility word takes the slot's**, as a method override does: a
+  `protected virtual` member's override is `protected`.
+- **A `record` may declare `virtual` members.** No N# type derives from a record, but its CLR type is
+  not sealed, so a runtime proxy can override them; equality and `with` keep working.
+
+Only an auto-property has slots. A member that is a **field** — camelCase or `private`, `static`,
+`readonly`, `const`, a struct's or record struct's — and an `init` member (whose declaring type
+writes its storage directly) cannot carry the words: [NL311](./errors/NL311.md) says which rule made
+the member storage and what to change.
 
 ### Init-only Properties
 

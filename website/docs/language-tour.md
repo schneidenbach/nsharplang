@@ -240,6 +240,23 @@ abstract class Rounded: Shape {
 Source order does not matter: a subclass may be written above its base in the same file, or in a
 different file of the same project.
 
+A value member takes the same three words when it is an auto-property — an exported bare member of a
+class. `virtual Label: string` is C#'s `public virtual string Label { get; set; }`, the shape EF Core's
+lazy-loading proxies override, and every access to it dispatches, including the declaring class's own:
+
+```n#
+class Gauge {
+    virtual Label: string = "gauge"
+    func Describe(): string => "[" + Label + "]"
+}
+
+class LoudGauge: Gauge {
+    override Label: string = "LOUD"     // new LoudGauge().Describe() is "[LOUD]"
+}
+```
+
+See [`virtual`, `abstract` and `override` auto-properties](./types.md#virtual-abstract-and-override-auto-properties).
+
 Generic classes take part in all of this. A generic class may derive from a non-generic base, a generic
 class may close a generic base over a concrete type, and a generic class may pass its own type parameter
 through to a generic base:

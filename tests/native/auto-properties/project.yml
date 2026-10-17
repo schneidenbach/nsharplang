@@ -6,9 +6,14 @@ targetFramework: net10.0
 
 # Entity Framework Core is the framework the storage rule exists for: a `DbContext` whose
 # `People: DbSet<Person>` is a property gets that set populated by EF's own constructor. Both
-# assemblies are declared so the fixture does not depend on a global package cache.
+# assemblies are declared so the fixture does not depend on a global package cache. The proxies and
+# the in-memory provider prove `virtual` bare members against EF's real lazy-loading proxies.
 dependencies:
   - nuget: Microsoft.EntityFrameworkCore
     version: 10.0.5
   - nuget: Microsoft.EntityFrameworkCore.Abstractions
+    version: 10.0.5
+  - nuget: Microsoft.EntityFrameworkCore.Proxies
+    version: 10.0.5
+  - nuget: Microsoft.EntityFrameworkCore.InMemory
     version: 10.0.5

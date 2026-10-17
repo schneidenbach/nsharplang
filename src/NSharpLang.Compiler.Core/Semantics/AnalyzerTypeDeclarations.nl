@@ -1266,7 +1266,7 @@ class AnalyzerTypeDeclarations {
                     continue
                 }
 
-                ValidateFieldInheritanceModifiers(field)
+                ValidateFieldInheritanceModifiers(state, declaredBase, field)
                 continue
             }
 
@@ -1465,36 +1465,182 @@ class AnalyzerTypeDeclarations {
         diagnosticsValue.Report(ErrorCode.InvalidModifier, message, span.Line, span.Column, suggestion, span.Length)
     }
 
-    // A BARE MEMBER CANNOT TAKE PART IN INHERITANCE, AND N# LETS ONE BE WRITTEN AS IF IT COULD.
+    // A BARE MEMBER TAKES PART IN INHERITANCE EXACTLY WHEN IT IS AN AUTO-PROPERTY.
     //
-    // MEASURED, because the answer decides the rule: the parser chooses the declaration form from what
-    // FOLLOWS the type and never from the modifiers, so `virtual Label: string`, `abstract Label:
-    // string` and `override Label: string` all build a `FieldDeclaration`, while `Label: string => …`
-    // and `Label: string { get … }` build a `PropertyDeclaration`. A bare member is emitted as a CLR
-    // field or as an auto-property (`MemberStorageRules`), and neither has a slot to dispatch through:
-    // a field has none at all, and an auto-property's accessors are the compiler's, non-virtual — this
-    // assembly reads and writes its storage directly, which an override could never intercept. So all
-    // three words are meaningless there, and they were accepted in silence, which reads as a promise
-    // the runtime does not keep.
+    // The parser chooses the declaration form from what FOLLOWS the type and never from the modifiers,
+    // so `virtual Label: string`, `abstract Label: string` and `override Label: string` all build a
+    // `FieldDeclaration`. What the member BECOMES is `MemberStorageRules`' answer, and the two answers
+    // differ completely here:
     //
-    // The report is `NL311` for the same reason the override family is: the fault is the MODIFIER, not
-    // the name. The suggestion names the two ways out, because both are real: give the member an
-    // accessor and it becomes a property that CAN carry the word, or drop the word.
-    func ValidateFieldInheritanceModifiers(field: FieldDeclaration) {
+    //   * an exported instance member of a class is a get/set AUTO-PROPERTY, and an auto-property's
+    //     accessors are methods with slots — so the three words mean what C#'s
+    //     `public virtual T Name { get; set; }`, `public abstract …` and `public override …` mean. This
+    //     is the shape EF Core's lazy-loading proxies override, so it is real interop, not decoration.
+    //     The emitter dispatches every in-assembly access through the accessors
+    //     (`ColumnarAutoPropertyEmitter`), so an override is honoured everywhere.
+    //   * everything else is a CLR FIELD — camelCase or `private` storage, a `static`, `readonly` or
+    //     `const` member, any member of a struct, record struct or union — and a field has no slot. An `init`
+    //     member is a property, but its declaring type writes its storage directly, which an override
+    //     could not intercept. The words were once accepted on all of these in silence, which reads
+    //     as a promise the runtime does not keep.
+    //
+    // `NL311` throughout, for the same reason the override family is: the fault is the MODIFIER, not
+    // the name. Each refusal names the one thing that makes the member a slot, or the word to drop.
+    func ValidateFieldInheritanceModifiers(state: TypeDeclarationState, declaredBase: TypeInfo?, field: FieldDeclaration) {
         modifierBits := Convert.ToInt32(field.Modifiers)
-        if (modifierBits & Convert.ToInt32(Modifiers.Override)) != 0 {
-            ReportFieldInheritanceModifierFault(field, "override")
+        isOverride := (modifierBits & Convert.ToInt32(Modifiers.Override)) != 0
+        isAbstract := (modifierBits & Convert.ToInt32(Modifiers.Abstract)) != 0
+        isVirtual := (modifierBits & Convert.ToInt32(Modifiers.Virtual)) != 0
+
+        // `sealed` CLOSES A SLOT THE MEMBER TOOK, so it means something only beside `override` — C#'s
+        // CS0238. Alone it would be dropped in silence, which reads as a promise the metadata does not
+        // keep.
+        if (modifierBits & Convert.ToInt32(Modifiers.Sealed)) != 0 && !isOverride {
+            ReportFieldInheritanceModifierFault(field, "sealed", "but only an 'override' can be sealed", "Write 'sealed override " + field.Name + ": <type>' to close a slot a base class opened, or drop 'sealed'.")
             return
         }
 
-        if (modifierBits & Convert.ToInt32(Modifiers.Abstract)) != 0 {
-            ReportFieldInheritanceModifierFault(field, "abstract")
+        if !isOverride && !isAbstract && !isVirtual {
             return
         }
 
-        if (modifierBits & Convert.ToInt32(Modifiers.Virtual)) != 0 {
-            ReportFieldInheritanceModifierFault(field, "virtual")
+        word := "virtual"
+        if isAbstract {
+            word = "abstract"
+        } else if isOverride {
+            word = "override"
         }
+
+        span := spansValue.GetFieldNameDiagnosticSpan(field)
+        if ReportFieldWithNoSlot(state, field, word, modifierBits) {
+            return
+        }
+
+        if (isAbstract || isVirtual) && IsSealedClassDeclaration(state) {
+            ReportFieldInheritanceModifierFault(field, word, "but '" + TypeName(state) + "' is sealed", "A sealed class has no derived type to open a slot for. Drop 'sealed' from the class, or drop '" + word + "' from '" + field.Name + "'.")
+            return
+        }
+
+        if isAbstract {
+            // AN ABSTRACT PROPERTY HAS NO STORAGE, so there is nothing for an initializer to fill —
+            // C#'s CS8050. The derived type's override owns the storage and may initialize it.
+            if field.Initializer != null {
+                ReportFieldInheritanceModifierFault(field, word, "but an abstract property has no storage for an initializer to fill", "Drop the initializer and give it to the override in the derived type — 'override " + field.Name + ": <type> = <value>' — or drop 'abstract'.")
+                return
+            }
+
+            if state.Form == 2 {
+                ReportFieldInheritanceModifierFault(field, word, "but '" + TypeName(state) + "' is a record, and only an abstract class can hold an abstract slot", "Move '" + field.Name + "' to an abstract class, or write 'virtual' instead — a virtual member keeps the slot open and gives it a default.")
+                return
+            }
+
+            ReportAbstractMemberFault(state, field.Name, false, modifierBits, "property", span)
+            return
+        }
+
+        if !isOverride {
+            return
+        }
+
+        verdict := ClassifyOverridePropertyTarget(declaredBase, field.Name, 0)
+        if verdict == 2 {
+            ReportFieldInheritanceModifierFault(field, word, "but the base property is not marked 'virtual', 'abstract' or 'override'", "Mark the base property 'virtual', or drop 'override' to declare a new member.")
+            return
+        }
+
+        if verdict == 3 {
+            ReportFieldInheritanceModifierFault(field, word, "but the base type has no property of that name", "Check the spelling against the base type, or drop 'override' to declare a new member.")
+            return
+        }
+
+        // AN AUTO-PROPERTY OVERRIDES BOTH ACCESSORS, so the base must open both — C#'s CS0546. A
+        // get-only base slot is overridden with a get-only property, which N# spells with an accessor.
+        if verdict == 1 && ClassifyOverridePropertySetter(declaredBase, field.Name, 0) == 2 {
+            ReportFieldInheritanceModifierFault(field, word, "but the base property has no setter to override", "A bare '" + field.Name + ": <type>' overrides both the getter and the setter. Override the getter alone with '" + field.Name + ": <type> => <expression>', or give the base property a virtual setter.")
+            return
+        }
+
+        ValidateOverrideAccessibility(declaredBase, field.Name, modifierBits, 1, span)
+    }
+
+    // THE BARE MEMBERS THAT ARE NOT AUTO-PROPERTIES, and so have no slot whatever is written on them.
+    // Each gets the sentence that names WHY it is storage, because the way out differs: a casing or
+    // visibility change for private storage, dropping `static`/`readonly`/`const`/`init`, or moving the
+    // member to a class. Returns whether it reported.
+    func ReportFieldWithNoSlot(state: TypeDeclarationState, field: FieldDeclaration, word: string, modifierBits: int): bool {
+        if (modifierBits & Convert.ToInt32(Modifiers.Init)) != 0 {
+            ReportFieldInheritanceModifierFault(field, word, "but an 'init' member cannot be virtual, abstract or overridden", "Its declaring type writes the storage directly, which an override could not intercept. Drop 'init' so '" + field.Name + "' is a get/set auto-property that can be " + WordAsParticiple(word) + ", or drop '" + word + "'.")
+            return true
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Static)) != 0 {
+            ReportFieldInheritanceModifierFault(field, word, "but a static member has no slot to dispatch through", "Drop '" + word + "'. A static member belongs to the type itself, so no receiver's runtime type could select another implementation.")
+            return true
+        }
+
+        if state.Form == 3 {
+            ReportFieldInheritanceModifierFault(field, word, "but an interface's value member is already a slot", "Drop '" + word + "'. Every value member an interface declares is a slot each implementing type fills.")
+            return true
+        }
+
+        // A CLASS AND A RECORD CLASS ARE THE TWO FORMS WITH SLOTS. No N# type derives from a record, but
+        // the CLR type is not sealed, so a runtime proxy — EF Core's lazy loading — can override a
+        // `virtual` member of one exactly as it overrides a class's.
+        if !MemberStorageRules.DeclaresReferenceMembers(state.Declaration) {
+            ReportFieldInheritanceModifierFault(field, word, "but " + FormWordForBareMemberInheritance(state) + " cannot take part in inheritance", "Drop '" + word + "', or move '" + field.Name + "' to a class, whose exported members are auto-properties a derived class can override.")
+            return true
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Const)) != 0 || (modifierBits & Convert.ToInt32(Modifiers.Readonly)) != 0 {
+            storageWord := (modifierBits & Convert.ToInt32(Modifiers.Const)) != 0 ? "const" : "readonly"
+            ReportFieldInheritanceModifierFault(field, word, "but a '" + storageWord + "' member is a field, and a field has no slot", "Drop '" + storageWord + "' so '" + field.Name + "' is a get/set auto-property that can be " + WordAsParticiple(word) + ", or drop '" + word + "'.")
+            return true
+        }
+
+        if !MemberStorageRules.IsAutoPropertyField(state.Declaration, field) {
+            ReportFieldInheritanceModifierFault(field, word, "but a camelCase or 'private' member is the type's own storage — a field, which has no slot", "Name it in PascalCase (or write 'protected' or 'public') so it is an auto-property that can be " + WordAsParticiple(word) + ", or drop '" + word + "'.")
+            return true
+        }
+
+        return false
+    }
+
+    static func WordAsParticiple(word: string): string {
+        if word == "override" {
+            return "overridden"
+        }
+
+        if word == "abstract" {
+            return "abstract"
+        }
+
+        return "virtual"
+    }
+
+    // The words for the forms whose bare members are fields.
+    static func FormWordForBareMemberInheritance(state: TypeDeclarationState): string {
+        if state.Form == 1 {
+            return "a struct"
+        }
+
+        if state.Form == 2 {
+            return "a record struct"
+        }
+
+        if state.Form == 4 {
+            return "a union"
+        }
+
+        if state.Form == 6 {
+            return "a struct-of-arrays record"
+        }
+
+        return "this type"
+    }
+
+    func ReportFieldInheritanceModifierFault(field: FieldDeclaration, modifierName: string, reason: string, suggestion: string) {
+        span := spansValue.GetFieldNameDiagnosticSpan(field)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + field.Name + "' is declared '" + modifierName + "', " + reason, span.Line, span.Column, suggestion, span.Length)
     }
 
     // ---- `init` AND `required` WHERE THEY CANNOT MEAN ANYTHING ------------------------------------
@@ -1531,11 +1677,6 @@ class AnalyzerTypeDeclarations {
         }
 
         return false
-    }
-
-    func ReportFieldInheritanceModifierFault(field: FieldDeclaration, modifierName: string) {
-        span := spansValue.GetFieldNameDiagnosticSpan(field)
-        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + field.Name + "' is declared '" + modifierName + "', but a bare '" + field.Name + ": <type>' member cannot be virtual, abstract or overridden", span.Line, span.Column, "Give it an accessor — '" + field.Name + ": <type> => <expression>' or a 'get'/'set' block — so it becomes a property, or drop '" + modifierName + "'.", span.Length)
     }
 
     // ---- `abstract` on a member that has nowhere to be abstract ------------------------------------
@@ -1599,12 +1740,13 @@ class AnalyzerTypeDeclarations {
         return "Move '" + name + "' to an abstract class or an interface, or give it a body and drop 'abstract'. The CLR seals " + FormWordForInheritance(state) + ", so it can hold no slot."
     }
 
-    // N# HAS NO BODY-LESS PROPERTY, so "remove the body" is advice a property cannot take. The two
-    // spellings that DO give a reader an abstract value slot are named instead: a `func` slot, or an
-    // interface, whose value member is a get-only slot every implementer fills.
+    // A PROPERTY WITH ACCESSOR BODIES CANNOT DROP THEM AND STAY A PROPERTY — the body-less spelling of
+    // a property is the bare member, `abstract Name: <type>`, which is a get/set slot. That is the
+    // suggestion, beside the two other ways to an abstract value: a `func` slot, or an interface, whose
+    // value member is a get-only slot every implementer fills.
     static func AbstractBodySuggestion(name: string, kindWord: string): string {
         if kindWord == "property" {
-            return "N# has no body-less accessor, so a property cannot be a slot. Declare the slot as an 'abstract func " + name + "(): <type>', or move '" + name + "' onto an interface the type implements — an interface's value member is a get-only slot. Otherwise drop 'abstract'."
+            return "An abstract property is written bare — 'abstract " + name + ": <type>' — and is a get/set slot each derived class fills. For a get-only slot, declare an 'abstract func " + name + "(): <type>' or move '" + name + "' onto an interface the type implements. Otherwise drop 'abstract'."
         }
 
         return "Remove the body so '" + name + "' is a slot a derived type fills, or drop 'abstract' and keep the implementation. An abstract member's body is never emitted."
@@ -2964,6 +3106,16 @@ class AnalyzerTypeDeclarations {
                 continue
             }
 
+            // A bare member that `MemberStorageRules` makes an auto-property is a property here too —
+            // `override Name: string` fills `abstract Name: string`. A field of the same name does not.
+            field := member as FieldDeclaration
+            if field != null {
+                if MemberStorageRules.IsAutoPropertyField(state.Declaration, field) {
+                    seenProperties.Add(field.Name)
+                }
+                continue
+            }
+
             eventMember := member as EventDeclaration
             if eventMember != null {
                 seenEvents.Add(eventMember.Name)
@@ -3163,8 +3315,10 @@ class AnalyzerTypeDeclarations {
     }
 
     // A SOURCE SHAPE'S OWN PROPERTY MEMBERS. Only properties answer, for the mirror of the reason only
-    // functions answer above: a base FIELD of the same name is not a property slot either, and a bare
-    // `Name: Type` member is a field in this model and in the emitted metadata both.
+    // functions answer above: a base FIELD of the same name is not a property slot either. A bare
+    // `Name: Type` member answers when `MemberStorageRules` makes it an auto-property — the member
+    // model records it as a property — and is overridable when it was written `virtual`, `abstract`
+    // or `override`, exactly as a written property is.
     static func ClassifyDeclaredOverridePropertyTarget(declaredMembers: DeclaredMemberInfo[], name: string): int {
         for declared in declaredMembers {
             if declared.Kind == DeclaredMemberKind.Property && declared.Name == name {
@@ -3223,6 +3377,41 @@ class AnalyzerTypeDeclarations {
     // asked through the same reflection walk rather than hard-coded so the two stay in step.
     static func ClassifyObjectOverridePropertyTarget(name: string): int {
         return ClassifyReflectionOverridePropertyTarget(typeof(object), name)
+    }
+
+    // WHETHER THE OVERRIDDEN PROPERTY OPENS A SETTER SLOT TOO, which a bare `override Name: T` needs
+    // because an auto-property overrides both accessors. The walk is `ClassifyOverridePropertyTarget`'s,
+    // answering 0 cannot tell · 1 an overridable setter · 2 no setter to override. A source property's
+    // `virtual` covers both of its accessors, so a source answer is whether it declares a setter at all.
+    func ClassifyOverridePropertySetter(candidate: TypeInfo?, name: string, depth: int): int {
+        if depth > 24 || candidate == null || BuiltInTypes.IsUnknown(candidate) {
+            return 0
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+            for property in reflectionType.Type.GetProperties(flags) {
+                if property.Name == name && IsOverridablePropertyAccessor(property.GetSetMethod(true)) {
+                    return 1
+                }
+            }
+
+            return 2
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return 0
+        }
+
+        for declared in shape.DeclaredMembers {
+            if declared.Kind == DeclaredMemberKind.Property && declared.Name == name {
+                return declared.HasSetter ? 1 : 2
+            }
+        }
+
+        return ClassifyOverridePropertySetter(shape.BaseType, name, depth + 1)
     }
 
     static func HasOverrideModifier(modifiers: Modifiers): bool {

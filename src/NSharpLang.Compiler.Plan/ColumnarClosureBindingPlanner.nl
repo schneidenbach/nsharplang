@@ -173,6 +173,12 @@ class ColumnarClosureBindingPlanner {
                 if ColumnarSourceMemberChainResolver.TryFindFieldOnChain(currentDefinition, name, out field) {
                     return true
                 }
+                // A PROPERTY IS AN INSTANCE MEMBER TOO — a written one, or a `virtual`/`override`
+                // auto-property, which is registered as one so its reads dispatch.
+                property: ColumnarPropertyDef? = null
+                if ColumnarSourceMemberChainResolver.TryFindPropertyOnChain(currentDefinition, name, out property) {
+                    return true
+                }
                 method: ColumnarInstanceMethodDef? = null
                 if ColumnarSourceMemberChainResolver.TryFindMethodOnChain(currentDefinition, name, out method) {
                     return true
