@@ -2,6 +2,8 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Reflection
+import System.Reflection.Emit
 
 // Build a lambda-literal node whose children are [param identifiers..., body]. The parameter leaves
 // take the supplied kinds (kind 6 = identifier for a real parameter; anything else exercises the
@@ -219,4 +221,104 @@ test "contextual-lambda signature declines a parameter that shadows an enclosing
         visible
     )
     assert signature == null
+}
+
+// ── the synthesized method's `Param` rows (issue #216) ─────────────────────────────────────────────
+//
+// A lambda's synthesized method is its delegate's `Method`, and ASP.NET Core binds a Minimal-API
+// handler BY PARAMETER NAME. The signature keeps the written names in DECLARATION order — not the
+// ordinal map's iteration order — so the rows below use names that do not sort into place.
+
+test "contextual-lambda signature keeps the source parameter names in declaration order" {
+    names := new string[](3)
+    names[0] = "zeta"
+    names[1] = "alpha"
+    names[2] = "mid"
+    lambdaNode := 0
+    tree := LambdaSignatureTree(names, LambdaSignatureIdentifierKinds(3), out lambdaNode)
+
+    parameterTypes := new Type[](3)
+    parameterTypes[0] = typeof(int)
+    parameterTypes[1] = typeof(string)
+    parameterTypes[2] = typeof(bool)
+
+    signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(tree.Nodes, tree.Source, lambdaNode, parameterTypes, LambdaSignatureNoBindings())
+    if signature == null {
+        throw new InvalidOperationException("Expected a bound three-parameter lambda signature.")
+    }
+
+    assert string.Join(",", signature.ParameterNames) == "zeta,alpha,mid"
+}
+
+test "a zero-parameter lambda signature carries no parameter names" {
+    lambdaNode := 0
+    tree := LambdaSignatureTree(new string[](0), new int[](0), out lambdaNode)
+    signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(tree.Nodes, tree.Source, lambdaNode, Type.EmptyTypes, LambdaSignatureNoBindings())
+    if signature == null {
+        throw new InvalidOperationException("Expected a bound zero-parameter lambda signature.")
+    }
+
+    assert signature.ParameterNames.Length == 0
+}
+
+func LambdaParameterNameOwner(name: string): TypeBuilder {
+    assemblyName := "NSharpTests." + name
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run)
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    return dynamicModule.DefineType(assemblyName + ".Owner", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+}
+
+func LambdaParameterNamesOf(method: MethodInfo?): string {
+    if method == null {
+        throw new InvalidOperationException("The baked fixture lost its synthesized method.")
+    }
+
+    names := new List<string>()
+    for parameter in method.GetParameters() {
+        names.Add((parameter.Position + 1).ToString() + ":" + (parameter.Name ?? "<null>"))
+    }
+    return string.Join(",", names)
+}
+
+test "a synthesized lambda method defined with its signature gets one named row per parameter" {
+    owner := LambdaParameterNameOwner("LambdaParameterNamesWithSignature")
+    method := owner.DefineMethod("<Lambda>_0", ColumnarLambdaPlacementPlanner.StaticLambdaAttributes(), typeof(string), [typeof(int), typeof(string)])
+    ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(method, ["id", "label"])
+    method.GetILGenerator().Emit(OpCodes.Ldarg_1)
+    method.GetILGenerator().Emit(OpCodes.Ret)
+
+    baked := PlanFixtureBake(owner)
+    synthesized := baked.GetMethod("<Lambda>_0", BindingFlags.NonPublic | BindingFlags.Static)
+    assert LambdaParameterNamesOf(synthesized) == "1:id,2:label"
+}
+
+// The inferred (`:=`) path defines its method signature-less and sets the parameters after the body
+// has decided the return type; the names are written after `SetParameters`, which is the only order
+// `DefineParameter` accepts.
+test "a signature-less synthesized lambda method is named after its parameters are set" {
+    owner := LambdaParameterNameOwner("LambdaParameterNamesAfterSetParameters")
+    method := owner.DefineMethod("<Lambda>_1", ColumnarLambdaPlacementPlanner.StaticLambdaAttributes())
+    method.GetILGenerator().Emit(OpCodes.Ldarg_0)
+    method.GetILGenerator().Emit(OpCodes.Ret)
+    method.SetReturnType(typeof(int))
+    method.SetParameters([typeof(int)])
+    ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(method, ["quantity"])
+
+    baked := PlanFixtureBake(owner)
+    synthesized := baked.GetMethod("<Lambda>_1", BindingFlags.NonPublic | BindingFlags.Static)
+    assert LambdaParameterNamesOf(synthesized) == "1:quantity"
+}
+
+// A display-class method's receiver is `this`, not a parameter, so its user parameters still start
+// at sequence one.
+test "an instance synthesized lambda method numbers its named rows from one" {
+    owner := LambdaParameterNameOwner("LambdaParameterNamesInstance")
+    method := owner.DefineMethod("<Lambda>", MethodAttributes.Public | MethodAttributes.HideBySig, typeof(int), [typeof(int)])
+    ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(method, ["input"])
+    method.GetILGenerator().Emit(OpCodes.Ldarg_1)
+    method.GetILGenerator().Emit(OpCodes.Ret)
+
+    baked := PlanFixtureBake(owner)
+    synthesized := baked.GetMethod("<Lambda>", BindingFlags.Public | BindingFlags.Instance)
+    assert LambdaParameterNamesOf(synthesized) == "1:input"
 }

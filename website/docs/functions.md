@@ -948,6 +948,31 @@ process := items.Select(item => {
 })
 ```
 
+### A lambda's parameters keep their names
+
+The method a lambda compiles to carries the parameter names you wrote, as C# does, so code that reads
+a delegate's `Method` by reflection sees them. ASP.NET Core Minimal APIs depend on this: they bind
+route values, query-string values and services to a handler's parameters **by name**.
+
+```n#
+import System
+import Microsoft.AspNetCore.Builder
+
+func routes(app: WebApplication) {
+    app.MapGet("/todos/{id}", (id: int) => "todo " + id.ToString())                  // GET /todos/7
+    app.MapGet("/sum/{a}/{b}", (a: int, b: int) => (a + b).ToString())                // GET /sum/2/3
+    app.MapGet("/search", (term: string) => "searching " + term)                      // GET /search?term=x
+}
+
+handler: Func<int, int> = (value) => value + 1
+print handler.Method.GetParameters()[0].Name    // value
+```
+
+A lambda passed where the parameter type is `System.Delegate` (as `MapGet`'s handler is) gets the
+delegate type its written parameters describe — `(id: int) => "…"` is a `Func<int, string>` — and a
+single parameter written without a type is the request's `HttpContext`. A delegate you already hold
+can be passed as it is, or as `f as Delegate`.
+
 ### Type Inference in Lambdas
 
 A lambda written without parameter types takes them from the delegate it is passed to. When the
@@ -2530,6 +2555,8 @@ func configure(app: WebApplication) {
     route := app.MapGet("/todo", () => "todo")
     route.Produces<Todo>()                            // statusCode = 200, contentType = null
     route.Produces<Todo>(201, "text/plain", "application/xml")
+    byId := app.MapGet("/todos/{id}", (id: int) => "todo " + id.ToString())
+    byId.Produces<Todo>()                             // `{id}` binds to the lambda's `id`
 }
 ```
 

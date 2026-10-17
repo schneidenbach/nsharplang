@@ -119,9 +119,18 @@ func main() {
 
     app.MapGet("/", () => "Hello from N#!")
 
+    // Route values and query-string values bind to handler parameters by name.
+    app.MapGet("/todos/{id}", (id: int) => "Todo #" + id.ToString())
+    app.MapGet("/search", (term: string) => "Searching for " + term)
+
     app.Run()
 }
 ```
+
+`GET /todos/42` answers `Todo #42`, and `GET /search?term=lambdas` answers `Searching for lambdas`.
+A handler lambda's parameters keep their names in the compiled program, exactly as in C#, so ASP.NET
+Core can match `{id}` to `id`. A handler may also take the `HttpContext` itself, e.g.
+`(ctx: HttpContext) => ctx.Response.WriteAsync("ok")` (add `import Microsoft.AspNetCore.Http`).
 
 ## Single-File CLI Workflow
 
