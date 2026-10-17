@@ -1460,9 +1460,13 @@ The wrapper is chosen in this order:
      asyncDefaultType: Task   # or ValueTask, the default
    ```
 
-`ValueTask` avoids an allocation when the body completes synchronously, but a `ValueTask` may be
-awaited only once. Choose `Task` for a project whose async members are awaited more than once,
-stored, or handed to APIs that expect `Task`.
+An N# `async func` has finished by the time it returns, because `await` is lowered synchronously.
+A `ValueTask` is therefore built straight from the result and the call allocates nothing, while a
+`Task<T>` costs one task object per call. The trade is that a `ValueTask` may be awaited only once:
+choose `Task` for a project whose async members are awaited more than once, stored, or handed to
+APIs that expect `Task`. There is no setting for pooled `ValueTask` builders, since a function that
+never suspends keeps no state to pool; a `language.pooledAsync` key in `project.yml` is reported as
+a configuration error.
 
 **APIs that find a method by name need the setting, not inference.** ASP.NET Core middleware is
 duck-typed: the framework looks up `Invoke`/`InvokeAsync` by name at startup and requires it to

@@ -138,7 +138,7 @@ test "a project.yml carrying nothing but a name carries every default with it" {
     // or not at all. A deserializer that wrote an empty string into one of these would have passed.
     assert config.TestFramework == "xunit"
     assert config.Sdk == "Microsoft.NET.Sdk"
-    assert config.Language.PooledAsync == false
+    assert config.Language.RemovedPooledAsync == null
     assert config.Language.Profile == "default"
     assert config.Language.Systems.Mode == "strict"
     assert config.Language.Systems.UnknownExternalCalls == "warn"
@@ -206,27 +206,35 @@ test "the SDK test exclusion setting is read from the project file" {
     Directory.Delete(directory, true)
 }
 
-test "the async default type and the pooled-async flag are read from the language section" {
+test "the async default type is read from the language section, and pooled async is refused" {
     directory := PfpTempDirectory("language")
     task := ProjectFileParser.Parse(PfpWrite(directory, "name: TaskProject\nlanguage:\n  asyncDefaultType: Task\n"))
     assert task.Language.AsyncDefaultType == "Task"
-    assert task.Language.PooledAsync == false
 
-    pooled := ProjectFileParser.Parse(PfpWrite(directory, "name: PooledProject\nlanguage:\n  asyncDefaultType: ValueTask\n  pooledAsync: true\n"))
-    assert pooled.Language.PooledAsync
-    assert pooled.Language.AsyncDefaultType == "ValueTask"
+    valueTask := ProjectFileParser.Parse(PfpWrite(directory, "name: ValueTaskProject\nlanguage:\n  asyncDefaultType: ValueTask\n"))
+    assert valueTask.Language.AsyncDefaultType == "ValueTask"
 
     unset := ProjectFileParser.Parse(PfpWrite(directory, "name: DefaultProject\n"))
-    assert unset.Language.PooledAsync == false
+    assert unset.Language.RemovedPooledAsync == null
 
     // The spelling becomes the family the analyzer and the emitter both wrap with.
     assert AsyncTaskFamilyFacts.ForLanguage(task.Language) == AsyncTaskFamily.Task
-    assert AsyncTaskFamilyFacts.ForLanguage(pooled.Language) == AsyncTaskFamily.ValueTask
+    assert AsyncTaskFamilyFacts.ForLanguage(valueTask.Language) == AsyncTaskFamily.ValueTask
     assert AsyncTaskFamilyFacts.ForLanguage(unset.Language) == AsyncTaskFamily.ValueTask
 
-    // Pooling recycles ValueTask state, so asking for it on Task is refused, not ignored.
+    // `pooledAsync` never did anything: an async func completes before it returns, so its ValueTask
+    // allocates nothing and there is no state to pool. The key is refused by name, with that reason,
+    // whatever value it carries and whichever task family the project picks.
+    expectedPrefix := "InvalidOperationException|Invalid language.pooledAsync: '"
+    expectedReason := "'. N# has no pooled-async setting: an async func that returns ValueTask already completes without allocating, so there is nothing to pool. Remove 'pooledAsync' from the language section."
+    pooledValueTask := PfpOutcomeOf(directory, "name: PooledValueTask\nlanguage:\n  asyncDefaultType: ValueTask\n  pooledAsync: true\n")
+    assert pooledValueTask == expectedPrefix + "true" + expectedReason, pooledValueTask
     pooledTask := PfpOutcomeOf(directory, "name: PooledTask\nlanguage:\n  asyncDefaultType: Task\n  pooledAsync: true\n")
-    assert pooledTask == "InvalidOperationException|Invalid language.pooledAsync: 'true' requires 'language.asyncDefaultType: ValueTask', but this project sets 'asyncDefaultType: Task'. Pooling recycles ValueTask state and has no meaning for Task; remove 'pooledAsync' or set 'asyncDefaultType: ValueTask'.", pooledTask
+    assert pooledTask == expectedPrefix + "true" + expectedReason, pooledTask
+    pooledOff := PfpOutcomeOf(directory, "name: PooledOff\nlanguage:\n  pooledAsync: false\n")
+    assert pooledOff == expectedPrefix + "false" + expectedReason, pooledOff
+    pooledEmpty := PfpOutcomeOf(directory, "name: PooledEmpty\nlanguage:\n  pooledAsync:\n")
+    assert pooledEmpty == expectedPrefix + expectedReason, pooledEmpty
 
     removedNullabilitySwitch := PfpOutcomeOf(directory, "name: ReferencedNullability\nlanguage:\n  enforceReferencedNullability: true\n")
     assert removedNullabilitySwitch.StartsWith("YamlException|", StringComparison.Ordinal), removedNullabilitySwitch

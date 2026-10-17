@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import YamlDotNet.Serialization
 
 class ProjectConfig {
     nameValue: string?
@@ -498,7 +499,7 @@ class PackageConfig {
 class LanguageConfig {
     profileValue: string?
     asyncDefaultTypeValue: string?
-    pooledAsyncValue: bool
+    removedPooledAsyncValue: string?
     systemsValue: SystemsConfig?
 
     Profile: string {
@@ -527,12 +528,18 @@ class LanguageConfig {
         }
     }
 
-    PooledAsync: bool {
+    // `pooledAsync` IS NOT A SETTING, AND IT IS CAUGHT BY NAME. An `async func` completes before it
+    // returns, so its `ValueTask` is built from the result and allocates nothing: there is no builder
+    // state to pool. The key binds here only so `ProjectFileParser.ValidateConfig` can refuse it with
+    // that reason, instead of the deserializer's "not found on type 'LanguageConfig'". Any written
+    // value, `false` included, reads back non-null.
+    [YamlMember(Alias = "pooledAsync")]
+    RemovedPooledAsync: string? {
         get {
-            return pooledAsyncValue
+            return removedPooledAsyncValue
         }
         set {
-            pooledAsyncValue = value
+            removedPooledAsyncValue = value ?? ""
         }
     }
 

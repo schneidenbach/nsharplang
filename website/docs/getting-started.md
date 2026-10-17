@@ -165,10 +165,13 @@ language:
 |-----|--------|---------|--------|
 | `profile` | `default`, `systems` | `default` | `systems` turns on the allocation and AOT policy checks described in [the Systems Profile](./systems.md). |
 | `asyncDefaultType` | `ValueTask`, `Task` | `ValueTask` | The task an `async func` returns when it does not write one. `main`, overrides and interface implementations follow their own rule; see [Implicit Task Wrapping](./functions.md#implicit-task-wrapping). Web projects whose middleware or other convention-based methods must return `Task` usually want `Task`. |
-| `pooledAsync` | `true`, `false` | `false` | Reserved for pooled `ValueTask` builders; it is accepted but has no effect yet. It requires `asyncDefaultType: ValueTask`; combining it with `Task` is a configuration error. |
 
 Every `nlc` command, the language server and the MSBuild SDK read the same section, so a hover in
 VS Code shows the same task type `nlc build` emits.
+
+There is no `pooledAsync` key. An `async func` that returns `ValueTask` already completes without
+allocating, so there is nothing for a pooled builder to recycle, and a `project.yml` that still sets
+`pooledAsync` is refused with that reason. See [Implicit Task Wrapping](./functions.md#implicit-task-wrapping).
 
 ## VS Code Setup
 
