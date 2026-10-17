@@ -689,6 +689,24 @@ sealed class ColumnarIlEmitter {
         return ColumnarCanonicalTypeResolver.TryResolveCatchType(_nodes, _source, clause, out catchType)
     }
 
+    // THE EXCEPTION TYPE AN `assert throws` NAMES, RESOLVED THE SAME WAY AS A `catch` CLAUSE'S.
+    //
+    // `assert throws T { ... }` lowers to a try/catch on T, so T is an ordinary written type: it is
+    // resolved by the body-type route, which sees this file's imports, this compilation's own
+    // declarations (TypeBuilders) and every referenced assembly. The corelib-only exception index
+    // answered for none of the project-declared types, so `assert throws BoomException` declined at
+    // `emit.statement.block-child` while the same type worked in `catch`. The index stays as the
+    // fallback so no previously answered spelling stops being answered.
+    private func TryResolveAssertThrowsType(assertNode: int, out expectedType: Type): bool {
+        expectedType = null
+        let writtenType: System.Type? = null
+        if (TryResolveBodyType(ColumnarNodeTextFacts.Text(_nodes, _source, assertNode), out writtenType) && ColumnarCanonicalTypeResolver.IsCatchableExceptionType(writtenType, typeof(Exception))) {
+            expectedType = writtenType
+            return true
+        }
+        return ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(ColumnarNodeTextFacts.Text(_nodes, _source, assertNode), out expectedType)
+    }
+
     // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
     // contexts that do not model lambdas, e.g. the single-function wrapper — a kind-39 node then declines);
     // the counter is a one-element box SHARED across every emitter instance of one program so names never
@@ -11356,7 +11374,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             let expectedExceptionType: System.Type? = null
-            if (!ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(ColumnarNodeTextFacts.Text(_nodes, _source, idx), out expectedExceptionType)) {
+            if (!TryResolveAssertThrowsType(idx, out expectedExceptionType)) {
                 return false
             }
             assertThrowsBody := Child(idx, 0)

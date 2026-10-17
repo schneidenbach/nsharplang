@@ -2957,6 +2957,11 @@ test "should throw on divide by zero" {
 }
 ```
 
+The type may be any exception type: a framework type, a type from a referenced assembly, or one
+declared in your project or test file. Like a `catch` clause, `assert throws T` passes when the body
+throws `T` or a type derived from `T`. If the body completes without throwing, the assertion fails
+with `Expected exception of type T was not thrown`; a different exception type propagates unchanged.
+
 ### Table-Driven Tests
 
 Run the same test body with multiple sets of inputs (Go-style). Each parameter is declared
