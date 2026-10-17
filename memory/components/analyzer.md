@@ -420,9 +420,36 @@ declared member read off a type's member table (optionally as seen from a declar
   concrete-delegate test, which excludes the two abstract roots.
 - A function's OWN type parameters shadow: each is bound to a `SimpleTypeInfo` of its own name before
   any reference resolves, so `func F<T>(x: T)` names `T` rather than resolving it in scope.
-- THE ASYNC CALL-RETURN RULE: only an async non-generator is wrapped; `main` gets the `Task` family
-  (case-insensitively) and everything else `ValueTask`; a declared type that is already task-like is
-  left exactly as written, which is what lets a function declare `Task<int>` explicitly.
+- THE ASYNC CALL-RETURN RULE: only an async non-generator is wrapped, and a declared type that is
+  already task-like is left exactly as written, which is what lets a function declare `Task<int>`
+  explicitly. WHICH task wraps the rest is `AnalyzerAsyncReturnFamily` (issue #199): `main` gets the
+  `Task` family (case-insensitively); an `override` takes the family of the nearest base member of
+  that name and arity, and any other instance method the family of the interface member it
+  implements (the named interface for an explicit `func IWorker.RunAsync()`), reflected or source,
+  with same-arity overloads that disagree inferring nothing; everything else gets the project's
+  `language.asyncDefaultType` (`AsyncTaskFamily`, `ValueTask` by default). The setting reaches the
+  analyzer through `Analyzer.ApplyLanguageSettings` → `AnalyzerDeclarationContext.AsyncDefaultFamily`:
+  `LoadFromProjectConfig` calls it, `MultiFileCompiler` re-applies it to a retained incremental
+  analyzer, and the language server applies it before EVERY document analysis because its one shared
+  analyzer serves every project in the workspace. The owner-of-a-method question is answered by
+  `AnalyzerDeclarationContext.TryGetMemberOwner`, a per-analysis identity index over every top-level
+  and nested type's members. A member that WRITES the other family than the slot it fills is NL202
+  from `AnalyzerTypeDeclarations.ValidateAsyncSlotReturn`, on the member name, naming the slot and
+  suggesting `: Task`/`: Task<T>` — before this it reached the emitter and declined as "no overridable
+  base member matches". The emitter's half is `ColumnarAsyncWrapperSelection` (see the async local
+  function note below); the native projects `async-slot-inference` and `async-default-type` and the
+  `AnalyzerAsyncReturnFamily` estate rows hold the two halves to one answer.
+- THERE IS NO POOLED-ASYNC SETTING, AND `language.pooledAsync` IS REFUSED BY NAME. The key was
+  parsed for a long time and consumed by nothing. Pooling (`PoolingAsyncValueTaskMethodBuilder`)
+  recycles the box a SUSPENDED async method lives in; an ordinary N# `async func` never suspends —
+  `await` is the blocking `TryEmitBlockingAwait` lowering in `ColumnarIlEmitter`, and
+  `EmitWrappedAsyncCompletedReturn` builds the result as `new ValueTask<T>(value)` /
+  `default(ValueTask)` — so a `ValueTask` call allocates 0 bytes already (measured: 100,000 calls,
+  0 bytes; `Task<int>` 72 bytes per call). With nothing to pool, `LanguageConfig.RemovedPooledAsync`
+  binds the key (`[YamlMember(Alias = "pooledAsync")]`) only so `ProjectFileParser.ValidateConfig`
+  refuses any value with that reason instead of YamlDotNet's "not found on type". `async-task-like`
+  pins both premises (completed on return across a delay; fewer bytes than calls) — if async bodies
+  ever become real state machines those rows fail and pooling becomes a real question again.
 
 ### CLR type → TypeInfo conversion
 
@@ -2569,12 +2596,14 @@ The three callers:
     applicability had no CLR type to reject either candidate with.
 - `ReflectionComparisonIsFullyInformed` GATES THE REPORT, not the choice. NL414 accuses the reader of
   writing a call the LANGUAGE cannot resolve, and that is only honest when the comparison had something
-  to compare. A position where the two parameter types DIFFER and the argument has no type at all — an
-  anonymous object, which types as `unknown` and is therefore assignable to every parameter, or a lambda
-  phase 32 deliberately left unanalysed — means the tie is the compiler's, not the program's, so the
-  candidate is still chosen but nothing is reported. `BadRequest(new { errors: errors })` is that case
-  (`BadRequest(object?)` vs `BadRequest(ModelStateDictionary)`); a METHOD GROUP has a type and is not
-  exempt, which is the `Enumerable.Select` case NL414 exists for.
+  to compare. A position where the two parameter types DIFFER and the argument has no type at all — a
+  lambda phase 32 deliberately left unanalysed — means the tie is the compiler's, not the program's, so
+  the candidate is still chosen but nothing is reported. A METHOD GROUP has a type and is not exempt,
+  which is the `Enumerable.Select` case NL414 exists for. `BadRequest(new { errors: errors })`
+  (`BadRequest(object?)` vs `BadRequest(ModelStateDictionary)`) used to be the anonymous-object
+  instance of the exemption; an anonymous object is now an `AnonymousObjectTypeInfo` with no CLR form,
+  so the N# relation accepts it for `object?` and refuses it for `ModelStateDictionary` and there is
+  no tie at all.
 - `AnalyzerSyntheticCallWalk.BindNSharpCall` — collects the applicable candidates first and compares
   them afterwards, for the same partial-order reason. Oracle: `TypeInfoIdentityFacts.AreEqual` and
   `AnalyzerAssignability.IsAssignable` over the same `GetArgumentComparisonTypes` the SCORER reads, so
@@ -2972,6 +3001,17 @@ delegate's RETURN position, repeating while anything moves.
   (`IsSupportedReceiverParameter` excludes only by-ref, pointer and BARE type-parameter slots), which
   is what `JsonSerializer.Deserialize<TValue>(this JsonElement, ...)` needs; the receiver is pushed by
   VALUE there, and boxed when the declared slot is a reference type.
+- An explicit site reaches a `params` TAIL through `CollectExplicitExpanded` /
+  `ResolveExplicitExpanded`, asked only when nothing bound in normal form (a normal-form ambiguity
+  still declines). The inferred `ResolveExpanded` keeps generic definitions out because inferring
+  from a packed element is its own rule; written type arguments infer nothing, so the explicit tier
+  admits them. `ExplicitExpandedParameterTypesOrNull` also lets the site omit DEFAULTED fixed slots
+  before the tail, which then packs nothing — `route.Produces<Todo>()` over `(int statusCode = 200,
+  string? contentType = null, params string[])`. `TryEmitExplicitGenericExtensionCall` pushes the
+  supplied fixed arguments, fills omitted ones with `TryEmitOptionalDefault`, then
+  `TryEmitExpandedParamsValue`. Before this, `app.UseMiddleware<Stamp>()` passed analysis and declined
+  at `emit.call.generic-unresolved`; `tests/native/census-generic-params-extension` runs the
+  `tests/fixtures/web-generic-middleware` WebApplication pipeline that proves it.
 - A CONSTRUCTOR ARGUMENT WITH NO TYPE OF ITS OWN is `ColumnarIlEmitter.TryEmitContextualConstruction`:
   the constructor is selected first (by the written arity, and among same-arity overloads by whether
   each written argument CAN match the declared parameter), then each argument is emitted against its
@@ -3191,6 +3231,45 @@ For `:=` declarations:
 - Contextual delegate targets (`Action`, `Func`, and other CLR delegates) supply lambda parameter
   and return expectations during call and assignment binding. A lambda with no usable target may
   still contain inference holes rather than being treated as an independently nominal value.
+
+### Anonymous objects (2026-10-16)
+
+`new { Name: value, ... }` — a typeless `new` with no argument list whose entries are all named
+(`AnalyzerConstruction.IsAnonymousObjectCreation`; `NewExpression.HasArgumentList` is what separates
+it from the target-typed `new() { ... }`) — is ALWAYS an anonymous object, never target-typed. The
+walk brackets each value with NO expected type and the result is an `AnonymousObjectTypeInfo`:
+ordered `AnonymousObjectPropertyInfo` (name, value type, name position) plus the creation's file and
+position.
+
+- **Identity** (`TypeInfoIdentityFacts.AreEqual`): same names, same order, identical property types —
+  where it was written does not matter. **Assignability**: to `object`/`object?`, to an identical
+  anonymous shape, nothing else; `ErrorSuggestionHelpers` turns the NL202 into "write the type after
+  `new`". **CLR conversion**: none exact; the binding surrogate is `object`
+  (`IsSurrogateUserDefinedType`), and the TypeInfo binding keeps the real shape, which is how
+  `Select(n => new { ... }).ToList().First()` stays typed.
+- **Members** (`AnalyzerMemberResolution`): properties first, then `object`'s instance surface;
+  `ToString` is modelled as `() -> string` because the synthesized override never answers null.
+  Misses report NL303 (`ShouldReportUndefinedMember`); writes report NL309
+  (`AnalyzerWriteTargets.TryFindAnonymousObjectPropertyWriteTarget`); `with` checks names and types
+  against the properties (NL303/NL202/NL306); property patterns read them
+  (`AnalyzerPropertyPatternBinding.FindPropertyType`).
+- **Values with no type** — `null`, a lambda, a method name, a void call, `never` — are NL203; a
+  repeated name is NL306 (`AnalyzerConstruction.AnonymousPropertyAnswered`).
+- **Bindings**: the property name inside the creation is the declaration (`SymbolDeclaration` kind
+  `property` at the name), every `obj.Name` and `with { Name: ... }` binds to it, and the name's type is
+  recorded in the semantic model at the name so hover on the declaring name answers the property type
+  (`CodeIntelligenceNavigation.DeclaredPropertyNameTypeAtPosition`).
+- **Backend** (`ColumnarAnonymousTypeRegistry`, on `ColumnarEmitContext.AnonymousTypes`): one sealed
+  internal generic `<>f__AnonymousType{n}<<Name>j__TPar, ...>` per ordered NAME list, closed over the
+  value types at each creation; initonly fields, getter-only properties, value `Equals`/`GetHashCode`
+  through `EqualityComparer<T>.Default`, C#'s `{ Name = Alice }` `ToString`, `[CompilerGenerated]` and
+  `[DebuggerDisplay]`. The emitter reads properties through `TryResolveProperty` (member access,
+  preflight typing, property patterns), routes `ToString`/`Equals`/`GetHashCode` through `object`'s
+  slots, and copies `with` by calling the constructor. Generic inference binds closed source generics
+  (`ColumnarGenericCallBindingPlanner.TryUnifyTypeParam`) and array literals admit them
+  (`ColumnarTypeOfPlanner.IsSupportedElementType`).
+- **Not yet**: generator (`func*`) bodies and expression trees — both general gaps of those lowerings —
+  and the browser playground, which refuses typeless construction with PG222.
 
 ### Init and required construction
 
@@ -3915,7 +3994,9 @@ Analyzer coverage is split deliberately across:
   spelling: a computed property's getter takes Virtual|Final|NewSlot, and a plain FIELD of that name
   gets a synthesized `get_Name` over it, because a CLR field cannot fill a property slot. The
   implementer gets NO second `PropertyInfo` row of that name — its `Name` stays the field its source
-  says it is. The slot is get-only on purpose: a read slot is one every implementer can fill, and N#
+  says it is. (Since 2026-10-15 a class's or record's exported bare `Name: T` is an AUTO-PROPERTY —
+  see [member-storage.md](member-storage.md) — whose own getter takes the slot; the synthesized
+  reader remains for a struct's field.) The slot is get-only on purpose: a read slot is one every implementer can fill, and N#
   has no body-less accessor with which to spell a settable one.
   DUCK MATCHING HAD TO LEARN THE SAME SHAPE: `RequiredDuckInterfaceSatisfied` counted only the
   interface's `Methods`, so an interface declaring no `func` at all matched EVERY type in the program
@@ -4908,7 +4989,13 @@ parameter list, the contextual typing, the display class — is unchanged.
   measured against the signature by the nested-body boundary, which reports their mismatch there.
 - **An `async` LOCAL FUNCTION is the same shape in a local function's method.** It declares its INNER
   type and the emitted method returns the wrap (`TryComputeAsyncReturnShape`, the same owner a
-  top-level `async func` asks), so every call site sees `ValueTask<T>`; the body sub-emitter is given
+  top-level `async func` asks, in the project's `ColumnarProgramInput.AsyncDefaultFamily`), so every
+  call site sees `ValueTask<T>` — or `Task<T>` under `asyncDefaultType: Task`. An instance method
+  that fills a slot is then offered to the SAME slot matchers its declaration registers with
+  (`ColumnarAsyncWrapperSelection`: base matches for an `override`, a scratch
+  `ColumnarMethodOverrideDeclaration` for interfaces) in the project family first and the other
+  family second, and takes the other family only when a slot accepts it and none accepts the
+  default. The body sub-emitter is given
   the inner type plus the async return shape. `emit.local-function.async` — the decline that said "its
   body is not routed through the async return planner" — is gone.
 - **Emission is the async function's shape, in a lambda's method.** `TryEmitLambdaLiteral` keeps the

@@ -350,6 +350,32 @@ class CompletionReceiverFacts {
     static func ResolveMemberCompletions(typeInfo: TypeInfo, receiver: string, semanticModels: IEnumerable<SemanticModel>, completions: Dictionary<string, List<CompletionItem>>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, friendGrants: InternalsVisibleToGrants?): CompletionResult? {
         typeName := CompletionTypeTextFacts.FormatTypeText(typeInfo)
 
+        // AN ANONYMOUS OBJECT offers its properties, in the order they were written, then `object`'s
+        // instance members. It has no declaration to read and no static surface at all.
+        anonymousReceiver := typeInfo as AnonymousObjectTypeInfo
+        nullableReceiver := typeInfo as NullableTypeInfo
+        if anonymousReceiver == null && nullableReceiver != null {
+            anonymousReceiver = nullableReceiver.InnerType as AnonymousObjectTypeInfo
+        }
+        if anonymousReceiver != null {
+            if filter == CompletionMemberFilter.StaticOnly {
+                return null
+            }
+
+            anonymousItems := new List<CompletionItem>()
+            for property in anonymousReceiver.Properties {
+                anonymousItems.Add(new CompletionItem(property.Name, "property", NullabilityMetadataReflection.FormatTypeInfo(property.Type), null, null, false))
+            }
+
+            objectFlags := CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.InstanceOnly, false, false)
+            for objectItem in CompletionReflectionFacts.BuildReflectionMemberItems(typeof(object), objectFlags, false, false, null) {
+                anonymousItems.Add(objectItem)
+            }
+
+            CompletionEngineKernels.AddGroupedCompletionItemsByKind(anonymousItems, completions)
+            return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions)
+        }
+
         // The RECEIVER rule: `protected` is offerable only when the caret's type IS the receiver's
         // type or derives from it. `private` needs the narrower answer, so it is asked separately.
         canReachProtected := CompletionVisibilityFacts.IsTypeOrDerived(accessingTypeName, typeName, compilationUnits)

@@ -28,8 +28,24 @@ struct Counter {
     }
 }
 
-// A struct held as a FIELD of a class: the field's own storage is addressable through `ldflda`.
+// A struct held as a FIELD of a class: the field's own storage is addressable through `ldflda`. The
+// member is camelCase because that is what makes it a field — an exported bare member of a class is
+// an auto-property (`MemberStorageRules`).
 class Holder {
+    counter: Counter = new Counter()
+
+    func BumpTwice(): int {
+        counter.Bump()
+        counter.Bump()
+        return counter.Read()
+    }
+}
+
+// THE SAME STRUCT HELD AS AN AUTO-PROPERTY IS READ AS A COPY. A property read yields a value, so a
+// mutating call bumps that value and the storage never moves — C#'s rule, and exactly what a caller in
+// another assembly sees through the getter. This assembly reaches the property's backing field
+// directly, and that must not turn a read into an address.
+class PropertyHolder {
     Counter: Counter = new Counter()
 
     func BumpTwice(): int {

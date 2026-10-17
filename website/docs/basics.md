@@ -78,14 +78,20 @@ greet("World")
 
 ### Async Functions
 
-Use the `async` keyword for asynchronous functions:
+Use the `async` keyword for asynchronous functions. The declared return type is what the body
+returns; callers get it wrapped in a task:
 
 ```n#
-async func fetchData(): string {
+async func fetchData(): string {   // callers receive ValueTask<string>
     result := await httpClient.GetStringAsync("https://api.example.com/data")
     return result
 }
 ```
+
+The task is `ValueTask` by default, or `Task` when `project.yml` sets
+`language.asyncDefaultType: Task`. An `override` or interface implementation takes the task of the
+member it replaces, and writing the task type (`: Task<string>`) always wins. See
+[Implicit Task Wrapping](./functions.md#implicit-task-wrapping) for the full rule.
 
 ### Lambda Expressions
 
@@ -244,13 +250,22 @@ person := new Person {
 
 ### Anonymous Objects
 
+`new { ... }` without a type name creates an anonymous object: a read-only value whose properties
+are the names you write, each typed by its value.
+
 ```n#
 data := new {
     name: "Alice",
     age: 30,
     active: true
 }
+print data.name     // Alice
+print data          // { name = Alice, age = 30, active = True }
 ```
+
+Anonymous objects compare by value with `Equals`, print their properties, copy with `with`, and
+are what LINQ projections and JSON payloads are usually made of. See
+[Anonymous Objects](./types.md#anonymous-objects) for the full rules.
 
 ## Types
 
@@ -437,8 +452,8 @@ records, interfaces, **enums**, **enum members**, functions, methods, constructo
 `PropertyInfo.GetCustomAttributes` — and so every model-binding, serialization and validation
 framework — looks for them.
 
-A field carries its own attributes, whatever shape the field has — instance, `static`, `const`, and a
-field of a `struct` alike:
+A bare member carries its own attributes, whatever shape it has — an auto-property, an instance
+field, `static`, `const`, and a member of a `struct` alike:
 
 ```n#
 class Order {
@@ -452,6 +467,12 @@ class Order {
     const Max: int = 100
 }
 ```
+
+`Customer` is an auto-property (see [Fields and properties](./types.md#fields-and-properties)), so
+`[Required]` lands on the **property**, which is where validation and model binding read it. An
+attribute that allows only fields — `[NonSerialized]`, say — lands on the property's backing field
+instead, as C#'s `[field: ...]` would put it; `static Legacy` and `const Max` are fields and carry
+theirs directly.
 
 ### An attribute on an enum, and on an enum member
 
@@ -497,7 +518,8 @@ the way a function's do.
 ### An attribute on a positional constructor parameter
 
 A **primary constructor's** parameter is one declaration that becomes two things: the constructor's
-parameter, and the field that parameter stores into.
+parameter, and the member that parameter stores into — an auto-property for an exported parameter of
+a class or record, a field otherwise (see [Fields and properties](./types.md#fields-and-properties)).
 
 ```n#
 record Options([JsonIgnore] Summary: bool = false, [FromRoute] Id: int = 0) {
@@ -510,8 +532,9 @@ at any position, so the **attribute's own `[AttributeUsage]`** chooses:
 | The attribute allows | It is written on |
 |---|---|
 | parameters | the **parameter** — what the source literally wrote |
-| fields but not parameters | the **field** that parameter declares |
-| neither | nothing; [`NL933`](./errors/NL933.md) names both rows |
+| properties but not parameters, and the member is an auto-property | the **property** that parameter declares |
+| fields but not parameters (or properties) | the **field** that parameter declares — or the property's backing field |
+| none of these | nothing; [`NL933`](./errors/NL933.md) names the rows |
 
 So `[JsonIgnore]` — declared for properties and fields — reaches the member a serializer reads, and
 `[FromRoute]` — declared for parameters — stays on the parameter a model binder reads, without either

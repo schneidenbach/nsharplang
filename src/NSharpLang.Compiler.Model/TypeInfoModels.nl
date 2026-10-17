@@ -62,6 +62,7 @@ class DeclaredMemberInfo {
     hasBodyValue: bool
     hasSetsRequiredMembersAttributeValue: bool
     sourceDeclarationValue: FunctionDeclaration?
+    isAutoPropertyValue: bool
 
     Name: string => nameValue
     ContainingType: string => containingTypeValue
@@ -143,7 +144,13 @@ class DeclaredMemberInfo {
     HasSetsRequiredMembersAttribute: bool => hasSetsRequiredMembersAttributeValue
     SourceDeclaration: FunctionDeclaration? => sourceDeclarationValue
 
-    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null, hasSetsRequiredMembersAttribute: bool = false, memberNullabilityPostconditions: NullabilityMemberPostcondition[]? = null, sourceDeclaration: FunctionDeclaration? = null) {
+    // A BARE `Name: T` MEMBER THAT `MemberStorageRules` MAKES A PROPERTY. Its `Kind` is already
+    // `Property` and `HasSetter` is true; this bit says the accessors are compiler-written over a
+    // `<Name>k__BackingField`, which is what hover and `nlc query` call an auto-property.
+    IsAutoProperty: bool => isAutoPropertyValue
+
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null, hasSetsRequiredMembersAttribute: bool = false, memberNullabilityPostconditions: NullabilityMemberPostcondition[]? = null, sourceDeclaration: FunctionDeclaration? = null, isAutoProperty: bool = false) {
+        isAutoPropertyValue = isAutoProperty
         hasSetsRequiredMembersAttributeValue = hasSetsRequiredMembersAttribute
         sourceDeclarationValue = sourceDeclaration
         doesNotReturnValue = doesNotReturn
@@ -746,6 +753,58 @@ class AnonymousUnionTypeInfo: TypeInfo {
         }
 
         return builder.ToString()
+    }
+}
+
+// ONE PROPERTY OF AN ANONYMOUS OBJECT: its name, the type its initializer value produced, and where
+// that name was written — which is the property's declaration, the place go-to-definition lands.
+class AnonymousObjectPropertyInfo {
+    Name: string
+    Type: TypeInfo
+    Line: int
+    Column: int
+
+    constructor(name: string, propertyType: TypeInfo, line: int, column: int) {
+        Name = name
+        Type = propertyType
+        Line = line
+        Column = column
+    }
+}
+
+// `new { Name: "Alice", Age: 30 }` — A TYPE NOBODY CAN NAME, DESCRIBED BY ITS PROPERTIES.
+//
+// Two anonymous objects have the SAME type when they list the same property names in the same order
+// with identical property types, which is C#'s rule within an assembly and the reason the backend
+// gives every such shape one synthesized generic class. The properties are read-only; the members a
+// value has beyond them are `object`'s, with `Equals`, `GetHashCode` and `ToString` answering by value.
+// The written creation is kept so a reader can be sent to it.
+class AnonymousObjectTypeInfo: TypeInfo {
+    Properties: List<AnonymousObjectPropertyInfo>
+    FilePath: string?
+    Line: int
+    Column: int
+
+    constructor(properties: List<AnonymousObjectPropertyInfo>, filePath: string?, line: int, column: int) {
+        Properties = properties
+        FilePath = filePath
+        Line = line
+        Column = column
+    }
+
+    func FindProperty(name: string): AnonymousObjectPropertyInfo? {
+        for property in Properties {
+            if property.Name == name {
+                return property
+            }
+        }
+
+        return null
+    }
+
+    // Printed the way it is written, with each value replaced by its type: `new { Name: string, Age: int }`.
+    override func ToString(): string {
+        return NullabilityTypeDisplay.FormatAnonymousObjectType(this)
     }
 }
 

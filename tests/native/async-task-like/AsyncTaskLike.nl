@@ -136,3 +136,26 @@ func UnitAwaitedSynchronously(): bool {
     work.GetAwaiter().GetResult()
     return work.IsCompleted
 }
+
+// THE `pooledAsync` REFUSAL RESTS ON THESE. An unannotated `async func` returns the project default,
+// `ValueTask`, and completes before it returns: each `await` is lowered synchronously, and the result
+// is wrapped with `new ValueTask<T>(value)`. A pooled builder recycles the state an async method keeps
+// while it is SUSPENDED; with no suspension there is no state, and the call allocates nothing.
+async func NextValue(seed: int): int {
+    await Task.CompletedTask
+    return seed + 1000
+}
+
+async func TouchValue() {
+    await Task.CompletedTask
+}
+
+async func NextTask(seed: int): Task<int> {
+    await Task.CompletedTask
+    return seed + 1000
+}
+
+async func SlowValue(): int {
+    await Task.Delay(20)
+    return 5
+}

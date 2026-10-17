@@ -8035,7 +8035,7 @@ test "020 s31 analyzer error codes: a `checked`/`unchecked` operand as a `ref` o
 
 test "020 s31 analyzer error codes: non-addressable CLR targets as `ref`/`out` arguments are `NL103`, three rows, and one of them splits the routes one column against two (was AnalyzerTests.RefOutArgument_NonAddressableClrTargets_Error, all 3 [InlineData] rows)" with (statement: string, modifier: string, census: string, row0: string, codeAnchorInvalidSyntax: string, richCensus: string, richCodeAnchorInvalidSyntax: string) [
     ("if Int32.TryParse(\"42\", out checked(result)) { }", "out", "NL103:InvalidSyntax@12:45+6;", "InvalidSyntax|The 'out' argument needs an assignable target|Use a variable, field, or indexed array/SoA column element as the out argument.|Error", "NL103@12:45+6", "NL103:InvalidSyntax@12:45+6;", "NL103@12:45+6"),
-    ("Int32.TryParse(\"42\", out text.Length)", "out", "NL103:InvalidSyntax@12:34+11;", "InvalidSyntax|The 'out' argument needs an assignable target|Use a variable, field, or indexed array/SoA column element as the out argument.|Error", "NL103@12:34+11", "NL103:InvalidSyntax@12:34+11;", "NL103@12:34+11"),
+    ("Int32.TryParse(\"42\", out text.Length)", "out", "NL103:InvalidSyntax@12:34+11;", "InvalidSyntax|'Length' is a property, so it has no storage to pass as the 'out' argument|Copy it into a local, pass the local, and assign the result back to 'Length'.|Error", "NL103@12:34+11", "NL103:InvalidSyntax@12:34+11;", "NL103@12:34+11"),
     ("update(ref items[0])", "ref", "NL103:InvalidSyntax@12:25+1;", "InvalidSyntax|The 'ref' argument needs an assignable target|Use a variable, field, or indexed array/SoA column element as the ref argument.|Error", "NL103@12:25+1", "NL103:InvalidSyntax@12:25+2;", "NL103@12:25+2")
 ] {
     source := "    import System\n    import System.Collections.Generic\n\n    func update(ref value: int) {\n        value += 1\n    }\n\n    func Main() {\n        result := 0\n        text := \"abc\"\n        items := new List<int>()\n        " + statement + "\n    }"
@@ -8065,8 +8065,9 @@ test "020 s31 analyzer error codes: non-addressable CLR targets as `ref`/`out` a
     assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
     assert AcCodeRow(rich, "InvalidSyntax") == row0
     assert AcCodeAnchor(rich, "InvalidSyntax") == richCodeAnchorInvalidSyntax
-    assert AcRow(rich, 0).Contains("'" + modifier + "' argument needs an assignable target")
-    assert AcRow(rich, 0).Contains("as the " + modifier + " argument")
+    // A PROPERTY TARGET IS NAMED AS ONE (`'Length' is a property, so it has no storage to pass as the
+    // 'out' argument`); the other two rows keep the general sentence. Both name the modifier.
+    assert AcRow(rich, 0).Contains("'" + modifier + "' argument")
 }
 
 test "020 s31 analyzer error codes: an array RANGE SLICE as a `ref` argument is its own `NL103` sentence, one column plain against five rich (was AnalyzerTests.RefOutArgument_ArrayRangeSlice_Error)" {
@@ -9613,25 +9614,25 @@ test "020 s31 analyzer error codes: a non-constant default value is `NL410`, anc
     assert AcCensus(analysis) == "NL410:InvalidDefaultParameterValue@6:35+8;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, or a simple constant|<null>|Error"
+    assert AcRow(analysis, 0) == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|<null>|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "InvalidDefaultParameterValue") == 1
     assert AcCodeErrorCount(analysis, "InvalidDefaultParameterValue") == 1
-    assert AcCodeRow(analysis, "InvalidDefaultParameterValue") == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, or a simple constant|<null>|Error"
+    assert AcCodeRow(analysis, "InvalidDefaultParameterValue") == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|<null>|Error"
     assert AcCodeAnchor(analysis, "InvalidDefaultParameterValue") == "NL410@6:35+8"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL410:InvalidDefaultParameterValue@6:35+8;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, or a simple constant|<null>|Error"
+    assert AcRow(rich, 0) == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|<null>|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "InvalidDefaultParameterValue") == 1
     assert AcCodeErrorCount(rich, "InvalidDefaultParameterValue") == 1
-    assert AcCodeRow(rich, "InvalidDefaultParameterValue") == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, or a simple constant|<null>|Error"
+    assert AcCodeRow(rich, "InvalidDefaultParameterValue") == "InvalidDefaultParameterValue|The default value for 'x' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|<null>|Error"
     assert AcCodeAnchor(rich, "InvalidDefaultParameterValue") == "NL410@6:35+8"
 }
 
@@ -15459,10 +15460,10 @@ test "020 s33 analyzer clean source: `ReadonlyField_IncrementCurrentInstanceInCo
 }
 
 test "020 s33 analyzer clean source: `InstanceField_InheritedRefOutArgument_Valid` — both `ref` and `out` through an INHERITED field are accepted in silence; the fixture parses to 3 functions + 2 classes and BOTH routes report an EMPTY census (was AnalyzerTests.InstanceField_InheritedRefOutArgument_Valid, both [InlineData] rows)" with (statement: string) [
-    ("bump(ref derived.Value)"),
-    ("reset(out derived.Value)")
+    ("bump(ref derived.count)"),
+    ("reset(out derived.count)")
 ] {
-    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        Value: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        " + statement + "\n    }"
+    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        count: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        " + statement + "\n    }"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=0;FunctionDeclaration:bump;FunctionDeclaration:reset;ClassDeclaration:Base;ClassDeclaration:Derived;FunctionDeclaration:Mutate;"
@@ -15730,8 +15731,8 @@ test "020 s33 analyzer clean source: V-CONTROL for `ReadonlyField_SetInConstruct
     assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@6:21+2"
 }
 
-test "020 s33 analyzer clean source: V-CONTROL for `InstanceField_InheritedRefOutArgument_Valid`: point the `ref` argument at a field the base class does not declare and the inherited-member lookup reports `NL303` — so the silent row really did resolve `Value` THROUGH the base" {
-    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        Value: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        bump(ref derived.Missing)\n    }"
+test "020 s33 analyzer clean source: V-CONTROL for `InstanceField_InheritedRefOutArgument_Valid`: point the `ref` argument at a field the base class does not declare and the inherited-member lookup reports `NL303` — so the silent row really did resolve `count` THROUGH the base" {
+    source := "    func bump(ref value: int) {\n        value += 1\n    }\n\n    func reset(out value: int) {\n        value = 0\n    }\n\n    class Base {\n        count: int\n    }\n\n    class Derived : Base {\n    }\n\n    func Mutate(derived: Derived) {\n        bump(ref derived.Missing)\n    }"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=0;FunctionDeclaration:bump;FunctionDeclaration:reset;ClassDeclaration:Base;ClassDeclaration:Derived;FunctionDeclaration:Mutate;"
@@ -20136,7 +20137,7 @@ test "020 s36 analyzer clean source: `TestDefaultParametersWithNullLiteral` pars
 }
 
 test "020 s36 analyzer clean source: `TestDefaultParametersWithNumericExpressions` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersWithNumericExpressions)" {
-    source := "\n            func Calculate(x: int = 2 + 3, y: int = -5, z: float = 3.14) {\n                print x\n            }\n\n            func Main() {\n                Calculate()\n                Calculate(10)\n            }\n        "
+    source := "\n            func Calculate(x: int = 2 + 3, y: int = -5, z: float = 3.14f) {\n                print x\n            }\n\n            func Main() {\n                Calculate()\n                Calculate(10)\n            }\n        "
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=0;FunctionDeclaration:Calculate;FunctionDeclaration:Main;"
@@ -20154,6 +20155,16 @@ test "020 s36 analyzer clean source: `TestDefaultParametersWithNumericExpression
     assert AcRow(rich, 0) == "<no-such-error>"
     assert AcHint(rich, 0) == "<no-such-error>"
     assert AcSnippet(rich, 0) == "<no-such-error>"
+}
+
+test "020 s36 analyzer clean source: a default that is a constant of the WRONG type is `NL202` on the default — `z: float = 3.14` is a `double`, exactly the conversion C# refuses for a default" {
+    source := "\n            func Calculate(z: float = 3.14) {\n                print z\n            }\n        "
+    assert AcParseCensus(source) == ""
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == "NL202:TypeMismatch@2:39+4;"
+    rich := AcAnalyzeWithSource(source)
+    assert AcCensus(rich) == "NL202:TypeMismatch@2:39+4;"
+    assert AcRow(rich, 0) == "TypeMismatch|Parameter 'z' is typed as 'float', but its default value is 'double'|<null>|Error"
 }
 
 test "020 s36 analyzer clean source: `TestDefaultParametersWithBooleanLiterals` parses clean and BOTH routes report an EMPTY census (was AnalyzerTests.TestDefaultParametersWithBooleanLiterals)" {

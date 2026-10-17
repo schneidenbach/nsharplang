@@ -1,0 +1,11 @@
+name: NSharpLang.WebGenericMiddleware
+version: 1.0.0
+backend: il
+outputType: exe
+entry: Program.nl
+targetFramework: net10.0
+sdk: Microsoft.NET.Sdk.Web
+
+# The canonical ASP.NET registration, `app.UseMiddleware<T>()`, lives in the shared framework.
+dependencies:
+  - framework: Microsoft.AspNetCore.App

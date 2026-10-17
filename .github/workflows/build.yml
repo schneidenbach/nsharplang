@@ -408,8 +408,39 @@ jobs:
           fi
           tag="unofficial-$channel-$RUN_ID-$RUN_ATTEMPT"
           assets=()
-          while IFS= read -r -d '' asset; do assets+=("$asset"); done < <(find artifacts -type f -print0)
+          while IFS= read -r -d '' asset; do assets+=("$asset"); done < <(find artifacts -type f -print0 | sort -z)
+          # SHA256SUMS covers every asset under its release (base) name, in the `<hash>  <name>`
+          # format scripts/install.sh verifies; the installer refuses any download it cannot match.
+          sums="$RUNNER_TEMP/SHA256SUMS"
+          : > "$sums"
+          for asset in "${assets[@]}"; do
+            printf '%s  %s\n' "$(sha256sum "$asset" | cut -d' ' -f1)" "$(basename "$asset")" >> "$sums"
+          done
+          clash=$( (awk '{ print $2 }' "$sums"; echo SHA256SUMS) | sort | uniq -d)
+          if [[ -n "$clash" ]]; then
+            echo "::error::Release asset names must be unique and not SHA256SUMS: $clash"
+            exit 1
+          fi
+          assets+=("$sums")
+          # PR builds are pre-releases. Main builds are full releases, and the newest becomes GitHub's
+          # latest release, which the public installer downloads through releases/latest/download.
+          # Main publications are serialized by the concurrency group, but runs can reach it out of
+          # order, so a commit that is an ancestor of the current latest release never replaces it.
+          release_flags=(--prerelease --latest=false)
+          if [[ -z "$PR_NUMBER" ]]; then
+            release_flags=(--latest)
+            if latest=$(gh api "repos/$GH_REPO/releases/latest" --jq '.target_commitish' 2> "$RUNNER_TEMP/latest.err"); then
+              order=$(gh api "repos/$GH_REPO/compare/$latest...$COMMIT" --jq '.status')
+              if [[ "$order" == behind ]]; then
+                echo "$COMMIT is older than the latest release's $latest; publishing without taking latest."
+                release_flags=(--latest=false)
+              fi
+            elif ! grep -q 'HTTP 404' "$RUNNER_TEMP/latest.err"; then
+              cat "$RUNNER_TEMP/latest.err" >&2
+              exit 1
+            fi
+          fi
           gh release create "$tag" "${assets[@]}" --repo "$GH_REPO" \
-            --target "$COMMIT" --prerelease --latest=false \
+            --target "$COMMIT" "${release_flags[@]}" \
             --title "Unofficial $channel ($COMMIT)" \
             --notes "Unofficial development build from $COMMIT. Requires .NET 10. PR builds are removed when the PR closes. Build: https://github.com/$GH_REPO/actions/runs/$RUN_ID"

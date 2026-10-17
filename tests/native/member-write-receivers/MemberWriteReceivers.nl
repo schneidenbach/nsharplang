@@ -4,8 +4,8 @@ import System.Collections.Generic
 
 // A MEMBER WRITE WHOSE RECEIVER IS NOT A NAME. C#'s rule, which N# keeps: a member write needs
 // storage to land in. A REFERENCE-typed receiver — an array element, a call result, an indexer
-// result — yields an object, and the object IS the storage, so `roster[0].Name = v` and
-// `Pick(d).Name = v` write the shared object. A VALUE-typed ARRAY ELEMENT is storage too: the write
+// result — yields an object, and the object IS the storage, so `roster[0].name = v` and
+// `Pick(d).name = v` write the shared object. A VALUE-typed ARRAY ELEMENT is storage too: the write
 // goes through the element's address and changes the array's own slot. A value-typed call or indexer
 // result is a temporary copy with nowhere to write back to, and the analyzer rejects it as NL322.
 struct Point {
@@ -19,9 +19,12 @@ struct Segment {
 }
 
 class Dog {
-    Name: string = "rex"
-    Age: int = 1
-    Spot: Point
+    // camelCase, so FIELDS: these members are what the `ref` and through-receiver writes below
+    // store into, and an exported bare member of a class would be an auto-property with no storage
+    // of its own to hand out (`MemberStorageRules`).
+    name: string = "rex"
+    age: int = 1
+    spot: Point
     nickname: string = "none"
 
     Nickname: string {
@@ -73,19 +76,19 @@ func Swap(ref text: string) {
 // ---- reference-typed receivers ------------------------------------------------------------------
 
 func RenameFirst(roster: Dog[], name: string) {
-    roster[0].Name = name
+    roster[0].name = name
 }
 
 func RenameThroughCall(dog: Dog, name: string) {
-    Pick(dog).Name = name
+    Pick(dog).name = name
 }
 
 func RenameThroughList(dogs: List<Dog>, name: string) {
-    dogs[0].Name = name
+    dogs[0].name = name
 }
 
 func RenameThroughParens(roster: Dog[], name: string) {
-    (roster[0]).Name = name
+    (roster[0]).name = name
 }
 
 func NicknameFirst(roster: Dog[], name: string) {
@@ -97,20 +100,20 @@ func NicknameThroughCall(dog: Dog, name: string) {
 }
 
 func AgeUpFirst(roster: Dog[], years: int) {
-    roster[0].Age += years
+    roster[0].age += years
 }
 
 func BirthdayThroughCall(dog: Dog) {
-    Pick(dog).Age++
+    Pick(dog).age++
 }
 
 // A value-typed FIELD of a reference-typed receiver is written in place through its address.
 func MoveSpotFirst(roster: Dog[], x: int) {
-    roster[0].Spot.X = x
+    roster[0].spot.X = x
 }
 
 func MoveSpotThroughCall(dog: Dog, y: int) {
-    Pick(dog).Spot.Y = y
+    Pick(dog).spot.Y = y
 }
 
 // ---- value-typed array elements -----------------------------------------------------------------
@@ -136,21 +139,21 @@ func BumpX(points: Point[], i: int) {
 }
 
 func BumpAgeThroughCall(dog: Dog) {
-    Bump(ref Pick(dog).Age)
+    Bump(ref Pick(dog).age)
 }
 
 // A `ref` to a REFERENCE-typed field passes the field's slot, so the callee's store replaces what
 // the field holds.
 func SwapName(dog: Dog) {
-    Swap(ref dog.Name)
+    Swap(ref dog.name)
 }
 
 func SwapNameFirst(roster: Dog[]) {
-    Swap(ref roster[0].Name)
+    Swap(ref roster[0].name)
 }
 
 func SwapNameThroughCall(dog: Dog) {
-    Swap(ref Pick(dog).Name)
+    Swap(ref Pick(dog).name)
 }
 
 // ---- evaluation order ---------------------------------------------------------------------------
@@ -160,15 +163,15 @@ func TracedElementWrite(trace: Trace, points: Point[], i: int, x: int) {
 }
 
 func TracedCallWrite(trace: Trace, dog: Dog, age: int) {
-    trace.Pick(dog).Age = trace.Value(age)
+    trace.Pick(dog).age = trace.Value(age)
 }
 
 func TracedCallCompound(trace: Trace, dog: Dog, years: int) {
-    trace.Pick(dog).Age += trace.Value(years)
+    trace.Pick(dog).age += trace.Value(years)
 }
 
 func TracedNullElementWrite(trace: Trace, roster: Dog[], age: int) {
-    roster[0].Age = trace.Value(age)
+    roster[0].age = trace.Value(age)
 }
 
 // ---- receivers rooted at the instance's own fields ---------------------------------------------
@@ -178,11 +181,11 @@ class Kennel {
     spots: Point[] = new Point[](2)
 
     func Rename(i: int, name: string) {
-        dogs[i].Name = name
+        dogs[i].name = name
     }
 
     func RenameExplicit(i: int, name: string) {
-        this.dogs[i].Name = name
+        this.dogs[i].name = name
     }
 
     func Place(i: int, x: int) {
@@ -195,11 +198,11 @@ class Kennel {
     }
 
     func RenameFirstThroughCall(name: string) {
-        First().Name = name
+        First().name = name
     }
 
     func NameAt(i: int): string {
-        return dogs[i].Name
+        return dogs[i].name
     }
 
     func SpotAt(i: int): Point {

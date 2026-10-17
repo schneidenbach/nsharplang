@@ -5,6 +5,7 @@ import System.Collections
 import System.Collections.Generic
 import System.Reflection.Emit
 import System.Threading.Tasks
+import NSharpLang.Compiler
 
 
 // Owns the declaration-time realization of source interfaces: inheritance order, structural
@@ -35,7 +36,8 @@ class ColumnarInterfaceRealization {
         structs: IReadOnlyList<ColumnarStructInput>,
         structDefinitions: ColumnarStructDef[],
         typeResolutions: ColumnarSemanticTypeResolution[],
-        interfaceDefinitions: List<ColumnarStructDef>
+        interfaceDefinitions: List<ColumnarStructDef>,
+        asyncDefaultFamily: AsyncTaskFamily
     ) {
         structIndex := 0
         while structIndex < structs.Count {
@@ -71,7 +73,8 @@ class ColumnarInterfaceRealization {
                         interfaceDefinition,
                         typeResolution.Enums,
                         typeResolution.Structs,
-                        typeResolution.Unions
+                        typeResolution.Unions,
+                        asyncDefaultFamily
                     ) {
                         continue
                     }
@@ -304,9 +307,15 @@ class ColumnarInterfaceRealization {
         )
     }
 
+    // THE METADATA SHAPE OF AN `async` BODY: what its `return` statements produce (`inner`) and the
+    // task the method signature returns (`wrapped`). A written task type is kept exactly as written;
+    // anything else is wrapped in `family` — the project's `language.asyncDefaultType` — except
+    // `main`, which is always the `Task` family. A method that fills a .NET slot may then be moved to
+    // the slot's family by `ColumnarAsyncWrapperSelection`, after its parameters are known.
     static func TryComputeAsyncReturnShape(
         name: string,
         canonical: string,
+        family: AsyncTaskFamily,
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
         unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
@@ -315,7 +324,7 @@ class ColumnarInterfaceRealization {
     ): bool {
         inner = ColumnarTypeOfPlanner.RequiredVoidType()
         wrapped = null
-        isEntryPoint := string.Equals(name, "main", StringComparison.OrdinalIgnoreCase)
+        usesTaskFamily := AsyncTaskFamilyFacts.EffectiveFamily(name, family) == AsyncTaskFamily.Task
         if canonical == "Task" {
             wrapped = typeof(Task)
             return true
@@ -357,7 +366,7 @@ class ColumnarInterfaceRealization {
             return true
         }
         if canonical == "void" {
-            wrapped = isEntryPoint ? typeof(Task) : typeof(ValueTask)
+            wrapped = usesTaskFamily ? typeof(Task) : typeof(ValueTask)
             return true
         }
         if !ColumnarCanonicalTypeResolver.TryResolveType(
@@ -369,11 +378,33 @@ class ColumnarInterfaceRealization {
         ) || !ColumnarTypeOfPlanner.IsSupportedType(inner) {
             return false
         }
-        inferredDefinition := (isEntryPoint ? typeof(Task<int>) : typeof(ValueTask<int>)).GetGenericTypeDefinition()
-        inferredArguments := new Type[](1)
-        inferredArguments[0] = inner
-        wrapped = inferredDefinition.MakeGenericType(inferredArguments)
+        wrapped = WrapInFamily(inner, usesTaskFamily ? AsyncTaskFamily.Task : AsyncTaskFamily.ValueTask)
         return true
+    }
+
+    // Whether the canonical return WRITES its task type, which no inference may change.
+    static func WritesTaskLikeReturn(canonical: string): bool {
+        if canonical == "Task" || canonical == "ValueTask" {
+            return true
+        }
+        if canonical.Length == 0 || canonical[canonical.Length - 1] != '>' {
+            return false
+        }
+        return canonical.StartsWith("Task<", StringComparison.Ordinal) || canonical.StartsWith("ValueTask<", StringComparison.Ordinal)
+    }
+
+    // `inner` in the given family: the unit task for `void`, else the generic one.
+    static func WrapInFamily(inner: Type, family: AsyncTaskFamily): Type {
+        if inner == ColumnarTypeOfPlanner.RequiredVoidType() {
+            if family == AsyncTaskFamily.Task {
+                return typeof(Task)
+            }
+            return typeof(ValueTask)
+        }
+        definition := (family == AsyncTaskFamily.Task ? typeof(Task<int>) : typeof(ValueTask<int>)).GetGenericTypeDefinition()
+        arguments := new Type[](1)
+        arguments[0] = inner
+        return definition.MakeGenericType(arguments)
     }
 
     static func ParamTypesMatch(left: Type[], right: Type[]): bool {
@@ -396,7 +427,8 @@ class ColumnarInterfaceRealization {
         interfaceDefinition: ColumnarStructDef,
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
-        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        asyncDefaultFamily: AsyncTaskFamily
     ): bool {
         requiredInterfaces := new List<ColumnarStructDef>()
         ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(interfaceDefinition, requiredInterfaces)
@@ -410,7 +442,8 @@ class ColumnarInterfaceRealization {
                     requiredInterface,
                     enumRegistry,
                     structRegistry,
-                    unionRegistry
+                    unionRegistry,
+                    asyncDefaultFamily
                 ) {
                     return false
                 }
@@ -427,7 +460,8 @@ class ColumnarInterfaceRealization {
         requiredInterface: ColumnarStructDef,
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
-        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        asyncDefaultFamily: AsyncTaskFamily
     ): bool {
         memberEnumerator := requiredInterface.Methods.GetEnumerator()
         try {
@@ -446,7 +480,8 @@ class ColumnarInterfaceRealization {
                     member.ParamTypes,
                     enumRegistry,
                     structRegistry,
-                    unionRegistry
+                    unionRegistry,
+                    asyncDefaultFamily
                 ) {
                     return false
                 }
@@ -594,7 +629,8 @@ class ColumnarInterfaceRealization {
         parameterTypes: Type[],
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
-        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        asyncDefaultFamily: AsyncTaskFamily
     ): bool {
         methodEnumerator := GetMethodEnumerator(source.Methods)
         movement := methodEnumerator as IEnumerator
@@ -611,6 +647,7 @@ class ColumnarInterfaceRealization {
                     if !TryComputeAsyncReturnShape(
                         method.Name,
                         method.ReturnCanonical,
+                        asyncDefaultFamily,
                         enumRegistry,
                         structRegistry,
                         unionRegistry,

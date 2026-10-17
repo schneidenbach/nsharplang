@@ -316,7 +316,11 @@ class ColumnarInstanceMemberPlanner {
 
             memberName := RewriteTupleMemberName(nodes, source, receiver, nodes.Text(source, candidate), bindings)
             selection := EmptySelection()
-            if !TrySelect(receiverType, memberName, bindings, out selection) || selection.Kind != ColumnarInstanceMemberKind.Field || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.ResultType, expectedType) {
+            // AN AUTO-PROPERTY'S STORAGE IS NOT AN ADDRESSABLE RECEIVER. This assembly reaches the
+            // member through its backing field, but the member is a property, and a property read is
+            // a copy: `holder.Counter.Bump()` bumps a copy here exactly as it does through the getter
+            // in another assembly, and as it does in C#.
+            if !TrySelect(receiverType, memberName, bindings, out selection) || selection.Kind != ColumnarInstanceMemberKind.Field || ColumnarAutoPropertyEmitter.IsBackingField(selection.Field) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.ResultType, expectedType) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -655,11 +659,14 @@ class ColumnarInstanceMemberPlanner {
             localStaticProperty := current.StaticProperties.ContainsKey(memberName)
             declarationCount := (localField ? 1 : 0) + (localProperty ? 1 : 0) + (localStaticField ? 1 : 0) + (localStaticProperty ? 1 : 0)
 
-            if declarationCount > 1 || declarationCount > 0 && (found || foundStatic) {
+            // AN `override` PROPERTY DOES NOT SHADOW THE PROPERTY IT OVERRIDES — it takes the same slot,
+            // so the nearer declaration already names the member and the base's is the same member.
+            overriddenLevel := found && foundProperty != null && localProperty && declarationCount == 1 && ColumnarPropertyOverrideMatch.ReusesSlot(foundProperty.Getter)
+            if !overriddenLevel && (declarationCount > 1 || declarationCount > 0 && (found || foundStatic)) {
                 throw new InvalidOperationException("Source member declarations cannot shadow another member in their hierarchy.")
             }
 
-            if declarationCount > 0 {
+            if declarationCount > 0 && !overriddenLevel {
                 found = localField || localProperty
                 foundStatic = localStaticField || localStaticProperty
                 foundDeclaring = current.Builder
@@ -868,11 +875,12 @@ class ColumnarInstanceMemberPlanner {
             localField := current.Fields.ContainsKey(memberName)
             localProperty := current.Properties.ContainsKey(memberName)
             declarationCount := (localField ? 1 : 0) + (localProperty ? 1 : 0)
-            if declarationCount > 1 || declarationCount > 0 && found {
+            overriddenLevel := found && foundProperty != null && localProperty && declarationCount == 1 && ColumnarPropertyOverrideMatch.ReusesSlot(foundProperty.Getter)
+            if !overriddenLevel && (declarationCount > 1 || declarationCount > 0 && found) {
                 throw new InvalidOperationException("Exact member facts cannot shadow another member in their hierarchy.")
             }
 
-            if declarationCount > 0 {
+            if declarationCount > 0 && !overriddenLevel {
                 found = true
                 foundDeclaring = current.ExactType
                 if localField {

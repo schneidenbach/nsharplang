@@ -537,6 +537,20 @@ class AnalyzerAssignability {
             return true
         }
 
+        // AN ANONYMOUS OBJECT CONVERTS TO `object` (above) AND TO ITS OWN TYPE, AND TO NOTHING ELSE.
+        // Its synthesized class derives from `object` and implements no interface, so the only other
+        // slot it fits is one of the identical shape — the same names, in the same order, over the same
+        // property types — with or without a nullable annotation on the slot.
+        anonymousSource := resolvedSource as AnonymousObjectTypeInfo
+        anonymousTarget := resolvedTarget as AnonymousObjectTypeInfo
+        anonymousNullableTarget := resolvedTarget as NullableTypeInfo
+        if anonymousSource != null && anonymousNullableTarget != null {
+            return IsAssignableCore(anonymousNullableTarget.InnerType, resolvedSource)
+        }
+        if anonymousSource != null || anonymousTarget != null {
+            return anonymousSource != null && anonymousTarget != null && TypeInfoIdentityFacts.AreEqual(anonymousTarget, anonymousSource)
+        }
+
         if assignabilityFacts.IsArrayToSpanAssignable(resolvedTarget, resolvedSource) {
             return true
         }

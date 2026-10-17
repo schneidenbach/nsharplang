@@ -121,10 +121,20 @@ if [ -z "${DOTNET_ROOT:-}" ]; then
 fi
 export DOTNET_ROOT
 
-# Resolve the ilverify command: prefer the global tool, fall back to the
-# user tools dir which may not be on PATH in minimal shells.
+# Resolve the ilverify command: an explicit NSHARP_ILVERIFY first (the local
+# gate resolves it before isolating HOME), then PATH, then the user tools dir
+# which may not be on PATH in minimal shells. An explicit path that is not an
+# executable is an error, never a silent fall-through to another verifier.
 ILVERIFY_BIN=""
-if command -v ilverify >/dev/null 2>&1; then
+if [ -n "${NSHARP_ILVERIFY:-}" ]; then
+    if [ ! -x "$NSHARP_ILVERIFY" ] || [ -d "$NSHARP_ILVERIFY" ]; then
+        fail "NSHARP_ILVERIFY is not an executable file: $NSHARP_ILVERIFY"
+        echo "    Point it at the ilverify tool, or unset it to search PATH and ~/.dotnet/tools."
+        echo "    Install the tool with: dotnet tool install --global dotnet-ilverify"
+        exit 2
+    fi
+    ILVERIFY_BIN="$NSHARP_ILVERIFY"
+elif command -v ilverify >/dev/null 2>&1; then
     ILVERIFY_BIN="ilverify"
 elif [ -x "$HOME/.dotnet/tools/ilverify" ]; then
     ILVERIFY_BIN="$HOME/.dotnet/tools/ilverify"

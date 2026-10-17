@@ -77,16 +77,27 @@ test "an init-only member may also be required" {
 }
 
 // CLR METADATA: the attributes are the contract, and they are what a C# caller reads.
-test "a required field carries RequiredMemberAttribute and so does its type" {
-    field := typeof(User).GetField("Id")
-    assert field != null
-    assert MemberHasAttribute(field.GetCustomAttributesData(), "System.Runtime.CompilerServices.RequiredMemberAttribute")
+// A bare `required Id: string` in a class is an AUTO-PROPERTY (`MemberStorageRules`), so the demand is
+// recorded on the property row — where C# writes it for `public required string Id { get; set; }`.
+test "a required bare member carries RequiredMemberAttribute on its property, and so does its type" {
+    property := typeof(User).GetProperty("Id")
+    assert property != null
+    assert typeof(User).GetField("Id") == null
+    assert MemberHasAttribute(property.GetCustomAttributesData(), "System.Runtime.CompilerServices.RequiredMemberAttribute")
 
-    optional := typeof(User).GetField("Email")
+    optional := typeof(User).GetProperty("Email")
     assert optional != null
     assert !MemberHasAttribute(optional.GetCustomAttributesData(), "System.Runtime.CompilerServices.RequiredMemberAttribute")
 
     assert MemberHasAttribute(typeof(User).GetCustomAttributesData(), "System.Runtime.CompilerServices.RequiredMemberAttribute")
+}
+
+// A STRUCT'S members stay fields, and a required one carries the attribute on the FIELD row.
+test "a required struct field carries RequiredMemberAttribute on the field" {
+    field := typeof(Sample).GetField("Value")
+    assert field != null
+    assert MemberHasAttribute(field.GetCustomAttributesData(), "System.Runtime.CompilerServices.RequiredMemberAttribute")
+    assert MemberHasAttribute(typeof(Sample).GetCustomAttributesData(), "System.Runtime.CompilerServices.RequiredMemberAttribute")
 }
 
 test "a required property carries RequiredMemberAttribute on the property row" {

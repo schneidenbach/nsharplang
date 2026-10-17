@@ -1,0 +1,12 @@
+name: NSharpLang.CensusGenericParamsExtension.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# Every generic extension with a `params` tail that ships in .NET lives in the ASP.NET shared
+# framework, which `nlc test`'s host does not load. The fixture is therefore a web EXECUTABLE built
+# by the ordinary project-reference path, and the tests run its output through its own
+# runtimeconfig, which binds it to that framework.
+dependencies:
+  - project: ../../fixtures/web-generic-middleware/project.yml

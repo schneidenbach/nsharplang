@@ -362,6 +362,71 @@ test "a receiver the closed candidate cannot accept declines rather than binding
     assert !wrongReceiver.IsSelected, "A closed receiver slot the receiver does not satisfy must not bind."
 }
 
+// `Expression.Lambda<TDelegate>` is the BCL's generic `params` shape with a receiver-shaped first
+// slot: `(Expression body, params ParameterExpression[])`, its `(Expression, bool, params ...)` sibling
+// and `IEnumerable<ParameterExpression>` overloads. Indexed as extension candidates, it stands in for
+// `UseMiddleware<TMiddleware>(this IApplicationBuilder, params object?[] args)`, which lives in the
+// ASP.NET shared framework the estate does not reference.
+func BuildGenericParamsExtensionIndex(): ColumnarExtensionMethodIndex {
+    index := new ColumnarExtensionMethodIndex()
+    for method in typeof(System.Linq.Expressions.Expression).GetMethods() {
+        if method.get_Name() == "Lambda" && method.get_IsGenericMethodDefinition() && method.GetParameters().Length >= 2 && method.GetParameters()[0].get_ParameterType() == typeof(System.Linq.Expressions.Expression) {
+            index.Add("Lambda", MakeExtensionFixtureCandidate(method))
+        }
+    }
+
+    return index
+}
+
+test "an explicit generic site packs a params tail it supplies no arguments for" {
+    index := BuildGenericParamsExtensionIndex()
+    receiver := typeof(System.Linq.Expressions.ConstantExpression)
+    delegateType := ExtensionOneType(typeof(Func<int>))
+
+    // `body.Lambda<Func<int>>()` — the `UseMiddleware<Stamp>()` shape: zero arguments, so only the
+    // expanded form applies, and it closes over what the site wrote with nothing to infer.
+    empty := ColumnarExtensionMethodResolver.ResolveExplicit(index, receiver, "Lambda", delegateType, new Type[](0), ColumnarDirectCallArgumentFacts.Empty(0))
+    assert empty.IsSelected, "A zero-argument explicit site must bind the params-only overload in expanded form."
+    assert empty.ParamsElementType == typeof(System.Linq.Expressions.ParameterExpression)
+    assert empty.ExplicitArgumentCount == 0
+    assert empty.ParameterTypes.Length == 2
+    assert empty.ReturnType == typeof(System.Linq.Expressions.Expression<Func<int>>)
+
+    unique := ColumnarExtensionMethodResolver.ResolveExplicitUnique(index, receiver, "Lambda", delegateType, 0)
+    assert unique.IsSelected, "The untyped tier reaches the same expanded candidate."
+    assert unique.ParamsElementType == typeof(System.Linq.Expressions.ParameterExpression)
+}
+
+test "an explicit generic site scores fixed and packed arguments in the expanded form" {
+    index := BuildGenericParamsExtensionIndex()
+    receiver := typeof(System.Linq.Expressions.ConstantExpression)
+    delegateType := ExtensionOneType(typeof(Func<int, int>))
+
+    // A `bool` is no `ParameterExpression`, so it is the FIXED slot of `(Expression, bool, params ...)`.
+    tailCall := ColumnarExtensionMethodResolver.ResolveExplicit(index, receiver, "Lambda", delegateType, ExtensionOneType(typeof(bool)), ColumnarDirectCallArgumentFacts.Empty(1))
+    assert tailCall.IsSelected, "A fixed bool argument must select the bool-taking params overload."
+    assert tailCall.ParameterTypes.Length == 3
+    assert tailCall.ParameterTypes[1] == typeof(bool)
+    assert tailCall.ParamsElementType == typeof(System.Linq.Expressions.ParameterExpression)
+
+    // Two elements pack into the one params slot.
+    packed := ColumnarExtensionMethodResolver.ResolveExplicit(index, receiver, "Lambda", delegateType, ExtensionTwoTypes(typeof(System.Linq.Expressions.ParameterExpression), typeof(System.Linq.Expressions.ParameterExpression)), ColumnarDirectCallArgumentFacts.Empty(2))
+    assert packed.IsSelected, "Two parameter expressions must pack into the params tail."
+    assert packed.ParameterTypes.Length == 2
+    assert packed.ExplicitArgumentCount == 2
+    assert packed.ParamsElementType == typeof(System.Linq.Expressions.ParameterExpression)
+
+    // An already-built array binds in NORMAL form, which C# prefers over packing it again.
+    normal := ColumnarExtensionMethodResolver.ResolveExplicit(index, receiver, "Lambda", delegateType, ExtensionOneType(typeof(System.Linq.Expressions.ParameterExpression[])), ColumnarDirectCallArgumentFacts.Empty(1))
+    assert normal.IsSelected, "An array argument for the params slot must bind in normal form."
+    assert normal.ParamsElementType == null
+    assert normal.ParameterTypes[1] == typeof(System.Linq.Expressions.ParameterExpression[])
+
+    // Nothing converts a string to either a fixed slot or the element type.
+    rejected := ColumnarExtensionMethodResolver.ResolveExplicit(index, receiver, "Lambda", delegateType, ExtensionOneType(typeof(string)), ColumnarDirectCallArgumentFacts.Empty(1))
+    assert !rejected.IsSelected, "An argument neither form accepts must not bind."
+}
+
 test "a value-type receiver slot is indexed, because an extension's receiver is its first argument" {
     // `IsSupportedReceiverParameter` admits a struct slot: `JsonSerializer.Deserialize<TValue>` is
     // declared on `JsonElement`. A by-ref, pointer or BARE type-parameter slot stays excluded.

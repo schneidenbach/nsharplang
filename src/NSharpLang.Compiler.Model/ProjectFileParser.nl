@@ -72,6 +72,16 @@ class ProjectFileParser {
             throw new InvalidOperationException("Invalid language.asyncDefaultType: '" + config.Language.AsyncDefaultType + "'. Must be 'Task' or 'ValueTask'.")
         }
 
+        // `pooledAsync` WAS NEVER WIRED TO ANYTHING, AND A SILENT NO-OP IS NOT SHIPPABLE. Pooling
+        // recycles the builder state behind an async method that suspends; an N# `async func`
+        // completes before it returns, so its `ValueTask` is built straight from the result and
+        // allocates nothing (the `async-task-like` native project pins that). There is nothing to pool,
+        // so the key is refused whatever its value, with the reason, rather than accepted and ignored.
+        removedPooledAsync := config.Language.RemovedPooledAsync
+        if removedPooledAsync != null {
+            throw new InvalidOperationException("Invalid language.pooledAsync: '" + removedPooledAsync + "'. N# has no pooled-async setting: an async func that returns ValueTask already completes without allocating, so there is nothing to pool. Remove 'pooledAsync' from the language section.")
+        }
+
         if config.Language.Profile != "default" && config.Language.Profile != "systems" {
             throw new InvalidOperationException("Invalid language.profile: '" + config.Language.Profile + "'. Must be 'default' or 'systems'.")
         }

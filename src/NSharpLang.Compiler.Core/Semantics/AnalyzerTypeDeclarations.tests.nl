@@ -2259,15 +2259,15 @@ test "AN `abstract` MEMBER WITH A BODY IS `NL311` — the body it wrote was bein
     assert harness.Errors[0].Message == "'Touch' is declared 'abstract', but an abstract func supplies no body"
     assert harness.Errors[0].Suggestion == "Remove the body so 'Touch' is a slot a derived type fills, or drop 'abstract' and keep the implementation. An abstract member's body is never emitted."
 
-    // A PROPERTY IS ALWAYS A BODY IN N#, so the same fault reads differently: there is no body-less
-    // accessor to fall back to, and the suggestion names the two spellings that DO give a slot.
+    // A PROPERTY WITH ACCESSORS CANNOT DROP ITS BODY AND STAY ONE, so the suggestion names the
+    // body-less spelling — the bare `abstract Name: <type>` — and the two get-only ones.
     propertyHarness := TypeDeclDefault()
     propertyMembers := new List<Declaration>()
     propertyMembers.Add(TypeDeclProperty("Name", Modifiers.Abstract))
     TypeDeclRun(propertyHarness, propertyHarness.Declarations.BeginClass(TypeDeclClass("Widget", propertyMembers, null, null, Modifiers.Abstract), propertyHarness.Assignability), null)
     assert propertyHarness.Errors.Count == 1
     assert propertyHarness.Errors[0].Message == "'Name' is declared 'abstract', but an abstract property supplies no body"
-    assert propertyHarness.Errors[0].Suggestion == "N# has no body-less accessor, so a property cannot be a slot. Declare the slot as an 'abstract func Name(): <type>', or move 'Name' onto an interface the type implements — an interface's value member is a get-only slot. Otherwise drop 'abstract'."
+    assert propertyHarness.Errors[0].Suggestion == "An abstract property is written bare — 'abstract Name: <type>' — and is a get/set slot each derived class fills. For a get-only slot, declare an 'abstract func Name(): <type>' or move 'Name' onto an interface the type implements. Otherwise drop 'abstract'."
 }
 
 test "`static abstract`, AN INTERFACE MEMBER AND A STRUCT MEMBER EACH GET THEIR OWN SENTENCE" {
@@ -2443,28 +2443,99 @@ test "a `protected internal` SLOT DECLARED IN THIS COMPILATION KEEPS BOTH HALVES
     assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Override) | Convert.ToInt32(Modifiers.Protected) | Convert.ToInt32(Modifiers.Internal)) == 5
 }
 
-test "A FIELD DECLARED `override`, `virtual` OR `abstract` IS `NL311` — it can be none of them" {
-    overrideHarness := TypeDeclDefault()
-    overrideMembers := new List<Declaration>()
-    overrideMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Override))
-    TypeDeclRun(overrideHarness, overrideHarness.Declarations.BeginClass(TypeDeclClass("Dog", overrideMembers, null, null, Modifiers.None), overrideHarness.Assignability), null)
+func TypeDeclBits(first: Modifiers, second: Modifiers): Modifiers {
+    return (Modifiers)(Convert.ToInt32(first) | Convert.ToInt32(second))
+}
+
+// One bare member in a class (`classModifiers` on the class), walked to the end.
+func TypeDeclRunBareMember(field: FieldDeclaration, classModifiers: Modifiers): TypeDeclarationHarness {
+    harness := TypeDeclDefault()
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Dog", TypeDeclMembers(field), null, null, classModifiers), harness.Assignability), null)
+    return harness
+}
+
+func TypeDeclOnlyMessage(harness: TypeDeclarationHarness): string {
+    if harness.Errors.Count != 1 {
+        return "<" + harness.Errors.Count.ToString() + " errors>"
+    }
+
+    return harness.Errors[0].Message
+}
+
+func TypeDeclRecordStruct(name: string, members: List<Declaration>): RecordDeclaration {
+    return new RecordDeclaration(name, null, TypeDeclNoInterfaces(), members, null, true, Modifiers.None, TypeDeclNoAttributes(), 7, 10)
+}
+
+// A source base's get-only property: `HasSetter` false, everything else `TypeDeclPropertyMemberInfo`'s.
+func TypeDeclGetOnlyPropertyMemberInfo(name: string, modifierBits: int): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(name, "Owner", DeclaredMemberKind.Property, "property", null, false, false, false, true, 0, new string[](0), new TypeReference[](0), new Ast.ParameterModifier[](0), 0, false, false, null, 0, new TypeParameter[](0), new GenericConstraint[](0), 0, false, false, false, false, "", false, false, 1, 1, modifierBits)
+}
+
+// AN EXPORTED INSTANCE MEMBER OF A CLASS IS AN AUTO-PROPERTY, AND AN AUTO-PROPERTY HAS SLOTS. The
+// three words mean what C#'s `public virtual/abstract/override T Name { get; set; }` mean, which is
+// what EF Core's lazy-loading proxies override.
+test "a bare exported member of a class may be `virtual`, `abstract` in an abstract class, or `sealed override`" {
+    assert TypeDeclRunBareMember(TypeDeclField("Label", TypeDeclString(), null, Modifiers.Virtual), Modifiers.None).Errors.Count == 0
+    assert TypeDeclRunBareMember(TypeDeclField("Label", TypeDeclString(), TypeDeclIntLiteral(), Modifiers.Virtual), Modifiers.None).Errors.Count == 0
+    assert TypeDeclRunBareMember(TypeDeclField("Label", TypeDeclString(), null, TypeDeclBits(Modifiers.Virtual, Modifiers.Protected)), Modifiers.None).Errors.Count == 0
+    assert TypeDeclRunBareMember(TypeDeclField("Label", TypeDeclString(), null, Modifiers.Abstract), Modifiers.Abstract).Errors.Count == 0
+
+    // A record CLASS is unsealed in metadata, so a runtime proxy can override its virtual member.
+    recordHarness := TypeDeclDefault()
+    TypeDeclRun(recordHarness, recordHarness.Declarations.BeginRecord(TypeDeclRecord("Book", TypeDeclMembers(TypeDeclField("Author", TypeDeclString(), null, Modifiers.Virtual)), null, Modifiers.None), recordHarness.Assignability), null)
+    assert recordHarness.Errors.Count == 0
+}
+
+test "a bare `override` with no base property, and a bare `abstract` outside an abstract class, are `NL311`" {
+    overrideHarness := TypeDeclRunBareMember(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Override), Modifiers.None)
     assert overrideHarness.Errors.Count == 1
     assert overrideHarness.Errors[0].Code == ErrorCode.InvalidModifier
-    assert overrideHarness.Errors[0].Message == "'Label' is declared 'override', but a field cannot be virtual, abstract or overridden"
+    assert overrideHarness.Errors[0].Message == "'Label' is declared 'override', but the base type has no property of that name"
+    assert overrideHarness.Errors[0].Length == 5
 
-    virtualHarness := TypeDeclDefault()
-    virtualMembers := new List<Declaration>()
-    virtualMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Virtual))
-    TypeDeclRun(virtualHarness, virtualHarness.Declarations.BeginClass(TypeDeclClass("Dog", virtualMembers, null, null, Modifiers.None), virtualHarness.Assignability), null)
-    assert virtualHarness.Errors.Count == 1
-    assert virtualHarness.Errors[0].Message == "'Label' is declared 'virtual', but a field cannot be virtual, abstract or overridden"
+    abstractHarness := TypeDeclRunBareMember(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Abstract), Modifiers.None)
+    assert TypeDeclOnlyMessage(abstractHarness) == "'Label' is declared 'abstract', but 'Dog' is not an abstract class"
 
-    abstractHarness := TypeDeclDefault()
-    abstractMembers := new List<Declaration>()
-    abstractMembers.Add(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Abstract))
-    TypeDeclRun(abstractHarness, abstractHarness.Declarations.BeginClass(TypeDeclClass("Dog", abstractMembers, null, null, Modifiers.None), abstractHarness.Assignability), null)
-    assert abstractHarness.Errors.Count == 1
-    assert abstractHarness.Errors[0].Message == "'Label' is declared 'abstract', but a field cannot be virtual, abstract or overridden"
+    // AN ABSTRACT PROPERTY HAS NO STORAGE for an initializer to fill (C#'s CS8050).
+    initializedHarness := TypeDeclRunBareMember(TypeDeclField("Label", TypeDeclInt(), TypeDeclIntLiteral(), Modifiers.Abstract), Modifiers.Abstract)
+    assert TypeDeclOnlyMessage(initializedHarness) == "'Label' is declared 'abstract', but an abstract property has no storage for an initializer to fill"
+    assert initializedHarness.Errors[0].Suggestion == "Drop the initializer and give it to the override in the derived type — 'override Label: <type> = <value>' — or drop 'abstract'."
+
+    sealedHarness := TypeDeclRunBareMember(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Virtual), Modifiers.Sealed)
+    assert TypeDeclOnlyMessage(sealedHarness) == "'Label' is declared 'virtual', but 'Dog' is sealed"
+
+    loneSealedHarness := TypeDeclRunBareMember(TypeDeclField("Label", TypeDeclInt(), null, Modifiers.Sealed), Modifiers.None)
+    assert TypeDeclOnlyMessage(loneSealedHarness) == "'Label' is declared 'sealed', but only an 'override' can be sealed"
+}
+
+// A BARE MEMBER THAT IS A FIELD HAS NO SLOT, and the sentence names WHY it is a field, because the way
+// out differs for each.
+test "a bare member that is storage rather than an auto-property cannot be virtual, and the report says why" {
+    assert TypeDeclOnlyMessage(TypeDeclRunBareMember(TypeDeclField("count", TypeDeclInt(), null, Modifiers.Virtual), Modifiers.None)) == "'count' is declared 'virtual', but a camelCase or 'private' member is the type's own storage — a field, which has no slot"
+    assert TypeDeclOnlyMessage(TypeDeclRunBareMember(TypeDeclField("Count", TypeDeclInt(), null, TypeDeclBits(Modifiers.Virtual, Modifiers.Private)), Modifiers.None)) == "'Count' is declared 'virtual', but a camelCase or 'private' member is the type's own storage — a field, which has no slot"
+    assert TypeDeclOnlyMessage(TypeDeclRunBareMember(TypeDeclField("Count", TypeDeclInt(), TypeDeclIntLiteral(), TypeDeclBits(Modifiers.Virtual, Modifiers.Static)), Modifiers.None)) == "'Count' is declared 'virtual', but a static member has no slot to dispatch through"
+    assert TypeDeclOnlyMessage(TypeDeclRunBareMember(TypeDeclField("Count", TypeDeclInt(), TypeDeclIntLiteral(), TypeDeclBits(Modifiers.Virtual, Modifiers.Readonly)), Modifiers.None)) == "'Count' is declared 'virtual', but a 'readonly' member is a field, and a field has no slot"
+    assert TypeDeclOnlyMessage(TypeDeclRunBareMember(TypeDeclField("Count", TypeDeclInt(), TypeDeclIntLiteral(), TypeDeclBits(Modifiers.Override, Modifiers.Const)), Modifiers.None)) == "'Count' is declared 'override', but a 'const' member is a field, and a field has no slot"
+
+    initHarness := TypeDeclRunBareMember(TypeDeclField("Count", TypeDeclInt(), null, TypeDeclBits(Modifiers.Virtual, Modifiers.Init)), Modifiers.None)
+    assert TypeDeclOnlyMessage(initHarness) == "'Count' is declared 'virtual', but an 'init' member cannot be virtual, abstract or overridden"
+    assert initHarness.Errors[0].Suggestion == "Its declaring type writes the storage directly, which an override could not intercept. Drop 'init' so 'Count' is a get/set auto-property that can be virtual, or drop 'virtual'."
+
+    structHarness := TypeDeclDefault()
+    TypeDeclRun(structHarness, structHarness.Declarations.BeginStruct(TypeDeclStruct("Point", TypeDeclMembers(TypeDeclField("X", TypeDeclInt(), null, Modifiers.Virtual)), null, null, Modifiers.None), structHarness.Assignability), null)
+    assert TypeDeclOnlyMessage(structHarness) == "'X' is declared 'virtual', but a struct cannot take part in inheritance"
+
+    recordStructHarness := TypeDeclDefault()
+    TypeDeclRun(recordStructHarness, recordStructHarness.Declarations.BeginRecord(TypeDeclRecordStruct("Pair", TypeDeclMembers(TypeDeclField("Left", TypeDeclInt(), null, Modifiers.Virtual))), recordStructHarness.Assignability), null)
+    assert TypeDeclOnlyMessage(recordStructHarness) == "'Left' is declared 'virtual', but a record struct cannot take part in inheritance"
+
+    recordAbstractHarness := TypeDeclDefault()
+    TypeDeclRun(recordAbstractHarness, recordAbstractHarness.Declarations.BeginRecord(TypeDeclRecord("Book", TypeDeclMembers(TypeDeclField("Author", TypeDeclString(), null, Modifiers.Abstract)), null, Modifiers.None), recordAbstractHarness.Assignability), null)
+    assert TypeDeclOnlyMessage(recordAbstractHarness) == "'Author' is declared 'abstract', but 'Book' is a record, and only an abstract class can hold an abstract slot"
+
+    interfaceHarness := TypeDeclDefault()
+    TypeDeclRun(interfaceHarness, interfaceHarness.Declarations.BeginInterface(TypeDeclInterface("IShape", TypeDeclMembers(TypeDeclField("Name", TypeDeclString(), null, Modifiers.Virtual)), Modifiers.None), interfaceHarness.Assignability), null)
+    assert TypeDeclOnlyMessage(interfaceHarness) == "'Name' is declared 'virtual', but an interface's value member is already a slot"
 
     // THE MODIFIERS A FIELD LEGITIMATELY CARRIES ARE UNTOUCHED. This is the row that keeps the rule
     // from failing live files: `static`, `readonly` and `required` fields are the estate's own shapes.
@@ -2476,6 +2547,26 @@ test "A FIELD DECLARED `override`, `virtual` OR `abstract` IS `NL311` — it can
     plainMembers.Add(TypeDeclField("Plain", TypeDeclInt(), null, Modifiers.None))
     TypeDeclRun(plainHarness, plainHarness.Declarations.BeginClass(TypeDeclClass("Dog", plainMembers, null, null, Modifiers.None), plainHarness.Assignability), null)
     assert plainHarness.Errors.Count == 0
+}
+
+// AN AUTO-PROPERTY OVERRIDES BOTH ACCESSORS, so the base must open a setter too (C#'s CS0546). The walk
+// answers in the override family's codes: 0 cannot tell, 1 an overridable setter, 2 none.
+test "the setter walk asks a source base whether it declares a setter, and metadata whether the setter is open" {
+    harness := TypeDeclDefault()
+    settable := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclVirtualBits())))
+    assert harness.Declarations.ClassifyOverridePropertySetter(settable, "Label", 0) == 1
+
+    getOnly := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclGetOnlyPropertyMemberInfo("Label", TypeDeclVirtualBits())))
+    assert harness.Declarations.ClassifyOverridePropertySetter(getOnly, "Label", 0) == 2
+
+    // `Exception.HelpLink` is `virtual { get; set; }`; `Exception.Message` is `virtual { get; }`.
+    exceptionBase := TypeDeclClrOwner("System.Exception")
+    assert harness.Declarations.ClassifyOverridePropertySetter(exceptionBase, "HelpLink", 0) == 1
+    assert harness.Declarations.ClassifyOverridePropertySetter(exceptionBase, "Message", 0) == 2
+
+    assert harness.Declarations.ClassifyOverridePropertySetter(BuiltInTypes.Unknown, "Label", 0) == 0
+    assert harness.Declarations.ClassifyOverridePropertySetter(null, "Label", 0) == 0
+    assert harness.Declarations.ClassifyOverridePropertySetter(settable, "Label", 25) == 0
 }
 
 test "THE RULE STAYS SILENT FOR EVERY CORRECT SPELLING IT CAN SEE" {

@@ -69,6 +69,9 @@ class ColumnarFieldRows {
     FieldIsThreadStatic: bool[][]
     FieldIsNullable: bool[][]
     FieldIsLiteral: bool[][]
+    // Whether the row is a GET/SET AUTO-PROPERTY rather than a field (`MemberStorageRules`). An `init`
+    // row is a property too, but answers false here: it has its own row kind and its own emitter path.
+    FieldIsAutoProperty: bool[][]
 
     constructor(
         structCount: int,
@@ -77,7 +80,8 @@ class ColumnarFieldRows {
         fieldIsStatic: bool[][],
         fieldIsThreadStatic: bool[][],
         fieldIsNullable: bool[][],
-        fieldIsLiteral: bool[][]
+        fieldIsLiteral: bool[][],
+        fieldIsAutoProperty: bool[][]
     ) {
         StructCount = structCount
         FieldNames = fieldNames
@@ -86,6 +90,7 @@ class ColumnarFieldRows {
         FieldIsThreadStatic = fieldIsThreadStatic
         FieldIsNullable = fieldIsNullable
         FieldIsLiteral = fieldIsLiteral
+        FieldIsAutoProperty = fieldIsAutoProperty
     }
 }
 
@@ -1754,6 +1759,23 @@ class ColumnarDeclarationPlanner {
         return MemberAccessibility.Public
     }
 
+    // THE STORAGE RULE, ASKED OF ONE ROW. `MemberStorageRules` owns the rule and the analyzer asks the
+    // same function of the declaration, so the member kind a diagnostic names and the row reflection
+    // shows cannot disagree. An `init` row answers false: it is a property with its own path.
+    static func FieldIsAutoPropertyAt(input: ColumnarStructInput, index: int): bool {
+        if input.IsNewtype || index < input.FieldInitOnlyFlags.Length && input.FieldInitOnlyFlags[index] {
+            return false
+        }
+
+        visibilityFlags := index < input.FieldVisibilityFlags.Length ? input.FieldVisibilityFlags[index] : 0
+        if FieldIsPrivateAt(input, index) {
+            visibilityFlags = visibilityFlags | 2
+        }
+
+        isEvent := index < input.FieldEventFlags.Length && input.FieldEventFlags[index]
+        return MemberStorageRules.IsAutoPropertyMember(input.IsReference, input.FieldNames[index], visibilityFlags, input.FieldStaticFlags[index], FieldIsReadonlyAt(input, index), FieldIsLiteralAt(input, index), isEvent, false)
+    }
+
     static func FieldIsPrivateAt(input: ColumnarStructInput, index: int): bool {
         if index < input.FieldPrivateFlags.Length {
             return input.FieldPrivateFlags[index]
@@ -1790,6 +1812,7 @@ class ColumnarDeclarationPlanner {
         threadStatics := new bool[][](count)
         nullables := new bool[][](count)
         literals := new bool[][](count)
+        autoProperties := new bool[][](count)
 
         index := 0
         while index < count {
@@ -1801,6 +1824,7 @@ class ColumnarDeclarationPlanner {
             fieldThreadStatics := new bool[](fieldCount)
             fieldNullables := new bool[](fieldCount)
             fieldLiterals := new bool[](fieldCount)
+            fieldAutoProperties := new bool[](fieldCount)
             field := 0
             while field < fieldCount {
                 fieldNames[field] = input.FieldNames[field]
@@ -1811,6 +1835,7 @@ class ColumnarDeclarationPlanner {
                 fieldLiterals[field] = isLiteral
                 fieldWords[field] = FieldAttributesForLevel(isStatic, FieldIsReadonlyAt(input, field), FieldAccessibilityLevelAt(input, field), isLiteral)
                 fieldNullables[field] = FieldIsNullableAt(input, field)
+                fieldAutoProperties[field] = FieldIsAutoPropertyAt(input, field)
                 field = field + 1
             }
             names[index] = fieldNames
@@ -1819,10 +1844,11 @@ class ColumnarDeclarationPlanner {
             threadStatics[index] = fieldThreadStatics
             nullables[index] = fieldNullables
             literals[index] = fieldLiterals
+            autoProperties[index] = fieldAutoProperties
             index = index + 1
         }
 
-        return new ColumnarFieldRows(count, names, words, statics, threadStatics, nullables, literals)
+        return new ColumnarFieldRows(count, names, words, statics, threadStatics, nullables, literals, autoProperties)
     }
 
     // THE EMITTER'S OWN WORD ON A TYPE DECLARED TWICE. Every enum, interface, struct/class/record and

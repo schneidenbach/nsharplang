@@ -16,6 +16,23 @@ func AccessibilityFieldNamed(owner: Type, name: string): FieldInfo {
     return field
 }
 
+// AN EXPORTED BARE MEMBER OF A CLASS IS AN AUTO-PROPERTY, so its accessibility lives on its
+// accessors — both of them carry the member's written word.
+func AccessibilityGetterOf(owner: Type, name: string): MethodInfo {
+    property := owner.GetProperty(name, AccessibilityInstanceFlags())
+    if property == null {
+        throw new InvalidOperationException("'" + owner.Name + "' declares no property named " + name + ".")
+    }
+
+    getter := property.GetGetMethod(true)
+    setter := property.GetSetMethod(true)
+    if getter == null || setter == null || (getter.Attributes & MethodAttributes.MemberAccessMask) != (setter.Attributes & MethodAttributes.MemberAccessMask) {
+        throw new InvalidOperationException("'" + owner.Name + "." + name + "' does not carry one accessibility on both accessors.")
+    }
+
+    return getter
+}
+
 func AccessibilityMethodOf(owner: Type, name: string): MethodInfo {
     method := owner.GetMethod(name, AccessibilityInstanceFlags())
     if method == null {
@@ -71,7 +88,7 @@ test "a private member is readable from its own declaring type and emits as CLR 
 
 test "a protected member emits family accessibility, and protected internal emits family-or-assembly" {
     owner := typeof(AccessBase)
-    seed := AccessibilityFieldNamed(owner, "Seed")
+    seed := AccessibilityGetterOf(owner, "Seed")
     assert seed.IsFamily
     assert !seed.IsPublic
     assert !seed.IsPrivate
@@ -81,12 +98,12 @@ test "a protected member emits family accessibility, and protected internal emit
     assert doubler.IsFamily
     assert !doubler.IsPublic
 
-    shared := AccessibilityFieldNamed(owner, "Shared")
+    shared := AccessibilityGetterOf(owner, "Shared")
     assert shared.IsFamilyOrAssembly
     assert !shared.IsPublic
     assert !shared.IsFamily
 
-    open := AccessibilityFieldNamed(owner, "Open")
+    open := AccessibilityGetterOf(owner, "Open")
     assert open.IsPublic
 }
 

@@ -32,6 +32,18 @@ func OutputOrderingProbe(index: int): string {
     return source + "}\n"
 }
 
+func WebProject(): string {
+    return "name: DaemonExecProbe\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n"
+}
+
+func HostedWorker(): string {
+    return "namespace DaemonExecProbe\n" + "\n" + "import System.Threading\n" + "import System.Threading.Tasks\n" + "import Microsoft.Extensions.Hosting\n" + "\n" + "class SignallingWorker: BackgroundService {\n" + "    Ran: TaskCompletionSource<bool>\n" + "\n" + "    constructor() {\n" + "        Ran = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)\n" + "    }\n" + "\n" + "    protected override async func ExecuteAsync(stoppingToken: CancellationToken): Task {\n" + "        Ran.TrySetResult(!stoppingToken.IsCancellationRequested)\n" + "        await Task.CompletedTask\n" + "    }\n" + "}\n"
+}
+
+func HostedWorkerTests(): string {
+    return "namespace DaemonExecProbe\n" + "\n" + "import System\n" + "import System.Threading\n" + "\n" + "test \"a background service runs in the test worker\" {\n" + "    worker := new SignallingWorker()\n" + "    await worker.StartAsync(CancellationToken.None)\n" + "    ran := await worker.Ran.Task.WaitAsync(TimeSpan.FromSeconds(10))\n" + "    await worker.StopAsync(CancellationToken.None)\n" + "    assert ran\n" + "}\n"
+}
+
 func UnformattedSource(): string {
     return "namespace DaemonExecProbe\n\nfunc   Messy( a:int ):int{\nreturn a+1\n}\n"
 }
@@ -162,6 +174,29 @@ test "test runs answer identically, failing tests, prints and JSON envelope incl
         assert run.ExitCode == 1
         assert run.Stdout.Contains("hello from a passing test")
         assert run.Stderr.Contains("stderr from a failing test")
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
+// The test worker is a separate process that receives the run over a private request format, so
+// the project's shared-framework directories have to travel in that request: a worker that only knew
+// the test output directory would fail to load `Microsoft.Extensions.Hosting.Abstractions` where the
+// in-process run succeeds.
+test "a web project's tests bind its shared framework in the test worker exactly as in-process" {
+    workspace := NewWorkspace()
+    try {
+        File.WriteAllText(Path.Combine(workspace, "project.yml"), WebProject())
+        WriteSource(workspace, "Worker.nl", HostedWorker())
+        WriteSource(workspace, "Worker.tests.nl", HostedWorkerTests())
+        StartServer(workspace)
+
+        assert RoutedThroughServer(AssertParity(workspace, ["test"], null))
+        assert RoutedThroughServer(AssertParity(workspace, ["test", "--json"], null))
+
+        run := Nlc(["test"], workspace)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout.Contains("Passed: 1, Failed: 0, Skipped: 0, Total: 1"), run.Stdout
     } finally {
         DeleteWorkspace(workspace)
     }

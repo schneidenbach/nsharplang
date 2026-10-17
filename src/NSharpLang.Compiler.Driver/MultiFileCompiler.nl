@@ -721,6 +721,9 @@ class MultiFileCompiler {
         if state != null {
             retained := state.RetainedAnalyzer
             if retained != null {
+                // The retained analyzer kept its references; the language settings are THIS
+                // compilation's, which may follow an edit to `project.yml`.
+                retained.ApplyLanguageSettings(EffectiveConfig())
                 _sharedAnalyzerValue = retained
                 return retained
             }
@@ -2270,6 +2273,8 @@ class MultiFileCompiler {
         if sharedAnalyzer != null {
             program.ReferenceMetadata = sharedAnalyzer.ReferenceMetadata
         }
+        // The emitter wraps unannotated async bodies in the same family the analyzer typed them with.
+        program.AsyncDefaultFamily = AsyncTaskFamilyFacts.ForLanguage(EffectiveConfig().Language)
         // Call-site overload selection belongs to the analyzer's BindNSharpCall walk. Carry each
         // analyzed file's semantic model into emission so a free-function call can target the exact
         // declaration BindNSharpCall selected instead of re-ranking the group's CLR signatures.
@@ -2565,6 +2570,8 @@ class MultiFileCompiler {
         if sharedAnalyzer != null {
             program.ReferenceMetadata = sharedAnalyzer.ReferenceMetadata
         }
+        // The emitter wraps unannotated async bodies in the same family the analyzer typed them with.
+        program.AsyncDefaultFamily = AsyncTaskFamilyFacts.ForLanguage(EffectiveConfig().Language)
         semanticModel: SemanticModel = null
         if _semanticModels.TryGetValue(changedPath, out semanticModel) {
             program.SetSemanticModelForFileId(changedIndex, semanticModel)

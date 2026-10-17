@@ -747,7 +747,7 @@ test "020 s37 playground diagnostic spans: Check DeclarationErrors PreserveDecla
     assert PgDetail(response, 9) == "func BadOrdering(first: int = 1, second: int) {}|<null>|If the parameter is required by an interface or override, prefix with '_' to suppress this: '_second'|<null>"
     assert PgRow(response, 10) == "NL012|error|Parameter 'value' in 'BadDefault' is never read — is it needed?|Program.nl|24|17|5"
     assert PgDetail(response, 10) == "func BadDefault(value: int = makeValue()) {}|<null>|If the parameter is required by an interface or override, prefix with '_' to suppress this: '_value'|<null>"
-    assert PgRow(response, 11) == "NL410|error|The default value for 'value' must be something the compiler can evaluate — use a literal, null, or a simple constant|Program.nl|24|30|9"
+    assert PgRow(response, 11) == "NL410|error|The default value for 'value' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|Program.nl|24|30|9"
     assert PgDetail(response, 11) == "func BadDefault(value: int = makeValue()) {}|<null>|<null>|<null>"
     assert PgRow(response, 12) == "NL306|error|'value' is already declared in this scope — each name must be unique within the same scope|Program.nl|28|5|5"
     assert PgDetail(response, 12) == "    value := 2|<null>|<null>|<null>"
@@ -768,7 +768,7 @@ test "020 s37 playground diagnostic spans: Check DeclarationErrors PreserveDecla
     assert PgRow(other, 8) == "NL409|error|Required parameter 'second' can't come after optional parameters — move it before the optional ones, or give it a default value too|Program.tests.nl|22|34|6"
     assert PgRow(other, 9) == "NL012|error|Parameter 'second' in 'BadOrdering' is never read — is it needed?|Program.tests.nl|22|34|6"
     assert PgRow(other, 10) == "NL012|error|Parameter 'value' in 'BadDefault' is never read — is it needed?|Program.tests.nl|24|17|5"
-    assert PgRow(other, 11) == "NL410|error|The default value for 'value' must be something the compiler can evaluate — use a literal, null, or a simple constant|Program.tests.nl|24|30|9"
+    assert PgRow(other, 11) == "NL410|error|The default value for 'value' must be something the compiler can evaluate — use a literal, null, default, or a simple constant|Program.tests.nl|24|30|9"
     assert PgRow(other, 12) == "NL306|error|'value' is already declared in this scope — each name must be unique within the same scope|Program.tests.nl|28|5|5"
 }
 

@@ -205,10 +205,17 @@ class IdentityShapes {
     }
 }
 
+// A class's bare exported members are auto-properties, so its tuple names are on PROPERTY rows; a
+// struct's members are fields, so the same two members there are FIELD rows.
 class AttributeShapes {
     Pair: (Item: string, Count: int) = ("", 0)
     Unnamed: (string, int) = ("", 0)
     Bounds: (Min: int, Max: int) => (3, 9)
+}
+
+struct AttributeFieldShapes {
+    Pair: (Item: string, Count: int)
+    Unnamed: (string, int)
 }
 
 // One element of a `TupleElementNamesAttribute`, `-` for the null slot a positional element occupies,
@@ -266,7 +273,7 @@ func IdentityReturnType(name: string): Type {
 }
 
 func ShapeFieldType(name: string): Type {
-    found := typeof(AttributeShapes).GetField(name)
+    found := typeof(AttributeFieldShapes).GetField(name)
     if found == null {
         throw new InvalidOperationException("'" + name + "' was not found.")
     }
@@ -275,7 +282,7 @@ func ShapeFieldType(name: string): Type {
 }
 
 func FieldNameRow(name: string): string {
-    found := typeof(AttributeShapes).GetField(name)
+    found := typeof(AttributeFieldShapes).GetField(name)
     if found == null {
         throw new InvalidOperationException("'" + name + "' was not found.")
     }
@@ -346,6 +353,8 @@ test "a field's and a property's element names are written to metadata" {
     assert FieldNameRow("Pair") == "Item/Count"
     assert FieldNameRow("Unnamed") == "<none>"
     assert PropertyNameRow("Bounds") == "Min/Max"
+    assert PropertyNameRow("Pair") == "Item/Count"
+    assert PropertyNameRow("Unnamed") == "<none>"
 
     // And the field's CLR type is the bare ValueTuple, which is why the attribute is needed at all.
     assert ShapeFieldType("Pair") == typeof(ValueTuple<string, int>)

@@ -247,9 +247,11 @@ test "an N# assembly emits everything it did not export as CLR internal — type
     assert !unexported.IsPublic
     assert !unexported.IsPrivate
 
-    seed := ledger.GetField("Seed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+    // `Seed` is an exported bare member of a class, so an auto-property: its accessors are CLR public,
+    // and a grant exposes nothing extra at it.
+    seed := ledger.GetProperty("Seed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
     assert seed != null
-    assert seed.IsPublic, "N# emits fields as CLR public, so a grant exposes nothing extra at a field"
+    assert (must seed.GetGetMethod(true)).IsPublic, "an exported auto-property's accessors are CLR public"
 }
 
 // ── the attribute the project file asked for ──────────────────────────────────────────────────

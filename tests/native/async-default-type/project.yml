@@ -1,0 +1,23 @@
+name: NSharpLang.AsyncDefaultType.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# THE SETTING UNDER TEST. Every unannotated `async` body in this project's own source returns the
+# Task family; the compile half below builds fixture projects with either default.
+language:
+  asyncDefaultType: Task
+
+# The compiler assemblies drive `MultiFileCompiler` over the fixture projects, and the metadata
+# reader inspects what it emitted against the ASP.NET shared framework.
+dependencies:
+  - nuget: System.Reflection.MetadataLoadContext
+    version: 10.0.5
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Model.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Plan.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Emit.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.CodeIntel.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Tooling.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Driver.dll

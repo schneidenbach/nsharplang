@@ -19,16 +19,21 @@ test "a field initializer over primary-constructor parameters is an ordinary exp
     assert box.Area == 12
 }
 
+// A `readonly` member stays a FIELD, and an exported mutable one is an AUTO-PROPERTY whose storage is
+// an ordinary writable backing field — the initializer runs into that storage either way.
 test "a readonly instance field with an initializer is initonly in metadata" {
     scaleField := typeof(InstanceCensus).GetField("Scale", BindingFlags.Public | BindingFlags.Instance)
-    mutableField := typeof(InstanceCensus).GetField("Mutable", BindingFlags.Public | BindingFlags.Instance)
+    mutableProperty := typeof(InstanceCensus).GetProperty("Mutable", BindingFlags.Public | BindingFlags.Instance)
+    mutableStorage := typeof(InstanceCensus).GetField("<Mutable>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
     assert scaleField != null, "the readonly field Scale must be present"
-    assert mutableField != null, "the mutable field Mutable must be present"
+    assert typeof(InstanceCensus).GetField("Mutable", BindingFlags.Public | BindingFlags.Instance) == null, "the mutable member Mutable is a property, not a public field"
+    assert mutableProperty != null && mutableProperty.CanWrite, "the mutable member Mutable must be a settable property"
+    assert mutableStorage != null, "the auto-property Mutable must have its backing field"
     if scaleField != null {
         assert scaleField.get_IsInitOnly(), "a readonly instance field must be emitted initonly"
     }
-    if mutableField != null {
-        assert !mutableField.get_IsInitOnly(), "a mutable instance field must not be emitted initonly"
+    if mutableStorage != null {
+        assert !mutableStorage.get_IsInitOnly(), "an auto-property's backing field must not be emitted initonly"
     }
 }
 
@@ -65,13 +70,17 @@ test "an implicitly-defaulted nullable field reads the same as an explicit null 
     assert value.Absent == value.Explicit
 }
 
-test "an implicitly-defaulted nullable field is an ordinary instance field in metadata" {
-    absentField := typeof(NullableBesideWritten).GetField("Absent", BindingFlags.Public | BindingFlags.Instance)
-    presentField := typeof(NullableBesideWritten).GetField("Present", BindingFlags.Public | BindingFlags.Instance)
-    assert absentField != null, "the nullable field Absent must be present"
-    assert presentField != null, "the written-initializer field Present must be present"
-    if absentField != null {
-        assert !absentField.get_IsInitOnly(), "a mutable nullable field must not be emitted initonly"
-        assert absentField.get_FieldType() == typeof(string), "Absent must keep its declared reference type"
+test "an implicitly-defaulted nullable member is an ordinary auto-property in metadata" {
+    absentProperty := typeof(NullableBesideWritten).GetProperty("Absent", BindingFlags.Public | BindingFlags.Instance)
+    presentProperty := typeof(NullableBesideWritten).GetProperty("Present", BindingFlags.Public | BindingFlags.Instance)
+    absentStorage := typeof(NullableBesideWritten).GetField("<Absent>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
+    assert absentProperty != null, "the nullable member Absent must be a property"
+    assert presentProperty != null, "the written-initializer member Present must be a property"
+    assert absentStorage != null, "the auto-property Absent must have its backing field"
+    if absentStorage != null {
+        assert !absentStorage.get_IsInitOnly(), "a mutable nullable member's storage must not be emitted initonly"
+    }
+    if absentProperty != null {
+        assert absentProperty.get_PropertyType() == typeof(string), "Absent must keep its declared reference type"
     }
 }

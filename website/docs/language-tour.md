@@ -240,6 +240,23 @@ abstract class Rounded: Shape {
 Source order does not matter: a subclass may be written above its base in the same file, or in a
 different file of the same project.
 
+A value member takes the same three words when it is an auto-property — an exported bare member of a
+class. `virtual Label: string` is C#'s `public virtual string Label { get; set; }`, the shape EF Core's
+lazy-loading proxies override, and every access to it dispatches, including the declaring class's own:
+
+```n#
+class Gauge {
+    virtual Label: string = "gauge"
+    func Describe(): string => "[" + Label + "]"
+}
+
+class LoudGauge: Gauge {
+    override Label: string = "LOUD"     // new LoudGauge().Describe() is "[LOUD]"
+}
+```
+
+See [`virtual`, `abstract` and `override` auto-properties](./types.md#virtual-abstract-and-override-auto-properties).
+
 Generic classes take part in all of this. A generic class may derive from a non-generic base, a generic
 class may close a generic base over a concrete type, and a generic class may pass its own type parameter
 through to a generic base:
@@ -609,7 +626,7 @@ interface IDocumentState {
 }
 
 class DocumentState: IDocumentState {
-    Uri: string          // a field — and the reader the slot needs is synthesized over it
+    Uri: string          // an auto-property: its getter fills the slot
     touches: int
 
     constructor(uri: string) {
@@ -629,8 +646,8 @@ func describe(state: IDocumentState): string {
 ```
 
 **Either spelling fills the slot.** A class writes its value members bare, so the commonest filler is
-a plain field of that name; an accessor block works just as well, and the caller cannot tell them
-apart:
+the auto-property a bare `Uri: string` declares; an accessor block works just as well, and the caller
+cannot tell them apart:
 
 ```n#
 class ComputedState: IDocumentState {
@@ -657,7 +674,8 @@ taken.
 
 **The slot is get-only, on purpose.** N# has no body-less accessor to write, so a bare
 `Name: Type` is the only spelling an interface has for a value member — and a read slot is one that
-*everything* can fill, a plain field and a computed get-only property alike. A slot that also
+*everything* can fill: a bare member (an auto-property in a class, a field in a struct) and a computed
+get-only property alike. A slot that also
 demanded a setter would refuse implementers that every reader of the interface is satisfied by. Write
 a `func` when an interface needs to hand the caller a way to change the value.
 
@@ -1502,6 +1520,12 @@ a `long` parameter.
 A generic method infers its type argument from the by-ref position like any other:
 `Interlocked.Exchange(ref remove, null)` binds `T` to the field's own type, and the `null` — which
 carries no type of its own — converts to it.
+
+**A property is not storage.** In a class or record, an exported bare member (`Count: int`) is an
+auto-property, not a field — see [Fields and properties](types.md#fields-and-properties) — so
+`ref Count` and `Interlocked.Increment(ref holder.Count)` are refused with a sentence that names the
+member as a property. Keep state that callers take the address of in a camelCase or `private`
+member, as `Counter` does above, or in a `static` one.
 
 **Not yet supported:** a `ref` argument that names a `static` field, or a composed target such as an
 array element or a nested member chain. Copy to a local, pass `ref` to that, and write it back.
@@ -3535,8 +3559,9 @@ internalsVisibleTo:
 
 Each entry becomes an `[assembly: InternalsVisibleTo("…")]` row on the assembly you build. What a
 grant admits out of an N# library is everything the library did not export — its **camelCase types**,
-functions and methods, which are the ones emitted as CLR `internal`. (Fields are still emitted
-`public`, so a grant exposes nothing extra at a field.) See
+functions and methods, which are the ones emitted as CLR `internal`. (A field is still emitted
+`public`, so a grant exposes nothing extra at one; an auto-property's accessors take the member's
+own visibility.) See
 [Reaching a reference's internals](types.md#reaching-a-references-internals) in the types guide for
 the full table.
 

@@ -251,6 +251,50 @@ message1 := greet("Alice")              // "Hello, Alice!"
 message2 := greet("Bob", "Hi")          // "Hi, Bob!"
 ```
 
+A default is a **constant**: it is stored in the parameter's metadata and copied into every call
+that leaves the argument out, exactly as C# does it. Any constant of the parameter's type works —
+every integral, floating, `char`, `bool`, `string` and `decimal` literal (signed or not), `null` for a
+reference or nullable parameter, and `default` for the type's zero value:
+
+```n#
+import System
+
+func page(size: byte = 50, offset: long = 0, cursor: string? = null): string {
+    from := cursor ?? "start"
+    return $"{from}:{size}@{offset}"
+}
+
+func pad(text: string, fill: char = ' ', width: int = -1): string {
+    return width < 0 ? text : text.PadLeft(width, fill)
+}
+
+func price(amount: decimal, rate: decimal = 0.2m): decimal {
+    return amount * (1m + rate)
+}
+
+func shifted(start: DateTime = default, days: int? = null): DateTime {
+    return start.AddDays(days ?? 0)
+}
+
+func main() {
+    print page()                 // start:50@0
+    print pad("7", width: 3)     // "  7"
+    print price(10m)             // 12.0
+    print shifted().Year         // 1
+}
+```
+
+A literal follows the same rule as any other assignment, so `size: byte = 50` is a `byte` and
+`size: byte = 300` is a type mismatch ([NL202](./errors/NL202.md)) on the default; so are
+`n: int = null` (write `n: int? = null`, or `= default` for `0`) and `ratio: float = 2.5` (write
+`2.5f`). The literal `0` is also every enum's zero (`flags: Options = 0`). A value read at run time
+— `DateTime.MinValue`, `TimeSpan.Zero`, a call — is not a constant and is
+[NL410](./errors/NL410.md); `= default` is the constant spelling of a struct's zero value.
+
+C# and every other .NET consumer see these defaults: each one is written as the `Constant` row C#
+writes for it (`[Optional]` plus `[DecimalConstant]` for a `decimal`), so a C# caller can omit the
+argument too.
+
 Enum members are compile-time constructor defaults too. The enum owner is bound
 where the constructor is declared, so imports at a call site cannot change it.
 
@@ -1363,15 +1407,90 @@ wants a task is [`NL335`](./errors/NL335.md).
 
 ### Implicit Task Wrapping
 
-N# automatically wraps return values in Task<T>:
+An `async func` declares the type its `return` statements produce, and N# wraps it in a task.
+By default that task is `ValueTask`:
 
 ```n#
 async func getUser(id: int): User {
-    // Compiler wraps User in Task<User>
+    // The call returns ValueTask<User>; a function with no return type returns ValueTask
     user := await database.FindAsync(id)
     return user
 }
 ```
+
+The wrapper is chosen in this order:
+
+1. **A written task type is kept exactly as written.** `async func load(): Task<User>` returns
+   `Task<User>`, and `: ValueTask` returns `ValueTask`, whatever the project default is.
+2. **`main` returns `Task`** (or `Task<int>`), because that is the shape of a .NET async entry
+   point.
+3. **An `override`, or an implementation of an interface member, takes the task of the member it
+   fills.** .NET matches these by their exact return type, so N# reads it from the base class or
+   interface — whether that member comes from a NuGet package, the BCL or your own source:
+
+   ```n#
+   import Microsoft.Extensions.Hosting
+
+   class Ticker: BackgroundService {
+       // BackgroundService.ExecuteAsync returns Task, so this returns Task
+       override async func ExecuteAsync(stoppingToken: CancellationToken) {
+           while !stoppingToken.IsCancellationRequested {
+               await Task.Delay(1000, stoppingToken)
+           }
+       }
+   }
+
+   class Lease: IAsyncDisposable {
+       // IAsyncDisposable.DisposeAsync returns ValueTask, so this returns ValueTask
+       async func DisposeAsync() {
+           await releaseAsync()
+       }
+   }
+   ```
+
+   The member is found by name and parameter count. If a base declares several same-count
+   overloads that disagree about the task, or the member you meant to override is not found, the
+   project default applies; write the return type to say which one you mean. Writing the *other*
+   family is an error ([`NL202`](./errors/NL202.md)) that names the member and the task it returns.
+4. **Everything else uses the project's `language.asyncDefaultType`**, which is `ValueTask` unless
+   `project.yml` says otherwise:
+
+   ```yaml
+   language:
+     asyncDefaultType: Task   # or ValueTask, the default
+   ```
+
+An N# `async func` has finished by the time it returns, because `await` is lowered synchronously.
+A `ValueTask` is therefore built straight from the result and the call allocates nothing, while a
+`Task<T>` costs one task object per call. The trade is that a `ValueTask` may be awaited only once:
+choose `Task` for a project whose async members are awaited more than once, stored, or handed to
+APIs that expect `Task`. There is no setting for pooled `ValueTask` builders, since a function that
+never suspends keeps no state to pool; a `language.pooledAsync` key in `project.yml` is reported as
+a configuration error.
+
+**APIs that find a method by name need the setting, not inference.** ASP.NET Core middleware is
+duck-typed: the framework looks up `Invoke`/`InvokeAsync` by name at startup and requires it to
+return `Task`. There is no base member for N# to read, so under the `ValueTask` default the app
+fails at startup with `'Invoke' or 'InvokeAsync' does not return an object of type 'Task'`. Set
+`asyncDefaultType: Task` (the simplest fix for a web project) or annotate the method:
+
+```n#
+class RequestStamp {
+    next: RequestDelegate
+
+    constructor(next: RequestDelegate) {
+        this.next = next
+    }
+
+    async func InvokeAsync(context: HttpContext): Task {
+        context.Response.Headers["X-Stamp"] = "1"
+        await next(context)
+    }
+}
+```
+
+The same applies to any framework that discovers a method by name and requires it to return
+`Task`: when nothing declares the member's type, the project default decides it.
 
 ### Async LINQ
 
@@ -2396,6 +2515,23 @@ Explicit type arguments SKIP inference: a candidate whose own type-parameter cou
 number you wrote is not a candidate at all, so writing too many or too few reports "no such method"
 rather than closing the wrong one. The receiver may be a value type (`JsonElement` above) — an
 extension's receiver is its first argument, so the struct's value is passed, never its address.
+
+A written type argument closes a `params` tail too, so the ASP.NET registrations that pair one with
+a type argument work as they do in C#. Arguments after the fixed parameters are packed into the
+array, none at all is an empty array, and defaulted parameters before the tail may be left out:
+
+```n#
+import Microsoft.AspNetCore.Builder
+
+// RequestTimer and Tagger are middleware classes; Todo is the response type.
+func configure(app: WebApplication) {
+    app.UseMiddleware<RequestTimer>()                 // params object?[] args — empty
+    app.UseMiddleware<Tagger>("blue", 7)              // both reach Tagger's constructor
+    route := app.MapGet("/todo", () => "todo")
+    route.Produces<Todo>()                            // statusCode = 200, contentType = null
+    route.Produces<Todo>(201, "text/plain", "application/xml")
+}
+```
 
 ### Extensions over a type parameter
 

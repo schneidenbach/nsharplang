@@ -15,12 +15,13 @@ class ColumnarStructFieldColumns {
     // the same storage; what the bit adds is the pair of accessors and the `EventInfo` row beside it,
     // and private storage whatever the event's own visibility says.
     FieldEventFlags: bool[]
-    // The three inheritance words as written, one entry per row. They are acted on only by an EVENT
-    // row, whose accessors are methods and therefore have slots; a plain field carrying one is NL311
-    // long before emission.
+    // The inheritance words as written, one entry per row. They are acted on by an EVENT row and an
+    // AUTO-PROPERTY row, whose accessors are methods and therefore have slots; a plain field carrying
+    // one is NL311 long before emission. `sealed` matters only beside `override`.
     FieldVirtualFlags: bool[]
     FieldAbstractFlags: bool[]
     FieldOverrideFlags: bool[]
+    FieldSealedFlags: bool[]
     // `required` and `init` as written on each row. A `required` row stays a field and carries the
     // metadata that makes an object initializer's omission a diagnostic; an `init` row is an
     // init-only auto-property whose storage is a private compiler-generated field.
@@ -45,7 +46,8 @@ class ColumnarStructFieldColumns {
         fieldRequiredFlags: bool[],
         fieldInitOnlyFlags: bool[],
         fieldInitKinds: int[],
-        fieldInitTexts: string[]
+        fieldInitTexts: string[],
+        fieldSealedFlags: bool[]
     ) {
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -63,6 +65,7 @@ class ColumnarStructFieldColumns {
         FieldInitOnlyFlags = fieldInitOnlyFlags
         FieldInitKinds = fieldInitKinds
         FieldInitTexts = fieldInitTexts
+        FieldSealedFlags = fieldSealedFlags
     }
 
     static func Build(
@@ -89,6 +92,7 @@ class ColumnarStructFieldColumns {
         fieldOverrideFlags := new bool[](count)
         fieldRequiredFlags := new bool[](count)
         fieldInitOnlyFlags := new bool[](count)
+        fieldSealedFlags := new bool[](count)
 
         fieldIndex := 0
         while fieldIndex < count {
@@ -116,6 +120,7 @@ class ColumnarStructFieldColumns {
             fieldOverrideFlags[fieldIndex] = ColumnarStructFieldFlagIsOverride(fieldModifierFlags)
             fieldRequiredFlags[fieldIndex] = ColumnarStructFieldFlagIsRequired(fieldModifierFlags)
             fieldInitOnlyFlags[fieldIndex] = ColumnarStructFieldFlagIsInitOnly(fieldModifierFlags)
+            fieldSealedFlags[fieldIndex] = ColumnarStructFieldFlagIsSealed(fieldModifierFlags)
             fieldIndex = fieldIndex + 1
         }
 
@@ -135,7 +140,8 @@ class ColumnarStructFieldColumns {
             fieldRequiredFlags,
             fieldInitOnlyFlags,
             fieldInitKinds,
-            fieldInitTexts
+            fieldInitTexts,
+            fieldSealedFlags
         )
     }
 }

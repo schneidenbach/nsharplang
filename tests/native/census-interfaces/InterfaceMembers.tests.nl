@@ -125,17 +125,33 @@ test "an interface's value member is a READ slot — it declares no setter" {
     assert property.GetSetMethod() == null
 }
 
-test "the bare-field implementer fills the slot with a virtual, final reader over its own field" {
+// A CLASS'S BARE `Uri: string` IS AN AUTO-PROPERTY (`MemberStorageRules`), and its own getter fills
+// the slot: virtual and final, as C#'s implicit implementation of `string Uri { get; }` by
+// `public string Uri { get; set; }` is. The setter is the class's own and stays non-virtual.
+test "the bare-member implementer is an auto-property whose getter fills the slot" {
     implementer := typeof(DocumentState)
+
+    property := must implementer.GetProperty("Uri", DeclaredFlags())
+    getter := must property.GetGetMethod(true)
+    assert getter.get_IsVirtual()
+    assert getter.get_IsFinal()
+    assert !getter.get_IsAbstract()
+    assert getter.get_ReturnType() == typeof(string)
+    setter := must property.GetSetMethod(true)
+    assert !setter.get_IsVirtual()
+    assert implementer.GetField("Uri", DeclaredFlags()) == null
+}
+
+// A STRUCT'S BARE `Uri: string` IS STILL A FIELD, so the reader the slot needs is synthesized over
+// it, and no `PropertyInfo` row is added — a second row of the same name would make `Uri` ambiguous.
+test "the bare-field struct implementer fills the slot with a virtual, final reader over its own field" {
+    implementer := typeof(PointState)
 
     getter := must implementer.GetMethod("get_Uri", DeclaredFlags())
     assert getter.get_IsVirtual()
     assert getter.get_IsFinal()
     assert !getter.get_IsAbstract()
     assert getter.get_ReturnType() == typeof(string)
-
-    // THE CLASS'S OWN `Uri` IS STILL A FIELD — that is what its source says, and a second
-    // `PropertyInfo` row of the same name would make the name ambiguous to every other language.
     assert implementer.GetField("Uri", DeclaredFlags()) != null
     assert implementer.GetProperty("Uri", DeclaredFlags()) == null
 }

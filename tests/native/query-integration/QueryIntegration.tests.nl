@@ -2170,7 +2170,7 @@ test "IDE D2: a project-declared member still hovers to its declaration and carr
 
     // THE NON-REGRESSION. A source receiver has no CLR type, so the reflected route declines and the
     // declaration route answers exactly as it always did — with a file and no declaring type.
-    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "field Label: string|field|"
+    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "property Label: string|property|"
 
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
@@ -2317,7 +2317,7 @@ test "chip B: a project-declared member's documentation is unchanged, and a memb
 
     // AND THE SIGNATURE IS STILL THERE. A documentation lookup that finds nothing must subtract
     // nothing — the feature can only ever add a line.
-    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "field Label: string|field|"
+    assert D2HoverSignature(snapshot, "label := reading.Label", "Label") == "property Label: string|property|"
 
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
@@ -2499,7 +2499,7 @@ test "IDE D1: a member inside an interpolated-string hole hovers to its DECLARED
 
     // Every member in a hole used to report `string` — the type of the enclosing interpolated
     // string, which was the only node the visitor could reach on that line.
-    assert QueryText(hover, "Signature") == "field Value: int"
+    assert QueryText(hover, "Signature") == "property Value: int"
 
     QueryDeleteTemp(projectRoot)
 }
@@ -2776,14 +2776,14 @@ test "EDITOR PROJECTIONS: source member hover and completion preserve required i
     valueDeclarationLine := FindLineInFile(programPath, "required init Value")
     valueDeclarationColumn := FindColumnInFile(programPath, valueDeclarationLine, "Value")
     valueDeclarationHover := EditorProjectionHover(snapshot, valueDeclarationLine, valueDeclarationColumn)
-    assert QueryText(valueDeclarationHover, "Signature") == "field required init Value: T"
-    assert QueryText(valueDeclarationHover, "Kind") == "field"
+    assert QueryText(valueDeclarationHover, "Signature") == "property required init Value: T"
+    assert QueryText(valueDeclarationHover, "Kind") == "property"
 
     valueUseLine := FindLineInFile(programPath, "return box.Value")
     valueUseColumn := FindColumnInFile(programPath, valueUseLine, "Value")
     valueUseHover := EditorProjectionHover(snapshot, valueUseLine, valueUseColumn)
-    assert QueryText(valueUseHover, "Signature") == "field required init Value: string"
-    assert QueryText(valueUseHover, "Kind") == "field"
+    assert QueryText(valueUseHover, "Signature") == "property required init Value: string"
+    assert QueryText(valueUseHover, "Kind") == "property"
 
     valueDefinition := QueryFindDefinition(snapshot, "Program.nl", valueUseLine, valueUseColumn)
     if valueDefinition == null {
@@ -2803,7 +2803,7 @@ test "EDITOR PROJECTIONS: source member hover and completion preserve required i
     plainUseLine := FindLineInFile(programPath, "return box.Plain")
     plainUseColumn := FindColumnInFile(programPath, plainUseLine, "Plain")
     plainUseHover := EditorProjectionHover(snapshot, plainUseLine, plainUseColumn)
-    assert QueryText(plainUseHover, "Signature") == "field required init Plain: int"
+    assert QueryText(plainUseHover, "Signature") == "property required init Plain: int"
     plainCompletions := QueryGetCompletions(snapshot, "Program.nl", plainUseLine, plainUseColumn, false)
     plainCompletion := QueryCompletionItemNamed(plainCompletions, "properties", "Plain")
     if plainCompletion == null {
@@ -2843,14 +2843,14 @@ test "EDITOR PROJECTIONS: exact declaration spans keep same-line sibling and nes
     siblingLine := FindLineInFile(programPath, "class First { required init Name")
     firstNameColumn := FindColumnInFileAt(programPath, siblingLine, "Name", 1)
     secondNameColumn := FindColumnInFileAt(programPath, siblingLine, "Name", 2)
-    assert QueryText(EditorProjectionHover(snapshot, siblingLine, firstNameColumn), "Signature") == "field required init Name: string"
-    assert QueryText(EditorProjectionHover(snapshot, siblingLine, secondNameColumn), "Signature") == "field Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, siblingLine, firstNameColumn), "Signature") == "property required init Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, siblingLine, secondNameColumn), "Signature") == "property Name: string"
 
     nestedLine := FindLineInFile(programPath, "class Outer { class InnerFirst")
     innerFirstNameColumn := FindColumnInFileAt(programPath, nestedLine, "Name", 1)
     innerSecondNameColumn := FindColumnInFileAt(programPath, nestedLine, "Name", 2)
-    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerFirstNameColumn), "Signature") == "field required init Name: string"
-    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerSecondNameColumn), "Signature") == "field Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerFirstNameColumn), "Signature") == "property required init Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerSecondNameColumn), "Signature") == "property Name: string"
 
     QueryDeleteTemp(projectRoot)
 }
@@ -2910,4 +2910,67 @@ test "EDITOR PROJECTIONS: typed and contextual lambda parameters project their b
     assert QueryDefinitionReferenceCount(contextualReferences) == 1
 
     QueryDeleteTemp(projectRoot)
+}
+
+// AN ANONYMOUS OBJECT'S PROPERTIES ARE SYMBOLS LIKE ANY OTHER. The name written in `new { Name: ... }`
+// is the property's declaration: hovering a read of it says `property Name: string`, hovering the
+// declaring name says the same, go-to-definition lands on the declaring name, find-references
+// gathers the declaration and every read, and the local's own type prints as the shape it holds.
+test "anonymous object properties hover, define and gather references like declared ones" {
+    projectRoot := QueryTempRoot()
+    try {
+        QueryWriteProjectYaml(
+            projectRoot,
+            "name: Anonymous\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: App.nl\n"
+        )
+        QueryWriteSource(
+            projectRoot,
+            "App.nl",
+            "namespace Anonymous\n\nfunc main() {\n    person := new { Name: \"Alice\", Age: 30 }\n    print person.Name\n    print person.Age + person.Name.Length\n}\n"
+        )
+
+        snapshot := QueryLoadProject(projectRoot)
+
+        localHover := QueryGetHoverInfo(snapshot, "App.nl", 4, 5)
+        readHover := QueryGetHoverInfo(snapshot, "App.nl", 5, 18)
+        declarationHover := QueryGetHoverInfo(snapshot, "App.nl", 4, 36)
+        if localHover == null || readHover == null || declarationHover == null {
+            throw new InvalidOperationException("The production hover query answered nothing for an anonymous object.")
+        }
+
+        assert QueryText(localHover, "Signature") == "local person: new { Name: string, Age: int }"
+        assert QueryText(readHover, "Kind") == "property"
+        assert QueryText(readHover, "Signature") == "property Name: string"
+        assert QueryText(declarationHover, "Signature") == "property Age: int"
+
+        definition := QueryFindDefinition(snapshot, "App.nl", 6, 31)
+        if definition == null {
+            throw new InvalidOperationException("The production definition query answered nothing for an anonymous property.")
+        }
+
+        assert QueryText(definition, "Name") == "Name"
+        assert QueryText(definition, "Kind") == "property"
+        assert QueryInt(definition, "Line") == 4
+        assert QueryInt(definition, "Column") == 21
+
+        references := QueryFindReferences(snapshot, "App.nl", 4, 21)
+        positions := new List<string>()
+        index := 0
+        while index < references.Count {
+            item := references[index]
+            if item != null {
+                position := QueryText(item, "Line") + ":" + QueryText(item, "Column")
+                if !positions.Contains(position) {
+                    positions.Add(position)
+                }
+            }
+            index = index + 1
+        }
+
+        positions.Sort(StringComparer.Ordinal)
+        assert string.Join(",", positions) == "4:21,5:18,6:31"
+        assert QueryDefinitionReferenceCount(references) == 1
+    } finally {
+        QueryDeleteTemp(projectRoot)
+    }
 }

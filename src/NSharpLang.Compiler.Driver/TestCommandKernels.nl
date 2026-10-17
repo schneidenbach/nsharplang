@@ -177,6 +177,34 @@ class TestCommandKernels {
         return Path.Combine(assemblyDirectory, (assemblyName ?? "") + ".dll")
     }
 
+    // WHERE A TEST RUN FINDS AN ASSEMBLY ITS LOAD CONTEXT CANNOT BIND ON ITS OWN. The test output
+    // directory first -- the emitted assembly and the package closure the build copied beside it --
+    // then each shared-framework directory the project's `framework:` references resolved to
+    // (`CompilationReferenceResolver.ResolveFrameworkReferenceDirectories`). The build never copies a
+    // framework, so without the second half a web project's test that touched `BackgroundService`
+    // died loading `Microsoft.Extensions.Hosting.Abstractions`: `nlc run` gets the framework from
+    // the host's runtimeconfig, but `nlc test` runs the tests inside the CLI's own process, whose
+    // host only ever bound `Microsoft.NETCore.App`.
+    static func FindAssemblyCandidatePath(assemblyDirectory: string, frameworkDirectories: IReadOnlyList<string>, assemblyName: string?): string? {
+        if string.IsNullOrEmpty(assemblyName) {
+            return null
+        }
+
+        outputCandidate := GetAssemblyCandidatePath(assemblyDirectory, assemblyName)
+        if File.Exists(outputCandidate) {
+            return outputCandidate
+        }
+
+        for frameworkDirectory in frameworkDirectories {
+            frameworkCandidate := GetAssemblyCandidatePath(frameworkDirectory, assemblyName)
+            if File.Exists(frameworkCandidate) {
+                return frameworkCandidate
+            }
+        }
+
+        return null
+    }
+
     static func ShouldRunNUnit(testFramework: string?): bool {
         return string.Equals(testFramework ?? "", "nunit", StringComparison.OrdinalIgnoreCase)
     }

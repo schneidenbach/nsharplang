@@ -1081,6 +1081,14 @@ runtime assets remain verifier references rather than being mistaken for N#
 outputs. Standalone `scripts/ilverify.sh` and CI build the product surface and
 selected native regression assemblies themselves before verification.
 
+`scripts/ilverify.sh` resolves the verifier as `NSHARP_ILVERIFY` (an explicit
+executable path; anything else is a hard error), then `ilverify` on PATH, then
+`~/.dotnet/tools/ilverify`, and exits 2 with install instructions when none
+exists. Because the full gate runs with HOME swapped for an isolated run home,
+`tests/scripts/test-all.sh` resolves the invoking user's tool the same way
+before the swap and hands it in as `NSHARP_ILVERIFY`, so a global tool that is
+installed but off PATH still runs in Step 10b.
+
 ### 7a. The Slice Edit -> Test Cycle
 The completed Compiler.Core split makes one slice's edit -> test cycle fast. The measurement is
 `./scripts/dev.sh --estate <Rows>` after a warm run: a one-line body edit (a comment inside the first
@@ -1183,7 +1191,9 @@ A decrease must be reviewed and ratcheted; an increase is a regression to fix. (
 the Core build's closure is not a regression: `speed/agent-loop-2` added `SharedReferenceMetadata.nl`
 to Model and moved Core's files parsed/emit-parsed/analysed 468/278/278 -> 469/279/279 in the same
 commit that took its reference images 479 -> 129 and the Core-scale emit's 141 -> 36. The batch-3
-integration run measured the current Core counters at 471/280/280; that observed value is now the
+integration run measured the current Core counters at 471/280/280; issue #199 then added
+`AsyncTaskFamily.nl` (Model), `AnalyzerAsyncReturnFamily.nl` (Core) and
+`ColumnarAsyncWrapperSelection.nl` (Plan) to the closure, moving them to 474/282/282, which is the
 checked-in structural baseline.
 
 **Exact structural behavior is always gated; timing runs only when product inputs changed.** Both
@@ -1263,6 +1273,9 @@ plus six opens for each of 1,704 resolved reference images). These are historica
 before installed framework/reference-pack paths were excluded. Wall time is now record-only: this
 correctness test has no absolute timing budget. The reference-image maximum remains dependency-derived
 from the discovered member inventory and resolved reference closure; the contract verifies it on every run.
+`tests/native/aspnetcore-hosted-services` (2026-10-16, `nlc test` binding a project's shared
+frameworks) moves the compile-time corpus to 198 and the repository-root census to 236 member roots
+and 2,019 checked files.
 
 The September 2026 absolute wall/RSS baselines remain historical measurements only; their machine,
 load and phase context is retained in the measurement verdicts. They are no longer a pass/fail

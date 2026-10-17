@@ -85,6 +85,10 @@ class ConstructionState {
     PendingMemberType: TypeInfo?
     PendingElementType: TypeInfo?
     PendingTargetKind: string
+    // `new { Name: value, ... }`: the walk collects one property per entry and the result is the
+    // anonymous type those properties describe, built once the last value has answered.
+    IsAnonymousObject: bool
+    AnonymousProperties: List<AnonymousObjectPropertyInfo>
 
     constructor(newExpression: NewExpression?, withExpression: WithExpression?) {
         newValue = newExpression
@@ -108,6 +112,8 @@ class ConstructionState {
         PendingMemberType = null
         PendingElementType = null
         PendingTargetKind = "array"
+        IsAnonymousObject = false
+        AnonymousProperties = new List<AnonymousObjectPropertyInfo>()
     }
 }
 
@@ -309,18 +315,25 @@ class AnalyzerConstruction {
     // THE `new` HEAD: WHAT TYPE IS BEING CONSTRUCTED.
     // ------------------------------------------------------------------------------------------
 
-    // A target-typed `new` adopts the ambient expected type and is refused when there is none —
-    // except for an anonymous object, which the backend synthesizes from its initializer and which is
-    // therefore intentionally allowed to have no target at all.
+    // A target-typed `new` adopts the ambient expected type and is refused when there is none.
+    //
+    // AN ANONYMOUS OBJECT IS NEVER TARGET-TYPED. `new { Name: value }` always creates the anonymous
+    // type its entries describe, whatever slot it is written into — which is what the backend builds
+    // and what C# means by the same braces. A slot that wants a declared type gets the ordinary NL202
+    // against that anonymous type, with the spelling that names the type in the hint.
     func ResolveConstructedType(state: ConstructionState, node: NewExpression) {
         state.UnionCaseName = null
+        if IsAnonymousObjectCreation(node) {
+            state.IsAnonymousObject = true
+            state.ConstructedType = BuiltInTypes.Unknown
+            state.ResultType = BuiltInTypes.Unknown
+            return
+        }
+
         if node.Type == null {
             expected := ambientValue.CurrentExpectedType
             if expected == null {
-                if !IsAnonymousObjectCreation(node) {
-                    ReportCannotInferTargetTypedNew(node)
-                }
-
+                ReportCannotInferTargetTypedNew(node)
                 state.ConstructedType = BuiltInTypes.Unknown
             } else {
                 state.ConstructedType = expected
@@ -1235,10 +1248,10 @@ class AnalyzerConstruction {
         return unionType
     }
 
-    // AN ANONYMOUS OBJECT IS A TYPELESS `new` WHOSE ENTRIES ARE ALL NAMED. It is the one shape that
-    // needs no target, because the backend synthesizes the concrete shape from the initializer.
+    // AN ANONYMOUS OBJECT IS A TYPELESS `new` WITH NO ARGUMENT LIST WHOSE ENTRIES ARE ALL NAMED —
+    // `new { Name: value }`. `new() { Name: value }` writes the parentheses and is target-typed.
     static func IsAnonymousObjectCreation(node: NewExpression): bool {
-        if node.Type != null || node.ConstructorArguments.Count != 0 || node.Initializer == null {
+        if node.Type != null || node.HasArgumentList || node.ConstructorArguments.Count != 0 || node.Initializer == null {
             return false
         }
 
@@ -1483,6 +1496,10 @@ class AnalyzerConstruction {
 
         properties := node.Initializer.Properties
         if state.PropIndex >= properties.Count {
+            if state.IsAnonymousObject {
+                state.ResultType = new AnonymousObjectTypeInfo(state.AnonymousProperties, diagnosticsValue.CurrentFilePath, node.Line, node.Column)
+            }
+
             state.Phase = 99
             return null
         }
@@ -1526,6 +1543,14 @@ class AnalyzerConstruction {
         state.PendingMemberType = null
         state.PendingElementType = null
         state.PendingTargetKind = "array"
+
+        // AN ANONYMOUS PROPERTY'S VALUE HAS NO TARGET. Its type is whatever the value produces, so the
+        // slot the whole `new` was written into must not leak into it: `x: Person = new { P: new() }`
+        // gives the inner `new()` nothing to adopt.
+        if state.IsAnonymousObject {
+            state.SavedExpectedType = ambientValue.EnterExpectedType(null)
+            return new ConstructionRequest(1, property.Value, null)
+        }
 
         constructedType := state.ConstructedType
         if property.Name == null || property.IndexExpression != null {
@@ -1585,6 +1610,11 @@ class AnalyzerConstruction {
         state.PropertyStarted = false
         state.Phase = 0
 
+        if state.IsAnonymousObject {
+            AnonymousPropertyAnswered(state, property, valueType)
+            return
+        }
+
         if property.Name == null || property.IndexExpression != null {
             ElementEntryAnswered(state, property, valueType)
             return
@@ -1607,6 +1637,84 @@ class AnalyzerConstruction {
         }
 
         ReportInitializerMemberMismatch(property, memberType, valueType)
+    }
+
+    // ONE ANONYMOUS PROPERTY HAS ANSWERED. Its type is the value's own, so a value that HAS no type of
+    // its own — `null`, a lambda, a bare method name, a call that returns nothing — cannot be a
+    // property (C# CS0828), and a name written twice cannot name two (CS0833). Both are reported here,
+    // because the backend has no way to build either.
+    func AnonymousPropertyAnswered(state: ConstructionState, property: PropertyInitializer, valueType: TypeInfo) {
+        name := property.Name ?? ""
+        nameLine := property.Value.Line
+        nameColumn := property.Value.Column
+        if property.NameLine > 0 {
+            nameLine = property.NameLine
+            nameColumn = property.NameColumn
+        }
+
+        soaEscapeValue.ReportSoaRowEscapeIfNeeded(property.Value, valueType, "stored in an anonymous object")
+        soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(property.Value, "stored in an anonymous object")
+
+        for existing in state.AnonymousProperties {
+            if existing.Name == name {
+                diagnosticsValue.Report(ErrorCode.DuplicateDeclaration, "This anonymous object already has a property named '" + name + "'", nameLine, nameColumn, "Give each property its own name, for example '" + name + "2: ...'.", name.Length)
+                return
+            }
+        }
+
+        propertyType := valueType
+        untypedValue := AnonymousPropertyUntypedValueDescription(property.Value, valueType)
+        if untypedValue != null {
+            span := spansValue.GetExpressionDiagnosticSpan(property.Value)
+            diagnosticsValue.Report(ErrorCode.CannotInferType, "I can't figure out the type of anonymous-object property '" + name + "' from " + untypedValue + " — an anonymous property takes its type from its value", span.Line, span.Column, AnonymousPropertyUntypedValueHint(untypedValue, name), span.Length)
+            propertyType = BuiltInTypes.Unknown
+        }
+
+        state.AnonymousProperties.Add(new AnonymousObjectPropertyInfo(name, propertyType, nameLine, nameColumn))
+        memberAccessValue.RecordAnonymousPropertyDeclaration(name, nameLine, nameColumn, propertyType)
+    }
+
+    // What a value with no type of its own IS, in the words the diagnostic uses, or null for a value
+    // that has a type. An already-unknown value reported its own error upstream and is left alone.
+    static func AnonymousPropertyUntypedValueDescription(value: Expression, valueType: TypeInfo): string? {
+        if value as LambdaExpression != null {
+            return "a lambda"
+        }
+
+        if BuiltInTypes.Is(valueType, BuiltInTypes.Null) {
+            return "'null'"
+        }
+
+        if BuiltInTypes.Is(valueType, BuiltInTypes.Void) {
+            return "a call that returns nothing"
+        }
+
+        if BuiltInTypes.Is(valueType, BuiltInTypes.Never) {
+            return "an expression that never produces a value"
+        }
+
+        if valueType as NSharpMethodGroupInfo != null || AnalyzerCallableReferenceFacts.IsMethodGroupReferenceType(valueType) {
+            return "a method name"
+        }
+
+        function := valueType as FunctionTypeInfo
+        if function != null && AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(function) {
+            return "a method name"
+        }
+
+        return null
+    }
+
+    static func AnonymousPropertyUntypedValueHint(untypedValue: string, name: string): string {
+        if untypedValue == "'null'" {
+            return "Give the value a type first, for example 'missing: string? = null', then write '" + name + ": missing'."
+        }
+
+        if untypedValue == "a lambda" || untypedValue == "a method name" {
+            return "Store it in a typed local first, for example 'handler: Func<int, int> = ...', then write '" + name + ": handler'."
+        }
+
+        return "Write a value that produces a result, or leave the property out."
     }
 
     // AN UNNAMED OR INDEXED ENTRY IS A COLLECTION/ARRAY ELEMENT, not a member write, so it is held to
@@ -1761,7 +1869,10 @@ class AnalyzerConstruction {
                 nameColumn = property.NameColumn
             }
 
-            if !ReportSoaTableNamedInitializerIfNeeded(targetType, property.Name, nameLine, nameColumn) {
+            anonymousTarget := declarationContextValue.ResolveDeclaredAlias(NonNullableType(targetType)) as AnonymousObjectTypeInfo
+            if anonymousTarget != null {
+                state.PendingMemberType = ResolveAnonymousWithPropertyType(state, anonymousTarget, property, nameLine, nameColumn)
+            } else if !ReportSoaTableNamedInitializerIfNeeded(targetType, property.Name, nameLine, nameColumn) {
                 resolvedMemberType: TypeInfo = BuiltInTypes.Unknown
                 if TryResolveObjectInitializerMemberType(targetType, null, property.Name, nameLine, nameColumn, out resolvedMemberType) {
                     state.PendingMemberType = resolvedMemberType
@@ -1774,6 +1885,35 @@ class AnalyzerConstruction {
         }
 
         return new ConstructionRequest(2, property.Value, state.PendingMemberType)
+    }
+
+    // `anonymous with { Name: value }` — C#'s non-destructive copy of an anonymous object. Each named
+    // property must be one the object has, and may be named once; the copy is the same anonymous type,
+    // so the value is held to the property's own type. Null when the entry cannot be checked.
+    func ResolveAnonymousWithPropertyType(state: ConstructionState, anonymousTarget: AnonymousObjectTypeInfo, property: PropertyInitializer, nameLine: int, nameColumn: int): TypeInfo? {
+        name := property.Name ?? ""
+        node := state.With
+        if node != null {
+            for earlier in node.Properties {
+                if Object.ReferenceEquals(earlier, property) {
+                    break
+                }
+
+                if earlier.Name == name {
+                    diagnosticsValue.Report(ErrorCode.DuplicateDeclaration, "This `with` already sets '" + name + "'", nameLine, nameColumn, "Set each property once.", name.Length)
+                    return null
+                }
+            }
+        }
+
+        anonymousProperty := anonymousTarget.FindProperty(name)
+        if anonymousProperty == null {
+            memberAccessValue.ReportUndefinedMemberAt(anonymousTarget, name, nameLine, nameColumn, false, null)
+            return null
+        }
+
+        memberAccessValue.RecordAnonymousPropertyUse(anonymousTarget, anonymousProperty, nameLine, nameColumn)
+        return anonymousProperty.Type
     }
 
     // THE `with` VALUE HAS ANSWERED. Unlike the object-initializer form the mismatch is suppressed

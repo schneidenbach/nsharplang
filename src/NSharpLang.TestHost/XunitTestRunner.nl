@@ -19,9 +19,10 @@ import Xunit.Abstractions
 //
 // This runner is NOT isolated, and that is deliberate and recorded: it hands the assembly path to
 // `XunitFrontController`, which loads it into the DEFAULT context, and the two hooks below teach
-// that context where the test output directory is. `tests/native/test-assembly-load-contexts` pins
-// that fact and says why it is safe: the gate runs one `nlc test` PROCESS per project, so exactly
-// one emitted assembly is pinned per process and it dies with the process.
+// that context where the test output directory and the project's shared frameworks are.
+// `tests/native/test-assembly-load-contexts` pins that fact and says why it is safe: the gate runs
+// one `nlc test` PROCESS per project, so exactly one emitted assembly is pinned per process and it
+// dies with the process.
 class XunitTestOutputChunk {
     IsError: bool
     Text: string
@@ -379,7 +380,7 @@ class XunitResultSink: IMessageSink, IDisposable {
 }
 
 static class XunitTestRunner {
-    static func Run(assemblyPath: string, filter: string?, verbose: bool, timeoutMs: int?): NativeTestRun {
+    static func Run(assemblyPath: string, frameworkDirectories: IReadOnlyList<string>, filter: string?, verbose: bool, timeoutMs: int?): NativeTestRun {
         assemblyDirectory := TestCommandKernels.GetAssemblyDirectory(assemblyPath)
         if assemblyDirectory == null {
             throw new InvalidOperationException($"Could not determine the test assembly directory for '{assemblyPath}'.")
@@ -395,8 +396,8 @@ static class XunitTestRunner {
 
         // `on`/`off` is the N# spelling of `+=`/`-=`, and the handle remembers the exact delegate,
         // so the `finally` below removes the same instance that was added.
-        resolvingSubscription := on AssemblyLoadContext.Default.Resolving (context, assemblyName) => XunitTestRunner.ResolveFromTestOutput(context, assemblyName, probeDirectory)
-        appDomainSubscription := on AppDomain.CurrentDomain.AssemblyResolve (sender, eventArgs) => XunitTestRunner.ResolveFromTestOutput(AssemblyLoadContext.Default, new AssemblyName(eventArgs.Name), probeDirectory)
+        resolvingSubscription := on AssemblyLoadContext.Default.Resolving (context, assemblyName) => XunitTestRunner.ResolveTestDependency(context, assemblyName, probeDirectory, frameworkDirectories)
+        appDomainSubscription := on AppDomain.CurrentDomain.AssemblyResolve (sender, eventArgs) => XunitTestRunner.ResolveTestDependency(AssemblyLoadContext.Default, new AssemblyName(eventArgs.Name), probeDirectory, frameworkDirectories)
         try {
             using diagnosticSink := new NullMessageSink()
             using controller := new XunitFrontController(
@@ -501,16 +502,17 @@ static class XunitTestRunner {
     }
 
     // An assembly already in the context wins, so a dependency the host has loaded is shared rather
-    // than duplicated; otherwise the test output directory is probed by simple name.
-    static func ResolveFromTestOutput(context: AssemblyLoadContext, assemblyName: AssemblyName, assemblyDirectory: string): Assembly? {
+    // than duplicated; otherwise the test output directory and then the project's shared-framework
+    // directories are probed by simple name (`TestCommandKernels.FindAssemblyCandidatePath`).
+    static func ResolveTestDependency(context: AssemblyLoadContext, assemblyName: AssemblyName, assemblyDirectory: string, frameworkDirectories: IReadOnlyList<string>): Assembly? {
         for assembly in context.Assemblies {
             if AssemblyName.ReferenceMatchesDefinition(assembly.GetName(), assemblyName) {
                 return assembly
             }
         }
 
-        candidatePath := TestCommandKernels.GetAssemblyCandidatePath(assemblyDirectory, assemblyName.Name)
-        if File.Exists(candidatePath) {
+        candidatePath := TestCommandKernels.FindAssemblyCandidatePath(assemblyDirectory, frameworkDirectories, assemblyName.Name)
+        if candidatePath != null {
             return context.LoadFromAssemblyPath(candidatePath)
         }
 
