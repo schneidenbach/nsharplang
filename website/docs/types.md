@@ -2377,6 +2377,32 @@ struct Outcome<TOk, TErr>: IEquatable<Outcome<TOk, TErr>> {
 
     func GetHashCode(): int {
         return HashCode.Combine(state, ok)
+    }
+}
+```
+
+Three separate places in that declaration name an external generic over its own parameters, and each
+is ordinary:
+
+- **A static receiver.** `EqualityComparer<TOk>.Default` reads the closed type's own `Default`
+  property, and `.Equals(a, b)` on the result is an ordinary instance call — the substituted member
+  types come out of the closed type's metadata, not out of a table.
+- **A base list.** `IEquatable<Outcome<TOk, TErr>>` names the type's own constructed self. The
+  interface lands in the emitted metadata as the CONSTRUCTED interface (`GetInterfaces()` reports
+  `IEquatable<Outcome<int, string>>` for `Outcome<int, string>`), and `func Equals(other: Outcome<TOk,
+  TErr>)` satisfies it: the BCL's own `EqualityComparer<Outcome<int, string>>.Default` picks the
+  `IEquatable<T>` comparer and calls straight into it. `class Node<T>: IComparable<Node<T>>` works
+  the same way, including through `Comparer<Node<string>>.Default`.
+- **Fields, parameters and returns.** `List<T>`, `Dictionary<string, T>`, `IEnumerable<T>`,
+  `KeyValuePair<TKey, TValue>`, `Func<T, bool>?`, `Action<T>?` and `T[]` are all ordinary member
+  types on a generic class or struct, and each instantiation carries its own closed field types.
+
+Any external generic definition works here, not a fixed set of BCL heads: the head resolves through
+ordinary scoped type resolution at the arity you wrote, and the arguments are closed with the CLR's
+own construction. A wrong arity is reported as an ordinary [NL207](/docs/errors/NL207), and an
+interface member you do not implement is reported as an ordinary [NL325](/docs/errors/NL325) naming
+the constructed interface.
+
 
 ### Over your own complete types
 
@@ -2479,28 +2505,6 @@ class Plain {
     }
 }
 ```
-
-Three separate places in that declaration name an external generic over its own parameters, and each
-is ordinary:
-
-- **A static receiver.** `EqualityComparer<TOk>.Default` reads the closed type's own `Default`
-  property, and `.Equals(a, b)` on the result is an ordinary instance call — the substituted member
-  types come out of the closed type's metadata, not out of a table.
-- **A base list.** `IEquatable<Outcome<TOk, TErr>>` names the type's own constructed self. The
-  interface lands in the emitted metadata as the CONSTRUCTED interface (`GetInterfaces()` reports
-  `IEquatable<Outcome<int, string>>` for `Outcome<int, string>`), and `func Equals(other: Outcome<TOk,
-  TErr>)` satisfies it: the BCL's own `EqualityComparer<Outcome<int, string>>.Default` picks the
-  `IEquatable<T>` comparer and calls straight into it. `class Node<T>: IComparable<Node<T>>` works
-  the same way, including through `Comparer<Node<string>>.Default`.
-- **Fields, parameters and returns.** `List<T>`, `Dictionary<string, T>`, `IEnumerable<T>`,
-  `KeyValuePair<TKey, TValue>`, `Func<T, bool>?`, `Action<T>?` and `T[]` are all ordinary member
-  types on a generic class or struct, and each instantiation carries its own closed field types.
-
-Any external generic definition works here, not a fixed set of BCL heads: the head resolves through
-ordinary scoped type resolution at the arity you wrote, and the arguments are closed with the CLR's
-own construction. A wrong arity is reported as an ordinary [NL207](/docs/errors/NL207), and an
-interface member you do not implement is reported as an ordinary [NL325](/docs/errors/NL325) naming
-the constructed interface.
 
 Call one with its type arguments written or inferred, on either kind of owner:
 
@@ -3227,15 +3231,6 @@ func firstNumber(values: int[]): int {
     return found.Value
 }
 
-Inside such a declaration the parameter's own `T?` has `Nullable<T>`'s full surface, because the
-`where` clause is what says it is one:
-
-```n#
-func presenceOf<T>(a: T?): bool where T : struct {
-    return a.HasValue                    // and `a.GetValueOrDefault()`, and `a.Value` past a guard
-}
-```
-
 func Count(values: int[]): int {
     return FirstOrDefaultOf(values)      // int — the annotation erased
 }
@@ -3247,6 +3242,15 @@ func Name(names: string[]): string {
 
 Passing `null` to an unconstrained `T?` parameter that a value argument has closed is an error, for
 the same reason: the parameter is an `int`, and `null` is not one.
+
+Inside such a declaration the parameter's own `T?` has `Nullable<T>`'s full surface, because the
+`where` clause is what says it is one:
+
+```n#
+func presenceOf<T>(a: T?): bool where T : struct {
+    return a.HasValue                    // and `a.GetValueOrDefault()`, and `a.Value` past a guard
+}
+```
 
 ## Type Aliases
 

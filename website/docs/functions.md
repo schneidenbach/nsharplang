@@ -68,6 +68,20 @@ namespace App.Text
 
 func validateInput(input: string): bool {
     return !string.IsNullOrEmpty(input)
+}
+```
+
+```n#
+// FILE Process.nl — same namespace, different file
+namespace App.Text
+
+import System.Collections.Generic
+import System.Linq
+
+func ProcessAll(inputs: List<string>): List<string> {
+    return inputs.Where(validateInput).ToList()     // the method group resolves too
+}
+```
 
 ### Which namespace a free function belongs to
 
@@ -88,18 +102,6 @@ func Describe(): string {
 ```
 
 ```n#
-// FILE Process.nl — same namespace, different file
-namespace App.Text
-
-import System.Collections.Generic
-import System.Linq
-
-func ProcessAll(inputs: List<string>): List<string> {
-    return inputs.Where(validateInput).ToList()     // the method group resolves too
-}
-```
-
-
 // FILE dashboard.nl
 namespace Dashboard
 
