@@ -71,16 +71,28 @@ test "the first routed command runs in-process and starts a server, and the next
     }
 }
 
-test "the workspace server directory ignores itself so a repository never shows it as untracked" {
+test "the workspace server directory ignores itself so a repository stays clean" {
     workspace := NewWorkspace()
     try {
+        File.WriteAllText(Path.Combine(workspace, ".gitignore"), "bin/\nobj/\n")
         WriteSource(workspace, "Program.nl", CleanProgram())
+        initialized := Git(["init", "--quiet"], workspace)
+        assert initialized.ExitCode == 0, initialized.Stdout + initialized.Stderr
+        staged := Git(["add", ".gitignore", "project.yml", "Program.nl"], workspace)
+        assert staged.ExitCode == 0, staged.Stdout + staged.Stderr
+        before := Git(["status", "--short"], workspace)
+        assert before.ExitCode == 0, before.Stdout + before.Stderr
+
         first := NlcWith(["check"], workspace, NoEnvironment(), null)
         assert first.ExitCode == 0
 
         ignorePath := Path.Combine(Path.Combine(workspace, ".nlc"), ".gitignore")
         assert WaitUntil(() => File.Exists(ignorePath), 60000)
         assert File.ReadAllText(ignorePath).Contains("\n*\n")
+
+        after := Git(["status", "--short"], workspace)
+        assert after.ExitCode == 0, after.Stdout + after.Stderr
+        assert after.Stdout == before.Stdout, after.Stdout
     } finally {
         DeleteWorkspace(workspace)
     }

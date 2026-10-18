@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
+import System
 import System.IO
 import System.Net.Sockets
 import System.Text.Json
