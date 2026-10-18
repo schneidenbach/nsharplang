@@ -1927,7 +1927,7 @@ class MultiFileCompiler {
         if image != null {
             _emittedImage = image
             if outputPath != null {
-                File.WriteAllBytes(outputPath, image)
+                AtomicFile.WriteAllBytes(outputPath, image)
                 CompilerWorkCounters.Shared.CountAssemblyEmitted()
             }
         }
@@ -2313,7 +2313,7 @@ class MultiFileCompiler {
             return true
         }
         writeMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.write")
-        File.WriteAllBytes(outputPath, assembly)
+        AtomicFile.WriteAllBytes(outputPath, assembly)
         CompilerWorkCounters.Shared.CountAssemblyEmitted()
         written := TryEmitReferenceAssembly(outputPath, referenceAssemblyPaths)
         CompilerPhaseTimings.End(writeMark)

@@ -1775,3 +1775,19 @@ that inner document verbatim, which is why the CLI never needs a status DTO of i
 ---
 
 *Last Updated: 2026-03-30*
+
+## Build outputs are replaced, never rewritten in place
+
+A process that has loaded an assembly keeps it mapped. `File.WriteAllBytes` and
+`File.Copy(..., overwrite: true)` truncate and rewrite the same inode, so a rebuild under a live
+`nlc run` server changed bytes the process still read (`BadImageFormatException` on the next lazy
+load; issue 253). Every build output that a running program can hold -- the project assembly, the
+reference assembly, and copied runtime/dependency assets -- is therefore written through
+`AtomicFile` (`NSharpLang.Compiler.Model`): write a sibling `*.tmp`, then rename over the target. On
+macOS and Linux the running process keeps the old inode until it exits, as under `dotnet build`. On
+Windows a mapped file cannot be replaced but can be renamed, so `AtomicFile` moves it aside to
+`<name>.replaced-<id>`, moves the new file in, and deletes the aside when it can (leftovers are swept
+on the next replacement of that name). `nlc run` itself needs no shadow copy: the root fix protects
+every other process holding build output too (`nlc test`, an IDE, a published launcher). Lazy loads
+of a *different* output file (another dependency dll) after a rebuild see the new file, as with
+`dotnet`.
