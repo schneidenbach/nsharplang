@@ -1181,7 +1181,7 @@ class ColumnarModifiedMemberReferenceRepair {
                 if !TryReadCompressed(bytes, ref cursor, out position) {
                     return false
                 }
-                substitutions := code == Var ? (must request).Owner.GetGenericArguments() : (must request).EmittedMethod.GetGenericArguments()
+                substitutions := code == Var ? request.Owner.GetGenericArguments() : request.EmittedMethod.GetGenericArguments()
                 return position >= 0 && position < substitutions.Length && RuntimeTypeIdentity(substitutions[position]) == RuntimeTypeIdentity(clrType)
             }
             if !clrType.IsGenericParameter || !TryReadCompressed(bytes, ref cursor, out position) || position != clrType.GenericParameterPosition {

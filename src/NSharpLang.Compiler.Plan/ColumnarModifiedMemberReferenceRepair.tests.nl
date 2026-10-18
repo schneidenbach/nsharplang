@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Diagnostics.Metrics
 import System.Reflection
 import System.Reflection.Emit
 
@@ -113,16 +112,15 @@ test "ColumnarModifiedMemberReferenceRepair retains a marked method signature so
 }
 
 test "a reused method pool slot clears the previous modified signature source" {
-    property := typeof(MeterOptions).GetProperty("Scope")
-    assert property != null
-    signatureMethod := property.SetMethod
-    replacementMethod := typeof(string).GetMethod("GetHashCode", new Type[](0))
-    assert signatureMethod != null
-    assert replacementMethod != null
+    signatureMethod := typeof(string).GetMethod("GetHashCode", new Type[](0))
+    replacementMethod := typeof(string).GetMethod("ToString", new Type[](0))
+    if signatureMethod == null || replacementMethod == null {
+        throw new InvalidOperationException("The string methods used by the method-pool regression test must exist.")
+    }
 
     plan := new ColumnarCodePlan()
     plan.PrepareV3()
-    markedIndex := plan.AddMethodWithSignature(signatureMethod, typeof(MeterOptions), [typeof(string)], typeof(void), false, false)
+    markedIndex := plan.AddMethodWithSignature(signatureMethod, typeof(string), new Type[](0), typeof(int), false, false)
     plan.MarkMethodForModifiedMemberReferenceRepair(markedIndex, signatureMethod)
     assert plan.MethodModifiedSignatureSources[markedIndex] == signatureMethod
 
