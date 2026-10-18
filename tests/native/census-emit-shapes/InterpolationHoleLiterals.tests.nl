@@ -29,3 +29,8 @@ test "a hole that is nothing but a literal emits" {
     assert BareLiteral() == "bare literal"
     assert ContainsText("world") == "contains True and False"
 }
+
+test "a string literal on the right of coalesce emits inside an interpolation hole" {
+    assert CoalescedFallback(null) == "NOPNR-x"
+    assert CoalescedFallback("abc") == "abc-x"
+}
