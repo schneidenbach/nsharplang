@@ -554,9 +554,17 @@ class AnalyzerOperatorExpressions {
         return leftRow || rightRow || leftColumn || rightColumn
     }
 
-    // `??` IS WORTH ITS RIGHT SIDE — the fallback is what the expression evaluates to when the left
-    // was null, and in N# `T? ?? T` is `T`. The one exception is a `throw` on the right: nothing
-    // comes back from it, so the expression is worth the left side with its nullability removed.
+    // `a ?? b` FOLLOWS C#'S TYPING RULE (ECMA-334 §12.15), with A the left type and A0 its underlying
+    // type when A is a `Nullable<T>`:
+    //   1. A is a value-nullable and `b` converts to A0            -> A0   (`int? ?? 0` is `int`)
+    //   2. `b` converts to A (`b` is `null` or an `A`)             -> A    (`int? ?? int?` is `int?`)
+    //   3. `b` has type B and A0 (or A) converts to B              -> B    (`int? ?? long` is `long`)
+    // For a REFERENCE left the same rules read with the nullability removed: a right side that is
+    // not-null keeps the expression not-null (`string? ?? string` is `string`), `Base? ?? Derived` is
+    // `Base`, and a bare `null` keeps the left side nullable. Whatever none of them admits is worth
+    // the right side, which is also the answer for an `unknown` operand: something has already been
+    // reported. The one exception is a `throw` on the right: nothing comes back from it, so the
+    // expression is the left side with its nullability removed.
     func NullCoalesceResult(leftType: TypeInfo, rightType: TypeInfo, expression: BinaryExpression): TypeInfo {
         ReportNullCoalesceLeftOperandIfNeeded(expression, leftType)
 
@@ -564,6 +572,31 @@ class AnalyzerOperatorExpressions {
         if throwNode != null {
             result := NonNullable(leftType)
             return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(leftType, result)
+        }
+
+        resolvedLeft := declarationsValue.ResolveDeclaredAlias(leftType)
+        resolvedRight := declarationsValue.ResolveDeclaredAlias(rightType)
+        if BuiltInTypes.IsUnknown(resolvedLeft) || BuiltInTypes.IsUnknown(resolvedRight) {
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(rightType, rightType)
+        }
+
+        if !(resolvedLeft is NullableTypeInfo) && !AnalyzerConversionFacts.IsReferenceType(resolvedLeft) {
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(rightType, rightType)
+        }
+
+        present := NonNullable(leftType)
+        if BuiltInTypes.Is(resolvedRight, BuiltInTypes.Null) {
+            return leftType
+        }
+
+        // The first rule applies to a value-nullable only; a reference `?` is an annotation, so the
+        // not-null form is asked about for both and the difference is only which type answers.
+        if assignabilityValue.IsAssignable(present, rightType) {
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(leftType, present)
+        }
+
+        if assignabilityValue.IsAssignable(leftType, rightType) {
+            return leftType
         }
 
         return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(rightType, rightType)

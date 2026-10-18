@@ -747,6 +747,60 @@ test "?? IS ITS RIGHT SIDE, EXCEPT OVER A throw" {
     assert harness.Errors.Count == 0
 }
 
+func CoalesceTypeText(harness: OperatorHarness, left: TypeInfo, right: TypeInfo): string {
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.NullCoalesce))
+    OperatorRun(harness, state, OperatorAnswers(left, right))
+    assert harness.Errors.Count == 0
+    return OperatorTypeText(harness.Operators.Result(state))
+}
+
+test "?? FOLLOWS C#'S TYPING RULE OVER A NULLABLE VALUE LEFT" {
+    harness := OperatorDefault()
+    nullableInt: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
+    nullableLong: TypeInfo = new NullableTypeInfo(BuiltInTypes.Long)
+
+    // Rule 1: a right side the underlying type absorbs is worth the underlying type.
+    assert CoalesceTypeText(harness, nullableInt, BuiltInTypes.Int) == "int"
+    assert CoalesceTypeText(harness, nullableLong, BuiltInTypes.Int) == "long"
+    // Rule 2: a `null` or same-nullable right side keeps the result nullable.
+    assert CoalesceTypeText(harness, nullableInt, BuiltInTypes.Null) == "int?"
+    assert CoalesceTypeText(harness, nullableInt, nullableInt) == "int?"
+    // A narrower nullable right side is still absorbed by the wider nullable.
+    assert CoalesceTypeText(harness, nullableLong, nullableInt) == "long?"
+    // Rule 3: the underlying type converts to the right side's type, which the expression is worth.
+    assert CoalesceTypeText(harness, nullableInt, BuiltInTypes.Long) == "long"
+    assert CoalesceTypeText(harness, nullableInt, nullableLong) == "long?"
+    assert CoalesceTypeText(harness, nullableInt, BuiltInTypes.Double) == "double"
+}
+
+test "?? FOLLOWS C#'S TYPING RULE OVER A REFERENCE LEFT" {
+    harness := OperatorDefault()
+    nullableString: TypeInfo = new NullableTypeInfo(BuiltInTypes.String)
+    nullableObject: TypeInfo = new NullableTypeInfo(BuiltInTypes.Object)
+
+    // A not-null right side makes the expression not-null; a `null` keeps the left side nullable.
+    assert CoalesceTypeText(harness, nullableString, BuiltInTypes.String) == "string"
+    assert CoalesceTypeText(harness, nullableString, BuiltInTypes.Null) == "string?"
+    assert CoalesceTypeText(harness, nullableString, nullableString) == "string?"
+    // A right side that converts to the left side is worth the left side.
+    assert CoalesceTypeText(harness, nullableObject, BuiltInTypes.String) == "object"
+}
+
+test "THE TUPLE AND NULLABLE CONVERSIONS THE EMITTER REBUILDS ARE ACCEPTED, AND NARROWING STILL IS NOT" {
+    widening := OperatorSourceErrors("func F(a: int, b: char, c: short, d: long): (long?, int?, float?, double?) {\n    return (a, b, c, d)\n}\nfunc G(t: (int, int)): (long?, int?) {\n    return t\n}\nfunc H(t: (string, int)): (string?, int?) {\n    return t\n}\nfunc I(a: int?): long? {\n    return a\n}\n")
+    assert widening.Count == 0, String.Join(" | ", widening)
+
+    // Narrowing and representation changes that are NOT a wrap stay NL202.
+    longToInt := OperatorSourceErrors("func F(a: long): int? {\n    return a\n}\n")
+    assert longToInt.Count == 1, String.Join(" | ", longToInt)
+    doubleToFloat := OperatorSourceErrors("func F(a: double): float? {\n    return a\n}\n")
+    assert doubleToFloat.Count == 1, String.Join(" | ", doubleToFloat)
+    tupleWidening := OperatorSourceErrors("func F(t: (int, int)): (long, long) {\n    return t\n}\n")
+    assert tupleWidening.Count == 1, String.Join(" | ", tupleWidening)
+    tupleNarrowing := OperatorSourceErrors("func F(t: (long, int)): (int?, int?) {\n    return t\n}\n")
+    assert tupleNarrowing.Count == 1, String.Join(" | ", tupleNarrowing)
+}
+
 test "A ?? LEFT SIDE THAT CANNOT BE NULL IS TOLD SO" {
     harness := OperatorDefault()
     state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.NullCoalesce))

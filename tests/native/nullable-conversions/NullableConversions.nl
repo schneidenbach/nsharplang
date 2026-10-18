@@ -103,3 +103,69 @@ func SetLatitude(source: Airport, value: double): Airport {
 func WidenLatitude(source: Airport, whole: int): Airport {
     return source with { Latitude: whole }
 }
+
+// ---- `??` typing: null, widening and reference conversions ----
+func CoalesceNullValue(a: int?): int? => a ?? null
+
+func CoalesceNullReference(s: string?): string? => s ?? null
+
+func CoalesceWidenToRight(a: int?, b: long): long => a ?? b
+
+func CoalesceWidenToNullableRight(a: int?, b: long?): long? => a ?? b
+
+func CoalesceRightWidens(a: long?, b: int): long => a ?? b
+
+func CoalesceDoubleRight(a: double?, b: int): double => a ?? b
+
+class Animal {
+    Name: string = "animal"
+}
+
+class Dog: Animal {
+}
+
+func CoalesceBaseDerived(a: Animal?, b: Dog): Animal => a ?? b
+
+func CoalesceDerivedBase(a: Dog?, b: Animal): Animal => a ?? b
+
+// ---- the lifted matrix: widening under the nullable wrap ----
+func LiftChar(c: char): int? {
+    r: int? = c
+    return r
+}
+
+func LiftInt(n: int): double? {
+    r: double? = n
+    return r
+}
+
+func LiftShort(n: short): float? {
+    r: float? = n
+    return r
+}
+
+func LiftLong(n: long): double? {
+    r: double? = n
+    return r
+}
+
+func LiftNullableInt(n: int?): double? {
+    r: double? = n
+    return r
+}
+
+// ---- tuples ----
+func TupleNullElement(): (string?, int?) {
+    t: (string?, int) = (null, 1)
+    return t
+}
+
+func TupleWidening(): (long?, string) {
+    t: (int, string) = (7, "x")
+    return t
+}
+
+func TupleNested(): ((int, string?), int?) {
+    t: ((int, string), int) = ((1, "n"), 2)
+    return t
+}

@@ -272,3 +272,55 @@ func main() {
     )
     assert result.Succeeded, result.Diagnostics
 }
+
+test "a with over a referenced class that is not a record names the type and says why" {
+    result := CompileRecordWithFixture(
+        """
+import System.Text
+
+func main() {
+    builder := new StringBuilder()
+    copy := builder with { Capacity: 5 }
+    _ := copy
+}
+"""
+    )
+    assert !result.Succeeded, result.Diagnostics
+    assert result.Diagnostics.Contains("emit.with.plan"), result.Diagnostics
+    assert result.Diagnostics.Contains("'StringBuilder' is not a record"), result.Diagnostics
+    assert result.Diagnostics.Contains("<Clone>$"), result.Diagnostics
+}
+
+test "a with over a source class that is not a record names the type and says why" {
+    result := CompileRecordWithFixture(
+        """
+class Plain {
+    Value: int
+}
+
+func main() {
+    p := new Plain { Value: 1 }
+    q := p with { Value: 2 }
+    _ := q
+}
+"""
+    )
+    assert !result.Succeeded, result.Diagnostics
+    assert result.Diagnostics.Contains("'Plain' is not a record"), result.Diagnostics
+}
+
+test "a with over a referenced generic class without a clone method says so" {
+    result := CompileRecordWithFixture(
+        """
+import System.Collections.Generic
+
+func main() {
+    items := new List<int>()
+    copy := items with { Capacity: 5 }
+    _ := copy
+}
+"""
+    )
+    assert !result.Succeeded, result.Diagnostics
+    assert result.Diagnostics.Contains("has no '<Clone>$' copy method"), result.Diagnostics
+}

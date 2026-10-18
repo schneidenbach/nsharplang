@@ -13975,12 +13975,10 @@ sealed class ColumnarIlEmitter {
                     // `T?`; a bare `null` right operand is the empty `T?`. The right operand's type is
                     // read BEFORE it is emitted, because the present branch's shape depends on it.
                     coalesceRightNode := UnwrapParenthesizedNode(Child(idx, 1))
-                    coalesceRightIsNullable := _nodes.Kind(coalesceRightNode) == ColumnarExpressionNodeKind.NullLiteralExpression
-                    if (!coalesceRightIsNullable) {
-                        let coalesceRightPreflight: System.Type? = null
-                        coalesceRightIsNullable = TryGetPreflightExpressionType(coalesceRightNode, out coalesceRightPreflight) && TypesEquivalent(coalesceRightPreflight, coalesceLeft)
-                    }
-                    if (coalesceRightIsNullable) {
+                    coalesceRightIsNullLiteral := _nodes.Kind(coalesceRightNode) == ColumnarExpressionNodeKind.NullLiteralExpression
+                    let coalesceRightPreflight: System.Type? = null
+                    coalesceRightKnown := !coalesceRightIsNullLiteral && TryGetPreflightExpressionType(coalesceRightNode, out coalesceRightPreflight) && coalesceRightPreflight != null
+                    if (coalesceRightIsNullLiteral || (coalesceRightKnown && TypesEquivalent(coalesceRightPreflight, coalesceLeft))) {
                         _il.Emit(OpCodes.Ldloca, nullableLocal)
                         _il.Emit(OpCodes.Call, ResolveNullableGetter(coalesceLeft, "HasValue"))
                         _il.Emit(OpCodes.Brfalse, elseLabel2)
@@ -13993,6 +13991,28 @@ sealed class ColumnarIlEmitter {
                         }
                         _il.MarkLabel(endLabel2)
                         columnarResolvedType = coalesceLeft
+                        return true
+                    }
+                    // C# 12.15's third rule: a right operand the element does NOT absorb, but which the
+                    // element converts to (`int? ?? long` is a `long`, `int? ?? long?` a `long?`), makes the
+                    // expression worth the RIGHT operand's type. The present branch unwraps and converts.
+                    if (coalesceRightKnown && !TypesEquivalent(coalesceRightPreflight, coalesceElement) && !CanUseImplicitNumericWidening(coalesceRightPreflight, coalesceElement) && !CanAdoptIntLiteralAsType(coalesceRightNode, coalesceElement) && !IsThrowExpressionNode(coalesceRightNode) && CanConvertValueElement(coalesceElement, coalesceRightPreflight)) {
+                        _il.Emit(OpCodes.Ldloca, nullableLocal)
+                        _il.Emit(OpCodes.Call, ResolveNullableGetter(coalesceLeft, "HasValue"))
+                        _il.Emit(OpCodes.Brfalse, elseLabel2)
+                        _il.Emit(OpCodes.Ldloca, nullableLocal)
+                        _il.Emit(OpCodes.Call, ResolveNullableMethod(coalesceLeft, "GetValueOrDefault", Type.EmptyTypes))
+                        if (!EmitValueElementConversion(coalesceElement, coalesceRightPreflight)) {
+                            return false
+                        }
+                        _il.Emit(OpCodes.Br, endLabel2)
+                        _il.MarkLabel(elseLabel2)
+                        let coalesceConvertedRightType: System.Type? = null
+                        if (!EmitExpression(coalesceRightNode, out coalesceConvertedRightType) || !TypesEquivalent(coalesceConvertedRightType, coalesceRightPreflight)) {
+                            return false
+                        }
+                        _il.MarkLabel(endLabel2)
+                        columnarResolvedType = coalesceRightPreflight
                         return true
                     }
                     _il.Emit(OpCodes.Ldloca, nullableLocal)
@@ -14017,7 +14037,11 @@ sealed class ColumnarIlEmitter {
                     if (!TryEmitIntLiteralAsType(Child(idx, 1), coalesceElement, out columnarDiscard45)) {
                         // emit-then-check is decline-safe: a false return abandons the program.
                         let coalesceRightType: System.Type? = null
-                        if (!EmitExpression(Child(idx, 1), out coalesceRightType) || !TypesEquivalent(coalesceRightType, coalesceElement)) {
+                        if (!EmitExpression(Child(idx, 1), out coalesceRightType)) {
+                            return false
+                        }
+                        // The right operand converts to the element (`double? ?? int`): C#'s first rule.
+                        if (!TypesEquivalent(coalesceRightType, coalesceElement) && !TryEmitNumericWidening(coalesceRightType, coalesceElement)) {
                             return false
                         }
                     }
@@ -14064,6 +14088,7 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 coalesceEnd := _il.DefineLabel()
+                coalesceResultType := coalesceLeft
                 _il.Emit(OpCodes.Dup)
                 _il.Emit(OpCodes.Brtrue, coalesceEnd)
                 _il.Emit(OpCodes.Pop)
@@ -14090,13 +14115,19 @@ sealed class ColumnarIlEmitter {
                         if (coalesceRight == null) {
                             return false
                         }
-                        if (!TryEmitCoalesceFallbackConversion(coalesceRight, coalesceLeft)) {
+                        if (TryEmitCoalesceFallbackConversion(coalesceRight, coalesceLeft)) {
+                        } else if (ColumnarReferenceConversionFacts.TryEmitReferenceConversion(coalesceRight, coalesceLeft)) {
+                            // `Base ?? Derived`: the fallback upcasts to the left's type (a no-op on the stack).
+                        } else if (ColumnarReferenceConversionFacts.TryEmitReferenceConversion(coalesceLeft, coalesceRight)) {
+                            // `Derived ?? Base`: the left converts to the right's type, which is the result.
+                            coalesceResultType = coalesceRight
+                        } else {
                             return false
                         }
                     }
                 }
                 _il.MarkLabel(coalesceEnd)
-                columnarResolvedType = coalesceLeft
+                columnarResolvedType = coalesceResultType
                 return true
             }
 
@@ -16061,6 +16092,12 @@ sealed class ColumnarIlEmitter {
                 // referenced assembly or the runtime -- is copied and written from its own metadata.
                 if (withTb == null && TryEmitReferencedWith(idx, withPairCount, withReceiverType, out columnarResolvedType)) {
                     return true
+                }
+                if (!withReceiverType.IsValueType && withReceiverType.IsGenericType && withTb == null && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(withReceiverType) && ReferencedRecordCloneMethod(withReceiverType) == null) {
+                    return Decline("emit.with.plan", "'" + withReceiverType.Name + "' has no '<Clone>$' copy method for 'with' to call. A generic record declared in N# does not get one yet, so build the changed copy with an object initializer", Child(idx, 0))
+                }
+                if (!withReceiverType.IsValueType && !ReceiverIsRecordType(withReceiverType, withTb)) {
+                    return Decline("emit.with.plan", "'" + withReceiverType.Name + "' is not a record, so 'with' has no copy to make: a record carries the compiler-generated '<Clone>$' method that 'with' calls. Declare it as a 'record' (or 'record struct'), or build the changed copy with an object initializer", Child(idx, 0))
                 }
                 return Decline("emit.with.plan", "with expression receiver type is not a modeled record whose named members admit a verifiable copy", Child(idx, 0))
             }
@@ -21653,10 +21690,10 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (ColumnarNumericFacts.IsIntPromotable(source)) {
-            return target == typeof(int) || target == typeof(long) || target == typeof(double) || target == typeof(float)
+            return target == typeof(int) || target == typeof(long) || target == typeof(double) || target == typeof(float) || target == typeof(decimal)
         }
         if (source == typeof(long)) {
-            return target == typeof(double) || target == typeof(float)
+            return target == typeof(double) || target == typeof(float) || target == typeof(decimal)
         }
         if (source == typeof(float)) {
             return target == typeof(double)
@@ -21881,14 +21918,16 @@ sealed class ColumnarIlEmitter {
     //
     // THE ROUTE IS CHOSEN BEFORE ANYTHING IS EMITTED, because emit-then-check abandons the program: a
     // conditional whose arms both carry types keeps the unification arm and its IL, and only one with a
-    // `null`, a `default` or a `throw` arm comes here.
+    // `null`, a `default` or a `throw` arm comes here. `CanEmitConditionalAsType` is asked first and
+    // answers with the very rules `EmitConditionalArmAsType` applies, so a FALSE return means nothing
+    // was emitted and the caller may try the next door.
     //
     // A THROWING ARM EMITS NO BRANCH TO THE MERGE. The exception ends that path, so a `br` after it
     // would be unreachable IL over an empty stack — the merge label is reached only from the arm that
     // produces a value, which is the same shape the unification arm writes for a throwing arm.
     private func TryEmitConditionalAsType(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        if (target == null) {
+        if (target == null || !CanEmitConditionalAsType(node, target)) {
             return false
         }
         node = UnwrapParenthesizedNode(node)
@@ -21975,7 +22014,7 @@ sealed class ColumnarIlEmitter {
         if (!EmitExpression(node, out armType)) {
             return false
         }
-        return TypesEquivalent(armType, target) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(armType, target) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(armType, target, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(armType, target, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(armType, target, _structRegistry, _il)
+        return TypesEquivalent(armType, target) || TryEmitImplicitWidening(armType, target) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(armType, target) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(armType, target, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(armType, target, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(armType, target, _structRegistry, _il)
     }
 
     // THE PREFLIGHT TWIN OF `TryEmitConditionalAsType`, asked before anything is on the stack. A tier
@@ -22028,7 +22067,7 @@ sealed class ColumnarIlEmitter {
         if (!TryGetPreflightExpressionType(node, out armType)) {
             return false
         }
-        return TypesEquivalent(armType, target) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(armType, target) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(armType, target)
+        return TypesEquivalent(armType, target) || CanUseImplicitNumericWidening(armType, target) || CanEmitLiftedImplicitConversion(armType, target) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(armType, target) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(armType, target, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(armType, target)
     }
 
     // The preflight half of `TryEmitValueAsNullable`, with the same null/default, adopted-literal and
@@ -24339,16 +24378,28 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 coalesceElementType := leftType.GetGenericArguments()[0]
-                if (!TypesEquivalent(rightType, coalesceElementType)) {
+                if (TypesEquivalent(rightType, coalesceElementType) || CanUseImplicitNumericWidening(rightType, coalesceElementType)) {
+                    columnarResolvedType = coalesceElementType
+                    return true
+                }
+                // The element converts to the right operand's type (`int? ?? long` is a `long`).
+                if (!CanConvertValueElement(coalesceElementType, rightType)) {
                     return false
                 }
-                columnarResolvedType = coalesceElementType
+                columnarResolvedType = rightType
                 return true
             }
-            if (leftType.IsValueType || !TypesEquivalent(leftType, rightType)) {
+            if (leftType.IsValueType) {
                 return false
             }
-            columnarResolvedType = leftType
+            if (TypesEquivalent(leftType, rightType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(rightType, leftType)) {
+                columnarResolvedType = leftType
+                return true
+            }
+            if (!ColumnarReferenceConversionFacts.TryEmitReferenceConversion(leftType, rightType)) {
+                return false
+            }
+            columnarResolvedType = rightType
             return true
         }
 
@@ -26264,6 +26315,30 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // The public `<Clone>$()` a referenced record class is copied through, or null for a class that is not one.
+    private func ReferencedRecordCloneMethod(receiverType: Type): System.Reflection.MethodInfo? {
+        if (receiverType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType)) {
+            return null
+        }
+        let cloneMethod: System.Reflection.MethodInfo? = null
+        for candidate in receiverType.GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+            if (candidate.Name == "<Clone>$" && candidate.GetParameters().Length == 0 && TypesEquivalent(candidate.ReturnType, receiverType)) {
+                cloneMethod = candidate
+            }
+        }
+        return cloneMethod
+    }
+
+    // Whether a reference-type `with` receiver is a record at all: a source record by its definition, a
+    // referenced one by its clone method. Only the message a refusal names depends on the answer.
+    private func ReceiverIsRecordType(receiverType: Type, sourceBuilder: TypeBuilder?): bool {
+        if (sourceBuilder != null) {
+            definition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, sourceBuilder)
+            return definition == null || definition.IsRecord
+        }
+        return RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) || ReferencedRecordCloneMethod(receiverType) != null
+    }
+
     // `r with { ... }` OVER A RECEIVER THE COMPILATION DID NOT DECLARE, with the receiver already on the
     // stack. The copy and the writes are decided by what the type's own metadata says, exactly as C#
     // reads them:
@@ -26286,12 +26361,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         if (!receiverType.IsValueType) {
-            let cloneMethod: System.Reflection.MethodInfo? = null
-            for candidate in receiverType.GetMethods(BindingFlags.Public | BindingFlags.Instance) {
-                if (candidate.Name == "<Clone>$" && candidate.GetParameters().Length == 0 && TypesEquivalent(candidate.ReturnType, receiverType)) {
-                    cloneMethod = candidate
-                }
-            }
+            cloneMethod := ReferencedRecordCloneMethod(receiverType)
             if (cloneMethod == null) {
                 return false
             }

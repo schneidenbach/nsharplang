@@ -18,7 +18,8 @@ record struct Pair {
     Right: int
 }
 
-// Not a record: a class has no `<Clone>$`, so a `with` over it is refused.
-class Plain {
-    Value: int
+// A record whose copied members are a camelCase FIELD and an `init`-only property.
+record Slot {
+    size: int
+    init Label: string
 }

@@ -52,3 +52,15 @@ test "a with over a record struct from another project copies by value" {
     assert q.Right == 9
     assert p.Right == 2
 }
+
+test "a with over a record from another project writes a public field and an init-only property" {
+    slot := new Slot { size: 1, Label: "a" }
+    resized := slot with { size: 9 }
+    relabelled := slot with { Label: "b" }
+    assert resized.size == 9
+    assert resized.Label == "a"
+    assert relabelled.size == 1
+    assert relabelled.Label == "b"
+    assert slot.size == 1
+    assert slot.Label == "a"
+}

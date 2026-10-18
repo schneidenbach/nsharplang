@@ -159,8 +159,9 @@ class AnalyzerAssignability {
     // needs against a declared `(string?, string, IsConstructor: bool)`, and without this arm the whole
     // tuple was compared by identity and reported NL202 against a literal the writer spelled correctly.
     //
-    // THE ONE REPRESENTATION-CHANGING ELEMENT CONVERSION ADMITTED IS THE NULLABLE WRAP. `(string, int)`
-    // fits `(string?, int?)`: the `string` is the same CLR type, and the `int` becomes `Nullable<int>`,
+    // THE ONLY REPRESENTATION-CHANGING ELEMENT CONVERSIONS ADMITTED ARE THE NULLABLE WRAP AND THE
+    // WIDENING UNDER IT. `(string, int)` fits `(string?, int?)` and `(int, int)` fits `(long?, double?)`:
+    // the `string` is the same CLR type, and the `int` becomes `Nullable<int>`,
     // which the emitter does by taking the tuple apart and building the target tuple (C#'s implicit
     // tuple conversion over the implicit nullable conversion). Every OTHER conversion that changes
     // representation stays refused -- C# converts `(string, string)` to `(object, object)` and
@@ -195,11 +196,17 @@ class AnalyzerAssignability {
             return AnalyzerConversionFacts.AcceptsNull(resolvedTarget)
         }
 
-        // `T` -> `T?` over a VALUE type: the wrap is the one conversion that changes representation.
-        // The inner type must itself be the source, so `int` fits `int?` and not `long?`.
+        // `T` -> `U?` AND `T?` -> `U?` OVER A VALUE TYPE: the nullable wrap, with the element converted
+        // first when it only widens (`int` fits `long?`). Exactly the set the emitter rebuilds.
         valueNullableTarget := resolvedTarget as NullableTypeInfo
-        if valueNullableTarget != null && ReferenceNullableInnerType(valueNullableTarget) == null && !(resolvedSource is NullableTypeInfo) {
-            return TypeInfoIdentityFacts.AreEqual(declarationContext.ResolveDeclaredAlias(valueNullableTarget.InnerType), resolvedSource)
+        if valueNullableTarget != null && ReferenceNullableInnerType(valueNullableTarget) == null {
+            liftedSource := resolvedSource
+            sourceNullable := resolvedSource as NullableTypeInfo
+            if sourceNullable != null {
+                liftedSource = declarationContext.ResolveDeclaredAlias(sourceNullable.InnerType)
+            }
+
+            return IsLiftedTupleElement(declarationContext.ResolveDeclaredAlias(valueNullableTarget.InnerType), liftedSource)
         }
 
         // Nested tuples compare the same way, at any depth.
@@ -224,6 +231,21 @@ class AnalyzerAssignability {
         }
 
         return IsTupleElementCompatible(targetInner, sourceInner)
+    }
+
+    // The element conversions under a nullable wrap that the emitter performs: identity, or the
+    // implicit numeric widening of the scalar set it knows how to emit (a `uint` or `ulong` source
+    // is not in it, nor is a user-defined conversion). Anything else keeps the tuple unconvertible.
+    func IsLiftedTupleElement(target: TypeInfo, source: TypeInfo): bool {
+        if TypeInfoIdentityFacts.AreEqual(target, source) {
+            return true
+        }
+
+        if target is SimpleTypeInfo && source is SimpleTypeInfo && !BuiltInTypes.Is(source, BuiltInTypes.UInt) && !BuiltInTypes.Is(source, BuiltInTypes.ULong) {
+            return IsAssignableCore(target, source)
+        }
+
+        return false
     }
 
     // The inner type of a nullable annotation over a REFERENCE type — the one nullable spelling that is

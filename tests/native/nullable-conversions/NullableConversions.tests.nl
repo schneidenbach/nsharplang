@@ -113,3 +113,55 @@ test "a with lifts a plain value into a nullable member" {
     assert SetLatitude(start, 4.0).Latitude == 4.0
     assert WidenLatitude(start, 3).Latitude == 3.0
 }
+
+test "a coalesce with a null right operand stays nullable" {
+    assert CoalesceNullValue(null) == null
+    assert CoalesceNullValue(5) == 5
+    assert CoalesceNullReference(null) == null
+    assert CoalesceNullReference("s") == "s"
+}
+
+test "a nullable left coalesces with a wider right operand to the wider type" {
+    assert CoalesceWidenToRight(null, 9000000000L) == 9000000000L
+    assert CoalesceWidenToRight(5, 9000000000L) == 5L
+    assert CoalesceWidenToNullableRight(null, null) == null
+    assert CoalesceWidenToNullableRight(null, 6L) == 6L
+    assert CoalesceWidenToNullableRight(4, 6L) == 4L
+    assert CoalesceRightWidens(null, 3) == 3L
+    assert CoalesceRightWidens(8L, 3) == 8L
+    assert CoalesceDoubleRight(null, 2) == 2.0
+    assert CoalesceDoubleRight(1.5, 2) == 1.5
+}
+
+test "a reference coalesce converts whichever side is the derived one" {
+    dog := new Dog()
+    other := new Animal()
+    assert Object.ReferenceEquals(CoalesceBaseDerived(null, dog), dog)
+    assert Object.ReferenceEquals(CoalesceBaseDerived(other, dog), other)
+    assert Object.ReferenceEquals(CoalesceDerivedBase(null, other), other)
+    assert Object.ReferenceEquals(CoalesceDerivedBase(dog, other), dog)
+}
+
+test "widening under the nullable wrap covers char, int, short and long" {
+    assert LiftChar('A') == 65
+    assert LiftInt(3) == 3.0
+    assert LiftShort(-2) == -2.0f
+    assert LiftLong(9000000000L) == 9000000000.0
+    assert LiftNullableInt(null) == null
+    assert LiftNullableInt(4) == 4.0
+}
+
+test "a tuple converts element by element through null, widening and nesting" {
+    withNull := TupleNullElement()
+    assert withNull.Item1 == null
+    assert withNull.Item2 == 1
+
+    widened := TupleWidening()
+    assert widened.Item1 == 7L
+    assert widened.Item2 == "x"
+
+    nested := TupleNested()
+    assert nested.Item1.Item1 == 1
+    assert nested.Item1.Item2 == "n"
+    assert nested.Item2 == 2
+}
