@@ -61,6 +61,8 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 | `nlc run` | Compile and run project through the IL backend | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc run --backend il` | Build and run via the direct IL backend | `nlc run --backend il` |
+| `nlc run --project <dir>` | Build and run the project in `<dir>` (relative paths resolve against the current directory; the program's working directory is `<dir>`). Same `CommandOutputKernels.GetProjectRoot` resolution as the other commands; combining it with a `<file>` operand, a missing directory, a directory without `project.yml`, and a `--project` with no value are each a one-line exit-1 error | `nlc run --project src/App` |
+| `nlc run ... -- <args>` | Everything after the first `--` is passed to the program unchanged (quoted for the .NET host, so spaces and quotes survive) and never read as an nlc option; same `--` boundary `--no-daemon` honours. Owner: `RunCommandKernels.GetLauncherArguments` / `GetProgramArguments` / `GetLaunchArguments` | `nlc run -- --help` |
 | `nlc publish` | Publish portable framework-dependent artifacts | `nlc publish --output ./dist` |
 | `nlc publish --runtime <current-rid>` | Add a framework-dependent launcher for the current host runtime only | `nlc publish --runtime osx-arm64 --output ./dist` |
 | `nlc publish --self-contained` | Unsupported/planned; exits 1 with guidance | `nlc publish --self-contained` |

@@ -20,7 +20,7 @@ are maintained against the CLI command kernels.
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
 | `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--aot`, `--stats`, `--output`, `--define`, `--color` | `nlc build --timings` |
-| `nlc run [file]` | Build and run a project or single file | `--backend`, `--define`, `--color` | `nlc run` |
+| `nlc run [file]` | Build and run a project or single file; arguments after `--` go to the program | `--backend`, `--project`, `--define`, `--color` | `nlc run --project src/App -- --port 8080` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`, `systems-cli`, `systems-lib`), `--type` alias, `--systems` | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | `--name`, `--type`, `--force` | `nlc init --type library` |
 | `nlc test` | Run `.tests.nl` suites through the N# test runner | `--project`, `--filter`, `--verbose`, `--json`, `--timings` | `nlc test --filter "should add"` |

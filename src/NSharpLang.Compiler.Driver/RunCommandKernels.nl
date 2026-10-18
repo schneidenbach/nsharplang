@@ -1,6 +1,8 @@
 namespace NSharpLang.Cli
 
+import System.Collections.Generic
 import System.IO
+import System.Text
 import NSharpLang.Compiler
 
 class RunOptionSummary {
@@ -41,10 +43,80 @@ class RunCommandKernels {
         return new RunOptionSummary(backendOption, showHelp)
     }
 
+    // The `--` separator ends nlc's own arguments, exactly as it does for `--no-daemon`: everything
+    // after it belongs to the program being run, so a program flag such as `--help` or `--project`
+    // is never read as an nlc option.
+    static func GetSeparatorIndex(args: string[]): int {
+        i := 0
+        while i < args.Length {
+            if args[i] == "--" {
+                return i
+            }
+
+            i = i + 1
+        }
+
+        return -1
+    }
+
+    static func GetLauncherArguments(args: string[]): string[] {
+        separator := GetSeparatorIndex(args)
+        if separator < 0 {
+            return args
+        }
+
+        launcher := new string[](separator)
+        Array.Copy(args, launcher, separator)
+        return launcher
+    }
+
+    static func GetProgramArguments(args: string[]): string[] {
+        separator := GetSeparatorIndex(args)
+        if separator < 0 {
+            return new string[](0)
+        }
+
+        program := new string[](args.Length - separator - 1)
+        Array.Copy(args, separator + 1, program, 0, program.Length)
+        return program
+    }
+
+    static func GetProjectOption(args: string[]): string? {
+        i := 0
+        while i < args.Length {
+            if args[i] == "--project" && i + 1 < args.Length {
+                return args[i + 1]
+            }
+
+            i = i + 1
+        }
+
+        return null
+    }
+
+    // `--project` is the last argument, so there is no directory to resolve.
+    static func IsProjectOptionMissingValue(args: string[]): bool {
+        i := 0
+        while i < args.Length {
+            if args[i] == "--project" {
+                return i + 1 >= args.Length
+            }
+
+            i = i + 1
+        }
+
+        return false
+    }
+
     static func GetSourceOperand(args: string[]): string? {
         i := 0
         while i < args.Length {
             if args[i] == "--backend" && i + 1 < args.Length {
+                i = i + 2
+                continue
+            }
+
+            if args[i] == "--project" {
                 i = i + 2
                 continue
             }
@@ -62,7 +134,7 @@ class RunCommandKernels {
     }
 
     static func GetHelpText(): string {
-        return "N# Run\n" + "\n" + "Usage: nlc run [file.nl]\n" + "\n" + "Build and run either the current project or a single N# source file.\n" + "\n" + "Options:\n" + "  --backend <mode>   Compilation backend: il\n" + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n" + "                     repeatable, and accepts comma-separated lists\n" + "  --color=<when>     Colour diagnostics: auto (default), always, never\n" + "  --help, -h         Show this help text\n" + "\n" + "Conditional compilation:\n" + "  DEBUG is defined automatically when running (a debug build).\n" + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n" + "\n" + "Examples:\n" + "  nlc run\n" + "  nlc run --backend il\n" + "  nlc run Program.nl\n" + "  nlc run --define FEATURE_X\n" + "\n" + "Exit codes:\n" + "  0  Program ran successfully\n" + "  1  Build or execution failed"
+        return "N# Run\n" + "\n" + "Usage: nlc run [file.nl | --project <dir>] [options] [-- <program arguments>]\n" + "\n" + "Build and run a project (the current directory, or --project) or a single N# source file.\n" + "Everything after -- is passed to the program unchanged.\n" + "\n" + "Options:\n" + "  --backend <mode>   Compilation backend: il\n" + "  --project <dir>    Project root directory (default: current directory); the program\n" + "                     runs with that directory as its working directory\n" + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n" + "                     repeatable, and accepts comma-separated lists\n" + "  --color=<when>     Colour diagnostics: auto (default), always, never\n" + "  --help, -h         Show this help text\n" + "\n" + "Conditional compilation:\n" + "  DEBUG is defined automatically when running (a debug build).\n" + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n" + "\n" + "Examples:\n" + "  nlc run\n" + "  nlc run --backend il\n" + "  nlc run --project src/App\n" + "  nlc run Program.nl\n" + "  nlc run --project src/App -- --port 8080\n" + "  nlc run --define FEATURE_X\n" + "\n" + "Exit codes:\n" + "  0  Program ran successfully\n" + "  1  Build or execution failed"
     }
 
     static func GetSourceStartingMessage(sourceFile: string): string {
@@ -75,6 +147,55 @@ class RunCommandKernels {
 
     static func GetSourceDirectory(sourceFile: string, currentDirectory: string): string {
         return Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? currentDirectory
+    }
+
+    static func GetProjectAndFileConflictMessage(): string {
+        return "Cannot combine --project with a source file. Use 'nlc run --project <dir>' or 'nlc run <file.nl>'."
+    }
+
+    static func GetMissingProjectFileAtMessage(projectRoot: string): string {
+        return "No project.yml found in " + projectRoot + ". Run 'nlc new <name>' to create a project."
+    }
+
+    static func GetProjectOptionMissingValueMessage(): string {
+        return "--project requires a directory."
+    }
+
+    // The `dotnet` command line that starts the built assembly with the program's own arguments.
+    static func GetLaunchArguments(assemblyPath: string, programArguments: string[]): string {
+        builder := new StringBuilder()
+        builder.Append(QuoteProcessArgument(assemblyPath))
+        for argument in programArguments {
+            builder.Append(' ')
+            builder.Append(QuoteProcessArgument(argument))
+        }
+
+        return builder.ToString()
+    }
+
+    // The Windows command-line convention every .NET host parses: wrap in quotes, double the
+    // backslashes that precede a quote (or the closing quote), and escape embedded quotes.
+    static func QuoteProcessArgument(value: string): string {
+        builder := new StringBuilder()
+        builder.Append('"')
+        backslashes := 0
+        for ch in value {
+            if ch == '\\' {
+                backslashes = backslashes + 1
+            } else if ch == '"' {
+                builder.Append('\\', backslashes * 2 + 1)
+                builder.Append('"')
+                backslashes = 0
+            } else {
+                builder.Append('\\', backslashes)
+                builder.Append(ch)
+                backslashes = 0
+            }
+        }
+
+        builder.Append('\\', backslashes * 2)
+        builder.Append('"')
+        return builder.ToString()
     }
 
     static func GetMissingProjectFileMessage(): string {
