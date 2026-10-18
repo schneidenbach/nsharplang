@@ -5,9 +5,9 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Reflection.Metadata
-import System.Reflection.Metadata.Ecma335
 import System.Reflection.PortableExecutable
 import System.Runtime.InteropServices
+import System.Text
 import System.Xml.Linq
 
 
@@ -47,6 +47,7 @@ import System.Xml.Linq
 // file imports a namespace (`AnalyzerImports.MappedAssemblies`) or spells a type fully qualified
 // (`AnalyzerExternalTypeProbe.TryResolveFullName`), and then only that namespace's assemblies are.
 class FrameworkNamespaceIndex {
+
     // The runtime directory the index was read from: the directory the analyzer resolves from.
     RuntimeDirectory: string
 
@@ -145,7 +146,7 @@ class FrameworkNamespaceIndex {
         }
 
         mark := CompilerPhaseTimings.Begin("Microsoft.NETCore.App", "framework-namespace-index")
-        built := Build(key)
+        built := LoadOrBuild(key)
         CompilerPhaseTimings.End(mark)
         lock FrameworkNamespaceIndex.gate {
             FrameworkNamespaceIndex.byRuntimeDirectory[key] = built
@@ -182,7 +183,176 @@ class FrameworkNamespaceIndex {
         }
     }
 
+    // ── THE ON-DISK COPY ──────────────────────────────────────────────────────────────────────────
+    //
+    // A one-shot `nlc check` is a new process, and reading ~170 type tables (and compiling the code
+    // that reads them) is most of what the index costs it. The answer is a function of two immutable
+    // installed things -- the runtime directory and the reference pack's list -- so it is written
+    // once to the per-user cache and read back as one small text file. The STAMP is both paths and
+    // their last-write times: a repaired or reinstalled runtime, or a different pack, is a different
+    // stamp and the index is rebuilt. Every failure to read or write the cache is a miss, never an
+    // error: the cache can only make the index cheaper, not different.
+    static func LoadOrBuild(runtimeDirectory: string): FrameworkNamespaceIndex {
+        frameworkList := FindReferencePackFrameworkList(runtimeDirectory)
+        stamp := CacheStamp(runtimeDirectory, frameworkList)
+        cachePath := CacheFilePath(runtimeDirectory)
+        if cachePath == null || stamp == null {
+            return Build(runtimeDirectory, frameworkList)
+        }
+
+        cached := TryReadCache(cachePath, stamp, runtimeDirectory)
+        if cached != null {
+            return cached
+        }
+
+        built := Build(runtimeDirectory, frameworkList)
+        TryWriteCache(cachePath, stamp, built)
+        return built
+    }
+
+    // The cached index, or null: an absent, unreadable, stale or malformed file is a miss.
+    static func TryReadCache(cachePath: string, stamp: string, runtimeDirectory: string): FrameworkNamespaceIndex? {
+        try {
+            if !File.Exists(cachePath) {
+                return null
+            }
+
+            return ParseCache(File.ReadAllText(cachePath), stamp, runtimeDirectory)
+        } catch {
+            return null
+        }
+    }
+
+    // Written beside its final name and moved over it, so a concurrent reader sees the old file or
+    // the new one and never half of one. False when the cache cannot be written; the next process
+    // then builds the index again.
+    static func TryWriteCache(cachePath: string, stamp: string, index: FrameworkNamespaceIndex): bool {
+        try {
+            directory := Path.GetDirectoryName(cachePath)
+            if directory != null {
+                Directory.CreateDirectory(directory)
+            }
+
+            temporary := cachePath + "." + Environment.ProcessId.ToString() + ".tmp"
+            File.WriteAllText(temporary, SerializeCache(index, stamp))
+            File.Move(temporary, cachePath, true)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    static func CacheFormat(): string {
+        return "nsharp-framework-namespace-index/1"
+    }
+
+    static func CacheStamp(runtimeDirectory: string, frameworkList: string?): string? {
+        try {
+            if !Directory.Exists(runtimeDirectory) {
+                return null
+            }
+
+            stamp := runtimeDirectory + "|" + Directory.GetLastWriteTimeUtc(runtimeDirectory).Ticks.ToString()
+            if frameworkList != null {
+                stamp = stamp + "|" + frameworkList + "|" + File.GetLastWriteTimeUtc(frameworkList).Ticks.ToString()
+            }
+
+            return stamp
+        } catch {
+            return null
+        }
+    }
+
+    // `<local application data>/nsharp/framework-index/<runtime version>-<path hash>.txt`; null when
+    // the machine has no per-user data directory.
+    static func CacheFilePath(runtimeDirectory: string): string? {
+        root := Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+        if string.IsNullOrEmpty(root) {
+            return null
+        }
+
+        version := Path.GetFileName(Path.TrimEndingDirectorySeparator(runtimeDirectory)) ?? "runtime"
+        fileName := version + "-" + StableHash(runtimeDirectory) + ".txt"
+        return Path.Combine(Path.Combine(Path.Combine(root, "nsharp"), "framework-index"), fileName)
+    }
+
+    // djb2 over the path's characters, kept to 32 bits: `string.GetHashCode` is randomized per
+    // process, and the file name has to be the same in every process that asks.
+    static func StableHash(text: string): string {
+        hash := 5381L
+        index := 0
+        while index < text.Length {
+            code: int = text[index]
+            hash = (hash * 33L + code) % 4294967296L
+            index = index + 1
+        }
+
+        return hash.ToString("x8")
+    }
+
+    static func SerializeCache(index: FrameworkNamespaceIndex, stamp: string): string {
+        builder := new StringBuilder()
+        builder.Append(CacheFormat()).Append('\n')
+        builder.Append(stamp).Append('\n')
+        builder.Append(index.CompileSurfaceSource).Append('\n')
+        compileNames := new List<string>(index.CompileAssemblyNames)
+        compileNames.Sort(StringComparer.Ordinal)
+        builder.Append(string.Join("|", compileNames)).Append('\n')
+        namespaces := new List<string>(index.assembliesByNamespace.Keys)
+        namespaces.Sort(StringComparer.Ordinal)
+        for namespaceName in namespaces {
+            builder.Append(namespaceName).Append('\t').Append(string.Join("|", index.assembliesByNamespace[namespaceName])).Append('\n')
+        }
+
+        return builder.ToString()
+    }
+
+    // The index a cache file records, or null when it is another format, another stamp, or malformed.
+    static func ParseCache(text: string, stamp: string, runtimeDirectory: string): FrameworkNamespaceIndex? {
+        lines := text.Split('\n')
+        if lines.Length < 4 || lines[0] != CacheFormat() || lines[1] != stamp {
+            return null
+        }
+
+        compileNames := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        if lines[3].Length > 0 {
+            for compileName in lines[3].Split('|') {
+                compileNames.Add(compileName)
+            }
+        }
+        if compileNames.Count == 0 {
+            return null
+        }
+
+        namespaces := new Dictionary<string, string[]>(StringComparer.Ordinal)
+        lineIndex := 4
+        while lineIndex < lines.Length {
+            line := lines[lineIndex]
+            lineIndex = lineIndex + 1
+            if line.Length == 0 {
+                continue
+            }
+
+            tab := line.IndexOf('\t')
+            if tab <= 0 || tab == line.Length - 1 {
+                return null
+            }
+
+            namespaces[line.Substring(0, tab)] = line.Substring(tab + 1).Split('|')
+        }
+
+        if namespaces.Count == 0 {
+            return null
+        }
+
+        return new FrameworkNamespaceIndex(runtimeDirectory, lines[2], compileNames, namespaces)
+    }
+
     static func Build(runtimeDirectory: string): FrameworkNamespaceIndex {
+        return Build(runtimeDirectory, FindReferencePackFrameworkList(runtimeDirectory))
+    }
+
+    static func Build(runtimeDirectory: string, frameworkList: string?): FrameworkNamespaceIndex {
         runtimeAssemblyPaths := new string[](0)
         if Directory.Exists(runtimeDirectory) {
             runtimeAssemblyPaths = Directory.GetFiles(runtimeDirectory, "*.dll", SearchOption.TopDirectoryOnly)
@@ -195,7 +365,6 @@ class FrameworkNamespaceIndex {
 
         source := ""
         compileNames: HashSet<string>? = null
-        frameworkList := FindReferencePackFrameworkList(runtimeDirectory)
         if frameworkList != null {
             try {
                 compileNames = ParseFrameworkListAssemblyNames(File.ReadAllText(frameworkList))

@@ -905,7 +905,18 @@ an owner decision about the ratchet (or a sidebar that is not JavaScript).
   PRELOADED -- it is a warm start and keeps the bare-name scan's answers stable, no longer the limit of
   what a project sees. When the references already carry `System.Runtime.dll` (`dotnet build` passes
   the whole reference pack) the on-demand loads stand down
-  (`AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface`). `AnalyzerImports.BuildAssemblyMappings`
+  (`AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface`). The index is persisted per runtime
+  directory at `<LocalApplicationData>/nsharp/framework-index/<runtime version>-<djb2 of path>.txt`
+  (stamp = runtime dir + FrameworkList.xml paths and last-write times; any read/write failure is a
+  miss), so a cold `nlc` pays ~0 ms for it after the first run (~9-14 ms to build). Two consequences
+  the gate found: (1) an incremental analysis now REPLAYS a reused file's import loads
+  (`MultiFileCompiler.AnalyzeAllFiles`, serial and after the parallel pass) so the back end finds every
+  import-named framework assembly in the shared context -- otherwise `TryAttachSharedMetadata` fails
+  and the scan reopens the references (agent-loop `small / body check / cold` went 8 -> 12 reference
+  images); (2) a workspace `nlc check` releases each project's analyzer after saving its result
+  (`MultiFileCompiler.ReleaseReferenceMetadata`): holding ~250 metadata load contexts open had the
+  repository-root check at ~10k descriptors, macOS .NET's limit, and the extra framework files tipped
+  it into "Too many open files". `AnalyzerImports.BuildAssemblyMappings`
   keeps only the ASP.NET Core / EF Core rows. Issue #215's repro (IServiceProvider + ClaimsIdentity,
   no dependencies) is pinned in `tests/native/reference-resolution/DefaultFrameworkReferences.tests.nl`;
   the docs table between `default-framework-namespaces` markers is checked against the index by

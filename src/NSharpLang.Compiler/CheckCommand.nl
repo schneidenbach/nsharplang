@@ -396,6 +396,7 @@ class CheckCommand {
                 }
                 exitCode := CheckCommandKernels.GetExitCode(summary.Errors)
                 compiler.SaveCheckResult(resultJson, resultJson, false, exitCode)
+                compiler.ReleaseReferenceMetadata()
                 result := new CheckWorkspaceProjectResult(
                     project.ProjectRoot,
                     snapshot.SourceFiles.Count,

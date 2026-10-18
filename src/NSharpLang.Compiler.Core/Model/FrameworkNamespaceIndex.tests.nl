@@ -11,7 +11,6 @@ import System.Runtime.InteropServices
 // asserted on literals. The host half is asserted against the runtime these tests run on, which is
 // the runtime the compiler's analyzer resolves from, so the issue #215 namespaces are pinned where
 // they actually matter.
-
 func FniRows(): List<FrameworkNamespaceRow> {
     return new List<FrameworkNamespaceRow>()
 }
@@ -21,11 +20,13 @@ func FniNames(values: string[]): HashSet<string> {
 }
 
 test "the reference pack's compile surface is its Managed rows, not its analyzers" {
-    xml := "<FileList FrameworkName=\"Microsoft.NETCore.App\">\n" +
-        "  <File Type=\"Analyzer\" Path=\"analyzers/dotnet/cs/System.Text.Json.SourceGeneration.dll\" AssemblyName=\"System.Text.Json.SourceGeneration\" />\n" +
-        "  <File Type=\"Managed\" Path=\"ref/net10.0/System.Runtime.dll\" AssemblyName=\"System.Runtime\" />\n" +
-        "  <File Type=\"Managed\" Path=\"ref/net10.0/System.Security.Claims.dll\" AssemblyName=\"System.Security.Claims\" />\n" +
-        "</FileList>\n"
+    rows := new List<string>()
+    rows.Add("<FileList FrameworkName=\"Microsoft.NETCore.App\">")
+    rows.Add("  <File Type=\"Analyzer\" Path=\"analyzers/dotnet/cs/System.Text.Json.SourceGeneration.dll\" AssemblyName=\"System.Text.Json.SourceGeneration\" />")
+    rows.Add("  <File Type=\"Managed\" Path=\"ref/net10.0/System.Runtime.dll\" AssemblyName=\"System.Runtime\" />")
+    rows.Add("  <File Type=\"Managed\" Path=\"ref/net10.0/System.Security.Claims.dll\" AssemblyName=\"System.Security.Claims\" />")
+    rows.Add("</FileList>")
+    xml := string.Join("\n", rows)
     names := FrameworkNamespaceIndex.ParseFrameworkListAssemblyNames(xml)
     assert names.Count == 2
     assert names.Contains("System.Runtime")
@@ -110,4 +111,39 @@ test "the host index is read once per runtime directory" {
     first := FrameworkNamespaceIndex.ForHostRuntime()
     second := FrameworkNamespaceIndex.ForRuntimeDirectory(RuntimeEnvironment.GetRuntimeDirectory())
     assert Object.ReferenceEquals(first, second)
+}
+
+// ── the on-disk copy ──────────────────────────────────────────────────────────────────────────
+
+func FniSampleIndex(): FrameworkNamespaceIndex {
+    namespaces := new Dictionary<string, string[]>(StringComparer.Ordinal)
+    namespaces["System"] = ["System.ComponentModel", "System.Private.CoreLib"]
+    namespaces["System.Security.Claims"] = ["System.Security.Claims"]
+    return new FrameworkNamespaceIndex("/runtime/10.0.7", "/packs/FrameworkList.xml", FniNames(["System.Runtime", "System.Security.Claims"]), namespaces)
+}
+
+test "a cached index reads back exactly as it was written" {
+    text := FrameworkNamespaceIndex.SerializeCache(FniSampleIndex(), "stamp-1")
+    read := FrameworkNamespaceIndex.ParseCache(text, "stamp-1", "/runtime/10.0.7")
+    assert read != null
+    assert read.CompileSurfaceSource == "/packs/FrameworkList.xml"
+    assert read.CompileAssemblyNames.Count == 2
+    assert read.CompileAssemblyNames.Contains("System.Security.Claims")
+    assert string.Join("|", must read.AssembliesForNamespace("System")) == "System.ComponentModel|System.Private.CoreLib"
+    assert string.Join("|", must read.AssembliesForNamespace("System.Security.Claims")) == "System.Security.Claims"
+    assert read.AssembliesForNamespace("System.Xml") == null
+}
+
+test "a cached index written for another stamp or format is a miss, never an answer" {
+    text := FrameworkNamespaceIndex.SerializeCache(FniSampleIndex(), "stamp-1")
+    assert FrameworkNamespaceIndex.ParseCache(text, "stamp-2", "/runtime/10.0.7") == null
+    assert FrameworkNamespaceIndex.ParseCache(text.Replace("/1\n", "/0\n"), "stamp-1", "/runtime/10.0.7") == null
+    assert FrameworkNamespaceIndex.ParseCache("", "stamp-1", "/runtime/10.0.7") == null
+    assert FrameworkNamespaceIndex.ParseCache(FrameworkNamespaceIndex.CacheFormat() + "\nstamp-1\n\nSystem.Runtime\nbroken line\n", "stamp-1", "/runtime/10.0.7") == null
+}
+
+test "the cache file name is the same in every process" {
+    assert FrameworkNamespaceIndex.StableHash("/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.7") == FrameworkNamespaceIndex.StableHash("/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.7")
+    assert FrameworkNamespaceIndex.StableHash("a") == "0002b606"
+    assert FrameworkNamespaceIndex.StableHash("/a") != FrameworkNamespaceIndex.StableHash("/b")
 }

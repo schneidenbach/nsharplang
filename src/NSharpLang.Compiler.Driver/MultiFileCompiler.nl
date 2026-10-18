@@ -126,6 +126,9 @@ class MultiFileCompiler {
     private _checkStampAnalysisReuseKey: string
     private _checkInputCapture: IncrementalBuildInputCapture?
     private _checkStampEntries: List<IncrementalInputEntry>?
+    // Whether a caller handed this compiler its incremental state (`IncrementalState`); such a state,
+    // and the analyzer it retains, belongs to that caller's session and outlives this compiler.
+    private _incrementalStateFromCaller: bool
     private _checkStateSeededFromStamp: bool
     private _persistedCheckPartial: bool
     private _incrementalState: IncrementalCompilationState?
@@ -333,6 +336,35 @@ class MultiFileCompiler {
 
     // Persists a complete versioned result after diagnostics and backend validation are final. The
     // diagnostics JSON is always retained even when the selected user-facing mode is text.
+    // A CHECKED PROJECT'S REFERENCE METADATA IS RELEASED ONCE ITS RESULT IS SAVED. A workspace check
+    // holds every project's compiler until the whole workspace is rendered, and each compiler's
+    // analyzer holds a metadata load context with one open file per reference image it read. Across
+    // a repository's ~250 projects that is ~10,000 descriptors held at once, which is the per-process
+    // limit .NET runs under on macOS -- and every assembly a project's imports load on demand
+    // (`FrameworkNamespaceIndex`) moves it closer. After `SaveCheckResult` has captured the
+    // compilation's metadata inputs they are kept as entries, so a later save (the workspace's text
+    // rendering) needs no analyzer, and the analyzer is disposed. An analyzer a caller's incremental
+    // session retains is that session's, and is left alone.
+    func ReleaseReferenceMetadata() {
+        capture := _checkInputCapture
+        if capture != null {
+            _checkStampEntries = new List<IncrementalInputEntry>(capture.Entries)
+            _checkInputCapture = null
+        }
+
+        analyzer := _sharedAnalyzerValue
+        if analyzer == null || _incrementalStateFromCaller {
+            return
+        }
+
+        state := _incrementalState
+        if state != null && Object.ReferenceEquals(state.RetainedAnalyzer, analyzer) {
+            state.RetainedAnalyzer = null
+        }
+        analyzer.Dispose()
+        _sharedAnalyzerValue = null
+    }
+
     func SaveCheckResult(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int): bool {
         return SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
     }
@@ -595,6 +627,7 @@ class MultiFileCompiler {
         }
         set {
             _incrementalState = value
+            _incrementalStateFromCaller = value != null
         }
     }
 
@@ -691,6 +724,7 @@ class MultiFileCompiler {
         _checkStampAnalysisReuseKey = ""
         _checkInputCapture = null
         _checkStampEntries = null
+        _incrementalStateFromCaller = false
         _checkStateSeededFromStamp = false
         _persistedCheckPartial = false
         _incrementalState = null
@@ -1321,11 +1355,24 @@ class MultiFileCompiler {
             while index < files.Count {
                 if !reused[index] {
                     outcomes[index] = AnalyzeOneFile(sharedAnalyzer, files[index], units[index])
+                } else {
+                    // A REUSED FILE STILL CONTRIBUTES ITS IMPORTS' LOADS, exactly as a parallel worker
+                    // replays every earlier file it did not analyse: the next analysed file then sees
+                    // the assembly list a full serial run would give it, and the IL back end finds every
+                    // `Microsoft.NETCore.App` assembly the program's imports name already in this
+                    // compilation's shared context instead of reopening the reference set.
+                    sharedAnalyzer.PreloadImportedAssemblies(units[index])
                 }
                 index = index + 1
             }
         } else {
             AnalyzeFilesInParallel(sharedAnalyzer, files, units, reused, outcomes, workerCount)
+            // The workers loaded through the shared context, but only up to the last file one of them
+            // analysed; a reused file after it never had its imports walked. Replaying every file's
+            // imports here completes the context the IL back end reads, as the serial loop does.
+            for unit in units {
+                sharedAnalyzer.PreloadImportedAssemblies(unit)
+            }
         }
         analyzerTimer.Stop()
 

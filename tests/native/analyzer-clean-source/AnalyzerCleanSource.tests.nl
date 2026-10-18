@@ -17681,14 +17681,14 @@ test "020 s34 analyzer clean source: S-CONTROL, the DEFAULTING GETTERS: an untou
     assert AcConfigShape("<unset>", "<unset>") == "Sdk=Microsoft.NET.Sdk;TargetFramework=net10.0;Dependencies=0;TestDependencies=0;"
 }
 
-test "020 s34 analyzer clean source: S-CONTROL, the WHOLE TRIGGER IS THE SUBSTRING: `Sdk = Web` alone makes `AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup` clean, exactly as the twenty-character `Microsoft.NET.Sdk.Web` does — production tests `Sdk.Contains(Web)` and nothing else" {
+test "020 s34 analyzer clean source: S-CONTROL, the TRIGGER IS MSBUILD'S EXACT SDK ID: `Sdk = Web` alone is NOT the Web SDK and leaves `AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup` reporting the non-Web `NL411` — production asks `IsMsBuildImplicitFramework`, which only the whole `Microsoft.NET.Sdk.Web` satisfies, as `dotnet build` does" {
     source := "\n            import System.Threading.Tasks\n            import Microsoft.AspNetCore.Builder\n            import Microsoft.AspNetCore.Http\n\n            class Routes {\n                func Map(app: WebApplication) {\n                    app.MapGet(\"/api/issues\", HandleList)\n                }\n\n                func HandleList(context: HttpContext): Task {\n                    return context.Response.WriteAsync(\"ok\")\n                }\n            }\n        "
     assert AcParseCensus(source) == ""
     analysis := AcAnalyzeWithConfig(source, "Web", "<unset>")
-    assert AcCensus(analysis) == ""
-    assert AcHasErrors(analysis) == "False"
-    assert AcErrorCount(analysis) == 0
-    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCensus(analysis) == "NL411:MethodGroupUsedAsValue@8:47+10;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "MethodGroupUsedAsValue|Method 'HandleList' must be called or passed to a delegate|Call `HandleList(...)`, or pass `HandleList` to a parameter with a delegate type.|Error"
 }
 
 test "020 s34 analyzer clean source: S-CONTROL, `TargetFramework` IS DEAD: setting only `TargetFramework` leaves `AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup` reporting the same `NL411` it reports with no config at all — the field is consumed only by `LoadProjectReference`, which an empty `Dependencies` list can never reach" {

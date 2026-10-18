@@ -211,9 +211,12 @@ them, or under `Microsoft.NET.Sdk`, adds `- framework: Microsoft.AspNetCore.App`
 
 ### How fast is the whole framework?
 
-`nlc` reads which namespaces each `Microsoft.NETCore.App` assembly defines once per process, and
-loads an assembly's types only when your code imports one of its namespaces or spells one of its
-types fully qualified. A project pays for the parts of the framework it uses, not for all of it.
+`nlc` loads an assembly's types only when your code imports one of its namespaces or spells one of
+its types fully qualified, so a project pays for the parts of the framework it uses, not for all of
+it. Which namespaces each `Microsoft.NETCore.App` assembly defines is read once per installed .NET
+runtime and kept in a small file in your per-user data directory (`nsharp/framework-index` under
+`~/Library/Application Support` on macOS, `~/.local/share` on Linux, `%LOCALAPPDATA%` on Windows).
+Deleting it is always safe: the next `nlc` command writes it again.
 
 ### ASP.NET Core projects
 
