@@ -22363,6 +22363,16 @@ sealed class ColumnarIlEmitter {
             return false
         }
         text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        if negative && target == typeof(int) && NumericLiteralFacts.IsNegatedIntMinimumLiteral(text) {
+            _il.Emit(OpCodes.Ldc_I4, int.MinValue)
+            resolvedClrType = target
+            return true
+        }
+        if negative && target == typeof(long) && NumericLiteralFacts.IsNegatedLongMinimumLiteral(text) {
+            _il.Emit(OpCodes.Ldc_I8, long.MinValue)
+            resolvedClrType = target
+            return true
+        }
         // §10.2.4 — the literal ZERO adopts any enum type. The analyzer admits it at the same positions;
         // an enum's storage is its underlying integer, so zero is an `ldc.i4.0`. The enum question is
         // asked through the GUARDED owner: a raw `get_IsEnum` routes through `IsSubclassOf`, which a

@@ -1132,8 +1132,21 @@ class AnalyzerOperatorExpressions {
     // NEGATION READS THE TARGET-TYPING SLOT, and it is the only unary that does. `value: byte = -1`
     // must be refused for the RIGHT reason — the magnitude is what does not fit, not the sign — so a
     // negated integer literal is typed against the annotation before the promotion table is asked.
-    // The literal's own suffix wins: `-1L` is a `long` whatever it is being stored in.
+    // The literal's own suffix wins: `-1L` is a `long` whatever it is being stored in. C#'s two
+    // minimum-value tokens are resolved before that contextual rule: their unary expressions are
+    // int/long constants even though the positive operand magnitudes type as uint/ulong.
     func NegationResult(operandType: TypeInfo, unaryNode: UnaryExpression): TypeInfo {
+        intLiteral := unaryNode.Operand as IntLiteralExpression
+        if intLiteral != null {
+            if NumericLiteralFacts.IsNegatedIntMinimumLiteral(intLiteral.Value) {
+                return BuiltInTypes.Int
+            }
+
+            if NumericLiteralFacts.IsNegatedLongMinimumLiteral(intLiteral.Value) {
+                return BuiltInTypes.Long
+            }
+        }
+
         if BuiltInTypes.IsUnknown(operandType) {
             return BuiltInTypes.Unknown
         }
@@ -1143,7 +1156,6 @@ class AnalyzerOperatorExpressions {
             return overloadResult
         }
 
-        intLiteral := unaryNode.Operand as IntLiteralExpression
         if intLiteral != null {
             targetTypedLiteralType: TypeInfo = BuiltInTypes.Unknown
             if TryGetExpectedNegativeIntegerLiteralType(ambientValue.CurrentExpectedType, intLiteral.Value, out targetTypedLiteralType) {

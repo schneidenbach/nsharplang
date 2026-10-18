@@ -1919,6 +1919,12 @@ remain focused separately with `./scripts/dev.sh --estate AnalyzerLiteralExpress
 `./scripts/dev.sh --estate ColumnarCatalogReferenceArrayControls`, and
 `./scripts/dev.sh --estate ColumnarInstanceMemberPlanner`, plus
 `./scripts/dev.sh --estate ColumnarCodePlanExecutor` for struct-initializer temporary validation.
+Unary-minus boundary coverage is owned by `NumericLiteralFacts`, `AnalyzerOperatorExpressions`,
+`ColumnarUnaryLiteralPlanner`, and the same native project. Its contracts pin the exact integer
+tokens, inferred signed types, runtime minimum values, target-typed `int` assignment, neighboring
+values, and `int` versus `long` overload selection. Run those focused rows through
+`~/code/nsharplang-wt/bin/mnw-slot build` with the private `NUGET_PACKAGES` directory before the
+fresh heavy integration gate.
 
 ### The compiler-service estate
 ```bash

@@ -63,6 +63,13 @@ mask: long = 4294967295
 
 A suffix fixes the literal's type, as in `4294967295L` or `4294967295UL`.
 
+Unary minus has two C# boundary cases. When an integer token with the corresponding magnitude
+immediately follows `-`, `-2147483648` is an `int` with the value `int.MinValue`, and
+`-9223372036854775808` is a `long` with the value `long.MinValue`. The long minimum may also be
+written with an `L` suffix. The same rule applies to radix spellings such as `-0x80000000`. The
+positive magnitudes by themselves still follow the first-fitting rule: `2147483648` is `uint`, and
+`9223372036854775808` is `ulong`.
+
 ### Binary numeric promotion
 
 An arithmetic, bitwise or comparison operator runs in ONE type, and which one is decided by the two

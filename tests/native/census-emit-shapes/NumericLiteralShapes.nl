@@ -33,3 +33,40 @@ func UnsuffixedUlongLiteral(): ulong {
     typed: ulong = value
     return typed
 }
+
+func NegatedIntMinimum(): int {
+    return -2147483648
+}
+
+func NegatedIntMinimumTargetTyped(): int {
+    value: int = -2147483648
+    return value
+}
+
+func NegatedLongMinimum(): long {
+    return -9223372036854775808
+}
+
+func NegatedLongMinimumWithSuffix(): long {
+    return -9223372036854775808L
+}
+
+func NegatedIntNearMinimum(): int {
+    return -2147483647
+}
+
+func SelectMinimum(_value: int): string {
+    return "int"
+}
+
+func SelectMinimum(_value: long): string {
+    return "long"
+}
+
+func SelectIntMinimumOverload(): string {
+    return SelectMinimum(-2147483648)
+}
+
+func SelectLongMinimumOverload(): string {
+    return SelectMinimum(-9223372036854775808)
+}

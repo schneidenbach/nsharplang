@@ -1084,6 +1084,31 @@ test "A SUFFIXED NEGATIVE LITERAL IS NOT TARGET-TYPED — THE SUFFIX IS WHAT THE
     harness.Ambient.ExitExpectedType(saved)
 }
 
+test "C sharp unary minus gives the two decimal minimum tokens their signed types" {
+    harness := OperatorDefault()
+
+    intMinimumLiteral: Expression = new IntLiteralExpression("2147483648", 2, 6)
+    intMinimum := harness.Operators.Begin(OperatorUnary(UnaryOperator.Negate, intMinimumLiteral))
+    OperatorRun(harness, intMinimum, OperatorOne(BuiltInTypes.UInt))
+    assert OperatorTypeText(harness.Operators.Result(intMinimum)) == "int"
+
+    longMinimumLiteral: Expression = new IntLiteralExpression("9223372036854775808", 3, 6)
+    longMinimum := harness.Operators.Begin(OperatorUnary(UnaryOperator.Negate, longMinimumLiteral))
+    OperatorRun(harness, longMinimum, OperatorOne(BuiltInTypes.ULong))
+    assert OperatorTypeText(harness.Operators.Result(longMinimum)) == "long"
+
+    longMinimumWithSuffix: Expression = new IntLiteralExpression("9223372036854775808L", 4, 6)
+    longSuffixMinimum := harness.Operators.Begin(OperatorUnary(UnaryOperator.Negate, longMinimumWithSuffix))
+    OperatorRun(harness, longSuffixMinimum, OperatorOne(BuiltInTypes.ULong))
+    assert OperatorTypeText(harness.Operators.Result(longSuffixMinimum)) == "long"
+
+    adjacentIntLiteral: Expression = new IntLiteralExpression("2147483649", 5, 6)
+    adjacentInt := harness.Operators.Begin(OperatorUnary(UnaryOperator.Negate, adjacentIntLiteral))
+    OperatorRun(harness, adjacentInt, OperatorOne(BuiltInTypes.UInt))
+    assert OperatorTypeText(harness.Operators.Result(adjacentInt)) == "long"
+    assert harness.Errors.Count == 0
+}
+
 test "NEGATION'S PROMOTION DIFFERS FROM THE SHIFT'S IN EXACTLY TWO PLACES" {
     harness := OperatorDefault()
 
