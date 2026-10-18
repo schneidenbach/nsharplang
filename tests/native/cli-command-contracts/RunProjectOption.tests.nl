@@ -105,9 +105,10 @@ test "rebuilding never changes the bytes of an assembly a process still holds op
         assert first.ExitCode == 0, first.Stdout + first.Stderr
 
         assemblyPath := Path.Combine(Path.Combine(Path.Combine(Path.Combine(directory, "bin"), "Debug"), "net10.0"), "RebuildHeldProbe.dll")
+        // Unbuffered (size 1), so every read goes to the file rather than a cached block.
         // Holding the file open stands in for a running server's mapping of it: both keep the inode
         // they opened. FileShare.Read (no delete sharing) is the strictest holder, the Windows loader's.
-        held := new FileStream(assemblyPath, FileMode.Open, FileAccess.Read, FileShare.Read)
+        held := new FileStream(assemblyPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1)
         try {
             before := ReadHeldBytes(held)
             File.WriteAllText(Path.Combine(directory, "Program.nl"), "func main() {\n    print \"second-build-with-a-longer-message-than-the-first\"\n}\n")
