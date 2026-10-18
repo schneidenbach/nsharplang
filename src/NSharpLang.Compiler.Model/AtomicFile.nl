@@ -15,19 +15,22 @@ import System.IO
 //
 // Windows refuses to replace a file that is mapped. It does allow it to be RENAMED, so when the
 // replace fails with an IO or permission error the fallback moves the old file aside, moves the new
-// one into place (moving the old one back if that fails), and deletes the aside when it can. A
-// leftover `<name>.replaced-<id>`, and a `<name>.<id>.tmp` from a build that was killed mid-write,
-// are swept on the next write of that name.
+// one into place, and moves the old one back before rethrowing if that move fails. A leftover
+// `<name>.replaced-<id>`, and a `<name>.<id>.tmp` from a build that was killed mid-write, are swept
+// on the next write of that name.
 class AtomicFile {
     static func WriteAllBytes(path: string, bytes: byte[]) {
         SweepLeftovers(path)
         tempPath := GetTemporaryPath(path)
+        completed := false
         try {
             File.WriteAllBytes(tempPath, bytes)
             Replace(tempPath, path)
-        } catch ex: Exception {
-            TryDelete(tempPath)
-            throw
+            completed = true
+        } finally {
+            if !completed {
+                TryDelete(tempPath)
+            }
         }
     }
 
@@ -40,12 +43,15 @@ class AtomicFile {
     static func Copy(source: string, destination: string) {
         SweepLeftovers(destination)
         tempPath := GetTemporaryPath(destination)
+        completed := false
         try {
             File.Copy(source, tempPath, true)
             Replace(tempPath, destination)
-        } catch ex: Exception {
-            TryDelete(tempPath)
-            throw
+            completed = true
+        } finally {
+            if !completed {
+                TryDelete(tempPath)
+            }
         }
     }
 
@@ -87,38 +93,34 @@ class AtomicFile {
             throw original
         }
 
-        // The target exists and could not be replaced: it is held open without delete sharing.
+        // The target exists and the platform refused to replace it in place. A mapped file may
+        // still be renameable, which lets the fallback preserve the handle's original bytes.
         aside := Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".", GetReplacedPrefix(path) + Guid.NewGuid().ToString("N").Substring(0, 12))
         File.Move(path, aside)
-        failure := TryMoveInto(tempPath, path, aside)
-        if failure != null {
-            throw failure
-        }
-
+        MoveIntoOrRestore(tempPath, path, aside)
         TryDelete(aside)
     }
 
-    // Moves the new file into place; when that fails the previous output is moved back, so the
-    // caller is left with the old file rather than none, and the failure is returned to report.
-    private static func TryMoveInto(tempPath: string, path: string, aside: string): Exception? {
-        failure: Exception? = null
+    // If the new file cannot be moved into place, try to restore the previous output before the
+    // original move exception escapes. Do not overwrite a path another writer may have created.
+    private static func MoveIntoOrRestore(tempPath: string, path: string, aside: string) {
         try {
             File.Move(tempPath, path)
-        } catch moveFailure: Exception {
-            failure = moveFailure
-        }
-
-        if failure != null {
+        } catch moveFailure: IOException {
             TryRestore(aside, path)
+            throw
+        } catch denied: UnauthorizedAccessException {
+            TryRestore(aside, path)
+            throw
         }
-
-        return failure
     }
 
     private static func TryRestore(aside: string, path: string) {
         try {
-            File.Move(aside, path, true)
-        } catch restoreFailure: Exception {
+            File.Move(aside, path)
+        } catch ioFailure: IOException {
+            return
+        } catch denied: UnauthorizedAccessException {
             return
         }
     }
@@ -134,14 +136,22 @@ class AtomicFile {
             for leftover in Directory.EnumerateFiles(directory, GetReplacedPrefix(path) + "*") {
                 TryDelete(leftover)
             }
+        } catch ioFailure: IOException {
+            return
+        } catch denied: UnauthorizedAccessException {
+            return
+        }
 
+        try {
             cutoff := DateTime.UtcNow - GetStaleTemporaryAge()
             for stale in Directory.EnumerateFiles(directory, name + ".*.tmp") {
                 if File.GetLastWriteTimeUtc(stale) < cutoff {
                     TryDelete(stale)
                 }
             }
-        } catch ex: Exception {
+        } catch ioFailure: IOException {
+            return
+        } catch denied: UnauthorizedAccessException {
             return
         }
     }
@@ -151,7 +161,9 @@ class AtomicFile {
             if File.Exists(path) {
                 File.Delete(path)
             }
-        } catch ex: Exception {
+        } catch ioFailure: IOException {
+            return
+        } catch denied: UnauthorizedAccessException {
             return
         }
     }

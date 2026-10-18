@@ -141,10 +141,9 @@ test "rebuilding never changes the bytes of an assembly a process still holds op
         assert first.ExitCode == 0, first.Stdout + first.Stderr
 
         assemblyPath := Path.Combine(Path.Combine(Path.Combine(Path.Combine(directory, "bin"), "Debug"), "net10.0"), "RebuildHeldProbe.dll")
-        // Unbuffered (size 1), so every read goes to the file rather than a cached block.
-        // Holding the file open stands in for a running server's mapping of it: both keep the inode
-        // they opened. Read | Delete sharing is how the loader maps an assembly on Windows: the file
-        // can be renamed or replaced, but its contents cannot be rewritten underneath the holder.
+        // A FileStream buffer size of 1 avoids its managed read-ahead buffer; the OS may still cache pages.
+        // Read | Delete sharing lets Windows replace the path while this handle keeps reading the old file.
+        // This matches the loader's sharing behavior for a mapped assembly.
         held := new FileStream(assemblyPath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1)
         try {
             before := ReadHeldBytes(held)

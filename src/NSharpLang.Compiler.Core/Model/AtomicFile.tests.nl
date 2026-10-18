@@ -5,11 +5,10 @@ import System.IO
 
 // BUILD OUTPUTS ARE REPLACED, NEVER REWRITTEN IN PLACE (issue 253).
 //
-// A process that has an assembly open keeps the inode it opened. Holding a `FileStream` is the
-// deterministic stand-in for a running server's mapping: if the writer truncates and rewrites the
-// same inode, the held handle reads the new bytes, which is the corruption the issue reports. The
-// holder shares Read | Delete, as the Windows loader does for a mapped assembly: the file may be
-// renamed or replaced, but not rewritten underneath the holder.
+// Holding a `FileStream` keeps a handle to the original file while the test replaces its path. This
+// is a deterministic stand-in for a running server's mapped assembly: an in-place rewrite would
+// change the bytes read through the held handle. Read | Delete sharing models the Windows loader's
+// ability to keep reading the old file while its path is renamed or replaced.
 func AtomicTempDirectory(): string {
     directory := Path.Combine(Path.GetTempPath(), "atomic-file-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory(directory)
@@ -29,7 +28,7 @@ test "WriteAllBytes leaves the bytes a holder has open untouched and replaces th
     try {
         path := Path.Combine(directory, "Out.dll")
         AtomicFile.WriteAllBytes(path, System.Text.Encoding.UTF8.GetBytes("old-contents"))
-        held := new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete)
+        held := new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1)
         try {
             AtomicFile.WriteAllBytes(path, System.Text.Encoding.UTF8.GetBytes("new, longer contents"))
 
@@ -66,7 +65,7 @@ test "Copy replaces the destination without touching a holder and keeps the sour
         File.WriteAllText(source, "copied")
         File.SetLastWriteTimeUtc(source, new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc))
         File.WriteAllText(destination, "previous")
-        held := new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete)
+        held := new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1)
         try {
             AtomicFile.Copy(source, destination)
 
