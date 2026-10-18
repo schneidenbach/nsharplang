@@ -251,14 +251,16 @@ static class TestCommandHost {
         markerName := DaemonExecKernels.GetDaemonChildEnvironmentVariable()
         previousMarker := Environment.GetEnvironmentVariable(markerName)
         Environment.SetEnvironmentVariable(markerName, "1")
-        // A hosted application's content root (`WebApplicationFactory`) is handed over for the length of
-        // the run; a setting the caller already made wins.
-        contentRootSettings := new List<string>()
-        for setting in TestCommandKernels.ReadContentRootEnvironment(Path.GetDirectoryName(outputPath) ?? "") {
-            if Environment.GetEnvironmentVariable(setting.Key) == null {
-                Environment.SetEnvironmentVariable(setting.Key, setting.Value)
-                contentRootSettings.Add(setting.Key)
-            }
+        // A test output that hosts applications in-process (`WebApplicationFactory`) is run as `dotnet
+        // test` runs it: from its own directory, which is where the factory looks for the application's
+        // `deps.json` and `MvcTestingAppManifest.json`.
+        outputDirectory := Path.GetDirectoryName(outputPath) ?? ""
+        hostsApplications := TestCommandKernels.HostsApplications(outputDirectory)
+        previousDirectory := Directory.GetCurrentDirectory()
+        previousBaseDirectory := AppContext.GetData("APP_CONTEXT_BASE_DIRECTORY")
+        if hostsApplications {
+            Directory.SetCurrentDirectory(outputDirectory)
+            AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", outputDirectory + Path.DirectorySeparatorChar.ToString())
         }
         try {
             if TestCommandKernels.ShouldRunNUnit(testFramework) {
@@ -267,8 +269,9 @@ static class TestCommandHost {
 
             return XunitTestRunner.Run(outputPath, frameworkDirectories, filter, verbose, timeoutMs)
         } finally {
-            for settingName in contentRootSettings {
-                Environment.SetEnvironmentVariable(settingName, null)
+            if hostsApplications {
+                AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", previousBaseDirectory)
+                Directory.SetCurrentDirectory(previousDirectory)
             }
             Environment.SetEnvironmentVariable(markerName, previousMarker)
             Console.SetOut(stdout)

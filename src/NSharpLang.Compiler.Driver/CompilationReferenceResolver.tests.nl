@@ -742,9 +742,8 @@ test "a test project that hosts an application in-process receives the applicati
         outputDirectory := Path.Combine(projectRoot, "tests-out")
         result.CopyRuntimeAssets(outputDirectory)
         assert File.Exists(Path.Combine(outputDirectory, "N6App.deps.json"))
-        contentRootSettings := TestCommandKernels.ReadContentRootEnvironment(outputDirectory)
-        assert contentRootSettings.Count == 1
-        assert contentRootSettings["TEST_CONTENTROOT_N6APP"] == appRoot
+        assert TestCommandKernels.HostsApplications(outputDirectory)
+        assert File.ReadAllText(Path.Combine(outputDirectory, "MvcTestingAppManifest.json")).Contains(appRoot.Replace("\\", "\\\\"))
 
         plainRoot := Path.Combine(projectRoot, "plain")
         plain := CompilationReferenceResolver.AddResolvedDllReferences(plainRoot, ResolverParseProject(plainRoot), options)

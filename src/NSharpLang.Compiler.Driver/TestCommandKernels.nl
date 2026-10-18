@@ -233,38 +233,15 @@ class TestCommandKernels {
         return null
     }
 
-    // THE HOSTED APPLICATIONS' CONTENT ROOTS, as the environment `WebApplicationFactory<TEntryPoint>`
-    // reads them. A test project that references Microsoft.AspNetCore.Mvc.Testing gets a
-    // `MvcTestingAppManifest.json` (assembly full name -> project directory) beside its assembly, the
-    // file the package's MSBuild targets write. The factory looks for that file relative to the
-    // CURRENT directory, which `dotnet test` sets to the output directory and `nlc test` leaves at the
-    // project directory, so the same facts are handed over as its documented
-    // `TEST_CONTENTROOT_<ASSEMBLYNAME>` settings instead -- they do not depend on the directory.
-    static func ReadContentRootEnvironment(outputDirectory: string): Dictionary<string, string> {
-        settings := new Dictionary<string, string>(StringComparer.Ordinal)
-        manifestPath := Path.Combine(outputDirectory, "MvcTestingAppManifest.json")
-        if !File.Exists(manifestPath) {
-            return settings
-        }
-
-        using manifest := JsonDocument.Parse(File.ReadAllText(manifestPath))
-        if manifest.RootElement.ValueKind != JsonValueKind.Object {
-            return settings
-        }
-
-        for entry in manifest.RootElement.EnumerateObject() {
-            contentRoot := entry.Value.GetString()
-            if contentRoot == null || contentRoot == "~" {
-                continue
-            }
-
-            assemblyName := new AssemblyName(entry.Name).Name
-            if assemblyName != null {
-                settings["TEST_CONTENTROOT_" + assemblyName.ToUpperInvariant()] = contentRoot
-            }
-        }
-
-        return settings
+    // WHETHER THE TEST OUTPUT HOSTS APPLICATIONS IN-PROCESS. A test project that references
+    // Microsoft.AspNetCore.Mvc.Testing gets a `MvcTestingAppManifest.json` (assembly full name ->
+    // project directory) beside its assembly, the file the package's MSBuild targets write.
+    // `WebApplicationFactory<TEntryPoint>` finds the file, and `<app>.deps.json`, relative to the
+    // current directory and `AppContext.BaseDirectory`: `dotnet test` runs from the output
+    // directory, while `nlc test` runs inside the CLI's own process, so the run is pointed at the
+    // output directory for its length.
+    static func HostsApplications(outputDirectory: string): bool {
+        return File.Exists(Path.Combine(outputDirectory, "MvcTestingAppManifest.json"))
     }
 
     static func ShouldRunNUnit(testFramework: string?): bool {
