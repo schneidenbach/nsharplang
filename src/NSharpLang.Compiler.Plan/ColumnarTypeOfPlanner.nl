@@ -1285,7 +1285,17 @@ class ColumnarTypeOfPlanner {
         if IsClosedSourceGeneric(valueType) {
             return true
         }
-        return !valueType.IsValueType && IsSupportedCatalogType(valueType)
+        // A CLOSED NON-GENERIC EXTERNAL STRUCT such as `Guid` or `DateTime` is an element like the same
+        // struct declared here: `stelem <type>` and `ldelem <type>` use the element handle, not a
+        // per-type opcode table. Tuples and source generics have their own owners above; arbitrary
+        // external generic structs and decimal remain outside this array-element surface. A by-ref-like
+        // struct may not be an element of anything.
+        if IsValueTypeSafely(valueType) {
+            if (RuntimeTypeShapeFacts.IsByRefLike(valueType) || valueType.IsGenericType || valueType == typeof(decimal)) {
+                return false
+            }
+        }
+        return IsSupportedCatalogType(valueType)
     }
 
     // A `Nullable<T>` NEEDS A NON-NULLABLE VALUE `T`, AND THAT IS THE WHOLE QUESTION.
