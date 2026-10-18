@@ -130,6 +130,7 @@ sealed class CompilationReferenceResolver {
             config.Dependencies,
             ReferenceType.Project
         )
+        ownDllReferences := ProjectReferenceFlow.SnapshotDllReferences(config)
         projectIndex := 0
         while projectIndex < projectReferences.Count {
             projectReference := projectReferences[projectIndex]
@@ -171,7 +172,7 @@ sealed class CompilationReferenceResolver {
             // compilation, and the package's files are copied beside this project's output
             // (`result.Add` below carries them).
             for transitiveCompileReference in referencedOutput.References.CompileReferences {
-                AddDllReference(config, transitiveCompileReference)
+                ProjectReferenceFlow.AddFlowedCompileReference(config, ownDllReferences, transitiveCompileReference)
             }
             result.AddRuntimeAsset(referencedOutput.OutputAssemblyPath)
             // `WebApplicationFactory<TEntryPoint>` reads the application's own `<app>.deps.json` from the

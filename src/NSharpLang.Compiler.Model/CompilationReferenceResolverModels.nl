@@ -315,8 +315,14 @@ class ReferenceResolutionResult {
             CopyIfChanged(runtimeTarget.SourcePath, Path.Combine(outputDirectory, runtimeTarget.RelativePath))
         }
 
-        if ContentRootMap.Count > 0 {
-            manifestPath := Path.Combine(outputDirectory, "MvcTestingAppManifest.json")
+        manifestPath := Path.Combine(outputDirectory, "MvcTestingAppManifest.json")
+        if ContentRootMap.Count == 0 {
+            // A project that no longer hosts applications must not keep the last build's manifest:
+            // the runner treats its presence as the signal to run from the output directory.
+            if File.Exists(manifestPath) {
+                File.Delete(manifestPath)
+            }
+        } else {
             manifest := JsonSerializer.Serialize(ContentRootMap, new JsonSerializerOptions { WriteIndented: true }) + Environment.NewLine
             if !File.Exists(manifestPath) || File.ReadAllText(manifestPath) != manifest {
                 File.WriteAllText(manifestPath, manifest)

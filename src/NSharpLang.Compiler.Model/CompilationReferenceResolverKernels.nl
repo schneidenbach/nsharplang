@@ -1340,6 +1340,14 @@ class CompilationReferenceResolverKernels {
                 result[0] = -1
                 return 1
             }
+
+            // The asset's platform version must not exceed the target's: `android35.0` code cannot run
+            // on `android34.0`. A target that names no version is `windows7.0` for Windows (the SDK's
+            // default) and 0.0 for every other platform, as NuGet normalises it.
+            if FrameworkPlatformVersion(assetFramework, assetPlatformDash, assetEnd) > FrameworkTargetPlatformVersion(targetFramework, targetPlatformDash, targetEnd) {
+                result[0] = -1
+                return 1
+            }
         }
 
         if !FrameworkParseVersionInto(assetFramework, assetStart, assetEnd, result, 1) {
@@ -1357,6 +1365,12 @@ class CompilationReferenceResolverKernels {
         targetMajor := result[3]
 
         if FrameworkNormalizedStartsWith(assetFramework, assetStart, assetEnd, "netstandard") {
+            // .NET Standard ends at 2.1; a higher version is not a framework.
+            if (assetMajor * 100) + assetMinor > 201 {
+                result[0] = -1
+                return 1
+            }
+
             result[0] = 4000 + (assetMajor * 100) + assetMinor
             return 1
         }
@@ -1419,6 +1433,36 @@ class CompilationReferenceResolverKernels {
         }
 
         return index
+    }
+
+    // The platform version after the name as major * 100 + minor (`android34.0` -> 3400), 0 for none.
+    static func FrameworkPlatformVersion(text: string, dash: int, end: int): int {
+        index := FrameworkPlatformNameEnd(text, dash, end)
+        major := 0
+        while index < end && TargetFrameworkIsDigit(text[index]) {
+            major = major * 10 + (text[index] - '0')
+            index = index + 1
+        }
+
+        minor := 0
+        if index < end && text[index] == '.' {
+            index = index + 1
+            while index < end && TargetFrameworkIsDigit(text[index]) {
+                minor = minor * 10 + (text[index] - '0')
+                index = index + 1
+            }
+        }
+
+        return major * 100 + minor
+    }
+
+    static func FrameworkTargetPlatformVersion(text: string, dash: int, end: int): int {
+        version := FrameworkPlatformVersion(text, dash, end)
+        if version == 0 && string.Equals(text.Substring(dash + 1, FrameworkPlatformNameEnd(text, dash, end) - dash - 1), "windows", StringComparison.OrdinalIgnoreCase) {
+            return 700
+        }
+
+        return version
     }
 
     static func FrameworkPlatformNamesEqual(left: string, leftDash: int, leftEnd: int, right: string, rightDash: int, rightEnd: int): bool {
@@ -1850,14 +1894,23 @@ class CompilationReferenceResolverKernels {
         }
 
         family := new List<string>()
-        family.Add(baseSystem)
-        if string.Equals(baseSystem, "alpine", StringComparison.OrdinalIgnoreCase) {
-            family.Add("linux-musl")
-            family.Add("linux")
-        } else if string.Equals(baseSystem, "linux-musl", StringComparison.OrdinalIgnoreCase) {
-            family.Add("linux")
-        } else if IsLinuxDistribution(baseSystem) {
-            family.Add("linux")
+        if string.Equals(baseSystem, "win", StringComparison.OrdinalIgnoreCase) {
+            // win11 -> win10 -> win81 -> win8 -> win7 -> win: each older Windows is a fallback.
+            versionName := operatingSystem
+            while versionName.Length > 0 {
+                family.Add(versionName)
+                versionName = GetWindowsRuntimeIdentifierParent(versionName)
+            }
+
+            family.Add("win")
+        } else {
+            current := baseSystem
+            guard := 0
+            while current.Length > 0 && guard < 8 {
+                family.Add(current)
+                current = GetLinuxRuntimeIdentifierParent(current)
+                guard = guard + 1
+            }
         }
 
         for osName in family {
@@ -1891,15 +1944,39 @@ class CompilationReferenceResolverKernels {
         return false
     }
 
-    static func IsLinuxDistribution(systemName: string): bool {
-        known := ["ubuntu", "debian", "rhel", "centos", "fedora", "ol", "sles", "opensuse", "arch", "amzn", "rocky", "almalinux", "linuxmint", "raspbian", "tizen", "gentoo"]
-        for distribution in known {
-            if string.Equals(systemName, distribution, StringComparison.OrdinalIgnoreCase) {
-                return true
+    // The parent a Linux RID falls back to in the runtime identifier graph: a derivative names its
+    // base distribution, every distribution names `linux`, and Alpine names `linux-musl`. Empty for
+    // a RID with no parent (`osx`, `freebsd`, `linux`).
+    static func GetLinuxRuntimeIdentifierParent(systemName: string): string {
+        derived := ["linuxmint:ubuntu", "pop:ubuntu", "elementary:ubuntu", "kali:debian", "raspbian:debian", "ubuntu:debian", "debian:linux", "centos:rhel", "fedora:rhel", "ol:rhel", "rocky:rhel", "almalinux:rhel", "amzn:rhel", "rhel:linux", "sles:linux", "opensuse:linux", "arch:linux", "gentoo:linux", "tizen:linux", "alpine:linux-musl", "linux-musl:linux"]
+        for entry in derived {
+            separator := entry.IndexOf(':')
+            if string.Equals(entry.Substring(0, separator), systemName, StringComparison.OrdinalIgnoreCase) {
+                return entry.Substring(separator + 1)
             }
         }
 
-        return false
+        return ""
+    }
+
+    static func GetWindowsRuntimeIdentifierParent(systemName: string): string {
+        if string.Equals(systemName, "win11", StringComparison.OrdinalIgnoreCase) {
+            return "win10"
+        }
+
+        if string.Equals(systemName, "win10", StringComparison.OrdinalIgnoreCase) {
+            return "win81"
+        }
+
+        if string.Equals(systemName, "win81", StringComparison.OrdinalIgnoreCase) {
+            return "win8"
+        }
+
+        if string.Equals(systemName, "win8", StringComparison.OrdinalIgnoreCase) {
+            return "win7"
+        }
+
+        return ""
     }
 
     // A package file's path from its version directory, with `/` separators on every platform: the
@@ -1914,22 +1991,41 @@ class CompilationReferenceResolverKernels {
     }
 
     // `net10.0` -> `.NETCoreApp,Version=v10.0`, the `runtimeTarget` name a `deps.json` carries.
+    // Older framework monikers keep their own family: `netcoreapp3.1` -> `.NETCoreApp,Version=v3.1`,
+    // `netstandard2.0` -> `.NETStandard,Version=v2.0`, `net48` -> `.NETFramework,Version=v4.8`.
     static func GetDependencyManifestTargetName(targetFramework: string): string {
-        version := targetFramework
-        if version.StartsWith("net", StringComparison.OrdinalIgnoreCase) {
-            version = version.Substring(3)
+        moniker := targetFramework
+        platformDash := moniker.IndexOf('-')
+        if platformDash >= 0 {
+            moniker = moniker.Substring(0, platformDash)
         }
 
-        platformDash := version.IndexOf('-')
-        if platformDash >= 0 {
-            version = version.Substring(0, platformDash)
+        family := ".NETCoreApp"
+        version := moniker
+        if moniker.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase) {
+            family = ".NETStandard"
+            version = moniker.Substring(11)
+        } else if moniker.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase) {
+            version = moniker.Substring(10)
+        } else if moniker.StartsWith("net", StringComparison.OrdinalIgnoreCase) {
+            version = moniker.Substring(3)
+            if version.IndexOf('.') < 0 && version.Length >= 2 && version[0] < '5' {
+                family = ".NETFramework"
+                dotted := version.Substring(0, 1)
+                index := 1
+                while index < version.Length {
+                    dotted = dotted + "." + version.Substring(index, 1)
+                    index = index + 1
+                }
+                version = dotted
+            }
         }
 
         if version.IndexOf('.') < 0 {
             version = version + ".0"
         }
 
-        return ".NETCoreApp,Version=v" + version
+        return family + ",Version=v" + version
     }
 
     // The file names an unmanaged library name can mean on one operating system, in the order the

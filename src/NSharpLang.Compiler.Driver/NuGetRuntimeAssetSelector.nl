@@ -56,25 +56,18 @@ class NuGetRuntimeAssetSelector {
 
             nativeDirectory := Path.Combine(ridDirectory, "native")
             if Directory.Exists(nativeDirectory) {
-                nativeFiles := CompilationReferenceResolverKernels.SortPathsIgnoreCase(
-                    Directory.GetFiles(nativeDirectory, "*", SearchOption.TopDirectoryOnly)
-                )
-                for nativeFile in nativeFiles {
-                    if CompilationReferenceResolverKernels.IsPackagePlaceholderFile(nativeFile) {
-                        continue
-                    }
+                AddNativeFiles(files, packageId, packageVersion, versionDirectory, nativeDirectory, rid)
+            }
 
-                    files.Add(
-                        new PackageRuntimeFile(
-                            packageId,
-                            packageVersion,
-                            versionDirectory,
-                            nativeFile,
-                            CompilationReferenceResolverKernels.GetPackageRelativePath(versionDirectory, nativeFile),
-                            rid,
-                            "native"
-                        )
-                    )
+            // `runtimes/<rid>/nativeassets/<tfm>/*` (UWP): the nearest framework folder, as for `lib`.
+            nativeAssetsRoot := Path.Combine(ridDirectory, "nativeassets")
+            if Directory.Exists(nativeAssetsRoot) {
+                nativeAssetsDirectory := CompilationReferenceResolverKernels.SelectBestAssetDirectory(
+                    Directory.GetDirectories(nativeAssetsRoot, "*", SearchOption.TopDirectoryOnly),
+                    targetFramework
+                )
+                if nativeAssetsDirectory != null {
+                    AddNativeFiles(files, packageId, packageVersion, versionDirectory, nativeAssetsDirectory, rid)
                 }
             }
 
@@ -106,5 +99,37 @@ class NuGetRuntimeAssetSelector {
         }
 
         return files
+    }
+
+    // Every file under a native folder, nested folders included: a package may group libraries in
+    // subfolders and the host resolves each by its `runtimeTargets` path.
+    private static func AddNativeFiles(
+        files: List<PackageRuntimeFile>,
+        packageId: string,
+        packageVersion: string,
+        versionDirectory: string,
+        nativeDirectory: string,
+        rid: string
+    ) {
+        nativeFiles := CompilationReferenceResolverKernels.SortPathsIgnoreCase(
+            Directory.GetFiles(nativeDirectory, "*", SearchOption.AllDirectories)
+        )
+        for nativeFile in nativeFiles {
+            if CompilationReferenceResolverKernels.IsPackagePlaceholderFile(nativeFile) {
+                continue
+            }
+
+            files.Add(
+                new PackageRuntimeFile(
+                    packageId,
+                    packageVersion,
+                    versionDirectory,
+                    nativeFile,
+                    CompilationReferenceResolverKernels.GetPackageRelativePath(versionDirectory, nativeFile),
+                    rid,
+                    "native"
+                )
+            )
+        }
     }
 }

@@ -252,17 +252,21 @@ static class TestCommandHost {
         previousMarker := Environment.GetEnvironmentVariable(markerName)
         Environment.SetEnvironmentVariable(markerName, "1")
         // A test output that hosts applications in-process (`WebApplicationFactory`) is run as `dotnet
-        // test` runs it: from its own directory, which is where the factory looks for the application's
-        // `deps.json` and `MvcTestingAppManifest.json`.
+        // test` runs it: from its own directory, and with `AppContext.BaseDirectory` pointing there,
+        // which is where the factory looks for `<app>.deps.json` and `MvcTestingAppManifest.json`.
+        // BOTH ARE PROCESS-GLOBAL. That is safe because a process runs one test project at a time:
+        // `nlc test` is one project per process and the workspace server runs each request in its own
+        // test worker (`TestWorkerHost`), so nothing reads either value concurrently.
         outputDirectory := Path.GetDirectoryName(outputPath) ?? ""
         hostsApplications := TestCommandKernels.HostsApplications(outputDirectory)
         previousDirectory := Directory.GetCurrentDirectory()
         previousBaseDirectory := AppContext.GetData("APP_CONTEXT_BASE_DIRECTORY")
-        if hostsApplications {
-            Directory.SetCurrentDirectory(outputDirectory)
-            AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", outputDirectory + Path.DirectorySeparatorChar.ToString())
-        }
         try {
+            if hostsApplications {
+                Directory.SetCurrentDirectory(outputDirectory)
+                AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", outputDirectory + Path.DirectorySeparatorChar.ToString())
+            }
+
             if TestCommandKernels.ShouldRunNUnit(testFramework) {
                 return ReflectionTestRunner.Run(outputPath, frameworkDirectories, filter, verbose, timeoutMs)
             }

@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Net.Http
 import System.Reflection
+import System.Reflection.Emit
 import System.Text.Json
 import NSharpLang.Cli
 import NSharpLang.Compiler
@@ -547,6 +548,37 @@ test "framework selection never picks a platform-specific group or folder for a 
     assert CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(windowsFolders, "net10.0-windows") == 2
     androidFolders: string[] = ["net8.0-ios17.0", "net8.0-android34.0", "net8.0"]
     assert CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(androidFolders, "net9.0-android35.0") == 1
+
+    // The asset's platform version must not exceed the target's.
+    versions: string[] = ["net8.0-android35.0", "net8.0-android33.0", "net8.0"]
+    assert CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(versions, "net9.0-android34.0") == 1
+    assert CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(versions, "net9.0-android") == 2
+
+    // .NET Standard ends at 2.1; a framework with no version is compatible with nothing.
+    standards: string[] = ["netstandard2.2", "netstandard3.0", "netstandard2.1"]
+    assert CompilationReferenceResolverKernels.SelectBestAssetDirectoryIndex(standards, "net10.0") == 2
+    assert CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore("netstandard", "net10.0") == -1
+    assert CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore("net10.0", "net") == -1
+}
+
+test "an empty winning dependency group means no dependencies, not the next group's" {
+    scratch := ResolverNewTempDirectory("empty-group")
+    packagesRoot := Path.Combine(scratch, "packages")
+    try {
+        ResolverWritePackage(
+            packagesRoot,
+            "Grouped.Pkg",
+            "1.0.0",
+            "<dependencies><group targetFramework=\"net10.0\" /><group targetFramework=\"netstandard2.0\"><dependency id=\"Never.Restored\" version=\"[1.0.0]\" /></group></dependencies>",
+            null,
+            ResolverFrameworkAssembly("System.Collections.dll")
+        )
+        assets := ResolverPackageAssets("Grouped.Pkg", "1.0.0", "net10.0", new ResolutionContext(packagesRoot))
+        assert assets.RuntimeFiles.Count == 1
+        assert Directory.GetDirectories(packagesRoot).Length == 1, "The empty net10.0 group fell through to netstandard2.0 and fetched its dependency."
+    } finally {
+        Directory.Delete(scratch, true)
+    }
 }
 
 test "the runtime identifier fallback walks from the exact RID to any" {
@@ -557,16 +589,34 @@ test "the runtime identifier fallback walks from the exact RID to any" {
     assert string.Join(",", versionedMac) == "osx.14-arm64,osx.14,osx-arm64,osx,unix-arm64,unix,any"
 
     ubuntu := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("ubuntu.22.04-x64")
-    assert string.Join(",", ubuntu) == "ubuntu.22.04-x64,ubuntu.22.04,ubuntu-x64,ubuntu,linux-x64,linux,unix-x64,unix,any"
+    assert string.Join(",", ubuntu) == "ubuntu.22.04-x64,ubuntu.22.04,ubuntu-x64,ubuntu,debian-x64,debian,linux-x64,linux,unix-x64,unix,any"
 
     alpine := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("linux-musl-arm64")
     assert string.Join(",", alpine) == "linux-musl-arm64,linux-musl,linux-arm64,linux,unix-arm64,unix,any"
 
     windows := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("win10-x64")
-    assert string.Join(",", windows) == "win10-x64,win10,win-x64,win,any"
+    assert string.Join(",", windows) == "win10-x64,win10,win81-x64,win81,win8-x64,win8,win7-x64,win7,win-x64,win,any"
+
+    linux := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("linux-x64")
+    assert string.Join(",", linux) == "linux-x64,linux,unix-x64,unix,any"
+
+    osx := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("osx-x64")
+    assert string.Join(",", osx) == "osx-x64,osx,unix-x64,unix,any"
+
+    win := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("win-x64")
+    assert string.Join(",", win) == "win-x64,win,any"
+
+    debian := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("debian.12-x64")
+    assert string.Join(",", debian) == "debian.12-x64,debian.12,debian-x64,debian,linux-x64,linux,unix-x64,unix,any"
+
+    rhelFamily := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("rocky.9-x64")
+    assert string.Join(",", rhelFamily) == "rocky.9-x64,rocky.9,rocky-x64,rocky,rhel-x64,rhel,linux-x64,linux,unix-x64,unix,any"
 
     assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net10.0") == ".NETCoreApp,Version=v10.0"
     assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net9.0-windows") == ".NETCoreApp,Version=v9.0"
+    assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("netcoreapp3.1") == ".NETCoreApp,Version=v3.1"
+    assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("netstandard2.0") == ".NETStandard,Version=v2.0"
+    assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net48") == ".NETFramework,Version=v4.8"
 }
 
 test "a native library is found beside the assemblies, then by the RID fallback order" {
@@ -612,12 +662,15 @@ test "a package's runtimes layout is copied beside the output and named by deps.
         windowsOnly := Path.Combine(versionDirectory, "runtimes/win/lib/net8.0")
         Directory.CreateDirectory(windowsOnly)
         File.Copy(ResolverFrameworkAssembly("System.Collections.dll"), Path.Combine(windowsOnly, "Win.Only.dll"), true)
+        ResolverWrite(Path.Combine(versionDirectory, "runtimes/linux-x64/native/nested/libdeep.so"), "deep")
+        ResolverWrite(Path.Combine(versionDirectory, "runtimes/win10-x64/nativeassets/uap10.0/uap.dll"), "uap")
+        ResolverWrite(Path.Combine(versionDirectory, "runtimes/win10-x64/nativeassets/net8.0/better.dll"), "better")
         olderWindows := Path.Combine(versionDirectory, "runtimes/win/lib/netstandard2.0")
         Directory.CreateDirectory(olderWindows)
         File.Copy(ResolverFrameworkAssembly("System.Collections.dll"), Path.Combine(olderWindows, "Win.Older.dll"), true)
 
         assets := ResolverPackageAssets("Native.Pkg", "1.2.3", "net10.0", new ResolutionContext(packagesRoot))
-        assert assets.RuntimeFiles.Count == 5
+        assert assets.RuntimeFiles.Count == 7
         relativePaths := new List<string>()
         for runtimeFile in assets.RuntimeFiles {
             relativePaths.Add(runtimeFile.RelativePath)
@@ -627,6 +680,9 @@ test "a package's runtimes layout is copied beside the output and named by deps.
         assert relativePaths.Contains("runtimes/linux-x64/native/libnative.so")
         assert relativePaths.Contains("runtimes/win-x64/native/native.dll")
         assert relativePaths.Contains("runtimes/win/lib/net8.0/Win.Only.dll")
+        assert relativePaths.Contains("runtimes/linux-x64/native/nested/libdeep.so")
+        assert relativePaths.Contains("runtimes/win10-x64/nativeassets/net8.0/better.dll")
+        assert !relativePaths.Contains("runtimes/win10-x64/nativeassets/uap10.0/uap.dll")
         assert !relativePaths.Contains("runtimes/win/lib/netstandard2.0/Win.Older.dll")
         assert !relativePaths.Contains("runtimes/linux-x64/native/_._")
 
@@ -749,6 +805,123 @@ test "a test project that hosts an application in-process receives the applicati
         plain := CompilationReferenceResolver.AddResolvedDllReferences(plainRoot, ResolverParseProject(plainRoot), options)
         assert !ResolverContainsPath(plain.RuntimeAssets, appManifest), "Only a project that hosts the application in-process needs its deps.json."
         assert plain.ContentRoots.Count == 0
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+// A Newtonsoft.Json package of the given version whose assembly carries that version, with the one
+// `net6.0` folder and no dependencies: what the diamond rows need to tell two versions apart.
+func ResolverWriteNewtonsoftVersion(packagesRoot: string, version: string, assemblyVersion: string) {
+    versionDirectory := Path.Combine(Path.Combine(packagesRoot, "newtonsoft.json"), version)
+    Directory.CreateDirectory(versionDirectory)
+    ResolverWrite(
+        Path.Combine(versionDirectory, "newtonsoft.json.nuspec"),
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\"><metadata><id>Newtonsoft.Json</id><version>" + version + "</version><dependencies><group targetFramework=\"net6.0\" /></dependencies></metadata></package>"
+    )
+    stagingPath := Path.Combine(versionDirectory, "staging.dll")
+    assembly := new PersistedAssemblyBuilder(new AssemblyName("Newtonsoft.Json, Version=" + assemblyVersion), typeof(object).get_Assembly())
+    assembly.DefineDynamicModule("Newtonsoft.Json.dll")
+    assembly.Save(stagingPath)
+    libraryDirectory := Path.Combine(Path.Combine(versionDirectory, "lib"), "net6.0")
+    Directory.CreateDirectory(libraryDirectory)
+    File.Move(stagingPath, Path.Combine(libraryDirectory, "Newtonsoft.Json.dll"), true)
+}
+
+func ResolverWriteLibraryProject(root: string, name: string, dependencies: string) {
+    ResolverWrite(
+        Path.Combine(root, name + "/project.yml"),
+        "name: " + name + "\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n" + dependencies
+    )
+    ResolverWrite(Path.Combine(root, name + "/" + name + ".nl"), "func " + name + "Greeting(): string {\n    return \"hello\"\n}")
+}
+
+func ResolverNewtonsoftPaths(config: ProjectConfig): List<string> {
+    paths := new List<string>()
+    for reference in config.Dependencies {
+        if reference.Dll != null && string.Equals(Path.GetFileName(reference.Dll ?? ""), "Newtonsoft.Json.dll", StringComparison.OrdinalIgnoreCase) {
+            paths.Add(Path.GetFullPath(reference.Dll ?? "").Replace('\\', '/'))
+        }
+    }
+    return paths
+}
+
+test "a flowed compile reference never duplicates an assembly: the project's own wins, otherwise the highest version" {
+    projectRoot := ResolverNewTempDirectory("flow-diamond")
+    packagesRoot := Path.Combine(projectRoot, "packages")
+    try {
+        ResolverWriteNewtonsoftVersion(packagesRoot, "12.0.3", "12.0.0.0")
+        ResolverWriteNewtonsoftVersion(packagesRoot, "13.0.3", "13.0.0.0")
+        newtonsoft12 := "  - nuget: Newtonsoft.Json\n    version: 12.0.3\n"
+        newtonsoft13 := "  - nuget: Newtonsoft.Json\n    version: 13.0.3\n"
+        ResolverWriteLibraryProject(projectRoot, "ThirteenLib", newtonsoft13)
+        ResolverWriteLibraryProject(projectRoot, "TwelveLib", newtonsoft12)
+
+        // The project's own Newtonsoft.Json 12 against a referenced project's 13.
+        ResolverWrite(
+            Path.Combine(projectRoot, "own/project.yml"),
+            "name: Own\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n" + newtonsoft12 + "  - project: ../ThirteenLib/project.yml\n"
+        )
+        options := new ReferenceResolutionOptions()
+        options.PackagesFolder = packagesRoot
+        ownRoot := Path.Combine(projectRoot, "own")
+        ownConfig := ResolverParseProject(ownRoot)
+        CompilationReferenceResolver.AddResolvedDllReferences(ownRoot, ownConfig, options)
+        ownPaths := ResolverNewtonsoftPaths(ownConfig)
+        assert ownPaths.Count == 1, string.Join(",", ownPaths)
+        assert ownPaths[0].Contains("/12.0.3/")
+
+        // Two referenced projects that disagree: the higher version, whichever is listed first.
+        ResolverWrite(
+            Path.Combine(projectRoot, "both/project.yml"),
+            "name: Both\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../TwelveLib/project.yml\n  - project: ../ThirteenLib/project.yml\n"
+        )
+        bothRoot := Path.Combine(projectRoot, "both")
+        bothConfig := ResolverParseProject(bothRoot)
+        CompilationReferenceResolver.AddResolvedDllReferences(bothRoot, bothConfig, options)
+        bothPaths := ResolverNewtonsoftPaths(bothConfig)
+        assert bothPaths.Count == 1, string.Join(",", bothPaths)
+        assert bothPaths[0].Contains("/13.0.3/")
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "a package only the end of a project reference chain declares reaches the first project" {
+    projectRoot := ResolverNewTempDirectory("flow-chain")
+    packagesRoot := Path.Combine(projectRoot, "packages")
+    try {
+        ResolverWriteNewtonsoftPackage(packagesRoot)
+        ResolverWriteLibraryProject(projectRoot, "ChainC", "  - nuget: Newtonsoft.Json\n    version: 13.0.3\n")
+        ResolverWriteLibraryProject(projectRoot, "ChainB", "  - project: ../ChainC/project.yml\n")
+        ResolverWriteLibraryProject(projectRoot, "ChainA", "  - project: ../ChainB/project.yml\n")
+        options := new ReferenceResolutionOptions()
+        options.PackagesFolder = packagesRoot
+        chainRoot := Path.Combine(projectRoot, "ChainA")
+        config := ResolverParseProject(chainRoot)
+        result := CompilationReferenceResolver.AddResolvedDllReferences(chainRoot, config, options)
+        assert ResolverNewtonsoftPaths(config).Count == 1
+        assert ResolverContainsDll(config, "ChainB.dll")
+        assert ResolverContainsDll(config, "ChainC.dll")
+        assert ResolverContainsPath(result.RuntimeAssets, Path.Combine(packagesRoot, "newtonsoft.json/13.0.3/lib/net6.0/Newtonsoft.Json.dll"))
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "a malformed referenced project.yml is reported as the project reference failure" {
+    projectRoot := ResolverNewTempDirectory("flow-malformed")
+    try {
+        ResolverWrite(Path.Combine(projectRoot, "bad/project.yml"), "name: [unterminated\n  - : :")
+        ResolverWrite(Path.Combine(projectRoot, "app/project.yml"), "name: App\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../bad/project.yml\n")
+        appRoot := Path.Combine(projectRoot, "app")
+        failure: Exception? = null
+        try {
+            CompilationReferenceResolver.AddResolvedDllReferences(appRoot, ResolverParseProject(appRoot), new ReferenceResolutionOptions())
+        } catch captured: Exception {
+            failure = captured
+        }
+        assert failure != null
     } finally {
         Directory.Delete(projectRoot, true)
     }
