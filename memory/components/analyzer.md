@@ -1819,16 +1819,24 @@ program/lexical-owner static helper, the `this`-bound instance method, the displ
 `SetParameters`, the only order `DefineParameter` accepts) and the generator-body lambda in
 `ColumnarIteratorPlanner.AppendLambda`. That is Roslyn's `SynthesizedClosureMethod` rule.
 
-Two defects in the `MapGet`/`MapPost` route-handler residual (`TryEmitAspNetRouteHandler`) surfaced
-with it. It built EVERY one-parameter lambda as `Func<HttpContext, R>` regardless of the written
-parameter type, so `(id: int) => …` was a delegate over a method it does not match (ilverify:
-"Unrecognized arguments for delegate .ctor"); `TrySelectAspNetLambdaHandlerDelegate` now picks the
-NATURAL delegate over the written types, as C# does for a lambda converted to `System.Delegate`, and
-`TryEmitLambdaLiteral` declines (`emit.lambda.parameter-type-mismatch`) a written parameter type the
-target delegate cannot bind — anything but the delegate's own type or a reference type its reference
-parameter converts to (`(value: object) => …` as a `Func<string, int>` stays legal). And it emitted the route string BEFORE learning the handler was not a
-shape it lowers (`f as Delegate`, `(Delegate)f`), so the extension tier re-emitted the arguments and
-the receiver was lost — `InvalidProgramException` at startup. `IsAspNetRouteHandlerShape` asks first.
+Two defects in the `MapGet`/`MapPost` route-handler residual surfaced with it. It built EVERY
+one-parameter lambda as `Func<HttpContext, R>` regardless of the written parameter type, so
+`(id: int) => …` was a delegate over a method it does not match (ilverify: "Unrecognized arguments
+for delegate .ctor"); `TrySelectAspNetLambdaHandlerDelegate` now picks the NATURAL delegate over the
+written types, as C# does for a lambda converted to `System.Delegate`, and `TryEmitLambdaLiteral`
+declines (`emit.lambda.parameter-type-mismatch`) a written parameter type the target delegate cannot
+bind — anything but the delegate's own type or a reference type its reference parameter converts to
+(`(value: object) => …` as a `Func<string, int>` stays legal; the rule is
+`ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType`). And it emitted the route string
+BEFORE learning the handler was not a shape it lowers (`f as Delegate`, `(Delegate)f`), so the
+extension tier re-emitted the arguments and the receiver was lost — `InvalidProgramException` at
+startup. `TryPlanAspNetRouteHandler` now decides the handler once, before anything is emitted, and
+`TryEmitPlannedAspNetRouteHandler` consumes that plan.
+
+This residual is the ONLY place a lambda literal converts to `System.Delegate`: `WebApplication`'s
+`MapGet`/`MapPost`. `MapPut`, `MapDelete`, a `RouteGroupBuilder`'s `MapGet` and a source method
+taking `Delegate` still decline a lambda literal at emit (a typed `Func<>` local works for all of
+them); the general natural-function-type conversion is open work.
 `tests/native/lambda-parameter-names` pins both through the real route table.
 
 **A FREE FUNCTION'S VISIBILITY WORD NOW REACHES METADATA** (2026-09-13, stream ACCESS). The word was

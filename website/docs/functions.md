@@ -968,10 +968,34 @@ handler: Func<int, int> = (value) => value + 1
 print handler.Method.GetParameters()[0].Name    // value
 ```
 
-A lambda passed where the parameter type is `System.Delegate` (as `MapGet`'s handler is) gets the
-delegate type its written parameters describe — `(id: int) => "…"` is a `Func<int, string>` — and a
-single parameter written without a type is the request's `HttpContext`. A delegate you already hold
-can be passed as it is, or as `f as Delegate`.
+**Where a lambda can be written directly as a handler.** `app.MapGet` and `app.MapPost` on a
+`WebApplication` take a lambda with parameters as written above: the handler becomes the delegate its
+written parameter types describe (`(id: int) => "…"` is a `Func<int, string>`), and a single
+parameter written without a type is the request's `HttpContext`.
+
+Other places whose parameter is typed `System.Delegate` do **not** accept a lambda literal yet:
+`app.MapPut`, `app.MapDelete`, a route group's `MapGet` (`app.MapGroup("/api").MapGet(...)`), and
+any other method taking `Delegate`, including one you write. For those, give the lambda a typed
+`Func<>` or `Action<>` local first and pass the local — its parameter names are kept the same way:
+
+```n#
+import System
+import Microsoft.AspNetCore.Builder
+
+func moreRoutes(app: WebApplication) {
+    update: Func<int, string> = (id: int) => "updated " + id.ToString()
+    app.MapPut("/todos/{id}", update)                                                   // PUT /todos/3
+
+    remove: Func<int, string> = (id: int) => "deleted " + id.ToString()
+    app.MapDelete("/todos/{id}", remove)                                                // DELETE /todos/4
+
+    api := app.MapGroup("/api")
+    byId: Func<int, string> = (id: int) => "todo " + id.ToString()
+    api.MapGet("/todos/{id}", byId)                                                     // GET /api/todos/5
+}
+```
+
+A delegate you already hold can also be passed to `MapGet`/`MapPost` as `f as Delegate`.
 
 ### Type Inference in Lambdas
 

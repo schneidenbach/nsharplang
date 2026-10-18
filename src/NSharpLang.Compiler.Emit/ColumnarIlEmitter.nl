@@ -1557,17 +1557,11 @@ sealed class ColumnarIlEmitter {
         if !TryResolveLambdaParameterTypes(lambdaIdx, delegateParamTypes, false, out signatureTypes) {
             return false
         }
-        // A WRITTEN PARAMETER TYPE MUST BE ONE THE DELEGATE CAN BIND. The synthesized method takes the
-        // written types, and `newobj` over a method whose signature the delegate cannot bind is
-        // unverifiable ("Unrecognized arguments for delegate .ctor") and wrong the moment `Invoke` is
-        // called. The written type may be the delegate's own, or — the contravariance N# accepts —
-        // a reference type the delegate's reference parameter converts to (`(value: object) => …` as a
-        // `Func<string, int>`), which the CLR binds without a stub. Anything else (`(id: int) => …`
-        // as a `Func<HttpContext, …>`) is an emitter target that picked the wrong delegate, and it
-        // declines here rather than build that delegate. A type this compilation is still writing
-        // answers no assignability question, so it is left to the checks that already own it.
+        // A WRITTEN PARAMETER TYPE MUST BE ONE THE DELEGATE CAN BIND, or the delegate would be built
+        // over a method whose signature it does not have; the rule is
+        // `ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType`.
         for writtenIndex := 0; writtenIndex < signatureTypes.Length; writtenIndex++ {
-            if (!IsBindableLambdaParameterType(signatureTypes[writtenIndex], delegateParamTypes[writtenIndex])) {
+            if (!ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(signatureTypes[writtenIndex], delegateParamTypes[writtenIndex])) {
                 return DeclineMember("emit.lambda.parameter-type-mismatch", "lambda parameter " + (writtenIndex + 1).ToString() + " is written as '" + signatureTypes[writtenIndex].ToString() + "' but the target delegate takes '" + delegateParamTypes[writtenIndex].ToString() + "'", lambdaIdx, "lambda")
             }
         }
@@ -1780,17 +1774,6 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Ldftn, closureMethod)
         _il.Emit(OpCodes.Newobj, delegateCtor)
         return true
-    }
-
-    private static func IsBindableLambdaParameterType(written: Type, delegateParameter: Type): bool {
-        if (TypesEquivalent(written, delegateParameter)) {
-            return true
-        }
-        if (written.IsGenericParameter || delegateParameter.IsGenericParameter || RuntimeTypeShapeFacts.ContainsBuilderBoundType(written) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateParameter)) {
-            return true
-        }
-
-        return !written.IsValueType && !delegateParameter.IsValueType && !written.IsByRef && !delegateParameter.IsByRef && written.IsAssignableFrom(delegateParameter)
     }
 
     // THE TYPE A LAMBDA BODY IS LEXICALLY INSIDE, which is the anchor every bare STATIC member read
@@ -25451,30 +25434,55 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    private func TryEmitAspNetRouteHandler(handlerNode: int, out delegateType: Type): bool {
+    // THE ROUTE HANDLER, DECIDED BEFORE ANYTHING IS EMITTED. The residual is tried ahead of the
+    // general extension tiers, and it used to emit the route string first and only then discover a
+    // handler it does not lower (`f as Delegate`, `(Delegate)f`): it returned false with the string
+    // already on the stack, the contextual extension tier then emitted the call's arguments again, and
+    // the program lost its receiver — an `InvalidProgramException` at startup ("found ref 'string',
+    // expected IEndpointRouteBuilder"). The plan is computed once and the emission consumes it.
+    //
+    // Two shapes are lowered: a lambda literal, whose delegate is its natural one
+    // (`TrySelectAspNetLambdaHandlerDelegate`), and the bare name of an `HttpContext`-taking instance
+    // method on the enclosing reference type, bound to `this`. `method` is null for the lambda.
+    private func TryPlanAspNetRouteHandler(handlerNode: int, out delegateType: Type, out method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef?): bool {
         delegateType = null
-        handlerNode = UnwrapParenthesizedNode(handlerNode)
+        method = null
         if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode))) {
-            return TrySelectAspNetLambdaHandlerDelegate(handlerNode, out delegateType) && TryEmitLambdaLiteral(handlerNode, delegateType)
+            return TrySelectAspNetLambdaHandlerDelegate(handlerNode, out delegateType)
         }
 
         let contextType: System.Type = null
-        let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
-        if (_nodes.Kind(handlerNode) == ColumnarExpressionNodeKind.IdentifierExpression && _currentStruct != null && _currentStruct.IsReference && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out contextType, _context.ReferenceMetadata) && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) && method != null && TypesEquivalent(method.ParamTypes[0], contextType) && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)) {
-            delegateType = typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([contextType, method.ReturnType])
-            let delegateCtor: System.Reflection.ConstructorInfo? = null
-            let ignoredDelegateReturnType: System.Type? = null
-            let ignoredDelegateParameterTypes: System.Type[]? = null
-            if (!TryGetSupportedDelegateSignature(delegateType, true, out ignoredDelegateReturnType, out ignoredDelegateParameterTypes, out delegateCtor)) {
-                return false
-            }
-            _il.Emit(OpCodes.Ldarg_0)
-            _il.Emit(OpCodes.Ldftn, method.Builder)
-            _il.Emit(OpCodes.Newobj, delegateCtor)
-            return true
+        let chainMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
+        if (_nodes.Kind(handlerNode) != ColumnarExpressionNodeKind.IdentifierExpression || _currentStruct == null || !_currentStruct.IsReference || !ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out contextType, _context.ReferenceMetadata) || !ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out chainMethod) || chainMethod == null || !TypesEquivalent(chainMethod.ParamTypes[0], contextType) || !ColumnarTypeOfPlanner.IsSupportedType(chainMethod.ReturnType)) {
+            return false
         }
+        methodDelegateType := typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([contextType, chainMethod.ReturnType])
+        let ignoredDelegateCtor: System.Reflection.ConstructorInfo? = null
+        let ignoredDelegateReturnType: System.Type? = null
+        let ignoredDelegateParameterTypes: System.Type[]? = null
+        if (!TryGetSupportedDelegateSignature(methodDelegateType, true, out ignoredDelegateReturnType, out ignoredDelegateParameterTypes, out ignoredDelegateCtor)) {
+            return false
+        }
+        delegateType = methodDelegateType
+        method = chainMethod
+        return true
+    }
 
-        return false
+    // The planned handler's delegate, emitted onto the stack.
+    private func TryEmitPlannedAspNetRouteHandler(handlerNode: int, delegateType: Type, method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef?): bool {
+        if (method == null) {
+            return TryEmitLambdaLiteral(handlerNode, delegateType)
+        }
+        let delegateCtor: System.Reflection.ConstructorInfo? = null
+        let ignoredDelegateReturnType: System.Type? = null
+        let ignoredDelegateParameterTypes: System.Type[]? = null
+        if (!TryGetSupportedDelegateSignature(delegateType, true, out ignoredDelegateReturnType, out ignoredDelegateParameterTypes, out delegateCtor) || delegateCtor == null) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldarg_0)
+        _il.Emit(OpCodes.Ldftn, method.Builder)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
     }
 
     // THE DELEGATE A LAMBDA ROUTE HANDLER BECOMES IS ITS NATURAL ONE: `Func<P1..Pn, R>` over the
@@ -25517,23 +25525,6 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // WHETHER THE ROUTE-HANDLER RESIDUAL OWNS THIS HANDLER AT ALL, asked BEFORE the route string is
-    // written. The residual is tried ahead of the general extension tiers, and it used to emit the
-    // route string first and only then discover a handler it does not lower (`f as Delegate`,
-    // `(Delegate)f`): it returned false with the string already on the stack, the contextual extension
-    // tier then emitted the call's arguments again, and the program lost its receiver — an
-    // `InvalidProgramException` at startup ("found ref 'string', expected IEndpointRouteBuilder").
-    private func IsAspNetRouteHandlerShape(handlerNode: int): bool {
-        handlerNode = UnwrapParenthesizedNode(handlerNode)
-        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode))) {
-            let ignoredDelegateType: System.Type? = null
-            return TrySelectAspNetLambdaHandlerDelegate(handlerNode, out ignoredDelegateType)
-        }
-        let contextType: System.Type = null
-        let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
-        return _nodes.Kind(handlerNode) == ColumnarExpressionNodeKind.IdentifierExpression && _currentStruct != null && _currentStruct.IsReference && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out contextType, _context.ReferenceMetadata) && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) && method != null && TypesEquivalent(method.ParamTypes[0], contextType) && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)
-    }
-
     private func TryEmitAspNetMapEndpointCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         if (receiverType.FullName != "Microsoft.AspNetCore.Builder.WebApplication" || (member != "MapGet" && member != "MapPost") || argCount != 2) {
@@ -25561,8 +25552,13 @@ sealed class ColumnarIlEmitter {
                 break
             }
         }
-        let ignoredDelegateType: System.Type? = null
-        if (mapMethod == null || !IsAspNetRouteHandlerShape(Child(callIdx, 2)) || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false) || !TryEmitAspNetRouteHandler(Child(callIdx, 2), out ignoredDelegateType)) {
+        handlerNode := UnwrapParenthesizedNode(Child(callIdx, 2))
+        let handlerDelegateType: System.Type? = null
+        let handlerMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+        if (mapMethod == null || !TryPlanAspNetRouteHandler(handlerNode, out handlerDelegateType, out handlerMethod) || handlerDelegateType == null) {
+            return false
+        }
+        if (!EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false) || !TryEmitPlannedAspNetRouteHandler(handlerNode, handlerDelegateType, handlerMethod)) {
             return false
         }
 

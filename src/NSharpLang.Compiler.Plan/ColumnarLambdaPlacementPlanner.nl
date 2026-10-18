@@ -208,6 +208,30 @@ class ColumnarLambdaPlacementPlanner {
         return new ColumnarLambdaSignature(ordinals, parameterTypesByName, nodes.Child(lambdaNode, parameterCount), parameterNames)
     }
 
+    // WHETHER A LAMBDA WRITTEN WITH PARAMETER TYPE `written` CAN BE THE BODY OF A DELEGATE WHOSE
+    // `Invoke` TAKES `delegateParameter` AT THAT POSITION. The synthesized method takes the written
+    // type, and `newobj` over a method whose signature the delegate cannot bind is unverifiable
+    // ("Unrecognized arguments for delegate .ctor") and wrong the moment `Invoke` is called. The
+    // written type may be the delegate's own, or — the contravariance N# accepts — a reference type the
+    // delegate's reference parameter converts to (`(value: object) => …` as a `Func<string, int>`),
+    // which the CLR binds without a stub. Anything else (`(id: int) => …` as a
+    // `Func<HttpContext, …>`) is a target that picked the wrong delegate. A generic parameter or a
+    // type this compilation is still writing answers no assignability question, so it is accepted
+    // here and left to the checks that already own it.
+    static func IsBindableLambdaParameterType(written: Type, delegateParameter: Type): bool {
+        if written == null || delegateParameter == null {
+            throw new InvalidOperationException("Lambda parameter binding requires both the written and the delegate parameter type.")
+        }
+        if ColumnarTypeEquivalenceFacts.TypesEquivalent(written, delegateParameter) {
+            return true
+        }
+        if written.IsGenericParameter || delegateParameter.IsGenericParameter || RuntimeTypeShapeFacts.ContainsBuilderBoundType(written) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateParameter) {
+            return true
+        }
+
+        return !written.IsValueType && !delegateParameter.IsValueType && !written.IsByRef && !delegateParameter.IsByRef && written.IsAssignableFrom(delegateParameter)
+    }
+
     // EVERY METHOD A LAMBDA LOWERS TO CARRIES ITS SOURCE PARAMETER NAMES, AS C# DOES. The synthesized
     // method is the delegate's `Method`, and reflection over it is a public contract: ASP.NET Core's
     // `RequestDelegateFactory` binds a Minimal-API handler's route values, query string and services

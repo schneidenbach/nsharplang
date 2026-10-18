@@ -322,3 +322,34 @@ test "an instance synthesized lambda method numbers its named rows from one" {
     synthesized := baked.GetMethod("<Lambda>", BindingFlags.Public | BindingFlags.Instance)
     assert LambdaParameterNamesOf(synthesized) == "1:input"
 }
+
+// ── which written parameter type a delegate can bind ───────────────────────────────────────────────
+
+test "a written parameter type identical to the delegate's binds" {
+    assert ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(int), typeof(int))
+    assert ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(string), typeof(string))
+}
+
+test "a written reference type the delegate's reference parameter converts to binds" {
+    assert ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(object), typeof(string))
+    assert ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(Exception), typeof(InvalidOperationException))
+    assert !ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(string), typeof(object))
+}
+
+test "a value-type mismatch never binds, widening and boxing included" {
+    assert !ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(long), typeof(int))
+    assert !ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(object), typeof(int))
+    assert !ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(int), typeof(string))
+}
+
+test "a written interface binds through implementation and generic variance" {
+    assert ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(IDisposable), typeof(System.IO.MemoryStream))
+    assert ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(IEnumerable<object>), typeof(List<string>))
+    assert !ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(IEnumerable<int>), typeof(List<string>))
+}
+
+test "a generic parameter is left to the checks that own it" {
+    openParameter := typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    assert ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(openParameter, typeof(int))
+    assert ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(typeof(string), openParameter)
+}

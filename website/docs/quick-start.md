@@ -132,6 +132,11 @@ A handler lambda's parameters keep their names in the compiled program, exactly 
 Core can match `{id}` to `id`. A handler may also take the `HttpContext` itself, e.g.
 `(ctx: HttpContext) => ctx.Response.WriteAsync("ok")` (add `import Microsoft.AspNetCore.Http`).
 
+Lambdas can be written inline like this for `app.MapGet` and `app.MapPost` only. `app.MapPut`,
+`app.MapDelete` and route groups (`app.MapGroup(...)`) do not take an inline lambda yet: put the
+lambda in a typed local such as `update: Func<int, string> = (id: int) => ...` and pass the local.
+See [a lambda's parameters keep their names](./functions.md#a-lambdas-parameters-keep-their-names).
+
 ## Single-File CLI Workflow
 
 If you want to compile a loose `.nl` file directly:
