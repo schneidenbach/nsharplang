@@ -199,6 +199,25 @@ test "a project row is resolved the same way, and refuses with its own sentence"
     Directory.Delete(directory, true)
 }
 
+test "a project row that names a project's DIRECTORY is refused with the entry that would work" {
+    directory := RfcTempDirectory("project-directory")
+    shared := Path.Combine(directory, "Shared")
+    Directory.CreateDirectory(shared)
+    File.WriteAllText(Path.Combine(shared, "project.yml"), "name: Shared\n")
+
+    assert RfcValidate(new Reference { Project: "Shared" }, directory) == "FileNotFoundException|Project reference 'Shared' names a directory, but a project: entry must name the project file. Write 'project: Shared/project.yml' instead."
+    // a trailing separator is not doubled in the suggestion
+    assert RfcValidate(new Reference { Project: "Shared/" }, directory) == "FileNotFoundException|Project reference 'Shared/' names a directory, but a project: entry must name the project file. Write 'project: Shared/project.yml' instead."
+    // the suggestion itself is accepted
+    assert RfcValidate(new Reference { Project: "Shared/project.yml" }, directory) == "<accepted>"
+
+    // a directory with NO project.yml is not a project at all, and keeps the plain missing-file sentence
+    Directory.CreateDirectory(Path.Combine(directory, "Empty"))
+    assert RfcValidate(new Reference { Project: "Empty" }, directory) == "FileNotFoundException|Project file not found: Empty (resolved to " + Path.Combine(directory, "Empty") + ")"
+
+    Directory.Delete(directory, true)
+}
+
 test "an empty row refuses validation before it can refuse anything else" {
     directory := RfcTempDirectory("empty")
     assert RfcValidate(new Reference(), directory) == "InvalidOperationException|Reference must specify one of: nuget, dll, project, or framework"

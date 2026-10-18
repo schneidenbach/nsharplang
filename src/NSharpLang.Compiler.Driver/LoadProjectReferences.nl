@@ -64,12 +64,25 @@ class LoadProjectReferences: Microsoft.Build.Utilities.Task {
         }
     }
 
+    private dllReferencesValue: string[]
+
+    [Microsoft.Build.Framework.Output]
+    DllReferences: string[] {
+        get {
+            return dllReferencesValue
+        }
+        set {
+            dllReferencesValue = value
+        }
+    }
+
     constructor() {
         projectFileValue = null
         packageReferencesValue = Array.Empty<ITaskItem>()
         frameworkReferencesValue = Array.Empty<string>()
         existingProjectReferencesValue = Array.Empty<string>()
         projectReferencesValue = Array.Empty<string>()
+        dllReferencesValue = Array.Empty<string>()
     }
 
     override func Execute(): bool {
@@ -91,6 +104,7 @@ class LoadProjectReferences: Microsoft.Build.Utilities.Task {
             PackageReferences = packageReferences
             FrameworkReferences = projection.FrameworkReferences
             ProjectReferences = projection.ProjectReferences
+            DllReferences = projection.DllReferences
             return true
         } catch ex: Exception {
             emptyProjectFile: string? = null

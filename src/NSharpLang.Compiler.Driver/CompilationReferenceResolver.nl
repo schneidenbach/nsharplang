@@ -84,7 +84,8 @@ sealed class CompilationReferenceResolver {
         )
         // THE VERSION OF EVERY PACKAGE IN THE CLOSURE IS DECIDED BEFORE ANY ASSET IS TAKEN.
         // Walking each root's closure and keeping whatever version was reached first makes the
-        // order of the `nuget:` list decide the answer; NuGet's rule is nearest-wins, so the
+        // order of the `nuget:` list decide the answer; NuGet's rule is direct-then-highest
+        // (`CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate`), so the
         // selection is a level-order pass of its own and the asset walk below reads its result.
         selectedVersions := SelectNuGetPackageVersions(packageReferences, config.TargetFramework, context.PackagesRoot)
         selectedVersionsKey := SelectedNuGetVersionsCacheKey(selectedVersions)

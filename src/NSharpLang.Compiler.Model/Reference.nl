@@ -10,6 +10,14 @@ class Reference {
     Project: string?
     Framework: string?
 
+    // WHAT THE ROW SAID THAT THE ROW CANNOT MEAN, recorded by `ReferenceConverter` while it reads a
+    // mapping and refused by `ProjectFileParser.ValidateConfig`: a key that is not one of the five a
+    // dependency takes, a second kind (`nuget:` and `dll:` in one entry), `version:` on anything but a
+    // NuGet entry, or a nested value. The converter used to drop each of these silently and keep the
+    // first kind in nuget > dll > project > framework order, so a typo or a pasted MSBuild attribute
+    // changed what the project referenced with no word said. Null when the row is well formed.
+    Problem: string?
+
     Type: ReferenceType => GetReferenceType()
 
     Value: string => GetValue()
@@ -54,6 +62,17 @@ class Reference {
             projectPath := projectValue
             if !Path.IsPathRooted(projectValue) {
                 projectPath = Path.Combine(projectDirectory, projectValue)
+            }
+
+            // A DIRECTORY IS THE LIKELY MISTAKE HERE, and its fix is one path segment, so the message
+            // spells the entry that works instead of only reporting a missing file.
+            if Directory.Exists(projectPath) && File.Exists(Path.Combine(projectPath, "project.yml")) {
+                separator := "/"
+                if projectValue.EndsWith("/") || projectValue.EndsWith("\\") {
+                    separator = ""
+                }
+
+                throw new FileNotFoundException("Project reference '" + projectValue + "' names a directory, but a project: entry must name the project file. Write 'project: " + projectValue + separator + "project.yml' instead.")
             }
 
             if !File.Exists(projectPath) {

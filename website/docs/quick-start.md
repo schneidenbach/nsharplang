@@ -107,7 +107,13 @@ sdk: Microsoft.NET.Sdk.Web
 
 dependencies:
   - framework: Microsoft.AspNetCore.App
+  - framework: Microsoft.NETCore.App
 ```
+
+`sdk: Microsoft.NET.Sdk.Web` already implies `Microsoft.AspNetCore.App`. The `Microsoft.NETCore.App`
+entry makes the rest of the base framework visible to `nlc` (for example `IServiceProvider` and
+`System.Security.Claims`), which `dotnet build` references implicitly. See the
+[project.yml reference](./project-yml.md#aspnet-core-projects) for every dependency kind.
 
 **Program.nl:**
 ```n#
