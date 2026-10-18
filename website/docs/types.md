@@ -1748,6 +1748,12 @@ member is still declared exactly once — on the interface that opened it — so
 through that interface's slot, which is what `typeof(IIdentified).GetProperty("Key")` shows and
 `typeof(IDocumentRecord).GetProperty("Key")` (declared-only) does not.
 
+An interface-typed value also has every member `object` gives every type, as in C#: `list.ToString()`,
+`list.GetHashCode()`, `list.Equals(other)` and `list.GetType()` compile on an `IList<int>` (or an
+`IFormattable`, where `object.ToString()` sits beside the interface's `ToString(format, provider)`)
+without casting to `object` first. This holds for interfaces from referenced assemblies, for interfaces
+you declare, and for a type parameter constrained to an interface.
+
 ### Generic Interfaces
 
 ```n#
@@ -2618,7 +2624,12 @@ Two rules the compiler enforces about the type-argument list itself:
   CONSTRUCTOR parameter, whose default the call site reads out of the callee's metadata and writes
   as a literal (`new Conn("h")` for `constructor(host: string, port: int = 8080)`; `connect("h")`;
   `c.Url()` for `func Url(scheme: string = "http")`; named arguments such as `total(1, c: 20)`
-  skip the ones in between). Every constant default is filled, in your own project and from a
+  skip the ones in between). A call written with a BARE name inside the declaring type fills its
+  defaults exactly as the qualified spelling does: `Show(a)` for `static func Show(a: string,
+  b: string = "-")` from a sibling method, an instance `Tag(a)` for `func Tag(a: string, suffix:
+  string = ".")`, and `Many(a, c: 9)` skipping the middle default. A bare call to a method declared
+  on a BASE class with an omitted default is not filled yet; write `this.` or the owner's name.
+  Every constant default is filled, in your own project and from a
   referenced assembly alike: the null reference, `default`, a `Nullable<T>` with no value or with a
   constant, and every integral, floating, `char`, `bool`, `string`, `decimal` and enum constant (see
   [Optional Parameters](./functions.md#optional-parameters)). What remains:

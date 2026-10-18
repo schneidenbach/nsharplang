@@ -82,3 +82,8 @@ test "a conventional middleware runs in an ApplicationBuilder pipeline" {
     assert context.Response.StatusCode == 204
     assert context.Response.Headers["X-NSharp-Stamp"].ToString() == "stamped:/orders"
 }
+
+test "inline middleware binds the Use extension although WebApplication declares an instance Use" {
+    seen := await WithinTenSeconds(RunInlineMiddleware())
+    assert seen == "inline"
+}

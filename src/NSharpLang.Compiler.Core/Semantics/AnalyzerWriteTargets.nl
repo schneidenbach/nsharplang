@@ -1714,7 +1714,7 @@ class AnalyzerWriteTargets {
             return false
         }
 
-        if reflected.Type.GetProperty(member.MemberName) != null {
+        if ReflectedMemberLookup.FindProperty(reflected.Type, member.MemberName) != null {
             propertyName = member.MemberName
             return true
         }

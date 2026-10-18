@@ -921,7 +921,7 @@ class ColumnarConstructionPlanner {
                 continue
             }
 
-            runtimeProperty := targetType.GetProperty(memberName)
+            runtimeProperty := ReflectedMemberLookup.FindProperty(targetType, memberName)
             if runtimeProperty == null {
                 // A REFLECTED TYPE'S MEMBER MAY BE A FIELD, and an object initializer names members,
                 // not properties. An N#-compiled record in a referenced assembly publishes most of its

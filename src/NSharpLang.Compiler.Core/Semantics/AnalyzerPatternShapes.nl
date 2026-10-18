@@ -139,9 +139,9 @@ class AnalyzerPatternShapes {
     // type that declares neither contributes nothing and the walk moves on; it does not fail.
     static func HasReflectionListLengthProperty(shapeTypes: List<Type>, bindingFlags: BindingFlags): bool {
         for shapeType in shapeTypes {
-            lengthProperty := shapeType.GetProperty("Count", bindingFlags)
+            lengthProperty := ReflectedMemberLookup.FindProperty(shapeType, "Count", bindingFlags)
             if lengthProperty == null {
-                lengthProperty = shapeType.GetProperty("Length", bindingFlags)
+                lengthProperty = ReflectedMemberLookup.FindProperty(shapeType, "Length", bindingFlags)
             }
 
             if lengthProperty != null && lengthProperty.GetMethod != null && lengthProperty.PropertyType == typeof(int) {

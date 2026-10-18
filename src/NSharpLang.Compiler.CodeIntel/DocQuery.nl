@@ -234,7 +234,7 @@ class DocQuery {
         }
 
         instanceFlags := BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.IgnoreCase
-        property := reflectionType.GetProperty(memberName, instanceFlags)
+        property := ReflectedMemberLookup.FindProperty(reflectionType, memberName, instanceFlags)
         if property != null {
             return DocQueryKernels.CreateValueDocResult(property.Name, DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(reflectionType), property.Name), "property", GetPropertySummary(property), reflectionType.Namespace, DocQueryReflectionFacts.FormatType(property.PropertyType))
         }

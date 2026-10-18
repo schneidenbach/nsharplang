@@ -155,6 +155,10 @@ class CallAnalysisState {
     // accepting every conversion, which is what the walk always did. The second run is the fallback,
     // so a call with no exact match behaves exactly as it did before the clause existed.
     ReflectionRequireExactLambdaMatch: bool
+
+    // WHETHER THE EXTENSION METHODS HAVE ALREADY BEEN OFFERED AS THE ANSWER TO AN INSTANCE GROUP THAT
+    // BOUND NOTHING. They are offered once: a second failure is the call's verdict.
+    ReflectionExtensionFallbackTried: bool
     ReflectionErrorsBefore: int
     ReflectionArgumentErrorsBefore: int
     ReflectionArgumentIsUntargeted: bool
@@ -210,6 +214,7 @@ class CallAnalysisState {
         ReflectionCandidates = null
         ReflectionCandidateIndex = 0
         ReflectionRequireExactLambdaMatch = false
+        ReflectionExtensionFallbackTried = false
         ReflectionErrorsBefore = 0
         ReflectionArgumentErrorsBefore = 0
         ReflectionArgumentIsUntargeted = false
@@ -280,8 +285,9 @@ class AnalyzerCallAnalysis {
     postconditions: AnalyzerNullabilityPostconditions
     terminatingCalls: AnalyzerTerminatingCalls
     nullFlow: AnalyzerNullFlow
+    extensionMethodResolution: AnalyzerExtensionMethodResolution
 
-    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext, postconditionOwner: AnalyzerNullabilityPostconditions, terminatingCallOwner: AnalyzerTerminatingCalls, nullFlowOwner: AnalyzerNullFlow) {
+    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext, postconditionOwner: AnalyzerNullabilityPostconditions, terminatingCallOwner: AnalyzerTerminatingCalls, nullFlowOwner: AnalyzerNullFlow, extensionResolutionOwner: AnalyzerExtensionMethodResolution) {
         syntheticCallReporter = callReporter
         syntheticCallWalk = callWalk
         syntheticCallValidator = callValidator
@@ -300,6 +306,7 @@ class AnalyzerCallAnalysis {
         postconditions = postconditionOwner
         terminatingCalls = terminatingCallOwner
         nullFlow = nullFlowOwner
+        extensionMethodResolution = extensionResolutionOwner
     }
 
     func BeginCall(call: CallExpression): CallAnalysisState {
@@ -1556,9 +1563,64 @@ class AnalyzerCallAnalysis {
             return null
         }
 
+        if TryBeginReflectionExtensionFallback(state) {
+            return null
+        }
+
         state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes, state.ReflectionReceiverClrType)
         state.Phase = 99
         return null
+    }
+
+    // AN INSTANCE METHOD GROUP THAT BINDS NOTHING HANDS THE CALL TO THE EXTENSION METHODS IN SCOPE
+    // (C# §12.8.10.2: when the set of instance candidates is empty after overload resolution, extension
+    // method invocation is attempted). Member lookup answers with the receiver's instance methods
+    // whenever it has one of that name, so `app.Use(async (ctx, next) => ...)` saw only the instance
+    // `Use(Func<RequestDelegate, RequestDelegate>)` and `UseExtensions.Use` was never a candidate
+    // (GitHub #236). The instance group still wins whenever any of its candidates is applicable,
+    // because this runs only after every one of them has been tried and withdrawn.
+    //
+    // THE EXTENSION SURFACE IS THE ONE `TryResolveExtensionMethod` ALREADY ANSWERS FOR A RECEIVER
+    // WITH NO INSTANCE MEMBER OF THE NAME — project `this` functions first, then referenced
+    // `[Extension]` methods — and its answer re-enters the walk exactly where the callee's own
+    // resolution would have, so a source extension binds through the source-call path and a
+    // referenced one through this reflected bind. The instance candidates stay on the call's candidate
+    // list, which is what makes the NL402 that follows a second failure list every overload the reader
+    // could have meant.
+    //
+    // A STATIC GROUP (a call through a type name) is not an instance group and gets no fallback.
+    // It is offered once: a second failure is the call's verdict.
+    func TryBeginReflectionExtensionFallback(state: CallAnalysisState): bool {
+        if state.ReflectionExtensionFallbackTried {
+            return false
+        }
+
+        state.ReflectionExtensionFallbackTried = true
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        receiverType := state.ReflectionReceiverTypeInfo
+        if memberAccess == null || receiverType == null || state.ReflectionReceiverClrType == null || state.CandidateMethods.Count == 0 {
+            return false
+        }
+
+        for candidate in state.CandidateMethods {
+            if candidate.IsStatic {
+                return false
+            }
+        }
+
+        fallback := extensionMethodResolution.TryResolveExtensionMethod(receiverType, memberAccess.MemberName, ambient.CurrentTypeName)
+        if BuiltInTypes.IsUnknown(fallback) {
+            return false
+        }
+
+        state.ReflectionSingleMethod = null
+        state.ReflectionMethodGroup = null
+        state.ReflectionCandidates = null
+        state.ReflectionCandidateIndex = 0
+        state.FinalizeState = null
+        state.CalleeType = fallback
+        state.Phase = 13
+        return true
     }
 
     // `Ok(x)` AND `Err(e)`, AND THEY ARE A PROBE RATHER THAN A RULE BECAUSE THREE SEPARATE THINGS

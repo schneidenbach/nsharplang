@@ -2590,6 +2590,21 @@ The element type may be a type your own project declares — `List<Query>` above
 A lambda argument is typed by the parameter it is passed to, so the compiler chooses the method
 first and types the lambda afterwards. A method group works wherever a lambda does.
 
+An instance method of the receiver wins over an extension of the same name **when it is applicable**.
+When none of the receiver's instance overloads accepts the call, the extension methods in scope are
+tried next, as in C#: `list.FindAll((value, index) => value > index)` binds an extension
+`FindAll(this List<int>, Func<int, int, bool>)` even though `List<int>` declares an instance
+`FindAll(Predicate<int>)`, and `app.Use(async (ctx, next) => { await next() })` on a `WebApplication`
+reaches `UseExtensions.Use` although `WebApplication` declares an instance
+`Use(Func<RequestDelegate, RequestDelegate>)`. The candidates are project `this` functions and
+`[Extension]` methods from imported namespaces of referenced assemblies. If nothing binds,
+[NL402](./errors/NL402.md) lists the instance and the extension overloads that were considered.
+An extension is not tried after a **project-declared** class's own instance method rejects the
+call; that call is reported against the instance method. A `this` function declared in your own
+project whose name matches an instance overload of a referenced type is accepted by the analyzer,
+but the code generator does not bind it yet when the instance overload takes the same number of
+arguments (it stops with [NL103](./errors/NL103.md)); call it as a plain function, or rename it.
+
 ### Writing the type arguments out
 
 Some extensions declare a type argument that nothing in the call could infer — `Cast<T>` names the

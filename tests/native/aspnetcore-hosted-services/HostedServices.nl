@@ -3,6 +3,7 @@ namespace NSharpLang.AspNetCoreHostedServices
 import System
 import System.Threading
 import System.Threading.Tasks
+import Microsoft.AspNetCore.Builder
 import Microsoft.AspNetCore.Http
 import Microsoft.Extensions.Hosting
 
@@ -88,4 +89,24 @@ class RequestStampMiddleware {
         context.Response.Headers["X-NSharp-Stamp"] = "stamped:" + context.Request.Path.ToString()
         await next(context)
     }
+}
+
+// THE INLINE MIDDLEWARE FORM (GitHub #236). `WebApplication` declares an instance
+// `Use(Func<RequestDelegate, RequestDelegate>)`; the `(context, next)` form is the extension
+// `UseExtensions.Use`, which has to be a candidate once the instance overload does not fit.
+func RunInlineMiddleware(): Task<string> {
+    return RunInlineMiddlewareCore()
+}
+
+async func RunInlineMiddlewareCore(): Task<string> {
+    builder := WebApplication.CreateBuilder()
+    app := builder.Build()
+    app.Use(async (ctx: HttpContext, next: Func<Task>) => {
+        ctx.Items["seen"] = "inline"
+        await next()
+    })
+    pipeline := (app as IApplicationBuilder).Build()
+    context := new DefaultHttpContext()
+    await pipeline(context)
+    return context.Items["seen"]?.ToString() ?? "missing"
 }

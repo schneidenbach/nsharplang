@@ -3091,6 +3091,51 @@ indexer, no-indexer and range reads, and two whole-analyzer rows: the lambda ana
 mistyped local is NL202), plus `tests/native/census-lambda-inference/CensusExternalGenericIndexers`
 (the `Vector<int>` lambda and an `ArraySegment` over a source record, end to end).
 
+### Member lookup: object members, hidden properties, extension fallback (2026-10 member-lookup slice)
+
+* **`object`'s members on an interface-typed receiver** (GitHub #240, C# §12.5). Metadata lists none
+  of them on an interface, so `AnalyzerMemberResolution.ResolveMember`'s reflection arm joins `object`'s
+  public instance methods of the name through `JoinInterfaceObjectMethods` (an interface group keeps
+  its own, then `object`'s are added unless an interface method has the same parameter type names —
+  so `IFormattable` keeps `object.ToString()` beside `ToString(string, IFormatProvider)`), and the
+  surrogate arm does the same for `IList<SourceType>`. The emitter side is
+  `ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods`, which appends the same surface for an
+  interface lookup type after the inherited-interface walk; every runtime tier (unique-at-arity,
+  ordinary, `HasInstanceMethodAtArity`) reads that one list.
+* **A property redeclared with `new`** (GitHub #239): `Type.GetProperty(name)` throws
+  `AmbiguousMatchException` when a derived type hides a base property with a different type
+  (`DbContextOptionsBuilder<T>.Options`). Every property lookup by a source-written name goes through
+  `ReflectedMemberLookup.FindProperty` (Compiler.Model): the binder's own answer first, and only on
+  ambiguity a `DeclaredOnly` walk from the type outward where the most derived declaration wins.
+  Fields and events do not throw (the runtime keeps the most derived), so they stay on `GetField` /
+  `GetEvent`. Fixed-name reads on compiler-known types (`Nullable<T>.HasValue`, `Task.CompletedTask`) were
+  left on `GetProperty`. An uncaught exception from any such lookup still surfaces as
+  `Error: Build failed: <message>` from the per-command `catch` in `CliIlBackend`, not as a positioned
+  diagnostic; `InternalErrorBoundary` (NL924) wraps only the process entry point.
+* **Extension fallback** (GitHub #236, C# §12.8.10.2). `ResolveMember` returns the receiver's instance
+  group whenever one has the name, so extensions were never candidates for such a call.
+  `AnalyzerCallAnalysis.FailReflectionBind` now calls `TryBeginReflectionExtensionFallback` once, when
+  the instance group is exhausted: it asks `AnalyzerExtensionMethodResolution.TryResolveExtensionMethod`
+  for the receiver (project `this` functions, then referenced `[Extension]` methods) and re-enters
+  `Dispatch` (phase 13) with that as the callee type. The instance candidates stay on
+  `CandidateMethods`, so the NL402 listing includes both. A project-declared class's own instance
+  method is a source-call (`FunctionTypeInfo`) path that reports directly instead of failing a bind,
+  so it has no fallback. The emitter's selection is separate: `IsContextualLambdaTarget` now requires
+  the lambda to write the delegate's parameter COUNT (and any parameter type it writes to equal the
+  delegate's) via `LambdaParametersFitDelegate`, which is what lets the two `UseExtensions.Use`
+  overloads and the instance `Use` be told apart; `tests/native/aspnetcore-hosted-services` runs the
+  inline middleware form. KNOWN GAP: a project-declared static-class extension named like a
+  same-arity instance overload of a referenced type passes analysis but the direct-call planner treats
+  the inapplicable instance overload as terminal (`ColumnarOrdinaryRuntimeDirectCallResolver`
+  `Rejected`), so emission declines at `emit.return.expression` / `emit.call.instance-member`.
+* **Bare calls with omitted defaults** (GitHub #238). `ColumnarDirectCallPlanner.TryAppendCall`'s entry
+  gate now admits a bare name whose current-type declaration takes MORE parameters than written
+  (`HasBareDeclarationBeyondArity`), and `TryAppendSparseNamedBareMemberCall` places the written
+  arguments, evaluates them in written order through locals and fills the rest from the shared
+  constructor-default owner — for the current type's instance methods (implicit receiver) and the
+  enclosing type's statics. It runs in both the positional retry and the named-argument chain.
+  Candidates declared on a base class are not offered.
+
 ### Member lookup in CALLEE position
 
 `AnalyzerMemberResolution.ResolveMember` carries C#'s must-be-invocable-if-member rule as a fifth
