@@ -417,7 +417,7 @@ test "closure lift candidates retain prior state, exclude structural writes, and
 
     opaqueBuilder := new ColumnarRangePlannerNodeBuilder()
     opaque := opaqueBuilder.AddNode(
-        ColumnarExpressionNodeKind.ObjectInitializerExpression,
+        ColumnarExpressionNodeKind.MatchExpression,
         -1,
         0,
         0,
@@ -426,6 +426,18 @@ test "closure lift candidates retain prior state, exclude structural writes, and
     )
     opaqueTree := opaqueBuilder.Build(opaque)
     assert ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(opaqueTree.Nodes, opaqueTree.Root)
+    // An object initializer is ordinary expressions (type root, then name/value pairs), not a pattern.
+    initializerBuilder := new ColumnarRangePlannerNodeBuilder()
+    initializer := initializerBuilder.AddNode(
+        ColumnarExpressionNodeKind.ObjectInitializerExpression,
+        -1,
+        0,
+        0,
+        0,
+        new int[](0)
+    )
+    initializerTree := initializerBuilder.Build(initializer)
+    assert !ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(initializerTree.Nodes, initializerTree.Root)
     simple := ClosureBindingControlsIdentifierTree("plain")
     assert !ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(simple.Nodes, simple.Root)
 }

@@ -132,6 +132,14 @@ class ColumnarClosureBindingPlanner {
         return new SortedSet<string>(captures, StringComparer.Ordinal)
     }
 
+    // AN OBJECT INITIALIZER'S CHILDREN ARE `[typeRoot, name0, value0, name1, value1, ...]`. The odd
+    // ordinals are MEMBER NAMES of the constructed type, not reads of any binding, so a capture walk
+    // that visited them would treat `N` in `new Opts { N: limit }` as a use of a local or instance
+    // member named `N`. Only the type root and the values are expressions.
+    static func IsInitializerMemberNameChild(nodes: ColumnarNodeTable, node: int, childOrdinal: int): bool {
+        return nodes.Kind(node) == ColumnarExpressionNodeKind.ObjectInitializerExpression && (childOrdinal % 2) == 1
+    }
+
     static func BodyReferencesEnclosingChain(
         nodes: ColumnarNodeTable,
         source: string,
@@ -199,6 +207,10 @@ class ColumnarClosureBindingPlanner {
         first := kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression ? 1 : 0
         childOrdinal := first
         while childOrdinal < nodes.ChildCount(node) {
+            if IsInitializerMemberNameChild(nodes, node, childOrdinal) {
+                childOrdinal = childOrdinal + 1
+                continue
+            }
             if BodyReferencesEnclosingChain(nodes, source, nodes.Child(node, childOrdinal), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings) {
                 return true
             }
@@ -267,6 +279,10 @@ class ColumnarClosureBindingPlanner {
         first := kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression ? 1 : 0
         childOrdinal := first
         while childOrdinal < nodes.ChildCount(node) {
+            if IsInitializerMemberNameChild(nodes, node, childOrdinal) {
+                childOrdinal = childOrdinal + 1
+                continue
+            }
             if BodyReferencesEnclosingInstanceMemberChain(nodes, source, nodes.Child(node, childOrdinal), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings) {
                 return true
             }
@@ -341,7 +357,7 @@ class ColumnarClosureBindingPlanner {
 
     static func ContainsCaptureOpaqueKind(nodes: ColumnarNodeTable, node: int): bool {
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.MatchExpression || kind == ColumnarExpressionNodeKind.GuardedPattern || (kind >= ColumnarExpressionNodeKind.RelationalPattern && kind <= ColumnarExpressionNodeKind.UnionCasePattern) || kind == ColumnarExpressionNodeKind.WithExpression || kind == ColumnarExpressionNodeKind.TypeBindingPattern || (kind >= ColumnarExpressionNodeKind.ListPattern && kind <= ColumnarExpressionNodeKind.PropertyPattern) {
+        if kind == ColumnarExpressionNodeKind.MatchExpression || kind == ColumnarExpressionNodeKind.GuardedPattern || (kind >= ColumnarExpressionNodeKind.RelationalPattern && kind <= ColumnarExpressionNodeKind.UnionCasePattern && kind != ColumnarExpressionNodeKind.ObjectInitializerExpression) || kind == ColumnarExpressionNodeKind.WithExpression || kind == ColumnarExpressionNodeKind.TypeBindingPattern || (kind >= ColumnarExpressionNodeKind.ListPattern && kind <= ColumnarExpressionNodeKind.PropertyPattern) {
             return true
         }
         childOrdinal := 0
@@ -413,6 +429,10 @@ class ColumnarClosureBindingPlanner {
         first := kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression ? 1 : 0
         childOrdinal := first
         while childOrdinal < nodes.ChildCount(node) {
+            if IsInitializerMemberNameChild(nodes, node, childOrdinal) {
+                childOrdinal = childOrdinal + 1
+                continue
+            }
             CollectNamesInsideLambdas(nodes, source, nodes.Child(node, childOrdinal), names)
             childOrdinal = childOrdinal + 1
         }
@@ -468,6 +488,10 @@ class ColumnarClosureBindingPlanner {
         first := kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression ? 1 : 0
         childOrdinal := first
         while childOrdinal < nodes.ChildCount(node) {
+            if IsInitializerMemberNameChild(nodes, node, childOrdinal) {
+                childOrdinal = childOrdinal + 1
+                continue
+            }
             CollectUnboundNames(nodes, source, nodes.Child(node, childOrdinal), bound, names)
             childOrdinal = childOrdinal + 1
         }
