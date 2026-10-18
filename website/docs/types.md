@@ -1131,6 +1131,12 @@ person := new Person {
 older := person with { Age: 31 }
 ```
 
+A `with` member is written like an object-initializer member, so `null`, a plain value for a `T?`
+member, `a ?? b` over nullable values and `flag ? v : null` are all valid replacements. `with` also
+works on a record declared in another N# project (a `project:` dependency), a C# project or a NuGet
+package: the copy is made through the record's compiler-reserved `<Clone>$` method (or by value for a
+record struct) and the named members are written through their public setters, `init` ones included.
+
 ### Record Structs
 
 ```n#
@@ -2758,6 +2764,22 @@ displayAge := age ?? 0
 `DateTime`, `Guid`, a tuple, and an enum, a struct or a struct record **you declare yourself**. A
 `T?` is `System.Nullable<T>` in metadata whatever `T` is, so a C# caller sees exactly the type it
 expects.
+
+A value converts into a `T?` the way it does in C# (the implicit nullable conversions), wherever a
+`T?` is expected — a typed local, an argument, a return, an assignment, an object-initializer or `with`
+member:
+
+```n#
+n := 5
+len: long? = n                      // int widens to long, then wraps
+flag := true
+when: DateTime? = flag ? DateTime.UtcNow : null   // the null arm takes the DateTime? type
+```
+
+`a ?? b` is itself nullable when `b` is: `double? ?? double?` is a `double?` (so `c: double? = a ?? b`
+compiles), while `double? ?? double` unwraps to a `double`. A `(string, int)` tuple converts to
+`(string?, int?)` element by element; the only element conversion a tuple admits that changes
+representation is this wrap (`(int, int)` still does not convert to `(long, long)`).
 
 `Nullable<T>`'s own surface comes with it, also whatever `T` is — `HasValue`, `Value` and both
 `GetValueOrDefault` overloads:

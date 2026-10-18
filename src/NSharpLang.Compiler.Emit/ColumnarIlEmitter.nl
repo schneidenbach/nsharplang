@@ -16057,6 +16057,11 @@ sealed class ColumnarIlEmitter {
                 withPlan = null
             }
             if (withPlan == null) {
+                // A receiver this compilation does not declare -- a record from a `project:` dependency, a
+                // referenced assembly or the runtime -- is copied and written from its own metadata.
+                if (withTb == null && TryEmitReferencedWith(idx, withPairCount, withReceiverType, out columnarResolvedType)) {
+                    return true
+                }
                 return Decline("emit.with.plan", "with expression receiver type is not a modeled record whose named members admit a verifiable copy", Child(idx, 0))
             }
             withLocal := _il.DeclareLocal(withReceiverType)
@@ -26257,6 +26262,42 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Ldloc, instance)
         columnarResolvedType = initializedType
         return true
+    }
+
+    // `r with { ... }` OVER A RECEIVER THE COMPILATION DID NOT DECLARE, with the receiver already on the
+    // stack. The copy and the writes are decided by what the type's own metadata says, exactly as C#
+    // reads them:
+    //
+    //   * A VALUE type is copied by value (the copy is the temp the members are written into) -- C#
+    //     allows `with` over any struct, record or not.
+    //   * A REFERENCE type is a record when it carries the compiler-reserved public instance method
+    //     `<Clone>$()` returning its own type. That is what C# emits for a record class and what N#
+    //     emits for one (`ColumnarRecordValueMemberPlanner`), so a record from another N# project, from
+    //     a C# project or from a NuGet package is cloned the same way. A class without it is not a
+    //     record and the expression is refused.
+    //
+    // The named members are then written through the object-initializer seam: a public setter (an
+    // `init` one included, whose modifier the emitted reference keeps) or a public non-readonly field.
+    // The expression has the same [receiver, name0, value0, ...] layout as an initializer, so the same
+    // member walk serves both.
+    private func TryEmitReferencedWith(idx: int, pairCount: int, receiverType: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (receiverType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) || receiverType.IsGenericTypeDefinition || receiverType.IsGenericParameter || receiverType.IsInterface || receiverType.IsArray || receiverType.IsByRef || receiverType.IsPointer || receiverType.IsPrimitive || receiverType.IsEnum) {
+            return false
+        }
+        if (!receiverType.IsValueType) {
+            let cloneMethod: System.Reflection.MethodInfo? = null
+            for candidate in receiverType.GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+                if (candidate.Name == "<Clone>$" && candidate.GetParameters().Length == 0 && TypesEquivalent(candidate.ReturnType, receiverType)) {
+                    cloneMethod = candidate
+                }
+            }
+            if (cloneMethod == null) {
+                return false
+            }
+            ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Callvirt, cloneMethod, "record clone method")
+        }
+        return TryEmitReferencedInitializerMembers(idx, pairCount, receiverType, out columnarResolvedType)
     }
 
     // THE MEMBERS OF AN OBJECT INITIALIZER OVER A REFERENCED TYPE, whose new instance is on the stack.
