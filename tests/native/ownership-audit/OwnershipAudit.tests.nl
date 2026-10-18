@@ -390,7 +390,7 @@ test "ownership policy derives representative languages and surfaces" {
 test "ownership policy covers every closeout-adjacent ecosystem language" {
     assert OwnershipPolicy.Classify("tools/Sneaky.cs").Language == "csharp"
     assert OwnershipPolicy.Classify("editors/vscode/src/extension.ts").Language == "typescript"
-    assert OwnershipPolicy.Classify("website/src/pages/index.js").Language == "javascript"
+    assert OwnershipPolicy.Classify("src/NSharpLang.Playground.Wasm/main.js").Language == "javascript"
     assert OwnershipPolicy.Classify("src/NSharpLang.Compiler/Compiler.csproj").Language == "msbuild"
     assert OwnershipPolicy.Classify("scripts/test-all.sh").Language == "shell"
     assert OwnershipPolicy.Classify("tests/scripts/replay.py").Language == "python"
@@ -405,7 +405,6 @@ test "ownership policy covers every closeout-adjacent ecosystem language" {
     assert OwnershipPolicy.Classify("website/static/playground/runtime.wasm").Language == "wasm-binary"
     assert OwnershipPolicy.Classify("editors/vscode/extension.vsix").Language == "package-binary"
     assert OwnershipPolicy.Classify("scripts/ilverify-baseline.txt").Language == "policy-data"
-    assert OwnershipPolicy.Classify("website/static/.nojekyll").Language == "product-config"
     assert OwnershipPolicy.Classify("src/NSharpLang.Compiler/new-policy.txt").Included
     assert OwnershipPolicy.Classify("src/NSharpLang.Compiler/new-policy.dat").Included
     assert OwnershipPolicy.Classify("arbitrary-top-level/new-policy.py").Included
@@ -433,6 +432,83 @@ test "ownership policy covers every closeout-adjacent ecosystem language" {
     assert OwnershipPolicy.Classify("examples/new-policy.unknown").Unknown
     assert OwnershipPolicy.Classify("ci/new-policy.unknown").Unknown
     assert OwnershipPolicy.Classify("benchmarks/new-policy.unknown").Unknown
+}
+
+test "the docs website grows freely while code placed under it stays audited" {
+    assert !OwnershipPolicy.Classify("website/sidebars.js").Included
+    assert !OwnershipPolicy.Classify("website/docusaurus.config.js").Included
+    assert !OwnershipPolicy.Classify("website/src/pages/playground.js").Included
+    assert !OwnershipPolicy.Classify("website/src/css/custom.css").Included
+    assert !OwnershipPolicy.Classify("website/package.json").Included
+    assert !OwnershipPolicy.Classify("website/static/.nojekyll").Included
+    assert !OwnershipPolicy.Classify("website/sidebars.js").Unknown
+
+    assert OwnershipPolicy.Classify("website/src/Compiler.cs").Language == "csharp"
+    assert OwnershipPolicy.Classify("website/static/playground/runtime.wasm").Language == "wasm-binary"
+    assert OwnershipPolicy.Classify("website/static/playground/NSharpLang.Compiler.dll").Language == "managed-binary"
+    assert OwnershipPolicy.Classify("website/scripts/publish.sh").Language == "shell"
+    assert OwnershipPolicy.Classify("website/tools/emit.py").Language == "python"
+    assert OwnershipPolicy.Classify("website/Site.csproj").Language == "msbuild"
+    assert OwnershipPolicy.Classify("src/NSharpLang.Playground.Wasm/main.js").Included
+    assert OwnershipPolicy.Classify("websites/sidebars.js").Included
+
+    // A manifest row cannot pull a website file back under a ceiling.
+    websiteRow := OwnershipAudit.AuditSnapshot(
+        OwnershipFixtureOne("website/sidebars.js", "const sidebars = {};\n", 0),
+        new List<OwnershipObservedFile>(),
+        false
+    )
+    assert websiteRow.HasCode("OWN002")
+
+    root := Directory.CreateTempSubdirectory("nsharp-ownership-website-").FullName
+    try {
+        Directory.CreateDirectory(Path.Combine(root, "website/src/pages"))
+        compilerText := "class Compiler {}\n"
+        File.WriteAllText(Path.Combine(root, "website/src/Compiler.cs"), compilerText)
+        manifest := OwnershipFixtureOne("website/src/Compiler.cs", compilerText, 0)
+
+        File.WriteAllText(Path.Combine(root, "website/sidebars.js"), "const sidebars = {};\n")
+        before := new OwnershipAuditResult()
+        baseline := OwnershipAudit.AuditSnapshot(manifest, OwnershipAudit.ScanRepository(root, before), false)
+        assert before.Succeeded
+        assert baseline.Succeeded
+
+        // (a) The sidebar grows and a new page appears: no ceiling, no row, no repin.
+        File.WriteAllText(Path.Combine(root, "website/sidebars.js"), "const sidebars = {\n  docs: ['quick-start', 'project-yml'],\n};\nexport default sidebars;\n")
+        File.WriteAllText(Path.Combine(root, "website/src/pages/new-page.js"), "export default function Page() { return null; }\n")
+        grownSite := new OwnershipAuditResult()
+        grownSiteObserved := OwnershipAudit.ScanRepository(root, grownSite)
+        assert grownSite.Succeeded
+        assert grownSiteObserved.Count == 1
+        assert grownSiteObserved[0].Path == "website/src/Compiler.cs"
+        assert OwnershipAudit.AuditSnapshot(manifest, grownSiteObserved, false).Succeeded
+
+        // (b) C# under website/ keeps its ceiling, and a new one is refused.
+        File.WriteAllText(Path.Combine(root, "website/src/Compiler.cs"), compilerText + "class Lowering {}\n")
+        File.WriteAllText(Path.Combine(root, "website/src/pages/Emitter.cs"), "class Emitter {}\n")
+        grownCode := new OwnershipAuditResult()
+        grownCodeAudit := OwnershipAudit.AuditSnapshot(manifest, OwnershipAudit.ScanRepository(root, grownCode), false)
+        assert grownCodeAudit.HasCode("OWN004")
+        assert grownCodeAudit.HasCode("OWN003")
+    } finally {
+        Directory.Delete(root, true)
+    }
+
+    // (b) Compiler and tooling code outside website/ keeps the growth ratchet unchanged.
+    compilerPath := "src/NSharpLang.Compiler/Parser.cs"
+    compilerOriginal := "class Parser {}\n"
+    assert OwnershipAudit.AuditSnapshot(
+        OwnershipFixtureOne(compilerPath, compilerOriginal, 0),
+        OwnershipFixtureObservedList(compilerPath, compilerOriginal + "class More {}\n"),
+        false
+    ).HasCode("OWN004")
+    toolingPath := "editors/vscode/src/extension.ts"
+    toolingOriginal := "export function activate() {}\n"
+    assert OwnershipAudit.AuditSnapshot(
+        OwnershipFixtureOne(toolingPath, toolingOriginal, 0),
+        OwnershipFixtureObservedList(toolingPath, toolingOriginal + "export function more() {}\n"),
+        false
+    ).HasCode("OWN004")
 }
 
 test "ownership policy rejects noncanonical paths and unknown product code" {

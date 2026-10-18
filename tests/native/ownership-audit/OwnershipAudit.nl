@@ -249,15 +249,19 @@ class OwnershipAuditResult {
 // set, epoch facts) is computed over CODE rows only, so admitting or repinning a delivery row can
 // never move it, while the reviewed-head fingerprint covers every row of both classes. Both keys
 // live here and in the manifest header, so a manifest-only rebaseline can never pass the live gate.
+//
+// The docs website is neither class: its web-content files are not deletion debt and are not
+// audited at all (IsWebsiteContentPath). Every other file type under website/ is still audited.
 class OwnershipPolicy {
     static ManifestFileName: string => "non-nsharp-growth-ratchet.v2.json"
     static SchemaVersion: int => 2
 
-    // E2 admits only the reviewed VS Code visual-test harness files. Existing E1 ceilings stay frozen.
-    static CodeEpochFileCount: int => 227
-    static CodeEpochPathFingerprint: string => "pathset-v2:97fe77313c04eb7e"
-    static CodeEpochFactFingerprint: string => "epochfacts-v2:4c440f3312742657"
-    static ReviewedHeadFingerprint: string => "head-v2:bc85e19ee3dcccb4"
+    // E2 admitted only the reviewed VS Code visual-test harness files. E3 drops the ten docs-website
+    // JavaScript rows, which are not deletion debt (IsWebsiteContentPath). Every other ceiling stays frozen.
+    static CodeEpochFileCount: int => 217
+    static CodeEpochPathFingerprint: string => "pathset-v2:8753f45f767649bf"
+    static CodeEpochFactFingerprint: string => "epochfacts-v2:bbd44c5fc149a36c"
+    static ReviewedHeadFingerprint: string => "head-v2:f89f11e73940a933"
 
     static func IsPermanentBoundaryPath(path: string): bool {
         normalized := NormalizeRelativePath(path)
@@ -281,6 +285,10 @@ class OwnershipPolicy {
 
         if lower.EndsWith(".cs") {
             return Included("csharp", SurfaceFor(normalized), CampaignScopeFor(normalized))
+        }
+
+        if IsWebsiteContentPath(normalized) {
+            return Ignored()
         }
 
         if IsExactDataOrAssetException(normalized) {
@@ -481,6 +489,22 @@ class OwnershipPolicy {
         return path.StartsWith("src/", StringComparison.Ordinal) || path.StartsWith("editors/", StringComparison.Ordinal) || path.StartsWith("scripts/", StringComparison.Ordinal) || path.StartsWith("tests/", StringComparison.Ordinal) || path.StartsWith("website/", StringComparison.Ordinal) || path.StartsWith("templates/", StringComparison.Ordinal) || path.StartsWith("examples/", StringComparison.Ordinal) || path.StartsWith("ci/", StringComparison.Ordinal) || path.StartsWith("benchmarks/", StringComparison.Ordinal) || path.StartsWith(".github/", StringComparison.Ordinal) || path == "Directory.Build.props" || path == "Directory.Build.targets" || path == "Directory.Packages.props" || path == "global.json" || path == "package.json" || path == "package-lock.json" || path == "docker-compose.yml" || path == "docker-compose.yaml" || path == "Dockerfile" || path == "Makefile" || path.EndsWith(".sh", StringComparison.Ordinal) && path.IndexOf('/') < 0 || path == "NSharpLang.sln" || path == ".gitattributes" || path == ".gitignore"
     }
 
+    // The docs website is not deletion debt (owner decision 2026-10-18): its pages, sidebars, site
+    // config, scripts and styles grow normally with the docs. Only web-content file types are out of
+    // scope, so C# (classified above), binaries such as the published playground WASM, MSBuild,
+    // shell and every other implementation language placed under website/ stay audited.
+    static func IsWebsiteContentPath(path: string): bool {
+        lower := path.ToLowerInvariant()
+        if !lower.StartsWith("website/", StringComparison.Ordinal) {
+            return false
+        }
+        name := Path.GetFileName(lower) ?? ""
+        if name == ".gitignore" || name == ".nojekyll" {
+            return true
+        }
+        return lower.EndsWith(".js") || lower.EndsWith(".jsx") || lower.EndsWith(".mjs") || lower.EndsWith(".cjs") || lower.EndsWith(".ts") || lower.EndsWith(".tsx") || lower.EndsWith(".css") || lower.EndsWith(".scss") || lower.EndsWith(".html") || lower.EndsWith(".json") || lower.EndsWith(".yml") || lower.EndsWith(".yaml")
+    }
+
     static func IsAuditedJson(path: string): bool {
         lower := path.ToLowerInvariant()
         if lower == "tests/native/ownership-audit/non-nsharp-growth-ratchet.v2.json" {
@@ -515,7 +539,7 @@ class OwnershipPolicy {
     static func IsExactDataOrAssetException(path: string): bool {
         lower := path.ToLowerInvariant()
         name := Path.GetFileName(lower) ?? ""
-        if lower == "editors/vscode/nsharp-0.6.0.vsix" || lower == "editors/vscode/package-lock.json" || lower == "editors/vscode/test/fixtures/simple/.vscode/settings.json" || lower == "website/static/playground/wasm/main.js" || lower == "website/static/playground/wasm/package.json" || lower == "website/static/playground/wasm/nsharplang.playground.wasm.runtimeconfig.json" {
+        if lower == "editors/vscode/nsharp-0.6.0.vsix" || lower == "editors/vscode/package-lock.json" || lower == "editors/vscode/test/fixtures/simple/.vscode/settings.json" {
             return true
         }
         if lower == ".claude/launch.json" || lower == "examples/14-minimal-api/minimalapi.g.csproj" || lower == "examples/17-issue-tracker/backend/issuetracker.g.csproj" {
