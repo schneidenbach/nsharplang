@@ -9833,6 +9833,14 @@ sealed class ColumnarIlEmitter {
                 return TryEmitPostfixUnary(expr, false, out columnarDiscard13)
             }
 
+            if (_nodes.Kind(expr) == ColumnarExpressionNodeKind.UnaryExpression && (_nodes.ChildCount(expr) == 1 && (ColumnarNodeTextFacts.Text(_nodes, _source, expr) == "++" || ColumnarNodeTextFacts.Text(_nodes, _source, expr) == "--"))) {
+                // A PREFIX step in statement position still leaves no value on the stack. The same
+                // storage writer handles it as a postfix step; only the discarded expression result
+                // differs, which is immaterial in this position.
+                let columnarPrefixStepType: System.Type? = null
+                return TryEmitPostfixUnary(expr, false, out columnarPrefixStepType)
+            }
+
             if (_nodes.Kind(expr) == ColumnarExpressionNodeKind.OnSubscriptionExpression) {
                 // A BARE `on <target> <handler>` STATEMENT — the handler is attached and the handle is
                 // discarded, which is the "subscribe for the life of the process" shape. The `pop`
@@ -9911,8 +9919,9 @@ sealed class ColumnarIlEmitter {
             assignOp := ColumnarNodeTextFacts.Text(_nodes, _source, expr)
             // COMPOUND assignment `target op= value` (`+=` `-=` `*=` `/=`) on a bare LOCAL/PARAM target —
             // lowered to load/op/store with the binary operator's exact opcode selection (ulong divides
-            // unsigned; string `+=` is Concat; both sides must share one type). Lifted/boxed captures,
-            // member/index targets, `%=` (unparsed) and `??=` (nullability slice) decline.
+            // unsigned; string `+=` is Concat; both sides must share one type). Lifted/boxed captures use
+            // the same shared-box storage; member/index targets have their own arms, while `%=` (unparsed)
+            // and `??=` (nullability slice) decline.
             if (assignOp == "+=" || assignOp == "-=" || assignOp == "*=" || assignOp == "/=") {
                 compoundTarget := UnwrapParenthesizedNode(Child(expr, 0))
                 // A COLLECTION indexer compound target (`d[k] += v` / `lst[i] += 1` — probe-pinned
@@ -10071,35 +10080,57 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 compoundName := ColumnarNodeTextFacts.Text(_nodes, _source, compoundTarget)
-                if (_liftedLocals.ContainsKey(compoundName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(compoundName))) {
-                    return false
-                }
+                let compoundBoxedField: System.Reflection.FieldInfo? = null
+                let compoundBoxedType: System.Type? = null
+                let compoundBoxedCapture: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (compoundBoxedField, compoundBoxedType)
+                boxedCompound := _boxedCaptures != null && _boxedCaptures.TryGetValue(compoundName, out compoundBoxedCapture)
+                let compoundLiftedBox: System.Reflection.Emit.LocalBuilder? = null
+                let compoundLiftedType: System.Type? = null
+                let compoundLiftedCapture: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (compoundLiftedBox, compoundLiftedType)
+                liftedCompound := !boxedCompound && _liftedLocals.TryGetValue(compoundName, out compoundLiftedCapture)
                 compoundLocal: LocalBuilder? = null
                 compoundParamOrdinal := -1
                 compoundThroughReference := false
+                compoundThroughBox := false
+                let compoundBoxValueField: System.Reflection.FieldInfo = null
                 let compoundType: System.Type = null
-                let compoundFound: System.Reflection.Emit.LocalBuilder? = null
-                if (_locals.TryGetValue(compoundName, out compoundFound)) {
-                    compoundLocal = compoundFound
-                    compoundType = compoundFound.LocalType
+                if (boxedCompound || liftedCompound) {
+                    compoundThroughBox = true
+                    compoundType = boxedCompound ? compoundBoxedCapture.ValueType : compoundLiftedCapture.ValueType
+                    compoundBoxValueField = ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(compoundType, "compound captured value type")), "StrongBox<T>.Value field for compound closure storage")
                 } else {
-                    let compoundOrdinal: int = 0
-                    if (_paramOrdinals.TryGetValue(compoundName, out compoundOrdinal)) {
-                        compoundParamOrdinal = compoundOrdinal
-                        compoundType = _paramTypes[compoundName]
-                        // A BY-REFERENCE PARAMETER (`ref v: int` or `v: &int`, both `int&`) is read
-                        // and written THROUGH the reference: its address stays under the operation
-                        // for the store, and the operation is on the element type.
-                        if (compoundType.IsByRef) {
-                            compoundThroughReference = true
-                            compoundType = ColumnarEmitReflectionFacts.RequiredElementType(compoundType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
-                        }
+                    let compoundFound: System.Reflection.Emit.LocalBuilder? = null
+                    if (_locals.TryGetValue(compoundName, out compoundFound)) {
+                        compoundLocal = compoundFound
+                        compoundType = compoundFound.LocalType
                     } else {
-                        return TryEmitCurrentInstanceCompound(compoundName, Child(expr, 1), assignOp)
+                        let compoundOrdinal: int = 0
+                        if (_paramOrdinals.TryGetValue(compoundName, out compoundOrdinal)) {
+                            compoundParamOrdinal = compoundOrdinal
+                            compoundType = _paramTypes[compoundName]
+                            // A BY-REFERENCE PARAMETER (`ref v: int` or `v: &int`, both `int&`) is read
+                            // and written THROUGH the reference: its address stays under the operation
+                            // for the store, and the operation is on the element type.
+                            if (compoundType.IsByRef) {
+                                compoundThroughReference = true
+                                compoundType = ColumnarEmitReflectionFacts.RequiredElementType(compoundType.GetElementType(), "System.Type.GetElementType() on an established array or by-ref CLR shape")
+                            }
+                        } else {
+                            return TryEmitCurrentInstanceCompound(compoundName, Child(expr, 1), assignOp)
+                        }
                     }
                 }
 
-                if (compoundLocal != null) {
+                if (compoundThroughBox) {
+                    if (boxedCompound) {
+                        _il.Emit(OpCodes.Ldarg_0)
+                        _il.Emit(OpCodes.Ldfld, compoundBoxedCapture.BoxField)
+                    } else {
+                        _il.Emit(OpCodes.Ldloc, compoundLiftedCapture.Box)
+                    }
+                    _il.Emit(OpCodes.Dup)
+                    _il.Emit(OpCodes.Ldfld, compoundBoxValueField)
+                } else if (compoundLocal != null) {
                     _il.Emit(OpCodes.Ldloc, compoundLocal)
                 } else if (compoundThroughReference) {
                     ColumnarArgumentInstructionEmitter.EmitLoad(_il, compoundParamOrdinal)
@@ -10118,7 +10149,9 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
 
-                if (compoundLocal != null) {
+                if (compoundThroughBox) {
+                    _il.Emit(OpCodes.Stfld, compoundBoxValueField)
+                } else if (compoundLocal != null) {
                     _il.Emit(OpCodes.Stloc, compoundLocal)
                 } else if (compoundThroughReference) {
                     EmitStoreByRefElement(compoundType)
@@ -16113,9 +16146,9 @@ sealed class ColumnarIlEmitter {
             return true
         } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.PostfixUnary {
             // PostfixUnary [target] — `n++` / `n--` in EXPRESSION position: N# post-semantics, the
-            // value is the PRE-step value. Bare LOCAL/PARAM targets of int/long/ulong only (the
-            // pipeline's double/float `++` silently NO-OPS — an known defect; columnar declines those
-            // so it never diverges). Lifted/boxed targets decline (capture rung).
+            // value is the PRE-step value. Supported int/long/ulong locals, parameters, and captured
+            // StrongBox values share the same step logic; double/float `++` silently no-ops in the
+            // pipeline (known defect), so columnar declines those rather than diverging.
             if (!TryEmitPostfixUnary(idx, true, out columnarResolvedType)) {
                 return false
             }
@@ -22370,10 +22403,10 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM, field or current-instance property of int/long/ulong:
-    // load, step by one, store — keeping the PRE-step value on the stack when `keepValue` (N# post-semantics;
-    // `m := n++` reads the old n). double/float decline (the pipeline's `++` on them silently no-ops — known
-    // defect bundle); lifted/boxed captures and unsupported receivers decline.
+    // Postfix `++`/`--` (kind 44) on supported int/long/ulong locals, parameters, captured StrongBox values,
+    // fields or current-instance properties: load, step by one, store — keeping the PRE-step value on the
+    // stack when `keepValue` (N# post-semantics; `m := n++` reads the old n). double/float decline (the
+    // pipeline's `++` on them silently no-ops — known defect bundle); unsupported receivers decline.
     private func TryEmitPostfixUnary(idx: int, keepValue: bool, out resolvedClrType: Type): bool {
         resolvedClrType = null
         if (_nodes.ChildCount(idx) != 1) {
@@ -25460,47 +25493,95 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // The conditions `TryEmitAspNetRouteHandler` checks before it emits anything: a lambda of zero
-    // parameters or of one `HttpContext` parameter, or a bare instance method of the enclosing type
-    // taking an `HttpContext`. Every other handler (a static method group, a delegate value) belongs to
-    // the ordinary call tiers.
-    private func CanEmitAspNetRouteHandler(handlerNode: int): bool {
+    // Resolve the complete handler shape BEFORE emission. This per-API residual owns zero-parameter
+    // lambdas and the single-HttpContext form (annotated or contextual); explicitly typed handlers with
+    // another shape go through the general Delegate conversion.
+    private func TryGetAspNetRouteHandlerDelegateType(handlerNode: int, out delegateType: Type): bool {
+        delegateType = null
         handlerNode = UnwrapParenthesizedNode(handlerNode)
         let httpContextType: System.Type = null
         if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode))) {
             parameterCount := _nodes.ChildCount(handlerNode) - 1
-            return parameterCount == 0 || (parameterCount == 1 && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata))
+            let parameterTypes: System.Type[]? = null
+            if (parameterCount == 0) {
+                parameterTypes = Type.EmptyTypes
+            } else if (TryResolveLambdaParameterTypes(handlerNode, null, true, out parameterTypes)) {
+                // This contextual path models HttpContext. Explicitly typed handlers with another
+                // shape take the natural-lambda arm in TryEmitAspNetMapEndpointCall instead.
+                if (parameterCount != 1 || !ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata) || parameterTypes == null || !TypesEquivalent(parameterTypes[0], httpContextType)) {
+                    return false
+                }
+            } else {
+                // Only an unannotated single parameter uses ASP.NET's contextual HttpContext shape.
+                if (parameterCount != 1 || !ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata)) {
+                    return false
+                }
+                if (!TryResolveLambdaParameterTypes(handlerNode, [httpContextType], false, out parameterTypes) || parameterTypes == null || !TypesEquivalent(parameterTypes[0], httpContextType)) {
+                    return false
+                }
+            }
+            if (parameterTypes == null || !ColumnarCanonicalTypeResolver.SupportsInferredDelegateParameterCount(parameterTypes.Length)) {
+                return false
+            }
+            let inferredReturnType: System.Type? = null
+            if (!TryPreflightContextualLambdaReturnType(handlerNode, parameterTypes, out inferredReturnType) || inferredReturnType == null || !ColumnarCanonicalTypeResolver.TryConstructInferredDelegate(parameterTypes, inferredReturnType, out delegateType)) {
+                return false
+            }
+            // A natural parameter list is not sufficient: the generated Func/Action and its Invoke
+            // constructor must be supported by this emitter before TryEmitAspNetRouteHandler writes IL.
+            return IsSupportedContextualDelegateType(delegateType)
         }
         let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
-        return _nodes.Kind(handlerNode) == ColumnarExpressionNodeKind.IdentifierExpression && _currentStruct != null && _currentStruct.IsReference && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata) && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) && method != null && TypesEquivalent(method.ParamTypes[0], httpContextType) && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)
+        if (_nodes.Kind(handlerNode) != ColumnarExpressionNodeKind.IdentifierExpression || _currentStruct == null || !_currentStruct.IsReference || !ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata) || !ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) || method == null || !TypesEquivalent(method.ParamTypes[0], httpContextType) || !ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)) {
+            return false
+        }
+        parameterTypes := new System.Type[](1)
+        parameterTypes[0] = httpContextType
+        if (!ColumnarCanonicalTypeResolver.TryConstructInferredDelegate(parameterTypes, method.ReturnType, out delegateType)) {
+            return false
+        }
+        return IsSupportedContextualDelegateType(delegateType)
+    }
+
+    // An explicitly typed lambda at the broad `Delegate` endpoint parameter has a natural Func/Action
+    // shape even when it is not the HttpContext form above. Preflight that shape before the endpoint
+    // door emits anything, then emit the literal contextually against the natural delegate so its
+    // parameter names and annotations follow the existing lambda metadata path.
+    private func TryGetAspNetExplicitLambdaDelegateType(handlerNode: int, out delegateType: Type): bool {
+        delegateType = null
+        handlerNode = UnwrapParenthesizedNode(handlerNode)
+        if (!ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode)) || _nodes.ChildCount(handlerNode) <= 1) {
+            return false
+        }
+
+        let parameterTypes: System.Type[]? = null
+        if (!TryResolveLambdaParameterTypes(handlerNode, null, true, out parameterTypes) || parameterTypes == null || !ColumnarCanonicalTypeResolver.SupportsInferredDelegateParameterCount(parameterTypes.Length)) {
+            return false
+        }
+        let returnType: System.Type? = null
+        if (!TryPreflightContextualLambdaReturnType(handlerNode, parameterTypes, out returnType) || returnType == null || !ColumnarCanonicalTypeResolver.TryConstructInferredDelegate(parameterTypes, returnType, out delegateType)) {
+            return false
+        }
+        return IsSupportedContextualDelegateType(delegateType)
+    }
+
+    private func CanEmitAspNetRouteHandler(handlerNode: int, out delegateType: Type): bool {
+        return TryGetAspNetRouteHandlerDelegateType(handlerNode, out delegateType)
     }
 
     private func TryEmitAspNetRouteHandler(handlerNode: int, out delegateType: Type): bool {
-        delegateType = null
         handlerNode = UnwrapParenthesizedNode(handlerNode)
-        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode))) {
-            parameterCount := _nodes.ChildCount(handlerNode) - 1
-            if (parameterCount == 0) {
-                let inferredReturn: System.Type = null
-                returnType := TryPreflightContextualLambdaReturnType(handlerNode, Type.EmptyTypes, out inferredReturn) ? inferredReturn : typeof(object)
-                delegateType = typeof(Func<int>).GetGenericTypeDefinition().MakeGenericType([returnType])
-                return IsSupportedContextualDelegateType(delegateType) && TryEmitLambdaLiteral(handlerNode, delegateType)
-            }
-
-            let httpContextType: System.Type = null
-            if (parameterCount == 1 && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata)) {
-                let inferredReturn: System.Type = null
-                returnType := TryPreflightContextualLambdaReturnType(handlerNode, [httpContextType], out inferredReturn) ? inferredReturn : typeof(System.Threading.Tasks.Task)
-                delegateType = typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([httpContextType, returnType])
-                return IsSupportedContextualDelegateType(delegateType) && TryEmitLambdaLiteral(handlerNode, delegateType)
-            }
+        if (!TryGetAspNetRouteHandlerDelegateType(handlerNode, out delegateType)) {
             return false
+        }
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode))) {
+            // Delegate signature and emitted parameter metadata stay on the existing contextual path.
+            return TryEmitLambdaLiteral(handlerNode, delegateType)
         }
 
         let contextType: System.Type = null
         let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
         if (_nodes.Kind(handlerNode) == ColumnarExpressionNodeKind.IdentifierExpression && _currentStruct != null && _currentStruct.IsReference && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out contextType, _context.ReferenceMetadata) && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) && method != null && TypesEquivalent(method.ParamTypes[0], contextType) && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)) {
-            delegateType = typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([contextType, method.ReturnType])
             let delegateCtor: System.Reflection.ConstructorInfo? = null
             let ignoredDelegateReturnType: System.Type? = null
             let ignoredDelegateParameterTypes: System.Type[]? = null
@@ -25508,7 +25589,13 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             _il.Emit(OpCodes.Ldarg_0)
-            _il.Emit(OpCodes.Ldftn, method.Builder)
+            // A VIRTUAL HANDLER BINDS THE RUNTIME METHOD THE RECEIVER HAS, as C# does for a method group.
+            if (method.Builder.IsVirtual) {
+                _il.Emit(OpCodes.Dup)
+                _il.Emit(OpCodes.Ldvirtftn, method.Builder)
+            } else {
+                _il.Emit(OpCodes.Ldftn, method.Builder)
+            }
             _il.Emit(OpCodes.Newobj, delegateCtor)
             return true
         }
@@ -25516,6 +25603,11 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
+    // DELETION DEBT: a per-API residual (it names `WebApplication`, `MapGet` and `MapPost`) because the
+    // general call tiers cannot yet lower lambdas to a broad `Delegate` parameter. This door supplies
+    // natural Func/Action types for fully annotated lambdas and ASP.NET's HttpContext shape for an
+    // unannotated single parameter. Retire it when general broad-delegate lambda conversion covers
+    // both; the untyped-lambda gap is related to #216 (lambda parameter metadata).
     private func TryEmitAspNetMapEndpointCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         if (receiverType.FullName != "Microsoft.AspNetCore.Builder.WebApplication" || (member != "MapGet" && member != "MapPost") || argCount != 2) {
@@ -25538,19 +25630,42 @@ sealed class ColumnarIlEmitter {
                 continue
             }
             parameters := candidate.GetParameters()
-            if (parameters.Length == 3 && parameters[1].ParameterType == typeof(string) && parameters[2].ParameterType == typeof(Delegate)) {
+            if (parameters.Length == 3 && parameters[1].ParameterType == typeof(string) && AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(parameters[2].ParameterType)) {
                 mapMethod = candidate
                 break
             }
         }
-        let ignoredDelegateType: System.Type? = null
-        // NOTHING MAY BE EMITTED FOR A HANDLER THIS DOOR WILL NOT TAKE. The route string is pushed before
-        // the handler is built, and an instruction stream cannot be rewound: a method group or a
-        // `Delegate`-typed value that fell through after the path was pushed left the path on the stack
-        // for the next tier to emit again, which is the `InvalidProgramException` at the call.
-        if (mapMethod == null || !CanEmitAspNetRouteHandler(Child(callIdx, 2)) || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false) || !TryEmitAspNetRouteHandler(Child(callIdx, 2), out ignoredDelegateType)) {
+        // THIS DOOR IS TRANSACTIONAL: every decision is made before an instruction is emitted, and the
+        // handler is built BEFORE the route string and parked in a temp, so the stack holds only the
+        // receiver whenever the door answers false. The old door pushed the route first, then let a
+        // handler it could not build (a method group or `Delegate`-typed value) fall through with that
+        // string still on the stack; the next tier emitted the route again and produced invalid IL.
+        let handlerDelegateType: System.Type? = null
+        naturalLambdaHandler := false
+        handlerCanEmit := CanEmitAspNetRouteHandler(Child(callIdx, 2), out handlerDelegateType)
+        if (!handlerCanEmit && TryGetAspNetExplicitLambdaDelegateType(Child(callIdx, 2), out handlerDelegateType)) {
+            handlerCanEmit = true
+            naturalLambdaHandler = true
+        }
+        if (mapMethod == null || !CanDeclaredCallArgumentMatch(Child(callIdx, 1), typeof(string), false) || !handlerCanEmit) {
             return false
         }
+        if (naturalLambdaHandler) {
+            if (!TryEmitLambdaLiteral(UnwrapParenthesizedNode(Child(callIdx, 2)), handlerDelegateType)) {
+                return false
+            }
+        } else {
+            let emittedDelegateType: System.Type? = null
+            if (!TryEmitAspNetRouteHandler(Child(callIdx, 2), out emittedDelegateType)) {
+                return false
+            }
+        }
+        handlerTemp := _il.DeclareLocal(handlerDelegateType)
+        _il.Emit(OpCodes.Stloc, handlerTemp)
+        if (!EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldloc, handlerTemp)
 
         _il.Emit(OpCodes.Call, mapMethod)
         columnarResolvedType = mapMethod.ReturnType
@@ -25610,7 +25725,7 @@ sealed class ColumnarIlEmitter {
                     break
                 }
             }
-            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false)) {
+            if (method == null || !CanDeclaredCallArgumentMatch(Child(callIdx, 1), typeof(string), false) || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false)) {
                 return false
             }
             _il.Emit(OpCodes.Call, method)
@@ -28554,18 +28669,25 @@ sealed class ColumnarIlEmitter {
     // one a `Func`/`Action` can spell. A name bound to a local or parameter is a value, not a group.
     private func TryGetNaturalMethodGroupDelegateType(argNode: int, expectedParamType: Type, out naturalType: Type): bool {
         naturalType = null
-        if (expectedParamType != typeof(Delegate) && expectedParamType != typeof(MulticastDelegate)) {
+        if (!AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(expectedParamType)) {
             return false
         }
         node := UnwrapParenthesizedNode(argNode)
         if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(node))) {
             return false
         }
+        // A BARE NAME THE BODY BINDS TO A VALUE IS NOT A GROUP, however it is stored: a local, a parameter,
+        // a lifted or boxed capture, a snapshot field of the closure display this body runs on, or a field
+        // or property of the enclosing instance. (A dotted name keeps its receiver: `owner.Handle` is a
+        // group bound to the value `owner`.)
         if (_nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression) {
             groupName := ColumnarNodeTextFacts.Text(_nodes, _source, node)
-            if (_locals.ContainsKey(groupName) || _paramOrdinals.ContainsKey(groupName) || _liftedLocals.ContainsKey(groupName)) {
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(groupName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames) || IsCurrentInstanceMemberName(groupName) || (_currentStruct != null && _currentStruct.IsClosureDisplay && _currentStruct.Fields.ContainsKey(groupName)) || IsCapturedEnclosingInstanceMemberName(groupName)) {
                 return false
             }
+        }
+        if (!HasExactlyOneNaturalMethodGroupCandidate(node)) {
+            return false
         }
         let groupParameterTypes: System.Type[]? = null
         let groupReturnType: System.Type? = null
@@ -28576,6 +28698,172 @@ sealed class ColumnarIlEmitter {
             return false
         }
         return ColumnarCanonicalTypeResolver.TryConstructInferredDelegate(groupParameterTypes, groupReturnType, out naturalType)
+    }
+
+    // The body of a capturing lambda runs on its display class, whose members do not include the
+    // original owner's fields or properties. Follow the display's recorded enclosing chain so a
+    // bare name that resolves through captured `this` stays a value even when a sibling function has
+    // the same name.
+    private func IsCapturedEnclosingInstanceMemberName(name: string): bool {
+        if (_currentStruct == null || !_currentStruct.IsClosureDisplay || !_currentStruct.Fields.ContainsKey(ColumnarClosureBindingPlanner.CapturedEnclosingInstanceFieldName())) {
+            return false
+        }
+
+        current := _currentStruct.ClosureEnclosingDef
+        depth := 0
+        while current != null && depth < 32 {
+            let field: System.Reflection.Emit.FieldBuilder? = null
+            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(current, name, out field) && field != null) {
+                return true
+            }
+            let property: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+            if (TryFindPropertyOnChain(current, name, out property) && property != null) {
+                return true
+            }
+            inheritedBase := ColumnarInheritedExternalBase.Resolve(current, null)
+            if (inheritedBase != null) {
+                inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
+                if (ColumnarRuntimeInstanceMemberResolver.TrySelect(inheritedBase, name, true, out inheritedSelection)) {
+                    return true
+                }
+            }
+
+            current = current.IsClosureDisplay ? current.ClosureEnclosingDef : null
+            depth += 1
+        }
+        return false
+    }
+
+    // A natural method-group type exists only for one declared method, including declarations the
+    // ordinary delegate-target path filters out (generic, by-ref or otherwise unsupported overloads).
+    // Counting only the candidates left after that filter turned `Delegate = Pick` into a false
+    // single-candidate group whenever one overload could not be emitted.
+    private func HasExactlyOneNaturalMethodGroupCandidate(node: int): bool {
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression) {
+            let localMethod: (Method: System.Reflection.Emit.MethodBuilder, ParamTypes: System.Type[], ReturnType: System.Type) = (null, null, null)
+            if (TryGetVisibleLocalFunctionMethodGroup(node, out localMethod)) {
+                return true
+            }
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            let siblings: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition>? = null
+            if (_context.SiblingOverloads.TryGetValue(name, out siblings) && siblings != null) {
+                return siblings.Count == 1
+            }
+            if (_enclosingType != null) {
+                count := CountSourceStaticMethodGroupDeclarations(_enclosingType, name)
+                if (HasEmittableEnclosingThis()) {
+                    count += CountSourceInstanceMethodGroupDeclarations(_currentStruct, name)
+                }
+                return count == 1
+            }
+            return false
+        }
+
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.MemberAccessExpression) {
+            return false
+        }
+        let qualifiedSibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        if (_context.TryGetBoundSibling(_nodes.ValueStart(node), out qualifiedSibling) && qualifiedSibling != null) {
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            let qualifiedOverloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition>? = null
+            return _context.SiblingOverloads.TryGetValue(name, out qualifiedOverloads) && qualifiedOverloads != null && qualifiedOverloads.Count == 1
+        }
+
+        let staticOwner: System.Type? = null
+        let staticMember: string? = null
+        if (TryGetExternalStaticMethodGroupOwner(node, out staticOwner, out staticMember)) {
+            return CountStaticMethodGroupDeclarations(staticOwner, staticMember) == 1
+        }
+
+        receiverType := TryGetMethodGroupReceiverType(node)
+        if (receiverType == null) {
+            return false
+        }
+        return CountInstanceMethodGroupDeclarations(receiverType, ColumnarNodeTextFacts.Text(_nodes, _source, node)) == 1
+    }
+
+    private func TryGetMethodGroupReceiverType(node: int): Type? {
+        if (_nodes.ChildCount(node) != 1) {
+            return null
+        }
+        let receiverType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(node, 0), out receiverType)) {
+            return null
+        }
+        return receiverType
+    }
+
+    private static func CountSourceStaticMethodGroupDeclarations(owner: ColumnarStructDef?, name: string): int {
+        count := 0
+        current := owner
+        while (current != null) {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (current.StaticMethods.TryGetValue(name, out overloads) && overloads != null) {
+                count += overloads.Count
+            }
+            current = current.BaseDef
+        }
+        return count
+    }
+
+    private static func CountSourceInstanceMethodGroupDeclarations(owner: ColumnarStructDef?, name: string): int {
+        count := 0
+        current := owner
+        while (current != null) {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef>? = null
+            if (current.MethodOverloads.TryGetValue(name, out overloads) && overloads != null) {
+                count += overloads.Count
+            }
+            current = current.BaseDef
+        }
+        return count
+    }
+
+    private func CountStaticMethodGroupDeclarations(owner: Type, name: string): int {
+        let sourceOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (ColumnarSourceDefinitionResolver.TryResolveStruct(owner, _structRegistry.Values, out sourceOwner)) {
+            return CountSourceStaticMethodGroupDeclarations(sourceOwner, name)
+        }
+        let methods: System.Reflection.MethodInfo[]? = null
+        try {
+            methods = owner.GetMethods(BindingFlags.Public | BindingFlags.Static)
+        } catch {
+            return 0
+        }
+        if (methods == null) {
+            return 0
+        }
+        count := 0
+        for method in methods {
+            if (method.Name == name) {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    private func CountInstanceMethodGroupDeclarations(owner: Type, name: string): int {
+        let sourceOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (ColumnarSourceDefinitionResolver.TryResolveStruct(owner, _structRegistry.Values, out sourceOwner)) {
+            return CountSourceInstanceMethodGroupDeclarations(sourceOwner, name)
+        }
+        let methods: System.Reflection.MethodInfo[]? = null
+        try {
+            methods = owner.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+        } catch {
+            return 0
+        }
+        if (methods == null) {
+            return 0
+        }
+        count := 0
+        for method in methods {
+            if (method.Name == name) {
+                count += 1
+            }
+        }
+        return count
     }
 
     private func TryGetVisibleLocalFunctionMethodGroup(argNode: int, out localTarget: (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)): bool {
@@ -29347,8 +29635,19 @@ sealed class ColumnarIlEmitter {
 
         if (_nodes.Kind(targetNode) == ColumnarExpressionNodeKind.IdentifierExpression) {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, targetNode)
-            if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {
-                return false
+            let boxedCaptureBoxField: System.Reflection.FieldInfo? = null
+            let boxedCaptureValueType: System.Type? = null
+            let boxedCapture: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (boxedCaptureBoxField, boxedCaptureValueType)
+            if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out boxedCapture)) {
+                targetType = boxedCapture.ValueType
+                return true
+            }
+            let liftedCaptureBox: System.Reflection.Emit.LocalBuilder? = null
+            let liftedCaptureValueType: System.Type? = null
+            let liftedCapture: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedCaptureBox, liftedCaptureValueType)
+            if (_liftedLocals.TryGetValue(name, out liftedCapture)) {
+                targetType = liftedCapture.ValueType
+                return true
             }
             let local: System.Reflection.Emit.LocalBuilder? = null
             if (_locals.TryGetValue(name, out local)) {
@@ -29408,8 +29707,30 @@ sealed class ColumnarIlEmitter {
 
         if (_nodes.Kind(targetNode) == ColumnarExpressionNodeKind.IdentifierExpression) {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, targetNode)
-            if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {
-                return false
+            let boxedCaptureBoxField: System.Reflection.FieldInfo? = null
+            let boxedCaptureValueType: System.Type? = null
+            let boxedCapture: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (boxedCaptureBoxField, boxedCaptureValueType)
+            if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out boxedCapture)) {
+                if (!TypesEquivalent(boxedCapture.ValueType, expectedElementType)) {
+                    return false
+                }
+                boxValueField := ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(boxedCapture.ValueType, "boxed capture value type")), "StrongBox<T>.Value field for by-reference closure storage")
+                _il.Emit(OpCodes.Ldarg_0)
+                _il.Emit(OpCodes.Ldfld, boxedCapture.BoxField)
+                _il.Emit(OpCodes.Ldflda, boxValueField)
+                return true
+            }
+            let liftedCaptureBox: System.Reflection.Emit.LocalBuilder? = null
+            let liftedCaptureValueType: System.Type? = null
+            let liftedCapture: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedCaptureBox, liftedCaptureValueType)
+            if (_liftedLocals.TryGetValue(name, out liftedCapture)) {
+                if (!TypesEquivalent(liftedCapture.ValueType, expectedElementType)) {
+                    return false
+                }
+                boxValueField := ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(liftedCapture.ValueType, "lifted capture value type")), "StrongBox<T>.Value field for by-reference closure storage")
+                _il.Emit(OpCodes.Ldloc, liftedCapture.Box)
+                _il.Emit(OpCodes.Ldflda, boxValueField)
+                return true
             }
             let local: System.Reflection.Emit.LocalBuilder? = null
             if (_locals.TryGetValue(name, out local)) {
@@ -29684,6 +30005,25 @@ sealed class ColumnarIlEmitter {
         return EmitForeachOverEnumerator(plan, collectionType, varName, body, declaredElementType)
     }
 
+    // A written foreach variable that a lambda captures needs shared storage INSIDE its iteration.
+    // Allocate a new box each time the loop reaches this point: closures from this iteration share
+    // its writes, while a later iteration gets a different variable and cannot change earlier ones.
+    // The element value is already on the stack.
+    private func StoreForeachIterationValue(varName: string, valueType: Type): void {
+        if (_liftedCandidates != null && _liftedCandidates.Contains(varName) && IsLiftableCaptureStorageType(valueType)) {
+            boxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([valueType])
+            boxLocal := _il.DeclareLocal(boxType)
+            _il.Emit(OpCodes.Newobj, ColumnarClosureBindingPlanner.StrongBoxConstructor(valueType))
+            _il.Emit(OpCodes.Stloc, boxLocal)
+            _liftedLocals[varName] = (boxLocal, valueType)
+            return
+        }
+
+        loopVar := _il.DeclareLocal(valueType)
+        _il.Emit(OpCodes.Stloc, loopVar)
+        _locals[varName] = loopVar
+    }
+
     // THE ANNOTATED LOOP VARIABLE'S CONVERSION, APPLIED ONCE PER ELEMENT. The element value is on the
     // stack on entry; the answer is the type the hidden loop local must have, or null when no
     // conversion reaches the annotation. All four loop shapes run it at the same point — after the
@@ -29729,9 +30069,7 @@ sealed class ColumnarIlEmitter {
         if (arrayLoopVarType == null) {
             return Decline("emit.foreach.element-conversion", "no conversion from array element type '" + elementType.FullName + "' to the loop variable's declared type", body)
         }
-        loopVar := _il.DeclareLocal(arrayLoopVarType)
-        _il.Emit(OpCodes.Stloc, loopVar)
-        _locals[varName] = loopVar
+        StoreForeachIterationValue(varName, arrayLoopVarType)
 
         _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
         arrayBodyEmitted := EmitStatement(body)
@@ -29775,9 +30113,7 @@ sealed class ColumnarIlEmitter {
         if (stringLoopVarType == null) {
             return Decline("emit.foreach.element-conversion", "no conversion from 'System.Char' to the loop variable's declared type", body)
         }
-        loopVar := _il.DeclareLocal(stringLoopVarType)
-        _il.Emit(OpCodes.Stloc, loopVar)
-        _locals[varName] = loopVar
+        StoreForeachIterationValue(varName, stringLoopVarType)
 
         _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
         stringBodyEmitted := EmitStatement(body)
@@ -29832,9 +30168,7 @@ sealed class ColumnarIlEmitter {
         if (indexedLoopVarType == null) {
             return Decline("emit.foreach.element-conversion", "no conversion from element type '" + plan.ElementType.FullName + "' to the loop variable's declared type", body)
         }
-        loopVar := _il.DeclareLocal(indexedLoopVarType)
-        _il.Emit(OpCodes.Stloc, loopVar)
-        _locals[varName] = loopVar
+        StoreForeachIterationValue(varName, indexedLoopVarType)
 
         _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
         indexedBodyEmitted := EmitStatement(body)
@@ -29916,9 +30250,7 @@ sealed class ColumnarIlEmitter {
         if (enumeratorLoopVarType == null) {
             return Decline("emit.foreach.element-conversion", "no conversion from element type '" + plan.ElementType.FullName + "' to the loop variable's declared type", body)
         }
-        loopVar := _il.DeclareLocal(enumeratorLoopVarType)
-        _il.Emit(OpCodes.Stloc, loopVar)
-        _locals[varName] = loopVar
+        StoreForeachIterationValue(varName, enumeratorLoopVarType)
 
         _loopLabels.Push((endLabel, loopStart, _protectedDepth, _finallyDepth))
         enumeratorBodyEmitted := EmitStatement(body)

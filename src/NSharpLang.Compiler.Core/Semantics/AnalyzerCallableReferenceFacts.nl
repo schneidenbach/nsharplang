@@ -52,6 +52,91 @@ class AnalyzerCallableReferenceFacts {
         return sourceGroup != null
     }
 
+    // `System.Delegate` and `System.MulticastDelegate` THEMSELVES, recognised by name so the answer does
+    // not depend on which load context the type came from. This is the one place the two roots are named.
+    static func IsBroadDelegateRootType(candidate: Type): bool {
+        fullName := candidate.FullName
+        return fullName == "System.Delegate" || fullName == "System.MulticastDelegate"
+    }
+
+    // A METHOD GROUP THAT CAN TAKE A NATURAL `Func`/`Action` SHAPE before it converts to a broad root.
+    // These roots have no `Invoke`, so a normal delegate-signature comparison cannot decide the
+    // conversion. The declaration count still matters: multiple candidates do not acquire a natural
+    // type merely because only one of them happens to survive a later emitter filter.
+    static func HasNaturalCallableReferenceType(candidate: TypeInfo): bool {
+        functionType := candidate as FunctionTypeInfo
+        if functionType != null {
+            return HasSourceFunctionIdentity(functionType) && HasNaturalFunctionType(functionType)
+        }
+
+        sourceGroup := candidate as NSharpMethodGroupInfo
+        if sourceGroup != null {
+            return sourceGroup.Functions.Count == 1 && HasSourceFunctionIdentity(sourceGroup.Functions[0]) && HasNaturalFunctionType(sourceGroup.Functions[0])
+        }
+
+        reflectionMethod := candidate as ReflectionMethodInfo
+        if reflectionMethod != null {
+            return HasNaturalReflectionMethodType(reflectionMethod.Method)
+        }
+
+        reflectionGroup := candidate as ReflectionMethodGroupInfo
+        if reflectionGroup == null || reflectionGroup.Methods == null || reflectionGroup.Methods.Length != 1 {
+            return false
+        }
+
+        return HasNaturalReflectionMethodType(reflectionGroup.Methods[0])
+    }
+
+    static func HasNaturalReflectionMethodType(method: System.Reflection.MethodInfo?): bool {
+        if method == null || method.IsGenericMethod || method.ContainsGenericParameters {
+            return false
+        }
+
+        signature := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(method)
+        return signature != null && HasNaturalFunctionType(signature)
+    }
+
+    // WHETHER A SIGNATURE HAS A NATURAL FUNCTION TYPE a `Func`/`Action` can spell: not generic,
+    // no `ref`/`out`/`in` position, and at most the 16 parameters the BCL families go to. It mirrors
+    // what the emitter builds (`TryConstructInferredDelegate`), so a group the analyzer lets through
+    // is one the emitter can construct.
+    static func HasNaturalFunctionType(functionType: FunctionTypeInfo): bool {
+        typeParameters := functionType.TypeParameters
+        if typeParameters != null && typeParameters.Count > 0 {
+            return false
+        }
+
+        parameterTypes := functionType.ParameterTypes
+        let returnType: TypeInfo? = functionType.ReturnType
+        if parameterTypes == null || parameterTypes.Count > 16 || returnType == null {
+            return false
+        }
+
+        modifiers := functionType.ParameterModifiers
+        if modifiers != null {
+            if modifiers.Count != parameterTypes.Count {
+                return false
+            }
+            for modifier in modifiers {
+                if modifier != ParameterModifier.None {
+                    return false
+                }
+            }
+        }
+
+        for parameterType in parameterTypes {
+            if BuiltInTypes.IsUnknown(parameterType) || parameterType is ByRefTypeInfo {
+                return false
+            }
+        }
+
+        if BuiltInTypes.IsUnknown(returnType) || returnType is ByRefTypeInfo {
+            return false
+        }
+
+        return true
+    }
+
     // True when the function type came from a DECLARED source function rather than a lambda: only a
     // declaration records the source name. This is the method-group-versus-lambda discriminator.
     static func HasSourceFunctionIdentity(functionType: FunctionTypeInfo): bool {
@@ -80,8 +165,7 @@ class AnalyzerCallableReferenceFacts {
             return false
         }
 
-        multicastRoot := coreLibrary.GetType("System.MulticastDelegate")
-        return candidate != delegateRoot && candidate != multicastRoot
+        return !IsBroadDelegateRootType(candidate)
     }
 
     // A DELEGATE TYPE AS METADATA SEES IT, which is not the same question `IsRuntimeDelegateType`
@@ -93,16 +177,14 @@ class AnalyzerCallableReferenceFacts {
         // The two abstract roots are excluded for the same reason `IsRuntimeDelegateType` excludes
         // them: neither names a callable signature, and `MulticastDelegate` would otherwise answer
         // true off its own base.
-        candidateName := candidate.FullName
-        if candidateName == "System.Delegate" || candidateName == "System.MulticastDelegate" {
+        if IsBroadDelegateRootType(candidate) {
             return false
         }
 
         current: Type? = AnalyzerReflectionMemberProbe.BaseTypeOrNull(candidate)
         depth := 0
         while current != null && depth < 32 {
-            fullName := current.FullName
-            if fullName == "System.MulticastDelegate" || fullName == "System.Delegate" {
+            if IsBroadDelegateRootType(current) {
                 return true
             }
 

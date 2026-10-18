@@ -372,13 +372,7 @@ class AnalyzerAssignabilityFacts {
             // assembly declares, answered NO to a question about its own kind. Naming a method where
             // `NotifyCollectionChangedEventHandler` or `ConsoleCancelEventHandler` was expected then
             // reported NL411 "must be called or passed to a delegate" at a position that IS one.
-            //
-            // THE TWO ABSTRACT ROOTS ARE THE FOURTH ANSWER. `Delegate` and `MulticastDelegate` name no
-            // signature, but a method group has a NATURAL FUNCTION TYPE (C# 10) that converts to them by
-            // reference, so a group with exactly one candidate binds there. Which groups have one is the
-            // assignability question's, not this one's: an overloaded group has no natural type and is
-            // refused there.
-            return IsDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsMetadataDelegateType(reflectionType.Type) || IsBroadDelegateRoot(reflectionType.Type)
+            return IsDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsMetadataDelegateType(reflectionType.Type)
         }
 
         obliviousType := resolvedExpected as ObliviousTypeInfo
@@ -394,11 +388,77 @@ class AnalyzerAssignabilityFacts {
         return false
     }
 
-    // `System.Delegate` and `System.MulticastDelegate` themselves, recognised by name so the answer
-    // does not depend on which load context the type came from.
-    func IsBroadDelegateRoot(candidate: Type): bool {
-        fullName := candidate.FullName
-        return fullName == "System.Delegate" || fullName == "System.MulticastDelegate"
+    // A SOURCE FUNCTION NAMED WHERE `System.Delegate` OR `System.MulticastDelegate` IS EXPECTED. The two
+    // roots name no signature, so `CanBindCallableReferenceToExpectedType` refuses them; but a method
+    // with ONE declaration has a NATURAL FUNCTION TYPE (C# 10) -- the `Func`/`Action` its signature
+    // spells -- and that converts to them by reference. The candidate decides, not the expected type
+    // alone: an overloaded group is not a `FunctionTypeInfo` and never reaches here, and a signature
+    // no `Func`/`Action` can spell (`ref`/`out`, generic, more than 16 parameters) has no natural type.
+    // The event slot (`event E: Delegate`) keeps asking the narrower question and keeps its error.
+    func CanBindCallableReferenceToBroadDelegate(expectedType: TypeInfo, candidate: TypeInfo): bool {
+        resolvedExpected := declarationContext.ResolveDeclaredAlias(expectedType)
+
+        obliviousType := resolvedExpected as ObliviousTypeInfo
+        if obliviousType != null {
+            return CanBindCallableReferenceToBroadDelegate(obliviousType.InnerType, candidate)
+        }
+
+        nullableType := resolvedExpected as NullableTypeInfo
+        if nullableType != null {
+            return CanBindCallableReferenceToBroadDelegate(nullableType.InnerType, candidate)
+        }
+
+        reflectionType := resolvedExpected as ReflectionTypeInfo
+        if reflectionType == null || !AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(reflectionType.Type) {
+            return false
+        }
+
+        resolvedCandidate := declarationContext.ResolveDeclaredAlias(candidate)
+        return AnalyzerCallableReferenceFacts.HasNaturalCallableReferenceType(resolvedCandidate)
+    }
+
+    // An untyped lambda may arrive here with unknown parameter or return types after NL203 has already
+    // explained why `Delegate` cannot supply its signature. Defer this one assignment check so that
+    // diagnostic does not cascade into a second, less useful type-mismatch error. Declared method groups
+    // and lambdas with a complete signature still use the ordinary conversion rules above.
+    func CanDeferUnresolvedLambdaToBroadDelegate(expectedType: TypeInfo, candidate: TypeInfo): bool {
+        resolvedExpected := declarationContext.ResolveDeclaredAlias(expectedType)
+
+        obliviousType := resolvedExpected as ObliviousTypeInfo
+        if obliviousType != null {
+            return CanDeferUnresolvedLambdaToBroadDelegate(obliviousType.InnerType, candidate)
+        }
+
+        nullableType := resolvedExpected as NullableTypeInfo
+        if nullableType != null {
+            return CanDeferUnresolvedLambdaToBroadDelegate(nullableType.InnerType, candidate)
+        }
+
+        reflectionType := resolvedExpected as ReflectionTypeInfo
+        if reflectionType == null || !AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(reflectionType.Type) {
+            return false
+        }
+
+        resolvedCandidate := declarationContext.ResolveDeclaredAlias(candidate)
+        functionType := resolvedCandidate as FunctionTypeInfo
+        if functionType == null || AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType) {
+            return false
+        }
+
+        if BuiltInTypes.IsUnknown(functionType.ReturnType) {
+            return true
+        }
+
+        parameterTypes := functionType.ParameterTypes
+        if parameterTypes != null {
+            for parameterType in parameterTypes {
+                if BuiltInTypes.IsUnknown(parameterType) {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     // A CONCRETE delegate type in the load context: something that derives from `System.Delegate`
@@ -414,8 +474,7 @@ class AnalyzerAssignabilityFacts {
             return false
         }
 
-        fullName := candidate.FullName
-        return fullName != "System.Delegate" && fullName != "System.MulticastDelegate"
+        return !AnalyzerCallableReferenceFacts.IsBroadDelegateRootType(candidate)
     }
 
     // The known generic-to-generic relation, stated once. Read as "a source on the right is

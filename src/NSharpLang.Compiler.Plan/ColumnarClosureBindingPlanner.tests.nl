@@ -438,6 +438,20 @@ test "closure lift candidates retain prior state, exclude structural writes, and
     )
     initializerTree := initializerBuilder.Build(initializer)
     assert !ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(initializerTree.Nodes, initializerTree.Root)
+    assert !ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(initializerTree.Nodes, initializerTree.Root, 0)
+    assert ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(initializerTree.Nodes, initializerTree.Root, 1)
+    anonymousBuilder := new ColumnarRangePlannerNodeBuilder()
+    anonymous := anonymousBuilder.AddNode(
+        ColumnarExpressionNodeKind.AnonymousObjectInitializer,
+        -1,
+        0,
+        0,
+        0,
+        new int[](0)
+    )
+    anonymousTree := anonymousBuilder.Build(anonymous)
+    assert ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(anonymousTree.Nodes, anonymousTree.Root, 0)
+    assert !ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(anonymousTree.Nodes, anonymousTree.Root, 1)
     simple := ClosureBindingControlsIdentifierTree("plain")
     assert !ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(simple.Nodes, simple.Root)
 }
