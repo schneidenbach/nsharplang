@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.Reflection
+import NSharpLang.Compiler.Ast
 
 // Native contracts for the analyzer's callable / delegate-reference classification family.
 // These predicates were `private static` in Analyzer.cs, so no test named them directly; their
@@ -487,11 +488,15 @@ test "a natural function type needs a non-generic signature with plain parameter
 
     sixteen := CallableSourceFunction("Probe")
     seventeen := CallableSourceFunction("Probe")
+    sixteenParameters := new List<TypeInfo>()
+    seventeenParameters := new List<TypeInfo>()
+    sixteen.ParameterTypes = sixteenParameters
+    seventeen.ParameterTypes = seventeenParameters
     for index := 0; index < 17; index++ {
         if index < 16 {
-            sixteen.ParameterTypes.Add(BuiltInTypes.Int)
+            sixteenParameters.Add(BuiltInTypes.Int)
         }
-        seventeen.ParameterTypes.Add(BuiltInTypes.Int)
+        seventeenParameters.Add(BuiltInTypes.Int)
     }
     assert AnalyzerCallableReferenceFacts.HasNaturalFunctionType(sixteen)
     assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(seventeen)
@@ -501,7 +506,9 @@ test "a natural function type needs a non-generic signature with plain parameter
     assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(mismatchedModifiers)
 
     unknownParameter := CallableSourceFunction("Probe")
-    unknownParameter.ParameterTypes.Add(BuiltInTypes.Unknown)
+    unknownParameters := new List<TypeInfo>()
+    unknownParameter.ParameterTypes = unknownParameters
+    unknownParameters.Add(BuiltInTypes.Unknown)
     assert !AnalyzerCallableReferenceFacts.HasNaturalFunctionType(unknownParameter)
 
     missingReturn := CallableSourceFunction("Probe")

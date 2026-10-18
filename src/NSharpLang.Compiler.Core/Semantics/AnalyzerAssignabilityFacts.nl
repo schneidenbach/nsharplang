@@ -445,7 +445,8 @@ class AnalyzerAssignabilityFacts {
             return false
         }
 
-        if BuiltInTypes.IsUnknown(functionType.ReturnType) {
+        let candidateReturnType: TypeInfo? = functionType.ReturnType
+        if candidateReturnType == null || BuiltInTypes.IsUnknown(candidateReturnType) {
             return true
         }
 
