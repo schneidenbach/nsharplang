@@ -13969,6 +13969,32 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Stloc, nullableLocal)
                     elseLabel2 := _il.DefineLabel()
                     endLabel2 := _il.DefineLabel()
+                    // `a ?? b` WITH A NULLABLE `b` IS ITSELF NULLABLE (C# 12.15: when the right operand
+                    // has type `T?` the result is `T?`). The present branch keeps the whole `T?` value
+                    // instead of unwrapping it, and the absent branch is the right operand converted to
+                    // `T?`; a bare `null` right operand is the empty `T?`. The right operand's type is
+                    // read BEFORE it is emitted, because the present branch's shape depends on it.
+                    coalesceRightNode := UnwrapParenthesizedNode(Child(idx, 1))
+                    coalesceRightIsNullable := _nodes.Kind(coalesceRightNode) == ColumnarExpressionNodeKind.NullLiteralExpression
+                    if (!coalesceRightIsNullable) {
+                        let coalesceRightPreflight: System.Type? = null
+                        coalesceRightIsNullable = TryGetPreflightExpressionType(coalesceRightNode, out coalesceRightPreflight) && TypesEquivalent(coalesceRightPreflight, coalesceLeft)
+                    }
+                    if (coalesceRightIsNullable) {
+                        _il.Emit(OpCodes.Ldloca, nullableLocal)
+                        _il.Emit(OpCodes.Call, ResolveNullableGetter(coalesceLeft, "HasValue"))
+                        _il.Emit(OpCodes.Brfalse, elseLabel2)
+                        _il.Emit(OpCodes.Ldloc, nullableLocal)
+                        _il.Emit(OpCodes.Br, endLabel2)
+                        _il.MarkLabel(elseLabel2)
+                        let coalesceNullableRightType: System.Type? = null
+                        if (!TryEmitValueAsNullable(coalesceRightNode, coalesceLeft, out coalesceNullableRightType)) {
+                            return false
+                        }
+                        _il.MarkLabel(endLabel2)
+                        columnarResolvedType = coalesceLeft
+                        return true
+                    }
                     _il.Emit(OpCodes.Ldloca, nullableLocal)
                     _il.Emit(OpCodes.Call, ResolveNullableGetter(coalesceLeft, "HasValue"))
                     _il.Emit(OpCodes.Brfalse, elseLabel2)
@@ -15698,19 +15724,7 @@ sealed class ColumnarIlEmitter {
                         propertyType := constructedClosedArgs.Length == 0 ? userInitProperty.PropertyType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitProperty.PropertyType, constructedClosedArgs)
                         _il.Emit(OpCodes.Dup)
                         let propertyValueType: System.Type = null
-                        if (IsContextualDelegateValueNode(valueNode)) {
-                            if (!EmitDeclaredCallArgument(valueNode, propertyType, true)) {
-                                return false
-                            }
-                            propertyValueType = propertyType
-                        } else if (TryEmitZeroLiteralAsType(valueNode, propertyType, out propertyValueType)) {
-                        } else {
-                            // Null adopted to the declared reference/nullable property type.
-                            if (!EmitExpression(valueNode, out propertyValueType)) {
-                                return false
-                            }
-                        }
-                        if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
+                        if (!TryEmitAssignableValue(valueNode, propertyType, out propertyValueType)) {
                             return false
                         }
                         let userSetter: MethodInfo = null
@@ -15744,19 +15758,7 @@ sealed class ColumnarIlEmitter {
                         userFieldType := constructedClosedArgs.Length == 0 ? userInitField.FieldType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitField.FieldType, constructedClosedArgs)
                         _il.Emit(OpCodes.Dup)
                         let userFieldValueType: System.Type = null
-                        if (IsContextualDelegateValueNode(valueNode)) {
-                            if (!EmitDeclaredCallArgument(valueNode, userFieldType, true)) {
-                                return false
-                            }
-                            userFieldValueType = userFieldType
-                        } else if (TryEmitZeroLiteralAsType(valueNode, userFieldType, out userFieldValueType)) {
-                        } else {
-                            // Null adopted to the declared reference/nullable field type.
-                            if (!EmitExpression(valueNode, out userFieldValueType)) {
-                                return false
-                            }
-                        }
-                        if (!TypesEquivalent(userFieldValueType, userFieldType) && !TryEmitImplicitWidening(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(userFieldValueType, userFieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(userFieldValueType, userFieldType)) {
+                        if (!TryEmitAssignableValue(valueNode, userFieldType, out userFieldValueType)) {
                             return false
                         }
                         closedInitializerFieldEmitter := _il
@@ -15849,8 +15851,8 @@ sealed class ColumnarIlEmitter {
                         // unknown or duplicately-assigned field -> decline.
                         expectedInitType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs)
                         _il.Emit(OpCodes.Dup)
-                        let closedInitValueType: System.Type? = null
-                        if (!EmitExpression(valueNode, out closedInitValueType) || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType))) {
+                        let closedInitValueType: System.Type = null
+                        if (!TryEmitAssignableValue(valueNode, expectedInitType, out closedInitValueType)) {
                             return false
                         }
                         _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField))
@@ -15876,8 +15878,8 @@ sealed class ColumnarIlEmitter {
                     // unknown or duplicately-assigned field -> decline.
                     expectedInitType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs)
                     _il.Emit(OpCodes.Ldloca, closedStructValue)
-                    let closedInitValueType: System.Type? = null
-                    if (!EmitExpression(valueNode, out closedInitValueType) || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType))) {
+                    let closedInitValueType: System.Type = null
+                    if (!TryEmitAssignableValue(valueNode, expectedInitType, out closedInitValueType)) {
                         return false
                     }
                     _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField))
@@ -15949,19 +15951,7 @@ sealed class ColumnarIlEmitter {
                         }
                         _il.Emit(OpCodes.Dup)
                         let initPropertyValueType: System.Type = null
-                        if (IsContextualDelegateValueNode(valueNode)) {
-                            if (!EmitDeclaredCallArgument(valueNode, initProperty.PropertyType, true)) {
-                                return false
-                            }
-                            initPropertyValueType = initProperty.PropertyType
-                        } else if (TryEmitZeroLiteralAsType(valueNode, initProperty.PropertyType, out initPropertyValueType)) {
-                        } else {
-                            // Null adopted to the declared reference/nullable property type.
-                            if (!EmitExpression(valueNode, out initPropertyValueType)) {
-                                return false
-                            }
-                        }
-                        if (!TypesEquivalent(initPropertyValueType, initProperty.PropertyType) && !TryEmitImplicitWidening(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initPropertyValueType, initProperty.PropertyType)) {
+                        if (!TryEmitAssignableValue(valueNode, initProperty.PropertyType, out initPropertyValueType)) {
                             return false
                         }
                         _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(initProperty))
@@ -15974,15 +15964,8 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Dup)
                     // TypesEquivalent, not !=: a builder-bound collection field's declared type and the
                     // init value's type come from independent resolutions (referentially distinct TBIs).
-                    let initValueType: System.Type? = null
-                    if (IsContextualDelegateValueNode(valueNode)) {
-                        if (!EmitDeclaredCallArgument(valueNode, initField.FieldType, true)) {
-                            return false
-                        }
-                        _il.Emit(OpCodes.Stfld, initField)
-                        continue
-                    }
-                    if (!EmitExpression(valueNode, out initValueType) || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitImplicitWidening(initValueType, initField.FieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initValueType, initField.FieldType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(initValueType, initField.FieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initValueType, initField.FieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initValueType, initField.FieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initValueType, initField.FieldType))) {
+                    let initValueType: System.Type = null
+                    if (!TryEmitAssignableValue(valueNode, initField.FieldType, out initValueType)) {
                         return false
                     }
                     _il.Emit(OpCodes.Stfld, initField)
@@ -16090,15 +16073,13 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Ldloca, withLocal)
                 }
                 withValueNode := Child(idx, 2 + (2 * p))
+                // A replacement is written exactly like an object-initializer member: the member's type
+                // shapes a `null`, a literal, a `flag ? v : null` and a lifted `a ?? b`.
                 let withValueType: System.Type = null
-                if (TryEmitIntLiteralAsType(withValueNode, withMemberType, out withValueType)) {
-                } else {
-                    // constant adoption (`with { X: 10 }` on a small-int field).
-                    if (!EmitExpression(withValueNode, out withValueType)) {
-                        return Decline("emit.with.value", "with expression value for field '" + withMemberName + "' could not be emitted", withValueNode)
-                    }
+                if (!TryEmitValueForStorage(withValueNode, withMemberType, out withValueType)) {
+                    return Decline("emit.with.value", "with expression value for field '" + withMemberName + "' could not be emitted", withValueNode)
                 }
-                if (!TypesEquivalent(withValueType, withMemberType) && !TryEmitImplicitWidening(withValueType, withMemberType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(withValueType, withMemberType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(withValueType, withMemberType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(withValueType, withMemberType)) {
+                if (!TryEmitStorageConversion(withValueType, withMemberType)) {
                     return Decline("emit.with.type-mismatch", "with expression value type '" + withValueType.FullName + "' does not match field type '" + withMemberType.FullName + "'", withValueNode)
                 }
                 withSetter := withPlan.Setters[p]
@@ -20260,7 +20241,9 @@ sealed class ColumnarIlEmitter {
     // (conv.r8), -> float (conv.r4), or -> int (identity — the load already extended); long/float ->
     // double; long -> float. uint/ulong SOURCES are excluded (their extension/precision rules are
     // subtler — those mixes decline, pinned for a later rung).
-    private func TryEmitImplicitWidening(source: Type, target: Type): bool {
+    private func TryEmitImplicitWidening(source: Type, target: Type): bool => TryEmitNumericWidening(source, target) || TryEmitLiftedImplicitConversion(source, target)
+
+    private func TryEmitNumericWidening(source: Type, target: Type): bool {
         if (ColumnarNumericFacts.IsIntPromotable(source)) {
             if (target == typeof(int)) {
                 return true
@@ -20313,6 +20296,124 @@ sealed class ColumnarIlEmitter {
             return true
         }
         return false
+    }
+
+    // THE IMPLICIT CONVERSIONS THAT REBUILD A VALUE, asked after the numeric widenings. C# calls the
+    // first two the implicit NULLABLE conversions and the third the implicit TUPLE conversion; each
+    // one converts the underlying value(s) and wraps the result, so none is a no-op on the stack.
+    //
+    //   `T`  -> `U?`   when `T` converts to `U` (identity or numeric widening): `len: long? = n`.
+    //   `T?` -> `U?`   the same, with the empty value staying empty.
+    //   `(A, B)` -> `(C, D)`   element by element, through any of these: `(string, int)` is
+    //                  `(string?, int?)` because the `string` is the same CLR type and the `int` wraps.
+    //
+    // THE PREDICATE IS ASKED BEFORE ANYTHING IS EMITTED, because a false answer leaves the value on the
+    // stack untouched for the next conversion in the caller's chain.
+    private func CanEmitLiftedImplicitConversion(source: Type, target: Type): bool {
+        if (source == null || target == null || TypesEquivalent(source, target)) {
+            return false
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
+            targetElement := target.GetGenericArguments()[0]
+            if (ColumnarTypeOfPlanner.IsSupportedNullable(source)) {
+                return CanConvertValueElement(source.GetGenericArguments()[0], targetElement)
+            }
+            return CanConvertValueElement(source, targetElement)
+        }
+        if (!ColumnarTypeOfPlanner.IsSupportedValueTuple(source) || !ColumnarTypeOfPlanner.IsSupportedValueTuple(target)) {
+            return false
+        }
+        sourceElements := source.GetGenericArguments()
+        targetElements := target.GetGenericArguments()
+        // Seven elements is the longest tuple with no `TRest`; the nested form is not rebuilt.
+        if (sourceElements.Length != targetElements.Length || targetElements.Length > 7) {
+            return false
+        }
+        convertsSomething := false
+        for i := 0; i < targetElements.Length; i++ {
+            if (!CanConvertValueElement(sourceElements[i], targetElements[i])) {
+                return false
+            }
+            if (!TypesEquivalent(sourceElements[i], targetElements[i])) {
+                convertsSomething = true
+            }
+        }
+        return convertsSomething
+    }
+
+    private func CanConvertValueElement(source: Type, target: Type): bool => TypesEquivalent(source, target) || CanUseImplicitNumericWidening(source, target) || CanEmitLiftedImplicitConversion(source, target)
+
+    // The value is on the stack as `source`; it leaves as `target`. Only called after the predicate.
+    private func EmitValueElementConversion(source: Type, target: Type): bool {
+        if (TypesEquivalent(source, target)) {
+            return true
+        }
+        return TryEmitNumericWidening(source, target) || TryEmitLiftedImplicitConversion(source, target)
+    }
+
+    private func TryEmitLiftedImplicitConversion(source: Type, target: Type): bool {
+        if (!CanEmitLiftedImplicitConversion(source, target)) {
+            return false
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
+            targetElement := target.GetGenericArguments()[0]
+            if (!ColumnarTypeOfPlanner.IsSupportedNullable(source)) {
+                if (!EmitValueElementConversion(source, targetElement)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(target))
+                return true
+            }
+            // `T?` -> `U?`: the empty value stays empty, a present one is converted and re-wrapped.
+            sourceNullableLocal := _il.DeclareLocal(source)
+            targetNullableLocal := _il.DeclareLocal(target)
+            absentLabel := _il.DefineLabel()
+            doneLabel := _il.DefineLabel()
+            _il.Emit(OpCodes.Stloc, sourceNullableLocal)
+            _il.Emit(OpCodes.Ldloca, sourceNullableLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableGetter(source, "HasValue"))
+            _il.Emit(OpCodes.Brfalse, absentLabel)
+            _il.Emit(OpCodes.Ldloca, sourceNullableLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableMethod(source, "GetValueOrDefault", Type.EmptyTypes))
+            if (!EmitValueElementConversion(source.GetGenericArguments()[0], targetElement)) {
+                return false
+            }
+            _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(target))
+            _il.Emit(OpCodes.Br, doneLabel)
+            _il.MarkLabel(absentLabel)
+            _il.Emit(OpCodes.Ldloca, targetNullableLocal)
+            _il.Emit(OpCodes.Initobj, target)
+            _il.Emit(OpCodes.Ldloc, targetNullableLocal)
+            _il.MarkLabel(doneLabel)
+            return true
+        }
+        sourceElements := source.GetGenericArguments()
+        targetElements := target.GetGenericArguments()
+        let tupleConstructor: System.Reflection.ConstructorInfo? = null
+        if (!TryResolveValueTupleConstructor(target, targetElements, out tupleConstructor) || tupleConstructor == null) {
+            return false
+        }
+        sourceTupleLocal := _il.DeclareLocal(source)
+        _il.Emit(OpCodes.Stloc, sourceTupleLocal)
+        for i := 0; i < targetElements.Length; i++ {
+            elementFieldName := "Item" + (i + 1).ToString()
+            let elementField: System.Reflection.FieldInfo? = null
+            if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(source)) {
+                elementField = TypeBuilder.GetField(source, source.GetGenericTypeDefinition().GetField(elementFieldName))
+            } else {
+                elementField = source.GetField(elementFieldName)
+            }
+            if (elementField == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Ldloca, sourceTupleLocal)
+            _il.Emit(OpCodes.Ldfld, elementField)
+            if (!EmitValueElementConversion(sourceElements[i], targetElements[i])) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Newobj, tupleConstructor)
+        return true
     }
 
     // A USER-DEFINED OPERATOR DECLARED BY AN EXTERNAL TYPE (`Vector<int> + Vector<int>`,
@@ -21748,9 +21849,15 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (!TypesEquivalent(emitted, element)) {
-            return false
+            // `len: long? = n` with `n: int` widens and then wraps; `int?` -> `long?` converts the
+            // present value. Anything else is emitted-but-wrong — the caller declines the whole
+            // program (stack abandoned).
+            if (!TryEmitLiftedImplicitConversion(emitted, target)) {
+                return false
+            }
+            resolvedClrType = target
+            return true
         }
-        // emitted-but-wrong — the caller declines the whole program (stack abandoned).
         _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(target))
         resolvedClrType = target
         return true
@@ -21931,7 +22038,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
         let liftedArmType: System.Type? = null
-        return TryGetPreflightExpressionType(node, out liftedArmType) && (TypesEquivalent(liftedArmType, target) || TypesEquivalent(liftedArmType, element))
+        return TryGetPreflightExpressionType(node, out liftedArmType) && (TypesEquivalent(liftedArmType, target) || TypesEquivalent(liftedArmType, element) || CanEmitLiftedImplicitConversion(liftedArmType, target))
     }
 
     // THE TWO KEYWORD LITERALS THAT SPELL A TARGET TYPE'S ZERO VALUE, in the one place that knows the
@@ -22190,15 +22297,18 @@ sealed class ColumnarIlEmitter {
         if (CanUseTupleLiteralAsType(valueNode, targetType)) {
             return true
         }
+        if (CanEmitConditionalAsType(valueNode, targetType)) {
+            return true
+        }
         valueType: System.Type? = null
         if (!TryGetPreflightExpressionType(valueNode, out valueType)) {
             return false
         }
         if (ColumnarTypeOfPlanner.IsSupportedNullable(targetType)) {
             nullableElement := targetType.GetGenericArguments()[0]
-            return TypesEquivalent(valueType, targetType) || TypesEquivalent(valueType, nullableElement) || CanUseImplicitNumericWidening(valueType, nullableElement)
+            return TypesEquivalent(valueType, targetType) || TypesEquivalent(valueType, nullableElement) || CanUseImplicitNumericWidening(valueType, nullableElement) || CanEmitLiftedImplicitConversion(valueType, targetType)
         }
-        return TypesEquivalent(valueType, targetType) || CanUseImplicitNumericWidening(valueType, targetType) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(valueType, targetType, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(valueType, targetType, _structRegistry) || CanUseSpanConversion(valueType, targetType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(valueType, targetType) || CanUseAnonymousUnionConversion(valueType, targetType)
+        return TypesEquivalent(valueType, targetType) || CanUseImplicitNumericWidening(valueType, targetType) || CanEmitLiftedImplicitConversion(valueType, targetType) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(valueType, targetType, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(valueType, targetType, _structRegistry) || CanUseSpanConversion(valueType, targetType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(valueType, targetType) || CanUseAnonymousUnionConversion(valueType, targetType)
     }
 
     private func CanUseObjectInitializerAsType(node: int, targetType: Type): bool {
@@ -24218,6 +24328,11 @@ sealed class ColumnarIlEmitter {
         // answered differently from that arm would be worse than one that declines.
         if (op == "??") {
             if (ColumnarTypeOfPlanner.IsSupportedNullable(leftType)) {
+                // A NULLABLE right operand keeps the result nullable (`double? ?? double?` is `double?`).
+                if (TypesEquivalent(rightType, leftType)) {
+                    columnarResolvedType = leftType
+                    return true
+                }
                 coalesceElementType := leftType.GetGenericArguments()[0]
                 if (!TypesEquivalent(rightType, coalesceElementType)) {
                     return false
@@ -30124,6 +30239,22 @@ sealed class ColumnarIlEmitter {
     }
 
     private func TryEmitAssignableValue(valueNode: int, targetType: Type, out valueType: Type): bool {
+        if (!TryEmitValueForStorage(valueNode, targetType, out valueType)) {
+            return false
+        }
+        return TryEmitStorageConversion(valueType, targetType)
+    }
+
+    // The implicit conversions a value written where a storage of known type is already chosen
+    // may take, in the order every assignment-shaped position tries them.
+    private func TryEmitStorageConversion(valueType: Type, targetType: Type): bool => TypesEquivalent(valueType, targetType) || TryEmitImplicitWidening(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, targetType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(valueType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, targetType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(valueType, targetType) || TryEmitUserDefinedConversion(valueType, targetType, false)
+
+    // THE VALUE HALF OF AN ASSIGNMENT-SHAPED POSITION: emit `valueNode` AS the storage type when its
+    // shape takes its type from the storage (a lambda, a `null`, a conditional with a `null` arm, a
+    // literal, a target-typed `new`), otherwise as itself. The caller converts what is left on the
+    // stack to the storage type. Object initializers, `with` replacements, array and collection
+    // elements and plain assignments all write a value this way.
+    private func TryEmitValueForStorage(valueNode: int, targetType: Type, out valueType: Type): bool {
         // A LAMBDA OR A METHOD GROUP IS SHAPED BY THE STORAGE IT IS ASSIGNED TO. An assignment's
         // right-hand side is an argument position like any other; the ordinary expression walk has no
         // delegate context to offer it.
@@ -30148,9 +30279,11 @@ sealed class ColumnarIlEmitter {
                         if (TryEmitArrayLiteralAsType(valueNode, targetType, out valueType)) {
                         } else {
                             // target-typed array literal.
-                            if (TryEmitZeroLiteralAsType(valueNode, targetType, out valueType)) {
+                            if (TryEmitConditionalAsType(valueNode, targetType, out valueType)) {
+                            } else if (TryEmitZeroLiteralAsType(valueNode, targetType, out valueType)) {
                             } else {
-                                // `null` adopted to a reference or nullable storage type.
+                                // `flag ? value : null` takes the storage type; `null` is adopted by a
+                                // reference or nullable storage type.
                                 if (ColumnarTypeOfPlanner.IsSupportedNullable(targetType)) {
                                     if (!TryEmitValueAsNullable(valueNode, targetType, out valueType)) {
                                         return false
@@ -30166,9 +30299,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
         }
-
-        assignable := TypesEquivalent(valueType, targetType) || TryEmitImplicitWidening(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, targetType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(valueType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, targetType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(valueType, targetType) || TryEmitUserDefinedConversion(valueType, targetType, false)
-        return assignable
+        return true
     }
 
     // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): split the kind-3 literal via the shared

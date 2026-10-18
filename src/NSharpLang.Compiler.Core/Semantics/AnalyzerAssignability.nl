@@ -159,11 +159,14 @@ class AnalyzerAssignability {
     // needs against a declared `(string?, string, IsConstructor: bool)`, and without this arm the whole
     // tuple was compared by identity and reported NL202 against a literal the writer spelled correctly.
     //
-    // A REPRESENTATION-CHANGING element conversion is deliberately NOT admitted. C# converts
-    // `(string, string)` to `(object, object)` and `(int, int)` to `(long, long)` by taking the tuple
-    // apart and building a new one; N# emits no such per-element conversion, so accepting it here would
-    // hand the emitter a shape it can only decline. A `Nullable<int>` is a real CLR type and stays a
-    // difference from `int` for the same reason.
+    // THE ONE REPRESENTATION-CHANGING ELEMENT CONVERSION ADMITTED IS THE NULLABLE WRAP. `(string, int)`
+    // fits `(string?, int?)`: the `string` is the same CLR type, and the `int` becomes `Nullable<int>`,
+    // which the emitter does by taking the tuple apart and building the target tuple (C#'s implicit
+    // tuple conversion over the implicit nullable conversion). Every OTHER conversion that changes
+    // representation stays refused -- C# converts `(string, string)` to `(object, object)` and
+    // `(int, int)` to `(long, long)` the same way, but N# emits no such per-element conversion, so
+    // accepting them here would hand the emitter a shape it can only decline. A `Nullable<int>` is a
+    // real CLR type and stays a difference from a source `int` in every direction but that wrap.
     func AreTupleElementsAssignable(target: TupleTypeInfo, source: TupleTypeInfo): bool {
         if target.Elements.Count != source.Elements.Count {
             return false
@@ -190,6 +193,13 @@ class AnalyzerAssignability {
 
         if BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) {
             return AnalyzerConversionFacts.AcceptsNull(resolvedTarget)
+        }
+
+        // `T` -> `T?` over a VALUE type: the wrap is the one conversion that changes representation.
+        // The inner type must itself be the source, so `int` fits `int?` and not `long?`.
+        valueNullableTarget := resolvedTarget as NullableTypeInfo
+        if valueNullableTarget != null && ReferenceNullableInnerType(valueNullableTarget) == null && !(resolvedSource is NullableTypeInfo) {
+            return TypeInfoIdentityFacts.AreEqual(declarationContext.ResolveDeclaredAlias(valueNullableTarget.InnerType), resolvedSource)
         }
 
         // Nested tuples compare the same way, at any depth.

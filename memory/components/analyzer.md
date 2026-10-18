@@ -305,11 +305,13 @@ THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the
 - TUPLE-TO-TUPLE comes next, and compares ELEMENT BY ELEMENT rather than by identity. Element names
   are not part of tuple identity, and a nullable annotation over a REFERENCE type is not a CLR type,
   so `(string, string)` fits `(string?, string)` and a `null` element fits any slot that accepts
-  null. A REPRESENTATION-CHANGING element conversion is refused on purpose — C# converts
-  `(int, int)` to `(long, long)` and `(string, string)` to `(object, object)` by taking the tuple
-  apart and rebuilding it, and N# emits no such per-element conversion, so accepting it would hand
-  the emitter a shape it can only decline. `Nullable<int>` is a real CLR type and stays a difference
-  from `int` for the same reason. Before this arm existed, a tuple whose declared type differed from
+  null. The ONE representation-changing element conversion admitted is the nullable WRAP: `(string,
+  int)` fits `(string?, int?)`, and the emitter (`TryEmitLiftedImplicitConversion`) takes the tuple
+  apart and builds the target tuple. Every OTHER one is refused on purpose — C# converts
+  `(int, int)` to `(long, long)` and `(string, string)` to `(object, object)` the same way, but N#
+  emits no such per-element conversion, so accepting it would hand the emitter a shape it can only
+  decline. `Nullable<int>` is a real CLR type and stays a difference from `int` in every other
+  direction. Before this arm existed, a tuple whose declared type differed from
   the literal's only by a nullable annotation reported NL202 against source the writer had spelled
   correctly.
 - The CALLABLE-REFERENCE arms come before `object`. A bare method group is not a value, so it is NOT
