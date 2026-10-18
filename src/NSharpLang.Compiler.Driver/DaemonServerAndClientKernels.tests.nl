@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
+import System.IO
 import System.Net.Sockets
 import System.Text.Json
 import NSharpLang.Cli.Daemon
@@ -428,4 +429,71 @@ test "a workspace server's status appends its build, load and memory after the f
 test "a query from another nlc build is refused with its own server-defined error code" {
     assert DaemonProtocolKernels.GetIdentityMismatchErrorCode() == -32001
     assert DaemonProtocolKernels.GetIdentityMismatchMessage().Contains("different nlc build")
+}
+
+// ─── THE SERVER DIRECTORY IGNORES ITSELF (issue 249) ─────────────────────────────────────────
+func DpkTempDirectory(): string {
+    directory := Path.Combine(Path.GetTempPath(), "nlc-selfignore-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(directory)
+    return directory
+}
+
+test "creating the socket directory writes a .gitignore that ignores everything in it" {
+    root := DpkTempDirectory()
+    try {
+        socketPath := DaemonProtocolKernels.GetSocketPath(root, ".nlc", "daemon.sock", Path.GetTempPath(), "", true)
+        ignorePath := Path.Combine(Path.Combine(root, ".nlc"), ".gitignore")
+
+        assert socketPath == Path.Combine(Path.Combine(root, ".nlc"), "daemon.sock")
+        assert File.Exists(ignorePath)
+        assert File.ReadAllText(ignorePath) == DaemonProtocolKernels.GetSelfIgnoreText()
+        assert DaemonProtocolKernels.GetSelfIgnoreText().Contains("\n*\n")
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a .nlc directory left by an older nlc gains the .gitignore on the next start" {
+    root := DpkTempDirectory()
+    try {
+        legacy := Path.Combine(root, ".nlc")
+        Directory.CreateDirectory(legacy)
+        File.WriteAllText(Path.Combine(legacy, "daemon.log"), "old log")
+
+        DaemonProtocolKernels.GetSocketPath(root, ".nlc", "daemon.sock", Path.GetTempPath(), "", true)
+
+        assert File.ReadAllText(Path.Combine(legacy, ".gitignore")) == DaemonProtocolKernels.GetSelfIgnoreText()
+        assert File.ReadAllText(Path.Combine(legacy, "daemon.log")) == "old log"
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a .gitignore the user already put in .nlc is never replaced" {
+    root := DpkTempDirectory()
+    try {
+        directory := Path.Combine(root, ".nlc")
+        Directory.CreateDirectory(directory)
+        File.WriteAllText(Path.Combine(directory, ".gitignore"), "keep-mine\n")
+
+        DaemonProtocolKernels.EnsureSelfIgnoring(directory)
+        DaemonProtocolKernels.GetSocketPath(root, ".nlc", "daemon.sock", Path.GetTempPath(), "", true)
+
+        assert File.ReadAllText(Path.Combine(directory, ".gitignore")) == "keep-mine\n"
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "writing the .gitignore twice leaves one identical file" {
+    root := DpkTempDirectory()
+    try {
+        DaemonProtocolKernels.EnsureSelfIgnoring(root)
+        DaemonProtocolKernels.EnsureSelfIgnoring(root)
+
+        assert Directory.GetFiles(root).Length == 1
+        assert File.ReadAllText(Path.Combine(root, ".gitignore")) == DaemonProtocolKernels.GetSelfIgnoreText()
+    } finally {
+        Directory.Delete(root, true)
+    }
 }

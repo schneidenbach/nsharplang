@@ -109,8 +109,10 @@ deleted, on `nlc daemon stop`, and on SIGTERM (requests in flight finish first).
 Ctrl-C and hang-up of the terminal it was started from. Its socket is `{workspace}/.nlc/daemon.sock`
 (or `{TMPDIR}/nlc-daemon/{sha256-16}/daemon.sock` when that path would exceed 100 bytes), created
 owner-only (`0600`, in an owner-only directory for the fallback), so no other user can reach it. Its
-log is `.nlc/daemon.log`, restarted with each server. `.nlc/` is runtime state and should not be
-committed; all shipped `dotnet new` templates ignore it.
+log is `.nlc/daemon.log`, restarted with each server. `.nlc/` is runtime state and is never
+committed: nlc writes a `.nlc/.gitignore` containing `*` when it creates the directory (and adds it
+to a `.nlc/` left by an older nlc), so `git status` stays clean in a repository that has no ignore
+rule for it. A `.gitignore` you put there yourself is never replaced.
 
 `nlc daemon start` starts the server explicitly and waits until it answers and has finished its
 warm-up compile, so the next command is answered warm (120-second deadline; an early exit or a timeout reports the elapsed time, the socket path, whether the child was

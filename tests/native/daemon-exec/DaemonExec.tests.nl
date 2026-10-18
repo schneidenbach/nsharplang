@@ -71,6 +71,21 @@ test "the first routed command runs in-process and starts a server, and the next
     }
 }
 
+test "the workspace server directory ignores itself so a repository never shows it as untracked" {
+    workspace := NewWorkspace()
+    try {
+        WriteSource(workspace, "Program.nl", CleanProgram())
+        first := NlcWith(["check"], workspace, NoEnvironment(), null)
+        assert first.ExitCode == 0
+
+        ignorePath := Path.Combine(Path.Combine(workspace, ".nlc"), ".gitignore")
+        assert WaitUntil(() => File.Exists(ignorePath), 60000)
+        assert File.ReadAllText(ignorePath).Contains("\n*\n")
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
 test "--no-daemon, NLC_NO_DAEMON and CI keep a command in-process even with a server running" {
     workspace := NewWorkspace()
     try {

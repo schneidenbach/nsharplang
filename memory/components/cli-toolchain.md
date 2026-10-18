@@ -1702,7 +1702,7 @@ Every server start (explicit or automatic) truncates `.nlc/daemon.log`. An expli
 diagnostics go to the launching process's captured stderr and later output to the log; an automatic
 (`--background`) server writes everything to the log from its first line. When the socket falls back
 to `{TMPDIR}/nlc-daemon/{sha256-16}/`, the log sits beside it. `.nlc/` is runtime state and should not
-be committed. All shipped templates include `.nlc/` in their `.gitignore`.
+be committed: `DaemonProtocolKernels.EnsureSelfIgnoring` writes `.nlc/.gitignore` (`*`) whenever the directory is created and on every routed command that finds it missing (older nlc versions), so no project has to edit its ignore rules. An existing `.nlc/.gitignore` is never overwritten, and a write failure (read-only checkout) is ignored. The shipped templates still list `.nlc/` too.
 
 ### The exec wire
 

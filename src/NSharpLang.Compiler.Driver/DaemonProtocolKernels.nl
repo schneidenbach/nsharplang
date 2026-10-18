@@ -310,12 +310,44 @@ class DaemonProtocolKernels {
         return "Batch queries should be handled before single-request dispatch."
     }
 
+    static func GetSelfIgnoreFileName(): string {
+        return ".gitignore"
+    }
+
+    static func GetSelfIgnoreText(): string {
+        return "# Workspace server state written by nlc (socket, lock, log). Not for version control.\n*\n"
+    }
+
+    // The server's directory ignores itself, so a repository that never listed `.nlc/` stays clean in
+    // `git status` (the way `.pytest_cache` and `.ruff_cache` do it). Written when the directory is
+    // created AND when an older nlc left one without it; a file the user already put there is theirs
+    // and is never replaced. Failing to write it (read-only checkout) must not stop a build.
+    static func EnsureSelfIgnoring(directory: string) {
+        ignorePath := Path.Combine(directory, GetSelfIgnoreFileName())
+        if File.Exists(ignorePath) {
+            return
+        }
+
+        try {
+            file := new FileStream(ignorePath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+            try {
+                bytes := System.Text.Encoding.UTF8.GetBytes(GetSelfIgnoreText())
+                file.Write(bytes, 0, bytes.Length)
+            } finally {
+                file.Dispose()
+            }
+        } catch {
+            return
+        }
+    }
+
     static func GetSocketPath(canonicalRoot: string, socketDir: string, socketName: string, tempPath: string, hashPrefix: string, useProjectLocalSocket: bool): string {
         dir := Path.Combine(canonicalRoot, socketDir)
         projectLocalPath := Path.Combine(dir, socketName)
 
         if useProjectLocalSocket {
             Directory.CreateDirectory(dir)
+            EnsureSelfIgnoring(dir)
             return projectLocalPath
         }
 
