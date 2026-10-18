@@ -4,7 +4,7 @@
   "codeEpochFileCount": 227,
   "codeEpochPathFingerprint": "pathset-v2:97fe77313c04eb7e",
   "codeEpochFactFingerprint": "epochfacts-v2:4c440f3312742657",
-  "reviewedHeadFingerprint": "head-v2:0ccbd6caeaee395a",
+  "reviewedHeadFingerprint": "head-v2:2136264055b358f1",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":446,"currentNonBlankLines":391,"currentBytes":0,"currentFingerprint":"text-v1:c4fff4cafe6f3d2a"},
@@ -59,7 +59,7 @@
     {"path":"editors/vscode/.gitignore","language":"product-config","surface":"editor","campaignScope":"closeout","state":"reviewed","currentLines":20,"currentNonBlankLines":15,"currentBytes":0,"currentFingerprint":"text-v1:e100510f47b4aa92"},
     {"path":"editors/vscode/.vscodeignore","language":"product-config","surface":"editor","campaignScope":"closeout","state":"reviewed","currentLines":23,"currentNonBlankLines":23,"currentBytes":0,"currentFingerprint":"text-v1:99e16009a2e3ad36"},
     {"path":"editors/vscode/language-configuration.json","language":"json-config","surface":"editor","campaignScope":"closeout","state":"reviewed","currentLines":64,"currentNonBlankLines":64,"currentBytes":0,"currentFingerprint":"text-v1:0a61795d3cb3d1ab"},
-    {"path":"editors/vscode/package.json","language":"json-config","surface":"editor","campaignScope":"closeout","state":"reviewed","currentLines":177,"currentNonBlankLines":177,"currentBytes":0,"currentFingerprint":"text-v1:9f3b9cb998cf9a96"},
+    {"path":"editors/vscode/package.json","language":"json-config","surface":"editor","campaignScope":"closeout","state":"reviewed","currentLines":177,"currentNonBlankLines":177,"currentBytes":0,"currentFingerprint":"text-v1:4229297bcc04bacb"},
     {"path":"editors/vscode/snippets/nsharp.json","language":"json-config","surface":"editor","campaignScope":"closeout","state":"reviewed","currentLines":210,"currentNonBlankLines":210,"currentBytes":0,"currentFingerprint":"text-v1:567535015539874b"},
     {"path":"editors/vscode/src/extension.ts","language":"typescript","surface":"editor","campaignScope":"closeout","state":"existing-debt","epochLines":315,"currentLines":315,"epochNonBlankLines":272,"currentNonBlankLines":272,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:0bb6eca98fc51157"},
     {"path":"editors/vscode/src/test/runTest.ts","language":"typescript","surface":"editor","campaignScope":"closeout","state":"existing-debt","epochLines":184,"currentLines":129,"epochNonBlankLines":162,"currentNonBlankLines":112,"epochAssertionMarkers":1,"currentAssertionMarkers":1,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:095d4de97d6d7485"},

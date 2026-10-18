@@ -743,7 +743,7 @@ class MultiFileCompiler {
     // one-shot compiler. Unlike a warm incremental compilation, it does not share its analyzer with
     // a later request, so close the metadata context now instead of leaving one open per workspace
     // member until the process exits.
-    func ReleaseWorkspaceCheckResources(): void {
+    internal func ReleaseWorkspaceCheckResources(): void {
         if _incrementalState != null {
             return
         }
