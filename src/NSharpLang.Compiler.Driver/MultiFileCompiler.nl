@@ -739,6 +739,22 @@ class MultiFileCompiler {
         return analyzer
     }
 
+    // A workspace `nlc check` has copied the completed diagnostics and systems report out of this
+    // one-shot compiler. Unlike a warm incremental compilation, it does not share its analyzer with
+    // a later request, so close the metadata context now instead of leaving one open per workspace
+    // member until the process exits.
+    func ReleaseWorkspaceCheckResources(): void {
+        if _incrementalState != null {
+            return
+        }
+
+        analyzer := _sharedAnalyzerValue
+        if analyzer != null {
+            analyzer.Dispose()
+            _sharedAnalyzerValue = null
+        }
+    }
+
     // An analyzer for this compilation, built the one way: the shared analyzer and every parallel
     // analysis worker's come from here, so they cannot disagree about the assemblies, the project
     // references, the SoA gate or the one-program rule they analyse under. A worker passes the shared

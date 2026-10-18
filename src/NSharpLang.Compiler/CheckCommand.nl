@@ -204,6 +204,7 @@ class CheckCommand {
         }
 
         maxConcurrency := CheckCommandKernels.GetWorkspaceMaxConcurrency(Environment.ProcessorCount)
+        textCompilerRetained := false
         batchStart := 0
         while batchStart < projectCount {
             batchCount := Math.Min(maxConcurrency, projectCount - batchStart)
@@ -221,7 +222,17 @@ class CheckCommand {
                 )
             }
             for offset := 0; offset < batchCount; offset++ {
-                results.Add(tasks[offset].GetAwaiter().GetResult())
+                result := tasks[offset].GetAwaiter().GetResult()
+                // JSON and systems-report results contain everything the caller needs; retaining
+                // their compiler would keep every member's metadata context alive until the whole
+                // workspace finishes. Text mode needs one compiler to persist the final aggregate
+                // cache entry, so keep only the first one.
+                if outputMode != 2 || textCompilerRetained || result.CheckCompiler == null {
+                    result.ReleaseCompiler()
+                } else {
+                    textCompilerRetained = true
+                }
+                results.Add(result)
             }
             batchStart += batchCount
         }
@@ -269,6 +280,10 @@ class CheckCommand {
             }
         } else {
             Console.Write(OutputFormatter.CheckWorkspaceToJson(projectDir, orderedResults, outputMode == 3))
+        }
+
+        for result in orderedResults {
+            result.ReleaseCompiler()
         }
 
         return exitCode

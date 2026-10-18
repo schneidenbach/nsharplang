@@ -2,7 +2,6 @@ namespace NSharpLang.Cli
 
 import System.Collections.Generic
 import System.IO
-import NSharpLang.Compiler
 
 // WHAT A RESTORED PACKAGE PUTS BESIDE THE APPLICATION BEYOND ITS PORTABLE `lib/<tfm>` ASSEMBLIES.
 //

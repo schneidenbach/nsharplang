@@ -885,12 +885,9 @@ func ResolverNewtonsoftPaths(config: ProjectConfig): List<string> {
             continue
         }
 
-        try {
-            simpleName := AssemblyName.GetAssemblyName(reference.Dll ?? "").Name
-            if string.Equals(simpleName, "Newtonsoft.Json", StringComparison.OrdinalIgnoreCase) {
-                paths.Add(Path.GetFullPath(reference.Dll ?? "").Replace('\\', '/'))
-            }
-        } catch unreadable: Exception {
+        simpleName := AssemblyName.GetAssemblyName(reference.Dll ?? "").Name
+        if string.Equals(simpleName, "Newtonsoft.Json", StringComparison.OrdinalIgnoreCase) {
+            paths.Add(Path.GetFullPath(reference.Dll ?? "").Replace('\\', '/'))
         }
     }
     return paths
@@ -957,7 +954,8 @@ test "direct flowed references deduplicate by assembly simple name rather than f
         renamedPaths := ResolverNewtonsoftPaths(renamedConfig)
         assert renamedPaths.Count == 1, string.Join(",", renamedPaths)
         assert string.Equals(renamedPaths[0], renamedDirectPath.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)
-        assert AssemblyName.GetAssemblyName(renamedPaths[0]).Version.ToString() == "12.0.0.0"
+        assemblyVersion := AssemblyName.GetAssemblyName(renamedPaths[0]).Version
+        assert assemblyVersion != null && assemblyVersion.ToString() == "12.0.0.0"
     } finally {
         Directory.Delete(projectRoot, true)
     }
