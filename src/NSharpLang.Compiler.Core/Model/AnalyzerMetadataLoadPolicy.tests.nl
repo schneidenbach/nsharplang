@@ -321,9 +321,24 @@ test "a Web SDK asks for the ASP.NET assemblies and a plain one does not" {
     assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("")
 }
 
-test "the trigger is a CONTAINS test, because the SDK id a user writes is not a closed set" {
-    assert AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Contoso.Web.Sdk")
-    assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Microsoft.NET.Sdk.web")
+test "the trigger is MSBuild's own rule: exactly Microsoft.NET.Sdk.Web, compared case-insensitively" {
+    assert AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("microsoft.net.sdk.web")
+    // SDKs whose ids merely CONTAIN `Web` get no ASP.NET Core framework from `dotnet build`.
+    assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Microsoft.NET.Sdk.BlazorWebAssembly")
+    assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Microsoft.NET.Sdk.WebAssembly")
+    assert !AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies("Contoso.Web.Sdk")
+}
+
+test "a reference set holding System.Runtime carries the framework's compile surface itself" {
+    referencePack := new List<string>()
+    referencePack.Add("/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.7/ref/net10.0/System.Collections.dll")
+    referencePack.Add("/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.7/ref/net10.0/System.Runtime.dll")
+    assert AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface(referencePack)
+
+    packages := new List<string>()
+    packages.Add("/home/me/.nuget/packages/serilog/3.1.1/lib/net7.0/Serilog.dll")
+    assert !AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface(packages)
+    assert !AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface(null)
 }
 
 test "the ASP.NET table names framework and extension assemblies by NAME, not by path" {

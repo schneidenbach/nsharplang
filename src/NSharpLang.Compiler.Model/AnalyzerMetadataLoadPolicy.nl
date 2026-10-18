@@ -31,6 +31,9 @@ class AnalyzerMetadataLoadPolicy {
 
     // ── WHICH ASSEMBLIES THE ANALYZER PRE-LOADS ──────────────────────────────────────────────────
     //
+    // PRE-LOADS, not "sees": the rest of `Microsoft.NETCore.App` arrives on demand, per namespace a
+    // file names (`AnalyzerMetadataLoadSurface.LoadFrameworkNamespace`).
+    //
     // THE ONE TABLE, SHARED WITH THE COLUMNAR SCAN. The analyzer used to carry its own copy of this
     // list, and the copy had DRIFTED: it held twenty-six of the scan's twenty-seven names, in the
     // same order, missing only `System.Private.Xml.Linq`. Nothing decided that the analyzer should
@@ -48,15 +51,38 @@ class AnalyzerMetadataLoadPolicy {
         return "System.Runtime"
     }
 
-    // A WEB PROJECT NEEDS MORE THAN THE COMMON TABLE, and the trigger is the project's SDK spelling
-    // containing `Web` — the same substring `Microsoft.NET.Sdk.Web` carries. This is a contains test
-    // rather than an equality test on purpose: the SDK id a user writes is not a closed set.
+    // A WEB PROJECT NEEDS MORE THAN THE COMMON TABLE, and it is a web project exactly when MSBuild
+    // would reference `Microsoft.AspNetCore.App` for it: `sdk: Microsoft.NET.Sdk.Web`, compared the
+    // way `CompilationReferenceResolverKernels.IsMsBuildImplicitFramework` compares it. This used to
+    // be a substring test for `Web`, which also matched `Microsoft.NET.Sdk.BlazorWebAssembly` and
+    // `Microsoft.NET.Sdk.WebAssembly` -- SDKs `dotnet build` gives no ASP.NET Core framework -- so the
+    // editor and `nlc` accepted ASP.NET Core types a `dotnet build` of the same project refused.
     static func RequiresAspNetCoreAssemblies(sdk: string?): bool {
         if sdk == null {
             return false
         }
 
-        return sdk.Contains("Web")
+        return CompilationReferenceResolverKernels.IsMsBuildImplicitFramework(sdk, "Microsoft.AspNetCore.App")
+    }
+
+    // A REFERENCE SET THAT ALREADY CARRIES THE FRAMEWORK'S COMPILE SURFACE SUPPLIES IT ITSELF.
+    // `dotnet build` hands the compiler every assembly of the reference pack as a reference, and
+    // `System.Runtime` is the root every one of them names; when the project's own references hold
+    // it, the framework is already loaded from them and the on-demand `Microsoft.NETCore.App` loads
+    // (`FrameworkNamespaceIndex`) stand down rather than load a second, runtime copy of what the
+    // reference pack declares.
+    static func ReferencesSupplyFrameworkSurface(referencePaths: IEnumerable<string>?): bool {
+        if referencePaths == null {
+            return false
+        }
+
+        for referencePath in referencePaths {
+            if referencePath != null && string.Equals(Path.GetFileName(referencePath), "System.Runtime.dll", StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+        }
+
+        return false
     }
 
     static func AspNetCoreAssemblyNames(): string[] {

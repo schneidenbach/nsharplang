@@ -608,6 +608,14 @@ class ExternalAssemblyScan {
     // change a single answer (`TryAttachSharedMetadata`), and it then adds nothing to a context it does
     // not own. Otherwise it opens a context of its own, exactly as without `shared`.
     static func OpenWithReferences(referenceAssemblyPaths: IReadOnlyList<string>?, shared: SharedReferenceMetadata? = null): ExternalAssemblyScanResult {
+        return OpenWithReferences(referenceAssemblyPaths, shared, null)
+    }
+
+    // `frameworkAssemblyNames` are the `Microsoft.NETCore.App` assemblies this compilation names beyond
+    // the common table (`FrameworkAssemblyNamesFor`). They join AFTER the project's own references, as
+    // the analyzer loads them after its references, and each is read exactly as a common entry is:
+    // the host's runtime assembly for emission, its metadata from the runtime directory.
+    static func OpenWithReferences(referenceAssemblyPaths: IReadOnlyList<string>?, shared: SharedReferenceMetadata?, frameworkAssemblyNames: IReadOnlyList<string>?): ExternalAssemblyScanResult {
         metadataGate := new object()
         referenceImages := new ReferenceImageSnapshotStore(metadataGate)
         entries := new List<ExternalAssemblyCatalogEntry>()
@@ -667,6 +675,22 @@ class ExternalAssemblyScan {
                 AddSemanticEntry(entries, identityName, identity, path, runtimeAssembly)
 
                 pathIndex = pathIndex + 1
+            }
+        }
+
+        if frameworkAssemblyNames != null {
+            for frameworkName in frameworkAssemblyNames {
+                try {
+                    runtimeAssembly := LoadHostAssemblyByName(frameworkName)
+                    identityName := runtimeAssembly.GetName()
+                    if FindSemanticIdentity(entries, identityName) < 0 {
+                        AddSemanticEntry(entries, identityName, identityName.FullName, CommonAssemblyMetadataPath(searchDirectories, frameworkName), runtimeAssembly)
+                    }
+                } catch {
+                    // A framework assembly the host cannot load is one the analyzer could not have
+                    // resolved either; the rest of the scan stands.
+                    continue
+                }
             }
         }
 
@@ -2161,6 +2185,56 @@ class ExternalAssemblyScan {
         }
     }
 
+    // THE `Microsoft.NETCore.App` ASSEMBLIES A COMPILATION NAMES BEYOND THE COMMON TABLE, which the
+    // back end must bind against because the analyzer resolved against them: every assembly that
+    // defines a namespace some file imports (`FrameworkNamespaceIndex`), then every one the analysis
+    // recorded loading on demand (a fully-qualified spelling's namespace), first occurrence first.
+    // Nothing when the references carry the framework's compile surface themselves -- `dotnet build`
+    // passes the whole reference pack -- and never a name a reference path or the common table
+    // already supplies.
+    static func FrameworkAssemblyNamesFor(importedNamespaces: IEnumerable<string>, recordedNames: string[]?, referenceAssemblyPaths: IReadOnlyList<string>?, index: FrameworkNamespaceIndex): List<string> {
+        names := new List<string>()
+        if AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface(referenceAssemblyPaths) {
+            return names
+        }
+
+        excluded := new HashSet<string>(CommonAssemblyNames(), StringComparer.OrdinalIgnoreCase)
+        if referenceAssemblyPaths != null {
+            for referencePath in referenceAssemblyPaths {
+                if referencePath != null && referencePath.Length > 0 {
+                    excluded.Add(Path.GetFileNameWithoutExtension(referencePath))
+                }
+            }
+        }
+
+        for namespaceName in importedNamespaces {
+            assemblies := index.AssembliesForNamespace(namespaceName)
+            if assemblies != null {
+                for assemblyName in assemblies {
+                    if excluded.Add(assemblyName) {
+                        names.Add(assemblyName)
+                    }
+                }
+            }
+        }
+
+        if recordedNames != null {
+            for recordedName in recordedNames {
+                if excluded.Add(recordedName) {
+                    names.Add(recordedName)
+                }
+            }
+        }
+
+        return names
+    }
+
+    // THE PRELOADED TABLE, WHICH IS NO LONGER THE LIMIT OF WHAT A PROJECT SEES. A project compiles
+    // against all of `Microsoft.NETCore.App`, as under `dotnet build`; the rest of the framework is
+    // loaded per namespace a file names (`FrameworkNamespaceIndex`, `FrameworkAssemblyNamesFor`).
+    // These 33 are loaded up front because nearly every program uses them, and because the
+    // exported-name scan a bare unimported spelling falls back to has always answered from them --
+    // shrinking the table would change which type such a spelling binds to.
     static func CommonAssemblyNames(): string[] {
         names := new string[](33)
         names[0] = "System.Runtime"

@@ -44,6 +44,12 @@ class SharedReferenceMetadata {
     PinnedPackageVersions: Dictionary<string, string>
     ResolverFailures: Dictionary<string, string>
 
+    // THE `Microsoft.NETCore.App` ASSEMBLIES THIS COMPILATION'S ANALYSIS LOADED ON DEMAND, in load
+    // order (`FrameworkNamespaceIndex`). A namespace import or a fully-qualified spelling loads them
+    // into the analyzer; the IL back end's scan reads this list so it binds against the same
+    // framework assemblies the analysis resolved against. Written and read under `Gate`.
+    private frameworkAssemblyNames: List<string>
+
     constructor(context: MetadataLoadContext, referenceImages: ReferenceImageSnapshotStore, gate: object, searchDirectories: List<string>, pinnedPackageVersions: Dictionary<string, string>, resolverFailures: Dictionary<string, string>) {
         Context = context
         ReferenceImages = referenceImages
@@ -56,6 +62,21 @@ class SharedReferenceMetadata {
         SearchDirectories = searchDirectories
         PinnedPackageVersions = pinnedPackageVersions
         ResolverFailures = resolverFailures
+        frameworkAssemblyNames = new List<string>()
+    }
+
+    func RecordFrameworkAssembly(simpleName: string) {
+        lock Gate {
+            if !frameworkAssemblyNames.Contains(simpleName) {
+                frameworkAssemblyNames.Add(simpleName)
+            }
+        }
+    }
+
+    func FrameworkAssemblyNames(): string[] {
+        lock Gate {
+            return frameworkAssemblyNames.ToArray()
+        }
     }
 
     func RuntimeContextFor(referenceAssemblyPaths: IReadOnlyList<string>?): AssemblyLoadContext {

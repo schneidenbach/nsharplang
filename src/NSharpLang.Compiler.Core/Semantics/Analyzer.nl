@@ -425,6 +425,7 @@ class Analyzer: IDisposable {
         ReferenceLoadReport = new AnalyzerReferenceLoadReport(Diagnostics, ReferenceLoadFailures)
         MetadataLoadSurface = new AnalyzerMetadataLoadSurface(MlcAssemblies, ReferenceLoadFailures)
         ReferenceLoadOrchestration = new AnalyzerReferenceLoadOrchestration(MetadataLoadSurface, ReferencedPackageNames)
+        ExternalTypeProbe.SetFrameworkLoads(MetadataLoadSurface)
 
         // The three name-resolution owners are built once and never rebuilt, so the import-usage
         // ledger is handed to them here. `ExtensionMethodResolution` IS rebuilt, and takes it in its
@@ -828,13 +829,13 @@ class Analyzer: IDisposable {
 
     private func LoadImportMappedAssemblies(namespaceName: string) {
         names := Imports.MappedAssemblies(namespaceName)
-        if names == null {
-            return
+        if names != null {
+            for assemblyName in names {
+                MetadataLoadSurface.LoadByName(assemblyName)
+            }
         }
 
-        for assemblyName in names {
-            MetadataLoadSurface.LoadByName(assemblyName)
-        }
+        MetadataLoadSurface.LoadFrameworkNamespace(namespaceName)
     }
 
     func GetTypeDeclarationFiles(): Dictionary<string, string> {
@@ -1587,6 +1588,10 @@ class Analyzer: IDisposable {
                 assemblyNames := step.AssemblyNames
                 for assemblyName in assemblyNames {
                     MetadataLoadSurface.LoadByName(assemblyName)
+                }
+                frameworkNamespace := step.FrameworkNamespace
+                if frameworkNamespace != null {
+                    MetadataLoadSurface.LoadFrameworkNamespace(frameworkNamespace)
                 }
             }
             Imports.Supply(state)

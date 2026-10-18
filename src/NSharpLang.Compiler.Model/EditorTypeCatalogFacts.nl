@@ -15,9 +15,9 @@ import NSharpLang.Compiler
 // reads it drives are all that is left on the other side.
 //
 // THE END-STATE THIS FILE IS NOT YET: **THE LANGUAGE SERVER HOLDS TWO DISJOINT TYPE UNIVERSES.**
-// The analyzer builds a `MetadataLoadContext` over `ExternalAssemblyScan.CommonAssemblyNames()`
-// AND over the project's own references, so it can see everything a program actually compiles
-// against. The editor's type catalogue — `EditorUniverseSeedTypeNames` below — is four seed types
+// The analyzer builds a `MetadataLoadContext` over `ExternalAssemblyScan.CommonAssemblyNames()`, the
+// `Microsoft.NETCore.App` assemblies a file's imports name (`FrameworkNamespaceIndex`) AND the
+// project's own references, so it can see everything a program actually compiles against. The editor's type catalogue — `EditorUniverseSeedTypeNames` below — is four seed types
 // reached by LIVE reflection over the language-server process itself, which resolves to exactly
 // THREE assemblies and contains no project reference at all. So completion cannot offer a type
 // from a package the user depends on, and hover cannot name one. That is a product defect, not a

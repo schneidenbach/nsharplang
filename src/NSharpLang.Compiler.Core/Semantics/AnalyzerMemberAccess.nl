@@ -1132,6 +1132,7 @@ class AnalyzerMemberAccess {
         }
 
         runtimeType: Type = typeof(object)
+        externalTypeProbeValue.LoadFrameworkNamespaceOf(qualifiedName)
         if !ExternalQualifiedTypeResolver.TryResolve(mlcAssembliesValue, qualifiedName, externalTypeProbeValue.Grants, out runtimeType) {
             return false
         }

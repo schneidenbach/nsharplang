@@ -102,6 +102,15 @@ class AnalyzerMetadataLoadSurface {
     // `SharedReferenceMetadata`); an attached surface takes the owner's.
     gate: object
 
+    // Whether the project's own references already carry `Microsoft.NETCore.App`'s compile surface
+    // (`AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface`), in which case the on-demand
+    // framework loads below stand down.
+    FrameworkSuppliedByReferences: bool
+
+    // The framework namespaces this surface has already loaded, so a namespace asked for again --
+    // every miss under an imported namespace asks -- costs one set probe.
+    loadedFrameworkNamespaces: HashSet<string>
+
     constructor(loadedAssemblies: List<Assembly>, referenceLoadFailures: Dictionary<string, string>) {
         Context = null
         assemblies = loadedAssemblies
@@ -113,6 +122,8 @@ class AnalyzerMetadataLoadSurface {
         ReferenceImages = null
         ownsContext = false
         gate = new object()
+        FrameworkSuppliedByReferences = false
+        loadedFrameworkNamespaces = new HashSet<string>(StringComparer.Ordinal)
     }
 
     // A NEW RESOLVER IS BEING BUILT, which means a new load context is beginning. The directories
@@ -148,6 +159,7 @@ class AnalyzerMetadataLoadSurface {
     // framework's version ladder; WHICH directories is the policy owner's answer, walking them is
     // mechanism and is here.
     func Open() {
+        loadedFrameworkNamespaces.Clear()
         images := new ReferenceImageSnapshotStore(gate)
         ReferenceImages = images
         resolver := new AnalyzerMetadataAssemblyResolver(
@@ -188,6 +200,7 @@ class AnalyzerMetadataLoadSurface {
     // pins and failure table, behind the same gate. This surface's registry and failure table stay its
     // own, and `Close` leaves the context to its owner.
     func Attach(shared: SharedReferenceMetadata) {
+        loadedFrameworkNamespaces.Clear()
         Context = shared.Context
         ReferenceImages = shared.ReferenceImages
         gate = shared.Gate
@@ -238,6 +251,7 @@ class AnalyzerMetadataLoadSurface {
         ReferenceMetadata = null
         ReferenceImages = null
         ownsContext = false
+        loadedFrameworkNamespaces.Clear()
     }
 
     // EVERY `int`, `string` and `object` A REFERENCED ASSEMBLY NAMES resolves through the context's
@@ -421,6 +435,66 @@ class AnalyzerMetadataLoadSurface {
             } catch error: Exception {
                 RecordExceptionFailure(simpleName, error)
             }
+        }
+    }
+
+    // ── `Microsoft.NETCore.App`, ON DEMAND ───────────────────────────────────────────────────────
+    //
+    // A project compiles against the whole shared framework, as `dotnet build` does, but an assembly
+    // is put in front of the analyzer only once a file names one of its namespaces
+    // (`FrameworkNamespaceIndex` says which). Each assembly loaded this way is recorded on the shared
+    // reference metadata, so the IL back end binds against the same set the analysis resolved against.
+
+    // The assemblies `namespaceName` needs, loaded by name in the index's order. Nothing when the
+    // references supply the framework themselves or the namespace is not the framework's.
+    func LoadFrameworkNamespace(namespaceName: string) {
+        if FrameworkSuppliedByReferences || Context == null || !loadedFrameworkNamespaces.Add(namespaceName) {
+            return
+        }
+
+        names := FrameworkNamespaceIndex.ForHostRuntime().AssembliesForNamespace(namespaceName)
+        if names == null {
+            return
+        }
+
+        for name in names {
+            LoadFrameworkAssembly(name)
+        }
+    }
+
+    // A FULLY-QUALIFIED SPELLING NAMES ITS NAMESPACE WITHOUT IMPORTING IT: `System.Numerics.BigInteger`
+    // compiles under `dotnet build` with no `using`. When the framework has the spelling's namespace
+    // and some of its assemblies are not loaded yet, they are loaded now; the answer says whether the
+    // assembly list grew, so a caller that missed knows a retry can answer differently.
+    func LoadFrameworkNamespaceOfType(fullName: string): bool {
+        if FrameworkSuppliedByReferences || Context == null {
+            return false
+        }
+
+        index := FrameworkNamespaceIndex.ForHostRuntime()
+        namespaceName := index.NamespaceOfTypeName(fullName)
+        if namespaceName == null {
+            return false
+        }
+
+        before := assemblies.Count
+        LoadFrameworkNamespace(namespaceName)
+        return assemblies.Count > before
+    }
+
+    func SetFrameworkSuppliedByReferences(supplied: bool) {
+        FrameworkSuppliedByReferences = supplied
+    }
+
+    func LoadFrameworkAssembly(simpleName: string) {
+        if IsSimpleNameLoaded(simpleName) {
+            return
+        }
+
+        LoadByName(simpleName)
+        shared := ReferenceMetadata
+        if shared != null && IsSimpleNameLoaded(simpleName) {
+            shared.RecordFrameworkAssembly(simpleName)
         }
     }
 }
