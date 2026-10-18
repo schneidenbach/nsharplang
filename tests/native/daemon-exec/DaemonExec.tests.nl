@@ -375,11 +375,11 @@ test "stdin reaches a command that reads it, and run starts the program on the c
 test "program arguments after -- reach the program exactly the same in-process and through the server" {
     workspace := NewWorkspace()
     try {
-        WriteSource(workspace, "Program.nl", "import System\n\nfunc main(args: string[]) {\n    for argument in args {\n        Console.WriteLine(\"[\" + argument + \"]\")\n    }\n}\n")
+        WriteSource(workspace, "Program.nl", "import System\n\nfunc main(args: string[]) {\n    Console.WriteLine(\"count=\" + args.Length.ToString())\n    for argument in args {\n        Console.WriteLine(\"[\" + argument + \"]\")\n    }\n}\n")
         StartServer(workspace)
 
         arguments := ["run", "--", "a\"b", "C:\\dir\\", "", "two words", "--help"]
-        expected := "[a\"b]" + Environment.NewLine + "[C:\\dir\\]" + Environment.NewLine + "[]" + Environment.NewLine + "[two words]" + Environment.NewLine + "[--help]" + Environment.NewLine
+        expected := "count=5" + Environment.NewLine + "[a\"b]" + Environment.NewLine + "[C:\\dir\\]" + Environment.NewLine + "[]" + Environment.NewLine + "[two words]" + Environment.NewLine + "[--help]" + Environment.NewLine
         inProcess := NlcWith(arguments, workspace, InProcess(), null)
         assert inProcess.ExitCode == 0, inProcess.Stdout + inProcess.Stderr
         assert inProcess.Stdout.EndsWith(expected), inProcess.Stdout

@@ -79,6 +79,8 @@ test "a --project with no value is reported rather than read as a file" {
 test "a --project followed by another option has no value either" {
     assert RunCommandKernels.IsProjectOptionMissingValue(["--project", "--backend", "il"])
     assert RunCommandKernels.GetProjectOption(["--project", "--backend", "il"]) == null
+    assert RunCommandKernels.IsProjectOptionMissingValue(["--project", "--"])
+    assert RunCommandKernels.GetProjectOption(["--project", "--"]) == null
     assert !RunCommandKernels.IsProjectOptionMissingValue(["--project", "src/app"])
 }
 

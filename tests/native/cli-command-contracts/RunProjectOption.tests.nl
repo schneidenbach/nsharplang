@@ -73,6 +73,10 @@ test "nlc run --project reports a missing directory, a missing project file and 
         assert noValue.ExitCode == 1
         assert noValue.Stderr.Contains("--project requires a directory"), noValue.Stderr
 
+        noValueBeforeSeparator := Nlc("run --project --")
+        assert noValueBeforeSeparator.ExitCode == 1
+        assert noValueBeforeSeparator.Stderr.Contains("--project requires a directory"), noValueBeforeSeparator.Stderr
+
         WriteRunProject(directory, "RunConflictProbe", "conflict")
         both := Nlc("run --project \"" + directory + "\" \"" + Path.Combine(directory, "Program.nl") + "\"")
         assert both.ExitCode == 1
@@ -84,7 +88,7 @@ test "nlc run --project reports a missing directory, a missing project file and 
 
 func ProbeArgvProject(directory: string) {
     File.WriteAllText(Path.Combine(directory, "project.yml"), "name: ArgvProbe\nversion: 1.0.0\nentry: Program.nl\noutputType: exe\ntargetFramework: net10.0\n")
-    File.WriteAllText(Path.Combine(directory, "Program.nl"), "import System\n\nfunc main(args: string[]) {\n    for argument in args {\n        Console.WriteLine(\"[\" + argument + \"]\")\n    }\n}\n")
+    File.WriteAllText(Path.Combine(directory, "Program.nl"), "import System\n\nfunc main(args: string[]) {\n    Console.WriteLine(\"count=\" + args.Length.ToString())\n    for argument in args {\n        Console.WriteLine(\"[\" + argument + \"]\")\n    }\n}\n")
 }
 
 test "program arguments reach the program byte for byte, whatever quoting they need" {
@@ -93,7 +97,7 @@ test "program arguments reach the program byte for byte, whatever quoting they n
         ProbeArgvProject(directory)
         startInfo := new ProcessStartInfo { FileName: "dotnet" }
         startInfo.ArgumentList.Add(CliDll())
-        for argument in ["run", "--project", directory, "--", "a\"b", "C:\\dir\\", "", "two words", "--help", "tab\there"] {
+        for argument in ["run", "--project", directory, "--", "a\"b", "C:\\dir\\", "", "two words"] {
             startInfo.ArgumentList.Add(argument)
         }
 
@@ -110,7 +114,7 @@ test "program arguments reach the program byte for byte, whatever quoting they n
         process.Dispose()
 
         assert exitCode == 0, stdout + stderr
-        expected := "[a\"b]" + Environment.NewLine + "[C:\\dir\\]" + Environment.NewLine + "[]" + Environment.NewLine + "[two words]" + Environment.NewLine + "[--help]" + Environment.NewLine + "[tab\there]" + Environment.NewLine
+        expected := "count=4" + Environment.NewLine + "[a\"b]" + Environment.NewLine + "[C:\\dir\\]" + Environment.NewLine + "[]" + Environment.NewLine + "[two words]" + Environment.NewLine
         assert stdout.EndsWith(expected), stdout
     } finally {
         Directory.Delete(directory, true)

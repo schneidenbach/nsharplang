@@ -1,6 +1,6 @@
 namespace NSharpLang.Cli
 
-import System.Collections.Generic
+import System
 import System.IO
 import NSharpLang.Compiler
 
