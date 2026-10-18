@@ -370,6 +370,9 @@ class ColumnarClosureBindingPlanner {
         return false
     }
 
+    // A `foreach` LOOP VARIABLE IS NOT A WRITE. It is DECLARED afresh for every iteration (C# 5+), so a
+    // closure created in the body copies that iteration's value and no other closure can observe a
+    // later one; only an explicit assignment to it (caught by the arm below) makes a snapshot wrong.
     static func IsAnyNameWritten(nodes: ColumnarNodeTable, source: string, node: int, names: SortedSet<string>): bool {
         kind := nodes.Kind(node)
         if kind == ColumnarExpressionNodeKind.AssignmentExpression || kind == ColumnarExpressionNodeKind.PostfixUnary {
@@ -378,14 +381,6 @@ class ColumnarClosureBindingPlanner {
                 target = nodes.Child(target, 0)
             }
             if nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(target) >= 0 && names.Contains(nodes.Text(source, target)) {
-                return true
-            }
-        } else if kind == ColumnarStatementNodeKind.ForeachStatement {
-            if names.Contains(nodes.Text(source, node)) {
-                return true
-            }
-        } else if kind == ColumnarStatementNodeKind.TypedForeachStatement {
-            if nodes.ChildCount(node) > 0 && nodes.Kind(nodes.Child(node, 0)) == 6 && names.Contains(nodes.Text(source, nodes.Child(node, 0))) {
                 return true
             }
         } else if kind == ColumnarStatementNodeKind.TupleDeconstructionStatement {
