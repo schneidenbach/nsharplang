@@ -1,7 +1,6 @@
 ---
 sidebar_label: project.yml Reference
 title: project.yml Reference
-displayed_sidebar: docsSidebar
 ---
 
 # project.yml Reference
