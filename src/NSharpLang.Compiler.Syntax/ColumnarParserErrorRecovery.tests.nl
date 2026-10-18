@@ -1783,6 +1783,11 @@ test "issue 248 review: a typed reserved local is retained and its later use doe
     assert returnValue != null && returnValue.Name == "explicit"
 }
 
+test "a null arm in a conditional expression is not a reserved-name binding" {
+    source := "func test(flag: bool, value: int) {\n    result := flag ? null : value\n}"
+    assert PeCensus(source) == "", PeCensus(source)
+}
+
 test "issue 248: each reserved word is reported once, and a second word is its own report" {
     source := "\nfunc test() {\n    out := 1\n    explicit := 2\n    out = out + 1\n}\n\nfunc other() {\n    out := 3\n}"
     assert PeCensus(source) == "NL109@3:5+3;NL109@4:5+8;", PeCensus(source)

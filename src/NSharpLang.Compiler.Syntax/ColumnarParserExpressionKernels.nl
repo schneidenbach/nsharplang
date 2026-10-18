@@ -988,7 +988,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     // If a reserved word is followed by an assignment operator, it is being used as a name here.
     // Let it reach the assignment parser before keyword-led primary productions such as `new`,
     // `true`, or `typeof` claim it.
-    if pos + 1 < count && ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, (TokenType)tokens.Kinds[pos + 1], TokenType.Eof) {
+    if pos + 1 < count && ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, (TokenType)tokens.Kinds[pos + 1]) {
         st.Pos = pos + 1
         return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
@@ -2251,16 +2251,12 @@ func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
     if pos < count {
         k := tokens.Kinds[pos]
         followingType := TokenType.Eof
-        afterFollowingType := TokenType.Eof
         if pos + 1 < count {
             followingType = (TokenType)tokens.Kinds[pos + 1]
         }
-        if pos + 2 < count {
-            afterFollowingType = (TokenType)tokens.Kinds[pos + 2]
-        }
         // Reserved prefix words such as `must` and `await` become names when followed by a binding
         // operator. Apply the shared grammar check before their unary productions claim the token.
-        if ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)k, followingType, afterFollowingType) {
+        if ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)k, followingType) {
             st.Pos = pos + 1
             return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression, tokens.Starts[pos], tokens.ValueLengths[pos], -1, 0, tokens.Starts[pos], tokens.ValueLengths[pos])
         }

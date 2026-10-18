@@ -1,29 +1,29 @@
 namespace NSharpLang.Compiler
 
 class ParserTokenFacts {
+
     // A token from the lexer's keyword table is a reserved word wherever the grammar asks for a
     // name. Keep this derived from the table so newly-added keywords automatically enter recovery.
     static func IsNameLikeReservedWord(tokenType: TokenType): bool {
         return Lexer.IsReservedKeyword(tokenType)
     }
 
-    // A reserved word followed by a binding operator is an attempted name binding, even when its
-    // token normally starts another grammar production. Keyword classification comes from the
-    // lexer table; both parser paths use this shared shape before keyword dispatch.
-    static func IsReservedWordNameBindingStart(nameType: TokenType, followingType: TokenType, afterFollowingType: TokenType): bool {
+    // A reserved word directly followed by an assignment operator is an attempted name binding,
+    // even when its token normally starts another grammar production. A colon alone is not enough:
+    // it also separates the arms of a conditional expression such as `flag ? null : value`.
+    static func IsReservedWordNameBindingStart(nameType: TokenType, followingType: TokenType): bool {
         if !Lexer.IsReservedKeyword(nameType) {
             return false
         }
 
-        if followingType == TokenType.ColonAssign || IsAssignmentOperator(followingType) {
-            return true
-        }
-
-        return followingType == TokenType.Colon && IsTypeReferenceStart(afterFollowingType)
+        return followingType == TokenType.ColonAssign || IsAssignmentOperator(followingType)
     }
 
     static func CanStartExpression(tokenType: TokenType): bool {
-        if tokenType == TokenType.Identifier || tokenType == TokenType.Out || tokenType == TokenType.Explicit || tokenType == TokenType.Partial {
+        if tokenType == TokenType.Identifier || tokenType == TokenType.Out {
+            return true
+        }
+        if tokenType == TokenType.Explicit || tokenType == TokenType.Partial {
             return true
         }
         if tokenType == TokenType.IntLiteral {
@@ -306,7 +306,10 @@ class ParserTokenFacts {
     }
 
     static func IsExpressionStart(tokenType: TokenType): bool {
-        if tokenType == TokenType.Identifier || tokenType == TokenType.Out || tokenType == TokenType.Explicit || tokenType == TokenType.Partial {
+        if tokenType == TokenType.Identifier || tokenType == TokenType.Out {
+            return true
+        }
+        if tokenType == TokenType.Explicit || tokenType == TokenType.Partial {
             return true
         }
         if tokenType == TokenType.IntLiteral {

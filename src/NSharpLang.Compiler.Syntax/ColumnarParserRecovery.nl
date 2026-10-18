@@ -4803,7 +4803,7 @@ class ColumnarParserRecovery {
             return false
         }
 
-        return ParserTokenFacts.IsReservedWordNameBindingStart(Current().Type, LookAhead(1).Type, LookAhead(2).Type)
+        return ParserTokenFacts.IsReservedWordNameBindingStart(Current().Type, LookAhead(1).Type)
     }
 
     func IsReservedWordMemberAccessStart(): bool {

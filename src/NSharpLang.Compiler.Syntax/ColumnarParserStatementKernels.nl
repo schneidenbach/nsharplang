@@ -140,14 +140,10 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
     // dispatches to a statement (`return := 1`, `if: int = 1`). Use the same grammar predicate as
     // recovery before any keyword-specific statement arm can claim it.
     followingType := TokenType.Eof
-    afterFollowingType := TokenType.Eof
     if start + 1 < count {
         followingType = (TokenType)tokens.Kinds[start + 1]
     }
-    if start + 2 < count {
-        afterFollowingType = (TokenType)tokens.Kinds[start + 2]
-    }
-    if ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, followingType, afterFollowingType) {
+    if ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, followingType) {
         return ParseSimpleStatementNode(tokens, count, st, argStack, nodes, children)
     }
 
@@ -851,14 +847,10 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
     // kernel materializes the reserved spelling as an identifier; this arm then converts `:=` to
     // the same local-declaration node as an ordinary identifier, or wraps an assignment as a stmt.
     followingType := TokenType.Eof
-    afterFollowingType := TokenType.Eof
     if start + 1 < count {
         followingType = (TokenType)tokens.Kinds[start + 1]
     }
-    if start + 2 < count {
-        afterFollowingType = (TokenType)tokens.Kinds[start + 2]
-    }
-    if followingType != TokenType.Colon && ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, followingType, afterFollowingType) {
+    if ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, followingType) {
         bindingRoot := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
         if bindingRoot < 0 {
             return -1

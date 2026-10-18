@@ -922,3 +922,8 @@ test "name-like reserved words derive from the lexer table without changing expr
         index = index + 1
     }
 }
+
+test "reserved name-binding lookahead does not mistake a conditional colon for a type annotation" {
+    assert ParserTokenFacts.IsReservedWordNameBindingStart(TokenType.Out, TokenType.ColonAssign)
+    assert !ParserTokenFacts.IsReservedWordNameBindingStart(TokenType.Null, TokenType.Colon)
+}
