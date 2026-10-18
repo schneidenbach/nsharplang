@@ -610,13 +610,31 @@ test "the runtime identifier fallback walks from the exact RID to any" {
     assert string.Join(",", debian) == "debian.12-x64,debian.12,debian-x64,debian,linux-x64,linux,unix-x64,unix,any"
 
     rhelFamily := CompilationReferenceResolverKernels.GetRuntimeIdentifierFallbacks("rocky.9-x64")
-    assert string.Join(",", rhelFamily) == "rocky.9-x64,rocky.9,rocky-x64,rocky,rhel-x64,rhel,linux-x64,linux,unix-x64,unix,any"
+    assert string.Join(",", rhelFamily) == "rocky.9-x64,rocky.9,rocky-x64,rhel.9-x64,rocky,rhel.9,rhel-x64,rhel,linux-x64,linux,unix-x64,unix,any"
 
     assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net10.0") == ".NETCoreApp,Version=v10.0"
+    assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net10") == ".NETCoreApp,Version=v10.0"
     assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net9.0-windows") == ".NETCoreApp,Version=v9.0"
-    assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("netcoreapp3.1") == ".NETCoreApp,Version=v3.1"
-    assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("netstandard2.0") == ".NETStandard,Version=v2.0"
-    assert CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net48") == ".NETFramework,Version=v4.8"
+    assert CompilationReferenceResolverKernels.SupportsDependencyManifestTarget("net10.0-windows")
+    assert !CompilationReferenceResolverKernels.SupportsDependencyManifestTarget("netcoreapp3.1")
+    assert !CompilationReferenceResolverKernels.SupportsDependencyManifestTarget("netstandard2.0")
+    assert !CompilationReferenceResolverKernels.SupportsDependencyManifestTarget("net48")
+
+    oldFrameworkFailure: ArgumentException? = null
+    try {
+        CompilationReferenceResolverKernels.GetDependencyManifestTargetName("netcoreapp3.1")
+    } catch captured: ArgumentException {
+        oldFrameworkFailure = captured
+    }
+    assert oldFrameworkFailure != null, "A pre-.NET 5 target produced an application deps.json target name."
+
+    versionlessFrameworkFailure: ArgumentException? = null
+    try {
+        CompilationReferenceResolverKernels.GetDependencyManifestTargetName("net")
+    } catch captured: ArgumentException {
+        versionlessFrameworkFailure = captured
+    }
+    assert versionlessFrameworkFailure != null, "A version-less framework produced an invalid deps.json target name."
 }
 
 test "a native library is found beside the assemblies, then by the RID fallback order" {
@@ -730,6 +748,13 @@ test "a package's runtimes layout is copied beside the output and named by deps.
         assert library.GetProperty("sha512").GetString() == "sha512-abc=="
         assert library.GetProperty("path").GetString() == "native.pkg/1.2.3"
         assert library.GetProperty("hashPath").GetString() == "native.pkg.1.2.3.nupkg.sha512"
+
+        unsupportedManifestPath := Path.Combine(outputDirectory, "Legacy.deps.json")
+        File.WriteAllText(unsupportedManifestPath, "stale")
+        oldLibraryConfig := new ProjectConfig()
+        oldLibraryConfig.TargetFramework = "netstandard2.0"
+        DependencyManifestWriter.Write(oldLibraryConfig, result, Path.Combine(outputDirectory, "Legacy.dll"))
+        assert !File.Exists(unsupportedManifestPath), "A non-.NET 5 target retained an application deps manifest."
     } finally {
         Directory.Delete(scratch, true)
     }
@@ -799,12 +824,23 @@ test "a test project that hosts an application in-process receives the applicati
         result.CopyRuntimeAssets(outputDirectory)
         assert File.Exists(Path.Combine(outputDirectory, "N6App.deps.json"))
         assert TestCommandKernels.HostsApplications(outputDirectory)
-        assert File.ReadAllText(Path.Combine(outputDirectory, "MvcTestingAppManifest.json")).Contains(appRoot.Replace("\\", "\\\\"))
+        manifestPath := Path.Combine(outputDirectory, "MvcTestingAppManifest.json")
+        using manifest := JsonDocument.Parse(File.ReadAllText(manifestPath))
+        appAssemblyFullName := AssemblyName.GetAssemblyName(Path.Combine(projectRoot, "app/bin/Debug/net10.0/N6App.dll")).FullName
+        assert appAssemblyFullName != null
+        assert manifest.RootElement.GetProperty(appAssemblyFullName ?? "").GetString() == appRoot
 
         plainRoot := Path.Combine(projectRoot, "plain")
         plain := CompilationReferenceResolver.AddResolvedDllReferences(plainRoot, ResolverParseProject(plainRoot), options)
         assert !ResolverContainsPath(plain.RuntimeAssets, appManifest), "Only a project that hosts the application in-process needs its deps.json."
         assert plain.ContentRoots.Count == 0
+
+        staleOutputDirectory := Path.Combine(projectRoot, "plain-out")
+        Directory.CreateDirectory(staleOutputDirectory)
+        staleManifest := Path.Combine(staleOutputDirectory, "MvcTestingAppManifest.json")
+        File.WriteAllText(staleManifest, "{}")
+        plain.CopyRuntimeAssets(staleOutputDirectory)
+        assert !File.Exists(staleManifest), "A project with no application content roots retained a stale manifest."
     } finally {
         Directory.Delete(projectRoot, true)
     }
@@ -819,13 +855,19 @@ func ResolverWriteNewtonsoftVersion(packagesRoot: string, version: string, assem
         Path.Combine(versionDirectory, "newtonsoft.json.nuspec"),
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\"><metadata><id>Newtonsoft.Json</id><version>" + version + "</version><dependencies><group targetFramework=\"net6.0\" /></dependencies></metadata></package>"
     )
-    stagingPath := Path.Combine(versionDirectory, "staging.dll")
-    assembly := new PersistedAssemblyBuilder(new AssemblyName("Newtonsoft.Json, Version=" + assemblyVersion), typeof(object).get_Assembly())
-    assembly.DefineDynamicModule("Newtonsoft.Json.dll")
-    assembly.Save(stagingPath)
     libraryDirectory := Path.Combine(Path.Combine(versionDirectory, "lib"), "net6.0")
     Directory.CreateDirectory(libraryDirectory)
+    stagingPath := Path.Combine(versionDirectory, "staging.dll")
+    ResolverWriteVersionedAssembly(stagingPath, "Newtonsoft.Json", assemblyVersion)
     File.Move(stagingPath, Path.Combine(libraryDirectory, "Newtonsoft.Json.dll"), true)
+}
+
+func ResolverWriteVersionedAssembly(path: string, simpleName: string, assemblyVersion: string) {
+    directory := Path.GetDirectoryName(path) ?? ""
+    Directory.CreateDirectory(directory)
+    assembly := new PersistedAssemblyBuilder(new AssemblyName(simpleName + ", Version=" + assemblyVersion), typeof(object).get_Assembly())
+    assembly.DefineDynamicModule(Path.GetFileName(path))
+    assembly.Save(path)
 }
 
 func ResolverWriteLibraryProject(root: string, name: string, dependencies: string) {
@@ -839,8 +881,16 @@ func ResolverWriteLibraryProject(root: string, name: string, dependencies: strin
 func ResolverNewtonsoftPaths(config: ProjectConfig): List<string> {
     paths := new List<string>()
     for reference in config.Dependencies {
-        if reference.Dll != null && string.Equals(Path.GetFileName(reference.Dll ?? ""), "Newtonsoft.Json.dll", StringComparison.OrdinalIgnoreCase) {
-            paths.Add(Path.GetFullPath(reference.Dll ?? "").Replace('\\', '/'))
+        if reference.Dll == null {
+            continue
+        }
+
+        try {
+            simpleName := AssemblyName.GetAssemblyName(reference.Dll ?? "").Name
+            if string.Equals(simpleName, "Newtonsoft.Json", StringComparison.OrdinalIgnoreCase) {
+                paths.Add(Path.GetFullPath(reference.Dll ?? "").Replace('\\', '/'))
+            }
+        } catch unreadable: Exception {
         }
     }
     return paths
@@ -887,6 +937,57 @@ test "a flowed compile reference never duplicates an assembly: the project's own
     }
 }
 
+test "direct flowed references deduplicate by assembly simple name rather than file name" {
+    projectRoot := ResolverNewTempDirectory("flow-name")
+    packagesRoot := Path.Combine(projectRoot, "packages")
+    try {
+        ResolverWriteNewtonsoftVersion(packagesRoot, "13.0.3", "13.0.0.0")
+        ResolverWriteLibraryProject(projectRoot, "ThirteenLib", "  - nuget: Newtonsoft.Json\n    version: 13.0.3\n")
+        renamedDirectPath := Path.Combine(projectRoot, "renamed/NotNewtonsoft.Json.dll")
+        ResolverWriteVersionedAssembly(renamedDirectPath, "Newtonsoft.Json", "12.0.0.0")
+        ResolverWrite(
+            Path.Combine(projectRoot, "renamed/project.yml"),
+            "name: Renamed\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - dll: " + renamedDirectPath + "\n  - project: ../ThirteenLib/project.yml\n"
+        )
+        options := new ReferenceResolutionOptions()
+        options.PackagesFolder = packagesRoot
+        renamedRoot := Path.Combine(projectRoot, "renamed")
+        renamedConfig := ResolverParseProject(renamedRoot)
+        CompilationReferenceResolver.AddResolvedDllReferences(renamedRoot, renamedConfig, options)
+        renamedPaths := ResolverNewtonsoftPaths(renamedConfig)
+        assert renamedPaths.Count == 1, string.Join(",", renamedPaths)
+        assert string.Equals(renamedPaths[0], renamedDirectPath.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)
+        assert AssemblyName.GetAssemblyName(renamedPaths[0]).Version.ToString() == "12.0.0.0"
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "the highest NuGet package version wins when assembly versions disagree" {
+    projectRoot := ResolverNewTempDirectory("flow-package-version")
+    packagesRoot := Path.Combine(projectRoot, "packages")
+    try {
+        ResolverWriteNewtonsoftVersion(packagesRoot, "12.0.3", "14.0.0.0")
+        ResolverWriteNewtonsoftVersion(packagesRoot, "13.0.3", "11.0.0.0")
+        ResolverWriteLibraryProject(projectRoot, "TwelveLib", "  - nuget: Newtonsoft.Json\n    version: 12.0.3\n")
+        ResolverWriteLibraryProject(projectRoot, "ThirteenLib", "  - nuget: Newtonsoft.Json\n    version: 13.0.3\n")
+        ResolverWrite(
+            Path.Combine(projectRoot, "both/project.yml"),
+            "name: Both\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../TwelveLib/project.yml\n  - project: ../ThirteenLib/project.yml\n"
+        )
+        options := new ReferenceResolutionOptions()
+        options.PackagesFolder = packagesRoot
+        bothRoot := Path.Combine(projectRoot, "both")
+        bothConfig := ResolverParseProject(bothRoot)
+        CompilationReferenceResolver.AddResolvedDllReferences(bothRoot, bothConfig, options)
+        paths := ResolverNewtonsoftPaths(bothConfig)
+        assert paths.Count == 1, string.Join(",", paths)
+        assert paths[0].Contains("/13.0.3/"), "Flowed compile references must follow the runtime asset selector's package-version policy."
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
 test "a package only the end of a project reference chain declares reaches the first project" {
     projectRoot := ResolverNewTempDirectory("flow-chain")
     packagesRoot := Path.Combine(projectRoot, "packages")
@@ -915,6 +1016,14 @@ test "a malformed referenced project.yml is reported as the project reference fa
         ResolverWrite(Path.Combine(projectRoot, "bad/project.yml"), "name: [unterminated\n  - : :")
         ResolverWrite(Path.Combine(projectRoot, "app/project.yml"), "name: App\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../bad/project.yml\n")
         appRoot := Path.Combine(projectRoot, "app")
+        badProjectYml := Path.Combine(projectRoot, "bad/project.yml")
+        expectedFailure: Exception? = null
+        try {
+            ProjectFileParser.Parse(badProjectYml)
+        } catch captured: Exception {
+            expectedFailure = captured
+        }
+
         failure: Exception? = null
         try {
             CompilationReferenceResolver.AddResolvedDllReferences(appRoot, ResolverParseProject(appRoot), new ReferenceResolutionOptions())
@@ -922,6 +1031,9 @@ test "a malformed referenced project.yml is reported as the project reference fa
             failure = captured
         }
         assert failure != null
+        assert expectedFailure != null
+        assert failure.GetType() == expectedFailure.GetType()
+        assert failure.Message == expectedFailure.Message
     } finally {
         Directory.Delete(projectRoot, true)
     }

@@ -8,7 +8,7 @@ import System.Reflection
 import System.Text.Json
 import NSharpLang.Compiler
 
-// THE `<assembly>.deps.json` NEXT TO A BUILT ASSEMBLY, as `dotnet build` writes it.
+// THE `<assembly>.deps.json` NEXT TO A .NET 5+ BUILD OUTPUT, as `dotnet build` writes it.
 //
 // The .NET host builds its trusted-assembly list from this file whenever it exists, and resolves
 // RID-specific assets from it: a package's `runtimes/<rid>/native/*` library is found only through a
@@ -26,6 +26,14 @@ import NSharpLang.Compiler
 class DependencyManifestWriter {
     static func Write(config: ProjectConfig, references: ReferenceResolutionResult, assemblyPath: string) {
         manifestPath := Path.ChangeExtension(assemblyPath, ".deps.json")
+        if !CompilationReferenceResolverKernels.SupportsDependencyManifestTarget(config.TargetFramework) {
+            if File.Exists(manifestPath) {
+                File.Delete(manifestPath)
+            }
+
+            return
+        }
+
         text := Build(config, references, assemblyPath)
         if File.Exists(manifestPath) && File.ReadAllText(manifestPath) == text {
             return
@@ -180,7 +188,10 @@ class DependencyManifestWriter {
     private static func ManagedVersions(path: string): SortedDictionary<string, object> {
         versions := new SortedDictionary<string, object>(StringComparer.Ordinal)
         try {
-            versions["assemblyVersion"] = AssemblyName.GetAssemblyName(path).Version.ToString()
+            assemblyVersion := AssemblyName.GetAssemblyName(path).Version
+            if assemblyVersion != null {
+                versions["assemblyVersion"] = assemblyVersion.ToString()
+            }
         } catch badImage: BadImageFormatException {
             return versions
         }

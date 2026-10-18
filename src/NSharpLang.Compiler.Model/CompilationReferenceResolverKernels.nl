@@ -1914,11 +1914,28 @@ class CompilationReferenceResolverKernels {
         }
 
         for osName in family {
+            rhelVersion := ""
+            if string.Equals(osName, baseSystem, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(baseSystem, "rhel", StringComparison.OrdinalIgnoreCase) {
+                rhelVersion = GetRedHatRuntimeIdentifierVersion(baseSystem, operatingSystem)
+            }
+
             if architecture.Length > 0 {
                 AddUniqueText(result, seen, osName + "-" + architecture)
             }
 
+            // Rocky, CentOS, and Oracle Linux RIDs import the same-version RHEL RID after their
+            // architecture-specific RID and before their generic RID (e.g. rocky.9-x64 imports
+            // rocky.9, rocky-x64, rhel.9-x64, rocky, rhel.9, rhel-x64, rhel).
+            if rhelVersion.Length > 0 && architecture.Length > 0 {
+                AddUniqueText(result, seen, "rhel." + rhelVersion + "-" + architecture)
+            }
+
             AddUniqueText(result, seen, osName)
+
+            if rhelVersion.Length > 0 {
+                AddUniqueText(result, seen, "rhel." + rhelVersion)
+            }
         }
 
         if !string.Equals(baseSystem, "win", StringComparison.OrdinalIgnoreCase) {
@@ -1931,6 +1948,21 @@ class CompilationReferenceResolverKernels {
 
         AddUniqueText(result, seen, "any")
         return result.ToArray()
+    }
+
+    private static func GetRedHatRuntimeIdentifierVersion(baseSystem: string, operatingSystem: string): string {
+        if !string.Equals(baseSystem, "rocky", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(baseSystem, "centos", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(baseSystem, "ol", StringComparison.OrdinalIgnoreCase) {
+            return ""
+        }
+
+        dot := operatingSystem.IndexOf('.')
+        if dot < 0 || dot + 1 >= operatingSystem.Length {
+            return ""
+        }
+
+        return operatingSystem.Substring(dot + 1)
     }
 
     static func IsKnownArchitecture(candidate: string): bool {
@@ -1948,7 +1980,7 @@ class CompilationReferenceResolverKernels {
     // base distribution, every distribution names `linux`, and Alpine names `linux-musl`. Empty for
     // a RID with no parent (`osx`, `freebsd`, `linux`).
     static func GetLinuxRuntimeIdentifierParent(systemName: string): string {
-        derived := ["linuxmint:ubuntu", "pop:ubuntu", "elementary:ubuntu", "kali:debian", "raspbian:debian", "ubuntu:debian", "debian:linux", "centos:rhel", "fedora:rhel", "ol:rhel", "rocky:rhel", "almalinux:rhel", "amzn:rhel", "rhel:linux", "sles:linux", "opensuse:linux", "arch:linux", "gentoo:linux", "tizen:linux", "alpine:linux-musl", "linux-musl:linux"]
+        derived := ["linuxmint:ubuntu", "pop:ubuntu", "elementary:ubuntu", "kali:debian", "raspbian:debian", "ubuntu:debian", "debian:linux", "centos:rhel", "ol:rhel", "rocky:rhel", "rhel:linux", "fedora:linux", "sles:linux", "opensuse:linux", "arch:linux", "gentoo:linux", "tizen:linux", "alpine:linux-musl", "linux-musl:linux"]
         for entry in derived {
             separator := entry.IndexOf(':')
             if string.Equals(entry.Substring(0, separator), systemName, StringComparison.OrdinalIgnoreCase) {
@@ -1990,42 +2022,69 @@ class CompilationReferenceResolverKernels {
         return string.Equals(Path.GetFileName(filePath), "_._", StringComparison.Ordinal)
     }
 
-    // `net10.0` -> `.NETCoreApp,Version=v10.0`, the `runtimeTarget` name a `deps.json` carries.
-    // Older framework monikers keep their own family: `netcoreapp3.1` -> `.NETCoreApp,Version=v3.1`,
-    // `netstandard2.0` -> `.NETStandard,Version=v2.0`, `net48` -> `.NETFramework,Version=v4.8`.
-    static func GetDependencyManifestTargetName(targetFramework: string): string {
+    // A runtime deps manifest belongs to a .NET 5+ application target, e.g.
+    // `net10.0` -> `.NETCoreApp,Version=v10.0`. Libraries targeting .NET Standard, .NET Framework,
+    // or pre-.NET 5 .NET Core do not have an application runtime target to write here.
+    static func SupportsDependencyManifestTarget(targetFramework: string): bool {
+        if string.IsNullOrWhiteSpace(targetFramework) {
+            return false
+        }
+
         moniker := targetFramework
         platformDash := moniker.IndexOf('-')
         if platformDash >= 0 {
             moniker = moniker.Substring(0, platformDash)
         }
 
-        family := ".NETCoreApp"
-        version := moniker
-        if moniker.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase) {
-            family = ".NETStandard"
-            version = moniker.Substring(11)
-        } else if moniker.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase) {
-            version = moniker.Substring(10)
-        } else if moniker.StartsWith("net", StringComparison.OrdinalIgnoreCase) {
-            version = moniker.Substring(3)
-            if version.IndexOf('.') < 0 && version.Length >= 2 && version[0] < '5' {
-                family = ".NETFramework"
-                dotted := version.Substring(0, 1)
-                index := 1
-                while index < version.Length {
-                    dotted = dotted + "." + version.Substring(index, 1)
-                    index = index + 1
-                }
-                version = dotted
-            }
+        if !moniker.StartsWith("net", StringComparison.OrdinalIgnoreCase) ||
+            moniker.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase) ||
+            moniker.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase) {
+            return false
         }
+
+        version := moniker.Substring(3)
+        if version.Length == 0 {
+            return false
+        }
+
+        // Compact `net48` is .NET Framework 4.8; `net10` is modern shorthand for .NET 10.
+        if version.IndexOf('.') < 0 && version.Length >= 2 && version[0] >= '1' && version[0] <= '4' && version != "10" {
+            return false
+        }
+
+        majorEnd := version.IndexOf('.')
+        if majorEnd < 0 {
+            majorEnd = version.Length
+        }
+
+        major := 0
+        if !int.TryParse(version.Substring(0, majorEnd), out major) {
+            return false
+        }
+
+        return major >= 5
+    }
+
+    static func GetDependencyManifestTargetName(targetFramework: string): string {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework)
+        if !SupportsDependencyManifestTarget(targetFramework) {
+            throw new ArgumentException("Dependency manifests require a .NET 5.0 or later target framework.")
+        }
+
+        moniker := targetFramework
+        platformDash := moniker.IndexOf('-')
+        if platformDash >= 0 {
+            moniker = moniker.Substring(0, platformDash)
+        }
+
+        version := moniker
+        version = moniker.Substring(3)
 
         if version.IndexOf('.') < 0 {
             version = version + ".0"
         }
 
-        return family + ",Version=v" + version
+        return ".NETCoreApp,Version=v" + version
     }
 
     // The file names an unmanaged library name can mean on one operating system, in the order the

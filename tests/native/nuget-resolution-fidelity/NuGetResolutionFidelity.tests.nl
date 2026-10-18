@@ -330,3 +330,63 @@ test "a project reference flows its package so the consumer can use the package'
         Directory.Delete(scratch, true)
     }
 }
+
+// THE ISSUE #247 PACKAGE, restored by this native project so the regression stays offline after the
+// gate has populated NUGET_PACKAGES. B alone declares HtmlAgilityPack; A imports its namespace,
+// annotates a parameter with HtmlDocument, and reads Maker.Make().DocumentNode.InnerText.
+test "HtmlAgilityPack flows through a project reference for nlc test and build" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("html-agility-flow")
+    try {
+        cache := Path.Combine(scratch, "packages")
+        Directory.CreateDirectory(cache)
+        restoredPackages := Environment.GetEnvironmentVariable("NUGET_PACKAGES") ?? ""
+        restoredAssembly := Path.Combine(
+            Path.Combine(Path.Combine(Path.Combine(restoredPackages, "htmlagilitypack"), "1.12.4"), "lib/netstandard2.0"),
+            "HtmlAgilityPack.dll"
+        )
+        assert File.Exists(restoredAssembly), "HtmlAgilityPack 1.12.4 must be restored with the native test project's dependencies."
+
+        packageDirectory := ResolutionPackageDirectory(cache, "HtmlAgilityPack", "1.12.4")
+        ResolutionWriteNuspec(packageDirectory, "HtmlAgilityPack", "1.12.4", ResolutionNoDependencies())
+        packageLibrary := Path.Combine(packageDirectory, "lib/netstandard2.0")
+        Directory.CreateDirectory(packageLibrary)
+        File.Copy(restoredAssembly, Path.Combine(packageLibrary, "HtmlAgilityPack.dll"), true)
+
+        libDirectory := Path.Combine(scratch, "lib")
+        ResolutionWriteProject(
+            libDirectory,
+            "name: FlowLib\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n" + ResolutionDependency("HtmlAgilityPack", "1.12.4"),
+            "Lib.nl",
+            "namespace FlowLib\n\nimport HtmlAgilityPack\n\nclass Maker {\n    static func Make(): HtmlDocument {\n        d := new HtmlDocument()\n        d.LoadHtml(\"<p>hi</p>\")\n        return d\n    }\n}\n"
+        )
+
+        appDirectory := Path.Combine(scratch, "app")
+        ResolutionWriteProject(
+            appDirectory,
+            "name: FlowApp\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - project: ../lib/project.yml\n",
+            "Program.nl",
+            "namespace FlowApp\n\nimport FlowLib\nimport HtmlAgilityPack\n\nfunc DocumentText(document: HtmlDocument): string {\n    return document.DocumentNode.InnerText\n}\n\nfunc main() {\n    print Maker.Make().DocumentNode.InnerText\n    print DocumentText(Maker.Make())\n}\n"
+        )
+        appBuild := ResolutionRunInCache(ResolutionQuote(cli) + " build", appDirectory, cache)
+        ResolutionRequireSuccess(appBuild, "nlc build of the project that only references the library")
+        appOutput := ResolutionOutputDirectory(appDirectory)
+        assert File.Exists(Path.Combine(appOutput, "HtmlAgilityPack.dll")), "the package assembly was not copied beside the consumer"
+        appRun := ResolutionRunDotnet(ResolutionQuote(Path.Combine(appOutput, "FlowApp.dll")), appDirectory)
+        ResolutionRequireSuccess(appRun, "running the project that only references the library")
+        assert appRun.Stdout.Trim() == "hi\nhi", appRun.Output()
+
+        testDirectory := Path.Combine(scratch, "tests")
+        ResolutionWriteProject(
+            testDirectory,
+            "name: FlowTests\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../lib/project.yml\n",
+            "Flow.tests.nl",
+            "namespace FlowTests\n\nimport FlowLib\nimport HtmlAgilityPack\n\nfunc DocumentText(document: HtmlDocument): string {\n    return document.DocumentNode.InnerText\n}\n\ntest \"a test can use the package type returned by a project reference\" {\n    assert DocumentText(Maker.Make()) == \"hi\"\n}\n"
+        )
+        testRun := ResolutionRunInCache(ResolutionQuote(cli) + " test", testDirectory, cache)
+        ResolutionRequireSuccess(testRun, "nlc test of the project that only references the library")
+        assert testRun.Stdout.Contains("Passed: 1, Failed: 0"), testRun.Output()
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}

@@ -77,43 +77,51 @@ class ProjectReferenceFlow {
         return false
     }
 
-    // THE DLL REFERENCES A PROJECT DECLARED ITSELF, taken before any reference flows in from a project
-    // it references.
+    // THE SIMPLE NAMES OF ASSEMBLIES A PROJECT DECLARED ITSELF, taken before any reference flows in
+    // from a project it references.
     static func SnapshotDllReferences(config: ProjectConfig): HashSet<string> {
         own := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         for reference in config.Dependencies {
             if reference.Type == ReferenceType.Dll && reference.Dll != null {
-                own.Add(Path.GetFullPath(reference.Dll ?? ""))
+                simpleName := GetAssemblySimpleName(Path.GetFullPath(reference.Dll ?? ""))
+                if simpleName.Length > 0 {
+                    own.Add(simpleName)
+                }
             }
         }
 
         return own
     }
 
-    // ONE ASSEMBLY, ONE COMPILE REFERENCE. A compile reference that flows in from a referenced project
-    // is added only if no reference to an assembly of the same name is there already: the project's
-    // own reference wins (`own`); between two flowed ones the higher assembly version wins, as the
-    // runtime side does (`ReferenceResolutionResult.SelectFlatRuntimeAssets`). Otherwise a project
-    // referencing Newtonsoft.Json 12 itself and a project that uses 13 compiled against two files of
-    // one assembly.
+    // ONE ASSEMBLY SIMPLE NAME, ONE COMPILE REFERENCE. Compare assembly metadata rather than file
+    // names: NuGet packages normally make them match, but a DLL's file name is not its assembly
+    // identity. The project's own reference wins (`own`); between two flowed references the higher
+    // NuGet package version wins, as the runtime side does
+    // (`ReferenceResolutionResult.SelectFlatRuntimeAssets`). A non-package DLL falls back to its assembly version.
     static func AddFlowedCompileReference(config: ProjectConfig, own: HashSet<string>, assemblyPath: string) {
         if !File.Exists(assemblyPath) {
             return
         }
 
         fullPath := Path.GetFullPath(assemblyPath)
-        fileName := Path.GetFileName(fullPath)
+        simpleName := GetAssemblySimpleName(fullPath)
+        if simpleName.Length == 0 {
+            config.Dependencies.Add(new Reference { Dll: fullPath })
+            return
+        }
+
         for reference in config.Dependencies {
             if reference.Type != ReferenceType.Dll || reference.Dll == null {
                 continue
             }
 
             existingPath := Path.GetFullPath(reference.Dll ?? "")
-            if !string.Equals(Path.GetFileName(existingPath), fileName, StringComparison.OrdinalIgnoreCase) {
+            existingSimpleName := GetAssemblySimpleName(existingPath)
+            if existingSimpleName.Length == 0 || !string.Equals(existingSimpleName, simpleName, StringComparison.OrdinalIgnoreCase) {
                 continue
             }
 
-            if string.Equals(existingPath, fullPath, StringComparison.OrdinalIgnoreCase) || own.Contains(existingPath) {
+            if string.Equals(existingPath, fullPath, StringComparison.OrdinalIgnoreCase) || own.Contains(simpleName) {
                 return
             }
 
@@ -128,7 +136,20 @@ class ProjectReferenceFlow {
         config.Dependencies.Add(new Reference { Dll: fullPath })
     }
 
+    private static func GetAssemblySimpleName(assemblyPath: string): string {
+        try {
+            return AssemblyName.GetAssemblyName(assemblyPath).Name ?? ""
+        } catch unreadable: Exception {
+            return ""
+        }
+    }
+
     private static func PreferredVersion(assemblyPath: string): Version {
+        packageVersion := ReferenceResolutionResult.ExtractRuntimeAssetVersion(assemblyPath)
+        if ReferenceResolutionResult.IsHigherVersion(packageVersion, new Version(0, 0, 0, 0)) {
+            return packageVersion
+        }
+
         try {
             return AssemblyName.GetAssemblyName(assemblyPath).Version ?? new Version(0, 0, 0, 0)
         } catch unreadable: Exception {
