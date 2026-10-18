@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Diagnostics.Metrics
 import System.Reflection
 import System.Reflection.Emit
 
@@ -109,6 +110,27 @@ test "ColumnarModifiedMemberReferenceRepair retains a marked method signature so
     assert last == 19
     assert plan.MethodModifiedSignatureSources[first] == method
     assert plan.MethodModifiedSignatureSources[last] == null
+}
+
+test "a reused method pool slot clears the previous modified signature source" {
+    property := typeof(MeterOptions).GetProperty("Scope")
+    assert property != null
+    signatureMethod := property.SetMethod
+    replacementMethod := typeof(string).GetMethod("GetHashCode", new Type[](0))
+    assert signatureMethod != null
+    assert replacementMethod != null
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    markedIndex := plan.AddMethodWithSignature(signatureMethod, typeof(MeterOptions), [typeof(string)], typeof(void), false, false)
+    plan.MarkMethodForModifiedMemberReferenceRepair(markedIndex, signatureMethod)
+    assert plan.MethodModifiedSignatureSources[markedIndex] == signatureMethod
+
+    plan.PrepareV3()
+    reusedIndex := plan.AddMethod(replacementMethod)
+    assert reusedIndex == markedIndex
+    assert plan.Methods[reusedIndex] == replacementMethod
+    assert plan.MethodModifiedSignatureSources[reusedIndex] == null
 }
 
 test "ColumnarModifiedMemberReferenceRepair keeps unbaked VAR and MVAR identities distinct" {

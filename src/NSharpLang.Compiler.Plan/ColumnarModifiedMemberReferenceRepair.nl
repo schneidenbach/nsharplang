@@ -343,23 +343,11 @@ class ColumnarModifiedMemberReferenceRepair {
         return cursor == signature.Length
     }
 
+    // A member reference to a member of a closed generic type is written against the DEFINITION's
+    // signature, so `IReadOnlyList<T>` on `InstrumentAdvice<int>` appears as `IReadOnlyList<!0>` while the
+    // request carries the substituted `IReadOnlyList<int>`. The request resolves `!n` / `!!n` at any depth.
     private static func MemberSignatureTypeMatchesRequest(reader: MetadataReader, signature: byte[], ref cursor: int, expectedType: Type, request: ColumnarModifiedMemberReferenceRequest): bool {
-        original := cursor
-        if !SkipModifiers(signature, ref cursor) || cursor >= signature.Length {
-            return false
-        }
-        code := (int)signature[cursor]
-        if code == Var || code == MVar {
-            cursor = cursor + 1
-            let position: int = 0
-            if !TryReadCompressed(signature, ref cursor, out position) {
-                return false
-            }
-            arguments := code == Var ? request.Owner.GetGenericArguments() : request.EmittedMethod.GetGenericArguments()
-            return position >= 0 && position < arguments.Length && RuntimeTypeIdentity(arguments[position]) == RuntimeTypeIdentity(expectedType)
-        }
-        cursor = original
-        return SignatureTypeMatchesRuntime(reader, signature, ref cursor, expectedType)
+        return SignatureTypeMatchesRuntime(reader, signature, ref cursor, expectedType, request)
     }
 
     static func Apply(metadata: MetadataBuilder, rawIl: byte[], ledger: ColumnarModifiedMemberReferenceLedger, plan: ColumnarModifiedMemberReferencePlan, out patchedIl: BlobBuilder): bool {
@@ -1112,7 +1100,7 @@ class ColumnarModifiedMemberReferenceRepair {
             specification := reader.GetTypeSpecification((TypeSpecificationHandle)handle)
             bytes := reader.GetBlobBytes(specification.Signature)
             cursor := 0
-            return SignatureTypeMatchesRuntime(reader, bytes, ref cursor, clrType) && cursor == bytes.Length
+            return SignatureTypeMatchesRuntime(reader, bytes, ref cursor, clrType, null) && cursor == bytes.Length
         }
         definitionType := clrType.IsGenericType ? clrType.GetGenericTypeDefinition() : clrType
         if handle.Kind == HandleKind.TypeDefinition {
@@ -1159,7 +1147,7 @@ class ColumnarModifiedMemberReferenceRepair {
         return BytesEqual(metadataKey, runtimeKey)
     }
 
-    private static func SignatureTypeMatchesRuntime(reader: MetadataReader, bytes: byte[], ref cursor: int, clrType: Type): bool {
+    private static func SignatureTypeMatchesRuntime(reader: MetadataReader, bytes: byte[], ref cursor: int, clrType: Type, request: ColumnarModifiedMemberReferenceRequest?): bool {
         if !SkipModifiers(bytes, ref cursor) || cursor >= bytes.Length {
             return false
         }
@@ -1175,10 +1163,10 @@ class ColumnarModifiedMemberReferenceRepair {
             if code == SzArray && !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) {
                 return false
             }
-            return SignatureTypeMatchesRuntime(reader, bytes, ref cursor, ColumnarRuntimeTypeFacts.RequiredElementType(clrType))
+            return SignatureTypeMatchesRuntime(reader, bytes, ref cursor, ColumnarRuntimeTypeFacts.RequiredElementType(clrType), request)
         }
         if code == ArrayType {
-            if !clrType.IsArray || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) || !SignatureTypeMatchesRuntime(reader, bytes, ref cursor, ColumnarRuntimeTypeFacts.RequiredElementType(clrType)) {
+            if !clrType.IsArray || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) || !SignatureTypeMatchesRuntime(reader, bytes, ref cursor, ColumnarRuntimeTypeFacts.RequiredElementType(clrType), request) {
                 return false
             }
             let rank: int = 0
@@ -1189,6 +1177,13 @@ class ColumnarModifiedMemberReferenceRepair {
         }
         if code == Var || code == MVar {
             let position: int = 0
+            if request != null {
+                if !TryReadCompressed(bytes, ref cursor, out position) {
+                    return false
+                }
+                substitutions := code == Var ? (must request).Owner.GetGenericArguments() : (must request).EmittedMethod.GetGenericArguments()
+                return position >= 0 && position < substitutions.Length && RuntimeTypeIdentity(substitutions[position]) == RuntimeTypeIdentity(clrType)
+            }
             if !clrType.IsGenericParameter || !TryReadCompressed(bytes, ref cursor, out position) || position != clrType.GenericParameterPosition {
                 return false
             }
@@ -1215,7 +1210,7 @@ class ColumnarModifiedMemberReferenceRepair {
                 return false
             }
             for index := 0; index < count; index++ {
-                if !SignatureTypeMatchesRuntime(reader, bytes, ref cursor, arguments[index]) {
+                if !SignatureTypeMatchesRuntime(reader, bytes, ref cursor, arguments[index], request) {
                     return false
                 }
             }

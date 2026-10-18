@@ -1,0 +1,8 @@
+name: NSharpLang.CensusExternalInitAsync.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+dependencies:
+  - framework: Microsoft.NETCore.App

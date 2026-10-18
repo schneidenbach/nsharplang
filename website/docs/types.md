@@ -549,6 +549,8 @@ The same rule applies through generics and assembly boundaries. A closed generic
 `new Box<string> { Value: "ready" }` calls the marked setter, and a derived constructor may assign an
 inherited `init` member declared by a referenced `Box<T>`. The emitted call preserves the setter's
 `IsExternalInit` required modifier, so the CLR binds it to the same method the declaration exposes.
+The same behavior applies in an `async` function, including when initialized values remain live across
+an `await`.
 
 `init` may also be written in front of an explicit accessor pair, which puts the same marker on the
 declared setter:
