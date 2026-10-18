@@ -15,6 +15,7 @@ import NSharpLang.Compiler
 // RID's files are carried (the application stays portable across machines), and the host -- not the
 // build -- decides which one loads.
 class NuGetRuntimeAssetSelector {
+
     // `managedAssemblies` are the portable `lib/<tfm>` files the resolver already picked; they are
     // recorded as package files so the dependency manifest can name the package that owns each one.
     static func Select(

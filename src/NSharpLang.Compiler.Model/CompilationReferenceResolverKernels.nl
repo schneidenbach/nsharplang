@@ -1915,8 +1915,7 @@ class CompilationReferenceResolverKernels {
 
         for osName in family {
             rhelVersion := ""
-            if string.Equals(osName, baseSystem, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(baseSystem, "rhel", StringComparison.OrdinalIgnoreCase) {
+            if string.Equals(osName, baseSystem, StringComparison.OrdinalIgnoreCase) && !string.Equals(baseSystem, "rhel", StringComparison.OrdinalIgnoreCase) {
                 rhelVersion = GetRedHatRuntimeIdentifierVersion(baseSystem, operatingSystem)
             }
 
@@ -1951,9 +1950,7 @@ class CompilationReferenceResolverKernels {
     }
 
     private static func GetRedHatRuntimeIdentifierVersion(baseSystem: string, operatingSystem: string): string {
-        if !string.Equals(baseSystem, "rocky", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(baseSystem, "centos", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(baseSystem, "ol", StringComparison.OrdinalIgnoreCase) {
+        if !string.Equals(baseSystem, "rocky", StringComparison.OrdinalIgnoreCase) && !string.Equals(baseSystem, "centos", StringComparison.OrdinalIgnoreCase) && !string.Equals(baseSystem, "ol", StringComparison.OrdinalIgnoreCase) {
             return ""
         }
 
@@ -2036,9 +2033,7 @@ class CompilationReferenceResolverKernels {
             moniker = moniker.Substring(0, platformDash)
         }
 
-        if !moniker.StartsWith("net", StringComparison.OrdinalIgnoreCase) ||
-            moniker.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase) ||
-            moniker.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase) {
+        if !moniker.StartsWith("net", StringComparison.OrdinalIgnoreCase) || moniker.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase) || moniker.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase) {
             return false
         }
 
