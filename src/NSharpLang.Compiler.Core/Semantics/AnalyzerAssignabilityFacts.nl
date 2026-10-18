@@ -372,7 +372,13 @@ class AnalyzerAssignabilityFacts {
             // assembly declares, answered NO to a question about its own kind. Naming a method where
             // `NotifyCollectionChangedEventHandler` or `ConsoleCancelEventHandler` was expected then
             // reported NL411 "must be called or passed to a delegate" at a position that IS one.
-            return IsDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsMetadataDelegateType(reflectionType.Type)
+            //
+            // THE TWO ABSTRACT ROOTS ARE THE FOURTH ANSWER. `Delegate` and `MulticastDelegate` name no
+            // signature, but a method group has a NATURAL FUNCTION TYPE (C# 10) that converts to them by
+            // reference, so a group with exactly one candidate binds there. Which groups have one is the
+            // assignability question's, not this one's: an overloaded group has no natural type and is
+            // refused there.
+            return IsDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsMetadataDelegateType(reflectionType.Type) || IsBroadDelegateRoot(reflectionType.Type)
         }
 
         obliviousType := resolvedExpected as ObliviousTypeInfo
@@ -386,6 +392,13 @@ class AnalyzerAssignabilityFacts {
         }
 
         return false
+    }
+
+    // `System.Delegate` and `System.MulticastDelegate` themselves, recognised by name so the answer
+    // does not depend on which load context the type came from.
+    func IsBroadDelegateRoot(candidate: Type): bool {
+        fullName := candidate.FullName
+        return fullName == "System.Delegate" || fullName == "System.MulticastDelegate"
     }
 
     // A CONCRETE delegate type in the load context: something that derives from `System.Delegate`

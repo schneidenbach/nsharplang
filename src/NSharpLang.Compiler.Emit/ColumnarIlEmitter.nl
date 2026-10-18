@@ -25460,6 +25460,21 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // The conditions `TryEmitAspNetRouteHandler` checks before it emits anything: a lambda of zero
+    // parameters or of one `HttpContext` parameter, or a bare instance method of the enclosing type
+    // taking an `HttpContext`. Every other handler (a static method group, a delegate value) belongs to
+    // the ordinary call tiers.
+    private func CanEmitAspNetRouteHandler(handlerNode: int): bool {
+        handlerNode = UnwrapParenthesizedNode(handlerNode)
+        let httpContextType: System.Type = null
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode))) {
+            parameterCount := _nodes.ChildCount(handlerNode) - 1
+            return parameterCount == 0 || (parameterCount == 1 && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata))
+        }
+        let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
+        return _nodes.Kind(handlerNode) == ColumnarExpressionNodeKind.IdentifierExpression && _currentStruct != null && _currentStruct.IsReference && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata) && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) && method != null && TypesEquivalent(method.ParamTypes[0], httpContextType) && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)
+    }
+
     private func TryEmitAspNetRouteHandler(handlerNode: int, out delegateType: Type): bool {
         delegateType = null
         handlerNode = UnwrapParenthesizedNode(handlerNode)
@@ -25529,7 +25544,11 @@ sealed class ColumnarIlEmitter {
             }
         }
         let ignoredDelegateType: System.Type? = null
-        if (mapMethod == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false) || !TryEmitAspNetRouteHandler(Child(callIdx, 2), out ignoredDelegateType)) {
+        // NOTHING MAY BE EMITTED FOR A HANDLER THIS DOOR WILL NOT TAKE. The route string is pushed before
+        // the handler is built, and an instruction stream cannot be rewound: a method group or a
+        // `Delegate`-typed value that fell through after the path was pushed left the path on the stack
+        // for the next tier to emit again, which is the `InvalidProgramException` at the call.
+        if (mapMethod == null || !CanEmitAspNetRouteHandler(Child(callIdx, 2)) || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false) || !TryEmitAspNetRouteHandler(Child(callIdx, 2), out ignoredDelegateType)) {
             return false
         }
 
@@ -25688,6 +25707,21 @@ sealed class ColumnarIlEmitter {
                 }
             }
 
+            // C#'S BETTER CONVERSION: of two candidates both applicable, the one whose parameter types
+            // convert to the other's (and not back) at every written argument wins. This is why
+            // `MapGet(path, Handler)` binds the `RequestDelegate` overload and not the `Delegate` one that
+            // the method group's natural type also satisfies.
+            conversionVerdict := CompareContextualConversionTargets(closedCandidate, selectedBinding, candidateClosed, binding, argCount)
+            if (conversionVerdict == AnalyzerOverloadSpecificity.RightIsBetter) {
+                closedCandidate = candidateClosed
+                selectedBinding = binding
+                selectedTypeParameters = candidateTypeParameters
+                continue
+            }
+            if (conversionVerdict == AnalyzerOverloadSpecificity.LeftIsBetter) {
+                continue
+            }
+
             selectedCount = selectedCount + 1
         }
         if (selectedCount != 1) {
@@ -25695,6 +25729,39 @@ sealed class ColumnarIlEmitter {
             return false
         }
         return true
+    }
+
+    // WHICH OF TWO CLOSED CANDIDATES HAS PARAMETER TYPES THAT CONVERT TO THE OTHER'S, argument by
+    // argument. One side must win somewhere and lose nowhere; anything else is no verdict.
+    private static func CompareContextualConversionTargets(left: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate?, leftBinding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding?, right: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate, rightBinding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding, argCount: int): int {
+        if (left == null || leftBinding == null) {
+            return AnalyzerOverloadSpecificity.NeitherIsBetter
+        }
+        leftWins := false
+        rightWins := false
+        for a := 0; a < argCount; a++ {
+            leftType := left.ParameterTypes[a + leftBinding.ParameterOffset]
+            rightType := right.ParameterTypes[a + rightBinding.ParameterOffset]
+            if (TypesEquivalent(leftType, rightType)) {
+                continue
+            }
+            leftConverts := ColumnarExtensionMethodResolver.ReferenceAssignableFrom(rightType, leftType)
+            rightConverts := ColumnarExtensionMethodResolver.ReferenceAssignableFrom(leftType, rightType)
+            if (leftConverts && !rightConverts) {
+                leftWins = true
+            } else if (rightConverts && !leftConverts) {
+                rightWins = true
+            } else {
+                return AnalyzerOverloadSpecificity.NeitherIsBetter
+            }
+        }
+        if (leftWins && !rightWins) {
+            return AnalyzerOverloadSpecificity.LeftIsBetter
+        }
+        if (rightWins && !leftWins) {
+            return AnalyzerOverloadSpecificity.RightIsBetter
+        }
+        return AnalyzerOverloadSpecificity.NeitherIsBetter
     }
 
     // WHICH OF TWO CANDIDATES WROTE THE MORE SPECIFIC PARAMETER TYPES, over the DECLARED (still open)
@@ -28342,6 +28409,10 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
             return IsContextualLambdaTarget(argNode, expectedParamType)
         }
+        let naturalGroupMatchType: System.Type? = null
+        if (allowLambdaLiteral && TryGetNaturalMethodGroupDelegateType(argNode, expectedParamType, out naturalGroupMatchType)) {
+            return CanDeclaredCallArgumentMatch(argNode, naturalGroupMatchType, true, 0)
+        }
         if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitReceiverInstanceMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
@@ -28418,6 +28489,13 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
             return TryEmitLambdaLiteral(argNode, expectedParamType)
         }
+        // A METHOD GROUP WHERE THE PARAMETER IS `Delegate` ITSELF takes its NATURAL FUNCTION TYPE: the
+        // `Func`/`Action` its one method's signature spells. A delegate converts to `Delegate` by
+        // reference, so no instruction follows the construction.
+        let naturalGroupDelegateType: System.Type? = null
+        if (allowLambdaLiteral && TryGetNaturalMethodGroupDelegateType(argNode, expectedParamType, out naturalGroupDelegateType)) {
+            return EmitDeclaredCallArgument(argNode, naturalGroupDelegateType, true, 0)
+        }
         if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitReceiverInstanceMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
@@ -28468,6 +28546,36 @@ sealed class ColumnarIlEmitter {
             return Decline("emit.call.argument.split-type-identity", "argument type " + splitIdentity, argNode)
         }
         return false
+    }
+
+    // THE NATURAL FUNCTION TYPE OF A METHOD GROUP (C# 10), asked where the target is `System.Delegate`
+    // or `System.MulticastDelegate`, which name no signature to build a delegate from. The group must
+    // carry exactly ONE signature (an overloaded name has no natural type) and the signature must be
+    // one a `Func`/`Action` can spell. A name bound to a local or parameter is a value, not a group.
+    private func TryGetNaturalMethodGroupDelegateType(argNode: int, expectedParamType: Type, out naturalType: Type): bool {
+        naturalType = null
+        if (expectedParamType != typeof(Delegate) && expectedParamType != typeof(MulticastDelegate)) {
+            return false
+        }
+        node := UnwrapParenthesizedNode(argNode)
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(node))) {
+            return false
+        }
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression) {
+            groupName := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            if (_locals.ContainsKey(groupName) || _paramOrdinals.ContainsKey(groupName) || _liftedLocals.ContainsKey(groupName)) {
+                return false
+            }
+        }
+        let groupParameterTypes: System.Type[]? = null
+        let groupReturnType: System.Type? = null
+        if (!TryGetMethodGroupSignature(node, out groupParameterTypes, out groupReturnType) || groupReturnType == null) {
+            return false
+        }
+        if (!IsSupportedMethodGroupSignature(groupParameterTypes, groupReturnType)) {
+            return false
+        }
+        return ColumnarCanonicalTypeResolver.TryConstructInferredDelegate(groupParameterTypes, groupReturnType, out naturalType)
     }
 
     private func TryGetVisibleLocalFunctionMethodGroup(argNode: int, out localTarget: (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)): bool {

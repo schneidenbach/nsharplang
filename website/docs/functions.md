@@ -1151,6 +1151,13 @@ longEnough: Predicate<string> = value => value.Length > 2
 first := words.Find(longEnough)
 ```
 
+A method group with exactly one signature also converts to a parameter typed `Delegate` or
+`MulticastDelegate`, which name no signature of their own. It takes its **natural function type**, the
+`Func`/`Action` its method spells (as in C# 10): `Register(Handlers.Twice)` passes a
+`Func<int, int>`. An overloaded name has no natural type, and a call that has a concrete delegate
+overload (such as `RequestDelegate`) still prefers it. `x as Delegate` is an ordinary reference
+conversion.
+
 A method group converts at exactly the same positions, by the same rule. N# has no `delegate`
 declaration of its own: write `Func<...>` / `Action<...>` for a signature you name yourself, and use a
 referenced assembly's delegate types where they are part of an API you are calling.
