@@ -62,6 +62,8 @@ test "every columnar token ordinal is the TokenType member it claims to be, and 
     assert Convert.ToInt32(TokenType.Struct) == ColumnarTokenKindFacts.StructKind
     assert Convert.ToInt32(TokenType.Record) == ColumnarTokenKindFacts.RecordKind
     assert Convert.ToInt32(TokenType.Ref) == ColumnarTokenKindFacts.RefKind
+    assert Convert.ToInt32(TokenType.Dot) == ColumnarTokenKindFacts.DotKind
+    assert Convert.ToInt32(TokenType.Newline) == ColumnarTokenKindFacts.NewlineKind
     assert Convert.ToInt32(TokenType.Arrow) == ColumnarTokenKindFacts.ArrowKind
     assert Convert.ToInt32(TokenType.LeftBrace) == ColumnarTokenKindFacts.LeftBraceKind
 
@@ -70,6 +72,8 @@ test "every columnar token ordinal is the TokenType member it claims to be, and 
     assert ColumnarTokenKindFacts.StructKind == 9
     assert ColumnarTokenKindFacts.RecordKind == 13
     assert ColumnarTokenKindFacts.RefKind == 78
+    assert ColumnarTokenKindFacts.DotKind == 124
+    assert ColumnarTokenKindFacts.NewlineKind == 136
     assert ColumnarTokenKindFacts.ArrowKind == 120
     assert ColumnarTokenKindFacts.LeftBraceKind == 129
 
@@ -78,7 +82,17 @@ test "every columnar token ordinal is the TokenType member it claims to be, and 
     assert ColumnarTokenKindFacts.StructKind != ColumnarTokenKindFacts.RecordKind
     assert ColumnarTokenKindFacts.RecordKind != ColumnarTokenKindFacts.RefKind
     assert ColumnarTokenKindFacts.RefKind != ColumnarTokenKindFacts.ArrowKind
+    assert ColumnarTokenKindFacts.DotKind != ColumnarTokenKindFacts.ArrowKind
+    assert ColumnarTokenKindFacts.NewlineKind != ColumnarTokenKindFacts.DotKind
     assert ColumnarTokenKindFacts.ArrowKind != ColumnarTokenKindFacts.LeftBraceKind
+}
+
+test "name-like reserved keyword tokens remain readable by the columnar input parser" {
+    assert ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.Out))
+    assert ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.Explicit))
+    assert ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.Partial))
+    assert !ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.If))
+    assert !ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.Identifier))
 }
 
 test "the columnar lexer writes those same six ordinals for the spellings they name" {
@@ -88,6 +102,7 @@ test "the columnar lexer writes those same six ordinals for the spellings they n
     assert TokenKindFactsColumnarKindOf("struct") == ColumnarTokenKindFacts.StructKind
     assert TokenKindFactsColumnarKindOf("record") == ColumnarTokenKindFacts.RecordKind
     assert TokenKindFactsColumnarKindOf("ref") == ColumnarTokenKindFacts.RefKind
+    assert TokenKindFactsColumnarKindOf(".") == ColumnarTokenKindFacts.DotKind
     assert TokenKindFactsColumnarKindOf("=>") == ColumnarTokenKindFacts.ArrowKind
     assert TokenKindFactsColumnarKindOf("{") == ColumnarTokenKindFacts.LeftBraceKind
 
@@ -96,6 +111,28 @@ test "the columnar lexer writes those same six ordinals for the spellings they n
     assert TokenKindFactsColumnarKindOf("out") == 79
     assert Convert.ToInt32(TokenType.Interface) == 10
     assert TokenKindFactsColumnarKindOf("interface") == 10
+}
+
+test "columnar indentation leaves arrow and operator continuations inside the expression" {
+    source := "func Top(): string =>\n    \"top\"\nfunc Join(): string => \"left\" +\n    \"right\"\n"
+    capacity := source.Length * 3 + 16
+    rawKinds := new int[](capacity)
+    rawStarts := new int[](capacity)
+    rawLengths := new int[](capacity)
+    kinds := new int[](capacity)
+    starts := new int[](capacity)
+    lengths := new int[](capacity)
+    counts := new int[](2)
+    count := TokenizeColumnarSourceInto(source, rawKinds, rawStarts, rawLengths, kinds, starts, lengths, counts)
+    assert count > 0
+
+    index := 0
+    while index < count {
+        // This source contains no explicit braces. A LeftBrace would have been an erroneous
+        // indentation block inserted by the columnar lexer before a continued expression line.
+        assert kinds[index] != ColumnarTokenKindFacts.LeftBraceKind
+        index = index + 1
+    }
 }
 
 test "`ref struct` is decided by TokenType.Ref, and by nothing beside it" {

@@ -2605,10 +2605,12 @@ Two rules the compiler enforces about the type-argument list itself:
   declarations `[assembly: InternalsVisibleTo(...)]` writes are the `internalsVisibleTo:` key (see
   [Making another assembly your friend](#making-another-assembly-your-friend)). Generic
   attributes (`class Mark<T>: Attribute`) are not supported either.
-- A **catch clause's exception type must be a simple name**: `catch ex: System.InvalidOperationException`
-  does not parse, `import System` plus `catch ex: InvalidOperationException` does. (A type used only
-  as a catch type, only inside a `Func<…>` in a signature, only in an attribute or only as a type
-  argument DOES now count as a use of its import; `NL010` no longer reports those.)
+- A catch clause accepts a simple or namespace-qualified exception type, such as
+  `catch ex: InvalidOperationException` or `catch ex: System.IO.IOException`. Qualified names use
+  the same type-resolution rules as other type references; importing `System` still allows the
+  unqualified spelling. A type used only as a catch type, only inside a `Func<…>` in a signature,
+  only in an attribute or only as a type argument counts as a use of its import, so `NL010` does
+  not report those.
 - **Omitting a defaulted parameter** works for a function, method or constructor declared in the SAME
   project — including a call from another file — and for an external instance, static, extension or
   CONSTRUCTOR parameter, whose default the call site reads out of the callee's metadata and writes

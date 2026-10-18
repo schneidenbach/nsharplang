@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
 import System.Text
+import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 
@@ -75,6 +76,61 @@ import NSharpLang.Compiler.Ast
 // follows it either — this file reports ZERO `nlc check` rows, tests included.
 func PsAst(source: string): CompilationUnit? {
     return ColumnarParserRecovery.ParseFileAst(source, "test.nl").CompilationUnit
+}
+
+// A direct probe of the product statement kernel. The recovery-parser goldens below prove its AST
+// behavior; this probe pins the separate compact-node value span used by columnar input materialization.
+class StatementKernelProbe {
+    Source: string
+    TokenKinds: int[]
+    TokenStarts: int[]
+    TokenLengths: int[]
+    TokenCount: int
+    NodeKinds: int[]
+    ValueStarts: int[]
+    ValueLengths: int[]
+    NodeCount: int
+
+    constructor(source: string) {
+        Source = source
+        capacity := source.Length + 8
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawLengths := new int[](capacity)
+        TokenKinds = new int[](capacity)
+        TokenStarts = new int[](capacity)
+        TokenLengths = new int[](capacity)
+        tokenCounts := new int[](2)
+        TokenCount = TokenizeColumnarSourceInto(source, rawKinds, rawStarts, rawLengths, TokenKinds, TokenStarts, TokenLengths, tokenCounts)
+
+        nodeCapacity := source.Length * 8 + 32
+        NodeKinds = new int[](nodeCapacity)
+        ValueStarts = new int[](nodeCapacity)
+        ValueLengths = new int[](nodeCapacity)
+        childStarts := new int[](nodeCapacity)
+        childCounts := new int[](nodeCapacity)
+        childIndices := new int[](nodeCapacity * 4)
+        spanStarts := new int[](nodeCapacity)
+        spanLengths := new int[](nodeCapacity)
+        nodes := new ParserExpressionNodeTable(NodeKinds, ValueStarts, ValueLengths, childStarts, childCounts, spanStarts, spanLengths)
+        children := new ParserChildIndexTable(childIndices)
+        result := new ParserResultTable(new int[](2))
+        tokenTable := new ParserTokenTable(TokenKinds, TokenStarts, TokenLengths, source)
+        NodeCount = ParseStatementNodesCore(source, tokenTable, TokenCount, 0, new ParserArgumentStack(new int[](nodeCapacity)), nodes, children, result)
+    }
+
+    func ValueTextForKind(kind: int): string {
+        index := 0
+        while index < NodeCount {
+            if NodeKinds[index] == kind && ValueStarts[index] >= 0 && ValueLengths[index] > 0 {
+                return Source.Substring(ValueStarts[index], ValueLengths[index])
+            }
+
+            index = index + 1
+        }
+
+        return "<missing>"
+    }
 }
 
 // Every diagnostic's code and span, in `ParseFileAst`'s recording order. Empty for a clean parse.
@@ -719,4 +775,39 @@ test "chip cast-line-boundary: NEGATIVE -- a real ARGUMENT LIST `g(a.B)` was nev
     decls1.Add(Golden.Func("f", Golden.NoParams(), null, Golden.Block(stmts2, 1, 10), null, null, null, Modifiers.None, 1, 1))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "issue 248: qualified assert-throws types materialize in the recovery AST with their full name spans" {
+    source := "func f() {\n    assert throws System.InvalidOperationException { }\n    assert throws Outer.Nested { }\n}\n"
+    assert PsCensus(source) == "", PsCensus(source)
+    unit := PsAst(source)
+    assert unit != null
+    function := unit.Declarations[0] as FunctionDeclaration
+    assert function != null && function.Body != null
+    first := function.Body.Statements[0] as AssertThrowsStatement
+    second := function.Body.Statements[1] as AssertThrowsStatement
+    firstType := first.ExceptionType as SimpleTypeReference
+    secondType := second.ExceptionType as SimpleTypeReference
+    assert firstType != null && firstType.Name == "System.InvalidOperationException"
+    assert firstType.Span == SourceSpan.FromStartAndLength(2, 19, firstType.Name.Length)
+    assert secondType != null && secondType.Name == "Outer.Nested"
+    assert secondType.Span == SourceSpan.FromStartAndLength(3, 19, secondType.Name.Length)
+}
+
+test "issue 248: the columnar statement kernel keeps every qualified exception type from its first through last token" {
+    systemAssert := new StatementKernelProbe("assert throws System.InvalidOperationException { }")
+    assert systemAssert.NodeCount > 0
+    assert systemAssert.ValueTextForKind(62) == "System.InvalidOperationException"
+
+    nestedAssert := new StatementKernelProbe("assert throws Outer.Nested { }")
+    assert nestedAssert.NodeCount > 0
+    assert nestedAssert.ValueTextForKind(62) == "Outer.Nested"
+
+    qualifiedCatch := new StatementKernelProbe("try { } catch ex: System.IO.IOException { }")
+    assert qualifiedCatch.NodeCount > 0
+    assert qualifiedCatch.ValueTextForKind(50) == "System.IO.IOException"
+
+    typeFirstCatch := new StatementKernelProbe("try { } catch (System.IO.IOException ex) { }")
+    assert typeFirstCatch.NodeCount > 0
+    assert typeFirstCatch.ValueTextForKind(50) == "System.IO.IOException"
 }

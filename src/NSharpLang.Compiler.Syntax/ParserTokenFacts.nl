@@ -1,8 +1,15 @@
 namespace NSharpLang.Compiler
 
 class ParserTokenFacts {
+    // These hard keywords are still invalid names, but parsing them as name-shaped expressions lets
+    // recovery preserve a later read (`out.ToString()`) after it already reported NL109 on the
+    // declaration. Other keyword tokens retain their grammar-specific meaning.
+    static func IsNameLikeReservedWord(tokenType: TokenType): bool {
+        return tokenType == TokenType.Out || tokenType == TokenType.Explicit || tokenType == TokenType.Partial
+    }
+
     static func CanStartExpression(tokenType: TokenType): bool {
-        if tokenType == TokenType.Identifier {
+        if tokenType == TokenType.Identifier || IsNameLikeReservedWord(tokenType) {
             return true
         }
         if tokenType == TokenType.IntLiteral {
@@ -131,10 +138,11 @@ class ParserTokenFacts {
     // an editor that painted every `.` as an operator would paint every qualified name.
     //
     // THE THREE ANSWERS PARTITION THE ENUM. Every one of the 148 `TokenType` members is a reserved
-    // keyword (85), a symbolic operator (36), or neither (27: the seven literal kinds, eleven
-    // delimiters, `Eof`, `Newline`, `Unknown`, `Lifetime`, `Test`, the preprocessor directive and
-    // the three comment kinds). The contracts sweep that arithmetic, so a token type added to the
-    // enum and forgotten here is caught by the partition rather than by a consumer noticing later.
+    // keyword (83), a symbolic operator (36), or neither (29: the seven literal kinds, eleven
+    // delimiters, `Eof`, `Newline`, `Unknown`, `Lifetime`, `Test`, `Type`, `File`, the preprocessor
+    // directive and the three comment kinds). The contracts sweep that arithmetic, so a token type
+    // added to the enum and forgotten here is caught by the partition rather than by a consumer
+    // noticing later.
     static func IsOperator(tokenType: TokenType): bool {
         if tokenType == TokenType.Plus {
             return true
@@ -251,12 +259,40 @@ class ParserTokenFacts {
         return false
     }
 
+    // A physical line break after one of these tokens is still inside the expression. The
+    // indentation pass uses this shared grammar fact before deciding whether a more-indented line
+    // opens a block; expression parsers then receive the operands exactly as they do inside an
+    // explicit block. `=>` is included because it opens an expression body, and a leading `.` or
+    // `?.` is included by the companion start predicate below.
+    static func ContinuesExpressionAfterLineBreak(tokenType: TokenType): bool {
+        // `IsOperator` is the complete symbolic operator table. Increment/decrement are postfix
+        // operators that already finish an operand; the rest still need their right operand or
+        // selector. The word operators are reserved-keyword tokens and live outside that table.
+        // The ternary separator is punctuation, but it opens the conditional's false-expression
+        // position too.
+        if (IsOperator(tokenType) && tokenType != TokenType.Increment && tokenType != TokenType.Decrement) {
+            return true
+        }
+
+        return tokenType == TokenType.AndKeyword || tokenType == TokenType.OrKeyword || tokenType == TokenType.NotKeyword || tokenType == TokenType.Is || tokenType == TokenType.As || tokenType == TokenType.Colon
+    }
+
+    static func ContinuesExpressionFromLineBreak(tokenType: TokenType): bool {
+        return tokenType == TokenType.Dot || tokenType == TokenType.QuestionDot
+    }
+
+    // The same continuation rule serves both the source lexer, which decides whether indentation opens a
+    // block, and the columnar parser, which keeps its explicit Newline tokens inside the expression.
+    static func ContinuesExpressionAcrossLineBreak(previousToken: TokenType, nextToken: TokenType): bool {
+        return ContinuesExpressionAfterLineBreak(previousToken) || ContinuesExpressionFromLineBreak(nextToken)
+    }
+
     static func IsCastOperandStart(tokenType: TokenType): bool {
         return tokenType != TokenType.LeftBracket && IsExpressionStart(tokenType)
     }
 
     static func IsExpressionStart(tokenType: TokenType): bool {
-        if tokenType == TokenType.Identifier {
+        if tokenType == TokenType.Identifier || IsNameLikeReservedWord(tokenType) {
             return true
         }
         if tokenType == TokenType.IntLiteral {

@@ -62,6 +62,71 @@ class EdcPaths {
     }
 }
 
+func EdcDocumentedReservedWords(): List<string> {
+    words := new List<string>()
+    path := EdcPaths.RepositoryPath("website/docs/basics.md")
+    inSection := false
+    for line in File.ReadAllLines(path) {
+        if line.StartsWith("## ", StringComparison.Ordinal) {
+            inSection = line == "## Reserved Words"
+        } else if inSection && line.StartsWith("- **", StringComparison.Ordinal) {
+            pieces := line.Split('`')
+            index := 1
+            while index < pieces.Length {
+                words.Add(pieces[index])
+                index = index + 2
+            }
+        }
+    }
+
+    return words
+}
+
+func EdcReservedWordCensus(): string {
+    documented := EdcDocumentedReservedWords()
+    lexerWords := new List<string>()
+    tokenTypes := Enum.GetValues(typeof(TokenType))
+    index := 0
+    while index < tokenTypes.Length {
+        tokenType := (TokenType)Convert.ToInt32(tokenTypes.GetValue(index))
+        text := Lexer.KeywordTextForType(tokenType)
+        if text.Length > 0 {
+            lexerWords.Add(text)
+        }
+
+        index = index + 1
+    }
+
+    census := ""
+    for word in lexerWords {
+        if !documented.Contains(word) {
+            census = census + "reserved but not documented: " + word + "\n"
+        }
+    }
+
+    for word in documented {
+        if !Lexer.IsReservedKeyword(Lexer.KeywordTypeForText(word)) {
+            census = census + "documented but not reserved: " + word + "\n"
+        }
+
+        occurrences := 0
+        for candidate in documented {
+            if candidate == word {
+                occurrences = occurrences + 1
+            }
+        }
+        if occurrences > 1 {
+            census = census + "documented more than once: " + word + "\n"
+        }
+    }
+
+    if documented.Count != lexerWords.Count {
+        census = census + "documented " + documented.Count.ToString() + " words, lexer reserves " + lexerWords.Count.ToString() + "\n"
+    }
+
+    return census
+}
+
 func EdcCatalogCodes(): List<string> {
     codes := new List<string>()
     published := DiagnosticCatalog.AllCodes()
@@ -1096,4 +1161,13 @@ test "EVERY page carrying a code has at least one runnable marked example" {
 test "EVERY exempt code is STILL unenforced, so a landed rule cannot hide behind its exemption" {
     assert EdbExemptionProgramMismatch() == "", EdbExemptionProgramMismatch()
     assert EdbExemptionsThatNowReport() == "", EdbExemptionsThatNowReport()
+}
+
+test "the documented reserved words match the lexer's keyword table exactly" {
+    census := EdcReservedWordCensus()
+    assert census == "", census
+    documented := EdcDocumentedReservedWords()
+    assert documented.Contains("out")
+    assert documented.Contains("explicit")
+    assert documented.Contains("partial")
 }

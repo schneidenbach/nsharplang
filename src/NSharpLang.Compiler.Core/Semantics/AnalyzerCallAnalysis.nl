@@ -756,6 +756,18 @@ class AnalyzerCallAnalysis {
                 continue
             }
 
+            // The reflection pre-bind normally analyzes every value before it knows which
+            // parameter will receive it. An undeclared `out _` is already a targeted language
+            // error, though, and walking `_` here would add the generic NL301 first. Keep the
+            // argument slot unknown for candidate scoring and let the ordinary argument pass
+            // deduplicate the same targeted report if it reaches this call too.
+            if RefOutModifier(argument) == "out" && IsUndeclaredDiscardName(argument.Value) {
+                ReportOutDiscardUnsupported(argument.Value)
+                state.AnalyzedNonLambdaArguments[state.ReflectionArgumentIndex] = BuiltInTypes.Unknown
+                state.ReflectionArgumentIndex = state.ReflectionArgumentIndex + 1
+                continue
+            }
+
             state.Pending = 32
             state.ReflectionArgumentIsUntargeted = argument.Value as ArrayLiteralExpression != null
             state.ReflectionArgumentErrorsBefore = diagnostics.ErrorCount
@@ -1450,9 +1462,9 @@ class AnalyzerCallAnalysis {
 
         request := reflectionArgumentBinder.NextReflectionAnalysis(finalizeState)
         if request != null {
-            state.Pending = 36
             lambda := request.Lambda
             if lambda != null {
+                state.Pending = 36
                 step := new CallAnalysisRequest(15)
                 step.Lambda = lambda
                 step.CarriedType = request.ExpectedType
@@ -1460,6 +1472,17 @@ class AnalyzerCallAnalysis {
                 return step
             }
 
+            // The reflection finalizer asks the driver to analyse selected arguments directly,
+            // after the ordinary `EmitArgument` path has already run. An undeclared `out _` was
+            // diagnosed during pre-bind; answer unknown here without walking `_` a second time and
+            // adding the generic NL301 beside the targeted message.
+            if IsUndeclaredOutDiscardExpression(state.Call, request.Expression) {
+                ReportOutDiscardUnsupported(request.Expression)
+                reflectionArgumentBinder.SupplyReflectionAnalysis(finalizeState, BuiltInTypes.Unknown)
+                return null
+            }
+
+            state.Pending = 36
             step := new CallAnalysisRequest(4)
             step.Node = request.Expression
             step.CarriedType = request.ExpectedType
@@ -2170,6 +2193,17 @@ class AnalyzerCallAnalysis {
             return null
         }
 
+        // `out _` IS C#'s DISCARD, AND N# HAS NONE. The `_` names no variable, so the walk would report it
+        // as an unknown name — true, and no help to someone who wrote what C# accepts. This ENDS the
+        // argument the way the null-conditional target above does, and says what to write instead.
+        if modifier == "out" && IsUndeclaredDiscardName(argument.Value) {
+            ReportOutDiscardUnsupported(argument.Value)
+            state.ReflectionArgumentIsUntargeted = false
+            state.ArgTypes.Add(BuiltInTypes.Unknown)
+            state.ArgumentIndex = state.ArgumentIndex + 1
+            return null
+        }
+
         targetExpectedType := expectedType
         expectedByRef := expectedType as ByRefTypeInfo
         if expectedByRef != null {
@@ -2195,6 +2229,48 @@ class AnalyzerCallAnalysis {
         request.Flag = allowUnbound
         request.IsWriteTarget = true
         return request
+    }
+
+    // A bare `_` THAT NAMES NOTHING IN SCOPE. A program that declared its own `_` (the write-only opt-out
+    // other rules point at) passes it like any other variable, so this asks the scope rather than the spelling.
+    func IsUndeclaredDiscardName(value: Expression): bool {
+        identifier := value as IdentifierExpression
+        if identifier == null || identifier.Name != "_" {
+            return false
+        }
+
+        if scopes.LookupSymbol("_") != null {
+            return false
+        }
+
+        return !scopes.IsCurrentTypeMemberReference("_")
+    }
+
+    // The reflection finalizer's request keeps the expression but not its Argument wrapper. Match
+    // it back to this call by source position so the finalizer can preserve the `out` spelling and
+    // skip only the undeclared discard, while a declared `_` is still analysed normally.
+    func IsUndeclaredOutDiscardExpression(call: CallExpression, value: Expression): bool {
+        if !IsUndeclaredDiscardName(value) {
+            return false
+        }
+
+        for argument in call.Arguments {
+            if argument.Modifier == ArgumentModifier.Out && argument.Value.Line == value.Line && argument.Value.Column == value.Column {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // One report per position: a call walked once per overload candidate reaches the same argument again.
+    func ReportOutDiscardUnsupported(value: Expression) {
+        message := "N# has no discard for 'out' arguments"
+        if diagnostics.HasReported(ErrorCode.UndefinedVariable, message, value.Line, value.Column) {
+            return
+        }
+
+        diagnostics.Report(ErrorCode.UndefinedVariable, message, value.Line, value.Column, "Declare a variable to receive the value — 'parsed: int' — and pass it as 'out parsed'.", 1)
     }
 
     // The answer to one argument analysis. The `ref`/`out` form closes its bracket FIRST, wraps, and

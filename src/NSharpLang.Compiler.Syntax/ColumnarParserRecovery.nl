@@ -313,6 +313,13 @@ class ColumnarParserRecovery {
     // and the throw is reported; `x ?? (throw e)` is past it too, by the `(`. -1 admits nothing.
     ThrowExpressionValuePosition: int
 
+    // THE RESERVED WORDS ALREADY TOLD TO THE DEVELOPER AS NAMES, one entry per distinct word. A name
+    // that is a reserved word is one mistake however many times it is written, so the first use is
+    // reported (NL109) and every later use of the same word is read as that name without a second
+    // report. Without this `out := 5` reported once for the declaration and again for every later
+    // read of the variable.
+    ReportedReservedWordNames: List<string>
+
     constructor(source: string, fileName: string?) {
         Source = source
         FileName = fileName
@@ -326,6 +333,7 @@ class ColumnarParserRecovery {
         ExpressionNestingDepth = 0
         UsingBodyBraceIndex = -1
         ThrowExpressionValuePosition = -1
+        ReportedReservedWordNames = new List<string>()
         Errors = new List<CompilerError>()
         NamespaceNode = null
         ImportNodes = new List<ImportDirective>()
@@ -593,6 +601,43 @@ class ColumnarParserRecovery {
         span := SpanFromToken(Current())
         Report(ErrorCode.ExpectedToken, message + ". Got '" + Current().Value + "'", span.Line, span.Column, DotOrPlainFoundExplanation(isDotAccess, Current().Value), DotOrPlainFoundHint(isDotAccess), DotAccessFoundSuggestions(isDotAccess), span.Length)
         return "<error>"
+    }
+
+    // WHETHER THIS HARD KEYWORD IS ONE OF THE THREE WORDS PEOPLE REACH FOR AS A NAME. This is asked
+    // only where an expression is required and no grammar production claimed the token; argument
+    // modifiers such as `out value` are consumed before the value expression is parsed. Every use in
+    // an expression position is therefore an invalid name, even a bare `print out`; reporting it as a
+    // name avoids turning the rest of that expression into an unexpected-token cascade. A word that
+    // has already been reported is still read as a name everywhere else in the file.
+    func ReservedWordStandsAsName(): bool {
+        if IsAtEnd() || !ParserTokenFacts.IsNameLikeReservedWord(Current().Type) {
+            return false
+        }
+        return true
+    }
+
+    // The reserved word as the identifier it was meant to be, reported once per word (see
+    // `ReportedReservedWordNames`). The name keeps the word's own text, so the rest of the statement
+    // is read as written and the parser reports nothing that follows from the refusal.
+    func ParseReservedWordAsName(): ExprResult {
+        token := Current()
+        if !ReportedReservedWordNames.Contains(token.Value) {
+            ReportedReservedWordNames.Add(token.Value)
+            ReportReservedWordUsedAsName(SpanFromToken(token))
+        }
+        Advance()
+        nameResult := new ExprResult(new RecoverySpan(token.Line, token.Column, MaxInt(1, token.Value.Length)), true)
+        nameResult.Node = new IdentifierExpression(token.Value, token.Line, token.Column)
+        return nameResult
+    }
+
+    func ReportReservedWordUsedAsName(span: RecoverySpan) {
+        keyword := Current().Value
+        suggestions := new List<string>()
+        suggestions.Add("Rename it to '" + keyword + "Value' or '_" + keyword + "'")
+        suggestions.Add("Pick any name that isn't a reserved N# keyword")
+
+        Report(ErrorCode.ReservedKeywordAsName, "'" + keyword + "' is a reserved word; choose another name", span.Line, span.Column, "'" + keyword + "' is a reserved keyword in N#, so it can't be used as a variable name. N# reports it once; rename every use of it.", ReservedKeywordHint(keyword, false), suggestions, span.Length)
     }
 
     func ReportReservedKeywordAsName(contextMessage: string, span: RecoverySpan, isDotAccess: bool) {
@@ -8470,6 +8515,11 @@ class ColumnarParserRecovery {
             identResult := new ExprResult(new RecoverySpan(line, column, MaxInt(1, name.Length)), true)
             identResult.Node = new IdentifierExpression(name, line, column)
             return identResult
+        }
+
+        // A RESERVED WORD WRITTEN AS A NAME (`out := 5`, `partial.Length`) is NL109, not an unexpected token.
+        if ReservedWordStandsAsName() {
+            return ParseReservedWordAsName()
         }
 
         // Terminal: an unexpected token where an expression was required (Parser.cs :4813).
