@@ -65,6 +65,56 @@ async func InNestedTry(log: List<string>): Task {
     }
 }
 
+async func InCatch(log: List<string>, x: int): Task {
+    try {
+        await Task.Delay(1)
+        if x == 0 {
+            throw new InvalidOperationException("boom")
+        }
+        log.Add("no throw")
+    } catch error: InvalidOperationException {
+        log.Add("caught")
+        return
+    } finally {
+        log.Add("finally")
+    }
+    log.Add("tail")
+}
+
+async func InLock(log: List<string>, gate: object, x: int): Task {
+    await Task.Delay(1)
+    lock gate {
+        if x == 0 {
+            return
+        }
+        log.Add("locked")
+    }
+    log.Add("tail")
+}
+
+async func InUsing(log: List<string>, x: int): Task {
+    await Task.Delay(1)
+    using resource := new Releaser(log) {
+        if x == 0 {
+            return
+        }
+        log.Add("used")
+    }
+    log.Add("tail")
+}
+
+class Releaser: IDisposable {
+    Log: List<string>
+
+    constructor(log: List<string>) {
+        Log = log
+    }
+
+    func Dispose() {
+        Log.Add("disposed")
+    }
+}
+
 async func ValueTaskReturn(log: List<string>, x: int): ValueTask {
     if x == 0 {
         return
@@ -208,4 +258,31 @@ test "a bare return in an async lambda completes its task" {
     assert log.Count == 0
     run(4).Wait()
     assert log[0] == "lambda 4"
+}
+
+test "a bare return inside a catch handler completes the task after the finally" {
+    log := NewLog()
+    InCatch(log, 0).Wait()
+    assert string.Join(",", log) == "caught,finally"
+    log2 := NewLog()
+    InCatch(log2, 1).Wait()
+    assert string.Join(",", log2) == "no throw,finally,tail"
+}
+
+test "a bare return inside a lock leaves the lock and completes the task" {
+    log := NewLog()
+    gate := new object()
+    InLock(log, gate, 0).Wait()
+    assert log.Count == 0
+    InLock(log, gate, 1).Wait()
+    assert string.Join(",", log) == "locked,tail"
+}
+
+test "a bare return inside a using block disposes the resource" {
+    log := NewLog()
+    InUsing(log, 0).Wait()
+    assert string.Join(",", log) == "disposed"
+    log2 := NewLog()
+    InUsing(log2, 1).Wait()
+    assert string.Join(",", log2) == "used,disposed,tail"
 }

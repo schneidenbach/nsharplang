@@ -239,6 +239,24 @@ test "middleware InvokeAsync returns Task under asyncDefaultType Task and ValueT
     }
 }
 
+// ── what an async function cannot say ────────────────────────────────────────────────────────────
+
+// A bare `return` completes a UNIT task. A task that owes a RESULT still needs a value on every path,
+// so the same statement in `async ...: Task<int>` is NL305 — the analyzer, not the emitter, says so.
+test "a bare return in an async function that owes a result is NL305" {
+    root := AdtRoot("bare-return-owes-result")
+    try {
+        AdtWebProject(root, "BareOwes", "", "import System.Threading.Tasks\n\nasync func Compute(x: int): Task<int> {\n    if x == 0 {\n        return\n    }\n    await Task.Delay(1)\n    return x\n}\n")
+        errors: List<CompilerError> = null
+        AdtCompile(root, "BareOwes", out errors)
+        assert errors.Count >= 1, AdtErrorText(errors)
+        assert errors[0].DiagnosticId == "NL305", AdtErrorText(errors)
+        assert errors[0].Line == 5 && errors[0].Column == 9, AdtErrorText(errors)
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
 // GENERIC ASYNC FREE AND LOCAL FUNCTIONS ARE NOT MODELED YET (generic async METHODS are). The refusal
 // is a NAMED decline carrying the function's name, never an unexplained failure.
 test "a generic async free function is refused with a named decline" {
