@@ -236,3 +236,23 @@ test "an async composed call shares generic init metadata" {
     assert box != null
     assert box.Value == 43
 }
+
+test "framework init-only initializers compile synchronously" {
+    assert BuildExternalSync() == 34
+}
+
+test "different framework init-only initializers compile in one async function" {
+    assert await BuildTwoExternalInAsync() == 35
+}
+
+test "one framework init-only initializer compiles in an async function" {
+    assert await BuildOneExternalInAsync() == 3
+}
+
+test "two initializers of one framework type compile in an async function" {
+    assert await BuildSameExternalTypeTwiceInAsync() == 56
+}
+
+test "framework init-only initializers nested in a collection compile in an async function" {
+    assert await BuildNestedExternalInListInAsync() == 22
+}

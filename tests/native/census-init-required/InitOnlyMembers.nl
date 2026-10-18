@@ -2,6 +2,8 @@ namespace NSharpLang.CensusInitRequired.Tests
 
 import System
 import System.Collections.Generic
+import System.Diagnostics.Metrics
+import System.Threading
 import System.Threading.Tasks
 
 
@@ -186,4 +188,40 @@ async func AsyncComposedGenericInit(): object {
     return AcceptInitialized(new GenericInitializable<int> {
         Value: 43
     })
+}
+
+// The framework's init-only setters are imported as MemberRefs with modreq(IsExternalInit).
+// Keep the async cases here with the existing init-required project so the root-check census does
+// not gain a new project for this regression.
+func BuildExternalSync(): int {
+    meter := new MeterOptions("sync") { Scope: "a" }
+    advice := new InstrumentAdvice<int> { HistogramBucketBoundaries: [1, 2, 3] }
+    return (must advice.HistogramBucketBoundaries).Count * 10 + meter.Name.Length
+}
+
+async func BuildTwoExternalInAsync(): int {
+    meter := new MeterOptions("async") { Scope: "a" }
+    advice := new InstrumentAdvice<int> { HistogramBucketBoundaries: [1, 2, 3] }
+    await Task.Delay(1, CancellationToken.None)
+    return (must advice.HistogramBucketBoundaries).Count * 10 + meter.Name.Length
+}
+
+async func BuildOneExternalInAsync(): int {
+    meter := new MeterOptions("one") { Scope: "a" }
+    await Task.Yield()
+    return meter.Name.Length
+}
+
+async func BuildSameExternalTypeTwiceInAsync(): int {
+    first := new MeterOptions("first") { Scope: "a" }
+    second := new MeterOptions("second") { Scope: "b" }
+    await Task.Yield()
+    return first.Name.Length * 10 + second.Name.Length
+}
+
+async func BuildNestedExternalInListInAsync(): int {
+    list := [new MeterOptions("x") { Scope: "a" }, new MeterOptions("yy") { Scope: "b" }]
+    advice := new InstrumentAdvice<int> { HistogramBucketBoundaries: [1, 2] }
+    await Task.Yield()
+    return list[1].Name.Length * 10 + (must advice.HistogramBucketBoundaries).Count
 }
