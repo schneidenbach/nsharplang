@@ -88,10 +88,14 @@ test "every columnar token ordinal is the TokenType member it claims to be, and 
 }
 
 test "name-like reserved keyword tokens remain readable by the columnar input parser" {
-    assert ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.Out))
-    assert ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.Explicit))
-    assert ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.Partial))
-    assert !ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.If))
+    tokenTypes := Enum.GetValues(typeof(TokenType))
+    index := 0
+    while index < tokenTypes.Length {
+        tokenType := (TokenType)Convert.ToInt32(tokenTypes.GetValue(index))
+        assert ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(tokenType)) == Lexer.IsReservedKeyword(tokenType)
+        index = index + 1
+    }
+
     assert !ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(Convert.ToInt32(TokenType.Identifier))
 }
 

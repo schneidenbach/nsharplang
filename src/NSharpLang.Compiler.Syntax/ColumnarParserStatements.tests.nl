@@ -133,6 +133,16 @@ class StatementKernelProbe {
     }
 }
 
+test "columnar statement kernel recovers every reserved shorthand name before keyword dispatch" {
+    for word in PeReservedKeywordNames() {
+        source := word + " := 1"
+        probe := new StatementKernelProbe(source)
+        assert probe.NodeCount > 0, word + " has no columnar statement node"
+        assert probe.NodeKinds[probe.NodeCount - 1] == 24, word + " was not a shorthand declaration"
+        assert probe.ValueTextForKind(24) == word, word + " lost its name span"
+    }
+}
+
 // Every diagnostic's code and span, in `ParseFileAst`'s recording order. Empty for a clean parse.
 // A string kernel rather than a nullable `CompilerError?` handle, because a `.tests.nl` must produce
 // ZERO `nlc check` rows and a nullable node handle produces NL905s.

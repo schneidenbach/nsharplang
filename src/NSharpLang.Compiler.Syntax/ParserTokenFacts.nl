@@ -1,15 +1,29 @@
 namespace NSharpLang.Compiler
 
 class ParserTokenFacts {
-    // These hard keywords are still invalid names, but parsing them as name-shaped expressions lets
-    // recovery preserve a later read (`out.ToString()`) after it already reported NL109 on the
-    // declaration. Other keyword tokens retain their grammar-specific meaning.
+    // A token from the lexer's keyword table is a reserved word wherever the grammar asks for a
+    // name. Keep this derived from the table so newly-added keywords automatically enter recovery.
     static func IsNameLikeReservedWord(tokenType: TokenType): bool {
-        return tokenType == TokenType.Out || tokenType == TokenType.Explicit || tokenType == TokenType.Partial
+        return Lexer.IsReservedKeyword(tokenType)
+    }
+
+    // A reserved word followed by a binding operator is an attempted name binding, even when its
+    // token normally starts another grammar production. Keyword classification comes from the
+    // lexer table; both parser paths use this shared shape before keyword dispatch.
+    static func IsReservedWordNameBindingStart(nameType: TokenType, followingType: TokenType, afterFollowingType: TokenType): bool {
+        if !Lexer.IsReservedKeyword(nameType) {
+            return false
+        }
+
+        if followingType == TokenType.ColonAssign || IsAssignmentOperator(followingType) {
+            return true
+        }
+
+        return followingType == TokenType.Colon && IsTypeReferenceStart(afterFollowingType)
     }
 
     static func CanStartExpression(tokenType: TokenType): bool {
-        if tokenType == TokenType.Identifier || IsNameLikeReservedWord(tokenType) {
+        if tokenType == TokenType.Identifier || tokenType == TokenType.Out || tokenType == TokenType.Explicit || tokenType == TokenType.Partial {
             return true
         }
         if tokenType == TokenType.IntLiteral {
@@ -292,7 +306,7 @@ class ParserTokenFacts {
     }
 
     static func IsExpressionStart(tokenType: TokenType): bool {
-        if tokenType == TokenType.Identifier || IsNameLikeReservedWord(tokenType) {
+        if tokenType == TokenType.Identifier || tokenType == TokenType.Out || tokenType == TokenType.Explicit || tokenType == TokenType.Partial {
             return true
         }
         if tokenType == TokenType.IntLiteral {

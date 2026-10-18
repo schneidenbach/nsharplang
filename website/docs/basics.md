@@ -411,10 +411,12 @@ func DoSomething() {
 
 ## Reserved Words
 
-N# reserves eighty-three words. A reserved word is never a name: it cannot be a variable, parameter,
-field, function, type or member name, and `out := 5` is refused where `outValue := 5` is not. The
-compiler reports it once, as [`NL109`](./errors/NL109.md), at the first place it is used as a name, and
-reads every later use of the same word as that name so one rename is the whole fix.
+N# reserves eighty-three words. A reserved word cannot be declared as a variable, parameter, field,
+function, type or member name: `out := 5` is refused where `outValue := 5` is not. When a reserved word
+appears in a recognized name slot—including shorthand or typed locals, parameter names, and `for`
+loop variables—the parser reports [`NL109`](./errors/NL109.md) at that word and retains its spelling
+in the recovered tree. NL109 is reported only once per reserved spelling in a file, so later uses in
+identifier positions do not cascade or repeat the same diagnostic.
 
 - **Declarations:** `func`, `class`, `struct`, `interface`, `duck`, `union`, `record`, `enum`, `namespace`, `using`, `import`, `package`, `newtype`, `operator`, `implicit`, `explicit`, `where`
 - **Bindings:** `let`, `const`, `readonly`, `must`

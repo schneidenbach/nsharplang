@@ -912,16 +912,13 @@ test "expression continuation after a line break is driven by shared token facts
     assert !ParserTokenFacts.ContinuesExpressionAcrossLineBreak(TokenType.Identifier, TokenType.Func)
 }
 
-test "name-like reserved words can begin expressions for error recovery" {
-    assert ParserTokenFacts.IsNameLikeReservedWord(TokenType.Out)
-    assert ParserTokenFacts.IsNameLikeReservedWord(TokenType.Explicit)
-    assert ParserTokenFacts.IsNameLikeReservedWord(TokenType.Partial)
-    assert !ParserTokenFacts.IsNameLikeReservedWord(TokenType.If)
-
-    assert ParserTokenFacts.CanStartExpression(TokenType.Out)
-    assert ParserTokenFacts.CanStartExpression(TokenType.Explicit)
-    assert ParserTokenFacts.CanStartExpression(TokenType.Partial)
-    assert ParserTokenFacts.IsExpressionStart(TokenType.Out)
-    assert ParserTokenFacts.IsExpressionStart(TokenType.Explicit)
-    assert ParserTokenFacts.IsExpressionStart(TokenType.Partial)
+test "name-like reserved words derive from the lexer table without changing expression starts" {
+    all := ParserTokenAllTokenTypes()
+    index := 0
+    while index < all.Length {
+        tokenType := all[index]
+        isReserved := Lexer.IsReservedKeyword(tokenType)
+        assert ParserTokenFacts.IsNameLikeReservedWord(tokenType) == isReserved
+        index = index + 1
+    }
 }

@@ -5,6 +5,8 @@
 // 2,061 lines were fifteen files mechanically concatenated behind `// ---- X.nl ----` markers --
 // a bootstrap artifact of the Dogfood assembly, not a design. Split back by concern; every line
 // below is a verbatim move.
+import NSharpLang.Compiler
+
 func ParseBlockStatementNodeCore(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     blockStart := tokens.Starts[st.Pos]
     st.Pos = st.Pos + 1
@@ -133,6 +135,21 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
     }
 
     kind := tokens.Kinds[start]
+
+    // A reserved word followed by a binding shape is a name here, even when that token normally
+    // dispatches to a statement (`return := 1`, `if: int = 1`). Use the same grammar predicate as
+    // recovery before any keyword-specific statement arm can claim it.
+    followingType := TokenType.Eof
+    afterFollowingType := TokenType.Eof
+    if start + 1 < count {
+        followingType = (TokenType)tokens.Kinds[start + 1]
+    }
+    if start + 2 < count {
+        afterFollowingType = (TokenType)tokens.Kinds[start + 2]
+    }
+    if ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, followingType, afterFollowingType) {
+        return ParseSimpleStatementNode(tokens, count, st, argStack, nodes, children)
+    }
 
     if kind == 129 {
         return ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth)
@@ -500,13 +517,13 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         // kind 76. The `Identifier :` prefix is shared with a C-style header whose initializer is
         // annotated, so the type span is scanned STRUCTURALLY to a depth-0 `in` (28) and the arm is
         // taken only when one is found; anything else falls through to the C-style parse below.
-        if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 && ParserTypedForeachInIndex(tokens, count, st.Pos + 2) >= 0 {
+        if st.Pos + 1 < count && (tokens.Kinds[st.Pos] == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(tokens.Kinds[st.Pos])) && tokens.Kinds[st.Pos + 1] == 122 && ParserTypedForeachInIndex(tokens, count, st.Pos + 2) >= 0 {
             return ParseTypedForeachTailNode(tokens, count, st, argStack, nodes, children, depth, forStart, st.Pos)
         }
 
         // Production accepts Go-style `for <var> in <collection> { body }` as a foreach spelling. Reuse
         // the existing ForeachStatement node shape so lowering stays shared with the `foreach` keyword.
-        if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 28 {
+        if st.Pos + 1 < count && (tokens.Kinds[st.Pos] == 0 || ColumnarTokenKindFacts.IsNameLikeReservedKeywordKind(tokens.Kinds[st.Pos])) && tokens.Kinds[st.Pos + 1] == 28 {
             forVarStart := tokens.Starts[st.Pos]
             forVarLength := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 2
@@ -828,6 +845,46 @@ func ScanTupleDeconstructionTargetList(tokens: ParserTokenTable, count: int, ope
 func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable): int {
     start := st.Pos
     kind := tokens.Kinds[start]
+
+    // Reserved tokens that look like bindings must pass through the expression kernel before
+    // keyword-specific statement arms (`return`, `throw`, and similar) can claim them. The unary
+    // kernel materializes the reserved spelling as an identifier; this arm then converts `:=` to
+    // the same local-declaration node as an ordinary identifier, or wraps an assignment as a stmt.
+    followingType := TokenType.Eof
+    afterFollowingType := TokenType.Eof
+    if start + 1 < count {
+        followingType = (TokenType)tokens.Kinds[start + 1]
+    }
+    if start + 2 < count {
+        afterFollowingType = (TokenType)tokens.Kinds[start + 2]
+    }
+    if followingType != TokenType.Colon && ParserTokenFacts.IsReservedWordNameBindingStart((TokenType)kind, followingType, afterFollowingType) {
+        bindingRoot := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+        if bindingRoot < 0 {
+            return -1
+        }
+
+        if st.Pos < count && tokens.Kinds[st.Pos] == 121 && nodes.Kinds[bindingRoot] == 6 {
+            nameStart := tokens.Starts[start]
+            nameLength := tokens.ValueLengths[start]
+            st.Pos = st.Pos + 1
+            initializer := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+            if initializer < 0 {
+                return -1
+            }
+
+            initializerEnd := nodes.SpanStarts[initializer] + nodes.SpanLengths[initializer]
+            childRunStart := st.ChildCursor
+            AppendExpressionChild(st, children, initializer)
+            return EmitExpressionNode(st, nodes, 24, nameStart, nameLength, childRunStart, 1, nameStart, initializerEnd - nameStart)
+        }
+
+        expressionStart := nodes.SpanStarts[bindingRoot]
+        expressionEnd := expressionStart + nodes.SpanLengths[bindingRoot]
+        childRunStart := st.ChildCursor
+        AppendExpressionChild(st, children, bindingRoot)
+        return EmitExpressionNode(st, nodes, 23, -1, 0, childRunStart, 1, expressionStart, expressionEnd - expressionStart)
+    }
 
     // `off <handle>` -- OffStatement kind 80, ONE child [handle]. The handle parses at the assignment
     // level, so `off subs[0]` and `off this.sub` reach the same slot as a bare name.
