@@ -104,16 +104,13 @@ version: 1.0.0
 outputType: exe
 targetFramework: net10.0
 sdk: Microsoft.NET.Sdk.Web
-
-dependencies:
-  - framework: Microsoft.AspNetCore.App
-  - framework: Microsoft.NETCore.App
 ```
 
-`sdk: Microsoft.NET.Sdk.Web` already implies `Microsoft.AspNetCore.App`. The `Microsoft.NETCore.App`
-entry makes the rest of the base framework visible to `nlc` (for example `IServiceProvider` and
-`System.Security.Claims`), which `dotnet build` references implicitly. See the
-[project.yml reference](./project-yml.md#aspnet-core-projects) for every dependency kind.
+`sdk: Microsoft.NET.Sdk.Web` gives the project ASP.NET Core (`Microsoft.AspNetCore.App`) on top of the
+whole base framework (`Microsoft.NETCore.App`), under `nlc` exactly as under `dotnet build`, so it needs
+no `dependencies:` entry for either. See the
+[project.yml reference](./project-yml.md#what-a-project-can-see) for what a project sees and for every
+dependency kind.
 
 **Program.nl:**
 ```n#

@@ -862,7 +862,7 @@ nlc format --stdin < Program.nl
 - `--diff` prints unified hunks against the formatter output
 - `./scripts/test-all.sh` includes a formatting gate for `examples`, `templates`, and `tests/fixtures/issue-tracker`; intentionally malformed diagnostic fixtures are not part of that gate.
 
-### `project.yml` dependencies and the implicit reference set
+### `project.yml` dependencies and the default reference set
 
 User-facing reference: `website/docs/project-yml.md`. It is NOT listed in `website/sidebars.js`: that file is an
 existing-debt JavaScript row in the ownership ratchet at its 57-line ceiling, so the page uses
@@ -880,31 +880,45 @@ an owner decision about the ratchet (or a sidebar that is not JavaScript).
   that shows the entry to write. Versions are exact; ranges are not supported.
   `testDependencies` contributes only its NuGet rows.
 - **`nlc build`/`check`/LSP references** come from `CompilationReferenceResolver.AddResolvedDllReferences`:
-  every DLL in each `framework:` shared-framework directory (a `sdk` containing `Web` adds
-  `Microsoft.AspNetCore.App`; `CompilationReferenceResolverKernels.GetFrameworkReferenceNames`),
-  NuGet compile/runtime assets, built `project:` outputs (transitively), and `dll:` paths. Below
-  that sits the **implicit set**: `ExternalAssemblyScan.CommonAssemblyNames()` (33 curated
-  assembly names loaded by simple name from the host runtime, shared with the analyzer through
-  `AnalyzerMetadataLoadPolicy.CommonAssemblyNames`) plus the namespace → assembly rows in
-  `AnalyzerImports.BuildAssemblyMappings`. It is **not** all of Microsoft.NETCore.App: types such as
-  `IServiceProvider` (System.ComponentModel), `System.Security.Claims`, `XmlDocument`,
-  `BigInteger`, `System.Collections.Immutable` and `System.Threading.Channels` give NL201/NL704
-  until the project adds `- framework: Microsoft.NETCore.App`. `Microsoft.AspNetCore.App` alone
-  does not bring the base framework. The docs page lists the 33 names between
-  `implicit-assemblies` markers; `tests/native/error-docs-contract/ProjectYmlReference.tests.nl`
-  fails if the page and `CommonAssemblyNames` drift.
+  every DLL in each shared framework `CompilationReferenceResolverKernels.GetFrameworkReferenceNames`
+  names (the frameworks the SDK implies under MSBuild -- `IsMsBuildImplicitFramework`, so
+  `Microsoft.AspNetCore.App` exactly when `sdk` is `Microsoft.NET.Sdk.Web` -- then each `framework:`
+  entry; never `Microsoft.NETCore.App`, so listing it is a legal no-op), NuGet compile/runtime assets,
+  built `project:` outputs (transitively), and `dll:` paths.
+- **The default reference set MIRRORS `dotnet build`: all of Microsoft.NETCore.App, loaded on
+  demand.** `FrameworkNamespaceIndex` (`src/NSharpLang.Compiler.Model/FrameworkNamespaceIndex.nl`)
+  reads, once per runtime directory per process, which namespaces each runtime assembly defines or
+  forwards (System.Reflection.Metadata over the type-def and exported-type tables, ~170 files). The
+  COMPILE SURFACE (which namespaces are importable) is the reference pack's
+  `packs/Microsoft.NETCore.App.Ref/<ver>/data/FrameworkList.xml` `Managed` rows -- what MSBuild's
+  `ResolveTargetingPackAssets` compiles against -- falling back to the runtime directory minus
+  `System.Private.*` when no pack is installed (identical sets on .NET 10.0.7). METADATA is still read
+  from the runtime directory, because the analyzer's MetadataLoadContext is cored there and the IL
+  back end emits against the host runtime's own types. Loads: a namespace import
+  (`AnalyzerImports.FrameworkAssemblies` -> `AnalyzerMetadataLoadSurface.LoadFrameworkNamespace`) and
+  a fully-qualified spelling's namespace (`AnalyzerExternalTypeProbe.TryResolveFullName` /
+  `LoadFrameworkNamespaceOf` before `ExternalQualifiedTypeResolver`) load the namespace's DEFINING
+  assemblies; each is recorded on `SharedReferenceMetadata.FrameworkAssemblyNames`, and the back end
+  (`ColumnarBindingScopeFacts.FrameworkAssemblyNames` -> `ExternalAssemblyScan.FrameworkAssemblyNamesFor`)
+  adds the imported namespaces' assemblies plus that record after the project's references, so both
+  walks bind against one set. `ExternalAssemblyScan.CommonAssemblyNames()` (33 names) is still
+  PRELOADED -- it is a warm start and keeps the bare-name scan's answers stable, no longer the limit of
+  what a project sees. When the references already carry `System.Runtime.dll` (`dotnet build` passes
+  the whole reference pack) the on-demand loads stand down
+  (`AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface`). `AnalyzerImports.BuildAssemblyMappings`
+  keeps only the ASP.NET Core / EF Core rows. Issue #215's repro (IServiceProvider + ClaimsIdentity,
+  no dependencies) is pinned in `tests/native/reference-resolution/DefaultFrameworkReferences.tests.nl`;
+  the docs table between `default-framework-namespaces` markers is checked against the index by
+  `tests/native/error-docs-contract/ProjectYmlReference.tests.nl`.
 - **`dotnet build` (NSharpLang.Sdk)** maps the same file through `SdkProjectReferenceProjection`
   and the `LoadProjectReferences` task: `nuget` → `PackageReference`, `framework` →
   `FrameworkReference` (except what MSBuild already references --
   `CompilationReferenceResolverKernels.IsMsBuildImplicitFramework`: `Microsoft.NETCore.App` always,
   `Microsoft.AspNetCore.App` when `sdk` is exactly `Microsoft.NET.Sdk.Web`; an explicit one draws
-  NETSDK1086. `nlc` itself still uses the looser "sdk contains Web" test), `project` → `ProjectReference` to the `.csproj` beside the
+  NETSDK1086; `nlc` uses the same rule), `project` → `ProjectReference` to the `.csproj` beside the
   referenced `project.yml`, and `dll` → `Reference` (absolute path), so MSBuild copies it to the
   output and records it in `.deps.json`. Before the `dll` row existed, `dotnet build` compiled
   against a `dll:` but the program failed at run time with "Could not load file or assembly".
-  MSBuild always passes the whole Microsoft.NETCore.App reference pack, so **the two front doors
-  disagree on a project with no `framework: Microsoft.NETCore.App`**: `dotnet build` compiles code
-  that `nlc build` rejects.
 - **`nlc add --path <dir>`** writes `project: <dir>/project.yml`
   (`AddCommandKernels.GetProjectFileReferencePath`, `/` separators), refuses a missing path, a
   directory with no `project.yml` and any non-`project.yml` file (a `.csproj`), and detects duplicates

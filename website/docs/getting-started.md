@@ -142,10 +142,9 @@ dependencies:
 
 Dependencies can also be shared frameworks (`framework:`), other N# projects (`project:`) and
 prebuilt assemblies (`dll:`); see [Dependencies](./project-yml.md#dependencies). Without any
-dependencies, `nlc` compiles against a fixed set of .NET assemblies rather than all of
-`Microsoft.NETCore.App`. If a .NET type such as `IServiceProvider` or `ClaimsIdentity` is reported as
-not found, add `- framework: Microsoft.NETCore.App`; see
-[What a project can see without any dependencies](./project-yml.md#what-a-project-can-see-without-any-dependencies).
+dependencies, a project compiles against all of `Microsoft.NETCore.App`, the same base library
+`dotnet build` uses, so types such as `IServiceProvider` or `ClaimsIdentity` need only their `import`;
+see [What a project can see](./project-yml.md#what-a-project-can-see).
 
 Then use it in your code:
 
