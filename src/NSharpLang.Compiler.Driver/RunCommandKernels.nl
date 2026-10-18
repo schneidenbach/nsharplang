@@ -2,7 +2,6 @@ namespace NSharpLang.Cli
 
 import System.Collections.Generic
 import System.IO
-import System.Text
 import NSharpLang.Compiler
 
 class RunOptionSummary {
@@ -84,7 +83,7 @@ class RunCommandKernels {
     static func GetProjectOption(args: string[]): string? {
         i := 0
         while i < args.Length {
-            if args[i] == "--project" && i + 1 < args.Length {
+            if args[i] == "--project" && i + 1 < args.Length && !args[i + 1].StartsWith("--") {
                 return args[i + 1]
             }
 
@@ -99,7 +98,7 @@ class RunCommandKernels {
         i := 0
         while i < args.Length {
             if args[i] == "--project" {
-                return i + 1 >= args.Length
+                return i + 1 >= args.Length || args[i + 1].StartsWith("--")
             }
 
             i = i + 1
@@ -161,41 +160,12 @@ class RunCommandKernels {
         return "--project requires a directory."
     }
 
-    // The `dotnet` command line that starts the built assembly with the program's own arguments.
-    static func GetLaunchArguments(assemblyPath: string, programArguments: string[]): string {
-        builder := new StringBuilder()
-        builder.Append(QuoteProcessArgument(assemblyPath))
-        for argument in programArguments {
-            builder.Append(' ')
-            builder.Append(QuoteProcessArgument(argument))
-        }
-
-        return builder.ToString()
-    }
-
-    // The Windows command-line convention every .NET host parses: wrap in quotes, double the
-    // backslashes that precede a quote (or the closing quote), and escape embedded quotes.
-    static func QuoteProcessArgument(value: string): string {
-        builder := new StringBuilder()
-        builder.Append('"')
-        backslashes := 0
-        for ch in value {
-            if ch == '\\' {
-                backslashes = backslashes + 1
-            } else if ch == '"' {
-                builder.Append('\\', backslashes * 2 + 1)
-                builder.Append('"')
-                backslashes = 0
-            } else {
-                builder.Append('\\', backslashes)
-                builder.Append(ch)
-                backslashes = 0
-            }
-        }
-
-        builder.Append('\\', backslashes * 2)
-        builder.Append('"')
-        return builder.ToString()
+    // The `dotnet` argument vector that starts the built assembly with the program's own arguments.
+    static func GetLaunchArguments(assemblyPath: string, programArguments: string[]): string[] {
+        launch := new string[](programArguments.Length + 1)
+        launch[0] = assemblyPath
+        Array.Copy(programArguments, 0, launch, 1, programArguments.Length)
+        return launch
     }
 
     static func GetMissingProjectFileMessage(): string {

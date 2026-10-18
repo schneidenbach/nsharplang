@@ -76,6 +76,12 @@ test "a --project with no value is reported rather than read as a file" {
     assert RunCommandKernels.GetSourceOperand(["--project"]) == null
 }
 
+test "a --project followed by another option has no value either" {
+    assert RunCommandKernels.IsProjectOptionMissingValue(["--project", "--backend", "il"])
+    assert RunCommandKernels.GetProjectOption(["--project", "--backend", "il"]) == null
+    assert !RunCommandKernels.IsProjectOptionMissingValue(["--project", "src/app"])
+}
+
 test "the -- separator splits nlc's arguments from the program's" {
     args := ["--project", "app", "--", "--help", "--project", "x"]
 
@@ -97,12 +103,14 @@ test "without a separator every argument is nlc's and the program gets none" {
     assert RunCommandKernels.GetLauncherArguments(["--"]).Length == 0
 }
 
-test "the launch command line quotes each program argument for the .NET host" {
-    assert RunCommandKernels.GetLaunchArguments("/out/App.dll", new string[](0)) == "\"/out/App.dll\""
-    assert RunCommandKernels.GetLaunchArguments("/out/App.dll", ["plain", "two words", ""]) == "\"/out/App.dll\" \"plain\" \"two words\" \"\""
-    assert RunCommandKernels.QuoteProcessArgument("say \"hi\"") == "\"say \\\"hi\\\"\""
-    assert RunCommandKernels.QuoteProcessArgument("C:\\dir\\") == "\"C:\\dir\\\\\""
-    assert RunCommandKernels.QuoteProcessArgument("a\\\"b") == "\"a\\\\\\\"b\""
+test "the launch vector is the assembly followed by each program argument, untouched" {
+    bare := RunCommandKernels.GetLaunchArguments("/out/App.dll", new string[](0))
+    assert bare.Length == 1 && bare[0] == "/out/App.dll"
+
+    launch := RunCommandKernels.GetLaunchArguments("/out/App.dll", ["plain", "two words", "", "a\"b", "C:\\dir\\"])
+    assert launch.Length == 6
+    assert launch[0] == "/out/App.dll" && launch[1] == "plain" && launch[2] == "two words"
+    assert launch[3] == "" && launch[4] == "a\"b" && launch[5] == "C:\\dir\\"
 }
 
 test "the --project sentences are spelled by kernels" {
