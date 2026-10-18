@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
 import System.Text
-import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 
@@ -796,6 +795,8 @@ test "issue 248: qualified assert-throws types materialize in the recovery AST w
     assert function != null && function.Body != null
     first := function.Body.Statements[0] as AssertThrowsStatement
     second := function.Body.Statements[1] as AssertThrowsStatement
+    assert first != null
+    assert second != null
     firstType := first.ExceptionType as SimpleTypeReference
     secondType := second.ExceptionType as SimpleTypeReference
     assert firstType != null && firstType.Name == "System.InvalidOperationException"
