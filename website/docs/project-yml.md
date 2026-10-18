@@ -152,8 +152,9 @@ next to the output. With `dotnet build` it is also listed in the program's `.dep
 
 Point `dll:` at an implementation assembly (the one from a `lib/` folder or a project's `bin/`),
 not at a reference assembly from a `ref/` folder. Reference assemblies have no code to run, and the
-two build commands handle them differently: `dotnet build` looks for the matching implementation
-next to a standard `ref/` layout, while `nlc build` uses and copies the file you named.
+two build commands handle them differently: `nlc build` swaps a NuGet-style `ref/<tfm>/` path for the
+matching `lib/<tfm>/` implementation when one exists, while `dotnet build` compiles against and copies
+exactly the file you named, and .NET refuses to load a reference assembly at run time.
 
 ## What a project can see without any dependencies
 
