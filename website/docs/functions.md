@@ -2373,6 +2373,19 @@ for i := 0; i < 3; i++ {
 }
 ```
 
+**Loop variables.** A `for x in xs` variable is declared afresh on every iteration, so each closure
+sees its own value. A classic `for i := 0; i < n; i++` variable is ONE variable for the whole loop,
+exactly as in C#: closures created in the loop all see its current (finally, the last) value.
+
+```n#
+fs := new List<Func<int>>()
+for x in [1, 2, 3] { fs.Add(() => x) }        // 1, 2, 3
+for i := 0; i < 3; i++ { fs.Add(() => i) }    // 3, 3, 3 once the loop has finished
+```
+
+An object initializer inside a capturing lambda reads captures like any other expression:
+`f: Func<string, Opts> = key => new Opts { N: limit }`.
+
 ## Function Overloading
 
 ### Basic Overloading

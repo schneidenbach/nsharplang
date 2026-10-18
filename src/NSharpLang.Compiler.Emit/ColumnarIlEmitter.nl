@@ -22387,8 +22387,45 @@ sealed class ColumnarIlEmitter {
             return false
         }
         name := ColumnarNodeTextFacts.Text(_nodes, _source, target)
-        if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {
-            return false
+        // A LIFTED LOCAL, OR A CAPTURE BOXED INTO THE CLOSURE THIS BODY RUNS ON, steps THROUGH ITS
+        // SHARED `StrongBox<T>`: the box stays under the value for the store, exactly as the by-reference
+        // arm below keeps its address. This is the classic `for i := 0; ...; i++` whose variable a closure
+        // captures: one variable for the whole loop, which every closure and the loop itself must see.
+        let steppedBoxField: System.Reflection.FieldInfo? = null
+        let steppedBoxValueType: System.Type? = null
+        let steppedBoxed: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (steppedBoxField, steppedBoxValueType)
+        let steppedLiftedBox: System.Reflection.Emit.LocalBuilder? = null
+        let steppedLiftedValueType: System.Type? = null
+        let steppedLifted: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (steppedLiftedBox, steppedLiftedValueType)
+        boxedStep := _boxedCaptures != null && _boxedCaptures.TryGetValue(name, out steppedBoxed)
+        liftedStep := !boxedStep && _liftedLocals.TryGetValue(name, out steppedLifted)
+        if (boxedStep || liftedStep) {
+            boxValueType := boxedStep ? steppedBoxed.ValueType : steppedLifted.ValueType
+            if (!IsSteppableTargetType(boxValueType)) {
+                return false
+            }
+            boxValueField := ColumnarEmitReflectionFacts.RequiredField(ColumnarClosureBindingPlanner.StrongBoxValueField(ColumnarEmitReflectionFacts.RequiredType(boxValueType, "closure capture value type")), "StrongBox<T>.Value field for closure storage")
+            if (boxedStep) {
+                _il.Emit(OpCodes.Ldarg_0)
+                _il.Emit(OpCodes.Ldfld, steppedBoxed.BoxField)
+            } else {
+                _il.Emit(OpCodes.Ldloc, steppedLifted.Box)
+            }
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldfld, boxValueField)
+            boxOldValue: LocalBuilder? = null
+            if (keepValue) {
+                boxOldValue = _il.DeclareLocal(boxValueType)
+                _il.Emit(OpCodes.Dup)
+                _il.Emit(OpCodes.Stloc, boxOldValue)
+            }
+            EmitPostfixStep(boxValueType, ColumnarNodeTextFacts.Text(_nodes, _source, idx))
+            _il.Emit(OpCodes.Stfld, boxValueField)
+            if (boxOldValue != null) {
+                _il.Emit(OpCodes.Ldloc, boxOldValue)
+            }
+            resolvedClrType = boxValueType
+            return true
         }
         local: LocalBuilder? = null
         paramOrdinal := -1
