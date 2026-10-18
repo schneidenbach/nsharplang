@@ -1,6 +1,7 @@
 namespace NSharpLang.CliCommandContracts.Tests
 
 import System
+import System.Diagnostics
 import System.IO
 import System.Security.Cryptography
 
@@ -81,6 +82,41 @@ test "nlc run --project reports a missing directory, a missing project file and 
     }
 }
 
+func ProbeArgvProject(directory: string) {
+    File.WriteAllText(Path.Combine(directory, "project.yml"), "name: ArgvProbe\nversion: 1.0.0\nentry: Program.nl\noutputType: exe\ntargetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(directory, "Program.nl"), "import System\n\nfunc main(args: string[]) {\n    for argument in args {\n        Console.WriteLine(\"[\" + argument + \"]\")\n    }\n}\n")
+}
+
+test "program arguments reach the program byte for byte, whatever quoting they need" {
+    directory := NewTempDirectory("nlc-run-argv")
+    try {
+        ProbeArgvProject(directory)
+        startInfo := new ProcessStartInfo { FileName: "dotnet" }
+        startInfo.ArgumentList.Add(CliDll())
+        for argument in ["run", "--project", directory, "--", "a\"b", "C:\\dir\\", "", "two words", "--help", "tab\there"] {
+            startInfo.ArgumentList.Add(argument)
+        }
+
+        startInfo.WorkingDirectory = Path.GetTempPath()
+        startInfo.RedirectStandardOutput = true
+        startInfo.RedirectStandardError = true
+        startInfo.UseShellExecute = false
+        process := new Process { StartInfo: startInfo }
+        process.Start()
+        stdout := process.StandardOutput.ReadToEnd()
+        stderr := process.StandardError.ReadToEnd()
+        process.WaitForExit()
+        exitCode := process.ExitCode
+        process.Dispose()
+
+        assert exitCode == 0, stdout + stderr
+        expected := "[a\"b]" + Environment.NewLine + "[C:\\dir\\]" + Environment.NewLine + "[]" + Environment.NewLine + "[two words]" + Environment.NewLine + "[--help]" + Environment.NewLine + "[tab\there]" + Environment.NewLine
+        assert stdout.EndsWith(expected), stdout
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 func ReadHeldBytes(held: FileStream): byte[] {
     held.Position = 0
     bytes := new byte[]((int)held.Length)
@@ -107,8 +143,9 @@ test "rebuilding never changes the bytes of an assembly a process still holds op
         assemblyPath := Path.Combine(Path.Combine(Path.Combine(Path.Combine(directory, "bin"), "Debug"), "net10.0"), "RebuildHeldProbe.dll")
         // Unbuffered (size 1), so every read goes to the file rather than a cached block.
         // Holding the file open stands in for a running server's mapping of it: both keep the inode
-        // they opened. FileShare.Read (no delete sharing) is the strictest holder, the Windows loader's.
-        held := new FileStream(assemblyPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1)
+        // they opened. Read | Delete sharing is how the loader maps an assembly on Windows: the file
+        // can be renamed or replaced, but its contents cannot be rewritten underneath the holder.
+        held := new FileStream(assemblyPath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1)
         try {
             before := ReadHeldBytes(held)
             File.WriteAllText(Path.Combine(directory, "Program.nl"), "func main() {\n    print \"second-build-with-a-longer-message-than-the-first\"\n}\n")

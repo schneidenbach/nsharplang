@@ -320,23 +320,36 @@ class DaemonProtocolKernels {
 
     // The server's directory ignores itself, so a repository that never listed `.nlc/` stays clean in
     // `git status` (the way `.pytest_cache` and `.ruff_cache` do it). Written when the directory is
-    // created AND when an older nlc left one without it; a file the user already put there is theirs
-    // and is never replaced. Failing to write it (read-only checkout) must not stop a build.
+    // created AND when an older nlc left one without it. The file is written complete to a temporary
+    // name and moved into place without overwriting, so a reader never sees a partial or empty
+    // `.gitignore`, a file the user already put there is theirs and is never replaced, and two
+    // starting servers cannot interleave. Only IO and permission failures (a read-only checkout, a
+    // lost race) are tolerated: they must not stop a build.
     static func EnsureSelfIgnoring(directory: string) {
         ignorePath := Path.Combine(directory, GetSelfIgnoreFileName())
         if File.Exists(ignorePath) {
             return
         }
 
+        tempPath := ignorePath + "." + Guid.NewGuid().ToString("N") + ".tmp"
         try {
-            file := new FileStream(ignorePath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
-            try {
-                bytes := System.Text.Encoding.UTF8.GetBytes(GetSelfIgnoreText())
-                file.Write(bytes, 0, bytes.Length)
-            } finally {
-                file.Dispose()
+            File.WriteAllText(tempPath, GetSelfIgnoreText())
+            File.Move(tempPath, ignorePath, false)
+        } catch ioFailure: IOException {
+            TryDeleteTemporary(tempPath)
+        } catch denied: UnauthorizedAccessException {
+            TryDeleteTemporary(tempPath)
+        }
+    }
+
+    private static func TryDeleteTemporary(tempPath: string) {
+        try {
+            if File.Exists(tempPath) {
+                File.Delete(tempPath)
             }
-        } catch {
+        } catch ioFailure: IOException {
+            return
+        } catch denied: UnauthorizedAccessException {
             return
         }
     }

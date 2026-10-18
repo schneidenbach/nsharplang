@@ -62,7 +62,7 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc run --backend il` | Build and run via the direct IL backend | `nlc run --backend il` |
 | `nlc run --project <dir>` | Build and run the project in `<dir>` (relative paths resolve against the current directory; the program's working directory is `<dir>`). Same `CommandOutputKernels.GetProjectRoot` resolution as the other commands; combining it with a `<file>` operand, a missing directory, a directory without `project.yml`, and a `--project` with no value are each a one-line exit-1 error | `nlc run --project src/App` |
-| `nlc run ... -- <args>` | Everything after the first `--` is passed to the program unchanged (quoted for the .NET host, so spaces and quotes survive) and never read as an nlc option; same `--` boundary `--no-daemon` honours. Owner: `RunCommandKernels.GetLauncherArguments` / `GetProgramArguments` / `GetLaunchArguments` | `nlc run -- --help` |
+| `nlc run ... -- <args>` | Everything after the first `--` is passed to the program unchanged (as an argument vector through `ProcessStartInfo.ArgumentList`, in-process and over the server's launch frame, so spaces, quotes, trailing backslashes and empty arguments survive) and never read as an nlc option; same `--` boundary `--no-daemon` honours. Owner: `RunCommandKernels.GetLauncherArguments` / `GetProgramArguments` / `GetLaunchArguments` | `nlc run -- --help` |
 | `nlc publish` | Publish portable framework-dependent artifacts | `nlc publish --output ./dist` |
 | `nlc publish --runtime <current-rid>` | Add a framework-dependent launcher for the current host runtime only | `nlc publish --runtime osx-arm64 --output ./dist` |
 | `nlc publish --self-contained` | Unsupported/planned; exits 1 with guidance | `nlc publish --self-contained` |
@@ -1708,7 +1708,7 @@ be committed: `DaemonProtocolKernels.EnsureSelfIgnoring` writes `.nlc/.gitignore
 
 An exec connection opens with the four bytes `NLX1`; then frames `[kind: 1 byte][length: int32 LE][payload]`
 (payload ≤ 16 MiB). Strings in the request are `BinaryWriter` strings (7-bit length + UTF-8): no JSON on
-the client's cold path. Protocol version `1` is part of the build identity.
+the client's cold path. Protocol version `2` is part of the build identity (bumped from `1` when the launch frame started carrying an argument array).
 
 | Direction | Frame | Payload |
 |---|---|---|
@@ -1719,7 +1719,7 @@ the client's cold path. Protocol version `1` is part of the build identity.
 | server → client | `A` accepted / `B` busy / `M` mismatch | server pid / — / server identity |
 | | `O` stdout / `W` stderr | bytes, in write order |
 | | `Q` stdin wanted | — |
-| | `P` launch | `dotnet` arguments + working directory (for `nlc run`) |
+| | `P` launch | `dotnet` argument vector (int32 count, then one string per argument) + working directory (for `nlc run`); the client adds each to `ProcessStartInfo.ArgumentList`, so nothing is quoted or re-split |
 | | `K` keep-alive | — (every 1 s while a command runs) |
 | | `D` done | int32 exit code |
 
@@ -1772,10 +1772,6 @@ that inner document verbatim, which is why the CLI never needs a status DTO of i
 | Canonical format | `gofmt` | `rustfmt` | `nlc format` |
 | Elm-level errors | No | Good but no JSON | `nlc query diagnostics` |
 
----
-
-*Last Updated: 2026-03-30*
-
 ## Build outputs are replaced, never rewritten in place
 
 A process that has loaded an assembly keeps it mapped. `File.WriteAllBytes` and
@@ -1785,9 +1781,16 @@ load; issue 253). Every build output that a running program can hold -- the proj
 reference assembly, and copied runtime/dependency assets -- is therefore written through
 `AtomicFile` (`NSharpLang.Compiler.Model`): write a sibling `*.tmp`, then rename over the target. On
 macOS and Linux the running process keeps the old inode until it exits, as under `dotnet build`. On
-Windows a mapped file cannot be replaced but can be renamed, so `AtomicFile` moves it aside to
-`<name>.replaced-<id>`, moves the new file in, and deletes the aside when it can (leftovers are swept
-on the next replacement of that name). `nlc run` itself needs no shadow copy: the root fix protects
+Windows a mapped file cannot be replaced but can be renamed, so when the replace fails with an
+`IOException` or `UnauthorizedAccessException`, `AtomicFile` moves the old file aside to
+`<name>.replaced-<id>`, moves the new file in (moving the old one back and rethrowing if that
+fails), and deletes the aside when it can. Leftover asides, and `<name>.<id>.tmp` files older than an
+hour from killed builds, are swept on the next write of that name. `runtimeconfig.json` goes through
+the same path. `nlc run` itself needs no shadow copy: the root fix protects
 every other process holding build output too (`nlc test`, an IDE, a published launcher). Lazy loads
 of a *different* output file (another dependency dll) after a rebuild see the new file, as with
 `dotnet`.
+
+---
+
+*Last Updated: 2026-03-30*
