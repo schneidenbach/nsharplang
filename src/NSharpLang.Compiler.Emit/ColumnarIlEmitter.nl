@@ -5556,7 +5556,8 @@ sealed class ColumnarIlEmitter {
                     let sReturn: System.Type = null
                     sAsyncWrappedReturn: Type? = null
                     if (m.IsAsync) {
-                        sAsyncShapeResolved := sTypeParamMap != null ? ColumnarInterfaceRealization.TryComputeGenericAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, sTypeParamMap, sTypeResolution.Enums, sTypeResolution.Structs, sTypeResolution.Unions, out sReturn, out sAsyncWrappedReturn) : ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn)
+                        sAsyncScope := sTypeParamMap ?? def.GenericParameters
+                        sAsyncShapeResolved := ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, sAsyncScope, sTypeResolution.Enums, sTypeResolution.Structs, sTypeResolution.Unions, out sReturn, out sAsyncWrappedReturn) && (sAsyncScope == null || sReturn == ColumnarTypeOfPlanner.RequiredVoidType() || IsSupportedGenericSignatureValueType(sReturn))
                         if (!sAsyncShapeResolved) {
                             return DeclineStatic("emit.declaration.method-return", "async static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
@@ -5736,8 +5737,12 @@ sealed class ColumnarIlEmitter {
                             return DeclineStatic("emit.declaration.method-return", "async iterator element type '" + asyncElementCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                         mReturn = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
-                    } else if (!(mTypeParamMap != null ? ColumnarInterfaceRealization.TryComputeGenericAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mTypeParamMap, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn) : ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn))) {
-                        return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    } else {
+                        mAsyncScope := mTypeParamMap ?? def.GenericParameters
+                        mAsyncShapeResolved := ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mAsyncScope, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn) && (mAsyncScope == null || mReturn == ColumnarTypeOfPlanner.RequiredVoidType() || IsSupportedGenericSignatureValueType(mReturn))
+                        if (!mAsyncShapeResolved) {
+                            return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        }
                     }
                 } else {
                     if (m.ReturnCanonical == "void") {
@@ -6721,7 +6726,7 @@ sealed class ColumnarIlEmitter {
                     // the METHOD signature wraps it — ValueTask(/T) by default, Task(/T) for `main` (the
                     // legacy emitter's entry-point rule), explicit task-like annotations keep their
                     // declared family. A generic async FREE function is not modeled yet; generic async
-                    // METHODS are (see `TryComputeGenericAsyncReturnShape`).
+                    // METHODS are (see `TryComputeAsyncReturnShapeInScope`).
                     if (fn.TypeParamNames.Length > 0) {
                         return DeclineStatic("emit.declaration.function-return", "generic async free function is not modeled for '" + fn.Name + "'", fn.Name, -1, 0)
                     }
@@ -8629,7 +8634,8 @@ sealed class ColumnarIlEmitter {
             // ASYNC FAULT GUARD (the legacy emitter's BeginAsyncFaultGuard/EndAsyncFaultGuard): the whole
             // body is ONE protected region — every return WRAPS its value and leaves to the shared
             // tail; a UNIT body falling off the end wraps the completed task; the catch converts
-            // the thrown exception into a faulted task (Task.FromException, + the ValueTask ctor).
+            // the thrown exception into a faulted task (Task.FromException or ValueTask.FromException<T>;
+            // a unit ValueTask wraps Task.FromException).
             // Value bodies must still always-return (the analyzer's rule — unit-task asyncs are
             // exempt). A try/lock inside the body nests INSIDE this guard, which the depth counter
             // tracks: every return still leaves to the one shared tail.
@@ -8721,7 +8727,8 @@ sealed class ColumnarIlEmitter {
     // ASYNC mirror of the legacy emitter's EmitWrapCurrentAsyncReturn: wraps the (already-emitted) return
     // value — or, with no value, the completed unit task — into the wrapped CLR return type.
     // Unit + ValueTask -> default(ValueTask); unit + Task -> Task.CompletedTask;
-    // T + ValueTask<T> -> newobj ValueTask<T>(T); T + Task<T> -> Task.FromResult<T>(T).
+    // ValueTask<T> uses the CLR factory so composite open results such as T[] and Box<T> do not
+    // require Reflection.Emit to rebind a constructor parameter.
     private func EmitWrappedAsyncCompletedReturn(hasValueOnStack: bool): void {
         if (_asyncResultType == null) {
             if (_asyncReturnsValueTask) {
@@ -8743,10 +8750,19 @@ sealed class ColumnarIlEmitter {
             throw new InvalidOperationException("async value return requires the value on the stack")
         }
         if (_asyncReturnsValueTask) {
-            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, ColumnarEmitReflectionFacts.RequiredType(_asyncReturnType, "configured async return type").GetConstructor([_asyncResultType]), "required CLR constructor with the emitted signature")
+            _il.Emit(OpCodes.Call, FindValueTaskStaticMethod("FromResult").MakeGenericMethod([_asyncResultType]))
         } else {
             _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromResult", true).MakeGenericMethod([_asyncResultType]))
         }
+    }
+
+    private static func FindValueTaskStaticMethod(methodName: string): MethodInfo {
+        for candidate in typeof(System.Threading.Tasks.ValueTask).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (candidate.Name == methodName && candidate.IsGenericMethodDefinition && candidate.GetParameters().Length == 1) {
+                return candidate
+            }
+        }
+        throw new InvalidOperationException("Could not resolve ValueTask." + methodName)
     }
 
     private static func FindTaskStaticMethod(methodName: string, generic: bool): MethodInfo {
@@ -8759,8 +8775,8 @@ sealed class ColumnarIlEmitter {
     }
 
     // ASYNC mirror of the legacy emitter's EmitFaultedAsyncReturn: with an Exception on the stack, leaves a
-    // FAULTED task of the wrapped return type carrying it (Task.FromException(<T>), then the
-    // ValueTask(<T>) Task-wrapping ctor when the family is ValueTask).
+    // faulted task of the wrapped return type. Generic ValueTask uses its factory so composite open
+    // results follow the same path as successful returns.
     private func EmitFaultedAsyncReturnMirror(): void {
         if (_asyncResultType == null) {
             _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", false))
@@ -8769,10 +8785,10 @@ sealed class ColumnarIlEmitter {
             }
             return
         }
-        _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", true).MakeGenericMethod([_asyncResultType]))
         if (_asyncReturnsValueTask) {
-            taskOfT := typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([_asyncResultType])
-            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, ColumnarEmitReflectionFacts.RequiredType(_asyncReturnType, "configured async return type").GetConstructor([taskOfT]), "required CLR constructor with the emitted signature")
+            _il.Emit(OpCodes.Call, FindValueTaskStaticMethod("FromException").MakeGenericMethod([_asyncResultType]))
+        } else {
+            _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", true).MakeGenericMethod([_asyncResultType]))
         }
     }
 

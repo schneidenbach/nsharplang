@@ -322,26 +322,12 @@ class ColumnarInterfaceRealization {
         out inner: Type,
         out wrapped: Type
     ): bool {
-        return TryComputeAsyncReturnShapeCore(name, canonical, family, null, enumRegistry, structRegistry, unionRegistry, out inner, out wrapped)
+        return TryComputeAsyncReturnShapeInScope(name, canonical, family, null, enumRegistry, structRegistry, unionRegistry, out inner, out wrapped)
     }
 
-    // The same shape for a GENERIC async method: `async func Read<T>(): T` returns `Task<T>`, so the
-    // result is resolved against the method's own type parameters. A bare `T` is a supported result
-    // here exactly as it is for a synchronous generic method's return.
-    static func TryComputeGenericAsyncReturnShape(
-        name: string,
-        canonical: string,
-        family: AsyncTaskFamily,
-        typeParams: IReadOnlyDictionary<string, Type>,
-        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
-        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
-        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
-        out inner: Type,
-        out wrapped: Type
-    ): bool {
-        return TryComputeAsyncReturnShapeCore(name, canonical, family, typeParams, enumRegistry, structRegistry, unionRegistry, out inner, out wrapped)
-    }
-
+    // A result written in a type-parameter scope resolves against it and may be open (`T`, `T[]`,
+    // `Box<T>`); with no scope it must be a closed supported type. Whether an open shape is admissible in
+    // a signature is the declaring emitter's question.
     private static func TryResolveAsyncResult(
         canonical: string,
         typeParams: IReadOnlyDictionary<string, Type>?,
@@ -354,10 +340,15 @@ class ColumnarInterfaceRealization {
         if typeParams == null {
             return ColumnarCanonicalTypeResolver.TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out inner) && ColumnarTypeOfPlanner.IsSupportedType(inner)
         }
-        return ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(canonical, typeParams, enumRegistry, structRegistry, unionRegistry, out inner) && (inner.IsGenericParameter || ColumnarTypeOfPlanner.IsSupportedType(inner))
+        return ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(canonical, typeParams, enumRegistry, structRegistry, unionRegistry, out inner)
     }
 
-    private static func TryComputeAsyncReturnShapeCore(
+    // The same shape for a member whose signature names type parameters: `async func Read<T>(): T`
+    // returns `Task<T>`, so the result is resolved in `typeParams` (the method's own parameters merged
+    // with its declaring type's). With no map this is `TryComputeAsyncReturnShape`. A result resolved in
+    // a map may be open (`T`, `T[]`, `Box<T>`); whether that open shape is admissible in a signature is
+    // the declaring emitter's question, asked of `inner` afterwards.
+    static func TryComputeAsyncReturnShapeInScope(
         name: string,
         canonical: string,
         family: AsyncTaskFamily,

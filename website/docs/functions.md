@@ -1342,13 +1342,16 @@ async func work(x: int): Task {
 }
 ```
 
-### Generic async functions
+### Generic async methods
 
-An `async` METHOD (static or instance) may declare its own type parameters. The result is
-`Task<T>` (or the project's `language.asyncDefaultType` family), exactly as in C#:
+An `async` method on a type (static or instance) may declare its own type parameters. The result is
+the project's async family over the written result, as for any async function: `ValueTask<T>` by
+default, `Task<T>` under `language.asyncDefaultType: Task`, or whatever `Task<T>` / `ValueTask<T>` the
+signature writes. This matches C#, where `async Task<T> Read<T>()` carries `T` on the method:
 
 ```n#
 import System.Text.Json
+import System.Threading.Tasks
 
 class Rd {
     static async func Read<T>(text: string): T {
@@ -1358,16 +1361,15 @@ class Rd {
 }
 
 func main() {
-    n := Rd.Read<int>("5").Result      // type argument written
-    s := Rd.Read<string>("\"x\"").Result
+    n := Rd.Read<int>("5").AsTask().Result       // ValueTask<int> under the default config
+    s := Rd.Read<string>("\"x\"").AsTask().Result
 }
 ```
 
 Type arguments are inferred from arguments where they can be, a constraint (`where T : class`)
-applies, and a `T` local may live across an `await`.
-
-A generic `async` free function and a generic `async` local function are not supported yet; declare
-the generic async function as a method on a type instead.
+applies, a `T` local may live across an `await`, and the result may be `T`, `T[]`, a tuple, or
+`Box<T>`. A generic **free** `async func` and a generic **local** `async` function are not supported
+yet; declare the generic async function as a method on a type instead.
 
 ### Async Void
 
@@ -2244,7 +2246,7 @@ The compiler preserves the two owners in CLR metadata: a capture-free local copi
 parameters onto its synthesized static method, while a capturing local places them on its display
 type. Declaring a local parameter with the same name as an enclosing parameter is still NL316; use a
 distinct name such as `U`. An `async` generic local function is not supported yet; declare it as a method
-(see [Generic async functions](#generic-async-functions)).
+(see [Generic async methods](#generic-async-methods)).
 
 ### Scope: a local function is visible in its whole block
 
