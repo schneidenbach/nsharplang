@@ -365,6 +365,9 @@ name := "Alice"
 age := 30
 message := $"Hello, {name}! You are {age} years old."
 Console.WriteLine(message)
+
+code: string? = null
+fallback := $"{code ?? "NOPNR"}-x"
 ```
 
 Backslash escapes (`\n`, `\t`, `\e`, `\x1b`, `\u0041`, ...) are listed in the
