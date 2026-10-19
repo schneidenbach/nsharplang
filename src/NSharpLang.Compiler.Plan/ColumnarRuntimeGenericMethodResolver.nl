@@ -168,6 +168,51 @@ class ColumnarRuntimeGenericMethodResolver {
     // non-generic candidate. Incomparable lists are ambiguous, as C# reports; the planner must not
     // let a later call tier erase that result.
     static func BetterSelection(nonGeneric: ColumnarOrdinaryRuntimeDirectCallSelection, generic: ColumnarOrdinaryRuntimeDirectCallSelection, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarOrdinaryRuntimeDirectCallSelection {
+        if nonGeneric.IsAmbiguous || generic.IsAmbiguous {
+            return Ambiguous(nonGeneric.LookupType, generic.IsAmbiguous ? generic.IsStatic : nonGeneric.IsStatic)
+        }
+        if !generic.IsSelected {
+            return nonGeneric
+        }
+        if !nonGeneric.IsSelected {
+            return generic
+        }
+
+        specificity := MoreSpecificParameterList(generic.ParameterTypes, nonGeneric.ParameterTypes, argumentTypes, argumentFacts)
+        if specificity > 0 {
+            return generic
+        }
+        if specificity < 0 {
+            return nonGeneric
+        }
+        if !EquivalentParameterTypes(generic.ParameterTypes, nonGeneric.ParameterTypes, argumentTypes.Length) {
+            return Ambiguous(nonGeneric.LookupType, nonGeneric.IsStatic)
+        }
+
+        nonGenericParametersUsed := ParametersUsedIncludingExpansion(nonGeneric, argumentTypes.Length)
+        genericParametersUsed := ParametersUsedIncludingExpansion(generic, argumentTypes.Length)
+        if nonGenericParametersUsed != genericParametersUsed {
+            if nonGeneric.IsExpanded != generic.IsExpanded {
+                return nonGeneric.IsExpanded ? generic : nonGeneric
+            }
+            if nonGenericParametersUsed == argumentTypes.Length {
+                return nonGeneric
+            }
+            if genericParametersUsed == argumentTypes.Length {
+                return generic
+            }
+            return Ambiguous(nonGeneric.LookupType, nonGeneric.IsStatic)
+        }
+
+        // Roslyn applies the non-generic tie-break before normal-versus-expanded and declared
+        // parameter-count preferences when the supplied parameter type sequences are identical.
+        return nonGeneric
+    }
+
+    static func BetterOptionalSelection(nonGeneric: ColumnarRuntimeOptionalCallSelection, generic: ColumnarRuntimeOptionalCallSelection, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarRuntimeOptionalCallSelection {
+        if nonGeneric.IsAmbiguous || generic.IsAmbiguous {
+            return ColumnarRuntimeOptionalCallSelection.Ambiguous(nonGeneric.LookupType, generic.IsAmbiguous ? generic.IsStatic : nonGeneric.IsStatic)
+        }
         if !generic.IsSelected {
             return nonGeneric
         }
@@ -218,56 +263,11 @@ class ColumnarRuntimeGenericMethodResolver {
         return suppliedCount
     }
 
-    static func BetterOptionalSelection(nonGeneric: ColumnarRuntimeOptionalCallSelection, generic: ColumnarRuntimeOptionalCallSelection, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarRuntimeOptionalCallSelection {
-        if !generic.IsSelected {
-            return nonGeneric
-        }
-        if !nonGeneric.IsSelected {
-        if nonGeneric.IsAmbiguous || generic.IsAmbiguous {
-            return Ambiguous(nonGeneric.LookupType, generic.IsAmbiguous ? generic.IsStatic : nonGeneric.IsStatic)
-        }
-            return generic
-        }
-
-        specificity := MoreSpecificParameterList(generic.ParameterTypes, nonGeneric.ParameterTypes, argumentTypes, argumentFacts)
-        if specificity > 0 {
-            return generic
-        }
-        if specificity < 0 {
-            return nonGeneric
-        }
-        if !EquivalentParameterTypes(generic.ParameterTypes, nonGeneric.ParameterTypes, argumentTypes.Length) {
-            return Ambiguous(nonGeneric.LookupType, nonGeneric.IsStatic)
-        }
-
-        nonGenericParametersUsed := ParametersUsedIncludingExpansion(nonGeneric, argumentTypes.Length)
-        genericParametersUsed := ParametersUsedIncludingExpansion(generic, argumentTypes.Length)
-        if nonGenericParametersUsed != genericParametersUsed {
-            if nonGeneric.IsExpanded != generic.IsExpanded {
-                return nonGeneric.IsExpanded ? generic : nonGeneric
-            }
-            if nonGenericParametersUsed == argumentTypes.Length {
-                return nonGeneric
-            }
-            if genericParametersUsed == argumentTypes.Length {
-                return generic
-            }
-            return Ambiguous(nonGeneric.LookupType, nonGeneric.IsStatic)
-        }
-
-        // Roslyn applies the non-generic tie-break before normal-versus-expanded and declared
-        // parameter-count preferences when the supplied parameter type sequences are identical.
-        return nonGeneric
-    }
-
     // Parameter arrays are in call-site order: expanded `params` candidates repeat their element type
     // once per packed argument, while optional selections retain their omitted suffix. The shared
     // specificity owner considers every argument's better conversion and returns a winner only when
     // one parameter list is maximal.
     static func MoreSpecificParameterList(left: Type[], right: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
-        if nonGeneric.IsAmbiguous || generic.IsAmbiguous {
-            return ColumnarRuntimeOptionalCallSelection.Ambiguous(nonGeneric.LookupType, generic.IsAmbiguous ? generic.IsStatic : nonGeneric.IsStatic)
-        }
         if left == null || right == null || argumentTypes == null || left.Length < argumentTypes.Length || right.Length < argumentTypes.Length {
             return 0
         }
@@ -370,6 +370,9 @@ class ColumnarRuntimeGenericMethodResolver {
         if bestCount == 1 && selected != null {
             return ColumnarRuntimeOptionalCallSelection.Selected(lookupType, selected, selectedParameters, selectedReturn, argumentCount, expectedStatic)
         }
+        if bestCount > 1 {
+            return ColumnarRuntimeOptionalCallSelection.Ambiguous(lookupType, expectedStatic)
+        }
         return ColumnarRuntimeOptionalCallSelection.None(lookupType)
     }
 
@@ -386,9 +389,6 @@ class ColumnarRuntimeGenericMethodResolver {
     }
 
     static func ResolveExpandedWithMethodCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidateMethods: MethodInfo[]): ColumnarOrdinaryRuntimeDirectCallSelection {
-        if bestCount > 1 {
-            return ColumnarRuntimeOptionalCallSelection.Ambiguous(lookupType, expectedStatic)
-        }
         if lookupType == null || memberName == null || argumentTypes == null {
             throw new InvalidOperationException("Runtime generic method resolution inputs cannot be null.")
         }
@@ -467,11 +467,17 @@ class ColumnarRuntimeGenericMethodResolver {
             }
         }
 
+        if normalCount > 1 {
+            return Ambiguous(lookupType, expectedStatic)
+        }
         if normalCount == 1 && normalSelected != null && normalScore >= 0 {
             return SelectedClosed(lookupType, normalSelected, normalParameters, normalReturn, expectedStatic)
         }
         if normalCount == 0 && expandedCount == 1 && expandedSelected != null && expandedElement != null && expandedScore >= 0 {
             return ColumnarOrdinaryRuntimeDirectCallResolver.SelectedExpanded(lookupType, expandedSelected, expandedTypes, expandedDeclared, expandedReturn, expandedElement, expandedFixed, expectedStatic)
+        }
+        if normalCount == 0 && expandedCount > 1 {
+            return Ambiguous(lookupType, expectedStatic)
         }
         return Unselected(lookupType, expectedStatic)
     }
@@ -483,18 +489,12 @@ class ColumnarRuntimeGenericMethodResolver {
         return InferAndClose(candidate, argumentTypes, argumentFacts, expanded, true)
     }
 
-        if normalCount > 1 {
-            return Ambiguous(lookupType, expectedStatic)
-        }
     // Extension inference shares the same loop after prepending its receiver, but keeps the
     // extension resolver's exact structural matching policy instead of runtime base/interface
     // widening.
     static func InferAndClose(candidate: MethodInfo, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expanded: bool, allowInferenceWidening: bool): ColumnarClosedGenericMethod? {
         inferred := InferTypeArguments(candidate, argumentTypes, argumentFacts, expanded, allowInferenceWidening)
         if inferred == null {
-        if normalCount == 0 && expandedCount > 1 {
-            return Ambiguous(lookupType, expectedStatic)
-        }
             return null
         }
         return CloseInferredSubstitutedOrNull(candidate, inferred)
@@ -1429,6 +1429,23 @@ class ColumnarRuntimeGenericMethodResolver {
         }
     }
 
+    static func Ambiguous(lookupType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        return new ColumnarOrdinaryRuntimeDirectCallSelection(
+            ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous,
+            null,
+            lookupType,
+            lookupType,
+            new Type[](0),
+            typeof(object),
+            ColumnarExternalCallKind.None,
+            expectedStatic,
+            !expectedStatic && !lookupType.IsValueType,
+            false,
+            null,
+            new Type[](0),
+            -1
+        )
+    }
     static func Unselected(lookupType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         return new ColumnarOrdinaryRuntimeDirectCallSelection(
             ColumnarOrdinaryRuntimeDirectCallStatus.NotFound,
@@ -1634,24 +1651,6 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
                     keep = keep + 1
                 } else {
                     candidates.RemoveAt(keep)
-
-    static func Ambiguous(lookupType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
-        return new ColumnarOrdinaryRuntimeDirectCallSelection(
-            ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous,
-            null,
-            lookupType,
-            lookupType,
-            new Type[](0),
-            typeof(object),
-            ColumnarExternalCallKind.None,
-            expectedStatic,
-            !expectedStatic && !lookupType.IsValueType,
-            false,
-            null,
-            new Type[](0),
-            -1
-        )
-    }
                     candidateParameters.RemoveAt(keep)
                     candidateReturns.RemoveAt(keep)
                 }
