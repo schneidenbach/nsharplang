@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.IO
+import System.Linq
 import System.Numerics
 import System.Reflection
 import System.Reflection.Emit
@@ -517,6 +518,9 @@ test "a source public parameterless constructor proves an external new constrain
     runtimeArguments := new object?[](1)
     runtimeArguments[0] = instance
     runtimeValue := runtimeMethod.Invoke(null, runtimeArguments)
+    if runtimeValue == null {
+        throw new InvalidOperationException("The closed external method returned a null source instance.")
+    }
     assert Object.ReferenceEquals(runtimeValue, instance), "the closed external method must return the same runtime source instance"
     assert runtimeValue.GetType() == runtimeType, "the runtime value must have the newly baked source type"
 }
@@ -778,13 +782,13 @@ class CrossTierGenericAmbiguityProbe {
 }
 
 class InferenceBoundsProbe {
-    static func Invariant<T>(left: List<T>, right: List<T>): bool {
-        return true
+    static func Invariant<T>(_left: List<T>, _right: List<T>): bool {
+        return _left.Count == _right.Count
     }
 }
 
 class NullableInferenceProbe {
-    static func Last<T>(left: T, right: T): T {
+    static func Last<T>(_left: T, right: T): T {
         return right
     }
 }
