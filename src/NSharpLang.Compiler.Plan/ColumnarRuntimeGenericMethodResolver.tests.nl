@@ -746,6 +746,16 @@ class CrossTierOptionalIdenticalProbe {
     }
 }
 
+class CrossTierOptionalExactProbe {
+    static func Pick<T>(_expected: T, _actual: T, _mode: string? = null): int {
+        return 1
+    }
+
+    static func Pick(_expected: string, _actual: string): int {
+        return 2
+    }
+}
+
 func CrossTierExpandedArityProbeType(): Type {
     identity := "CrossTierExpandedArityProbe" + Guid.NewGuid().ToString("N")
     assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
@@ -1027,6 +1037,52 @@ test "combined Task.WhenAll candidates retain the typed array overload and runti
     controlTypes := GenericMethodTypes1(typeof(Task[]))
     control := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "WhenAll", controlTypes, facts, true, candidates)
     assert control.IsSelected && !CrossTierMethodOrThrow(control.Method).IsGenericMethod, "an untyped Task[] remains on the non-generic overload"
+}
+
+test "combined exact-arity member outranks optional generic member and keeps runtime value" {
+    owner := typeof(CrossTierOptionalExactProbe)
+    arguments := GenericMethodTypes2(typeof(string), typeof(string))
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
+    genericCandidates := new List<MethodInfo>()
+    nonGenericCandidates := new List<MethodInfo>()
+    for candidate in candidates {
+        if candidate.Name == "Pick" {
+            if candidate.IsGenericMethodDefinition {
+                genericCandidates.Add(candidate)
+            } else {
+                nonGenericCandidates.Add(candidate)
+            }
+        }
+    }
+
+    genericOnly := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Pick", arguments, facts, true, genericCandidates.ToArray())
+    assert genericOnly.IsSelected, "the generic optional overload remains applicable by itself"
+    genericMethod := CrossTierMethodOrThrow(genericOnly.Method)
+    assert genericMethod.IsGenericMethod
+    genericRuntimeArguments := new object?[](3)
+    genericRuntimeArguments[0] = "same"
+    genericRuntimeArguments[1] = "same"
+    genericRuntimeArguments[2] = null
+    genericRuntimeValue := genericMethod.Invoke(null, genericRuntimeArguments)
+    assert Convert.ToInt32(genericRuntimeValue) == 1, "the generic-only control reaches its runtime body"
+
+    nonGenericOnly := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveFromCandidatesWithFacts(owner, "Pick", arguments, facts, true, nonGenericCandidates.ToArray())
+    assert nonGenericOnly.IsSelected, "the exact non-generic overload is applicable alone"
+    nonGenericMethod := nonGenericOnly.Method
+    assert nonGenericMethod != null && !nonGenericMethod.IsGenericMethod
+    nonGenericRuntimeArguments := new object?[](2)
+    nonGenericRuntimeArguments[0] = "same"
+    nonGenericRuntimeArguments[1] = "same"
+    nonGenericRuntimeValue := nonGenericMethod.Invoke(null, nonGenericRuntimeArguments)
+    assert Convert.ToInt32(nonGenericRuntimeValue) == 2, "the non-generic-only control reaches its runtime body"
+
+    combined := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Pick", arguments, facts, true, candidates)
+    assert combined.IsSelected, "the exact-arity candidate removes the optional candidate before the non-generic tie-break"
+    selectedMethod := CrossTierMethodOrThrow(combined.Method)
+    assert !selectedMethod.IsGenericMethod && selectedMethod.GetParameters().Length == 2
+    runtimeValue := selectedMethod.Invoke(null, nonGenericRuntimeArguments)
+    assert Convert.ToInt32(runtimeValue) == 2, "the exact-arity winner reaches its runtime body"
 }
 
 test "repeated generic parameters accumulate lower bounds and preserve invariant conflicts" {

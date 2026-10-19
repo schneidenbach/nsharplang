@@ -433,16 +433,16 @@ class ColumnarRuntimeGenericMethodResolver {
             }
         }
         if !sameUsage {
-            exactUsageIndex := -1
+            exactUsage := new List<int>()
             for index in maximal {
                 if ParametersUsedIncludingExpansion(selections[index], argumentTypes.Length) == argumentTypes.Length {
-                    if exactUsageIndex >= 0 {
-                        return -1
-                    }
-                    exactUsageIndex = index
+                    exactUsage.Add(index)
                 }
             }
-            return exactUsageIndex
+            if exactUsage.Count == 0 {
+                return -1
+            }
+            maximal = exactUsage
         }
 
         return NonGenericCandidateTieBreak(methods, parameterLists, maximal, argumentTypes.Length)
