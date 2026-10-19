@@ -260,7 +260,7 @@ test "a non-generic extension outranks an equally scored inference-closed generi
     assert interfaceMax.ReturnType == typeof(int)
 }
 
-func ExtensionReceiverComparisonCandidates(): List<ColumnarExtensionMethodCandidate> {
+func ExtensionReceiverComparisonCandidates(genericArgumentType: Type, nonGenericArgumentType: Type, expanded: bool): List<ColumnarExtensionMethodCandidate> {
     identity := "ExtensionReceiverComparison" + Guid.NewGuid().ToString("N")
     assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
     module := assembly.DefineDynamicModule(identity)
@@ -314,7 +314,7 @@ func ExtensionThreeTypes(first: Type, second: Type, third: Type): Type[] {
 
 test "expanded extension overload comparison includes receiver conversions" {
     index := new ColumnarExtensionMethodIndex()
-    for candidate in ExtensionReceiverComparisonCandidates() {
+    for candidate in ExtensionReceiverComparisonCandidates(typeof(string), typeof(string), true) {
         index.Add("Pick", candidate)
     }
 
@@ -342,6 +342,78 @@ test "expanded extension overload comparison includes receiver conversions" {
     objectArguments[2] = new int[](0)
     objectResult := objectSelection.Method.Invoke(null, objectArguments)
     assert Convert.ToInt32(objectResult) == 2
+}
+
+test "extension receiver and explicit argument can make candidates incomparable" {
+    candidates := ExtensionReceiverComparisonCandidates(typeof(long), typeof(int), true)
+    all := new ColumnarExtensionMethodIndex()
+    genericOnly := new ColumnarExtensionMethodIndex()
+    nonGenericOnly := new ColumnarExtensionMethodIndex()
+    for candidate in candidates {
+        all.Add("Pick", candidate)
+        if candidate.Method.IsGenericMethod {
+            genericOnly.Add("Pick", candidate)
+        } else {
+            nonGenericOnly.Add("Pick", candidate)
+        }
+    }
+
+    receiver := new List<string>()
+    receiver.Add("value")
+    intTypes := ExtensionOneType(typeof(int))
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    ambiguous := ColumnarExtensionMethodResolver.Resolve(all, typeof(List<string>), "Pick", intTypes, facts)
+    assert !ambiguous.IsSelected, "the better IEnumerable<T> receiver and better int argument leave incomparable methods"
+
+    genericTypes := ExtensionOneType(typeof(long))
+    generic := ColumnarExtensionMethodResolver.Resolve(genericOnly, typeof(List<string>), "Pick", genericTypes, facts)
+    assert generic.IsSelected && generic.Method != null && generic.Method.IsGenericMethod
+    genericArguments := new object?[](3)
+    genericArguments[0] = receiver
+    genericArguments[1] = 4L
+    genericArguments[2] = new int[](0)
+    genericValue := generic.Method.Invoke(null, genericArguments)
+    assert Convert.ToInt32(genericValue) == 1, "the generic-only control reaches its runtime method"
+
+    nonGeneric := ColumnarExtensionMethodResolver.Resolve(nonGenericOnly, typeof(object), "Pick", intTypes, facts)
+    assert nonGeneric.IsSelected && nonGeneric.Method != null && !nonGeneric.Method.IsGenericMethod
+    nonGenericArguments := new object?[](3)
+    nonGenericArguments[0] = new object()
+    nonGenericArguments[1] = 5
+    nonGenericArguments[2] = new int[](0)
+    nonGenericValue := nonGeneric.Method.Invoke(null, nonGenericArguments)
+    assert Convert.ToInt32(nonGenericValue) == 2, "the non-generic-only control reaches its runtime method"
+
+    normalCandidates := ExtensionReceiverComparisonCandidates(typeof(long), typeof(int), false)
+    normalAll := new ColumnarExtensionMethodIndex()
+    normalGenericOnly := new ColumnarExtensionMethodIndex()
+    normalNonGenericOnly := new ColumnarExtensionMethodIndex()
+    for candidate in normalCandidates {
+        normalAll.Add("Pick", candidate)
+        if candidate.Method.IsGenericMethod {
+            normalGenericOnly.Add("Pick", candidate)
+        } else {
+            normalNonGenericOnly.Add("Pick", candidate)
+        }
+    }
+    normalAmbiguous := ColumnarExtensionMethodResolver.Resolve(normalAll, typeof(List<string>), "Pick", intTypes, facts)
+    assert !normalAmbiguous.IsSelected, "normal-form candidates also compare the receiver against explicit arguments"
+
+    normalGeneric := ColumnarExtensionMethodResolver.Resolve(normalGenericOnly, typeof(List<string>), "Pick", genericTypes, facts)
+    assert normalGeneric.IsSelected && normalGeneric.Method != null
+    normalGenericArguments := new object?[](2)
+    normalGenericArguments[0] = receiver
+    normalGenericArguments[1] = 6L
+    normalGenericValue := normalGeneric.Method.Invoke(null, normalGenericArguments)
+    assert Convert.ToInt32(normalGenericValue) == 1, "the normal generic control reaches its runtime method"
+
+    normalNonGeneric := ColumnarExtensionMethodResolver.Resolve(normalNonGenericOnly, typeof(object), "Pick", intTypes, facts)
+    assert normalNonGeneric.IsSelected && normalNonGeneric.Method != null
+    normalNonGenericArguments := new object?[](2)
+    normalNonGenericArguments[0] = new object()
+    normalNonGenericArguments[1] = 8
+    normalNonGenericValue := normalNonGeneric.Method.Invoke(null, normalNonGenericArguments)
+    assert Convert.ToInt32(normalNonGenericValue) == 2, "the normal non-generic control reaches its runtime method"
 }
 
 test "extension resolution prefers exact arity over trailing-optional and rejects ambiguity" {
