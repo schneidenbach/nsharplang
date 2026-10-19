@@ -2779,8 +2779,10 @@ func main() {
 }
 ```
 
-If the receiver implements the same generic interface at different type arguments, inference is
-ambiguous and the function is not offered for receiver syntax.
+If the receiver implements the same generic interface at different type arguments, it supplies no
+inference bound for that interface. The function is not offered when no other written argument fixes
+the type parameter. If another argument does fix it, the closed receiver parameter is checked against
+the receiver's interfaces before the function is offered.
 
 The result keeps its closed type in the surrounding expression, so receiver calls can be used in
 arithmetic, comparisons, and conditions. When an instance member and a top-level `this` function

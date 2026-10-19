@@ -937,8 +937,9 @@ class ColumnarExtensionMethodResolver {
     // Generic extensions are indexed across every referenced assembly. Most same-named candidates
     // have a receiver shape that cannot bind from this call. Reject those shapes before allocating
     // the receiver-plus-arguments arrays and the inference dictionary used by the full loop.
-    // This mirrors `Unify(..., allowInferenceWidening: false)`: generic definitions and method type
-    // parameters must line up structurally; ordinary assignability is checked after closure.
+    // A unique matching interface can also reject a structurally incompatible nested shape. When
+    // there is no unique match, keep the candidate for full inference: another argument can still
+    // fix the type parameter, and receiver assignability is checked against that closed parameter.
     static func CanInferExtensionReceiverShape(pattern: Type, actual: Type): bool {
         if pattern == null || actual == null {
             return false
@@ -964,7 +965,11 @@ class ColumnarExtensionMethodResolver {
         try {
             matched := ColumnarRuntimeGenericMethodResolver.FindMatchingInstantiation(pattern.GetGenericTypeDefinition(), actual)
             if matched == null {
-                return false
+                // No unique interface instance is not proof that this candidate is inapplicable:
+                // another written argument may fix T, after which receiver applicability can be
+                // checked against the closed parameter. The inference loop itself contributes no
+                // bound for an ambiguous interface set and rejects the candidate if T stays open.
+                return true
             }
             patternArguments := pattern.GetGenericArguments()
             actualArguments := matched.GetGenericArguments()

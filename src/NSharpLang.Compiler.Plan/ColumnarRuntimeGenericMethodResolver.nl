@@ -1609,12 +1609,15 @@ class ColumnarRuntimeGenericMethodResolver {
 
     // The instantiation of `definition` reachable from the argument type: the type itself, one of its
     // base classes, or one of its interfaces. This is what lets `IEnumerable<T>` infer `T` from a
-    // `List<int>` argument.
+    // `List<int>` argument. Interface-bound inference has a bound only when exactly one distinct
+    // instantiation is reachable; reflection enumeration order cannot choose between, for example,
+    // `IComparable<string>` and `IComparable<int>`.
     static func FindMatchingInstantiation(definition: Type, argumentType: Type): Type? {
+        matches := new List<Type>()
         current: Type? = argumentType
         while current != null {
             if IsInstantiationOf(definition, current) {
-                return current
+                AddUniqueMatchingInstantiation(matches, current)
             }
             current = BaseTypeOrNull(current)
         }
@@ -1622,10 +1625,19 @@ class ColumnarRuntimeGenericMethodResolver {
         interfaces := InterfacesOrEmpty(argumentType)
         for interfaceItem in interfaces {
             if IsInstantiationOf(definition, interfaceItem) {
-                return interfaceItem
+                AddUniqueMatchingInstantiation(matches, interfaceItem)
             }
         }
-        return null
+        return matches.Count == 1 ? matches[0] : null
+    }
+
+    static func AddUniqueMatchingInstantiation(matches: List<Type>, candidate: Type): void {
+        for existing in matches {
+            if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(existing, candidate) {
+                return
+            }
+        }
+        matches.Add(candidate)
     }
 
     static func IsInstantiationOf(definition: Type, candidate: Type): bool {

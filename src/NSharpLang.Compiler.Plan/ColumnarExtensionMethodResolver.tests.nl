@@ -270,26 +270,36 @@ func ExtensionReceiverComparisonCandidates(genericArgumentType: Type, nonGeneric
     typeParameter := genericMethodBuilder.DefineGenericParameters(["T"])[0]
     enumerableType := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(ExtensionOneType(typeParameter))
     genericMethodBuilder.SetReturnType(typeof(int))
-    genericMethodBuilder.SetParameters(ExtensionThreeTypes(enumerableType, typeof(string), typeof(int[])))
+    genericParameters := expanded ? ExtensionThreeTypes(enumerableType, genericArgumentType, typeof(int[])) : ExtensionTwoTypes(enumerableType, genericArgumentType)
+    genericMethodBuilder.SetParameters(genericParameters)
     genericMethodBuilder.DefineParameter(1, ParameterAttributes.None, "values")
     genericMethodBuilder.DefineParameter(2, ParameterAttributes.None, "label")
-    genericPackedParameter := genericMethodBuilder.DefineParameter(3, ParameterAttributes.None, "rest")
-    paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
-    if paramArrayConstructor == null {
-        throw new InvalidOperationException("ParamArrayAttribute constructor not found")
+    if expanded {
+        genericPackedParameter := genericMethodBuilder.DefineParameter(3, ParameterAttributes.None, "rest")
+        paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+        if paramArrayConstructor == null {
+            throw new InvalidOperationException("ParamArrayAttribute constructor not found")
+        }
+        genericPackedParameter.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
     }
-    genericPackedParameter.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
     genericIl := genericMethodBuilder.GetILGenerator()
     genericIl.Emit(OpCodes.Ldc_I4_1)
     genericIl.Emit(OpCodes.Ret)
 
     objectMethodBuilder := owner.DefineMethod("Pick", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard)
     objectMethodBuilder.SetReturnType(typeof(int))
-    objectMethodBuilder.SetParameters(ExtensionThreeTypes(typeof(object), typeof(string), typeof(int[])))
+    objectParameters := expanded ? ExtensionThreeTypes(typeof(object), nonGenericArgumentType, typeof(int[])) : ExtensionTwoTypes(typeof(object), nonGenericArgumentType)
+    objectMethodBuilder.SetParameters(objectParameters)
     objectMethodBuilder.DefineParameter(1, ParameterAttributes.None, "value")
     objectMethodBuilder.DefineParameter(2, ParameterAttributes.None, "label")
-    objectPackedParameter := objectMethodBuilder.DefineParameter(3, ParameterAttributes.None, "rest")
-    objectPackedParameter.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+    if expanded {
+        objectPackedParameter := objectMethodBuilder.DefineParameter(3, ParameterAttributes.None, "rest")
+        paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+        if paramArrayConstructor == null {
+            throw new InvalidOperationException("ParamArrayAttribute constructor not found")
+        }
+        objectPackedParameter.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+    }
     objectIl := objectMethodBuilder.GetILGenerator()
     objectIl.Emit(OpCodes.Ldc_I4_2)
     objectIl.Emit(OpCodes.Ret)
@@ -310,6 +320,90 @@ func ExtensionThreeTypes(first: Type, second: Type, third: Type): Type[] {
     values[1] = second
     values[2] = third
     return values
+}
+
+func DefineComparableImplementation(owner: TypeBuilder, interfaceType: Type, valueType: Type): void {
+    owner.AddInterfaceImplementation(interfaceType)
+    method := owner.DefineMethod("CompareTo", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot | MethodAttributes.HideBySig, CallingConventions.HasThis)
+    method.SetReturnType(typeof(int))
+    method.SetParameters(ExtensionOneType(valueType))
+    body := method.GetILGenerator()
+    body.Emit(OpCodes.Ldc_I4_0)
+    body.Emit(OpCodes.Ret)
+    declaration := interfaceType.GetMethod("CompareTo")
+    if declaration == null {
+        throw new InvalidOperationException("The IComparable<T>.CompareTo declaration was not found.")
+    }
+    owner.DefineMethodOverride(method, declaration)
+}
+
+func BuildDualComparableReceiverType(): Type {
+    identity := "DualComparableReceiver" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Sealed)
+    DefineComparableImplementation(owner, typeof(IComparable<string>), typeof(string))
+    DefineComparableImplementation(owner, typeof(IComparable<int>), typeof(int))
+    owner.DefineDefaultConstructor(MethodAttributes.Public)
+    return owner.CreateType()
+}
+
+func DefineInterfaceInferenceExtension(owner: TypeBuilder, name: string, withWitness: bool, result: int): void {
+    method := owner.DefineMethod(name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+    typeParameter := method.DefineGenericParameters(["T"])[0]
+    comparable := typeof(IComparable<int>).GetGenericTypeDefinition().MakeGenericType(ExtensionOneType(typeParameter))
+    parameters := withWitness ? ExtensionTwoTypes(comparable, typeParameter) : ExtensionOneType(comparable)
+    method.SetReturnType(typeof(int))
+    method.SetParameters(parameters)
+    body := method.GetILGenerator()
+    body.Emit(OpCodes.Ldc_I4, result)
+    body.Emit(OpCodes.Ret)
+}
+
+func BuildInterfaceInferenceExtensionIndex(): ColumnarExtensionMethodIndex {
+    identity := "InterfaceInferenceExtensions" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+    DefineInterfaceInferenceExtension(owner, "InferOnly", false, 7)
+    DefineInterfaceInferenceExtension(owner, "InferWithWitness", true, 9)
+    createdOwner := owner.CreateType()
+    index := new ColumnarExtensionMethodIndex()
+    for method in createdOwner.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+        if method.Name == "InferOnly" || method.Name == "InferWithWitness" {
+            index.Add(method.Name, MakeExtensionFixtureCandidate(method))
+        }
+    }
+    return index
+}
+
+test "extension inference requires a unique interface instantiation" {
+    index := BuildInterfaceInferenceExtensionIndex()
+    noArguments := new Type[](0)
+    noFacts := ColumnarDirectCallArgumentFacts.Empty(0)
+
+    dualType := BuildDualComparableReceiverType()
+    dualReceiver := Activator.CreateInstance(dualType)
+    assert dualReceiver != null
+    ambiguous := ColumnarExtensionMethodResolver.Resolve(index, dualType, "InferOnly", noArguments, noFacts)
+    assert !ambiguous.IsSelected, "IComparable<string> and IComparable<int> cannot choose T by reflection order"
+
+    unique := ColumnarExtensionMethodResolver.Resolve(index, typeof(string), "InferOnly", noArguments, noFacts)
+    assert unique.IsSelected && unique.Method != null
+    uniqueArguments := new object?[](1)
+    uniqueArguments[0] = "value"
+    uniqueValue := unique.Method.Invoke(null, uniqueArguments)
+    assert Convert.ToInt32(uniqueValue) == 7, "a unique IComparable<string> instantiation infers T=string"
+
+    witnessTypes := ExtensionOneType(typeof(int))
+    witnessFacts := ColumnarDirectCallArgumentFacts.Empty(1)
+    withWitness := ColumnarExtensionMethodResolver.Resolve(index, dualType, "InferWithWitness", witnessTypes, witnessFacts)
+    assert withWitness.IsSelected && withWitness.Method != null, "another argument can infer T when the receiver has multiple interfaces"
+    witnessArguments := new object?[](2)
+    witnessArguments[0] = dualReceiver
+    witnessArguments[1] = 12
+    witnessValue := withWitness.Method.Invoke(null, witnessArguments)
+    assert Convert.ToInt32(witnessValue) == 9, "the deferred interface candidate binds through its int witness"
 }
 
 test "expanded extension overload comparison includes receiver conversions" {
