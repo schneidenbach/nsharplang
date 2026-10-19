@@ -2526,6 +2526,12 @@ Only when the conversions cannot separate two candidates do the remaining rules 
 substitution, a call in **normal form** beats one that had to expand a `params` tail, and a signature
 that fills **fewer defaults** beats one that fills more.
 
+That ordering applies when candidates differ in how many parameters they omit. For example, given
+`Pick(value: object)` and `Pick(value: string, suffix: string = "")`, `Pick("x")` selects the string
+overload: the identity conversion from `string` is better before the omitted-default tie-break runs.
+When the written argument conversions tie, an overload that needs no defaults beats one that needs
+them.
+
 ```n#
 import System.Collections.Generic
 import System.Threading.Tasks
@@ -2593,6 +2599,21 @@ The element type may be a type your own project declares — `List<Query>` above
 
 A lambda argument is typed by the parameter it is passed to, so the compiler chooses the method
 first and types the lambda afterwards. A method group works wherever a lambda does.
+
+An instance method of the receiver wins over an extension of the same name **when it is applicable**.
+When none of the receiver's instance overloads accepts the call, the extension methods in scope are
+tried next, as in C#: `list.FindAll((value, index) => value > index)` binds an extension
+`FindAll(this List<int>, Func<int, int, bool>)` even though `List<int>` declares an instance
+`FindAll(Predicate<int>)`, and `app.Use(async (ctx, next) => { await next() })` on a `WebApplication`
+reaches `UseExtensions.Use` although `WebApplication` declares an instance
+`Use(Func<RequestDelegate, RequestDelegate>)`. The candidates are project `this` functions and
+`[Extension]` methods from imported namespaces of referenced assemblies. If nothing binds,
+[NL402](./errors/NL402.md) lists the instance and the extension overloads that were considered.
+For a **project-declared** class's own single instance method, a written lambda's parameter count and
+explicit parameter types are checked before the lambda body is target-typed; when that shape rejects
+the instance method, an applicable extension is tried. For a single method or an overload group,
+ordinary typed arguments also fall back to extension lookup when no instance overload applies; an
+applicable instance overload keeps precedence.
 
 ### Writing the type arguments out
 

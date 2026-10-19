@@ -1017,11 +1017,43 @@ sealed class ColumnarIlEmitter {
     // `Task.Run` declares `Action` next to `Func<Task>`, and the candidate scan must not accept the
     // one that would throw the awaited result away. The analyzer refuses the same programs (NL334)
     // and its argument binder refuses the same candidates.
+    // A LAMBDA FITS A DELEGATE ONLY IF IT WRITES THE SAME NUMBER OF PARAMETERS, and every parameter type
+    // it WRITES is the delegate's. Without this every delegate-typed parameter accepted every lambda, so
+    // a call with an instance overload `Use(Func<RequestDelegate, RequestDelegate>)` and extension
+    // overloads `Use(Func<HttpContext, Func<Task>, Task>)` / `Use(Func<HttpContext, RequestDelegate, Task>)`
+    // selected the first candidate that merely took a delegate, or called the pair ambiguous. A
+    // delegate parameter still mentioning an open type parameter has no type to compare yet and is
+    // left to inference.
+    private func LambdaParametersFitDelegate(lambdaNode: int, delegateParams: Type[]): bool {
+        parameterCount := _nodes.ChildCount(lambdaNode) - 1
+        if (parameterCount != delegateParams.Length) {
+            return false
+        }
+        p := 0
+        while p < parameterCount {
+            parameterNode := Child(lambdaNode, p)
+            parameterSpan := _source.Substring(_nodes.SpanStart(parameterNode), _nodes.SpanLength(parameterNode))
+            colon := parameterSpan.IndexOf(":", StringComparison.Ordinal)
+            if colon >= 0 && !delegateParams[p].ContainsGenericParameters {
+                canonical := ColumnarTypeCanonicalizer.RemoveWhitespace(parameterSpan.Substring(colon + 1))
+                let writtenType: System.Type? = null
+                if (canonical.Length == 0 || !TryResolveBodyType(canonical, out writtenType) || writtenType == null || !TypesEquivalent(writtenType, delegateParams[p])) {
+                    return false
+                }
+            }
+            p += 1
+        }
+        return true
+    }
+
     private func IsContextualLambdaTarget(lambdaNode: int, expectedDelegateType: Type): bool {
         let delegateReturn: System.Type? = null
         let delegateParams: System.Type[]? = null
         let delegateConstructor: System.Reflection.ConstructorInfo? = null
         if (!TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturn, out delegateParams, out delegateConstructor)) {
+            return false
+        }
+        if (!LambdaParametersFitDelegate(lambdaNode, delegateParams)) {
             return false
         }
         if (!ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaNode))) {
@@ -10456,7 +10488,7 @@ sealed class ColumnarIlEmitter {
                             _il.Emit(OpCodes.Stfld, reflectedWriteField)
                             return true
                         }
-                        reflectedWriteProperty := writeChain.ReceiverType.GetProperty(memberName)
+                        reflectedWriteProperty := ReflectedMemberLookup.FindProperty(writeChain.ReceiverType, memberName)
                         if (reflectedWriteProperty != null) {
                             reflectedSetter := reflectedWriteProperty.SetMethod
                             if (reflectedSetter == null || reflectedSetter.IsStatic || reflectedSetter.GetParameters().Length != 1) {
@@ -13297,7 +13329,7 @@ sealed class ColumnarIlEmitter {
             return resolvedProperty.GetMethod != null
         }
         if (ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver(receiverType)) {
-            resolvedProperty := receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+            resolvedProperty := ReflectedMemberLookup.FindProperty(receiverType, member, BindingFlags.Public | BindingFlags.Instance)
             if (resolvedProperty == null || resolvedProperty.GetMethod == null) {
                 return false
             }
@@ -13328,7 +13360,7 @@ sealed class ColumnarIlEmitter {
         }
         let resolvedProperty: System.Reflection.PropertyInfo? = null
         try {
-            resolvedProperty = receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+            resolvedProperty = ReflectedMemberLookup.FindProperty(receiverType, member, BindingFlags.Public | BindingFlags.Instance)
         } catch {
             return false
         }
@@ -18293,7 +18325,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Stfld, inheritedField)
             return true
         }
-        inheritedProperty := inheritedBase.GetProperty(memberName)
+        inheritedProperty := ReflectedMemberLookup.FindProperty(inheritedBase, memberName)
         if (inheritedProperty == null) {
             return false
         }
@@ -23033,7 +23065,7 @@ sealed class ColumnarIlEmitter {
         propertyType = null
         let property: System.Reflection.PropertyInfo? = null
         try {
-            property = ownerType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
+            property = ReflectedMemberLookup.FindProperty(ownerType, memberName, BindingFlags.Public | BindingFlags.Instance)
         } catch {
             return false
         }
@@ -24924,7 +24956,7 @@ sealed class ColumnarIlEmitter {
         if (receiverBuilder != null) {
             def := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, receiverBuilder)
             let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
-            if (def != null && TrySelectInstanceMethodOnChain(def, member, callIdx, out method)) {
+            if (def != null && TrySelectInstanceMethodOnChain(def, member, callIdx, out method) && method != null && CanDeclaredCallArgumentsMatch(callIdx, method.ParamTypes, true, method.ParamModifierKinds)) {
                 if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(method)) {
                     return false
                 }
@@ -25668,6 +25700,14 @@ sealed class ColumnarIlEmitter {
         // may read one, and this is the only place a preflight can learn its type. The slots are the
         // caller's live handles — nothing is emitted here, so nothing stores through them.
         subEmitter.SeedPreflightFrame(_locals, _liftedLocals, _tupleNamesByVariable, _labeledTypeByVariable)
+        // A CONTEXTUALLY TYPED DELEGATE PARAMETER CAN BE INVOKED IN THE BODY, and its invocation
+        // shape is candidate-specific. `Use(async (ctx, next) => { await next(); })` must reject
+        // `Func<HttpContext, RequestDelegate, Task>` while accepting
+        // `Func<HttpContext, Func<Task>, Task>`; checking only the async block's returns makes both
+        // candidates look identical and leaves extension selection spuriously ambiguous.
+        if (!subEmitter.ContextualLambdaDelegateCallsAreApplicable(signature.BodyNode)) {
+            return false
+        }
         // AN `async` LAMBDA'S OWN TYPE IS A TASK OF WHAT ITS BODY ANSWERED, which is the same rule
         // `AnalyzerLambdaAnalysis.AsyncWrappedReturnType` states for the analyzer: the body produces
         // the task's RESULT, and what the lambda converts to is the task. Without it the contextual
@@ -25884,6 +25924,48 @@ sealed class ColumnarIlEmitter {
         }
         for childIndex := 0; childIndex < _nodes.ChildCount(node); childIndex++ {
             if (!CollectBlockReturnTypes(Child(node, childIndex), collected)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    // INVOCATIONS THROUGH A CONTEXTUAL LAMBDA PARAMETER ARE CHECKED AGAINST THAT CANDIDATE'S
+    // DELEGATE SIGNATURE. This is the part of lambda applicability that a return-type-only
+    // preflight cannot see: two overloads can both accept an implicitly typed lambda's parameter
+    // count and return shape while only one gives a callable type to a body parameter, as with
+    // `next()` for `Func<Task>` versus `RequestDelegate`.
+    private func ContextualLambdaDelegateCallsAreApplicable(node: int): bool {
+        kind := _nodes.Kind(node)
+        if (ColumnarLambdaNodeFacts.IsLambda(kind) || kind == ColumnarStatementNodeKind.LocalFunctionDeclaration) {
+            return true
+        }
+
+        if (kind == ColumnarExpressionNodeKind.CallExpression && _nodes.ChildCount(node) > 0) {
+            callee := UnwrapParenthesizedNode(Child(node, 0))
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression) {
+                name := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+                if (_paramOrdinals.ContainsKey(name)) {
+                    let delegateType: System.Type? = null
+                    if (_paramTypes.TryGetValue(name, out delegateType) && delegateType != null && IsInvocableDelegateType(delegateType)) {
+                        let invoke: System.Reflection.MethodInfo = null
+                        let invokeParameters: System.Type[] = null
+                        let invokeReturn: System.Type = null
+                        if (!TryResolveDelegateInvocation(delegateType, out invoke, out invokeParameters, out invokeReturn) || invoke == null || invokeParameters == null || invokeReturn == null || _nodes.ChildCount(node) - 1 != invokeParameters.Length) {
+                            return false
+                        }
+                        for argumentIndex := 0; argumentIndex < invokeParameters.Length; argumentIndex++ {
+                            if (!CanDeclaredCallArgumentMatch(Child(node, argumentIndex + 1), invokeParameters[argumentIndex], true)) {
+                                return false
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for childIndex := 0; childIndex < _nodes.ChildCount(node); childIndex++ {
+            if (!ContextualLambdaDelegateCallsAreApplicable(Child(node, childIndex))) {
                 return false
             }
         }
@@ -26794,7 +26876,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
 
-            property := initializedType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
+            property := ReflectedMemberLookup.FindProperty(initializedType, memberName, BindingFlags.Public | BindingFlags.Instance)
             if (property != null) {
                 setter := property.GetSetMethod()
                 if (setter == null || setter.IsStatic || setter.GetParameters().Length != 1) {
@@ -26954,6 +27036,40 @@ sealed class ColumnarIlEmitter {
             return false
         }
         return EmitContextualDirectCall(callIdx, candidate, argCount, OpCodes.Callvirt, out columnarResolvedType)
+    }
+
+    // A SOURCE TYPE'S INSTANCE GROUP IS NOT REFLECTABLE while its TypeBuilder is open. The direct-call
+    // planner has already tried every instance form it can type; for a contextual lambda it may yield
+    // an inapplicable group to this emitter. Re-run the source group's exact-arity overload choice
+    // before considering extensions, so an applicable source instance method keeps C# precedence.
+    private func TryEmitContextualSourceInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (!HasContextualDelegateArgument(callIdx, argCount)) {
+            return false
+        }
+        let receiverBuilder: TypeBuilder? = receiverType as TypeBuilder
+        if (receiverBuilder == null) {
+            return false
+        }
+        definition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, receiverType)
+        if (definition == null) {
+            return false
+        }
+        let selected: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+        if (!TrySelectInstanceMethodOnChain(definition, member, callIdx, out selected) || selected == null || selected.Generics != null || !CanDeclaredCallArgumentsMatch(callIdx, selected.ParamTypes, true, selected.ParamModifierKinds)) {
+            return false
+        }
+        receiverTemp := _il.DeclareLocal(receiverType)
+        _il.Emit(OpCodes.Stloc, receiverTemp)
+        _il.Emit(definition.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, receiverTemp)
+        for argument := 0; argument < argCount; argument++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, argument + 1), selected.ParamTypes[argument], true, selected.ParamModifierKinds[argument])) {
+                return false
+            }
+        }
+        _il.Emit(definition.IsReference ? OpCodes.Callvirt : OpCodes.Call, selected.Builder)
+        columnarResolvedType = selected.ReturnType
+        return true
     }
 
     private func TryEmitContextualStaticCall(callIdx: int, ownerType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
@@ -27244,6 +27360,10 @@ sealed class ColumnarIlEmitter {
         // already keeps one tier above. A TYPE PARAMETER's instance members are the ones its
         // constraint declares, so that arm answers the same question and keeps the same precedence.
         if (TryEmitContextualInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        if (TryEmitContextualSourceInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 
@@ -28355,7 +28475,7 @@ sealed class ColumnarIlEmitter {
         let reflectedProperty: System.Reflection.PropertyInfo? = null
         try {
             reflectedField = receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance)
-            reflectedProperty = receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+            reflectedProperty = ReflectedMemberLookup.FindProperty(receiverType, member, BindingFlags.Public | BindingFlags.Instance)
         } catch {
             return false
         }
@@ -32040,13 +32160,13 @@ sealed class ColumnarIlEmitter {
             if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(externalInterface)) {
                 continue
             }
-            externalSlot := externalInterface.GetProperty(memberName)
+            externalSlot := ReflectedMemberLookup.FindProperty(externalInterface, memberName)
             if (externalSlot != null) {
                 slotType = externalSlot.PropertyType
                 return true
             }
             for inheritedInterface in externalInterface.GetInterfaces() {
-                inheritedSlot := inheritedInterface.GetProperty(memberName)
+                inheritedSlot := ReflectedMemberLookup.FindProperty(inheritedInterface, memberName)
                 if (inheritedSlot != null) {
                     slotType = inheritedSlot.PropertyType
                     return true
@@ -32079,7 +32199,7 @@ sealed class ColumnarIlEmitter {
             if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(externalInterface)) {
                 continue
             }
-            externalSlot := externalInterface.GetProperty(memberName)
+            externalSlot := ReflectedMemberLookup.FindProperty(externalInterface, memberName)
             if (externalSlot != null) {
                 slotType = externalSlot.PropertyType
                 return true

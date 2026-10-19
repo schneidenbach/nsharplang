@@ -263,7 +263,7 @@ class ColumnarGenericTypeReceiverFacts {
 
         if IsBuilderBoundConstruction(receiverType) {
             definition := receiverType.GetGenericTypeDefinition()
-            openProperty := definition.GetProperty(memberName, BindingFlags.Public | BindingFlags.Static)
+            openProperty := ReflectedMemberLookup.FindProperty(definition, memberName, BindingFlags.Public | BindingFlags.Static)
             if openProperty == null {
                 return false
             }
@@ -284,7 +284,7 @@ class ColumnarGenericTypeReceiverFacts {
             return true
         }
 
-        property := receiverType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Static)
+        property := ReflectedMemberLookup.FindProperty(receiverType, memberName, BindingFlags.Public | BindingFlags.Static)
         if property == null {
             return false
         }

@@ -179,7 +179,7 @@ class ColumnarExternalStaticMemberPlanner {
             }
 
             if selection.Kind == ColumnarExternalStaticMemberKind.Property {
-                property := declaringType.GetProperty(selection.MemberName)
+                property := ReflectedMemberLookup.FindProperty(declaringType, selection.MemberName)
                 propertyType := typeof(object)
                 if property != null {
                     propertyType = property.PropertyType
@@ -445,7 +445,7 @@ class ColumnarExternalStaticMemberPlanner {
                 return true
             }
 
-            property := ownerType.GetProperty(memberName, memberFlags)
+            property := ReflectedMemberLookup.FindProperty(ownerType, memberName, memberFlags)
             if property != null {
                 getter := property.GetGetMethod(nonPublicIsReachable)
                 if getter != null && InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfMethod(getter), getter.DeclaringType) && getter.IsStatic && getter.DeclaringType == ownerType && getter.GetParameters().Length == 0 {

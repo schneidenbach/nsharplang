@@ -653,7 +653,9 @@ class Client {
 The constructor is chosen by ordinary overload resolution over the constructors the class declares;
 named arguments bind to its own or its base's settable members. An attribute may derive from another
 attribute, in this program or in a referenced assembly, and its constructor may chain to the base's
-with arguments (`constructor(text: string): base(text) {}`) in either world.
+with arguments (`constructor(text: string): base(text) {}`) in either world. If a derived attribute
+hides a base property with the same name, the named argument binds the derived property, following
+C# member lookup.
 
 `[AttributeUsage(...)]` on the declaration is honored, and it is inherited by derived attributes:
 

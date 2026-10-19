@@ -148,7 +148,8 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
         context,
         postconditions,
         new AnalyzerTerminatingCalls(),
-        nullFlow
+        nullFlow,
+        extensionResolution
     )
     return new CallWalkHarness(owner, errors, scopes, ambient)
 }
