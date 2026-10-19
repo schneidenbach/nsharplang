@@ -624,7 +624,9 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     // `ColumnarAutoPropertyEmitter`). The follow-ups then added six roots and 23 files: in-project
     // defaults (two roots), anonymous objects, the ASP.NET test-host frameworks, generic params-tail
     // extensions (two roots), virtual auto-properties and the doctor install-root contract.
-    assert expectedRoots.Count == 244, "repository project-root census changed"
+    // nullable-with adds four roots and five source files across nullable-conversions,
+    // record-with-external, record-with-library and record-with-derived-library.
+    assert expectedRoots.Count == 248, "repository project-root census changed"
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
