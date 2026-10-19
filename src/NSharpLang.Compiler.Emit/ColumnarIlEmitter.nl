@@ -24460,7 +24460,7 @@ sealed class ColumnarIlEmitter {
         if (receiverBuilder != null) {
             def := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, receiverBuilder)
             let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
-            if (def != null && TrySelectInstanceMethodOnChain(def, member, callIdx, out method)) {
+            if (def != null && TrySelectInstanceMethodOnChain(def, member, callIdx, out method) && method != null && CanDeclaredCallArgumentsMatch(callIdx, method.ParamTypes, true, method.ParamModifierKinds)) {
                 if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(method)) {
                     return false
                 }
@@ -26450,6 +26450,40 @@ sealed class ColumnarIlEmitter {
         return EmitContextualDirectCall(callIdx, candidate, argCount, OpCodes.Callvirt, out columnarResolvedType)
     }
 
+    // A SOURCE TYPE'S INSTANCE GROUP IS NOT REFLECTABLE while its TypeBuilder is open. The direct-call
+    // planner has already tried every instance form it can type; for a contextual lambda it may yield
+    // an inapplicable group to this emitter. Re-run the source group's exact-arity overload choice
+    // before considering extensions, so an applicable source instance method keeps C# precedence.
+    private func TryEmitContextualSourceInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (!HasContextualDelegateArgument(callIdx, argCount)) {
+            return false
+        }
+        let receiverBuilder: TypeBuilder? = receiverType as TypeBuilder
+        if (receiverBuilder == null) {
+            return false
+        }
+        definition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, receiverType)
+        if (definition == null) {
+            return false
+        }
+        let selected: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+        if (!TrySelectInstanceMethodOnChain(definition, member, callIdx, out selected) || selected == null || selected.Generics != null || !CanDeclaredCallArgumentsMatch(callIdx, selected.ParamTypes, true, selected.ParamModifierKinds)) {
+            return false
+        }
+        receiverTemp := _il.DeclareLocal(receiverType)
+        _il.Emit(OpCodes.Stloc, receiverTemp)
+        _il.Emit(definition.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, receiverTemp)
+        for argument := 0; argument < argCount; argument++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, argument + 1), selected.ParamTypes[argument], true, selected.ParamModifierKinds[argument])) {
+                return false
+            }
+        }
+        _il.Emit(definition.IsReference ? OpCodes.Callvirt : OpCodes.Call, selected.Builder)
+        columnarResolvedType = selected.ReturnType
+        return true
+    }
+
     private func TryEmitContextualStaticCall(callIdx: int, ownerType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         let candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
@@ -26738,6 +26772,10 @@ sealed class ColumnarIlEmitter {
         // already keeps one tier above. A TYPE PARAMETER's instance members are the ones its
         // constraint declares, so that arm answers the same question and keeps the same precedence.
         if (TryEmitContextualInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        if (TryEmitContextualSourceInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 

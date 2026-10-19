@@ -2599,11 +2599,10 @@ reaches `UseExtensions.Use` although `WebApplication` declares an instance
 `Use(Func<RequestDelegate, RequestDelegate>)`. The candidates are project `this` functions and
 `[Extension]` methods from imported namespaces of referenced assemblies. If nothing binds,
 [NL402](./errors/NL402.md) lists the instance and the extension overloads that were considered.
-An extension is not tried after a **project-declared** class's own instance method rejects the
-call; that call is reported against the instance method. A `this` function declared in your own
-project whose name matches an instance overload of a referenced type is accepted by the analyzer,
-but the code generator does not bind it yet when the instance overload takes the same number of
-arguments (it stops with [NL103](./errors/NL103.md)); call it as a plain function, or rename it.
+For a **project-declared** class's own single instance method, a written lambda's parameter count and
+explicit parameter types are checked before the lambda body is target-typed; when that shape rejects
+the instance method, an applicable extension is tried. Other argument mismatches on a single
+project-declared instance method are still reported against that method.
 
 ### Writing the type arguments out
 

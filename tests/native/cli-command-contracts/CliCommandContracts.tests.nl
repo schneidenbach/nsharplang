@@ -1329,6 +1329,29 @@ test "nlc check text errors preserve diagnostics, the blank separator, and the f
     }
 }
 
+test "nlc check lists extension overloads after every instance overload rejects the call" {
+    directory := NewTempDirectory("nlc-check-extension-overloads")
+    try {
+        WriteCheckProject(
+            directory,
+            "CheckExtensionOverloads",
+            "import System.Collections.Generic\nimport System.Linq\n\nfunc Invalid(values: List<int>): bool => values.Contains(20, EqualityComparer<string>.Default)\n"
+        )
+
+        run := NlcIn(directory, "check --text")
+
+        assert run.ExitCode == 1
+        assert run.Stdout.Trim().Length == 0
+        assert run.Stderr.Contains("NL402")
+        assert run.Stderr.Contains("Available overloads:")
+        assert run.Stderr.Contains("Contains(int item): bool")
+        assert run.Stderr.Contains("IEqualityComparer<TSource")
+        assert run.Stderr.EndsWith(Environment.NewLine)
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 test "nlc check accepts an empty project and the positional project argument" {
     emptyDirectory := NewTempDirectory("nlc-check-empty")
     try {

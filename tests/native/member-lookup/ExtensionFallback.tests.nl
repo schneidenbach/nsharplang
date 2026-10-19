@@ -20,3 +20,12 @@ test "an applicable instance overload still wins over an extension of the same n
     assert instanceByLambdaShape(sampleValues()) == 2
     assert instanceByDelegate(sampleValues()) == 20
 }
+
+test "a typed lambda rejects the instance delegate overload and selects the receiver-style extension" {
+    target := new DelegateTarget()
+    assert delegateExtensionCall(target) == "extension:extension"
+}
+
+test "an applicable instance delegate overload wins over the matching receiver-style extension" {
+    assert delegateInstanceCall(new DelegateTarget()) == "instance:42"
+}

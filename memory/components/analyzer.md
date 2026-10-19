@@ -3107,6 +3107,10 @@ mistyped local is NL202), plus `tests/native/census-lambda-inference/CensusExter
   (`DbContextOptionsBuilder<T>.Options`). Every property lookup by a source-written name goes through
   `ReflectedMemberLookup.FindProperty` (Compiler.Model): the binder's own answer first, and only on
   ambiguity a `DeclaredOnly` walk from the type outward where the most derived declaration wins.
+  `ReflectedMemberLookup.tests.nl` constructs the ambiguous base/derived shape with the BCL
+  `System.Reflection.Emit` API, without an EF dependency; `tests/native/external-hidden-members` then
+  verifies the generic EF Core surface end-to-end. N# source cannot currently emit a same-name hidden
+  property shape, so the metadata fixture stays in the compiler-owned resolver tests.
   Fields and events do not throw (the runtime keeps the most derived), so they stay on `GetField` /
   `GetEvent`. Fixed-name reads on compiler-known types (`Nullable<T>.HasValue`, `Task.CompletedTask`) were
   left on `GetProperty`. An uncaught exception from any such lookup still surfaces as
@@ -3118,16 +3122,21 @@ mistyped local is NL202), plus `tests/native/census-lambda-inference/CensusExter
   the instance group is exhausted: it asks `AnalyzerExtensionMethodResolution.TryResolveExtensionMethod`
   for the receiver (project `this` functions, then referenced `[Extension]` methods) and re-enters
   `Dispatch` (phase 13) with that as the callee type. The instance candidates stay on
-  `CandidateMethods`, so the NL402 listing includes both. A project-declared class's own instance
-  method is a source-call (`FunctionTypeInfo`) path that reports directly instead of failing a bind,
-  so it has no fallback. The emitter's selection is separate: `IsContextualLambdaTarget` now requires
-  the lambda to write the delegate's parameter COUNT (and any parameter type it writes to equal the
-  delegate's) via `LambdaParametersFitDelegate`, which is what lets the two `UseExtensions.Use`
-  overloads and the instance `Use` be told apart; `tests/native/aspnetcore-hosted-services` runs the
-  inline middleware form. KNOWN GAP: a project-declared static-class extension named like a
-  same-arity instance overload of a referenced type passes analysis but the direct-call planner treats
-  the inapplicable instance overload as terminal (`ColumnarOrdinaryRuntimeDirectCallResolver`
-  `Rejected`), so emission declines at `emit.return.expression` / `emit.call.instance-member`.
+  `CandidateMethods`, so the NL402 listing includes both. The direct-call planner now continues from a
+  rejected instance group to extension lookup, after optional and `params` instance forms; when a
+  contextual lambda cannot be typed by that plan, it yields the call to the emitter's contextual
+  instance/extension selection. For a single source instance function, `AnalyzerCallAnalysis` checks
+  argument placement and the lambda's written parameter count/types before target-typing it, then
+  retries source extension lookup when that shape rejects the instance signature. When one source
+  extension remains applicable, it returns to ordinary argument analysis so the chosen lambda body is
+  checked against that signature. Other non-lambda argument mismatches on a single source instance
+  function still report against that method. The emitter's `LambdaParametersFitDelegate` requires the
+  lambda to write the delegate's parameter COUNT and requires each written parameter type to equal
+  the delegate's. That lets the two `UseExtensions.Use` overloads and the instance `Use` be told apart.
+  `tests/native/member-lookup` pins a no-ASP.NET receiver-style extension pair and the applicable
+  instance control, `tests/native/cli-command-contracts` pins extension signatures in NL402, and
+  `tests/native/aspnetcore-hosted-services` runs the typed inline middleware form against ASP.NET's
+  real `IApplicationBuilder.Use` extension overloads.
 * **Bare calls with omitted defaults** (GitHub #238). `ColumnarDirectCallPlanner.TryAppendCall`'s entry
   gate now admits a bare name whose current-type declaration takes MORE parameters than written
   (`HasBareDeclarationBeyondArity`), and `TryAppendSparseNamedBareMemberCall` places the written

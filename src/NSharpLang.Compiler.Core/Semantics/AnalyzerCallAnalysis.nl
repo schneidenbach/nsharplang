@@ -97,6 +97,7 @@ class CallAnalysisState {
     GroupFunctions: List<FunctionTypeInfo>?
     BoundFunction: FunctionTypeInfo?
     ReceiverType: TypeInfo?
+    SourceInstanceExtensionFallbackTried: bool
     ParameterStartIndex: int
     ArgumentIndex: int
     EscapeIndex: int
@@ -190,6 +191,7 @@ class CallAnalysisState {
         GroupFunctions = null
         BoundFunction = null
         ReceiverType = null
+        SourceInstanceExtensionFallbackTried = false
         ParameterStartIndex = 0
         ArgumentIndex = 0
         EscapeIndex = 0
@@ -510,6 +512,10 @@ class AnalyzerCallAnalysis {
 
         if phase == 13 {
             return Dispatch(state)
+        }
+
+        if phase == 40 {
+            return ResolveSourceInstanceExtensionFallback(state)
         }
 
         if phase >= 30 && phase <= 36 {
@@ -2050,7 +2056,13 @@ class AnalyzerCallAnalysis {
             state.ParameterStartIndex = AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
             functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(functionType, call)
             placement: int[] = new int[0]
-            if syntheticCallReporter.TryBindAndReport(functionType, functionName, call, out placement, state.ParameterStartIndex, false) {
+            placementMatched := syntheticCallReporter.TryBindAndReport(functionType, functionName, call, out placement, state.ParameterStartIndex, false)
+            if IsSourceInstanceLambdaCall(functionType, call) && !state.SourceInstanceExtensionFallbackTried && SourceCallRejectsWrittenLambda(functionType, call, placementMatched, placement) {
+                state.SourceInstanceExtensionFallbackTried = true
+                return AcquireReceiver(state, true, 40)
+            }
+
+            if placementMatched {
                 state.SyntheticParameterIndexByArgument = placement
             }
 
@@ -2540,6 +2552,61 @@ class AnalyzerCallAnalysis {
         return null
     }
 
+    // A source instance member with a lambda argument is an overload candidate until the lambda's
+    // written parameter types have been checked against its delegate. Keeping a single member in the
+    // group path leaves the lambda un-targeted during candidate scoring; if the instance signature
+    // rejects it, C# then offers the applicable extension methods for the same receiver.
+    static func IsSourceInstanceLambdaCall(functionType: FunctionTypeInfo, call: CallExpression): bool {
+        memberAccess := call.Callee as MemberAccessExpression
+        if memberAccess == null || string.IsNullOrEmpty(functionType.SourceContainingType) || functionType.SourceIsStatic || functionType.SourceHasReceiverParameter {
+            return false
+        }
+
+        for argument in call.Arguments {
+            if argument.Value as LambdaExpression != null {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    func SourceCallRejectsWrittenLambda(functionType: FunctionTypeInfo, call: CallExpression, placementMatched: bool, placement: int[]): bool {
+        if !placementMatched {
+            return true
+        }
+
+        genericBindings: Dictionary<string, TypeInfo>? = null
+        typeParameters := functionType.TypeParameters
+        if typeParameters != null && typeParameters.Count > 0 {
+            typeArguments := call.TypeArguments
+            if typeArguments != null && typeArguments.Count >= typeParameters.Count {
+                genericBindings = syntheticCallWalk.InferGenericBindings(functionType, call, new List<TypeInfo>(), null)
+            }
+        }
+
+        argumentIndex := 0
+        while argumentIndex < call.Arguments.Count {
+            currentIndex := argumentIndex
+            argumentIndex = argumentIndex + 1
+            lambda := call.Arguments[currentIndex].Value as LambdaExpression
+            if lambda == null {
+                continue
+            }
+
+            if currentIndex >= placement.Length {
+                return true
+            }
+
+            expectedType := syntheticCallValidator.GetExpectedArgumentType(functionType, call, currentIndex, placement[currentIndex], genericBindings)
+            if expectedType != null && !syntheticCallWalk.LambdaParametersFitDelegate(lambda, expectedType, functionType.TypeParameters) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     // A NEWTYPE CONSTRUCTION IS ONE ARGUMENT ASSIGNABLE TO THE UNDERLYING TYPE, and the arity check
     // comes first: an argument-type report against a construction the user did not even spell with
     // one argument would name the wrong problem.
@@ -2695,6 +2762,56 @@ class AnalyzerCallAnalysis {
         state.Result = syntheticCallValidator.ResolveReturnType(boundFunction, state.Call, state.ArgTypes, state.ReceiverType)
         state.Phase = 99
         return null
+    }
+
+    // C# offers extensions after an instance candidate is inapplicable. The source-function path can
+    // identify an explicitly typed lambda rejection before target-typing its body; read the receiver
+    // once, ask the same extension resolver as member lookup, and restart argument scheduling with
+    // the extension surface when one is available.
+    func ResolveSourceInstanceExtensionFallback(state: CallAnalysisState): CallAnalysisRequest? {
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        receiverType := state.ReceiverType
+        if memberAccess == null || receiverType == null {
+            state.Phase = 3
+            return null
+        }
+
+        fallback := extensionMethodResolution.TryResolveExtensionMethod(receiverType, memberAccess.MemberName, ambient.CurrentTypeName)
+        if !BuiltInTypes.IsUnknown(fallback) {
+            state.CalleeType = SelectOnlyApplicableSourceExtension(fallback, state.Call)
+        }
+
+        state.Phase = 3
+        return null
+    }
+
+    // When written lambda parameters leave exactly one source extension candidate applicable, keep
+    // it as a single function so the normal argument walk target-types and analyzes the lambda body.
+    // A remaining overload set stays a group and retains every candidate for ordinary resolution and
+    // diagnostics.
+    func SelectOnlyApplicableSourceExtension(fallback: TypeInfo, call: CallExpression): TypeInfo {
+        group := fallback as NSharpMethodGroupInfo
+        if group == null {
+            return fallback
+        }
+
+        functions := NSharpMethodGroupInfoFactory.GetFunctions(group)
+        applicable := new List<FunctionTypeInfo>()
+        for candidate in functions {
+            parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(candidate, call)
+            functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(candidate, call)
+            placement: int[] = new int[0]
+            placementMatched := syntheticCallReporter.TryBindAndReport(candidate, functionName, call, out placement, parameterStartIndex, false)
+            if placementMatched && !SourceCallRejectsWrittenLambda(candidate, call, placementMatched, placement) {
+                applicable.Add(candidate)
+            }
+        }
+
+        if applicable.Count == 1 {
+            return applicable[0]
+        }
+
+        return fallback
     }
 
     // N# source overload groups are first scored from an untargeted argument pass. A generic-union

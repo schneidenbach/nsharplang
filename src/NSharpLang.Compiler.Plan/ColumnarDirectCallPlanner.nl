@@ -3355,9 +3355,33 @@ class ColumnarDirectCallPlanner {
 
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             if !sourceInstance.IsSelected {
-                if HasExcludedInstanceOwnerAtArity(sourceDefinition, receiverType, memberName, argumentTypes.Length) {
+                fallbackScope := ColumnarBindingScopeFacts.Of(nodes)
+                if fallbackScope != null {
+                    extension := ColumnarExtensionMethodSelection.None()
+                    if fallbackScope.TryResolveExtensionMethod(receiverType, memberName, argumentTypes, argumentFacts, out extension) && extension.IsSelected {
+                        if !AppendExtensionSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, extension, out resultType) {
+                            plan.Rollback(checkpoint)
+                            return false
+                        }
+
+                        ownership = ColumnarDirectCallOwnership.Planned
+                        return true
+                    }
+                }
+
+                if TryAppendReceiverStyleSiblingCall(nodes, source, callNode, receiverNode, memberName, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, receiverType, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+                    return true
+                }
+
+                // Preserve terminal ownership for ordinary mismatches. The emitter needs the whole
+                // call only when a contextual lambda can reject the instance signature and bind to
+                // an extension, or when the source declaration belongs to an excluded call shape.
+                if (HasContextualLambdaArgument(nodes, callNode) || HasExcludedInstanceOwnerAtArity(sourceDefinition, receiverType, memberName, argumentTypes.Length)) {
                     ownership = ColumnarDirectCallOwnership.NotOwned
                     legacyWholeSubtreePlanning = true
+                } else {
+                    ownership = ColumnarDirectCallOwnership.OwnedRejected
+                    legacyWholeSubtreePlanning = false
                 }
                 plan.Rollback(checkpoint)
                 return false
@@ -3417,19 +3441,9 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        // No instance member of this name bound at the supplied arity. Two fallbacks remain before
-        // the call is yielded, both terminal in N#: (1) a trailing-optional instance method on the
-        // receiver's own type (`app.Run()` -> WebApplication.Run(string url = null),
-        // `service.GetSymbols(snapshot, file)` -> `GetSymbols(snapshot, file, kind = null)`); (2) an
-        // external extension method exported by a referenced assembly
-        // (`builder.Services.AddControllers()`).
-        //
-        // THE TWO FALLBACKS DIFFER ON OWNED-REJECTED, AND THE DIFFERENCE IS PRECEDENCE. The optional
-        // fill selects an instance member of the receiver's OWN type, so it runs whatever the
-        // exact-arity tier said — and "a method of this name exists but no overload binds at this
-        // arity" is exactly the state an omitted defaulted argument produces, which is why gating it
-        // on a NOT-owned-rejected result made every such call decline. Extension lookup keeps the
-        // gate: an extension may only be reached when the receiver has no matching instance method.
+        // No applicable instance member has bound in normal form. A trailing-optional instance
+        // method is tried next, followed by params expansion; both are still instance candidates and
+        // therefore precede extension lookup under C# overload resolution.
         optionalInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(receiverType, memberName, argumentTypes, argumentFacts, false)
 
         if optionalInstance.IsSelected {
@@ -3443,26 +3457,9 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        if !ordinaryInstance.IsOwnedRejected {
-            if scope != null {
-                extension := ColumnarExtensionMethodSelection.None()
-                if scope.TryResolveExtensionMethod(receiverType, memberName, argumentTypes, argumentFacts, out extension) && extension.IsSelected {
-                    ownership = ColumnarDirectCallOwnership.OwnedRejected
-                    if !AppendExtensionSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, extension, out resultType) {
-                        plan.Rollback(checkpoint)
-                        return false
-                    }
-
-                    ownership = ColumnarDirectCallOwnership.Planned
-                    return true
-                }
-            }
-        }
-
-        // THE LAST TIER, for an instance receiver: the call site packs a `params` tail. It runs after
-        // the extension lookup as well, because an extension is a NORMAL-form binding on a method the
-        // receiver's own type does not declare, and preferring a packed instance call to it would
-        // change which member a written call reaches.
+        // THE LAST INSTANCE TIER: the call site packs a `params` tail. It runs before extension
+        // lookup, since an applicable expanded instance method still belongs to the receiver's
+        // member group and wins over extensions.
         expandedInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
 
         if expandedInstance.IsSelected {
@@ -3476,17 +3473,55 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        if !ordinaryInstance.IsOwnedRejected && TryAppendReceiverStyleSiblingCall(nodes, source, callNode, receiverNode, memberName, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, receiverType, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+        // No applicable instance member remains. A group that exists but rejected its arguments
+        // must not suppress this lookup: that is precisely when C# considers extension methods.
+        // Contextual lambdas may not have a standalone argument type yet; if ordinary extension
+        // resolution cannot close them here, mark the call for the emitter's contextual pass below.
+        if scope != null {
+            extension := ColumnarExtensionMethodSelection.None()
+            if scope.TryResolveExtensionMethod(receiverType, memberName, argumentTypes, argumentFacts, out extension) && extension.IsSelected {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                if !AppendExtensionSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, extension, out resultType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+        }
+
+        // No instance member of this name bound at the supplied arity. The call is yielded to the
+        // remaining receiver-style sibling and emitter-owned contextual tiers.
+
+        if TryAppendReceiverStyleSiblingCall(nodes, source, callNode, receiverNode, memberName, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, receiverType, out ownership, out legacyWholeSubtreePlanning, out resultType) {
             return true
         }
 
         if ordinaryInstance.IsOwnedRejected {
-            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if HasContextualLambdaArgument(nodes, callNode) {
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
+            } else {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                legacyWholeSubtreePlanning = false
+            }
         } else {
             legacyWholeSubtreePlanning = true
         }
 
         plan.Rollback(checkpoint)
+        return false
+    }
+
+    static func HasContextualLambdaArgument(nodes: ColumnarNodeTable, callNode: int): bool {
+        argumentNode := 1
+        while argumentNode < nodes.ChildCount(callNode) {
+            if ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(nodes.Child(callNode, argumentNode))) {
+                return true
+            }
+            argumentNode += 1
+        }
         return false
     }
 
