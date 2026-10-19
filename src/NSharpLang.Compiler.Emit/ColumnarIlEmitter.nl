@@ -85,7 +85,6 @@ sealed class ColumnarIlEmitter {
     private readonly _asyncReturnType: Type?
     private readonly _asyncResultType: Type?
     private readonly _asyncReturnsValueTask: bool
-    private readonly _asyncBareReturnDeclines: bool
     private _finallyDepth: int
     // How many `catch` HANDLER BODIES this emitter is writing inside, and the `_finallyDepth` the
     // innermost of them opened at. IL `rethrow` is valid only in a handler's own funclet, so a bare
@@ -173,9 +172,6 @@ sealed class ColumnarIlEmitter {
     // for `main`). _returnType holds the INNER declared type so every return-value check works
     // unchanged; returns WRAP before storing into the protected slot; the whole body runs inside
     // the fault guard (EmitBody) whose catch converts the exception to a faulted task.
-
-    // True when the async unit-ness came from an EXPLICIT `: Task`/`: ValueTask` annotation — a
-    // bare `return` is then a pipeline NL305 (the unit-task exemption covers fall-through only).
 
     // Set while a FINALLY handler's statements emit: control transfers OUT of a finally (return, or
     // break/continue to a loop outside it) are illegal IL. The analyzer now rejects those shapes with
@@ -541,7 +537,7 @@ sealed class ColumnarIlEmitter {
     // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
     // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
 
-    private constructor(context: ColumnarEmitContext, nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, typeParameters: IReadOnlyDictionary<string, Type>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null) {
+    private constructor(context: ColumnarEmitContext, nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null) {
         // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
@@ -570,7 +566,6 @@ sealed class ColumnarIlEmitter {
         _isConstructorBody = isConstructorBody
         _isSynthesizedInitializerBody = isSynthesizedInitializerBody
         _asyncReturnType = asyncReturnType
-        _asyncBareReturnDeclines = asyncBareReturnDeclines
         if (asyncReturnType != null) {
             if (returnType == ColumnarTypeOfPlanner.RequiredVoidType()) {
                 _asyncResultType = null
@@ -1698,7 +1693,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
                 asyncReturnType,
-                false,
                 placement.TypeParametersForBody,
                 null,
                 null
@@ -1786,7 +1780,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             asyncReturnType,
-            false,
             null,
             null,
             null
@@ -1870,7 +1863,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
-            false,
             null,
             null,
             null
@@ -2484,7 +2476,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
-            false,
             placement.TypeParametersForBody,
             null,
             null
@@ -4774,7 +4765,6 @@ sealed class ColumnarIlEmitter {
             null,
             null,
             null,
-            false,
             def.GenericParameters,
             null,
             null
@@ -5586,9 +5576,6 @@ sealed class ColumnarIlEmitter {
                     let sGenericBuilder: System.Reflection.Emit.MethodBuilder? = null
                     sTypeResolution := typeResolution
                     if (m.TypeParamNames.Length > 0) {
-                        if (m.IsAsync) {
-                            return DeclineStatic("emit.declaration.method-return", "generic async static method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
-                        }
                         if (ColumnarFunctionModifierFlags.HasNativeImportModifier(m.ModifierFlags)) {
                             return DeclineStatic("emit.declaration.method-generic", "native-import method '" + structs[s].Name + "." + m.Name + "' cannot declare type parameters", structs[s].Name, -1, 0)
                         }
@@ -5607,7 +5594,9 @@ sealed class ColumnarIlEmitter {
                     let sReturn: System.Type = null
                     sAsyncWrappedReturn: Type? = null
                     if (m.IsAsync) {
-                        if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn)) {
+                        sAsyncScope := sTypeParamMap ?? def.GenericParameters
+                        sAsyncShapeResolved := ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, sAsyncScope, sTypeResolution.Enums, sTypeResolution.Structs, sTypeResolution.Unions, out sReturn, out sAsyncWrappedReturn) && (sAsyncScope == null || sReturn == ColumnarTypeOfPlanner.RequiredVoidType() || IsSupportedGenericSignatureValueType(sReturn))
+                        if (!sAsyncShapeResolved) {
                             return DeclineStatic("emit.declaration.method-return", "async static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                     } else {
@@ -5746,9 +5735,6 @@ sealed class ColumnarIlEmitter {
                 mTypeResolution := typeResolution
                 methodOverride := declarationPlan.MethodOverrides.Methods[s][mi]
                 if (m.TypeParamNames.Length > 0) {
-                    if (m.IsAsync && !ColumnarIteratorPlanner.ContainsYield(m.BodyNodes, m.BodyRoot)) {
-                        return DeclineStatic("emit.declaration.method-return", "generic async method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
-                    }
                     // A GENERIC slot's MethodImpl row is written from the name and arity BEFORE the
                     // signature exists (see `DeclaresGenericMethodSlot`), and that decision cannot be
                     // made from a qualified name — so an explicit implementation of a generic interface
@@ -5789,8 +5775,12 @@ sealed class ColumnarIlEmitter {
                             return DeclineStatic("emit.declaration.method-return", "async iterator element type '" + asyncElementCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                         mReturn = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
-                    } else if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn)) {
-                        return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    } else {
+                        mAsyncScope := mTypeParamMap ?? def.GenericParameters
+                        mAsyncShapeResolved := ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mAsyncScope, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn) && (mAsyncScope == null || mReturn == ColumnarTypeOfPlanner.RequiredVoidType() || IsSupportedGenericSignatureValueType(mReturn))
+                        if (!mAsyncShapeResolved) {
+                            return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        }
                     }
                 } else {
                     if (m.ReturnCanonical == "void") {
@@ -6770,12 +6760,13 @@ sealed class ColumnarIlEmitter {
                 returnType = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
             } else {
                 if (fn.IsAsync) {
-                    // ASYNC (the sync-lowering mirror): generic async declines; the declared return
-                    // resolves to the INNER type and the METHOD signature wraps it — ValueTask(/T) by
-                    // default, Task(/T) for `main` (the legacy emitter's entry-point rule), explicit task-like
-                    // annotations keep their declared family.
+                    // ASYNC (the sync-lowering mirror): the declared return resolves to the INNER type and
+                    // the METHOD signature wraps it — ValueTask(/T) by default, Task(/T) for `main` (the
+                    // legacy emitter's entry-point rule), explicit task-like annotations keep their
+                    // declared family. A generic async FREE function is not modeled yet; generic async
+                    // METHODS are (see `TryComputeAsyncReturnShapeInScope`).
                     if (fn.TypeParamNames.Length > 0) {
-                        return false
+                        return DeclineStatic("emit.declaration.function-return", "generic async free function is not modeled for '" + fn.Name + "'", fn.Name, -1, 0)
                     }
                     if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn)) {
                         return DeclineStatic("emit.declaration.function-return", "async function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)
@@ -7077,11 +7068,6 @@ sealed class ColumnarIlEmitter {
                 fnParamTupleNames,
                 null,
                 asyncWrappedByFunc[f],
-                match fn.ReturnCanonical {
-                    "Task" => true,
-                    "ValueTask" => true,
-                    _ => false
-                },
                 bodyTypeParamMap,
                 localFunctionDisplay,
                 genericLocalFuncs
@@ -7140,7 +7126,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                false,
                 job.Item1.GenericParameters,
                 null,
                 null
@@ -7313,11 +7298,6 @@ sealed class ColumnarIlEmitter {
                 methodJobParamTupleNames,
                 null,
                 job.Item6,
-                match job.Item2.ReturnCanonical {
-                    "Task" => true,
-                    "ValueTask" => true,
-                    _ => false
-                },
                 memberBodyTypeParameters,
                 memberLocalFunctionClosure,
                 memberGenericLocalFuncs
@@ -7392,7 +7372,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                false,
                 staticInitializerDef.GenericParameters,
                 null,
                 null
@@ -7462,7 +7441,6 @@ sealed class ColumnarIlEmitter {
                 ctorJobParamTupleNames,
                 null,
                 null,
-                false,
                 job.Struct.GenericParameters,
                 null,
                 null
@@ -7731,7 +7709,6 @@ sealed class ColumnarIlEmitter {
                     null,
                     null,
                     null,
-                    false,
                     null,
                     null,
                     null
@@ -8032,7 +8009,7 @@ sealed class ColumnarIlEmitter {
         visibleLocalFuncNames: List<string>
     ): bool {
         if (localFn.IsAsync) {
-            return DeclineStatic("emit.local-function.generic-async", "a generic local function cannot be `async` — the state machine has no type arguments to carry", fn.Name + "." + localFn.Name, -1, 0)
+            return DeclineStatic("emit.local-function.generic-async", "a generic `async` local function is not modeled yet — declare the generic async function as a method instead", fn.Name + "." + localFn.Name, -1, 0)
         }
         runsOnDisplay := closure != null && closure.IsDisplayMethod(localFn.Name)
         runsOnEnclosingInstance := closure != null && closure.IsInstanceMethod(localFn.Name)
@@ -8363,11 +8340,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 declaringScopeBindings,
                 localAsyncReturn,
-                match localFn.ReturnCanonical {
-                    "Task" => true,
-                    "ValueTask" => true,
-                    _ => false
-                },
                 localTypeParamMap,
                 localClosureView,
                 lowering.GenericLocalFuncs
@@ -8700,7 +8672,8 @@ sealed class ColumnarIlEmitter {
             // ASYNC FAULT GUARD (the legacy emitter's BeginAsyncFaultGuard/EndAsyncFaultGuard): the whole
             // body is ONE protected region — every return WRAPS its value and leaves to the shared
             // tail; a UNIT body falling off the end wraps the completed task; the catch converts
-            // the thrown exception into a faulted task (Task.FromException, + the ValueTask ctor).
+            // the thrown exception into a faulted task (Task.FromException or ValueTask.FromException<T>;
+            // a unit ValueTask wraps Task.FromException).
             // Value bodies must still always-return (the analyzer's rule — unit-task asyncs are
             // exempt). A try/lock inside the body nests INSIDE this guard, which the depth counter
             // tracks: every return still leaves to the one shared tail.
@@ -8792,7 +8765,8 @@ sealed class ColumnarIlEmitter {
     // ASYNC mirror of the legacy emitter's EmitWrapCurrentAsyncReturn: wraps the (already-emitted) return
     // value — or, with no value, the completed unit task — into the wrapped CLR return type.
     // Unit + ValueTask -> default(ValueTask); unit + Task -> Task.CompletedTask;
-    // T + ValueTask<T> -> newobj ValueTask<T>(T); T + Task<T> -> Task.FromResult<T>(T).
+    // ValueTask<T> uses the CLR factory so composite open results such as T[] and Box<T> do not
+    // require Reflection.Emit to rebind a constructor parameter.
     private func EmitWrappedAsyncCompletedReturn(hasValueOnStack: bool): void {
         if (_asyncResultType == null) {
             if (_asyncReturnsValueTask) {
@@ -8814,10 +8788,19 @@ sealed class ColumnarIlEmitter {
             throw new InvalidOperationException("async value return requires the value on the stack")
         }
         if (_asyncReturnsValueTask) {
-            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, ColumnarEmitReflectionFacts.RequiredType(_asyncReturnType, "configured async return type").GetConstructor([_asyncResultType]), "required CLR constructor with the emitted signature")
+            _il.Emit(OpCodes.Call, FindValueTaskStaticMethod("FromResult").MakeGenericMethod([_asyncResultType]))
         } else {
             _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromResult", true).MakeGenericMethod([_asyncResultType]))
         }
+    }
+
+    private static func FindValueTaskStaticMethod(methodName: string): MethodInfo {
+        for candidate in typeof(System.Threading.Tasks.ValueTask).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (candidate.Name == methodName && candidate.IsGenericMethodDefinition && candidate.GetParameters().Length == 1) {
+                return candidate
+            }
+        }
+        throw new InvalidOperationException("Could not resolve ValueTask." + methodName)
     }
 
     private static func FindTaskStaticMethod(methodName: string, generic: bool): MethodInfo {
@@ -8830,8 +8813,8 @@ sealed class ColumnarIlEmitter {
     }
 
     // ASYNC mirror of the legacy emitter's EmitFaultedAsyncReturn: with an Exception on the stack, leaves a
-    // FAULTED task of the wrapped return type carrying it (Task.FromException(<T>), then the
-    // ValueTask(<T>) Task-wrapping ctor when the family is ValueTask).
+    // faulted task of the wrapped return type. Generic ValueTask uses its factory so composite open
+    // results follow the same path as successful returns.
     private func EmitFaultedAsyncReturnMirror(): void {
         if (_asyncResultType == null) {
             _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", false))
@@ -8840,10 +8823,10 @@ sealed class ColumnarIlEmitter {
             }
             return
         }
-        _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", true).MakeGenericMethod([_asyncResultType]))
         if (_asyncReturnsValueTask) {
-            taskOfT := typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([_asyncResultType])
-            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, ColumnarEmitReflectionFacts.RequiredType(_asyncReturnType, "configured async return type").GetConstructor([taskOfT]), "required CLR constructor with the emitted signature")
+            _il.Emit(OpCodes.Call, FindValueTaskStaticMethod("FromException").MakeGenericMethod([_asyncResultType]))
+        } else {
+            _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", true).MakeGenericMethod([_asyncResultType]))
         }
     }
 
@@ -9398,14 +9381,9 @@ sealed class ColumnarIlEmitter {
                 }
                 if (_protectedDepth > 0) {
                     if (_asyncReturnType != null) {
-                        // a bare `return` in a UNIT async body — legal ONLY when the unit-ness
-                        // is IMPLICIT (no annotation): the pipeline's NL305 unit-task exemption
-                        // covers fall-through bodies, and a bare return under an EXPLICIT
-                        // Task/ValueTask annotation is rejected as a non-value return path
-                        // (review-probe-pinned boundary). Wrap and route through the async tail.
-                        if (_asyncBareReturnDeclines) {
-                            return false
-                        }
+                        // a bare `return` in a UNIT async body completes the task, whether the unit-ness
+                        // is implicit or written as `: Task`/`: ValueTask` (C# semantics): wrap and
+                        // route through the async tail, which also runs any enclosing `finally`.
                         EmitWrappedAsyncCompletedReturn(false)
                         _il.Emit(OpCodes.Stloc, _protectedResult)
                     }
@@ -25201,7 +25179,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
-            false,
             _typeParameters,
             null,
             null

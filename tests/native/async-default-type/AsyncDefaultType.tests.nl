@@ -238,3 +238,68 @@ test "middleware InvokeAsync returns Task under asyncDefaultType Task and ValueT
         Directory.Delete(valueTaskRoot, true)
     }
 }
+
+// ── what an async function cannot say ────────────────────────────────────────────────────────────
+
+// A bare `return` completes a UNIT task. A task that owes a RESULT still needs a value on every path,
+// so the same statement in `async ...: Task<int>` is NL305 — the analyzer, not the emitter, says so.
+test "a bare return in an async function that owes a result is NL305" {
+    root := AdtRoot("bare-return-owes-result")
+    try {
+        AdtWebProject(root, "BareOwes", "", "import System.Threading.Tasks\n\nasync func Compute(x: int): Task<int> {\n    if x == 0 {\n        return\n    }\n    await Task.Delay(1)\n    return x\n}\n")
+        errors: List<CompilerError> = null
+        AdtCompile(root, "BareOwes", out errors)
+        assert errors.Count >= 1, AdtErrorText(errors)
+        assert errors[0].DiagnosticId == "NL305", AdtErrorText(errors)
+        assert errors[0].Line == 5 && errors[0].Column == 9, AdtErrorText(errors)
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+// GENERIC ASYNC FREE AND LOCAL FUNCTIONS ARE NOT MODELED YET (generic async METHODS are). The refusal
+// is a NAMED decline carrying the function's name, never an unexplained failure.
+test "a generic async free function is refused with a named decline" {
+    root := AdtRoot("generic-async-free")
+    try {
+        AdtWebProject(root, "GenericFree", "", "import System.Threading.Tasks\n\nasync func Read<T>(value: T): T {\n    await Task.Delay(1)\n    return value\n}\n")
+        errors: List<CompilerError> = null
+        AdtCompile(root, "GenericFree", out errors)
+        assert errors.Count == 1, AdtErrorText(errors)
+        assert errors[0].DiagnosticId == "NL103", AdtErrorText(errors)
+        assert errors[0].Message.Contains("emit.declaration.function-return", StringComparison.Ordinal), errors[0].Message
+        assert errors[0].Message.Contains("generic async free function is not modeled for 'Read'", StringComparison.Ordinal), errors[0].Message
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a generic async local function is refused with a named decline" {
+    root := AdtRoot("generic-async-local")
+    try {
+        AdtWebProject(root, "GenericLocal", "", "import System.Threading.Tasks\n\nasync func Outer(): int {\n    async func hold<U>(value: U): U {\n        await Task.Delay(1)\n        return value\n    }\n    return await hold(1)\n}\n")
+        errors: List<CompilerError> = null
+        AdtCompile(root, "GenericLocal", out errors)
+        assert errors.Count == 1, AdtErrorText(errors)
+        assert errors[0].DiagnosticId == "NL103", AdtErrorText(errors)
+        assert errors[0].Message.Contains("emit.local-function.generic-async", StringComparison.Ordinal), errors[0].Message
+        assert errors[0].Message.Contains("'Outer.hold'", StringComparison.Ordinal), errors[0].Message
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a generic async method cannot shadow its declaring type parameter" {
+    root := AdtRoot("generic-async-shadowed-type-parameter")
+    try {
+        source := "import System.Threading.Tasks\n\nclass Box<T> {\n    async func Map<T>(value: T): T {\n        await Task.Delay(1)\n        return value\n    }\n}\n"
+        AdtWebProject(root, "ShadowedAsyncTypeParameter", "", source)
+        errors: List<CompilerError> = null
+        AdtCompile(root, "ShadowedAsyncTypeParameter", out errors)
+        assert errors.Count == 1, AdtErrorText(errors)
+        assert errors[0].DiagnosticId == "NL316", AdtErrorText(errors)
+        assert errors[0].Message.Contains("Type parameter 'T' shadows an enclosing type parameter", StringComparison.Ordinal), errors[0].Message
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
