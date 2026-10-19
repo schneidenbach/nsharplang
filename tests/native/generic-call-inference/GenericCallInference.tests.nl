@@ -4,6 +4,7 @@ import System
 import System.Collections.Immutable
 import System.Collections.Generic
 import System.Text.Json
+import System.Text
 import System.Linq
 import System.Threading.Tasks
 import Microsoft.Extensions.DependencyInjection
@@ -65,6 +66,19 @@ test "control: the optional argument supplied and the type argument written stil
     o := new JsonSerializerOptions()
     assert JsonSerializer.Serialize(5, o) == "5"
     assert JsonSerializer.Serialize<int>(5) == "5"
+}
+
+test "an inferred generic serialization composes inside Encoding.GetBytes" {
+    d := new string[](1)
+    d[0] = "a"
+
+    bytes := Encoding.UTF8.GetBytes(JsonSerializer.Serialize(d))
+    assert Encoding.UTF8.GetString(bytes) == "[\"a\"]"
+    assert bytes.Length == 5
+
+    empty := new string[](0)
+    emptyBytes := Encoding.UTF8.GetBytes(JsonSerializer.Serialize(empty))
+    assert Encoding.UTF8.GetString(emptyBytes) == "[]"
 }
 
 test "an inferred type accepts lower bounds when one converts to the other" {
