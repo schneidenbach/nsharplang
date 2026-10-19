@@ -28,7 +28,9 @@ import NSharpLang.Compiler.Ast
 // The kinds:
 //   1  analyse the INITIALIZER expression under an expected type, SETTING the analyzer's ambient
 //      target-typing slot to `ExpectedType` for the duration. ANSWERS a type, and that type is the
-//      operand of three of the four steps that follow it.
+//      operand of three of the four steps that follow it. An unannotated declaration also carries
+//      its `InferenceSite`, opened for the same duration, so an initializer with no type of its own
+//      (`xs := []`) is told the fix with this local's name in it.
 //   4  declare the name into the analyzer's scope stack, under the declaration kind carried here
 //      (null for a deconstruction target, which is not tagged).
 //   5  record the name in the semantic model the IDE's hover and completion read.
@@ -47,6 +49,7 @@ class VariableDeclarationRequest {
     Name: string?
     CarriedType: TypeInfo
     ExpectedType: TypeInfo?
+    InferenceSite: AmbientInferenceSite?
     Text: string?
     Line: int
     Column: int
@@ -57,6 +60,7 @@ class VariableDeclarationRequest {
         Name = null
         CarriedType = carriedType
         ExpectedType = null
+        InferenceSite = null
         Text = null
         Line = 0
         Column = 0
@@ -317,6 +321,10 @@ class AnalyzerVariableDeclaration {
         request := new VariableDeclarationRequest(1, BuiltInTypes.Unknown)
         request.Node = initializer
         request.ExpectedType = state.DeclaredType
+        if state.DeclaredType == null {
+            request.InferenceSite = new AmbientInferenceSite(initializer, declaration.Name, false, declaration.HasLetKeyword)
+        }
+
         return request
     }
 

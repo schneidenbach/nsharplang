@@ -1617,7 +1617,9 @@ class Analyzer: IDisposable {
             kind := step.Kind
             if kind == 1 {
                 previousExpectedType := Ambient.EnterExpectedType(step.ExpectedType)
+                previousInferenceSite := Ambient.EnterInferenceSite(step.InferenceSite)
                 answer = AnalyzeExpression((must step.Node))
+                Ambient.ExitInferenceSite(previousInferenceSite)
                 Ambient.ExitExpectedType(previousExpectedType)
             }
             if kind == 4 {

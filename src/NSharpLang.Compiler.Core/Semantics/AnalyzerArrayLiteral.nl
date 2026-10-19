@@ -80,12 +80,14 @@ class ArrayLiteralState {
 //     measured against it. No element is walked under an expected type, which is why a lambda inside
 //     an inferred literal has nothing to infer from.
 // An EMPTY literal answers before either form: `[]` is an array of whatever was expected, or of
-// `unknown`, and it takes no steps at all.
+// `unknown` — reported, unless a callee still choosing its parameter will say — and it takes no
+// steps at all.
 //
-// THE ONE CODE IT OWNS IS NL202, in two shapes — an element that does not fit the target and an
-// element that does not fit the first — plus NL903's FeatureNotImplemented for a collection target
-// the backend cannot materialise. WHAT IT DOES NOT OWN: both SoA escapes, which are
-// `AnalyzerSoaEscape`'s and are merely asked, once per element, in the order the C# asked them.
+// IT OWNS NL202, in two shapes — an element that does not fit the target and an element that does
+// not fit the first — NL203 for an empty literal with no target, and NL903's FeatureNotImplemented
+// for a collection target the backend cannot materialise. WHAT IT DOES NOT OWN: both SoA escapes,
+// which are `AnalyzerSoaEscape`'s and are merely asked, once per element, in the order the C# asked
+// them.
 //
 // THE COLLECTION-TARGET RULE MOVES WHOLE, AND IT IS THE LARGER HALF OF THIS OWNER. Whether a
 // collection expression's target can be MATERIALISED — an array, a type with a single
@@ -167,6 +169,8 @@ class AnalyzerArrayLiteral {
             emptyElement: TypeInfo = BuiltInTypes.Unknown
             if hasExpectedElement {
                 emptyElement = expectedElementType
+            } else {
+                ReportUntargetedEmptyLiteralIfNeeded(node)
             }
 
             answered: TypeInfo = new ArrayTypeInfo(emptyElement)
@@ -184,6 +188,35 @@ class AnalyzerArrayLiteral {
         }
 
         state.Phase = 10
+    }
+
+    // AN EMPTY `[]` WITH NOTHING TO BE IS NL203, on the rule `default` follows. With no elements the
+    // literal's whole type is its target's, so with no target there is nothing to answer: `xs := []`
+    // reached the backend as `unknown[]` and was refused there as an unsupported shape. The one empty
+    // slot that is NOT an absent target is an argument whose callee is still being chosen — the
+    // parameter will say what the literal is — and there it answers `unknown[]` without a word. Nor is
+    // a generator's expression body, which has already been refused whole.
+    //
+    // A target that names no element type (`x: object = []`) is not this report's: the slot is not
+    // empty, and whether the literal fits it is the assignability judgement's question.
+    func ReportUntargetedEmptyLiteralIfNeeded(node: ArrayLiteralExpression) {
+        if ambientValue.CurrentExpectedType != null || AnalyzerTargetTypedOperands.IsTypelessArmOf(ambientValue.PendingTargetArgument, node) || ambientValue.IsRefusedGeneratorExpressionBody(node) {
+            return
+        }
+
+        hint := AmbientInferenceSite.GeneralAnnotationHint("int[]", "items", "[]")
+        site := ambientValue.InferenceSiteFor(node)
+        if site != null {
+            valueText := "[]"
+            if !Object.ReferenceEquals(AnalyzerTargetTypedOperands.UnwrapParentheses(site.Value), node) {
+                valueText = "..."
+            }
+
+            hint = site.AnnotationHint("int[]", valueText)
+        }
+
+        span := spansValue.GetArrayLiteralDiagnosticSpan(node)
+        diagnosticsValue.Report(ErrorCode.CannotInferType, "I can't figure out what type of array '[]' is — it has no elements to infer from, and nothing here says what it should hold", span.Line, span.Column, hint, span.Length)
     }
 
     // THE ANSWER TO THE OUTSTANDING ELEMENT. The bracket closes FIRST, before the two escape reports
@@ -229,9 +262,12 @@ class AnalyzerArrayLiteral {
         } else {
             soaEscapeValue.ReportSoaRowEscapeIfNeeded(element, elementType, "stored in an array")
             soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(element, "stored in an array")
+            // A FIRST ELEMENT WITH NO TYPE OF ITS OWN HAS ALREADY BEEN REPORTED, so it is not a
+            // yardstick: `[[], [1]]` is told about its empty `[]`, not also that `int[]` is not
+            // `unknown[]`.
             if state.ElementIndex == 0 {
                 state.FirstType = elementType
-            } else if !assignabilityValue.IsAssignable(state.FirstType, elementType) {
+            } else if !IsUntypedAnswer(state.FirstType) && !assignabilityValue.IsAssignable(state.FirstType, elementType) {
                 span := spansValue.GetExpressionDiagnosticSpan(element)
                 diagnosticsValue.Report(ErrorCode.TypeMismatch, "All elements in an array must be the same type — the first element is '" + TypeText(state.FirstType) + "' but I found '" + TypeText(elementType) + "'", span.Line, span.Column, null, span.Length)
             }
@@ -262,6 +298,17 @@ class AnalyzerArrayLiteral {
 
     func Result(state: ArrayLiteralState): TypeInfo {
         return state.ResultType
+    }
+
+    // `unknown`, or an array of it at any depth — exactly what an untargeted `[]`, or a literal of
+    // them, answers.
+    static func IsUntypedAnswer(candidate: TypeInfo): bool {
+        if BuiltInTypes.IsUnknown(candidate) {
+            return true
+        }
+
+        array := candidate as ArrayTypeInfo
+        return array != null && IsUntypedAnswer(array.ElementType)
     }
 
     // WHAT THE SURROUNDING ANNOTATION EXPECTS OF ONE ELEMENT, and which WORD to call the target in a

@@ -108,6 +108,67 @@ class AnalyzerPatternReachability {
         diagnosticsValue.Report(ErrorCode.InvalidCast, message, span.Line, span.Column, suggestion, span.Length)
     }
 
+    // A CONDITIONAL WHOSE TWO BRANCHES CONVERT NEITHER WAY, with nothing around it to say what it is.
+    // `y := flag ? 1 : "x"` answered `unknown` in silence and the backend refused it as an
+    // unsupported shape. A conditional is worth what both branches can be at once, and with no
+    // target that is one branch's type when the other converts to it (C#'s rule, and the one a
+    // `match` follows) — so when NEITHER converts, and the two share no reflected base or interface
+    // either, there is no type to give it and the reader is told so, in the `match` report's code.
+    //
+    // A `null` branch beside a value type is the case readers hit most, and it gets its own words:
+    // the fix there is not "pick a common type" but "make it nullable", and the hint writes the `?`.
+    //
+    // ONLY BRANCHES WITH TYPES OF THEIR OWN ARE JUDGED. An unknown branch was reported upstream or is
+    // not modelled; a lambda, a method name, `void` and a `throw` have no value type to disagree
+    // with. Answers whether it reported.
+    func CheckConditionalBranches(ternary: TernaryExpression, thenType: TypeInfo, elseType: TypeInfo, site: AmbientInferenceSite?): bool {
+        if !HasJudgeableValueType(thenType) || !HasJudgeableValueType(elseType) {
+            return false
+        }
+
+        if assignabilityValue.IsAssignable(thenType, elseType) || assignabilityValue.IsAssignable(elseType, thenType) || AnalyzerMatchExpression.FindCommonBaseType(thenType, elseType) != null {
+            return false
+        }
+
+        thenObject := thenType as object
+        elseObject := elseType as object
+        thenText := thenObject.ToString()
+        elseText := elseObject.ToString()
+        span := spansValue.GetConditionalDiagnosticSpan(ternary)
+
+        valueText := thenText
+        if BuiltInTypes.Is(thenType, BuiltInTypes.Null) {
+            valueText = elseText
+        }
+
+        if BuiltInTypes.Is(thenType, BuiltInTypes.Null) || BuiltInTypes.Is(elseType, BuiltInTypes.Null) {
+            nullableText := valueText + "?"
+            nullHint := AmbientInferenceSite.GeneralAnnotationHint(nullableText, "value", "...")
+            if site != null {
+                nullHint = site.AnnotationHint(nullableText, "...")
+            }
+
+            diagnosticsValue.Report(ErrorCode.TypeMismatch, "This conditional is '" + thenText + "' when true and '" + elseText + "' when false, and '" + valueText + "' can't hold null", span.Line, span.Column, nullHint, span.Length)
+            return true
+        }
+
+        annotation := AmbientInferenceSite.GeneralAnnotationHint("object", "value", "...")
+        if site != null {
+            annotation = site.AnnotationHint("object", "...")
+        }
+
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "The two branches of this conditional have different types — '" + thenText + "' when true and '" + elseText + "' when false — and neither converts to the other, so I can't tell what type it produces", span.Line, span.Column, "Make both branches the same type, or name a type both fit. " + annotation, span.Length)
+        return true
+    }
+
+    static func HasJudgeableValueType(candidate: TypeInfo): bool {
+        if AnalyzerDeclarationContext.ContainsUnknown(candidate) || BuiltInTypes.Is(candidate, BuiltInTypes.Void) || BuiltInTypes.Is(candidate, BuiltInTypes.Never) {
+            return false
+        }
+
+        return candidate as FunctionTypeInfo == null && candidate as NSharpMethodGroupInfo == null && !AnalyzerCallableReferenceFacts.IsMethodGroupReferenceType(candidate)
+    }
+
     // WHAT `e as T` IS WORTH: `T?`, because `as` answers null when the value is not a `T` — the one
     // thing that separates it from a hard cast. Typed as the bare `T`, `(a as Dog).Bark()` and
     // `Take(a as Dog)` into a `Dog` parameter were accepted in silence, and the flow analysis had

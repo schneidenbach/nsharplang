@@ -1130,3 +1130,71 @@ test "everything the PATTERN rule admits, the cast rule admits too" {
     assert harness.Reachability.IsCastPossible(ReachabilityClass("Widget", false), ReachabilityInterface("Greeter"))
     assert harness.Reachability.IsCastPossible(ReachabilityClass("Animal", false), ReachabilityDerivedClass("Dog", "Animal", false))
 }
+
+// ---- a conditional whose branches convert neither way ----------------------------------------------
+
+// `flag ? whenTrue : whenFalse` laid out on line 7, so the span arithmetic is visible: the condition
+// starts at column 10 and the `else` arm `whenFalse` ends at column 37.
+func ReachabilityConditional(): TernaryExpression {
+    return new TernaryExpression(new IdentifierExpression("flag", 7, 10), new IdentifierExpression("whenTrue", 7, 17), new IdentifierExpression("whenFalse", 7, 28), 7, 15)
+}
+
+test "a conditional whose branches convert neither way is NL202, over the whole conditional" {
+    harness := ReachabilityDefault()
+    reported := harness.Reachability.CheckConditionalBranches(ReachabilityConditional(), BuiltInTypes.Int, BuiltInTypes.String, null)
+
+    assert reported
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message == "The two branches of this conditional have different types — 'int' when true and 'string' when false — and neither converts to the other, so I can't tell what type it produces"
+    assert harness.Errors[0].Suggestion == "Make both branches the same type, or name a type both fit. Write the type where the value is declared, for example 'value: object = ...'."
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 10
+    assert harness.Errors[0].Length == 27
+}
+
+// THE HINT NAMES THE SITE. A `:=` local is annotated in place; an anonymous property cannot be, so
+// its fix declares a typed local first and hands it over.
+test "the conditional's hint names the local or the anonymous property it was going to" {
+    harness := ReachabilityDefault()
+    ternary := ReachabilityConditional()
+    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, BuiltInTypes.String, new AmbientInferenceSite(ternary, "label", false, false))
+    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, BuiltInTypes.String, new AmbientInferenceSite(ternary, "Label", true, false))
+
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Suggestion == "Make both branches the same type, or name a type both fit. Say what type 'label' is, for example 'label: object = ...'."
+    assert harness.Errors[1].Suggestion == "Make both branches the same type, or name a type both fit. Declare it with a type first, for example 'label: object = ...', then write 'Label: label'."
+}
+
+// A `null` BESIDE A VALUE TYPE is the commonest form, and its fix is a `?`, not a common type.
+test "a null branch beside a value type is told to make the value nullable, from either side" {
+    harness := ReachabilityDefault()
+    ternary := ReachabilityConditional()
+    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, BuiltInTypes.Null, new AmbientInferenceSite(ternary, "count", false, true))
+    harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Null, BuiltInTypes.Int, null)
+
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Message == "This conditional is 'int' when true and 'null' when false, and 'int' can't hold null"
+    assert harness.Errors[0].Suggestion == "Say what type 'count' is, for example 'let count: int? = ...'."
+    assert harness.Errors[1].Message == "This conditional is 'null' when true and 'int' when false, and 'int' can't hold null"
+}
+
+// EVERY BRANCH PAIR THAT HAS AN ANSWER, OR THAT CANNOT BE JUDGED, IS SILENT. One branch converting to
+// the other is C#'s rule and a `match`'s; a `null` beside a reference is that reference made
+// nullable; two reflected types sharing an interface share a type; and unknown, `void` and `never`
+// have no value type to disagree with. (A source class beside its base needs declared classes to
+// judge, so `AnalyzerInferenceSites.tests.nl` pins it through the real analyzer.)
+test "branches that convert, share a reflected type, or have no value type of their own are not reported" {
+    harness := ReachabilityDefault()
+    ternary := ReachabilityConditional()
+
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.String, BuiltInTypes.Null, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Null, BuiltInTypes.String, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, ReachabilityReflected(typeof(List<int>)), ReachabilityReflected(typeof(IEnumerable<int>)), null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, ReachabilityReflected(typeof(List<int>)), ReachabilityReflected(typeof(HashSet<int>)), null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Int, ReachabilityUnknown(), null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, new ArrayTypeInfo(ReachabilityUnknown()), new ArrayTypeInfo(BuiltInTypes.Int), null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Void, BuiltInTypes.Int, null)
+    assert !harness.Reachability.CheckConditionalBranches(ternary, BuiltInTypes.Never, BuiltInTypes.Int, null)
+    assert harness.Errors.Count == 0
+}

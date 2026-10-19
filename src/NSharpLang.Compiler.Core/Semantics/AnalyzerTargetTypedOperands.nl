@@ -159,8 +159,9 @@ class TargetTypedOperandState {
 //     its answer is the common type of the two arms, or `unknown` when any of the four fired.
 //
 // THIS FAMILY RAISES NO DIAGNOSTIC OF ITS OWN. Every report it makes belongs to a collaborator — the
-// SoA escape reporter, the boolean-condition reporter, and whatever the type resolver says about a
-// written type reference — which is why it holds no diagnostic sink and no span reader.
+// SoA escape reporter, the boolean-condition reporter, the conversion oracle (a cast with no
+// conversion, an untargeted ternary whose arms convert neither way), and whatever the type resolver
+// says about a written type reference — which is why it holds no diagnostic sink and no span reader.
 //
 // IT IS AN OBJECT RATHER THAN A STATIC because its four facts are ambient: the type resolver a cast's
 // target is read through, the SoA escape reporter all four forms use, the target-typing slot two of
@@ -631,6 +632,16 @@ class AnalyzerTargetTypedOperands {
         }
 
         state.ResultType = NullabilityMetadataCore.MergeReferencedNullabilityOrigins(state.ThenType, state.ElseType, state.ResultType)
+
+        // NO COMMON TYPE AND NOTHING TO BE TOLD ONE. A target in force — an annotation, a parameter
+        // already chosen, a parameter still being chosen — decides what the conditional is, so it is
+        // only an untargeted conditional whose branches disagree that has no answer at all. Whether
+        // they really disagree is a conversion question, and the conversion oracle answers it, as it
+        // answers the cast's.
+        reachability := state.Reachability
+        if reachability != null && !state.TargetPending && state.ExpectedResultType == null && BuiltInTypes.IsUnknown(state.ResultType) && !ambientValue.IsRefusedGeneratorExpressionBody(ternaryNode) {
+            reachability.CheckConditionalBranches(ternaryNode, state.ThenType, state.ElseType, ambientValue.InferenceSiteFor(ternaryNode))
+        }
 
         state.Phase = 99
         return null

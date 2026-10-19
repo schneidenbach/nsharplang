@@ -79,6 +79,65 @@ class AmbientCallCalleeFrame {
     }
 }
 
+// WHERE AN UNTARGETED VALUE IS GOING, so a report about it can name the fix in the reader's own words.
+//
+// An empty `[]` and a conditional whose branches disagree have no type of their own, and the fix is
+// always to WRITE one where the value lands. "Annotate the variable" is the general advice; "write
+// 'scores: int[] = []'" is the advice a reader can type, and it needs the variable's name. Two sites
+// infer a type from a value and nothing else — a `:=` local (`Name` is the local, `HasLetKeyword`
+// says whether the fix keeps a `let`) and an anonymous-object property (`Name` is the property,
+// which cannot be annotated in place, so the fix declares a typed local first) — and each opens one
+// of these around its value's walk.
+//
+// `Value` is the expression the site infers from. The two readers ask `AnalyzerAmbientContext.
+// InferenceSiteFor` whether the node in hand IS that value or one of its conditional arms; a node
+// anywhere else — inside a lambda, a call, an operator — is not going to this site and is told the
+// general advice instead.
+class AmbientInferenceSite {
+    Value: Expression
+    Name: string
+    IsAnonymousProperty: bool
+    HasLetKeyword: bool
+
+    constructor(value: Expression, name: string, isAnonymousProperty: bool, hasLetKeyword: bool) {
+        Value = value
+        Name = name
+        IsAnonymousProperty = isAnonymousProperty
+        HasLetKeyword = hasLetKeyword
+    }
+
+    // THE FIX, AS THE READER WOULD TYPE IT: the value given `typeText` at this site. `valueText` is
+    // what stands on the right — `[]` when the reported node is the whole value, `...` when it is
+    // one arm of it.
+    func AnnotationHint(typeText: string, valueText: string): string {
+        if IsAnonymousProperty {
+            local := LocalNameFor(Name)
+            return "Declare it with a type first, for example '" + local + ": " + typeText + " = " + valueText + "', then write '" + Name + ": " + local + "'."
+        }
+
+        keyword := ""
+        if HasLetKeyword {
+            keyword = "let "
+        }
+
+        return "Say what type '" + Name + "' is, for example '" + keyword + Name + ": " + typeText + " = " + valueText + "'."
+    }
+
+    // The same fix with no site to name — a value nested somewhere no `:=` reaches.
+    static func GeneralAnnotationHint(typeText: string, exampleName: string, valueText: string): string {
+        return "Write the type where the value is declared, for example '" + exampleName + ": " + typeText + " = " + valueText + "'."
+    }
+
+    // A property name as the local a reader would declare for it: `Items` becomes `items`.
+    static func LocalNameFor(propertyName: string): string {
+        if propertyName.Length == 0 {
+            return "value"
+        }
+
+        return propertyName.Substring(0, 1).ToLowerInvariant() + propertyName.Substring(1)
+    }
+}
+
 // THE ONE STEP A `return` STATEMENT CANNOT TAKE FOR ITSELF.
 //
 // The walk owns what a `return` MEANS: whether there is a function to return from at all, whether the
@@ -250,6 +309,7 @@ class AnalyzerAmbientContext {
     callCalleeNodeValue: Expression?
     writeTargetExpressionTypesValue: Dictionary<object, TypeInfo>?
     pendingTargetArgumentValue: Expression?
+    inferenceSiteValue: AmbientInferenceSite?
 
     // THE ENCLOSING FUNCTION'S RETURN TYPE, and `null` when there is no enclosing function at all —
     // which is the ONLY thing that distinguishes "a `return` is illegal here" from "a `return` must
@@ -472,6 +532,7 @@ class AnalyzerAmbientContext {
         callCalleeNodeValue = null
         writeTargetExpressionTypesValue = null
         pendingTargetArgumentValue = null
+        inferenceSiteValue = null
     }
 
     // One call per analysis, from the same reset block that clears the scope stack and the null-flow
@@ -606,6 +667,44 @@ class AnalyzerAmbientContext {
 
     func ExitPendingTargetArgument(saved: Expression?) {
         pendingTargetArgumentValue = saved
+    }
+
+    // OPEN AN INFERENCE SITE, answering the previous one. Save/restore, because a value's own walk can
+    // reach another `:=` (inside a lambda body) or another anonymous object.
+    func EnterInferenceSite(site: AmbientInferenceSite?): AmbientInferenceSite? {
+        saved := inferenceSiteValue
+        inferenceSiteValue = site
+        return saved
+    }
+
+    func ExitInferenceSite(saved: AmbientInferenceSite?) {
+        inferenceSiteValue = saved
+    }
+
+    // THE SITE `node` IS GOING TO, or null when it is not the open site's value or one of that value's
+    // conditional arms — the same structural question `PendingTargetArgument` is asked, for the same
+    // reason: whatever is open while a nested expression is walked, only these positions take the
+    // site's type.
+    func InferenceSiteFor(node: Expression): AmbientInferenceSite? {
+        site := inferenceSiteValue
+        if site == null || !AnalyzerTargetTypedOperands.IsTypelessArmOf(site.Value, node) {
+            return null
+        }
+
+        return site
+    }
+
+    // A GENERATOR'S EXPRESSION BODY IS REFUSED WHOLE — NL103, `AnalyzerFunctionBodies` — and is walked
+    // under no target on purpose, so a value there with no type of its own (the body itself or one of
+    // its conditional arms) is not ALSO told it has nothing to be: that would be a second complaint
+    // about one mistake, which is exactly the rule that silences the body's type check.
+    func IsRefusedGeneratorExpressionBody(node: Expression): bool {
+        function := currentFunctionValue
+        if function == null || !HasModifier(function, Modifiers.Generator) {
+            return false
+        }
+
+        return AnalyzerTargetTypedOperands.IsTypelessArmOf(function.ExpressionBody, node)
     }
 
     // THE EXPRESSION WALK'S TAIL RECORDS HERE, and the `null` test lives inside so no caller repeats

@@ -82,6 +82,9 @@ class ConstructionState {
     PropertyStarted: bool
     ShapeUnsupported: bool
     SavedExpectedType: TypeInfo?
+    // The inference site an anonymous property's value was walked under — its own, opened for exactly
+    // that walk — and the one it replaced, restored when the value answers.
+    SavedInferenceSite: AmbientInferenceSite?
     PendingMemberType: TypeInfo?
     PendingElementType: TypeInfo?
     PendingTargetKind: string
@@ -109,6 +112,7 @@ class ConstructionState {
         PropertyStarted = false
         ShapeUnsupported = false
         SavedExpectedType = null
+        SavedInferenceSite = null
         PendingMemberType = null
         PendingElementType = null
         PendingTargetKind = "array"
@@ -1546,9 +1550,16 @@ class AnalyzerConstruction {
 
         // AN ANONYMOUS PROPERTY'S VALUE HAS NO TARGET. Its type is whatever the value produces, so the
         // slot the whole `new` was written into must not leak into it: `x: Person = new { P: new() }`
-        // gives the inner `new()` nothing to adopt.
+        // gives the inner `new()` nothing to adopt. It IS an inference site, so a value with no type
+        // of its own (`Items: []`) is told the fix with this property's name in it.
         if state.IsAnonymousObject {
             state.SavedExpectedType = ambientValue.EnterExpectedType(null)
+            site: AmbientInferenceSite? = null
+            if property.Name != null && property.Name.Length > 0 {
+                site = new AmbientInferenceSite(property.Value, property.Name, true, false)
+            }
+
+            state.SavedInferenceSite = ambientValue.EnterInferenceSite(site)
             return new ConstructionRequest(1, property.Value, null)
         }
 
@@ -1598,6 +1609,10 @@ class AnalyzerConstruction {
     func InitializerValueAnswered(state: ConstructionState, valueType: TypeInfo) {
         ambientValue.ExitExpectedType(state.SavedExpectedType)
         state.SavedExpectedType = null
+        if state.IsAnonymousObject {
+            ambientValue.ExitInferenceSite(state.SavedInferenceSite)
+            state.SavedInferenceSite = null
+        }
 
         node := state.New
         if node == null || node.Initializer == null {
