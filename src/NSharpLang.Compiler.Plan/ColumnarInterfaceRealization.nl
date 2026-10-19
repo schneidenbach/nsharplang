@@ -322,6 +322,43 @@ class ColumnarInterfaceRealization {
         out inner: Type,
         out wrapped: Type
     ): bool {
+        return TryComputeAsyncReturnShapeInScope(name, canonical, family, null, enumRegistry, structRegistry, unionRegistry, out inner, out wrapped)
+    }
+
+    // A result written in a type-parameter scope resolves against it and may be open (`T`, `T[]`,
+    // `Box<T>`); with no scope it must be a closed supported type. Whether an open shape is admissible in
+    // a signature is the declaring emitter's question.
+    private static func TryResolveAsyncResult(
+        canonical: string,
+        typeParams: IReadOnlyDictionary<string, Type>?,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out inner: Type
+    ): bool {
+        inner = null
+        if typeParams == null {
+            return ColumnarCanonicalTypeResolver.TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out inner) && ColumnarTypeOfPlanner.IsSupportedType(inner)
+        }
+        return ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(canonical, typeParams, enumRegistry, structRegistry, unionRegistry, out inner)
+    }
+
+    // The same shape for a member whose signature names type parameters: `async func Read<T>(): T`
+    // returns `Task<T>`, so the result is resolved in `typeParams` (the method's own parameters merged
+    // with its declaring type's). With no map this is `TryComputeAsyncReturnShape`. A result resolved in
+    // a map may be open (`T`, `T[]`, `Box<T>`); whether that open shape is admissible in a signature is
+    // the declaring emitter's question, asked of `inner` afterwards.
+    static func TryComputeAsyncReturnShapeInScope(
+        name: string,
+        canonical: string,
+        family: AsyncTaskFamily,
+        typeParams: IReadOnlyDictionary<string, Type>?,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out inner: Type,
+        out wrapped: Type
+    ): bool {
         inner = ColumnarTypeOfPlanner.RequiredVoidType()
         wrapped = null
         usesTaskFamily := AsyncTaskFamilyFacts.EffectiveFamily(name, family) == AsyncTaskFamily.Task
@@ -334,13 +371,7 @@ class ColumnarInterfaceRealization {
             return true
         }
         if canonical.StartsWith("Task<", StringComparison.Ordinal) && canonical[canonical.Length - 1] == '>' {
-            if !ColumnarCanonicalTypeResolver.TryResolveType(
-                canonical.Substring(5, canonical.Length - 6),
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                out inner
-            ) || !ColumnarTypeOfPlanner.IsSupportedType(inner) {
+            if !TryResolveAsyncResult(canonical.Substring(5, canonical.Length - 6), typeParams, enumRegistry, structRegistry, unionRegistry, out inner) {
                 return false
             }
             taskDefinition := typeof(Task<int>).GetGenericTypeDefinition()
@@ -350,13 +381,7 @@ class ColumnarInterfaceRealization {
             return true
         }
         if canonical.StartsWith("ValueTask<", StringComparison.Ordinal) && canonical[canonical.Length - 1] == '>' {
-            if !ColumnarCanonicalTypeResolver.TryResolveType(
-                canonical.Substring(10, canonical.Length - 11),
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                out inner
-            ) || !ColumnarTypeOfPlanner.IsSupportedType(inner) {
+            if !TryResolveAsyncResult(canonical.Substring(10, canonical.Length - 11), typeParams, enumRegistry, structRegistry, unionRegistry, out inner) {
                 return false
             }
             valueTaskDefinition := typeof(ValueTask<int>).GetGenericTypeDefinition()
@@ -369,13 +394,7 @@ class ColumnarInterfaceRealization {
             wrapped = usesTaskFamily ? typeof(Task) : typeof(ValueTask)
             return true
         }
-        if !ColumnarCanonicalTypeResolver.TryResolveType(
-            canonical,
-            enumRegistry,
-            structRegistry,
-            unionRegistry,
-            out inner
-        ) || !ColumnarTypeOfPlanner.IsSupportedType(inner) {
+        if !TryResolveAsyncResult(canonical, typeParams, enumRegistry, structRegistry, unionRegistry, out inner) {
             return false
         }
         wrapped = WrapInFamily(inner, usesTaskFamily ? AsyncTaskFamily.Task : AsyncTaskFamily.ValueTask)

@@ -443,7 +443,7 @@ declared member read off a type's member table (optionally as seen from a declar
   parsed for a long time and consumed by nothing. Pooling (`PoolingAsyncValueTaskMethodBuilder`)
   recycles the box a SUSPENDED async method lives in; an ordinary N# `async func` never suspends —
   `await` is the blocking `TryEmitBlockingAwait` lowering in `ColumnarIlEmitter`, and
-  `EmitWrappedAsyncCompletedReturn` builds the result as `new ValueTask<T>(value)` /
+  `EmitWrappedAsyncCompletedReturn` builds a generic result through `ValueTask.FromResult<T>(value)` /
   `default(ValueTask)` — so a `ValueTask` call allocates 0 bytes already (measured: 100,000 calls,
   0 bytes; `Task<int>` 72 bytes per call). With nothing to pool, `LanguageConfig.RemovedPooledAsync`
   binds the key (`[YamlMember(Alias = "pooledAsync")]`) only so `ProjectFileParser.ValidateConfig`
@@ -1716,7 +1716,10 @@ on the new owner. `StrongBox<T>` construction and field access use `TypeBuilder.
 before bake. The generic ones ride a SEPARATE map on `ColumnarLocalFunctionLowering`
 (`GenericLocalFuncs`) because the direct map's entries are handles a call site dispatches without
 closing. The same model applies inside a generic method on a non-generic source type. An `async`
-generic local function remains refused (`emit.local-function.generic-async`).
+generic local function remains refused (`emit.local-function.generic-async`). Generic async METHODS (static and instance) resolve
+their task return through `ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope`; async lowering is
+synchronous, so no state-machine type needs the type arguments. A generic async free function is refused at
+`emit.declaration.function-return`.
 
 **THE CONTEXTUAL-TIER GATE ASKS ALL THREE METHOD-GROUP SHAPES** (2026-09-14, stream CAPTURE3).
 `ColumnarIlEmitter.IsContextualDelegateValueNode` — the predicate `HasContextualDelegateArgument`

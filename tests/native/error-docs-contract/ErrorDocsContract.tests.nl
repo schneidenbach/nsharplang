@@ -197,9 +197,10 @@ func EdcExemptions(): List<string> {
     return rows
 }
 
-// Two narrow exemptions from the SOURCE-repro requirement, never from the page requirement.
+// Three narrow exemptions from the SOURCE-repro requirement, never from the page requirement.
 // Internal compiler errors have no supported source reproducer: the named native contract
 // supplies a synthetic exception, runs the product boundary, and pins the page's exact output.
+// NL936 is a fact about the PROJECT (only test files, or no .nl files), so no source file reproduces it.
 // NL111 has no reproducer a reader can READ: the shortest source that reaches it is 512 nested
 // parentheses, about a thousand characters on one line, and pasting that into a documentation page
 // teaches nothing the prose does not. The named contract GENERATES it and pins the page's sentence.
@@ -207,6 +208,7 @@ func EdcOutputExampleExemptions(): List<string> {
     rows := new List<string>()
     rows.Add("NL924|tests/native/cli-command-contracts/InternalErrorBoundary.tests.nl|NL924 process boundary renders synthetic invariant failure exactly as its documentation")
     rows.Add("NL111|tests/native/cli-command-contracts/CliCommandContracts.tests.nl|a generated deep expression is refused by nlc check with NL111, not a stack overflow")
+    rows.Add("NL936|tests/native/cli-command-contracts/TestSourceContracts.tests.nl|nlc build of a library made only of test files reports NL936, not a columnar decline")
     return rows
 }
 
@@ -453,19 +455,21 @@ test "EVERY exemption names a code the catalog still publishes, a defect that ex
 // EVERY source-repro exemption is held to the SAME four claims, so a row can never be a place to
 // park a page nobody wanted to write: the code is still in the catalog, the page exists, the named
 // native contract exists and CONTAINS the named test, and the page quotes that contract's path
-// beside a titled output block. Two codes qualify today and both are named here by hand, because
+// beside a titled output block. Three codes qualify today and all are named here by hand, because
 // the COUNT is the claim — this is the number of diagnostics with no source a reader can run.
 test "EVERY source-repro exemption names a live code and a native contract that produces its output" {
     rows := EdcOutputExampleExemptions()
-    assert rows.Count == 2, EdcJoin(rows)
+    assert rows.Count == 3, EdcJoin(rows)
     assert EdcExemptField(rows[0], 0) == "NL924"
     assert EdcExemptField(rows[1], 0) == "NL111"
+    assert EdcExemptField(rows[2], 0) == "NL936"
     assert !EdcHasOutputExample("NL923")
     assert !EdcHasOutputExample("NL999")
 
     titles := new List<string>()
     titles.Add("```text title=\"NL924 boundary output\"")
     titles.Add("```text title=\"NL111 generated-source output\"")
+    titles.Add("```text title=\"NL936 build output\"")
 
     i := 0
     while i < rows.Count {

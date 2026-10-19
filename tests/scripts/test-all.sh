@@ -423,7 +423,123 @@ fi
 
 RUN_PARENT="${NSHARP_TEST_RUN_PARENT:-/tmp}"
 mkdir -p "$RUN_PARENT"
+
+# A RUN NEVER OUTLIVES ITS GATE. The isolated copy below is deleted on exit, and a process still working in
+# it is working in a directory that no longer exists: an interrupted gate once left its `dotnet build`
+# hung there for a day, orphaned, with nothing left to stop it. So the exit trap stops every process this
+# script started before it removes the copy. A gate killed outright (SIGKILL, a crash, a closed machine)
+# runs no trap, so each run also records its copy under `locks/runs/<pid>`, and the next run stops what
+# is still working in the copy of a gate whose pid is gone and removes that copy. The same sweep stops
+# processes working in a copy that is already deleted, which only an interrupted gate leaves behind.
+# Do not add INT/TERM/HUP traps here: bash runs a signal trap only after the foreground gate finishes,
+# while an untrapped TERM or HUP exits at once and still runs the EXIT trap.
+RUNS_ROOT="$LOCKS_ROOT/runs"
+RUN_RECORD="$RUNS_ROOT/$$"
+
+descendant_pids() {
+    local parent child
+    for parent in "$@"; do
+        for child in $(pgrep -P "$parent" 2>/dev/null); do
+            echo "$child"
+            descendant_pids "$child"
+        done
+    done
+}
+
+stop_pids() {
+    local pid alive _
+    [ "$#" -gt 0 ] || return 0
+    kill -TERM "$@" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        alive=0
+        for pid in "$@"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                alive=1
+            fi
+        done
+        [ "$alive" = 1 ] || return 0
+        sleep 1
+    done
+    kill -KILL "$@" 2>/dev/null || true
+}
+
+stop_run_processes() {
+    # Collected first: the command substitution's own subshell is a child too, and is gone by the kill.
+    local pids
+    pids="$(descendant_pids "$$")"
+    # shellcheck disable=SC2086 # one pid per word
+    stop_pids $pids
+}
+
+# Prints "<pid> <run root>" for every process whose working directory is inside a run copy.
+processes_in_run_copies() {
+    local parent_physical
+    command -v lsof >/dev/null 2>&1 || return 0
+    parent_physical="$(cd "$RUN_PARENT" && pwd -P)"
+    lsof -n -d cwd -F pn 2>/dev/null | awk -v prefix="$parent_physical/nsharp-test-all." '
+        /^p/ { pid = substr($0, 2) }
+        /^n/ {
+            path = substr($0, 2)
+            if (index(path, prefix) != 1) next
+            rest = substr(path, length(prefix) + 1)
+            slash = index(rest, "/")
+            root = prefix (slash ? substr(rest, 1, slash - 1) : rest)
+            sub(/ \(deleted\)$/, "", root)
+            print pid, root
+        }'
+}
+
+reap_abandoned_runs() {
+    local record owner root pids live_roots abandoned_roots pid where
+    live_roots=""
+    abandoned_roots=""
+    if [ -d "$RUNS_ROOT" ]; then
+        for record in "$RUNS_ROOT"/*; do
+            [ -f "$record" ] || continue
+            owner="$(basename "$record")"
+            root="$(cat "$record" 2>/dev/null || true)"
+            if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
+                live_roots="$live_roots $root "
+                continue
+            fi
+            case "$root" in
+                */nsharp-test-all.*) abandoned_roots="$abandoned_roots $root " ;;
+            esac
+            rm -f "$record"
+        done
+    fi
+
+    pids=""
+    while read -r pid where; do
+        [ -n "$pid" ] || continue
+        case "$live_roots" in *" $where "*) continue ;; esac
+        # Without a dead owner on record, only a copy that is already gone is certainly abandoned:
+        # a gate from before run records still has its copy on disk.
+        if [ -d "$where" ]; then
+            case "$abandoned_roots" in *" $where "*) ;; *) continue ;; esac
+        fi
+        pids="$pids $pid"
+    done <<EOF
+$(processes_in_run_copies)
+EOF
+    if [ -n "$pids" ]; then
+        # shellcheck disable=SC2086 # one pid per word
+        pids="$(printf '%s\n' $pids $(descendant_pids $pids) | sort -nu | tr '\n' ' ')"
+        echo "Stopping processes left behind by an interrupted test run: $pids"
+        # shellcheck disable=SC2086
+        stop_pids $pids
+    fi
+    for root in $abandoned_roots; do
+        echo "Removing abandoned isolated test run directory: $root"
+        rm -rf "$root"
+    done
+}
+
+reap_abandoned_runs
+
 RUN_ROOT="$(mktemp -d "$RUN_PARENT/nsharp-test-all.${CACHE_KEY:0:12}.XXXXXX")"
+mkdir -p "$RUNS_ROOT"
+(cd "$RUN_ROOT" && pwd -P) > "$RUN_RECORD"
 RUN_REPO="$RUN_ROOT/repo"
 RUN_HOME="$RUN_ROOT/home"
 RUN_TMP="$RUN_ROOT/tmp"
@@ -629,11 +745,13 @@ PY
 }
 
 cleanup_run() {
+    stop_run_processes
     if ! is_enabled "$KEEP_RUN"; then
         rm -rf "$RUN_ROOT"
     else
         echo "Keeping isolated test run directory: $RUN_ROOT"
     fi
+    rm -f "$RUN_RECORD"
 }
 trap 'cleanup_signature; cleanup_run; release_lock' EXIT
 
