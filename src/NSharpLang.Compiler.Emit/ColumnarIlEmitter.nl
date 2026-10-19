@@ -24081,6 +24081,56 @@ sealed class ColumnarIlEmitter {
         return success
     }
 
+    // A target-typed zero or throw arm can still have a natural conditional type when its other arm
+    // supplies one. Preserve that type for overload scoring (`Math.Max(flag ? default : n, 0)` must
+    // score as an `int` argument instead of appearing applicable to every numeric overload). The
+    // typed arm is accepted only when the ordinary target-typed conditional predicate proves that
+    // both arms can be written as that type.
+    private func TryGetPreflightConditionalNaturalType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.TernaryExpression || _nodes.ChildCount(node) != 3) {
+            return false
+        }
+
+        thenNode := UnwrapParenthesizedNode(Child(node, 1))
+        elseNode := UnwrapParenthesizedNode(Child(node, 2))
+        thenThrows := IsThrowExpressionNode(thenNode)
+        elseThrows := IsThrowExpressionNode(elseNode)
+        if (thenThrows && elseThrows) {
+            return false
+        }
+        if (thenThrows || elseThrows) {
+            valueNode := thenThrows ? elseNode : thenNode
+            let valueType: System.Type? = null
+            if (!TryGetPreflightExpressionType(valueNode, out valueType) || valueType == null || !CanEmitConditionalAsType(node, valueType)) {
+                return false
+            }
+            columnarResolvedType = valueType
+            return true
+        }
+
+        thenTypeless := IsTypelessConditionalArm(thenNode)
+        elseTypeless := IsTypelessConditionalArm(elseNode)
+        if (thenTypeless == elseTypeless) {
+            return false
+        }
+        typelessNode := thenTypeless ? thenNode : elseNode
+        valueNode := thenTypeless ? elseNode : thenNode
+        let valueType: System.Type? = null
+        if (!TryGetPreflightExpressionType(valueNode, out valueType) || valueType == null) {
+            return false
+        }
+        if (_nodes.Kind(typelessNode) == ColumnarExpressionNodeKind.NullLiteralExpression && valueType.IsValueType && !ColumnarTypeOfPlanner.IsSupportedNullable(valueType)) {
+            return false
+        }
+        if (!CanEmitConditionalAsType(node, valueType)) {
+            return false
+        }
+        columnarResolvedType = valueType
+        return true
+    }
+
     private func TryGetPreflightExpressionTypeRawUncached(node: int, out columnarResolvedType: Type): bool {
         node = UnwrapParenthesizedNode(node)
         columnarResolvedType = null
@@ -24099,6 +24149,9 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (ColumnarScalarLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out columnarResolvedType)) {
+            return true
+        }
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.TernaryExpression && IsTargetTypedConditionalNode(node) && TryGetPreflightConditionalNaturalType(node, out columnarResolvedType)) {
             return true
         }
         if (ColumnarNameOfPlanner.TryGetType(_nodes, _source, node, _codePlan, out columnarResolvedType)) {
