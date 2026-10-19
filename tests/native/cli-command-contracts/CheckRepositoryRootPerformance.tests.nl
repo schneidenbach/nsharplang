@@ -623,8 +623,16 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     // (two files) and three compiler sources (`MemberStorageRules` and its estate rows,
     // `ColumnarAutoPropertyEmitter`). The follow-ups then added six roots and 23 files: in-project
     // defaults (two roots), anonymous objects, the ASP.NET test-host frameworks, generic params-tail
-    // extensions (two roots), virtual auto-properties and the doctor install-root contract.
-    assert expectedRoots.Count == 244, "repository project-root census changed"
+    // extensions (two roots), virtual auto-properties and the doctor install-root contract. Issue
+    // #216's lambda parameter names then added `tests/native/lambda-parameter-names` (two files) and
+    // the Emit estate file `ColumnarLambdaParameterBinding.tests.nl`. Issues #245 and #246 then added
+    // `tests/native/assert-throws-source-types` (one project with three N# source files) and the
+    // `TestSourceContracts` row (one N# source file).
+    // Issue #215 then added three files and no roots: the SDK `dll:` reference row, the SDK implicit-
+    // framework row and the project.yml reference-page contract.
+    // The async bare-return and generic async-method slices added three native roots and three N#
+    // source files.
+    assert expectedRoots.Count == 249, "repository project-root census changed"
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
@@ -664,7 +672,9 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert observedRoots.Count == expectedRoots.Count, "not every discovered project root had exactly one result"
     assert foundCoreProject, "the workspace omitted Compiler.Core's result"
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
-    assert checkedFiles == 2046, "repository checked-source-file census changed"
+    // Issue #260's AtomicFile support, its estate row, and the nlc run project regression added
+    // three checked N# files.
+    assert checkedFiles == 2062, "repository checked-source-file census changed"
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"

@@ -125,6 +125,11 @@ class ProjectFileParser {
             }
         }
 
+        // A MALFORMED ROW IS REFUSED BEFORE EMPTY ROWS ARE DROPPED: an entry whose only key is a typo
+        // (`- nugget: Serilog`) carries no value, and filtering first would make it vanish silently.
+        RejectMalformedReferences("dependencies", config.Dependencies)
+        RejectMalformedReferences("testDependencies", config.TestDependencies)
+
         config.Dependencies = FilterReferences(config.Dependencies)
         config.TestDependencies = FilterReferences(config.TestDependencies)
 
@@ -133,6 +138,23 @@ class ProjectFileParser {
             if referenceType == ReferenceType.Dll || referenceType == ReferenceType.Project {
                 reference.Validate(projectDirectory)
             }
+        }
+    }
+
+    static func RejectMalformedReferences(section: string, references: List<Reference>) {
+        index := 0
+        while index < references.Count {
+            reference := references[index]
+            problem: string? = null
+            if reference != null {
+                problem = reference.Problem
+            }
+
+            if problem != null {
+                throw new InvalidOperationException("Invalid " + section + " entry " + (index + 1).ToString() + ": " + problem + ". Each entry names exactly one of nuget, framework, project or dll, and a nuget entry may also give a version.")
+            }
+
+            index = index + 1
         }
     }
 

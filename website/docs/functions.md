@@ -68,6 +68,20 @@ namespace App.Text
 
 func validateInput(input: string): bool {
     return !string.IsNullOrEmpty(input)
+}
+```
+
+```n#
+// FILE Process.nl — same namespace, different file
+namespace App.Text
+
+import System.Collections.Generic
+import System.Linq
+
+func ProcessAll(inputs: List<string>): List<string> {
+    return inputs.Where(validateInput).ToList()     // the method group resolves too
+}
+```
 
 ### Which namespace a free function belongs to
 
@@ -88,18 +102,6 @@ func Describe(): string {
 ```
 
 ```n#
-// FILE Process.nl — same namespace, different file
-namespace App.Text
-
-import System.Collections.Generic
-import System.Linq
-
-func ProcessAll(inputs: List<string>): List<string> {
-    return inputs.Where(validateInput).ToList()     // the method group resolves too
-}
-```
-
-
 // FILE dashboard.nl
 namespace Dashboard
 
@@ -948,6 +950,55 @@ process := items.Select(item => {
 })
 ```
 
+### A lambda's parameters keep their names
+
+The method a lambda compiles to carries the parameter names you wrote, as C# does, so code that reads
+a delegate's `Method` by reflection sees them. ASP.NET Core Minimal APIs depend on this: they bind
+route values, query-string values and services to a handler's parameters **by name**.
+
+```n#
+import System
+import Microsoft.AspNetCore.Builder
+
+func routes(app: WebApplication) {
+    app.MapGet("/todos/{id}", (id: int) => "todo " + id.ToString())                  // GET /todos/7
+    app.MapGet("/sum/{a}/{b}", (a: int, b: int) => (a + b).ToString())                // GET /sum/2/3
+    app.MapGet("/search", (term: string) => "searching " + term)                      // GET /search?term=x
+}
+
+handler: Func<int, int> = (value) => value + 1
+print handler.Method.GetParameters()[0].Name    // value
+```
+
+**Where a lambda can be written directly as a handler.** `app.MapGet` and `app.MapPost` on a
+`WebApplication` take a lambda with parameters as written above: the handler becomes the delegate its
+written parameter types describe (`(id: int) => "…"` is a `Func<int, string>`), and a single
+parameter written without a type is the request's `HttpContext`.
+
+Other places whose parameter is typed `System.Delegate` do **not** accept a lambda literal yet:
+`app.MapPut`, `app.MapDelete`, a route group's `MapGet` (`app.MapGroup("/api").MapGet(...)`), and
+any other method taking `Delegate`, including one you write. For those, give the lambda a typed
+`Func<>` or `Action<>` local first and pass the local — its parameter names are kept the same way:
+
+```n#
+import System
+import Microsoft.AspNetCore.Builder
+
+func moreRoutes(app: WebApplication) {
+    update: Func<int, string> = (id: int) => "updated " + id.ToString()
+    app.MapPut("/todos/{id}", update)                                                   // PUT /todos/3
+
+    remove: Func<int, string> = (id: int) => "deleted " + id.ToString()
+    app.MapDelete("/todos/{id}", remove)                                                // DELETE /todos/4
+
+    api := app.MapGroup("/api")
+    byId: Func<int, string> = (id: int) => "todo " + id.ToString()
+    api.MapGet("/todos/{id}", byId)                                                     // GET /api/todos/5
+}
+```
+
+A delegate you already hold can also be passed to `MapGet`/`MapPost` as `f as Delegate`.
+
 ### Type Inference in Lambdas
 
 A lambda written without parameter types takes them from the delegate it is passed to. When the
@@ -1325,6 +1376,51 @@ async func getValue(): ValueTask<int> {
     return 42
 }
 ```
+
+### Bare `return` in a task-returning function
+
+A unit `async` function (`: Task`, `: ValueTask`, or no return annotation) may leave early with a bare
+`return`. The task completes with no value, enclosing `finally` blocks run, and it works before or
+after the first `await`, inside loops and inside `try`:
+
+```n#
+async func work(x: int): Task {
+    if x == 0 {
+        return              // completes the task
+    }
+    await Task.Delay(1)
+    print "after delay " + x.ToString()
+}
+```
+
+### Generic async methods
+
+An `async` method on a type (static or instance) may declare its own type parameters. The result is
+the project's async family over the written result, as for any async function: `ValueTask<T>` by
+default, `Task<T>` under `language.asyncDefaultType: Task`, or whatever `Task<T>` / `ValueTask<T>` the
+signature writes. This matches C#, where `async Task<T> Read<T>()` carries `T` on the method:
+
+```n#
+import System.Text.Json
+import System.Threading.Tasks
+
+class Rd {
+    static async func Read<T>(text: string): T {
+        await Task.Delay(1)
+        return must JsonSerializer.Deserialize<T>(text, new JsonSerializerOptions())
+    }
+}
+
+func main() {
+    n := Rd.Read<int>("5").AsTask().Result       // ValueTask<int> under the default config
+    s := Rd.Read<string>("\"x\"").AsTask().Result
+}
+```
+
+Type arguments are inferred from arguments where they can be, a constraint (`where T : class`)
+applies, a `T` local may live across an `await`, and the result may be `T`, `T[]`, a tuple, or
+`Box<T>`. A generic **free** `async func` and a generic **local** `async` function are not supported
+yet; declare the generic async function as a method on a type instead.
 
 ### Async Void
 
@@ -2200,8 +2296,8 @@ func passThrough<T>(value: T): T {
 The compiler preserves the two owners in CLR metadata: a capture-free local copies enclosing
 parameters onto its synthesized static method, while a capturing local places them on its display
 type. Declaring a local parameter with the same name as an enclosing parameter is still NL316; use a
-distinct name such as `U`. An `async` generic local function is not supported, for the same reason a
-generic `async func` is not supported.
+distinct name such as `U`. An `async` generic local function is not supported yet; declare it as a method
+(see [Generic async methods](#generic-async-methods)).
 
 ### Scope: a local function is visible in its whole block
 
@@ -2530,6 +2626,8 @@ func configure(app: WebApplication) {
     route := app.MapGet("/todo", () => "todo")
     route.Produces<Todo>()                            // statusCode = 200, contentType = null
     route.Produces<Todo>(201, "text/plain", "application/xml")
+    byId := app.MapGet("/todos/{id}", (id: int) => "todo " + id.ToString())
+    byId.Produces<Todo>()                             // `{id}` binds to the lambda's `id`
 }
 ```
 

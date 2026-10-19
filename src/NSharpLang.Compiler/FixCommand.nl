@@ -34,6 +34,9 @@ class FixCommand {
         }
 
         try {
+            // `*.tests.nl` is N# source like any other: `nlc test` compiles it and reports its
+            // diagnostics (an unused import is NL010 there too), so the fixes `nlc check` reports
+            // for a test file are applied here instead of being left to hand edits.
             files := new List<string>()
             if fileArg != null {
                 fullPath := FixCommandKernels.ResolveFilePath(projectDir, fileArg)
@@ -46,12 +49,12 @@ class FixCommand {
                 config := ProjectFileParser.ParseFromDirectory(projectDir)
                 if config == null {
                     defaultConfig := ProjectFileParser.CreateDefault(null)
-                    sourceFiles := defaultConfig.GetSourceFiles(projectDir, false)
+                    sourceFiles := defaultConfig.GetSourceFiles(projectDir, true)
                     for sourceFile in sourceFiles {
                         files.Add(FixCommandKernels.GetSourceFilePath(sourceFile))
                     }
                 } else {
-                    sourceFiles := config.GetSourceFiles(projectDir, false)
+                    sourceFiles := config.GetSourceFiles(projectDir, true)
                     for sourceFile in sourceFiles {
                         files.Add(FixCommandKernels.GetSourceFilePath(sourceFile))
                     }

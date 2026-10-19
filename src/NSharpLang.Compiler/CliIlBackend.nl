@@ -125,7 +125,7 @@ class CliIlBackend {
         }
     }
 
-    static func RunWithIlBackend(projectRoot: string, cliDefines: IReadOnlyList<string>? = null): int {
+    static func RunWithIlBackend(projectRoot: string, cliDefines: IReadOnlyList<string>?, programArguments: string[]): int {
         try {
             normalizedRoot := BuildCommandKernels.NormalizeProjectRoot(projectRoot)
             projectYmlPath := CompilationReferenceResolverKernels.GetProjectYmlPath(normalizedRoot)
@@ -153,13 +153,13 @@ class CliIlBackend {
             Console.WriteLine()
             Console.WriteLine(RunCommandKernels.GetProjectStartingMessage())
             Console.WriteLine()
-            return DotnetRunner.RunPassthrough("\"" + outputPath + "\"", normalizedRoot)
+            return DotnetRunner.RunPassthrough(RunCommandKernels.GetLaunchArguments(outputPath, programArguments), normalizedRoot)
         } catch ex: Exception {
             return CliError.Report(RunCommandKernels.GetFailedMessage(ex.Message))
         }
     }
 
-    static func RunSingleFileWithIlBackend(sourceFile: string, projectConfig: ProjectConfig?, cliDefines: IReadOnlyList<string>? = null): int {
+    static func RunSingleFileWithIlBackend(sourceFile: string, projectConfig: ProjectConfig?, cliDefines: IReadOnlyList<string>?, programArguments: string[]): int {
         tempDir := CreateTempBuildDirectory()
         try {
             Console.WriteLine(RunCommandKernels.GetSingleFileBackendStartMessage(sourceFile))
@@ -182,7 +182,7 @@ class CliIlBackend {
             }
 
             Console.WriteLine()
-            return DotnetRunner.RunPassthrough("\"" + outputPath + "\"", sourceDir)
+            return DotnetRunner.RunPassthrough(RunCommandKernels.GetLaunchArguments(outputPath, programArguments), sourceDir)
         } catch ex: Exception {
             return CliError.Report(RunCommandKernels.GetFailedMessage(ex.Message))
         } finally {

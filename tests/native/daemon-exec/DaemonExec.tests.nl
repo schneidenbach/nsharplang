@@ -71,6 +71,33 @@ test "the first routed command runs in-process and starts a server, and the next
     }
 }
 
+test "the workspace server directory ignores itself so a repository stays clean" {
+    workspace := NewWorkspace()
+    try {
+        File.WriteAllText(Path.Combine(workspace, ".gitignore"), "bin/\nobj/\n")
+        WriteSource(workspace, "Program.nl", CleanProgram())
+        initialized := Git(["init", "--quiet"], workspace)
+        assert initialized.ExitCode == 0, initialized.Stdout + initialized.Stderr
+        staged := Git(["add", ".gitignore", "project.yml", "Program.nl"], workspace)
+        assert staged.ExitCode == 0, staged.Stdout + staged.Stderr
+        before := Git(["status", "--short"], workspace)
+        assert before.ExitCode == 0, before.Stdout + before.Stderr
+
+        first := NlcWith(["check"], workspace, NoEnvironment(), null)
+        assert first.ExitCode == 0
+
+        ignorePath := Path.Combine(Path.Combine(workspace, ".nlc"), ".gitignore")
+        assert WaitUntil(() => File.Exists(ignorePath), 60000)
+        assert File.ReadAllText(ignorePath).Contains("\n*\n")
+
+        after := Git(["status", "--short"], workspace)
+        assert after.ExitCode == 0, after.Stdout + after.Stderr
+        assert after.Stdout == before.Stdout, after.Stdout
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
 test "--no-daemon, NLC_NO_DAEMON and CI keep a command in-process even with a server running" {
     workspace := NewWorkspace()
     try {
@@ -340,6 +367,27 @@ test "stdin reaches a command that reads it, and run starts the program on the c
         assert run.Stdout.Contains("twice: 42")
         assert run.Stdout.Contains("read: typed by the user")
         assert run.Stderr.Contains("to stderr")
+    } finally {
+        DeleteWorkspace(workspace)
+    }
+}
+
+test "program arguments after -- reach the program exactly the same in-process and through the server" {
+    workspace := NewWorkspace()
+    try {
+        WriteSource(workspace, "Program.nl", "import System\n\nfunc main(args: string[]) {\n    Console.WriteLine(\"count=\" + args.Length.ToString())\n    for argument in args {\n        Console.WriteLine(\"[\" + argument + \"]\")\n    }\n}\n")
+        StartServer(workspace)
+
+        arguments := ["run", "--", "a\"b", "C:\\dir\\", "", "two words", "--help"]
+        expected := "count=5" + Environment.NewLine + "[a\"b]" + Environment.NewLine + "[C:\\dir\\]" + Environment.NewLine + "[]" + Environment.NewLine + "[two words]" + Environment.NewLine + "[--help]" + Environment.NewLine
+        inProcess := NlcWith(arguments, workspace, InProcess(), null)
+        assert inProcess.ExitCode == 0, inProcess.Stdout + inProcess.Stderr
+        assert inProcess.Stdout.EndsWith(expected), inProcess.Stdout
+
+        routed := NlcWith(arguments, workspace, Traced(), null)
+        assert RoutedThroughServer(routed.Stderr)
+        assert routed.ExitCode == 0, routed.Stdout + routed.Stderr
+        assert routed.Stdout.EndsWith(expected), routed.Stdout
     } finally {
         DeleteWorkspace(workspace)
     }

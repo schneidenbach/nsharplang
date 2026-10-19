@@ -184,8 +184,9 @@ class LintCommand {
     }
 
     // The source list, which is the project's own when nothing was named on the command line. It
-    // excludes `*.tests.nl` exactly as `nlc fix` does — lint reports on the shipped surface — while
-    // the analysis below still COMPILES the test sources so the binding rules see the whole program.
+    // includes `*.tests.nl` exactly as `nlc fix`, `nlc format` and `nlc check` do: a test file is N#
+    // source, `nlc test` fails on its lint errors, and a lint that skipped it answered about a
+    // different program than the one that gets tested.
     private static func DiscoverSourcePaths(projectRoot: string, positionalFiles: string[]): List<string> {
         sourcePaths := new List<string>()
         if positionalFiles.Length == 0 {
@@ -194,7 +195,7 @@ class LintCommand {
                 config = ProjectFileParser.CreateDefault(null)
             }
 
-            for sourceFile in config.GetSourceFiles(projectRoot, false) {
+            for sourceFile in config.GetSourceFiles(projectRoot, true) {
                 sourcePaths.Add(LintCommandKernels.GetSourceFilePath(sourceFile))
             }
 

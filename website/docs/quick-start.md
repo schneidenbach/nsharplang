@@ -107,7 +107,13 @@ sdk: Microsoft.NET.Sdk.Web
 
 dependencies:
   - framework: Microsoft.AspNetCore.App
+  - framework: Microsoft.NETCore.App
 ```
+
+`sdk: Microsoft.NET.Sdk.Web` already implies `Microsoft.AspNetCore.App`. The `Microsoft.NETCore.App`
+entry makes the rest of the base framework visible to `nlc` (for example `IServiceProvider` and
+`System.Security.Claims`), which `dotnet build` references implicitly. See the
+[project.yml reference](./project-yml.md#aspnet-core-projects) for every dependency kind.
 
 **Program.nl:**
 ```n#
@@ -119,9 +125,23 @@ func main() {
 
     app.MapGet("/", () => "Hello from N#!")
 
+    // Route values and query-string values bind to handler parameters by name.
+    app.MapGet("/todos/{id}", (id: int) => "Todo #" + id.ToString())
+    app.MapGet("/search", (term: string) => "Searching for " + term)
+
     app.Run()
 }
 ```
+
+`GET /todos/42` answers `Todo #42`, and `GET /search?term=lambdas` answers `Searching for lambdas`.
+A handler lambda's parameters keep their names in the compiled program, exactly as in C#, so ASP.NET
+Core can match `{id}` to `id`. A handler may also take the `HttpContext` itself, e.g.
+`(ctx: HttpContext) => ctx.Response.WriteAsync("ok")` (add `import Microsoft.AspNetCore.Http`).
+
+Lambdas can be written inline like this for `app.MapGet` and `app.MapPost` only. `app.MapPut`,
+`app.MapDelete` and route groups (`app.MapGroup(...)`) do not take an inline lambda yet: put the
+lambda in a typed local such as `update: Func<int, string> = (id: int) => ...` and pass the local.
+See [a lambda's parameters keep their names](./functions.md#a-lambdas-parameters-keep-their-names).
 
 ## Single-File CLI Workflow
 

@@ -1728,7 +1728,7 @@ class MultiFileCompiler {
             ReadAllSourceTexts()
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot)
             let decline: NSharpLang.Compiler.ColumnarDeclineDiagnostic? = null
-            if (!EmitOnWideStackThread(assemblyName, outputPath, out decline)) {
+            if (!ReportNoBuildableSources() && !EmitOnWideStackThread(assemblyName, outputPath, out decline)) {
                 _allErrors.Add(ColumnarEmissionDiagnostics.RequiredEmissionErrorFor(
                     assemblyName,
                     AotMode,
@@ -1808,6 +1808,14 @@ class MultiFileCompiler {
             }
         }
         if hasValidationErrors {
+            return new MultiFileCompilationResult(
+                false,
+                _allErrors,
+                null
+            )
+        }
+
+        if ReportNoBuildableSources() {
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
@@ -1927,7 +1935,7 @@ class MultiFileCompiler {
         if image != null {
             _emittedImage = image
             if outputPath != null {
-                File.WriteAllBytes(outputPath, image)
+                AtomicFile.WriteAllBytes(outputPath, image)
                 CompilerWorkCounters.Shared.CountAssemblyEmitted()
             }
         }
@@ -2220,7 +2228,12 @@ class MultiFileCompiler {
     // Emit the whole assembly through the standalone columnar backend; with no output path the image
     // is kept in memory only.
     private func TryEmitWithColumnarBackend(assemblyName: string, outputPath: string?): bool {
+        ColumnarDeclineTrace.Reset()
         if (_sourceFiles.Count == 0) {
+            // A project whose only sources are `*.tests.nl` reaches here: `nlc build` compiles the
+            // product, test sources belong to `nlc test`/`nlc check`, and Go's `go build` refuses the
+            // same shape with "no non-test Go files". Say so instead of declining without a reason.
+            DeclineWithReason("emit.no-sources", "the project has no source files to compile; files named *.tests.nl are test sources that `nlc build` does not compile (run `nlc test` or `nlc check` for them)")
             return false
         }
 
@@ -2233,6 +2246,7 @@ class MultiFileCompiler {
         for sourceFile in _sourceFiles {
             let source: string? = null
             if (!_sourceTexts.TryGetValue(Path.GetFullPath(sourceFile), out source)) {
+                DeclineWithReason("emit.source-unread", "the source text of '" + Path.GetFileName(sourceFile) + "' was not read before emission")
                 return false
             }
             sourceText := source ?? ""
@@ -2242,6 +2256,7 @@ class MultiFileCompiler {
                 summary := plan.Summaries[fullPath]
                 skeleton := summary.InterfaceSkeleton
                 if skeleton == null {
+                    DeclineWithReason("emit.skeleton-missing", "the cached interface skeleton of '" + Path.GetFileName(sourceFile) + "' is missing")
                     return false
                 }
                 sourceText = skeleton
@@ -2255,6 +2270,8 @@ class MultiFileCompiler {
             outputType = outputConfig.OutputType
         }
         isExecutable := ColumnarEmissionPlanner.IsExecutableOutput(outputType)
+        // The persisted-check subset attempt above may have recorded declines of its own; the
+        // complete walk below starts from a clean trace so they cannot be reported as its reason.
         ColumnarDeclineTrace.Reset()
         let program: NSharpLang.Compiler.Columnar.ColumnarProgramInput = null
         emitParses: ColumnarFileProgramCache? = null
@@ -2313,7 +2330,7 @@ class MultiFileCompiler {
             return true
         }
         writeMark := CompilerPhaseTimings.Begin(_phaseProject, "emit.write")
-        File.WriteAllBytes(outputPath, assembly)
+        AtomicFile.WriteAllBytes(outputPath, assembly)
         CompilerWorkCounters.Shared.CountAssemblyEmitted()
         written := TryEmitReferenceAssembly(outputPath, referenceAssemblyPaths)
         CompilerPhaseTimings.End(writeMark)
@@ -2724,11 +2741,56 @@ class MultiFileCompiler {
         return false
     }
 
+    // NL936 -- THE PROJECT HAS NOTHING TO BUILD. `nlc build` compiles the product, and `*.tests.nl`
+    // files belong to `nlc test` and `nlc check` (the way `go build` ignores `_test.go`), so a project
+    // whose only sources are test files reaches emission with an empty file list. That is a fact about
+    // the PROJECT, found before any code generation runs, and is reported as its own diagnostic rather
+    // than as a code generator that "declined" a shape. A project with no `.nl` file at all (or none
+    // left after its `exclude` patterns) gets its own wording. Returns true when it reported.
+    private func ReportNoBuildableSources(): bool {
+        if _sourceFiles.Count > 0 {
+            return false
+        }
+
+        testFileCount := 0
+        projectConfig := _config
+        if projectConfig != null {
+            for projectFile in projectConfig.GetSourceFiles(_projectRoot, true) {
+                if ProjectSourceFileFilter.ProjectSourceFilterIsTestFile(projectFile) {
+                    testFileCount++
+                }
+            }
+        }
+
+        explanation := "This project has no .nl source files, so there is nothing to compile."
+        suggestion := "Add a .nl file next to project.yml, or check the `exclude` patterns in project.yml if the files you expected are being skipped."
+        if testFileCount > 0 {
+            explanation = "This project contains only test files (*.tests.nl), which `nlc build` does not compile."
+            suggestion = "Run `nlc test` to run them or `nlc check` to type-check them, or add a non-test .nl file."
+        }
+
+        _allErrors.Add(new CompilerError(ErrorCode.NoSourcesToBuild, "No source files to build", 0, 0, ErrorSeverity.Error) {
+            HumanExplanation: explanation,
+            Suggestion: suggestion
+        })
+        return true
+    }
+
+    // A decline the driver itself makes (before or after the code generator ran) records its reason
+    // in the same trace the generator's declines use, so no `columnar backend declined` message is
+    // ever shown without one.
+    private func DeclineWithReason(siteId: string, message: string): void {
+        ColumnarDeclineTrace.Record(siteId, message, -1, 0, "")
+    }
+
     private func BuildColumnarDeclineDiagnostic(): ColumnarDeclineDiagnostic {
         records := ColumnarDeclineTrace.Snapshot()
         WriteColumnarDeclineTrace(records)
         if (records.Count == 0) {
-            return ColumnarDeclineDiagnostic.Empty
+            // The driver's own early exits record a reason, and the parser and code generator record
+            // at their decline sites; an exit that records nothing would otherwise print an
+            // unexplained decline. Say so, so it can be reported and reduced.
+            return new ColumnarDeclineDiagnostic("the code generator declined without recording where; please report this with the project that produced it", null, 0, 0, 1)
         }
 
         primary := records[0]

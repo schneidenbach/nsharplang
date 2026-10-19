@@ -12,6 +12,9 @@ func main(args: string[]) {
     // DateTime endpoint
     app.MapGet("/time", () => DateTime.Now.ToString())
 
+    // Route value bound to the handler's `name` parameter
+    app.MapGet("/hello/{name}", (name: string) => "Hello, " + name + "!")
+
     // JSON endpoint
     app.MapGet("/json", () => new {
         Message: "Hello from N#",
@@ -25,6 +28,7 @@ func main(args: string[]) {
         print "Try these endpoints:"
         print "  GET /"
         print "  GET /time"
+        print "  GET /hello/{name}"
         print "  GET /json"
     }
 

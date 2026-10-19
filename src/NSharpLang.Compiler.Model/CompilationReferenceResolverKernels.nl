@@ -336,6 +336,22 @@ class CompilationReferenceResolverKernels {
         return names.ToArray()
     }
 
+    // THE SHARED FRAMEWORKS MSBUILD REFERENCES WITHOUT BEING ASKED, measured against the .NET 10 SDK
+    // rather than inferred from SDK names. `Microsoft.NET.Sdk` adds `Microsoft.NETCore.App` to every
+    // .NETCoreApp project, and `Microsoft.NET.Sdk.Web` alone adds `Microsoft.AspNetCore.App`
+    // (`Sdks/Microsoft.NET.Sdk.Web/Targets/Sdk.Server.props`). Other SDKs whose ids contain `Web`
+    // -- `Microsoft.NET.Sdk.BlazorWebAssembly`, `Microsoft.NET.Sdk.WebAssembly` -- add no framework,
+    // so this is an exact, case-insensitive id match, not the substring test `nlc` uses to decide
+    // what it references itself. An explicit `FrameworkReference` to one of these draws NETSDK1086,
+    // which is why the SDK projection leaves them out.
+    static func IsMsBuildImplicitFramework(sdk: string, frameworkName: string): bool {
+        if string.Equals(frameworkName, "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase) {
+            return true
+        }
+
+        return string.Equals(frameworkName, "Microsoft.AspNetCore.App", StringComparison.OrdinalIgnoreCase) && string.Equals(sdk, "Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase)
+    }
+
     static func GetSharedFrameworkRoot(sharedRoot: string, frameworkName: string): string {
         return Path.Combine(sharedRoot, frameworkName)
     }

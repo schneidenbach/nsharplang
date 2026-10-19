@@ -42,7 +42,9 @@ test "the run help text names the command, its usage and its success exit code" 
     helpText := RunCommandKernels.GetHelpText()
 
     assert helpText.Contains("N# Run")
-    assert helpText.Contains("Usage: nlc run [file.nl]")
+    assert helpText.Contains("Usage: nlc run [file.nl | --project <dir>] [options] [-- <program arguments>]")
+    assert helpText.Contains("--project <dir>")
+    assert helpText.Contains("Everything after -- is passed to the program unchanged.")
     assert helpText.Contains("Program ran successfully")
 }
 
@@ -55,4 +57,66 @@ test "every run sentence is spelled by a kernel, character for character" {
     assert RunCommandKernels.GetSingleFileBackendStartMessage("Program.nl") == "Running Program.nl with the IL backend..."
     assert RunCommandKernels.GetLibrarySourceFileMessage() == "Cannot run a library source file."
     assert RunCommandKernels.GetFailedMessage("denied") == "Run failed: denied"
+}
+
+test "--project is an option with a value, never the source file to run" {
+    args := ["--project", "app"]
+
+    assert RunCommandKernels.GetProjectOption(args) == "app"
+    assert RunCommandKernels.GetSourceOperand(args) == null
+    assert RunCommandKernels.GetSourceOperand(["--backend", "il", "--project", "app", "Program.nl"]) == "Program.nl"
+    assert RunCommandKernels.GetProjectOption(["Program.nl"]) == null
+}
+
+test "a --project with no value is reported rather than read as a file" {
+    assert RunCommandKernels.IsProjectOptionMissingValue(["--project"])
+    assert RunCommandKernels.IsProjectOptionMissingValue(["--backend", "il", "--project"])
+    assert !RunCommandKernels.IsProjectOptionMissingValue(["--project", "app"])
+    assert !RunCommandKernels.IsProjectOptionMissingValue(new string[](0))
+    assert RunCommandKernels.GetSourceOperand(["--project"]) == null
+}
+
+test "a --project followed by another option has no value either" {
+    assert RunCommandKernels.IsProjectOptionMissingValue(["--project", "--backend", "il"])
+    assert RunCommandKernels.GetProjectOption(["--project", "--backend", "il"]) == null
+    assert RunCommandKernels.IsProjectOptionMissingValue(["--project", "--"])
+    assert RunCommandKernels.GetProjectOption(["--project", "--"]) == null
+    assert !RunCommandKernels.IsProjectOptionMissingValue(["--project", "src/app"])
+}
+
+test "the -- separator splits nlc's arguments from the program's" {
+    args := ["--project", "app", "--", "--help", "--project", "x"]
+
+    launcher := RunCommandKernels.GetLauncherArguments(args)
+    program := RunCommandKernels.GetProgramArguments(args)
+    assert launcher.Length == 2
+    assert launcher[0] == "--project" && launcher[1] == "app"
+    assert program.Length == 3
+    assert program[0] == "--help" && program[1] == "--project" && program[2] == "x"
+    assert !RunCommandKernels.GetOptionSummary(launcher).ShowHelp
+}
+
+test "without a separator every argument is nlc's and the program gets none" {
+    args := ["Program.nl"]
+
+    assert RunCommandKernels.GetLauncherArguments(args).Length == 1
+    assert RunCommandKernels.GetProgramArguments(args).Length == 0
+    assert RunCommandKernels.GetProgramArguments(["--"]).Length == 0
+    assert RunCommandKernels.GetLauncherArguments(["--"]).Length == 0
+}
+
+test "the launch vector is the assembly followed by each program argument, untouched" {
+    bare := RunCommandKernels.GetLaunchArguments("/out/App.dll", new string[](0))
+    assert bare.Length == 1 && bare[0] == "/out/App.dll"
+
+    launch := RunCommandKernels.GetLaunchArguments("/out/App.dll", ["plain", "two words", "", "a\"b", "C:\\dir\\"])
+    assert launch.Length == 6
+    assert launch[0] == "/out/App.dll" && launch[1] == "plain" && launch[2] == "two words"
+    assert launch[3] == "" && launch[4] == "a\"b" && launch[5] == "C:\\dir\\"
+}
+
+test "the --project sentences are spelled by kernels" {
+    assert RunCommandKernels.GetProjectOptionMissingValueMessage() == "--project requires a directory."
+    assert RunCommandKernels.GetMissingProjectFileAtMessage("/p") == "No project.yml found in /p. Run 'nlc new <name>' to create a project."
+    assert RunCommandKernels.GetProjectAndFileConflictMessage().Contains("Cannot combine --project with a source file")
 }

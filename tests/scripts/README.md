@@ -18,7 +18,11 @@ automation, and agent instructions already call those paths.
   content-addressed cache record so unchanged follow-up runs can validate and
   return quickly. Use `--no-cache`, `--rebuild-cache`, or `--clean` to force a
   fresh isolated run. Use `./scripts/test-all.sh --commit` before committing;
-  cached results are only for development feedback.
+  cached results are only for development feedback. A run never outlives its
+  gate: on exit (including TERM and HUP) it stops every process it started
+  before deleting the copy. If a gate is killed outright, the next run stops
+  whatever is still working in that copy and removes the copy (it is recorded
+  under the cache's `locks/runs/`).
 - `test-all-core.sh` - implementation of the full product gate. Call through
   `./scripts/test-all.sh` so isolation and cache validation stay consistent.
   It records coarse per-stage timings and passes exact emitted assemblies to

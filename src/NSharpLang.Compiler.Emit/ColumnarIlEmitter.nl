@@ -85,7 +85,6 @@ sealed class ColumnarIlEmitter {
     private readonly _asyncReturnType: Type?
     private readonly _asyncResultType: Type?
     private readonly _asyncReturnsValueTask: bool
-    private readonly _asyncBareReturnDeclines: bool
     private _finallyDepth: int
     // How many `catch` HANDLER BODIES this emitter is writing inside, and the `_finallyDepth` the
     // innermost of them opened at. IL `rethrow` is valid only in a handler's own funclet, so a bare
@@ -173,9 +172,6 @@ sealed class ColumnarIlEmitter {
     // for `main`). _returnType holds the INNER declared type so every return-value check works
     // unchanged; returns WRAP before storing into the protected slot; the whole body runs inside
     // the fault guard (EmitBody) whose catch converts the exception to a faulted task.
-
-    // True when the async unit-ness came from an EXPLICIT `: Task`/`: ValueTask` annotation — a
-    // bare `return` is then a pipeline NL305 (the unit-task exemption covers fall-through only).
 
     // Set while a FINALLY handler's statements emit: control transfers OUT of a finally (return, or
     // break/continue to a loop outside it) are illegal IL. The analyzer now rejects those shapes with
@@ -541,7 +537,7 @@ sealed class ColumnarIlEmitter {
     // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
     // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
 
-    private constructor(context: ColumnarEmitContext, nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, typeParameters: IReadOnlyDictionary<string, Type>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null) {
+    private constructor(context: ColumnarEmitContext, nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null) {
         // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
@@ -570,7 +566,6 @@ sealed class ColumnarIlEmitter {
         _isConstructorBody = isConstructorBody
         _isSynthesizedInitializerBody = isSynthesizedInitializerBody
         _asyncReturnType = asyncReturnType
-        _asyncBareReturnDeclines = asyncBareReturnDeclines
         if (asyncReturnType != null) {
             if (returnType == ColumnarTypeOfPlanner.RequiredVoidType()) {
                 _asyncResultType = null
@@ -687,6 +682,33 @@ sealed class ColumnarIlEmitter {
             return true
         }
         return ColumnarCanonicalTypeResolver.TryResolveCatchType(_nodes, _source, clause, out catchType)
+    }
+
+    // THE EXCEPTION TYPE AN `assert throws` NAMES, RESOLVED THE SAME WAY AS A `catch` CLAUSE'S.
+    //
+    // `assert throws T { ... }` lowers to a try/catch on T, so T is an ordinary written type: it is
+    // resolved by the body-type route, which sees this file's imports, this compilation's own
+    // declarations (TypeBuilders) and every referenced assembly. The corelib-only exception index
+    // answered for none of the project-declared types, so `assert throws BoomException` declined at
+    // `emit.statement.block-child` while the same type worked in `catch`.
+    //
+    // WHAT THE WRITTEN NAME RESOLVES TO IS FINAL. A project `class TimeoutException` that does not
+    // derive from `Exception` shadows `System.TimeoutException`; it is not catchable, and falling
+    // back to the corelib type of the same simple name would assert a different type than the one
+    // written. The analyzer reports that case at the written type; the emitter refuses it too. The
+    // corelib index answers only for a spelling the body route cannot resolve at all.
+    private func TryResolveAssertThrowsType(assertNode: int, out expectedType: Type): bool {
+        expectedType = null
+        writtenText := ColumnarNodeTextFacts.Text(_nodes, _source, assertNode)
+        let writtenType: System.Type? = null
+        if TryResolveBodyType(writtenText, out writtenType) {
+            if !ColumnarCanonicalTypeResolver.IsCatchableExceptionType(writtenType, typeof(Exception)) {
+                return false
+            }
+            expectedType = writtenType
+            return true
+        }
+        return ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(writtenText, out expectedType)
     }
 
     // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
@@ -1557,6 +1579,14 @@ sealed class ColumnarIlEmitter {
         if !TryResolveLambdaParameterTypes(lambdaIdx, delegateParamTypes, false, out signatureTypes) {
             return false
         }
+        // A WRITTEN PARAMETER TYPE MUST BE ONE THE DELEGATE CAN BIND, or the delegate would be built
+        // over a method whose signature it does not have; the rule is
+        // `ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType`.
+        for writtenIndex := 0; writtenIndex < signatureTypes.Length; writtenIndex++ {
+            if (!ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType(signatureTypes[writtenIndex], delegateParamTypes[writtenIndex])) {
+                return DeclineMember("emit.lambda.parameter-type-mismatch", "lambda parameter " + (writtenIndex + 1).ToString() + " is written as '" + signatureTypes[writtenIndex].ToString() + "' but the target delegate takes '" + delegateParamTypes[writtenIndex].ToString() + "'", lambdaIdx, "lambda")
+            }
+        }
         lambdaSignature = ColumnarLambdaPlacementPlanner.PlanContextualSignature(
             _nodes,
             _source,
@@ -1635,6 +1665,7 @@ sealed class ColumnarIlEmitter {
             if (placement == null) {
                 return false
             }
+            ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(placement.Method, lambdaSignature.ParameterNames)
             bodyIl := placement.Method.GetILGenerator()
             bodyOrdinals := ordinals
             if (placement.OrdinalShift != 0) {
@@ -1662,7 +1693,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
                 asyncReturnType,
-                false,
                 placement.TypeParametersForBody,
                 null,
                 null
@@ -1727,6 +1757,7 @@ sealed class ColumnarIlEmitter {
             delegateReturnType,
             signatureTypes
         )
+        ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(closureMethod, lambdaSignature.ParameterNames)
         closureIl := closureMethod.GetILGenerator()
         closureBoxedCaptures := displayBuild.BoxedCapturesOrNull()
         closureEnclosingType := LambdaBodyEnclosingType(displayBuild.CapturesEnclosingThis)
@@ -1749,7 +1780,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             asyncReturnType,
-            false,
             null,
             null,
             null
@@ -1833,7 +1863,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
-            false,
             null,
             null,
             null
@@ -2447,7 +2476,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
-            false,
             placement.TypeParametersForBody,
             null,
             null
@@ -2466,6 +2494,7 @@ sealed class ColumnarIlEmitter {
         lambdaMethod.SetReturnType(bodyType)
         lambdaMethodForParameters := lambdaMethod
         lambdaMethodForParameters.SetParameters(signatureTypes)
+        ColumnarLambdaPlacementPlanner.DefineSourceParameterNames(lambdaMethodForParameters, lambdaSignature.ParameterNames)
         let inferredReturnType: System.Type? = null
         let inferredParameterTypes: System.Type[]? = null
         let delegateCtor: System.Reflection.ConstructorInfo? = null
@@ -4736,7 +4765,6 @@ sealed class ColumnarIlEmitter {
             null,
             null,
             null,
-            false,
             def.GenericParameters,
             null,
             null
@@ -5548,9 +5576,6 @@ sealed class ColumnarIlEmitter {
                     let sGenericBuilder: System.Reflection.Emit.MethodBuilder? = null
                     sTypeResolution := typeResolution
                     if (m.TypeParamNames.Length > 0) {
-                        if (m.IsAsync) {
-                            return DeclineStatic("emit.declaration.method-return", "generic async static method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
-                        }
                         if (ColumnarFunctionModifierFlags.HasNativeImportModifier(m.ModifierFlags)) {
                             return DeclineStatic("emit.declaration.method-generic", "native-import method '" + structs[s].Name + "." + m.Name + "' cannot declare type parameters", structs[s].Name, -1, 0)
                         }
@@ -5569,7 +5594,9 @@ sealed class ColumnarIlEmitter {
                     let sReturn: System.Type = null
                     sAsyncWrappedReturn: Type? = null
                     if (m.IsAsync) {
-                        if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn)) {
+                        sAsyncScope := sTypeParamMap ?? def.GenericParameters
+                        sAsyncShapeResolved := ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, sAsyncScope, sTypeResolution.Enums, sTypeResolution.Structs, sTypeResolution.Unions, out sReturn, out sAsyncWrappedReturn) && (sAsyncScope == null || sReturn == ColumnarTypeOfPlanner.RequiredVoidType() || IsSupportedGenericSignatureValueType(sReturn))
+                        if (!sAsyncShapeResolved) {
                             return DeclineStatic("emit.declaration.method-return", "async static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                     } else {
@@ -5708,9 +5735,6 @@ sealed class ColumnarIlEmitter {
                 mTypeResolution := typeResolution
                 methodOverride := declarationPlan.MethodOverrides.Methods[s][mi]
                 if (m.TypeParamNames.Length > 0) {
-                    if (m.IsAsync && !ColumnarIteratorPlanner.ContainsYield(m.BodyNodes, m.BodyRoot)) {
-                        return DeclineStatic("emit.declaration.method-return", "generic async method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
-                    }
                     // A GENERIC slot's MethodImpl row is written from the name and arity BEFORE the
                     // signature exists (see `DeclaresGenericMethodSlot`), and that decision cannot be
                     // made from a qualified name — so an explicit implementation of a generic interface
@@ -5751,8 +5775,12 @@ sealed class ColumnarIlEmitter {
                             return DeclineStatic("emit.declaration.method-return", "async iterator element type '" + asyncElementCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                         mReturn = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
-                    } else if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn)) {
-                        return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    } else {
+                        mAsyncScope := mTypeParamMap ?? def.GenericParameters
+                        mAsyncShapeResolved := ColumnarInterfaceRealization.TryComputeAsyncReturnShapeInScope(m.Name, m.ReturnCanonical, program.AsyncDefaultFamily, mAsyncScope, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn, out mAsyncWrappedReturn) && (mAsyncScope == null || mReturn == ColumnarTypeOfPlanner.RequiredVoidType() || IsSupportedGenericSignatureValueType(mReturn))
+                        if (!mAsyncShapeResolved) {
+                            return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        }
                     }
                 } else {
                     if (m.ReturnCanonical == "void") {
@@ -6732,12 +6760,13 @@ sealed class ColumnarIlEmitter {
                 returnType = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
             } else {
                 if (fn.IsAsync) {
-                    // ASYNC (the sync-lowering mirror): generic async declines; the declared return
-                    // resolves to the INNER type and the METHOD signature wraps it — ValueTask(/T) by
-                    // default, Task(/T) for `main` (the legacy emitter's entry-point rule), explicit task-like
-                    // annotations keep their declared family.
+                    // ASYNC (the sync-lowering mirror): the declared return resolves to the INNER type and
+                    // the METHOD signature wraps it — ValueTask(/T) by default, Task(/T) for `main` (the
+                    // legacy emitter's entry-point rule), explicit task-like annotations keep their
+                    // declared family. A generic async FREE function is not modeled yet; generic async
+                    // METHODS are (see `TryComputeAsyncReturnShapeInScope`).
                     if (fn.TypeParamNames.Length > 0) {
-                        return false
+                        return DeclineStatic("emit.declaration.function-return", "generic async free function is not modeled for '" + fn.Name + "'", fn.Name, -1, 0)
                     }
                     if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, program.AsyncDefaultFamily, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn)) {
                         return DeclineStatic("emit.declaration.function-return", "async function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)
@@ -7039,11 +7068,6 @@ sealed class ColumnarIlEmitter {
                 fnParamTupleNames,
                 null,
                 asyncWrappedByFunc[f],
-                match fn.ReturnCanonical {
-                    "Task" => true,
-                    "ValueTask" => true,
-                    _ => false
-                },
                 bodyTypeParamMap,
                 localFunctionDisplay,
                 genericLocalFuncs
@@ -7102,7 +7126,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                false,
                 job.Item1.GenericParameters,
                 null,
                 null
@@ -7275,11 +7298,6 @@ sealed class ColumnarIlEmitter {
                 methodJobParamTupleNames,
                 null,
                 job.Item6,
-                match job.Item2.ReturnCanonical {
-                    "Task" => true,
-                    "ValueTask" => true,
-                    _ => false
-                },
                 memberBodyTypeParameters,
                 memberLocalFunctionClosure,
                 memberGenericLocalFuncs
@@ -7354,7 +7372,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                false,
                 staticInitializerDef.GenericParameters,
                 null,
                 null
@@ -7424,7 +7441,6 @@ sealed class ColumnarIlEmitter {
                 ctorJobParamTupleNames,
                 null,
                 null,
-                false,
                 job.Struct.GenericParameters,
                 null,
                 null
@@ -7693,7 +7709,6 @@ sealed class ColumnarIlEmitter {
                     null,
                     null,
                     null,
-                    false,
                     null,
                     null,
                     null
@@ -7994,7 +8009,7 @@ sealed class ColumnarIlEmitter {
         visibleLocalFuncNames: List<string>
     ): bool {
         if (localFn.IsAsync) {
-            return DeclineStatic("emit.local-function.generic-async", "a generic local function cannot be `async` — the state machine has no type arguments to carry", fn.Name + "." + localFn.Name, -1, 0)
+            return DeclineStatic("emit.local-function.generic-async", "a generic `async` local function is not modeled yet — declare the generic async function as a method instead", fn.Name + "." + localFn.Name, -1, 0)
         }
         runsOnDisplay := closure != null && closure.IsDisplayMethod(localFn.Name)
         runsOnEnclosingInstance := closure != null && closure.IsInstanceMethod(localFn.Name)
@@ -8325,11 +8340,6 @@ sealed class ColumnarIlEmitter {
                 null,
                 declaringScopeBindings,
                 localAsyncReturn,
-                match localFn.ReturnCanonical {
-                    "Task" => true,
-                    "ValueTask" => true,
-                    _ => false
-                },
                 localTypeParamMap,
                 localClosureView,
                 lowering.GenericLocalFuncs
@@ -8662,7 +8672,8 @@ sealed class ColumnarIlEmitter {
             // ASYNC FAULT GUARD (the legacy emitter's BeginAsyncFaultGuard/EndAsyncFaultGuard): the whole
             // body is ONE protected region — every return WRAPS its value and leaves to the shared
             // tail; a UNIT body falling off the end wraps the completed task; the catch converts
-            // the thrown exception into a faulted task (Task.FromException, + the ValueTask ctor).
+            // the thrown exception into a faulted task (Task.FromException or ValueTask.FromException<T>;
+            // a unit ValueTask wraps Task.FromException).
             // Value bodies must still always-return (the analyzer's rule — unit-task asyncs are
             // exempt). A try/lock inside the body nests INSIDE this guard, which the depth counter
             // tracks: every return still leaves to the one shared tail.
@@ -8754,7 +8765,8 @@ sealed class ColumnarIlEmitter {
     // ASYNC mirror of the legacy emitter's EmitWrapCurrentAsyncReturn: wraps the (already-emitted) return
     // value — or, with no value, the completed unit task — into the wrapped CLR return type.
     // Unit + ValueTask -> default(ValueTask); unit + Task -> Task.CompletedTask;
-    // T + ValueTask<T> -> newobj ValueTask<T>(T); T + Task<T> -> Task.FromResult<T>(T).
+    // ValueTask<T> uses the CLR factory so composite open results such as T[] and Box<T> do not
+    // require Reflection.Emit to rebind a constructor parameter.
     private func EmitWrappedAsyncCompletedReturn(hasValueOnStack: bool): void {
         if (_asyncResultType == null) {
             if (_asyncReturnsValueTask) {
@@ -8776,10 +8788,19 @@ sealed class ColumnarIlEmitter {
             throw new InvalidOperationException("async value return requires the value on the stack")
         }
         if (_asyncReturnsValueTask) {
-            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, ColumnarEmitReflectionFacts.RequiredType(_asyncReturnType, "configured async return type").GetConstructor([_asyncResultType]), "required CLR constructor with the emitted signature")
+            _il.Emit(OpCodes.Call, FindValueTaskStaticMethod("FromResult").MakeGenericMethod([_asyncResultType]))
         } else {
             _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromResult", true).MakeGenericMethod([_asyncResultType]))
         }
+    }
+
+    private static func FindValueTaskStaticMethod(methodName: string): MethodInfo {
+        for candidate in typeof(System.Threading.Tasks.ValueTask).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (candidate.Name == methodName && candidate.IsGenericMethodDefinition && candidate.GetParameters().Length == 1) {
+                return candidate
+            }
+        }
+        throw new InvalidOperationException("Could not resolve ValueTask." + methodName)
     }
 
     private static func FindTaskStaticMethod(methodName: string, generic: bool): MethodInfo {
@@ -8792,8 +8813,8 @@ sealed class ColumnarIlEmitter {
     }
 
     // ASYNC mirror of the legacy emitter's EmitFaultedAsyncReturn: with an Exception on the stack, leaves a
-    // FAULTED task of the wrapped return type carrying it (Task.FromException(<T>), then the
-    // ValueTask(<T>) Task-wrapping ctor when the family is ValueTask).
+    // faulted task of the wrapped return type. Generic ValueTask uses its factory so composite open
+    // results follow the same path as successful returns.
     private func EmitFaultedAsyncReturnMirror(): void {
         if (_asyncResultType == null) {
             _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", false))
@@ -8802,10 +8823,10 @@ sealed class ColumnarIlEmitter {
             }
             return
         }
-        _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", true).MakeGenericMethod([_asyncResultType]))
         if (_asyncReturnsValueTask) {
-            taskOfT := typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([_asyncResultType])
-            ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, ColumnarEmitReflectionFacts.RequiredType(_asyncReturnType, "configured async return type").GetConstructor([taskOfT]), "required CLR constructor with the emitted signature")
+            _il.Emit(OpCodes.Call, FindValueTaskStaticMethod("FromException").MakeGenericMethod([_asyncResultType]))
+        } else {
+            _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", true).MakeGenericMethod([_asyncResultType]))
         }
     }
 
@@ -9360,14 +9381,9 @@ sealed class ColumnarIlEmitter {
                 }
                 if (_protectedDepth > 0) {
                     if (_asyncReturnType != null) {
-                        // a bare `return` in a UNIT async body — legal ONLY when the unit-ness
-                        // is IMPLICIT (no annotation): the pipeline's NL305 unit-task exemption
-                        // covers fall-through bodies, and a bare return under an EXPLICIT
-                        // Task/ValueTask annotation is rejected as a non-value return path
-                        // (review-probe-pinned boundary). Wrap and route through the async tail.
-                        if (_asyncBareReturnDeclines) {
-                            return false
-                        }
+                        // a bare `return` in a UNIT async body completes the task, whether the unit-ness
+                        // is implicit or written as `: Task`/`: ValueTask` (C# semantics): wrap and
+                        // route through the async tail, which also runs any enclosing `finally`.
                         EmitWrappedAsyncCompletedReturn(false)
                         _il.Emit(OpCodes.Stloc, _protectedResult)
                     }
@@ -11356,7 +11372,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             let expectedExceptionType: System.Type? = null
-            if (!ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(ColumnarNodeTextFacts.Text(_nodes, _source, idx), out expectedExceptionType)) {
+            if (!TryResolveAssertThrowsType(idx, out expectedExceptionType)) {
                 return false
             }
             assertThrowsBody := Child(idx, 0)
@@ -11384,7 +11400,7 @@ sealed class ColumnarIlEmitter {
             assertThrowsOk := _il.DefineLabel()
             _il.Emit(OpCodes.Ldloc, assertThrowsMissed)
             _il.Emit(OpCodes.Brfalse, assertThrowsOk)
-            _il.Emit(OpCodes.Ldstr, "Expected exception of type " + expectedExceptionType.Name + " was not thrown")
+            _il.Emit(OpCodes.Ldstr, "Expected exception of type " + ColumnarNodeTextFacts.Text(_nodes, _source, idx) + " was not thrown")
             ColumnarEmitReflectionFacts.EmitConstructor(_il, OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]), "required CLR constructor with the emitted signature")
             _il.Emit(OpCodes.Throw)
             _il.MarkLabel(assertThrowsOk)
@@ -25163,7 +25179,6 @@ sealed class ColumnarIlEmitter {
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
-            false,
             _typeParameters,
             null,
             null
@@ -25423,45 +25438,95 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    private func TryEmitAspNetRouteHandler(handlerNode: int, out delegateType: Type): bool {
+    // THE ROUTE HANDLER, DECIDED BEFORE ANYTHING IS EMITTED. The residual is tried ahead of the
+    // general extension tiers, and it used to emit the route string first and only then discover a
+    // handler it does not lower (`f as Delegate`, `(Delegate)f`): it returned false with the string
+    // already on the stack, the contextual extension tier then emitted the call's arguments again, and
+    // the program lost its receiver — an `InvalidProgramException` at startup ("found ref 'string',
+    // expected IEndpointRouteBuilder"). The plan is computed once and the emission consumes it.
+    //
+    // Two shapes are lowered: a lambda literal, whose delegate is its natural one
+    // (`TrySelectAspNetLambdaHandlerDelegate`), and the bare name of an `HttpContext`-taking instance
+    // method on the enclosing reference type, bound to `this`. `method` is null for the lambda.
+    private func TryPlanAspNetRouteHandler(handlerNode: int, out delegateType: Type, out method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef?): bool {
         delegateType = null
-        handlerNode = UnwrapParenthesizedNode(handlerNode)
+        method = null
         if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode))) {
-            parameterCount := _nodes.ChildCount(handlerNode) - 1
-            if (parameterCount == 0) {
-                let inferredReturn: System.Type = null
-                returnType := TryPreflightContextualLambdaReturnType(handlerNode, Type.EmptyTypes, out inferredReturn) ? inferredReturn : typeof(object)
-                delegateType = typeof(Func<int>).GetGenericTypeDefinition().MakeGenericType([returnType])
-                return IsSupportedContextualDelegateType(delegateType) && TryEmitLambdaLiteral(handlerNode, delegateType)
-            }
-
-            let httpContextType: System.Type = null
-            if (parameterCount == 1 && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata)) {
-                let inferredReturn: System.Type = null
-                returnType := TryPreflightContextualLambdaReturnType(handlerNode, [httpContextType], out inferredReturn) ? inferredReturn : typeof(System.Threading.Tasks.Task)
-                delegateType = typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([httpContextType, returnType])
-                return IsSupportedContextualDelegateType(delegateType) && TryEmitLambdaLiteral(handlerNode, delegateType)
-            }
-            return false
+            return TrySelectAspNetLambdaHandlerDelegate(handlerNode, out delegateType)
         }
 
         let contextType: System.Type = null
-        let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
-        if (_nodes.Kind(handlerNode) == ColumnarExpressionNodeKind.IdentifierExpression && _currentStruct != null && _currentStruct.IsReference && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out contextType, _context.ReferenceMetadata) && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) && method != null && TypesEquivalent(method.ParamTypes[0], contextType) && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)) {
-            delegateType = typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([contextType, method.ReturnType])
-            let delegateCtor: System.Reflection.ConstructorInfo? = null
-            let ignoredDelegateReturnType: System.Type? = null
-            let ignoredDelegateParameterTypes: System.Type[]? = null
-            if (!TryGetSupportedDelegateSignature(delegateType, true, out ignoredDelegateReturnType, out ignoredDelegateParameterTypes, out delegateCtor)) {
+        let chainMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
+        if (_nodes.Kind(handlerNode) != ColumnarExpressionNodeKind.IdentifierExpression || _currentStruct == null || !_currentStruct.IsReference || !ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out contextType, _context.ReferenceMetadata) || !ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out chainMethod) || chainMethod == null || !TypesEquivalent(chainMethod.ParamTypes[0], contextType) || !ColumnarTypeOfPlanner.IsSupportedType(chainMethod.ReturnType)) {
+            return false
+        }
+        methodDelegateType := typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([contextType, chainMethod.ReturnType])
+        let ignoredDelegateCtor: System.Reflection.ConstructorInfo? = null
+        let ignoredDelegateReturnType: System.Type? = null
+        let ignoredDelegateParameterTypes: System.Type[]? = null
+        if (!TryGetSupportedDelegateSignature(methodDelegateType, true, out ignoredDelegateReturnType, out ignoredDelegateParameterTypes, out ignoredDelegateCtor)) {
+            return false
+        }
+        delegateType = methodDelegateType
+        method = chainMethod
+        return true
+    }
+
+    // The planned handler's delegate, emitted onto the stack.
+    private func TryEmitPlannedAspNetRouteHandler(handlerNode: int, delegateType: Type, method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef?): bool {
+        if (method == null) {
+            return TryEmitLambdaLiteral(handlerNode, delegateType)
+        }
+        let delegateCtor: System.Reflection.ConstructorInfo? = null
+        let ignoredDelegateReturnType: System.Type? = null
+        let ignoredDelegateParameterTypes: System.Type[]? = null
+        if (!TryGetSupportedDelegateSignature(delegateType, true, out ignoredDelegateReturnType, out ignoredDelegateParameterTypes, out delegateCtor) || delegateCtor == null) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldarg_0)
+        _il.Emit(OpCodes.Ldftn, method.Builder)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
+    // THE DELEGATE A LAMBDA ROUTE HANDLER BECOMES IS ITS NATURAL ONE: `Func<P1..Pn, R>` over the
+    // parameter types the source WROTE, which is the type C# gives a lambda converted to
+    // `System.Delegate`. `(id: int) => "got " + id.ToString()` is a `Func<int, string>`.
+    //
+    // This used to pick `Func<HttpContext, R>` for EVERY one-parameter lambda, whatever its parameter
+    // was declared as, and the synthesized method kept the written `int` — so the delegate was built
+    // over a method whose signature it does not have (ilverify: "Unrecognized arguments for delegate
+    // .ctor"). ASP.NET reads only `handler.Method`, which is why the mismatch stayed invisible until
+    // the parameter's missing NAME failed binding. An UNWRITTEN single parameter (`ctx => ...`) still
+    // takes `HttpContext`, the one type a parameterless-name request delegate can mean.
+    //
+    // The return type is the body's (an `async` body's task of it); when the body cannot be typed
+    // ahead of emission the historical fallbacks stand — `object` for no parameters, `Task` otherwise.
+    // NOTHING IS EMITTED HERE, so the caller can decline before it writes a single instruction.
+    private func TrySelectAspNetLambdaHandlerDelegate(handlerNode: int, out delegateType: Type): bool {
+        delegateType = null
+        parameterCount := _nodes.ChildCount(handlerNode) - 1
+        let parameterTypes: System.Type[]? = null
+        if (!TryResolveLambdaParameterTypes(handlerNode, null, true, out parameterTypes)) {
+            let httpContextType: System.Type = null
+            if (parameterCount != 1 || !ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextTypeInCompilation(_referenceAssemblyPaths, out httpContextType, _context.ReferenceMetadata)) {
                 return false
             }
-            _il.Emit(OpCodes.Ldarg_0)
-            _il.Emit(OpCodes.Ldftn, method.Builder)
-            _il.Emit(OpCodes.Newobj, delegateCtor)
-            return true
+            parameterTypes = [httpContextType]
         }
-
-        return false
+        let inferredReturn: System.Type = null
+        returnType := typeof(System.Threading.Tasks.Task)
+        if (TryPreflightContextualLambdaReturnType(handlerNode, parameterTypes, out inferredReturn)) {
+            returnType = inferredReturn
+        } else if (parameterCount == 0) {
+            returnType = typeof(object)
+        }
+        let naturalDelegateType: System.Type? = null
+        if (!ColumnarCanonicalTypeResolver.TryConstructInferredDelegate(parameterTypes, returnType, out naturalDelegateType) || naturalDelegateType == null || !IsSupportedContextualDelegateType(naturalDelegateType)) {
+            return false
+        }
+        delegateType = naturalDelegateType
+        return true
     }
 
     private func TryEmitAspNetMapEndpointCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
@@ -25491,8 +25556,13 @@ sealed class ColumnarIlEmitter {
                 break
             }
         }
-        let ignoredDelegateType: System.Type? = null
-        if (mapMethod == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false) || !TryEmitAspNetRouteHandler(Child(callIdx, 2), out ignoredDelegateType)) {
+        handlerNode := UnwrapParenthesizedNode(Child(callIdx, 2))
+        let handlerDelegateType: System.Type? = null
+        let handlerMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+        if (mapMethod == null || !TryPlanAspNetRouteHandler(handlerNode, out handlerDelegateType, out handlerMethod) || handlerDelegateType == null) {
+            return false
+        }
+        if (!EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false) || !TryEmitPlannedAspNetRouteHandler(handlerNode, handlerDelegateType, handlerMethod)) {
             return false
         }
 

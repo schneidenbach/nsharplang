@@ -61,6 +61,8 @@ chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all
 | `nlc run` | Compile and run project through the IL backend | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc run --backend il` | Build and run via the direct IL backend | `nlc run --backend il` |
+| `nlc run --project <dir>` | Build and run the project in `<dir>` (relative paths resolve against the current directory; the program's working directory is `<dir>`). Same `CommandOutputKernels.GetProjectRoot` resolution as the other commands; combining it with a `<file>` operand, a missing directory, a directory without `project.yml`, and a `--project` with no value are each a one-line exit-1 error | `nlc run --project src/App` |
+| `nlc run ... -- <args>` | Everything after the first `--` is passed to the program unchanged (as an argument vector through `ProcessStartInfo.ArgumentList`, in-process and over the server's launch frame, so spaces, quotes, trailing backslashes and empty arguments survive) and never read as an nlc option; same `--` boundary `--no-daemon` honours. Owner: `RunCommandKernels.GetLauncherArguments` / `GetProgramArguments` / `GetLaunchArguments` | `nlc run -- --help` |
 | `nlc publish` | Publish portable framework-dependent artifacts | `nlc publish --output ./dist` |
 | `nlc publish --runtime <current-rid>` | Add a framework-dependent launcher for the current host runtime only | `nlc publish --runtime osx-arm64 --output ./dist` |
 | `nlc publish --self-contained` | Unsupported/planned; exits 1 with guidance | `nlc publish --self-contained` |
@@ -195,10 +197,10 @@ Undefined identifier 'unknownVar'
   files — through `CodeIntelligenceService.LoadProjectIncludingTests`, and resolves the test
   references so a `test` block's lowering verifies under check's IL pass exactly as it does under
   `nlc test`. Before this, a project made of test files answered `checkedFiles: 0` with `ok: true`
-  while `nlc test` on the same directory stopped at the first lint error in them. `nlc build`,
-  `nlc lint` and the LSP are unchanged and still read sources only. **No schema change:** the test
-  files are counted in the existing `checkedFiles` and their diagnostics arrive in the existing
-  `results`, so `schemaVersion` stays 1.
+  while `nlc test` on the same directory stopped at the first lint error in them. `nlc build` and
+  the LSP are unchanged and still read sources only (see the test-source rule below). **No schema
+  change:** the test files are counted in the existing `checkedFiles` and their diagnostics arrive in
+  the existing `results`, so `schemaVersion` stays 1.
 - **A root containing nested project roots checks them as a workspace.** `nlc check` discovers every
   nested `project.yml`, assigns each `.nl` file to its nearest project root, applies that project's
   `exclude` rules, and checks every member as its own program. Files owned by the requested root are
@@ -862,6 +864,54 @@ nlc format --stdin < Program.nl
 - `--diff` prints unified hunks against the formatter output
 - `./scripts/test-all.sh` includes a formatting gate for `examples`, `templates`, and `tests/fixtures/issue-tracker`; intentionally malformed diagnostic fixtures are not part of that gate.
 
+### `project.yml` dependencies and the implicit reference set
+
+User-facing reference: `website/docs/project-yml.md`. It is NOT listed in `website/sidebars.js`: that file is an
+existing-debt JavaScript row in the ownership ratchet at its 57-line ceiling, so the page uses
+`displayed_sidebar: docsSidebar` and is reached from getting-started / quick-start links. Listing it needs
+an owner decision about the ratchet (or a sidebar that is not JavaScript).
+
+- **Parser.** `ReferenceConverter` (`src/NSharpLang.Compiler.Model/ReferenceConverter.nl`) reads
+  each `dependencies:` / `testDependencies:` entry. A scalar is a NuGet package (`Name` or
+  `Name@version`); a mapping takes `nuget` (also `Name@version`), `version`, `dll`, `project`,
+  `framework`. Anything else -- an unknown key, two kinds in one entry, `version` on a non-NuGet entry,
+  a nested value -- is recorded as `Reference.Problem` and refused by
+  `ProjectFileParser.RejectMalformedReferences` ("Invalid dependencies entry N: ...") before empty rows
+  are filtered (so a typo-only row is not dropped silently). `ProjectFileParser.ValidateConfig` checks that `dll:` and
+  `project:` paths exist; a `project:` that names a directory with a `project.yml` gets an error
+  that shows the entry to write. Versions are exact; ranges are not supported.
+  `testDependencies` contributes only its NuGet rows.
+- **`nlc build`/`check`/LSP references** come from `CompilationReferenceResolver.AddResolvedDllReferences`:
+  every DLL in each `framework:` shared-framework directory (a `sdk` containing `Web` adds
+  `Microsoft.AspNetCore.App`; `CompilationReferenceResolverKernels.GetFrameworkReferenceNames`),
+  NuGet compile/runtime assets, built `project:` outputs (transitively), and `dll:` paths. Below
+  that sits the **implicit set**: `ExternalAssemblyScan.CommonAssemblyNames()` (33 curated
+  assembly names loaded by simple name from the host runtime, shared with the analyzer through
+  `AnalyzerMetadataLoadPolicy.CommonAssemblyNames`) plus the namespace → assembly rows in
+  `AnalyzerImports.BuildAssemblyMappings`. It is **not** all of Microsoft.NETCore.App: types such as
+  `IServiceProvider` (System.ComponentModel), `System.Security.Claims`, `XmlDocument`,
+  `BigInteger`, `System.Collections.Immutable` and `System.Threading.Channels` give NL201/NL704
+  until the project adds `- framework: Microsoft.NETCore.App`. `Microsoft.AspNetCore.App` alone
+  does not bring the base framework. The docs page lists the 33 names between
+  `implicit-assemblies` markers; `tests/native/error-docs-contract/ProjectYmlReference.tests.nl`
+  fails if the page and `CommonAssemblyNames` drift.
+- **`dotnet build` (NSharpLang.Sdk)** maps the same file through `SdkProjectReferenceProjection`
+  and the `LoadProjectReferences` task: `nuget` → `PackageReference`, `framework` →
+  `FrameworkReference` (except what MSBuild already references --
+  `CompilationReferenceResolverKernels.IsMsBuildImplicitFramework`: `Microsoft.NETCore.App` always,
+  `Microsoft.AspNetCore.App` when `sdk` is exactly `Microsoft.NET.Sdk.Web`; an explicit one draws
+  NETSDK1086. `nlc` itself still uses the looser "sdk contains Web" test), `project` → `ProjectReference` to the `.csproj` beside the
+  referenced `project.yml`, and `dll` → `Reference` (absolute path), so MSBuild copies it to the
+  output and records it in `.deps.json`. Before the `dll` row existed, `dotnet build` compiled
+  against a `dll:` but the program failed at run time with "Could not load file or assembly".
+  MSBuild always passes the whole Microsoft.NETCore.App reference pack, so **the two front doors
+  disagree on a project with no `framework: Microsoft.NETCore.App`**: `dotnet build` compiles code
+  that `nlc build` rejects.
+- **`nlc add --path <dir>`** writes `project: <dir>/project.yml`
+  (`AddCommandKernels.GetProjectFileReferencePath`, `/` separators), refuses a missing path, a
+  directory with no `project.yml` and any non-`project.yml` file (a `.csproj`), and detects duplicates
+  by resolved full path (`ProjectDependencyTargets`). It used to write the bare directory, which every build then rejected.
+
 ### `nlc tree` — Dependency Tree
 
 `tree` is an active dependency-inspection command, not future work:
@@ -959,6 +1009,15 @@ nlc build --verbose      # detailed native resolver/build output
 nlc build --release --verbose
 ```
 
+- **`*.tests.nl` and `nlc build`.** Like `go build` ignoring `_test.go`, `nlc build` compiles the product
+  only: test files are never emitted into the output assembly and their errors do not fail the build.
+  They are verified by `nlc check` (which reads them and is the CI gate for them) and by `nlc test`.
+  `nlc fix`, `nlc lint`, `nlc format` and `nlc check` all treat `*.tests.nl` as ordinary N# source, so
+  `nlc lint` can newly fail a project whose test files have lint errors (an unused import is NL010 under
+  `nlc test` too). A project with nothing to build fails with **NL936** (`No source files to build`),
+  raised before emission with its own wording for "only test files" and "no `.nl` files at all"; `nlc test`
+  still runs a tests-only library. A columnar decline the driver makes itself records a reason, and one
+  that reaches the diagnostic without any says so rather than printing nothing.
 - All builds report elapsed time on completion (e.g., `Build successful! (release) [2.3s]`)
 - `il` backend parses/analyzes the project, emits a managed assembly directly, and writes `.runtimeconfig.json` for executables
 - `--release` selects the Release configuration and native output layout (`bin/Release/<tfm>` unless `--output` is provided); it is not a separate IL optimizer today
@@ -1700,13 +1759,13 @@ Every server start (explicit or automatic) truncates `.nlc/daemon.log`. An expli
 diagnostics go to the launching process's captured stderr and later output to the log; an automatic
 (`--background`) server writes everything to the log from its first line. When the socket falls back
 to `{TMPDIR}/nlc-daemon/{sha256-16}/`, the log sits beside it. `.nlc/` is runtime state and should not
-be committed. All shipped templates include `.nlc/` in their `.gitignore`.
+be committed: `DaemonProtocolKernels.EnsureSelfIgnoring` writes `.nlc/.gitignore` (`*`) whenever the directory is created and on every routed command that finds it missing (older nlc versions), so no project has to edit its ignore rules. An existing `.nlc/.gitignore` is never overwritten, and a write failure (read-only checkout) is ignored. The shipped templates still list `.nlc/` too.
 
 ### The exec wire
 
 An exec connection opens with the four bytes `NLX1`; then frames `[kind: 1 byte][length: int32 LE][payload]`
 (payload ≤ 16 MiB). Strings in the request are `BinaryWriter` strings (7-bit length + UTF-8): no JSON on
-the client's cold path. Protocol version `1` is part of the build identity.
+the client's cold path. Protocol version `2` is part of the build identity (bumped from `1` when the launch frame started carrying an argument array).
 
 | Direction | Frame | Payload |
 |---|---|---|
@@ -1717,7 +1776,7 @@ the client's cold path. Protocol version `1` is part of the build identity.
 | server → client | `A` accepted / `B` busy / `M` mismatch | server pid / — / server identity |
 | | `O` stdout / `W` stderr | bytes, in write order |
 | | `Q` stdin wanted | — |
-| | `P` launch | `dotnet` arguments + working directory (for `nlc run`) |
+| | `P` launch | `dotnet` argument vector (int32 count, then one string per argument) + working directory (for `nlc run`); the client adds each to `ProcessStartInfo.ArgumentList`, so nothing is quoted or re-split |
 | | `K` keep-alive | — (every 1 s while a command runs) |
 | | `D` done | int32 exit code |
 
@@ -1770,6 +1829,25 @@ that inner document verbatim, which is why the CLI never needs a status DTO of i
 | Canonical format | `gofmt` | `rustfmt` | `nlc format` |
 | Elm-level errors | No | Good but no JSON | `nlc query diagnostics` |
 
+## Build outputs are replaced, never rewritten in place
+
+A process that has loaded an assembly keeps it mapped. `File.WriteAllBytes` and
+`File.Copy(..., overwrite: true)` truncate and rewrite the same inode, so a rebuild under a live
+`nlc run` server changed bytes the process still read (`BadImageFormatException` on the next lazy
+load; issue 253). Every build output that a running program can hold -- the project assembly, the
+reference assembly, and copied runtime/dependency assets -- is therefore written through
+`AtomicFile` (`NSharpLang.Compiler.Model`): write a sibling `*.tmp`, then rename over the target. On
+macOS and Linux the running process keeps the old inode until it exits, as under `dotnet build`. On
+Windows a mapped file cannot be replaced but can be renamed, so when the replace fails with an
+`IOException` or `UnauthorizedAccessException`, `AtomicFile` moves the old file aside to
+`<name>.replaced-<id>`, moves the new file in (moving the old one back and rethrowing if that
+fails), and deletes the aside when it can. Leftover asides, and `<name>.<id>.tmp` files older than an
+hour from killed builds, are swept on the next write of that name. `runtimeconfig.json` goes through
+the same path. `nlc run` itself needs no shadow copy: the root fix protects
+every other process holding build output too (`nlc test`, an IDE, a published launcher). Lazy loads
+of a *different* output file (another dependency dll) after a rebuild see the new file, as with
+`dotnet`.
+
 ---
 
-*Last Updated: 2026-03-30*
+*Last Updated: 2026-10-18*
