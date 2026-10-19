@@ -4,7 +4,7 @@
   "codeEpochFileCount": 227,
   "codeEpochPathFingerprint": "pathset-v2:97fe77313c04eb7e",
   "codeEpochFactFingerprint": "epochfacts-v2:4c440f3312742657",
-  "reviewedHeadFingerprint": "head-v2:bc85e19ee3dcccb4",
+  "reviewedHeadFingerprint": "head-v2:1dfbf89868de24e9",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":446,"currentNonBlankLines":391,"currentBytes":0,"currentFingerprint":"text-v1:c4fff4cafe6f3d2a"},
