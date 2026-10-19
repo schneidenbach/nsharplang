@@ -47,6 +47,25 @@ class PublicDefaultConstructorSource {
     }
 }
 
+class InheritedSetPerson {
+}
+
+class GenericSetBase {
+    func Set<T>(): int {
+        return 31
+    }
+}
+
+class SetOverloadDerived: GenericSetBase {
+    func Set(count: int): int {
+        return count
+    }
+
+    func ReadPeople(): int {
+        return Set<InheritedSetPerson>()
+    }
+}
+
 // ─── 1. INFERRED TYPE ARGUMENT, OMITTED OPTIONAL PARAMETER ────────────────────────────────────────
 
 test "an inferred type argument with an omitted optional parameter binds: int" {
@@ -99,6 +118,12 @@ test "a source class with a public parameterless constructor satisfies an extern
     assert created != null
     assert created.Value == 19
     assert Activator.CreateInstance<int>() == 0
+}
+
+test "a different generic arity does not hide an inherited generic source method" {
+    context := new SetOverloadDerived()
+    assert context.ReadPeople() == 31
+    assert context.Set(7) == 7
 }
 
 // ─── 2. INFERRED TYPE ARGUMENT, PARAMS TAIL ───────────────────────────────────────────────────────
