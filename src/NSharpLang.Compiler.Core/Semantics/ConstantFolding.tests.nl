@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler
 
-
 func FoldLit(kind: int, spelling: string): ConstantTerm {
     return ConstantTerm.Literal(kind, spelling)
 }

@@ -1,3 +1,5 @@
+namespace NSharpLang.Compiler.Columnar
+
 // THE SHAPES A PARAMETER DEFAULT IS CAPTURED IN, by token kind (`Token.nl`'s ordinals): 0 identifier,
 // 1 integer, 2 floating, 3 character, 4 string, 34 `default`, 44/45 `true`/`false`, 46 `null`,
 // 88 `+`, 89 `-`, 90 `*`, 107 `&`, 108 `|`, 110 `~`, 111 `<<`, 124 `.`, 127/128 parentheses.
