@@ -3988,7 +3988,7 @@ sealed class ColumnarIlEmitter {
         }
         // A LAMBDA CHOOSES AMONG THE CLOSED OVERLOADS BY ITS ARITY: `Select<int, string>(values, x => ...)`
         // closes `Func<int, string>` and `Func<int, int, string>` alike, and only the first fits.
-        if (ArgumentsCarryLambda(callIdx, argCount)) {
+        if (ColumnarLambdaNodeFacts.ArgumentsCarryLambda(_nodes, callIdx, argCount)) {
             applicable := 0
             let chosen: NSharpLang.Compiler.Columnar.ColumnarExplicitGenericCallSelection? = null
             for closed in ColumnarExplicitRuntimeGenericMethodResolver.Candidates(lookupType, memberName, typeArguments, argCount, expectedStatic, _structRegistry.Values) {
@@ -18643,7 +18643,7 @@ sealed class ColumnarIlEmitter {
     // one is the call. More than one is a real ambiguity and is left refused.
     private func TrySelectExplicitGenericExtensionForLambdas(callIdx: int, scope: NSharpLang.Compiler.Columnar.ColumnarBindingScopeFacts, receiverType: Type, member: string, typeArguments: Type[], argCount: int, out selection: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodSelection): bool {
         selection = null
-        if (!ArgumentsCarryLambda(callIdx, argCount)) {
+        if (!ColumnarLambdaNodeFacts.ArgumentsCarryLambda(_nodes, callIdx, argCount)) {
             return false
         }
         applicable := 0
@@ -18673,15 +18673,6 @@ sealed class ColumnarIlEmitter {
         }
         selection = new NSharpLang.Compiler.Columnar.ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, argCount, null)
         return true
-    }
-
-    private func ArgumentsCarryLambda(callIdx: int, argCount: int): bool {
-        for a := 0; a < argCount; a++ {
-            if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(Child(callIdx, 1 + a)))) {
-                return true
-            }
-        }
-        return false
     }
 
     private func ArgumentsAreAllLambdas(callIdx: int, argCount: int): bool {
