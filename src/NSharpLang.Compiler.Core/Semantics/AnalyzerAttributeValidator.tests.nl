@@ -1169,7 +1169,7 @@ test "a named attribute argument resolves the most-derived hidden property and w
     property := ReflectedMemberLookup.FindProperty(attributeType, "Marker", BindingFlags.Public | BindingFlags.Instance)
     assert property != null
     property.SetValue(instance, "derived")
-    assert property.GetValue(instance).ToString() == "derived"
+    assert Convert.ToString(property.GetValue(instance)) == "derived"
 }
 
 test "the constructor question is answered by arity and by argument types" {

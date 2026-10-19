@@ -112,7 +112,7 @@ test "a source attribute blob lookup writes the derived hidden metadata property
     property := ReflectedMemberLookup.FindProperty(attributeType, "Marker", BindingFlags.Public | BindingFlags.Instance)
     assert property != null
     property.SetValue(instance, "derived")
-    assert property.GetValue(instance).ToString() == "derived"
+    assert Convert.ToString(property.GetValue(instance)) == "derived"
 }
 
 test "a fact-derived attribute walk crosses from a built type to a reference-loaded base" {
