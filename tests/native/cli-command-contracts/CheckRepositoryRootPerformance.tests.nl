@@ -625,8 +625,10 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     // defaults (two roots), anonymous objects, the ASP.NET test-host frameworks, generic params-tail
     // extensions (two roots), virtual auto-properties and the doctor install-root contract. Issue
     // #216's lambda parameter names then added `tests/native/lambda-parameter-names` (two files) and
-    // the Emit estate file `ColumnarLambdaParameterBinding.tests.nl`.
-    assert expectedRoots.Count == 245, "repository project-root census changed"
+    // the Emit estate file `ColumnarLambdaParameterBinding.tests.nl`. Issues #245 and #246 then added
+    // `tests/native/assert-throws-source-types` (one project with three N# source files) and the
+    // `TestSourceContracts` row (one N# source file).
+    assert expectedRoots.Count == 246, "repository project-root census changed"
     projects := root.GetProperty("projects")
     assert projects.GetArrayLength() == expectedRoots.Count, "workspace returned " + projects.GetArrayLength().ToString() + " member results for " + expectedRoots.Count.ToString() + " discovered project roots"
 
@@ -666,7 +668,7 @@ test "nlc check checks every repository project once, keeps diagnostics stable, 
     assert observedRoots.Count == expectedRoots.Count, "not every discovered project root had exactly one result"
     assert foundCoreProject, "the workspace omitted Compiler.Core's result"
     assert checkedFiles == discoveredFiles, "workspace checkedFiles does not equal the independently discovered source-file census"
-    assert checkedFiles == 2049, "repository checked-source-file census changed"
+    assert checkedFiles == 2053, "repository checked-source-file census changed"
     assert root.GetProperty("checkedFiles").GetInt32() == checkedFiles, "workspace checkedFiles does not equal the sum of its member rows"
     assert root.GetProperty("summary").GetProperty("errors").GetInt32() == memberErrors, "workspace error summary did not aggregate member diagnostics"
     assert root.GetProperty("summary").GetProperty("warnings").GetInt32() == memberWarnings, "workspace warning summary did not aggregate member diagnostics"

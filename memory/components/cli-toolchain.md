@@ -195,10 +195,10 @@ Undefined identifier 'unknownVar'
   files — through `CodeIntelligenceService.LoadProjectIncludingTests`, and resolves the test
   references so a `test` block's lowering verifies under check's IL pass exactly as it does under
   `nlc test`. Before this, a project made of test files answered `checkedFiles: 0` with `ok: true`
-  while `nlc test` on the same directory stopped at the first lint error in them. `nlc build`,
-  `nlc lint` and the LSP are unchanged and still read sources only. **No schema change:** the test
-  files are counted in the existing `checkedFiles` and their diagnostics arrive in the existing
-  `results`, so `schemaVersion` stays 1.
+  while `nlc test` on the same directory stopped at the first lint error in them. `nlc build` and
+  the LSP are unchanged and still read sources only (see the test-source rule below). **No schema
+  change:** the test files are counted in the existing `checkedFiles` and their diagnostics arrive in
+  the existing `results`, so `schemaVersion` stays 1.
 - **A root containing nested project roots checks them as a workspace.** `nlc check` discovers every
   nested `project.yml`, assigns each `.nl` file to its nearest project root, applies that project's
   `exclude` rules, and checks every member as its own program. Files owned by the requested root are
@@ -959,6 +959,15 @@ nlc build --verbose      # detailed native resolver/build output
 nlc build --release --verbose
 ```
 
+- **`*.tests.nl` and `nlc build`.** Like `go build` ignoring `_test.go`, `nlc build` compiles the product
+  only: test files are never emitted into the output assembly and their errors do not fail the build.
+  They are verified by `nlc check` (which reads them and is the CI gate for them) and by `nlc test`.
+  `nlc fix`, `nlc lint`, `nlc format` and `nlc check` all treat `*.tests.nl` as ordinary N# source, so
+  `nlc lint` can newly fail a project whose test files have lint errors (an unused import is NL010 under
+  `nlc test` too). A project with nothing to build fails with **NL936** (`No source files to build`),
+  raised before emission with its own wording for "only test files" and "no `.nl` files at all"; `nlc test`
+  still runs a tests-only library. A columnar decline the driver makes itself records a reason, and one
+  that reaches the diagnostic without any says so rather than printing nothing.
 - All builds report elapsed time on completion (e.g., `Build successful! (release) [2.3s]`)
 - `il` backend parses/analyzes the project, emits a managed assembly directly, and writes `.runtimeconfig.json` for executables
 - `--release` selects the Release configuration and native output layout (`bin/Release/<tfm>` unless `--output` is provided); it is not a separate IL optimizer today
