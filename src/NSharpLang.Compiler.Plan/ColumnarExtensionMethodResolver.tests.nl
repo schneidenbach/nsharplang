@@ -157,10 +157,10 @@ test "generic extension inference unifies delegate arguments and rejects conflic
     conflicted := ColumnarExtensionMethodResolver.Resolve(index, typeof(IEnumerable<int>), "SequenceEqual", ExtensionOneType(typeof(IEnumerable<string>)), oneArgumentFacts)
     assert !conflicted.IsSelected, "A type parameter bound to two different types must decline."
 
-    // Interface/variance widening is outside this owner: a List receiver does not unify against an
-    // IEnumerable<TSource> receiver slot even though the runtime conversion exists.
+    // A constructed interface in the receiver's base/interface closure supplies the inference bound.
     listReceiver := ColumnarExtensionMethodResolver.Resolve(index, typeof(List<int>), "Take", ExtensionOneType(typeof(int)), oneArgumentFacts)
-    assert !listReceiver.IsSelected, "List<int>.Take(int) stays with later owners until interface-receiver inference lands."
+    assert listReceiver.IsSelected, "List<int> must infer Take<TSource> through its IEnumerable<int> interface."
+    assert listReceiver.ParameterTypes[0] == typeof(IEnumerable<int>)
 }
 
 test "a non-generic extension outranks an equally scored inference-closed generic" {
@@ -175,6 +175,90 @@ test "a non-generic extension outranks an equally scored inference-closed generi
     assert interfaceMax.Method != null
     assert !interfaceMax.Method.get_IsGenericMethod(), "The non-generic Max(IEnumerable<int>) declaration must be the selected handle."
     assert interfaceMax.ReturnType == typeof(int)
+}
+
+func ExtensionReceiverComparisonCandidates(): List<ColumnarExtensionMethodCandidate> {
+    identity := "ExtensionReceiverComparison" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+
+    genericMethodBuilder := owner.DefineMethod("Pick", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard)
+    typeParameter := genericMethodBuilder.DefineGenericParameters(["T"])[0]
+    enumerableType := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(ExtensionOneType(typeParameter))
+    genericMethodBuilder.SetReturnType(typeof(int))
+    genericMethodBuilder.SetParameters(ExtensionThreeTypes(enumerableType, typeof(string), typeof(int[])))
+    genericMethodBuilder.DefineParameter(1, ParameterAttributes.None, "values")
+    genericMethodBuilder.DefineParameter(2, ParameterAttributes.None, "label")
+    genericPackedParameter := genericMethodBuilder.DefineParameter(3, ParameterAttributes.None, "rest")
+    paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+    if paramArrayConstructor == null {
+        throw new InvalidOperationException("ParamArrayAttribute constructor not found")
+    }
+    genericPackedParameter.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+    genericIl := genericMethodBuilder.GetILGenerator()
+    genericIl.Emit(OpCodes.Ldc_I4_1)
+    genericIl.Emit(OpCodes.Ret)
+
+    objectMethodBuilder := owner.DefineMethod("Pick", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard)
+    objectMethodBuilder.SetReturnType(typeof(int))
+    objectMethodBuilder.SetParameters(ExtensionThreeTypes(typeof(object), typeof(string), typeof(int[])))
+    objectMethodBuilder.DefineParameter(1, ParameterAttributes.None, "value")
+    objectMethodBuilder.DefineParameter(2, ParameterAttributes.None, "label")
+    objectPackedParameter := objectMethodBuilder.DefineParameter(3, ParameterAttributes.None, "rest")
+    objectPackedParameter.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+    objectIl := objectMethodBuilder.GetILGenerator()
+    objectIl.Emit(OpCodes.Ldc_I4_2)
+    objectIl.Emit(OpCodes.Ret)
+
+    createdOwner := owner.CreateType()
+    candidates := new List<ColumnarExtensionMethodCandidate>()
+    for method in createdOwner.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+        if method.Name == "Pick" {
+            candidates.Add(MakeExtensionFixtureCandidate(method))
+        }
+    }
+    return candidates
+}
+
+func ExtensionThreeTypes(first: Type, second: Type, third: Type): Type[] {
+    values := new Type[](3)
+    values[0] = first
+    values[1] = second
+    values[2] = third
+    return values
+}
+
+test "expanded extension overload comparison includes receiver conversions" {
+    index := new ColumnarExtensionMethodIndex()
+    for candidate in ExtensionReceiverComparisonCandidates() {
+        index.Add("Pick", candidate)
+    }
+
+    explicitTypes := ExtensionOneType(typeof(string))
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    list := new List<string>()
+    list.Add("value")
+    selected := ColumnarExtensionMethodResolver.Resolve(index, typeof(List<string>), "Pick", explicitTypes, facts)
+    assert selected.IsSelected, "the generic IEnumerable<T> extension should beat the object receiver"
+    assert selected.Method != null && selected.Method.IsGenericMethod
+    listArguments := new object?[](3)
+    listArguments[0] = list
+    listArguments[1] = "x"
+    listArguments[2] = new int[](0)
+    listResult := selected.Method.Invoke(null, listArguments)
+    assert Convert.ToInt32(listResult) == 1
+
+    objectReceiver := new object()
+    objectSelection := ColumnarExtensionMethodResolver.Resolve(index, typeof(object), "Pick", explicitTypes, facts)
+    assert objectSelection.IsSelected && objectSelection.Method != null
+    assert !objectSelection.Method.IsGenericMethod, "an object receiver cannot use the IEnumerable<T> overload"
+    objectArguments := new object?[](3)
+    objectArguments[0] = objectReceiver
+    objectArguments[1] = "x"
+    objectArguments[2] = new int[](0)
+    objectResult := objectSelection.Method.Invoke(null, objectArguments)
+    assert Convert.ToInt32(objectResult) == 2
 }
 
 test "extension resolution prefers exact arity over trailing-optional and rejects ambiguity" {

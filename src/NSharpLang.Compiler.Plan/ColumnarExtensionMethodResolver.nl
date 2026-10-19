@@ -121,12 +121,10 @@ class ColumnarExtensionMethodSelection {
 //
 // This owner is intentionally narrow: reference-type receivers only, exact fixed arity, a trailing run
 // of optional parameters whose metadata default is fillable, or a `params` tail. Generic candidates
-// close by EXACT structural inference from the receiver and the SUPPLIED argument types
-// (`IEnumerable<int>` receiver -> Enumerable.Take<int>; `DbSet<Person>` -> FromSqlRaw<Person>, with a
-// source-declared type argument); a method type parameter no supplied argument binds, a closure the
-// declared constraints refuse, and interface/variance receiver widening (`List<int>` against
-// `IEnumerable<TSource>`) all decline. Anything outside the admitted surface leaves the call to its
-// later owner.
+// close by input inference from the receiver's matching base/interface instantiation and the SUPPLIED
+// argument types (`List<int>` -> `IEnumerable<int>` -> `Enumerable.Take<int>`; `DbSet<Person>` ->
+// `FromSqlRaw<Person>`); optional arguments do not bind a type parameter. A closure the declared
+// constraints refuse and anything outside the admitted surface leaves the call to its later owner.
 class ColumnarExtensionMethodResolver {
 
     // ATTRIBUTES ARE MATCHED BY FULL NAME, NEVER BY TYPE IDENTITY, and the two `Type.GetType` lookups
@@ -499,6 +497,8 @@ class ColumnarExtensionMethodResolver {
         bestCount := 0
         bestElementType: Type? = null
         selected: ColumnarExtensionMethodCandidate? = null
+        tiedCandidates := new List<ColumnarExtensionMethodCandidate>()
+        tiedParameters := new List<Type[]>()
         for indexed in candidates {
             // A generic definition is closed first, by inferring its type arguments from the receiver,
             // the fixed arguments and every PACKED argument; the closed candidate is then scored as
@@ -523,8 +523,14 @@ class ColumnarExtensionMethodResolver {
                                 bestCount = 1
                                 bestElementType = elementType
                                 selected = candidate
+                                tiedCandidates.Clear()
+                                tiedParameters.Clear()
+                                tiedCandidates.Add(candidate)
+                                tiedParameters.Add(ExpandedParametersWithReceiver(candidate.ParameterTypes, expanded))
                             } else if score == bestScore && parameterCount == bestParameterCount {
                                 bestCount = bestCount + 1
+                                tiedCandidates.Add(candidate)
+                                tiedParameters.Add(ExpandedParametersWithReceiver(candidate.ParameterTypes, expanded))
                             }
                         }
                     }
@@ -532,11 +538,79 @@ class ColumnarExtensionMethodResolver {
             }
         }
 
+        if bestCount > 1 {
+            selectedIndex := SelectExpandedExtensionCandidate(tiedCandidates, tiedParameters, receiverType, argumentTypes, argumentFacts)
+            if selectedIndex < 0 {
+                return ColumnarExtensionMethodSelection.None()
+            }
+            selected = tiedCandidates[selectedIndex]
+            bestCount = 1
+            selectedMethodParameters := ParametersOrNull(selected.Method)
+            if selectedMethodParameters == null {
+                return ColumnarExtensionMethodSelection.None()
+            }
+            bestElementType = ColumnarParamsExpansion.ElementTypeOrNull(selectedMethodParameters, selected.ParameterTypes)
+        }
+
         if bestCount != 1 || selected == null || bestElementType == null {
             return ColumnarExtensionMethodSelection.None()
         }
 
         return new ColumnarExtensionMethodSelection(true, selected.Method, selected.DeclaringType, selected.ParameterTypes, selected.ReturnType, explicitCount, bestElementType)
+    }
+
+    static func ExpandedParametersWithReceiver(parameterTypes: Type[], expandedArguments: Type[]): Type[] {
+        result := new Type[](expandedArguments.Length + 1)
+        result[0] = parameterTypes[0]
+        Array.Copy(expandedArguments, 0, result, 1, expandedArguments.Length)
+        return result
+    }
+
+    // An extension's receiver is its first argument. Compare it alongside the explicit arguments so
+    // a better conversion to IEnumerable<T> can beat a conversion to object.
+    static func SelectExpandedExtensionCandidate(candidates: List<ColumnarExtensionMethodCandidate>, parameterLists: List<Type[]>, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        actual := new Type[](argumentTypes.Length + 1)
+        actual[0] = receiverType
+        Array.Copy(argumentTypes, 0, actual, 1, argumentTypes.Length)
+        comparisonFacts := ColumnarDirectCallArgumentFacts.Empty(actual.Length)
+        comparisonFacts.SourceTypeDefinitions = argumentFacts.SourceTypeDefinitions
+
+        selected := ColumnarSourceDirectCallResolver.SelectMostSpecificParameters(parameterLists, actual, comparisonFacts)
+        if selected >= 0 {
+            return selected
+        }
+
+        // The less-generic tie-break is available only when every effective parameter type ties.
+        nonGenericIndex := -1
+        for index := 0; index < candidates.Count; index++ {
+            if !candidates[index].Method.IsGenericMethod {
+                if nonGenericIndex >= 0 {
+                    return -1
+                }
+                nonGenericIndex = index
+            }
+        }
+        if nonGenericIndex < 0 {
+            return -1
+        }
+        for index := 0; index < parameterLists.Count; index++ {
+            if !EquivalentParameterLists(parameterLists[nonGenericIndex], parameterLists[index]) {
+                return -1
+            }
+        }
+        return nonGenericIndex
+    }
+
+    static func EquivalentParameterLists(left: Type[], right: Type[]): bool {
+        if left == null || right == null || left.Length != right.Length {
+            return false
+        }
+        for index := 0; index < left.Length; index++ {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(left[index], right[index]) {
+                return false
+            }
+        }
+        return true
     }
 
     // THE SAME SELECTION FOR A SITE THAT WROTE ITS TYPE ARGUMENTS. C#'s rule (ECMA-334 §12.6.4.1) is
@@ -790,7 +864,7 @@ class ColumnarExtensionMethodResolver {
 
     // A non-generic candidate resolves as itself. A generic method DEFINITION resolves by inferring
     // EVERY method type argument from the receiver and the SUPPLIED argument types, then closing the
-    // definition into an exact runtime handle. Inference is structural unification only, an omitted
+    // definition into an exact runtime handle. Inference follows matching base/interface shapes, an omitted
     // trailing optional contributes nothing to it (so a type parameter only the omitted tail mentions
     // stays unbound and loses the candidate), and a closure the declared constraints refuse is not a
     // candidate.
@@ -849,11 +923,12 @@ class ColumnarExtensionMethodResolver {
         }
 
         try {
-            if !ColumnarRuntimeGenericMethodResolver.IsInstantiationOf(pattern.GetGenericTypeDefinition(), actual) {
+            matched := ColumnarRuntimeGenericMethodResolver.FindMatchingInstantiation(pattern.GetGenericTypeDefinition(), actual)
+            if matched == null {
                 return false
             }
             patternArguments := pattern.GetGenericArguments()
-            actualArguments := actual.GetGenericArguments()
+            actualArguments := matched.GetGenericArguments()
             if patternArguments.Length != actualArguments.Length {
                 return false
             }
@@ -875,7 +950,7 @@ class ColumnarExtensionMethodResolver {
     // The one inference loop both shapes share: the receiver unifies with slot 0, then each supplied
     // argument with the slot `ArgumentSlotTypesOrNull` names for it. A `null` literal carries no type
     // and binds nothing, as it does for a static call. The runtime generic resolver owns the loop;
-    // disabling inference widening preserves this extension resolver's exact structural matching.
+    // inference searches the receiver's base and interface instantiations, as C# input inference does.
     static func InferExtensionCandidate(candidate: ColumnarExtensionMethodCandidate, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, explicitCount: int, expanded: bool): ColumnarExtensionMethodCandidate? {
         if argumentTypes == null || argumentFacts == null || explicitCount < 0 || explicitCount > argumentTypes.Length {
             return null
@@ -891,7 +966,7 @@ class ColumnarExtensionMethodResolver {
             argumentFacts,
             explicitCount,
             expanded,
-            false
+            true
         )
         if closed == null {
             return null
