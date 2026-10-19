@@ -279,12 +279,20 @@ class CliIlBackend {
                 out perfFacts,
                 aotMode
             )
+            if outputPath == null {
+                compiler.ReleaseReferenceMetadata()
+                WarmIncrementalSessions.Discard(warmKey)
+            } else if warmKey != null {
+                compiler.ReleaseReferenceMetadata(true)
+                WarmIncrementalSessions.Release(warmKey)
+            } else {
+                compiler.ReleaseReferenceMetadata()
+            }
         } catch compileFailure: Exception {
+            compiler.ReleaseReferenceMetadata()
             WarmIncrementalSessions.Discard(warmKey)
             throw
         }
-
-        WarmIncrementalSessions.Release(warmKey)
         return outputPath
     }
 

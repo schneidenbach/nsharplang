@@ -70,7 +70,13 @@ class IncrementalProjectSession {
         compiler.AotMode = effective.AotMode
         compiler.EmitReferenceAssembly = effective.EmitReferenceAssembly
         LastCompiler = compiler
-        return compiler.CompileToIlAssembly(AssemblyName, outputPath, effective.ValidateStrictLint, true)
+        try {
+            return compiler.CompileToIlAssembly(AssemblyName, outputPath, effective.ValidateStrictLint, true)
+        } catch failure: Exception {
+            compiler.ReleaseReferenceMetadata()
+            LastCompiler = null
+            throw
+        }
     }
 
     // Parses and analyses the project without emitting — what a query or a check needs.
@@ -78,9 +84,15 @@ class IncrementalProjectSession {
         compiler := new MultiFileCompiler(sourceFiles, ProjectRoot, config, sourceTextOverrides)
         compiler.IncrementalState = State
         compiler.SystemsDiagnosticsOnly = systemsDiagnosticsOnly
-        compiler.CompileForAnalysis()
-        LastCompiler = compiler
-        return compiler
+        try {
+            compiler.CompileForAnalysis()
+            LastCompiler = compiler
+            return compiler
+        } catch failure: Exception {
+            compiler.ReleaseReferenceMetadata()
+            LastCompiler = null
+            throw
+        }
     }
 
     // The last compilation as a code-intelligence snapshot, or null before the first one (and after
@@ -113,5 +125,11 @@ class IncrementalProjectSession {
         }
 
         return IncrementalSummaryStore.Write(SummaryStorePath(), summaries)
+    }
+
+    // Ends this session's ownership of the analyzer and its metadata load context.
+    func Dispose(): void {
+        State.ReleaseRetainedAnalyzer()
+        LastCompiler = null
     }
 }
