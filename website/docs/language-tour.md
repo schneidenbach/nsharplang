@@ -257,6 +257,20 @@ class LoudGauge: Gauge {
 
 See [`virtual`, `abstract` and `override` auto-properties](./types.md#virtual-abstract-and-override-auto-properties).
 
+A property written with accessors takes `virtual`, `override` and `sealed override` the way a `func`
+does — on each accessor it declares — so a get-only base property such as `Exception.Message` is
+overridden with a getter:
+
+```n#
+import System
+
+class ParseError: Exception {
+    override Message: string => "parse error"   // what every `catch e: Exception` reads
+}
+```
+
+See [`virtual` and `override` on a written property](./types.md#virtual-and-override-on-a-written-property).
+
 Generic classes take part in all of this. A generic class may derive from a non-generic base, a generic
 class may close a generic base over a concrete type, and a generic class may pass its own type parameter
 through to a generic base:

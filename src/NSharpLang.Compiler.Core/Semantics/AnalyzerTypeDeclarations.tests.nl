@@ -2569,6 +2569,103 @@ test "the setter walk asks a source base whether it declares a setter, and metad
     assert harness.Declarations.ClassifyOverridePropertySetter(settable, "Label", 25) == 0
 }
 
+// ---- the inheritance words on a WRITTEN property --------------------------------------------------
+
+// A written property with a `set` accessor: `Name: string { get { … } set { … } }`.
+func TypeDeclSettableProperty(name: string, modifiers: Modifiers): PropertyDeclaration {
+    getBody := new BlockStatement(new List<Statement>(), 8, 30)
+    setBody := new BlockStatement(new List<Statement>(), 8, 50)
+    return new PropertyDeclaration(name, TypeDeclString(), getBody, setBody, null, modifiers, PropertyModifier.None, TypeDeclNoAttributes(), 8, 5)
+}
+
+// One written property in a class deriving from `baseName`, which the scope resolves to `baseType`.
+func TypeDeclRunDerivedProperty(property: PropertyDeclaration, baseName: string, baseType: TypeInfo, classModifiers: Modifiers): TypeDeclarationHarness {
+    harness := TypeDeclDefault()
+    harness.Scopes.DeclareNestedTypeIfAbsent(baseName, baseType)
+    baseReference: TypeReference = new SimpleTypeReference(baseName, 7, 20)
+    declaration := new ClassDeclaration("Derived", null, baseReference, TypeDeclNoInterfaces(), TypeDeclMembers(property), null, classModifiers, TypeDeclNoAttributes(), 7, 10)
+    TypeDeclRun(harness, harness.Declarations.BeginClass(declaration, harness.Assignability), null)
+    return harness
+}
+
+// A WRITTEN PROPERTY'S ACCESSORS ARE METHODS, so `virtual` and `sealed override` are accepted on one
+// in a class or record class, and refused where there is no slot — each with its own sentence.
+test "a written property may be `virtual`, and `sealed`, `static`, a struct's and a sealed class's are `NL311`" {
+    virtualHarness := TypeDeclDefault()
+    TypeDeclRun(virtualHarness, virtualHarness.Declarations.BeginClass(TypeDeclClass("Dog", TypeDeclMembers(TypeDeclProperty("Label", Modifiers.Virtual)), null, null, Modifiers.None), virtualHarness.Assignability), null)
+    assert virtualHarness.Errors.Count == 0
+
+    loneSealed := TypeDeclDefault()
+    TypeDeclRun(loneSealed, loneSealed.Declarations.BeginClass(TypeDeclClass("Dog", TypeDeclMembers(TypeDeclProperty("Label", Modifiers.Sealed)), null, null, Modifiers.None), loneSealed.Assignability), null)
+    assert TypeDeclOnlyMessage(loneSealed) == "'Label' is declared 'sealed', but only an 'override' can be sealed"
+    assert loneSealed.Errors[0].Code == ErrorCode.InvalidModifier
+    assert loneSealed.Errors[0].Suggestion == "Write 'sealed override Label: <type> => …' to close a slot a base class opened, or drop 'sealed'."
+
+    staticHarness := TypeDeclDefault()
+    TypeDeclRun(staticHarness, staticHarness.Declarations.BeginClass(TypeDeclClass("Dog", TypeDeclMembers(TypeDeclProperty("Label", TypeDeclBits(Modifiers.Virtual, Modifiers.Static))), null, null, Modifiers.None), staticHarness.Assignability), null)
+    assert TypeDeclOnlyMessage(staticHarness) == "'Label' is declared 'virtual', but a static property has no slot to dispatch through"
+
+    structHarness := TypeDeclDefault()
+    TypeDeclRun(structHarness, structHarness.Declarations.BeginStruct(TypeDeclStruct("Point", TypeDeclMembers(TypeDeclProperty("Label", Modifiers.Virtual)), null, null, Modifiers.None), structHarness.Assignability), null)
+    assert TypeDeclOnlyMessage(structHarness) == "'Label' is declared 'virtual', but a struct cannot take part in inheritance"
+
+    sealedClass := TypeDeclDefault()
+    TypeDeclRun(sealedClass, sealedClass.Declarations.BeginClass(TypeDeclClass("Dog", TypeDeclMembers(TypeDeclProperty("Label", Modifiers.Virtual)), null, null, Modifiers.Sealed), sealedClass.Assignability), null)
+    assert TypeDeclOnlyMessage(sealedClass) == "'Label' is declared 'virtual', but 'Dog' is sealed"
+}
+
+// AN OVERRIDE REPLACES EACH ACCESSOR IT DECLARES, so a `set` over a get-only base has no slot to take —
+// C#'s CS0546. A get-only override of the same base is the correct spelling.
+test "a written override that declares a setter over a get-only base is `NL311`" {
+    exceptionBase := TypeDeclClrOwner("System.Exception")
+    setterHarness := TypeDeclRunDerivedProperty(TypeDeclSettableProperty("Message", Modifiers.Override), "Exception", exceptionBase, Modifiers.None)
+    assert TypeDeclOnlyMessage(setterHarness) == "'Message' is declared 'override', but the base property has no setter to override"
+    assert setterHarness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert setterHarness.Errors[0].Suggestion == "Drop the 'set' accessor: an override replaces only the accessors the base declares, and 'Message' is get-only there."
+
+    getterHarness := TypeDeclRunDerivedProperty(TypeDeclProperty("Message", Modifiers.Override), "Exception", exceptionBase, Modifiers.None)
+    assert getterHarness.Errors.Count == 0
+
+    // `HelpLink` is `virtual { get; set; }`, so both accessors have a slot.
+    helpLinkHarness := TypeDeclRunDerivedProperty(TypeDeclSettableProperty("HelpLink", Modifiers.Override), "Exception", exceptionBase, Modifiers.None)
+    assert helpLinkHarness.Errors.Count == 0
+
+    // A source base's get-only virtual property answers the same way.
+    getOnlyBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclGetOnlyPropertyMemberInfo("Label", TypeDeclVirtualBits())))
+    sourceHarness := TypeDeclRunDerivedProperty(TypeDeclSettableProperty("Label", Modifiers.Override), "Base", getOnlyBase, Modifiers.None)
+    assert TypeDeclOnlyMessage(sourceHarness) == "'Label' is declared 'override', but the base property has no setter to override"
+}
+
+// A GET-ONLY OVERRIDE TOOK ONLY THE GETTER. The setter it inherited is still the slot the type that
+// opened the property declared, so the setter walk steps past it and asks the next base — here there
+// is none to ask, which is "cannot tell", never "no setter".
+test "the setter walk steps past a get-only override to the setter it inherited" {
+    harness := TypeDeclDefault()
+    getOnlyOverride := TypeDeclSourceOwner("Middle", TypeDeclMemberInfos(TypeDeclGetOnlyPropertyMemberInfo("Label", TypeDeclOverrideBits())))
+    assert harness.Declarations.ClassifyOverridePropertySetter(getOnlyOverride, "Label", 0) == 0
+
+    // A get-only VIRTUAL property opened the slot without a setter; nothing above it is the same property.
+    getOnlyVirtual := TypeDeclSourceOwner("Middle", TypeDeclMemberInfos(TypeDeclGetOnlyPropertyMemberInfo("Label", TypeDeclVirtualBits())))
+    assert harness.Declarations.ClassifyOverridePropertySetter(getOnlyVirtual, "Label", 0) == 2
+}
+
+// A GET-ONLY OVERRIDE OF AN ABSTRACT GET/SET SLOT FILLS ONE HALF. The CLR refuses to load a concrete
+// class with the other half abstract, so the report names it as C# does: `Label.set`.
+test "a get-only override of an abstract get/set property leaves `Label.set` unimplemented (`NL324`)" {
+    abstractBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclAbstractBits())))
+    getterHarness := TypeDeclRunDerivedProperty(TypeDeclProperty("Label", Modifiers.Override), "Base", abstractBase, Modifiers.None)
+    assert TypeDeclOnlyMessage(getterHarness) == "'Derived' does not implement inherited abstract member 'Label.set'"
+    assert getterHarness.Errors[0].Code == ErrorCode.AbstractMemberNotImplemented
+
+    // Both halves overridden, or an abstract class that leaves the setter to its own subclass: silent.
+    assert TypeDeclRunDerivedProperty(TypeDeclSettableProperty("Label", Modifiers.Override), "Base", abstractBase, Modifiers.None).Errors.Count == 0
+    assert TypeDeclRunDerivedProperty(TypeDeclProperty("Label", Modifiers.Override), "Base", abstractBase, Modifiers.Abstract).Errors.Count == 0
+
+    // A virtual base setter is inherited as it is.
+    virtualBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclVirtualBits())))
+    assert TypeDeclRunDerivedProperty(TypeDeclProperty("Label", Modifiers.Override), "Base", virtualBase, Modifiers.None).Errors.Count == 0
+}
+
 test "THE RULE STAYS SILENT FOR EVERY CORRECT SPELLING IT CAN SEE" {
     // `override func ToString()` on a class with no `:` clause is the estate's own commonest shape —
     // it overrides `object.ToString`, and a rule that reported it would fail hundreds of live files.

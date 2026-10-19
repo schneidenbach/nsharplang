@@ -340,3 +340,22 @@ class ColumnarAutoPropertyDefinition {
         BackingField = backingField
     }
 }
+
+// AN `override` BARE MEMBER WAITING FOR ITS SLOT. Pass 0a''' records the row at its place in the field
+// order and the declaration pass defines it once every slot it could take exists — a base's bare
+// member and a base's written property alike, whatever order the source declares the types in.
+class ColumnarDeferredOverrideAutoProperty {
+    StructIndex: int
+    FieldIndex: int
+    FieldName: string
+    FieldType: Type
+    FillsInterfaceSlot: bool
+
+    constructor(structIndex: int, fieldIndex: int, fieldName: string, fieldType: Type, fillsInterfaceSlot: bool) {
+        StructIndex = structIndex
+        FieldIndex = fieldIndex
+        FieldName = fieldName
+        FieldType = fieldType
+        FillsInterfaceSlot = fillsInterfaceSlot
+    }
+}

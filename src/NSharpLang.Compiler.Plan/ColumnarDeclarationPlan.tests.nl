@@ -763,6 +763,30 @@ test "the property rows carry a word, both accessor names and the value ordinal 
     assert rows.ValueOrdinals[0][1] == 1
 }
 
+// A WRITTEN PROPERTY'S INHERITANCE WORDS ARE ITS ACCESSORS': `virtual` opens a slot (Virtual|NewSlot
+// = 2182 + 64 + 256), `override` reuses one (Virtual, NewSlot clear), `sealed override` closes it
+// (Virtual|Final), and a property with none of them keeps the plain word. `abstract` has its word for
+// completeness; the analyzer refuses it on a written property and the emitter declines it.
+test "a written property's accessor word carries its virtual, override and sealed override words" {
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes(0) == 2182
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes(ColumnarFunctionInput.VirtualModifierFlag()) == 2182 + 64 + 256
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes(ColumnarFunctionInput.OverrideModifierFlag()) == 2182 + 64
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes(ColumnarFunctionInput.OverrideModifierFlag() | ColumnarFunctionInput.SealedModifierFlag()) == 2182 + 64 + 32
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes(ColumnarFunctionInput.AbstractModifierFlag()) == 2182 + 64 + 256 + 1024
+    // `sealed` alone closes nothing; the analyzer refuses it before the plan is asked.
+    assert ColumnarDeclarationPlanner.InstanceAccessorAttributes(ColumnarFunctionInput.SealedModifierFlag()) == 2182
+
+    properties := new List<ColumnarPropertyInput>()
+    properties.Add(new ColumnarPropertyInput("Text", "int", DeclarationPlanMethodInput("get_Text", "int", false), null, false, 0, false, false, false, false, ColumnarFunctionInput.VirtualModifierFlag()))
+    // A static property has no slot, whatever was written; the analyzer refuses the word.
+    properties.Add(new ColumnarPropertyInput("Shared", "int", DeclarationPlanMethodInput("get_Shared", "int", true), null, true, 0, false, false, false, false, ColumnarFunctionInput.VirtualModifierFlag()))
+    structs := new List<ColumnarStructInput>()
+    structs.Add(DeclarationPlanPropertyStruct("Label", properties))
+    rows := ColumnarDeclarationPlanner.BuildProperties(DeclarationPlanTypeDefProgram("namespace Demo\n", structs, new List<ColumnarInterfaceInput>()))
+    assert rows.AccessorWords[0][0] == 2182 + 64 + 256
+    assert rows.AccessorWords[0][1] == 2198
+}
+
 func DeclarationPlanAttributeProgram(structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, tests: IReadOnlyList<ColumnarTestInput>?): ColumnarProgramInput {
     return ColumnarProgramInput.CreateSingleSource(
         "namespace Demo\n",

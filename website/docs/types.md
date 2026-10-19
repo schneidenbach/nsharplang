@@ -327,6 +327,60 @@ class Product {
 }
 ```
 
+#### `virtual` and `override` on a written property
+
+A property written with accessors is a getter, and a setter when it declares one — methods — so it
+takes part in inheritance the way a `func` does, with C#'s shapes:
+
+| N# | C# |
+|----|----|
+| `virtual Text: string => "plain"` | `public virtual string Text => "plain";` |
+| `override Text: string => "LOUD"` | `public override string Text => "LOUD";` |
+| `sealed override Text: string => "final"` | `public sealed override string Text => "final";` |
+| `virtual Count: int { get { … } set { … } }` | `public virtual int Count { get { … } set { … } }` |
+
+```n#
+import System
+
+class Label {
+    virtual Text: string => "plain"
+
+    func Render(): string => "[" + Text + "]"      // dispatches: an override's text is read
+}
+
+class LoudLabel: Label {
+    override Text: string => "LOUD"
+}
+
+class ParseError: Exception {
+    readonly line: int
+
+    constructor(line: int) {
+        this.line = line
+    }
+
+    override Message: string => "parse error at line " + line.ToString()
+}
+```
+
+`new LoudLabel().Render()` is `"[LOUD]"`, a `Label` variable holding a `LoudLabel` reads `"LOUD"`, and
+a `catch e: Exception` around `throw new ParseError(7)` reads `ParseError`'s message.
+
+- **An override replaces the accessors it declares.** A get-only override replaces the getter and
+  inherits the base's setter, as C#'s does. One that declares a `set` needs a setter slot in the
+  base ([NL311](./errors/NL311.md), C#'s CS0546) — `Exception.Message` is get-only, so it is
+  overridden with a getter alone.
+- **Written and bare members override each other.** A written override can replace a bare
+  `virtual Reading: int` (below), and a bare `override Title: string` can replace a written
+  `virtual` property, in whichever order the types are declared. A bare `abstract Name: string` is a
+  get/set slot, so a concrete class overrides both accessors; a get-only override leaves `Name.set`
+  unimplemented ([NL324](./errors/NL324.md)).
+- **An `override` with no accessibility word takes the slot's**, as a method override does.
+- **`abstract` is written bare.** An abstract slot has no body, and a property with accessors is
+  its bodies, so `abstract` on one is [NL311](./errors/NL311.md); write `abstract Name: string`.
+- `sealed` needs `override`, and a `static` property or a property of a struct or record struct has
+  no slot to take ([NL311](./errors/NL311.md)).
+
 ### Fields and properties
 
 N# has one spelling for a value member — `Name: T`, with or without `= initializer` — and the CLR has
@@ -494,7 +548,9 @@ What changes when a member is a slot:
 - **An abstract member has no storage**, so it takes no initializer, and only an abstract class may
   declare one. A concrete class that inherits it must override it ([NL324](./errors/NL324.md)).
 - **`override` needs a base property with a setter.** A bare member overrides both accessors, so a
-  get-only base (`Exception.Message`) cannot be overridden this way.
+  get-only base (`Exception.Message`) cannot be overridden this way — override its getter with a
+  written property, `override Message: string => …`
+  ([above](#virtual-and-override-on-a-written-property)).
 - **An `override` with no accessibility word takes the slot's**, as a method override does: a
   `protected virtual` member's override is `protected`.
 - **A `record` may declare `virtual` members.** No N# type derives from a record, but its CLR type is

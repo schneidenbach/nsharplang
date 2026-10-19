@@ -1242,21 +1242,7 @@ class AnalyzerTypeDeclarations {
                     continue
                 }
 
-                if HasOverrideModifier(property.Modifiers) {
-                    propertyVerdict := ClassifyOverridePropertyTarget(declaredBase, property.Name, 0)
-                    if propertyVerdict == 2 {
-                        ReportOverridePropertyTargetFault(property, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base property 'virtual', or drop 'override' from this declaration.")
-                        continue
-                    }
-
-                    if propertyVerdict == 3 {
-                        ReportOverridePropertyTargetFault(property, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new property.")
-                        continue
-                    }
-
-                    ValidateOverrideAccessibility(declaredBase, property.Name, Convert.ToInt32(property.Modifiers), 1, spansValue.GetPropertyNameDiagnosticSpan(property))
-                }
-
+                ValidatePropertyInheritanceModifiers(state, declaredBase, property)
                 continue
             }
 
@@ -1275,6 +1261,86 @@ class AnalyzerTypeDeclarations {
                 ValidateEventInheritanceModifiers(state, declaredBase, eventMember)
             }
         }
+    }
+
+    // A WRITTEN PROPERTY'S ACCESSORS ARE METHODS, SO `virtual`, `override` AND `sealed` MEAN ON IT WHAT
+    // THEY MEAN ON A `func` — on each accessor it declares. `virtual Text: string => …` opens a getter
+    // slot, `override Message: string => …` takes `Exception.Message`'s, and a base-typed caller
+    // reaches the override. (`abstract` is answered before this by `ReportAbstractMemberFault`: an
+    // abstract slot has no body, and a written property is its bodies.)
+    //
+    // WHAT IS REFUSED IS WHAT THE CLR CANNOT EXPRESS, OR WHAT WOULD BE DROPPED IN SILENCE, each with
+    // the one thing the reader can change: `sealed` without `override` (C#'s CS0238); a static
+    // property, which has no slot; an interface's property, which is a slot already; a struct's,
+    // record struct's or union's, whose type the CLR seals; a new slot in a sealed class (CS0549); and
+    // for `override`, a base that is missing or closed, a setter the base has no slot for (CS0546),
+    // and an override that narrows the slot's accessibility.
+    //
+    // `NL311` throughout, for the reason the field and event families are: the fault is the MODIFIER.
+    func ValidatePropertyInheritanceModifiers(state: TypeDeclarationState, declaredBase: TypeInfo?, property: PropertyDeclaration) {
+        modifierBits := Convert.ToInt32(property.Modifiers)
+        isOverride := (modifierBits & Convert.ToInt32(Modifiers.Override)) != 0
+        isVirtual := (modifierBits & Convert.ToInt32(Modifiers.Virtual)) != 0
+        span := spansValue.GetPropertyNameDiagnosticSpan(property)
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Sealed)) != 0 && !isOverride {
+            ReportPropertyInheritanceModifierFault(property, "sealed", "but only an 'override' can be sealed", "Write 'sealed override " + property.Name + ": <type> => …' to close a slot a base class opened, or drop 'sealed'.")
+            return
+        }
+
+        if !isOverride && !isVirtual {
+            return
+        }
+
+        word := isOverride ? "override" : "virtual"
+        if (modifierBits & Convert.ToInt32(Modifiers.Static)) != 0 {
+            ReportPropertyInheritanceModifierFault(property, word, "but a static property has no slot to dispatch through", "Drop '" + word + "'. A static property belongs to the type itself, so no receiver's runtime type could select another accessor.")
+            return
+        }
+
+        if state.Form == 3 {
+            ReportPropertyInheritanceModifierFault(property, word, "but an interface's property is already a slot", "Drop '" + word + "'. Every property an interface declares is a slot each implementing type fills.")
+            return
+        }
+
+        if !MemberStorageRules.DeclaresReferenceMembers(state.Declaration) {
+            ReportPropertyInheritanceModifierFault(property, word, "but " + FormWordForBareMemberInheritance(state) + " cannot take part in inheritance", "Drop '" + word + "', or move '" + property.Name + "' to a class, whose properties a derived class can override.")
+            return
+        }
+
+        if isVirtual && IsSealedClassDeclaration(state) {
+            ReportPropertyInheritanceModifierFault(property, word, "but '" + TypeName(state) + "' is sealed", "A sealed class has no derived type to open a slot for. Drop 'sealed' from the class, or drop 'virtual' from '" + property.Name + "'.")
+            return
+        }
+
+        if !isOverride {
+            return
+        }
+
+        verdict := ClassifyOverridePropertyTarget(declaredBase, property.Name, 0)
+        if verdict == 2 {
+            ReportOverridePropertyTargetFault(property, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base property 'virtual', or drop 'override' from this declaration.")
+            return
+        }
+
+        if verdict == 3 {
+            ReportOverridePropertyTargetFault(property, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new property.")
+            return
+        }
+
+        // AN OVERRIDE REPLACES EACH ACCESSOR IT DECLARES, so a `set` needs a setter slot to take — C#'s
+        // CS0546. Without one the setter would open a new slot that no base-typed caller reaches.
+        if verdict == 1 && property.SetBody != null && ClassifyOverridePropertySetter(declaredBase, property.Name, 0) == 2 {
+            ReportPropertyInheritanceModifierFault(property, word, "but the base property has no setter to override", "Drop the 'set' accessor: an override replaces only the accessors the base declares, and '" + property.Name + "' is get-only there.")
+            return
+        }
+
+        ValidateOverrideAccessibility(declaredBase, property.Name, modifierBits, 1, span)
+    }
+
+    func ReportPropertyInheritanceModifierFault(property: PropertyDeclaration, modifierName: string, reason: string, suggestion: string) {
+        span := spansValue.GetPropertyNameDiagnosticSpan(property)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + property.Name + "' is declared '" + modifierName + "', " + reason, span.Line, span.Column, suggestion, span.Length)
     }
 
     // AN EVENT'S ACCESSORS ARE METHODS, SO THE THREE INHERITANCE WORDS MEAN ON AN EVENT WHAT THEY
@@ -3077,11 +3143,70 @@ class AnalyzerTypeDeclarations {
             return
         }
 
+        CollectAbstractSettersLeftOpen(state, declaredBase, missing)
         if missing.Count == 0 {
             return
         }
 
         ReportUnimplementedAbstractMembers(classDeclaration, missing)
+    }
+
+    // A GET-ONLY `override` FILLS ONE OF TWO SLOTS. `override Name: string => "sq"` over
+    // `abstract Name: string` — a get/set slot — implements the getter and leaves the setter abstract,
+    // which the CLR refuses to load in a concrete class (`TypeLoadException`, with no line). C# names the
+    // missing half `Name.set` (CS0534), and so does this report.
+    func CollectAbstractSettersLeftOpen(state: TypeDeclarationState, declaredBase: TypeInfo?, missing: List<string>) {
+        members := TypeMembers(state)
+        if members == null {
+            return
+        }
+
+        for member in members {
+            property := member as PropertyDeclaration
+            if property != null && property.SetBody == null && HasOverrideModifier(property.Modifiers) && InheritsAbstractSetter(declaredBase, property.Name, 0) {
+                missing.Add(property.Name + ".set")
+            }
+        }
+    }
+
+    // Whether the setter a get-only override inherits is abstract: the nearest declaration of the name
+    // that has a setter answers, walking past get-only overrides; one that opened the property without
+    // a setter answers no. Metadata answers with its most derived property of that name.
+    func InheritsAbstractSetter(candidate: TypeInfo?, name: string, depth: int): bool {
+        if depth > 24 || candidate == null || BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+            for reflected in reflectionType.Type.GetProperties(flags) {
+                if reflected.Name == name && IsAbstractPropertyAccessor(reflected.GetSetMethod(true)) {
+                    return true
+                }
+            }
+
+            return false
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return false
+        }
+
+        for declared in shape.DeclaredMembers {
+            if declared.Kind == DeclaredMemberKind.Property && declared.Name == name {
+                if declared.HasSetter {
+                    return (declared.DeclaredModifiers & Convert.ToInt32(Modifiers.Abstract)) != 0
+                }
+
+                if (declared.DeclaredModifiers & Convert.ToInt32(Modifiers.Override)) == 0 {
+                    return false
+                }
+            }
+        }
+
+        return InheritsAbstractSetter(shape.BaseType, name, depth + 1)
     }
 
     // WHAT THIS TYPE ITSELF BRINGS. Every function and property it declares counts, with or without
@@ -3380,9 +3505,10 @@ class AnalyzerTypeDeclarations {
     }
 
     // WHETHER THE OVERRIDDEN PROPERTY OPENS A SETTER SLOT TOO, which a bare `override Name: T` needs
-    // because an auto-property overrides both accessors. The walk is `ClassifyOverridePropertyTarget`'s,
-    // answering 0 cannot tell · 1 an overridable setter · 2 no setter to override. A source property's
-    // `virtual` covers both of its accessors, so a source answer is whether it declares a setter at all.
+    // because an auto-property overrides both accessors, and a written override needs when it declares
+    // a `set`. The walk is `ClassifyOverridePropertyTarget`'s, answering 0 cannot tell · 1 an
+    // overridable setter · 2 no setter to override. A source property's `virtual` covers both of its
+    // accessors, so a source answer is whether it declares a setter at all.
     func ClassifyOverridePropertySetter(candidate: TypeInfo?, name: string, depth: int): int {
         if depth > 24 || candidate == null || BuiltInTypes.IsUnknown(candidate) {
             return 0
@@ -3405,9 +3531,17 @@ class AnalyzerTypeDeclarations {
             return 0
         }
 
+        // A get-only `override` took only the getter, so the setter slot, if any, is further up; any
+        // other declaration of the name is where the property's setter would have been opened.
         for declared in shape.DeclaredMembers {
             if declared.Kind == DeclaredMemberKind.Property && declared.Name == name {
-                return declared.HasSetter ? 1 : 2
+                if declared.HasSetter {
+                    return 1
+                }
+
+                if (declared.DeclaredModifiers & Convert.ToInt32(Modifiers.Override)) == 0 {
+                    return 2
+                }
             }
         }
 
