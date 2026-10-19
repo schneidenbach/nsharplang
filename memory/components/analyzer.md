@@ -3039,7 +3039,7 @@ delegate's RETURN position, repeating while anything moves.
   `ResolveExplicitExpanded`, asked only when nothing bound in normal form (a normal-form ambiguity
   still declines). The inferred `ResolveExpanded` now admits generic definitions too
   (`ResolveExpandedShape`): the receiver and fixed arguments unify with their own slots and every PACKED
-  argument with the tail's element type, then `CloseInferredOrNull` closes the method with the
+  argument with the tail's element type, then `CloseInferredSubstitutedOrNull` closes the method with the
   signature SUBSTITUTED (so a source-declared type argument like `DbSet<Person>` closes); written type
   arguments infer nothing, so the explicit tier admits them directly. `ExplicitExpandedParameterTypesOrNull` also lets the site omit DEFAULTED fixed slots
   before the tail, which then packs nothing — `route.Produces<Todo>()` over `(int statusCode = 200,
@@ -6134,30 +6134,31 @@ shape (receiver as argument zero) is the fix; then the emitter's legacy extensio
   receivers, called by `ColumnarDirectCallPlanner`) and, for extensions, by
   `ColumnarExtensionMethodResolver.ResolveCandidateShape` and `ResolveExpandedShape`. Both resolvers
   share `InferTypeArguments` and `ArgumentSlotTypesOrNull` to map supplied arguments to their declared
-  slots, and skip null literals during inference. `InferExtensionCandidate` prepends its receiver at
-  slot 0 and disables hierarchy widening to preserve exact structural extension matching. Both send
-  inferred arguments through `CloseInferredSubstitutedOrNull`, which rejects incomplete or unbindable
-  inference and calls `CloseSubstituted` to check constraints and substitute the signature. Only
-  SUPPLIED arguments take part, so a type parameter that only an omitted optional mentions leaves the
-  candidate unclosed. Normal form (the caller already holds the array) is tried before packing, per
-  ECMA-334 12.6.4.2.
-  `JsonSerializer.Serialize(5)`, `set.FromSqlRaw(sql, n)` and
+  slots and skip null literals during inference. `InferExtensionCandidate` prepends the receiver at
+  slot 0 and searches matching base and interface instantiations, as C# input inference does. The
+  inference owner accumulates exact, lower, and upper bounds, fixes each method type argument against
+  all bounds, then sends the result through `CloseInferredSubstitutedOrNull`. That helper rejects
+  incomplete or unbindable inference, checks constraints and substitutes the signature. Source
+  constructor facts prove `new()` when the source definition records a public parameterless constructor.
+  Only supplied arguments take part, so a type parameter mentioned only by an omitted optional remains
+  unbound. Normal form (the caller already holds the array) is tried before packing, per ECMA-334
+  12.6.4.2. `JsonSerializer.Serialize(5)`, `set.FromSqlRaw(sql, n)` and
   `RelationalQueryableExtensions.FromSqlRaw(set, sql, n)` previously declined at
   `emit.call.static-member-unmodeled` / `instance-member-unmodeled`.
-- GENERIC AND NON-GENERIC CANDIDATES COMPETE. The two resolver families see disjoint candidate sets, so
-  the planner asks both. The shared per-argument better-conversion comparison selects the more
-  specific list (`IEnumerable<string>` over `object`). Ties and incomparable lists currently keep the
-  non-generic candidate. A generic-family ambiguity is treated as no generic winner, so a viable
-  non-generic candidate can be selected. In optional calls this also ignores differing counts of
-  omitted parameters. C# can report ambiguity because its tie-break compares applicable parameter
-  counts and preserves ambiguity across candidate families; those parts of better-function-member
-  resolution are not implemented here. Runtime-value rows cover `Task.WhenAll`, `Task.WhenAny`,
-  `Array.Sort(int[])` and `Array.IndexOf`; resolver rows pin both fallbacks.
+- GENERIC AND NON-GENERIC CANDIDATES COMPETE. The planner asks both candidate families and reduces them
+  with a shared better-conversion comparison over supplied arguments. Expanded extension calls include
+  the receiver conversion, so a generic `IEnumerable<T>` receiver beats an `object` receiver when the
+  explicit arguments tie. A more-specific list (`IEnumerable<string>` over `object`) wins; identical
+  effective parameter types prefer the non-generic method only when applicable parameter counts also
+  tie. Incomparable lists, multiple equally best candidates and optional candidates with different
+  parameter counts remain ambiguous across both families. Runtime-value rows cover `Task.WhenAll`,
+  `Task.WhenAny`, `Array.Sort(int[])` and `Array.IndexOf`; resolver rows pin ambiguity and the
+  non-generic tie-break.
 - CONSTRAINTS ARE CHECKED BY US. `MakeGenericMethod` validates constraints only for runtime types; over
   a type the compilation is still writing it accepts anything. `SatisfiesConstraints` (called by
   `CloseOrNull`, so by every closure) checks `class`, `struct`, `new()` and type constraints
-  structurally. `new()` requires a visible public parameterless constructor for a source class; if
-  Reflection cannot prove the constructor exists on an unbaked type, the candidate is declined.
+  structurally. For `new()`, the source definition's constructor facts must show a public parameterless
+  constructor; an unregistered or private-only source constructor does not prove it.
 - WRITTEN TYPE ARGUMENTS BESIDE AN INLINE LAMBDA: `TrySelectExplicitGenericExtensionForLambdas` and the
   lambda tier of `SelectExplicitGenericExternalCall` close every overload over the written arguments
   and let the lambda choose by arity against each delegate parameter (`CanLambdaOrValueArgumentFit`),
@@ -6167,11 +6168,11 @@ shape (receiver as argument zero) is the fix; then the emitter's legacy extensio
   because body-type inference is not implemented in this emitter path.
 - AN INHERITED EXTERNAL GENERIC METHOD, bare or via `this`/an expression receiver (`Set<Person>()`,
   `this.Set<Person>()`, `new Db().Set<Person>()` in a `DbContext` subclass), resolves on the
-  substituted external base: `TryEmitInheritedExternalExplicitGenericCall`. Only PUBLIC generic
-  methods of the base are candidates; protected generic base methods remain unsupported. Calls inside
-  lambdas and local functions remain unsupported because their receiver is a closure. A source method
-  with the same name hides inherited methods at every generic arity in N#, so a derived `Set(int)` blocks
-  `Set<Person>()`; C# continues lookup when the derived method has a different generic arity.
+  substituted external base: `TryEmitInheritedExternalExplicitGenericCall`. Source declarations are
+  filtered by the written generic arity, so a derived `Set(int)` leaves an inherited `Set<Person>()`
+  candidate available. Only PUBLIC generic methods of the external base are candidates; protected
+  generic base methods remain unsupported. Calls inside lambdas and local functions remain unsupported
+  because their receiver is a closure.
 
 Tests: `tests/native/generic-call-inference` (BCL shapes, runtime values),
 `tests/native/generic-call-inference-efcore` (real EF Core and DI packages, SQL read back through

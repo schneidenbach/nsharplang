@@ -2651,21 +2651,26 @@ func shapes(set: DbSet<Person>, name: string) {
 ```
 
 A call whose array argument is already built passes it through unpacked, and a type parameter that only
-an omitted parameter mentions cannot be inferred (write it). When a generic and a non-generic overload
-both apply, the compiler compares better conversions for each argument. A strictly more-specific
-parameter list wins. When the supplied targets tie or are incomparable, the current resolver keeps the
-non-generic overload. This also applies to optional calls where candidates omit different numbers of
-parameters. C# can leave those calls ambiguous because its tie-break also compares applicable
-parameter counts; that part of overload resolution is not implemented yet. An ambiguity within the
-generic candidate set is also treated as if no generic candidate won, so a viable non-generic overload
-can be selected where C# would leave the whole call ambiguous.
-This selects `Task<int[]>` for `Task.WhenAll(first, second)` over two `Task<int>` values and also
-preserves the typed results of `WhenAny`, `Array.Sort` and `Array.IndexOf`.
-Constraints on the type parameters (`class`, `struct`, `new()`, type constraints) are checked before an
-overload is considered. An uncreated source class cannot yet prove a `new()` constraint because its
-constructor metadata is unavailable; that closure is declined until constructor facts can be read.
-A null literal contributes no inferred type; the receiver or another argument must bind that type
-parameter.
+an omitted parameter mentions cannot be inferred (write it). When generic and non-generic overloads
+both apply, the compiler compares each supplied argument's conversion to the candidates' effective
+parameter types. For extension calls, this comparison includes the receiver's conversion to each
+candidate's `this` parameter. A strictly better parameter list wins. When effective parameter types
+and applicable parameter counts tie, the non-generic method wins. Incomparable lists, or several
+equally best candidates within either family, remain ambiguous. Optional candidates with identical
+supplied parameter types but different numbers of declared parameters also remain ambiguous, matching
+C#'s optional-parameter tie-break. Runtime-value coverage checks that `Task.WhenAll(first, second)`
+over two `Task<int>` values returns `Task<int[]>`, that `WhenAny` keeps its typed result, that
+`Array.Sort(int[])` and `Array.IndexOf` choose the generic overloads, and that
+`Encoding.UTF8.GetBytes(JsonSerializer.Serialize(values))` produces the expected JSON bytes.
+
+Constraints on type parameters (`class`, `struct`, `new()`, and type constraints) are checked before
+an overload is considered. A source class with a declared public parameterless constructor can satisfy
+`new()` before the type is baked. A null literal contributes no inference bound; the receiver or another
+argument must bind that type parameter.
+
+Generic inference accumulates exact, lower, and upper bounds, then fixes a type argument that satisfies
+all bounds and their implicit conversions. For example, `Enumerable.Contains` can infer `object` from
+`IEnumerable<object>` and a `string` value. Invariant positions still require matching exact bounds.
 
 ### Written type arguments with a lambda
 
@@ -2679,11 +2684,13 @@ typed local.
 
 A public generic method inherited from an external base is callable bare, through `this`, or through an
 expression receiver, with its type arguments written (`Set<Person>()` inside a `DbContext` subclass).
-Protected generic methods from external bases are not resolved yet. The call must be in the class body;
-inside a lambda or local function, the receiver is a closure and inherited lookup is not resolved yet.
-A same-named method declared by the class hides the inherited generic method at every arity in N#.
-For example, `Set<Person>()` is rejected in a class that also declares `Set(int)`, while C# lookup can
-continue to a base method when the derived declaration has a different generic arity.
+Source declarations are filtered by generic arity, so a derived `Set(int)` leaves an inherited
+`Set<Person>()` candidate available. Protected generic methods from external bases remain unsupported.
+Inherited calls inside a lambda or local function also remain unsupported because the receiver is a
+closure. For explicit generic calls with an inline lambda, overload selection uses the lambda's
+parameter count after written type arguments close the candidates. Same-arity `Action<T>` and
+`Func<T, TResult>` overloads, and parameterless overloads whose lambda bodies need return-type
+inference such as `Task.Run<int>(() => 1)`, remain declined; assign the lambda to a typed local.
 
 ### Extensions over a type parameter
 
