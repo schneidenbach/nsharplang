@@ -613,14 +613,13 @@ sealed class CompilationReferenceResolver {
                     expansionVersion = directVersion
                 } else {
                     let selectedVersion: string = ""
-                    if selectedVersions.TryGetValue(normalizedId, out selectedVersion) &&
-                        !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(
-                            true,
-                            selectedVersion,
-                            false,
-                            expansionVersion,
-                            false
-                        ) {
+                    if selectedVersions.TryGetValue(normalizedId, out selectedVersion) && !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(
+                        true,
+                        selectedVersion,
+                        false,
+                        expansionVersion,
+                        false
+                    ) {
                         expansionVersion = selectedVersion
                     }
                 }
