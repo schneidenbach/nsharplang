@@ -29,3 +29,7 @@ test "a typed lambda rejects the instance delegate overload and selects the rece
 test "an applicable instance delegate overload wins over the matching receiver-style extension" {
     assert delegateInstanceCall(new DelegateTarget()) == "instance:42"
 }
+
+test "a lambda is not applicable to an overload with a concrete non-delegate parameter" {
+    assert lambdaCandidateRejectsNonDelegate() == "delegate:73"
+}

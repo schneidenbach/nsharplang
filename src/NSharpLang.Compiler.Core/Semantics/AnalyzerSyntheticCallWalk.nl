@@ -426,7 +426,10 @@ class AnalyzerSyntheticCallWalk {
 
         signature := assignability.DelegateSignatureOfExpectedType(expectedType)
         if signature == null {
-            return true
+            // The caller cannot use a lambda to convert to a concrete non-delegate parameter.
+            // Keep unknown and still-open generic targets undecided so generic inference can
+            // finish before overload applicability is finalized.
+            return BuiltInTypes.IsUnknown(expectedType) || ContainsOpenLambdaTypeParameter(expectedType, typeParameters)
         }
 
         delegateParameterTypes := signature.ParameterTypes

@@ -15,6 +15,14 @@ class DelegateTarget {
     func M(callback: Func<int, int>): string => "instance:" + callback(41).ToString()
 }
 
+class LambdaCandidateTarget {
+    func Choose(value: string): string => "string:" + value
+
+    func Choose(value: Func<int>): string => "delegate:" + value().ToString()
+}
+
+func lambdaCandidateRejectsNonDelegate(): string => new LambdaCandidateTarget().Choose(() => 73)
+
 // Keep the extension declarations in this project so the repro does not depend on ASP.NET or a
 // C# fixture. The first overload is the Action-shaped extension selected by the typed string lambda;
 // the second has the same delegate signature as the instance and must lose when that instance fits.
