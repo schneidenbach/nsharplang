@@ -1907,6 +1907,25 @@ VSCODE_TESTS=skip ./scripts/test-all.sh --commit
 ./scripts/dev.sh --list           # every slice name
 ```
 
+#### Expression emission shape census (2026-10-18)
+`tests/native/census-emit-shapes` owns runtime contracts for small legal expression shapes that the
+columnar emitter must preserve: nested call arguments, mixed numeric types, interpolation-hole
+expressions, bitwise operators, external struct arrays, and struct initializer temporaries. Run the
+native project alone with `./scripts/dev.sh --no-estate census-emit-shapes`; `--no-estate` matters
+because the slice name is a native project, not a compiler-service estate row. The slice's owner facts
+remain focused separately with `./scripts/dev.sh --estate AnalyzerLiteralExpressions`,
+`./scripts/dev.sh --estate ConstantConversionFacts`,
+`./scripts/dev.sh --estate ColumnarScalarLiteralPlanner`,
+`./scripts/dev.sh --estate ColumnarCatalogReferenceArrayControls`, and
+`./scripts/dev.sh --estate ColumnarInstanceMemberPlanner`, plus
+`./scripts/dev.sh --estate ColumnarCodePlanExecutor` for struct-initializer temporary validation.
+Unary-minus boundary coverage is owned by `NumericLiteralFacts`, `AnalyzerOperatorExpressions`,
+`ColumnarUnaryLiteralPlanner`, and the same native project. Its contracts pin the exact integer
+tokens, inferred signed types, runtime minimum values, target-typed `int` assignment, neighboring
+values, and `int` versus `long` overload selection. Run those focused rows through
+`~/code/nsharplang-wt/bin/mnw-slot build` with the private `NUGET_PACKAGES` directory before the
+fresh heavy integration gate.
+
 ### The compiler-service estate
 ```bash
 ./scripts/dev.sh --estate             # all ~9,200 rows

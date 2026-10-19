@@ -50,6 +50,26 @@ names: string[] = ["Alice", "Bob", "Charlie"]
 
 ## Numeric Operators
 
+### Unsuffixed integer literal types
+
+An unsuffixed nonnegative integer literal takes the first integral type that can hold its value:
+`int`, `uint`, `long`, then `ulong`. For example, `4294967295` is a `uint` and `5000000000` is a
+`long`. The compiler then applies the ordinary implicit or constant conversion rules at the use site,
+so this is valid:
+
+```n#
+mask: long = 4294967295
+```
+
+A suffix fixes the literal's type, as in `4294967295L` or `4294967295UL`.
+
+Unary minus has two C# boundary cases. When an integer token with the corresponding magnitude
+immediately follows `-`, `-2147483648` is an `int` with the value `int.MinValue`, and
+`-9223372036854775808` is a `long` with the value `long.MinValue`. The long minimum may also be
+written with an `L` suffix. The same rule applies to radix spellings such as `-0x80000000`. The
+positive magnitudes by themselves still follow the first-fitting rule: `2147483648` is `uint`, and
+`9223372036854775808` is `ulong`.
+
 ### Binary numeric promotion
 
 An arithmetic, bitwise or comparison operator runs in ONE type, and which one is decided by the two
@@ -147,6 +167,14 @@ one; `new T[](n)` builds an empty one of a given size.
 names: string[] = ["Alice", "Bob"]
 empty := new int[](3)
 first := names[0]
+```
+
+Arrays can also hold supported CLR structs, such as `Guid`:
+
+```n#
+import System
+
+ids: Guid[] = [Guid.NewGuid(), Guid.Empty]
 ```
 
 ### Array covariance
@@ -1093,7 +1121,28 @@ holder.Inner.Value = 7                 // a struct field of a struct variable: t
 `new T { ... }` over a struct starts from its public parameterless constructor when it declares one
 and from the zeroed value otherwise; over a class, from the constructor callable with no arguments,
 including one whose parameters are all optional. That is C#'s rule, so a type means the same thing
-on either side of an assembly boundary.
+on either side of an assembly boundary. The initialized value can be passed directly as a call
+argument, returned, or used inside another initializer:
+
+```n#
+func Sum(point: Point): double {
+    return point.X + point.Y
+}
+
+func Origin(): Point {
+    return new Point { X: 0.0, Y: 0.0 }
+}
+
+sum := Sum(new Point { X: 1.0, Y: 2.0 })
+```
+
+The same expression form works for a struct from a CLR library:
+
+```n#
+import System.Text.Json
+
+doc := JsonDocument.Parse("{}", new JsonDocumentOptions { AllowTrailingCommas: true })
+```
 
 ### Readonly Structs
 

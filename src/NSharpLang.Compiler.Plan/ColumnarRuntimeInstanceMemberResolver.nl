@@ -264,7 +264,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(int), out selection)
         }
 
-        if receiverType == typeof(TimeSpan) && member == "TotalMilliseconds" {
+        if receiverType == typeof(TimeSpan) && (member == "TotalMilliseconds" || member == "TotalDays") {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(double), out selection)
         }
 

@@ -3517,6 +3517,30 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // Resolve a generic call's STATIC receiver only when its syntax denotes a type. The printed callee
+    // can contain an expression receiver (`Source.Mixed().OfType<string>`); passing that receiver text
+    // to the canonical type resolver treats call punctuation as type syntax and can throw before the
+    // ordinary expression receiver path gets a chance to type it.
+    private func TryGetExplicitGenericStaticOwnerCanonical(receiver: int, out canonical: string): bool {
+        canonical = ""
+        if (receiver < 0) {
+            return false
+        }
+        if (TryResolveGenericTypeReceiverCanonical(receiver, out canonical)) {
+            return true
+        }
+        let dottedTypeName: string? = null
+        if (TryClassifyDottedTypeNameReceiver(receiver, out dottedTypeName)) {
+            canonical = dottedTypeName ?? ""
+            return canonical.Length > 0
+        }
+        if (IsBareTypeNameReceiver(receiver)) {
+            canonical = ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+            return canonical.Length > 0
+        }
+        return false
+    }
+
     // The written type arguments of an explicit generic callee, resolved in the body's own scope.
     private func TryResolveWrittenTypeArguments(callee: int, expectedCount: int, out binding: Type[]): bool {
         binding = null
@@ -3768,12 +3792,16 @@ sealed class ColumnarIlEmitter {
         let writtenOwnerType: System.Type? = null
         let writtenOwnerDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
         let writtenOwnerArguments: System.Type[]? = null
-        if (TryResolveBodyType(receiverText, out writtenOwnerType) && TryGetClosedReceiverDef(writtenOwnerType, out writtenOwnerDef, out writtenOwnerArguments)) {
+        let staticOwnerCanonical: string = ""
+        if (!TryGetExplicitGenericStaticOwnerCanonical(expressionReceiverNode, out staticOwnerCanonical)) {
+            return false
+        }
+        if (TryResolveBodyType(staticOwnerCanonical, out writtenOwnerType) && TryGetClosedReceiverDef(writtenOwnerType, out writtenOwnerDef, out writtenOwnerArguments)) {
             staticOwner = writtenOwnerDef
             constructedStaticOwner = writtenOwnerType
             constructedStaticArguments = writtenOwnerArguments
         } else {
-            if (!_typeResolutionStructs.TryGetValue(receiverText, out staticOwner)) {
+            if (!_typeResolutionStructs.TryGetValue(staticOwnerCanonical, out staticOwner)) {
                 return false
             }
         }
@@ -3868,8 +3896,12 @@ sealed class ColumnarIlEmitter {
         if (_locals.ContainsKey(receiverText) || _liftedLocals.ContainsKey(receiverText) || _paramOrdinals.ContainsKey(receiverText)) {
             return false
         }
+        let staticOwnerCanonical: string = ""
+        if (!TryGetExplicitGenericStaticOwnerCanonical(expressionReceiverNode, out staticOwnerCanonical)) {
+            return false
+        }
         let ownerType: System.Type? = null
-        if (!TryResolveBodyType(receiverText, out ownerType) || ownerType == null) {
+        if (!TryResolveBodyType(staticOwnerCanonical, out ownerType) || ownerType == null) {
             return false
         }
         staticSelection := SelectExplicitGenericExternalCall(callIdx, ownerType, memberName, typeArguments, argCount, true)
@@ -14142,7 +14174,7 @@ sealed class ColumnarIlEmitter {
             // subtree actually reaches, keeps two-operand string concat and the never-planner-owned
             // non-numeric equality families (string, System.Type, reference-identity on user reference types),
             // so a residual binary emits byte-identical IL. Shifts, the decimal op_* table, right-literal
-            // adoption, bitwise (`&`/`|`/`^`), and record-struct structural equality are NOT restored: no
+            // adoption, and record-struct structural equality are NOT restored: no
             // whole-subtree residual across the corpus, native, unit, and self-emit surfaces reaches them.
             let opType: System.Type = null
             if (leftType == rightType) {
@@ -14256,6 +14288,17 @@ sealed class ColumnarIlEmitter {
                 }
                 EmitComparison(op, false, false)
                 columnarResolvedType = typeof(bool)
+                return true
+            } else if columnarSwitchValue4 == "&" || columnarSwitchValue4 == "|" || columnarSwitchValue4 == "^" {
+                // Bitwise and/or/xor on one matched operand type. An operand outside the planner's
+                // surface reaches here -- `diff | ((int)a[i] ^ (int)b[i])` has a cast on each side --
+                // and the instruction is the one the planner would have chosen: the small integers
+                // promote to int, and the 32/64-bit and bool types keep their own.
+                if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool)) {
+                    return false
+                }
+                _il.Emit(op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor)
+                columnarResolvedType = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType
                 return true
             } else {
                 return false
@@ -14757,11 +14800,12 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = typeof(int)
                 return true
             }
-            if (structReceiverType == typeof(TimeSpan) && member == nameof(TimeSpan.TotalMilliseconds)) {
+            if (structReceiverType == typeof(TimeSpan) && (member == nameof(TimeSpan.TotalMilliseconds) || member == nameof(TimeSpan.TotalDays))) {
                 timeSpanTemp := _il.DeclareLocal(typeof(TimeSpan))
                 _il.Emit(OpCodes.Stloc, timeSpanTemp)
                 _il.Emit(OpCodes.Ldloca, timeSpanTemp)
-                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, ColumnarEmitReflectionFacts.RequiredGetter(typeof(TimeSpan).GetProperty(nameof(TimeSpan.TotalMilliseconds)), "TimeSpan.TotalMilliseconds"), "CLR property getter TotalMilliseconds")
+                timeSpanProperty := typeof(TimeSpan).GetProperty(member)
+                ColumnarEmitReflectionFacts.EmitMethod(_il, OpCodes.Call, ColumnarEmitReflectionFacts.RequiredGetter(timeSpanProperty, "TimeSpan." + member), "CLR property getter " + member)
                 columnarResolvedType = typeof(double)
                 return true
             }
@@ -18308,16 +18352,10 @@ sealed class ColumnarIlEmitter {
         if (scope == null || receiverNode < 0 || typeArgCount <= 0) {
             return false
         }
-        let staticReceiverTypeName: string? = null
-        if (TryClassifyDottedTypeNameReceiver(receiverNode, out staticReceiverTypeName)) {
-            return false
-        }
+        let staticOwnerCanonical: string = ""
+        let hasStaticTypeReceiver: bool = TryGetExplicitGenericStaticOwnerCanonical(receiverNode, out staticOwnerCanonical)
         let typeArguments: System.Type[]? = null
         if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out typeArguments)) {
-            return false
-        }
-        let receiverType: System.Type? = null
-        if (!TryGetPreflightExpressionType(receiverNode, out receiverType) || receiverType == null || !ColumnarTypeOfPlanner.IsSupportedType(receiverType)) {
             return false
         }
         member := ColumnarNodeTextFacts.Text(_nodes, _source, ColumnarGenericCalleeFacts.CalleeExpressionNode(_nodes, callee))
@@ -18325,6 +18363,31 @@ sealed class ColumnarIlEmitter {
             return false
         }
         argCount := _nodes.ChildCount(callNode) - 1
+        // A RECEIVER THAT NAMES AN EXTERNAL TYPE IS A STATIC OWNER, and the call produces what its
+        // selected static method returns -- `JsonSerializer.Serialize<string[]>(d)` is a `string`.
+        // The emission door has always selected it; without this arm the call had no type, so it could
+        // not be the ARGUMENT of any call that picks an overload from its arguments
+        // (`Encoding.UTF8.GetBytes(JsonSerializer.Serialize<string[]>(d))`). The binding fence and the
+        // selection are emission's own.
+        staticOwnerText := hasStaticTypeReceiver ? staticOwnerCanonical : ""
+        let staticOwnerType: System.Type? = null
+        // Only a type-name receiver gets text. An expression receiver such as `Source.Mixed()` can be
+        // a synthetic node with no source-value span, and its value is determined by the ordinary
+        // expression path below.
+        if (hasStaticTypeReceiver && !ColumnarClosureBindingPlanner.IsVisibleBindingName(staticOwnerText, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames) && !_typeResolutionStructs.ContainsKey(staticOwnerText) && TryResolveBodyType(staticOwnerText, out staticOwnerType) && staticOwnerType != null && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(staticOwnerType)) {
+            staticSelection := SelectExplicitGenericExternalCall(callNode, staticOwnerType, member, typeArguments, argCount, true)
+            if (staticSelection.IsSelected) {
+                columnarResolvedType = staticSelection.ReturnType
+                return columnarResolvedType != null
+            }
+        }
+        if (hasStaticTypeReceiver) {
+            return false
+        }
+        let receiverType: System.Type? = null
+        if (!TryGetPreflightExpressionType(receiverNode, out receiverType) || receiverType == null || !ColumnarTypeOfPlanner.IsSupportedType(receiverType)) {
+            return false
+        }
         let selection: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodSelection? = null
         if (TrySelectExplicitGenericExtension(callNode, scope, receiverType, member, typeArguments, argCount, out selection)) {
             columnarResolvedType = selection.ReturnType
@@ -18799,16 +18862,10 @@ sealed class ColumnarIlEmitter {
             return TryEmitBufferMemoryCopy(callIdx, out resolvedClrType)
         }
         if (typeName == "Math" && member == "Abs" && argCount == 1) {
-            // System.Math.Abs(int) -> int (absolute value). The arg is an int; emit `call` (static). Negative
-            // inputs return the magnitude; int.MinValue throws OverflowException — identical to the N# backend path,
-            // which binds the same overload, so parity holds (the columnar and N# results match, throw included).
-            method := typeof(Math).GetMethod(nameof(Math.Abs), [typeof(int)])
-            if (method == null || !EmitArg(callIdx, 1, typeof(int))) {
-                return false
-            }
-            _il.Emit(OpCodes.Call, method)
-            resolvedClrType = typeof(int)
-            return true
+            // Use the ordinary overload selector for every numeric overload. A hard-coded int arm
+            // rejected valid double/long/decimal arguments before the shared resolver could choose
+            // their exact overload, including a nested `(a - b).TotalDays` argument.
+            return TryEmitOrdinaryRuntimeStaticCall(callIdx, typeof(Math), member, argCount, out resolvedClrType)
         }
         if (typeName == "Math" && member == "Sqrt" && argCount == 1) {
             method := typeof(Math).GetMethod(nameof(Math.Sqrt), [typeof(double)])
@@ -18829,22 +18886,10 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (typeName == "Math" && member == "Max" && argCount == 2) {
-            method := typeof(Math).GetMethod(nameof(Math.Max), [typeof(int), typeof(int)])
-            if (method == null || !EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int))) {
-                return false
-            }
-            _il.Emit(OpCodes.Call, method)
-            resolvedClrType = typeof(int)
-            return true
+            return TryEmitOrdinaryRuntimeStaticCall(callIdx, typeof(Math), member, argCount, out resolvedClrType)
         }
         if (typeName == "Math" && member == "Min" && argCount == 2) {
-            method := typeof(Math).GetMethod(nameof(Math.Min), [typeof(int), typeof(int)])
-            if (method == null || !EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int))) {
-                return false
-            }
-            _il.Emit(OpCodes.Call, method)
-            resolvedClrType = typeof(int)
-            return true
+            return TryEmitOrdinaryRuntimeStaticCall(callIdx, typeof(Math), member, argCount, out resolvedClrType)
         }
         if (typeName == "Path" && member == nameof(Path.GetFullPath) && argCount == 1) {
             method := typeof(Path).GetMethod(nameof(Path.GetFullPath), [typeof(string)])
@@ -21477,9 +21522,17 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    private static func IsMixedNumericComparisonOperator(op: string): bool {
+        return op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!="
+    }
+
+    private static func IsMixedNumericBinaryOperator(op: string): bool {
+        return op == "+" || op == "-" || op == "*" || op == "/" || op == "%" || IsMixedNumericComparisonOperator(op)
+    }
+
     private func TryEmitMixedNumericBinary(idx: int, op: string, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%" && op != "<" && op != ">" && op != "<=" && op != ">=" && op != "==" && op != "!=") {
+        if (!IsMixedNumericBinaryOperator(op)) {
             return false
         }
 
@@ -22345,9 +22398,9 @@ sealed class ColumnarIlEmitter {
     // What lived here was ECMA-334 §10.2.11 spelled as a C# table, MIRRORED in N# by
     // `ColumnarMethodBodyPlanner` (which reasons about this function's behaviour to decide whether the
     // N# door may claim a body) and by `ColumnarScalarLiteralPlanner`. One rule, three owners, two
-    // languages. `ConstantConversionFacts` is now the single answer, including the three caps that are
-    // deliberately TIGHTER than the spec (uint and positive long/ulong at int.MaxValue, negatives at the
-    // target's MaxValue magnitude) — carried verbatim so the move does not move the answer.
+    // languages. `ConstantConversionFacts` is now the single answer, including the one cap that is
+    // deliberately TIGHTER than the spec (negatives at the target's MaxValue magnitude); a positive
+    // constant takes its target's full range.
     // A NEGATIVE literal arrives as unary minus (kind 11, "-") wrapping the bare literal; the value
     // emits pre-negated, with no Neg opcode.
     private func TryEmitIntLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
@@ -22361,6 +22414,16 @@ sealed class ColumnarIlEmitter {
             return false
         }
         text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        if negative && target == typeof(int) && NumericLiteralFacts.IsNegatedIntMinimumLiteral(text) {
+            _il.Emit(OpCodes.Ldc_I4, int.MinValue)
+            resolvedClrType = target
+            return true
+        }
+        if negative && target == typeof(long) && NumericLiteralFacts.IsNegatedLongMinimumLiteral(text) {
+            _il.Emit(OpCodes.Ldc_I8, long.MinValue)
+            resolvedClrType = target
+            return true
+        }
         // §10.2.4 — the literal ZERO adopts any enum type. The analyzer admits it at the same positions;
         // an enum's storage is its underlying integer, so zero is an `ldc.i4.0`. The enum question is
         // asked through the GUARDED owner: a raw `get_IsEnum` routes through `IsSubclassOf`, which a
@@ -24219,6 +24282,29 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        // A MIXED-WIDTH NUMERIC BINARY IS TYPED BY THE RULE THAT EMITS IT. `x / 2` over a `double` runs
+        // as `double`, and `n * 1.5` over an `int` as `double`: `TryEmitMixedNumericBinary` widens the
+        // narrower operand to the common type and the answer is that type, or `bool` for a comparison.
+        // Without this arm the expression emitted fine as a local's initializer but had no type as an
+        // ARGUMENT, so `Math.Sin(x / 2)` could not have an overload chosen and declined as unmodeled.
+        let mixedOperationType: System.Type? = null
+        if (IsMixedNumericBinaryOperator(op) && !TypesEquivalent(leftType, rightType) && TrySelectMixedNumericCommonType(leftType, rightType, out mixedOperationType)) {
+            columnarResolvedType = IsMixedNumericComparisonOperator(op) ? typeof(bool) : mixedOperationType
+            return true
+        }
+
+        // BITWISE AND/OR/XOR over one matched operand type, typed as the residual emit arm produces it.
+        if ((op == "&" || op == "|" || op == "^") && TypesEquivalent(leftType, rightType)) {
+            if (ColumnarNumericFacts.IsIntPromotable(leftType)) {
+                columnarResolvedType = typeof(int)
+                return true
+            }
+            if (leftType == typeof(long) || leftType == typeof(ulong) || leftType == typeof(uint) || leftType == typeof(bool)) {
+                columnarResolvedType = leftType
+                return true
+            }
+        }
+
         // `a ?? b` PRODUCES WHAT THE PRESENT VALUE IS, AND PREFLIGHT COULD NOT SAY SO.
         //
         // The emit arm has always known the rule — a REFERENCE left yields the left's own type, a
@@ -24255,6 +24341,18 @@ sealed class ColumnarIlEmitter {
         if ((op == "==" || op == "!=") && IsPredefinedReferenceEquality(leftType, rightType)) {
             columnarResolvedType = typeof(bool)
             return true
+        }
+
+        // A USER-DEFINED OPERATOR A REFERENCED TYPE DECLARES PRODUCES WHAT ITS METHOD RETURNS. The
+        // emission arm (`TryEmitRuntimeUserDefinedBinary`) selects it from the same two operand types, so
+        // `a - b` over two `DateTime`s is a `TimeSpan` here too -- and `Math.Abs((a - b).TotalDays)` can
+        // type its argument instead of declining the whole local.
+        if (!(ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(leftType) && ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(rightType))) {
+            runtimeOperator := ColumnarRuntimeOperatorResolver.ResolveBinary(op, leftType, rightType)
+            if (runtimeOperator.IsSelected && runtimeOperator.Method != null) {
+                columnarResolvedType = runtimeOperator.ReturnType
+                return true
+            }
         }
 
         return false
@@ -30411,19 +30509,22 @@ sealed class ColumnarIlEmitter {
         // The single-top-level-`??` coalesce decomposition (left / right operand text) is decided by the
         // N# splitter owner (ColumnarInterpolationSplitter.TrySplitCoalesce); this tier resolves each side
         // and enforces the reference-type/type-equivalence guard mechanically over those two strings.
+        //
+        // A COALESCE THIS TIER CANNOT PLAN IS NOT A HOLE NOBODY CAN PLAN. Both operands must be member
+        // chains here, so `code ?? "NOPNR"` -- a string literal on the right -- failed the whole literal
+        // although the general expression arm below types and emits it. The decomposition now falls
+        // through to that arm instead of refusing.
         let coalesceLeftText: string? = null
         let coalesceRightText: string? = null
         if (ColumnarInterpolationSplitter.TrySplitCoalesce(text, out coalesceLeftText, out coalesceRightText)) {
             let left: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
             let right: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
-            if (!TryResolveInterpolationChainPlan(coalesceLeftText, out left) || !TryResolveInterpolationChainPlan(coalesceRightText, out right) || left == null || right == null || left.ValueType == null || right.ValueType == null || left.ValueType.IsValueType || !TypesEquivalent(left.ValueType, right.ValueType)) {
-                return false
+            if (TryResolveInterpolationChainPlan(coalesceLeftText, out left) && TryResolveInterpolationChainPlan(coalesceRightText, out right) && left != null && right != null && left.ValueType != null && right.ValueType != null && !left.ValueType.IsValueType && TypesEquivalent(left.ValueType, right.ValueType)) {
+                left.CoalesceRight = right
+                left.Format = format
+                plan = left
+                return true
             }
-
-            left.CoalesceRight = right
-            left.Format = format
-            plan = left
-            return true
         }
 
         if (TryResolveInterpolationChainPlan(text, out plan)) {
