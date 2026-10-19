@@ -13,14 +13,15 @@ import NSharpLang.Compiler.Columnar
 // There is exactly ONE kind, and it is the arc's first request that asks for an EFFECT rather than
 // for an answer:
 //
-//   1  load the reference assemblies this namespace import implies, by simple name, in the order
-//      `AssemblyNames` gives them.
+//   1  load the reference assemblies this namespace import implies: the table's `AssemblyNames` by
+//      simple name, in the order given, and then -- when `FrameworkNamespace` is set -- the
+//      `Microsoft.NETCore.App` assemblies that define that namespace (`FrameworkNamespaceIndex`).
 //
 // The load itself is the MetadataLoadContext surface — task 021's subject and nothing this family
 // owns — so the driver performs it and the walk resumes. What the walk owns is the POLICY half: WHICH
-// assemblies a written namespace implies. That table lives here (`MappedAssemblies`), and it is why
-// the request carries names rather than the namespace: the driver's step is then a pure host action
-// with no decision left in it.
+// assemblies a written namespace implies. The table lives here (`MappedAssemblies`) and the framework's
+// own answer is the index's (`FrameworkAssemblies`); the request carries the names and the namespace,
+// so the driver's step is a pure host action with no decision left in it.
 //
 // The round trip cannot be flattened into a pre-pass. The load must happen before the SAME import's
 // existence check, because `NamespaceExists` scans the loaded assemblies AND CACHES ITS NEGATIVE
@@ -33,10 +34,12 @@ import NSharpLang.Compiler.Columnar
 class ImportWalkRequest {
     Kind: int
     AssemblyNames: string[]
+    FrameworkNamespace: string?
 
-    constructor(kind: int, assemblyNames: string[]) {
+    constructor(kind: int, assemblyNames: string[], frameworkNamespace: string?) {
         Kind = kind
         AssemblyNames = assemblyNames
+        FrameworkNamespace = frameworkNamespace
     }
 }
 
@@ -133,6 +136,10 @@ class AnalyzerImports {
     typeDeclarationFiles: Dictionary<string, string>
     referencedPackageNames: HashSet<string>
 
+    // Whether the project references `Microsoft.AspNetCore.App` -- under `sdk: Microsoft.NET.Sdk.Web`
+    // or through a `framework:` entry -- and so may import its namespaces (`SetAspNetCoreReferenced`).
+    aspNetCoreReferenced: bool
+
     // This owner's own per-analysis state.
     importedSymbols: Dictionary<string, List<ImportedSymbolReference>>
     importedSymbolOrder: List<string>
@@ -171,6 +178,17 @@ class AnalyzerImports {
         bindingMap = null
         assemblyMappings = BuildAssemblyMappings()
         importUsageCredit = null
+        aspNetCoreReferenced = true
+    }
+
+    // A PROJECT SEES ASP.NET CORE ONLY WHEN IT REFERENCES IT, as under `dotnet build`. The ASP.NET
+    // Core rows of the table load their assemblies BY NAME from the shared-framework directories the
+    // metadata resolver searches, so without this a console project's `import Microsoft.AspNetCore.Builder`
+    // resolved in `nlc` and failed in `dotnet build`. The Entity Framework row is a package's, not the
+    // framework's, and stays. An analysis with NO project behind it -- nothing ever calls
+    // `LoadFromProjectConfig` -- has no reference set to mirror and keeps the rows.
+    func SetAspNetCoreReferenced(referenced: bool) {
+        aspNetCoreReferenced = referenced
     }
 
     func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
@@ -310,12 +328,18 @@ class AnalyzerImports {
     // no step at all when it implies nothing.
     func LoadStep(state: ImportWalkState): ImportWalkRequest? {
         names := MappedAssemblies(state.NamespaceName)
-        if names == null {
+        framework := FrameworkAssemblies(state.NamespaceName)
+        if names == null && framework == null {
             return null
         }
 
+        frameworkNamespace: string? = null
+        if framework != null {
+            frameworkNamespace = state.NamespaceName
+        }
+
         state.Pending = 1
-        return new ImportWalkRequest(1, names)
+        return new ImportWalkRequest(1, names ?? new string[](0), frameworkNamespace)
     }
 
     // ------------------------------------------------------------------------------------------
@@ -353,7 +377,7 @@ class AnalyzerImports {
     func ValidateNamespaceImport(namespaceName: string, line: int, column: int): bool {
         diagnosticColumn := FindNamespaceImportColumn(namespaceName, line, column)
 
-        importedType := externalTypeProbe.ResolveExactExternalType(namespaceName)
+        importedType := externalTypeProbe.ResolveExactLoadedExternalType(namespaceName)
         if importedType != null {
             CreditUnjudgeableImport(namespaceName)
             typeNamespace := importedType.Namespace
@@ -473,7 +497,7 @@ class AnalyzerImports {
         exported := assembly.GetExportedTypes()
         for exportedType in exported {
             exportedNamespace := exportedType.Namespace
-            if string.Equals(exportedNamespace, namespaceName, StringComparison.Ordinal) {
+            if string.Equals(exportedNamespace, namespaceName, StringComparison.Ordinal) && !FrameworkNamespaceIndex.IsImplementationOnlyType(exportedType) {
                 return true
             }
         }
@@ -909,33 +933,14 @@ class AnalyzerImports {
     // WHICH ASSEMBLIES A NAMESPACE IMPLIES
     // ------------------------------------------------------------------------------------------
 
-    // THE TABLE. A written namespace whose types live in an assembly the project has not otherwise
-    // referenced would resolve to nothing; this is the list of namespaces the language guarantees are
-    // usable after a bare `import`, and the assemblies each one needs. The ORDER inside a row is the
-    // load order.
+    // THE TABLE, FOR WHAT `Microsoft.NETCore.App` DOES NOT CARRY. Every namespace of the base
+    // framework is answered by `FrameworkNamespaceIndex` -- read from the framework's own metadata, so
+    // it cannot fall behind it the way the hand-written `System.*` rows this table used to hold did.
+    // What remains are the ASP.NET Core and Entity Framework Core namespaces, whose assemblies a
+    // project gets from `Microsoft.AspNetCore.App` or a package rather than from the base framework.
+    // The ORDER inside a row is the load order.
     static func BuildAssemblyMappings(): Dictionary<string, string[]> {
         mappings := new Dictionary<string, string[]>()
-        mappings["System"] = OneAssembly("System.Runtime")
-        mappings["System.Collections.Generic"] = OneAssembly("System.Collections")
-        mappings["System.Collections"] = OneAssembly("System.Collections")
-        mappings["System.Threading.Tasks"] = OneAssembly("System.Runtime")
-        mappings["System.Linq"] = OneAssembly("System.Linq")
-        mappings["System.IO"] = OneAssembly("System.Runtime")
-        mappings["System.Text"] = OneAssembly("System.Runtime")
-        mappings["System.Net.Http"] = OneAssembly("System.Net.Http")
-        mappings["System.Text.Json"] = OneAssembly("System.Text.Json")
-        // ZIP ARCHIVES, and the row needs BOTH names: `System.IO.Compression` exports the archive
-        // types, while `ZipFile`/`ZipFileExtensions` -- the entry points that open an archive from a
-        // path -- are exported by `System.IO.Compression.ZipFile`. A one-assembly row would resolve
-        // the namespace and still leave `ZipFile` unbound.
-        mappings["System.IO.Compression"] = TwoAssemblies("System.IO.Compression", "System.IO.Compression.ZipFile")
-        // LINQ-to-XML, and it needs BOTH names for a measured reason. `System.Xml.Linq` is a pure
-        // FACADE: a MetadataLoadContext does not follow its type forwarders, so
-        // `GetExportedTypes()` on it answers ZERO types and a facade-only row admits nothing. The 23
-        // types in this namespace are exported by `System.Private.Xml.Linq`, which is the second
-        // name. The facade stays FIRST because it is the assembly a project references.
-        mappings["System.Xml.Linq"] = TwoAssemblies("System.Xml.Linq", "System.Private.Xml.Linq")
-        mappings["System.ComponentModel.DataAnnotations"] = OneAssembly("System.ComponentModel.Annotations")
         mappings["Microsoft.AspNetCore.Builder"] = TwoAssemblies("Microsoft.AspNetCore", "Microsoft.AspNetCore.Http.Abstractions")
         mappings["Microsoft.AspNetCore.Hosting"] = TwoAssemblies("Microsoft.AspNetCore.Hosting.Abstractions", "Microsoft.AspNetCore.Hosting")
         mappings["Microsoft.AspNetCore.Mvc"] = TwoAssemblies("Microsoft.AspNetCore.Mvc.Core", "Microsoft.AspNetCore.Mvc.Abstractions")
@@ -944,12 +949,6 @@ class AnalyzerImports {
         mappings["Microsoft.Extensions.Hosting"] = TwoAssemblies("Microsoft.Extensions.Hosting.Abstractions", "Microsoft.Extensions.Hosting")
         mappings["Microsoft.EntityFrameworkCore"] = TwoAssemblies("Microsoft.EntityFrameworkCore", "Microsoft.EntityFrameworkCore.Abstractions")
         return mappings
-    }
-
-    static func OneAssembly(name: string): string[] {
-        names := new string[](1)
-        names[0] = name
-        return names
     }
 
     static func TwoAssemblies(first: string, second: string): string[] {
@@ -962,9 +961,23 @@ class AnalyzerImports {
     func MappedAssemblies(namespaceName: string): string[]? {
         names := new string[](0)
         if assemblyMappings.TryGetValue(namespaceName, out names) {
+            if !aspNetCoreReferenced && IsAspNetCoreFrameworkRow(namespaceName) {
+                return null
+            }
+
             return names
         }
 
         return null
+    }
+
+    static func IsAspNetCoreFrameworkRow(namespaceName: string): bool {
+        return namespaceName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal) || namespaceName == "Microsoft.Extensions.DependencyInjection" || namespaceName == "Microsoft.Extensions.Hosting"
+    }
+
+    // The `Microsoft.NETCore.App` assemblies that define this namespace, or null when the base
+    // framework's compile surface has no such namespace.
+    func FrameworkAssemblies(namespaceName: string): string[]? {
+        return FrameworkNamespaceIndex.ForHostRuntime().AssembliesForNamespace(namespaceName)
     }
 }

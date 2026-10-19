@@ -324,9 +324,24 @@ class AnalyzerReferenceLoadOrchestration {
         }
 
         requests := PlanRequests(config, projectDirectory, testSourcesIncluded ?? HasTestSources(projectDirectory))
+        dllPaths := AnalyzerReferenceLoadOrchestration.DllRequestPaths(requests)
+        surface.SetFrameworkSuppliedByReferences(AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface(dllPaths))
         for request in requests {
             Perform(request, projectDirectory, config.TargetFramework)
         }
+    }
+
+    // The files the plan's `dll:` requests name, which is where a reference set that carries the
+    // framework's compile surface (`dotnet build`'s reference pack) shows it.
+    static func DllRequestPaths(requests: List<ReferenceLoadRequest>): List<string> {
+        paths := new List<string>()
+        for request in requests {
+            if request.Kind == "dll" {
+                paths.Add(request.Value)
+            }
+        }
+
+        return paths
     }
 
     func Perform(request: ReferenceLoadRequest, projectDirectory: string, targetFramework: string) {

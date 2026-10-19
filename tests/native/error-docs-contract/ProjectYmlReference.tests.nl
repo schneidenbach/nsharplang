@@ -5,65 +5,78 @@ import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler
 
-// THE IMPLICIT REFERENCE SET THE DOCS PUBLISH IS THE ONE THE COMPILER LOADS.
+// WHAT THE DOCS SAY A PROJECT SEES BY DEFAULT IS WHAT THE COMPILER GIVES IT.
 //
-// `website/docs/project-yml.md` lists, between two marker comments, every assembly a project with no
-// `dependencies:` compiles against. That list is the answer to "why can't I see this type?", so a
-// name added to or removed from `ExternalAssemblyScan.CommonAssemblyNames` without the page changing
-// would publish a wrong answer. The two are compared in order, in both directions, and the census of
-// differences is the failure message.
+// `website/docs/project-yml.md` lists, between two marker comments, types a project with no
+// `dependencies:` can use and the namespace each is imported from -- the types issue #215 found
+// missing when `nlc` compiled against a hand-picked list instead of all of `Microsoft.NETCore.App`.
+// Every row is checked against the compiler's own answer: the namespace must be one the framework
+// index (`FrameworkNamespaceIndex`) loads on import, and each type must be declared in that namespace
+// by one of the assemblies the import loads. A row naming a type the default framework does not
+// carry, or a namespace that would not import, fails here before it reaches a reader.
 func ProjectYmlReferencePage(): string {
     return Path.Combine(Path.Combine(Path.Combine(EdcPaths.RepositoryRoot(), "website"), "docs"), "project-yml.md")
 }
 
-func DocumentedImplicitAssemblies(text: string): List<string> {
-    startMarker := "<!-- implicit-assemblies:start -->"
-    endMarker := "<!-- implicit-assemblies:end -->"
+func DocumentedDefaultFrameworkRows(text: string): List<string[]> {
+    startMarker := "<!-- default-framework-namespaces:start -->"
+    endMarker := "<!-- default-framework-namespaces:end -->"
     start := text.IndexOf(startMarker, StringComparison.Ordinal)
     end := text.IndexOf(endMarker, StringComparison.Ordinal)
     if start < 0 || end < start {
-        throw new InvalidOperationException("project-yml.md has no implicit-assemblies marker pair.")
+        throw new InvalidOperationException("project-yml.md has no default-framework-namespaces marker pair.")
     }
 
-    names := new List<string>()
+    rows := new List<string[]>()
     block := text.Substring(start + startMarker.Length, end - start - startMarker.Length)
     for rawLine in block.Split('\n') {
         line := rawLine.Trim()
-        if line.Length == 0 {
+        if line.Length == 0 || line.StartsWith("| Type", StringComparison.Ordinal) || line.StartsWith("|---", StringComparison.Ordinal) {
             continue
         }
 
-        if !line.StartsWith("- `", StringComparison.Ordinal) || !line.EndsWith("`", StringComparison.Ordinal) {
-            throw new InvalidOperationException("Unexpected line in the implicit-assemblies list: " + line)
+        cells := line.Trim('|').Split('|')
+        if cells.Length != 2 {
+            throw new InvalidOperationException("Unexpected row in the default-framework table: " + line)
         }
 
-        names.Add(line.Substring(3, line.Length - 4))
+        rows.Add([cells[0].Trim(), cells[1].Trim().Trim('`')])
     }
 
-    return names
+    return rows
 }
 
-test "project-yml.md lists exactly the assemblies a project with no dependencies compiles against" {
-    documented := DocumentedImplicitAssemblies(File.ReadAllText(ProjectYmlReferencePage()))
-    loaded := ExternalAssemblyScan.CommonAssemblyNames()
-
-    missing := new List<string>()
-    for name in loaded {
-        if !documented.Contains(name) {
-            missing.Add(name)
-        }
+// `ImmutableDictionary<K, V>` -> `ImmutableDictionary`2`, the metadata name of the type a row names.
+func DocumentedMetadataTypeName(spelled: string): string {
+    open := spelled.IndexOf('<')
+    if open < 0 {
+        return spelled
     }
 
-    extra := new List<string>()
-    for name in documented {
-        if Array.IndexOf(loaded, name) < 0 {
-            extra.Add(name)
+    arity := spelled.Split(',').Length
+    return spelled.Substring(0, open) + "`" + arity.ToString()
+}
+
+test "every type project-yml.md says a project sees by default is imported from a framework namespace that declares it" {
+    rows := DocumentedDefaultFrameworkRows(File.ReadAllText(ProjectYmlReferencePage()))
+    assert rows.Count >= 9, "the default-framework table lost rows"
+    index := FrameworkNamespaceIndex.ForHostRuntime()
+    for row in rows {
+        namespaceName := row[1]
+        assemblies := index.AssembliesForNamespace(namespaceName)
+        assert assemblies != null, "'" + namespaceName + "' is not a namespace of Microsoft.NETCore.App"
+        for rawType in row[0].Split("`, `", StringSplitOptions.None) {
+            typeName := DocumentedMetadataTypeName(rawType.Trim().Trim('`'))
+            declared := false
+            for assemblyName in assemblies {
+                if Type.GetType(namespaceName + "." + typeName + ", " + assemblyName) != null {
+                    declared = true
+                }
+            }
+
+            assert declared, "'" + typeName + "' is not declared in '" + namespaceName + "' by " + string.Join(", ", assemblies)
         }
     }
-
-    assert string.Join(", ", missing) == "", "loaded but not documented: " + string.Join(", ", missing)
-    assert string.Join(", ", extra) == "", "documented but not loaded: " + string.Join(", ", extra)
-    assert string.Join("|", documented) == string.Join("|", loaded), "the page lists the assemblies in a different order"
 }
 
 test "project-yml.md documents every dependency kind project.yml accepts" {
