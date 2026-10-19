@@ -39,6 +39,11 @@ test "an exact-arity overload still wins over a fillable one" {
     assert Overloaded.CallWide() == "two3"
 }
 
+test "a better conversion beats an exact-arity overload before optional parameters are compared" {
+    assert BetterOptionalOverload.Call() == "string:x"
+    assert BetterOptionalOverload.CallNamed() == "string:named"
+}
+
 test "the overload whose argument fits is the one filled" {
     assert Overloaded.CallFill() == "s5int76"
 }

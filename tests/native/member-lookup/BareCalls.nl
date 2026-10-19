@@ -71,6 +71,18 @@ class Overloaded {
     static func CallFill(): string => Fill("s") + Fill(7)
 }
 
+// Conversion quality precedes the tie-break for omitted optional parameters, as in C#'s
+// BetterFunctionMember rule: the exact-arity object overload must lose to the string overload.
+class BetterOptionalOverload {
+    static func Pick(value: object): string => "object:" + (value.ToString() ?? "")
+
+    static func Pick(value: string, suffix: string = ""): string => "string:" + value + suffix
+
+    static func Call(): string => Pick("x")
+
+    static func CallNamed(): string => Pick(value: "named")
+}
+
 func freeShow(a: string, b: string = "-"): string => a + b
 
 func freeTwice(a: string): string => freeShow(a) + freeShow(a, "!")

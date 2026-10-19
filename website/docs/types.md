@@ -1754,6 +1754,11 @@ An interface-typed value also has every member `object` gives every type, as in 
 without casting to `object` first. This holds for interfaces from referenced assemblies, for interfaces
 you declare, and for a type parameter constrained to an interface.
 
+An interface's own overload hides an `object` member only when their parameter signatures match. For
+example, `interface IPrintable { func ToString(format: string): string }` still allows
+`value.ToString()` through `object.ToString()` as well as `value.ToString("hex")` through the
+interface slot.
+
 ### Generic Interfaces
 
 ```n#

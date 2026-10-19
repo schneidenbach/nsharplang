@@ -12,3 +12,9 @@ test "the base builder and a base-typed view still answer the base declaration" 
     assert baseOptionsContext() == "DbContext"
     assert baseSpelledOptionsContext() == "Db"
 }
+
+test "ToString is available through EF Core's interface-typed model" {
+    description := modelDescription()
+    assert description.Length > 0
+    assert description.Contains("Model")
+}

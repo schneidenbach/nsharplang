@@ -400,6 +400,18 @@ class AnalyzerMemberResolution {
                         // maybe-null in the branch where the BCL guarantees it is present.
                         bindingMethodGroup: TypeInfo = BuiltInTypes.Unknown
                         if TryResolveReflectionMethodGroup(bindingClrType, memberName, includeStaticMembers, true, inheritedProtectedAccess, friendGrants, out bindingMethodGroup) {
+                            // This surrogate path returns before the ordinary reflection member
+                            // path below. Apply the same interface/object signature merge here so
+                            // a method group declared on a surrogate interface does not hide an
+                            // unrelated `object` overload.
+                            surrogateInterfaceGroup := bindingMethodGroup as ReflectionMethodGroupInfo
+                            if surrogateInterfaceGroup != null && bindingClrType.IsInterface && !includeStaticMembers {
+                                joinedSurrogateMethods := JoinInterfaceObjectMethods(memberName, surrogateInterfaceGroup.Methods)
+                                if joinedSurrogateMethods.Length != surrogateInterfaceGroup.Methods.Length {
+                                    return new ReflectionMethodGroupInfo(joinedSurrogateMethods, surrogateInterfaceGroup.Methods[0].Name + "(...)", true)
+                                }
+                            }
+
                             return bindingMethodGroup
                         }
 
@@ -524,6 +536,10 @@ class AnalyzerMemberResolution {
 
             declaredFunctionMember := ResolveDeclaredFunctionMember(sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, sourceShape.Owner)
             if declaredFunctionMember != null {
+                if !includeStaticMembers && sourceShape.Owner as InterfaceTypeInfo != null {
+                    return JoinSourceInterfaceObjectMethods(memberName, declaredFunctionMember)
+                }
+
                 return declaredFunctionMember
             }
 
@@ -1272,6 +1288,102 @@ class AnalyzerMemberResolution {
         }
 
         return joined.ToArray()
+    }
+
+    // Source interfaces represent their declared overloads as FunctionTypeInfo while reflected
+    // `object` methods are MethodInfo. Project the public object methods of this name into the same
+    // source group unless a declared interface method has the identical parameter signature; the
+    // source overload binder can then compare all applicable candidates together.
+    static func JoinSourceInterfaceObjectMethods(memberName: string, declaredMember: TypeInfo): TypeInfo {
+        functions := new List<FunctionTypeInfo>()
+        single := declaredMember as FunctionTypeInfo
+        if single != null {
+            functions.Add(single)
+        } else {
+            group := declaredMember as NSharpMethodGroupInfo
+            if group == null {
+                return declaredMember
+            }
+
+            for function in NSharpMethodGroupInfoFactory.GetFunctions(group) {
+                functions.Add(function)
+            }
+        }
+
+        originalCount := functions.Count
+        for objectMethod in typeof(object).GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+            if objectMethod.Name != memberName || objectMethod.IsSpecialName {
+                continue
+            }
+
+            hidden := false
+            for declaredFunction in functions {
+                if SourceAndReflectedParameterSignaturesMatch(declaredFunction, objectMethod) {
+                    hidden = true
+                    break
+                }
+            }
+
+            if hidden {
+                continue
+            }
+
+            reflectedFunction := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(objectMethod)
+            if reflectedFunction != null {
+                functions.Add(reflectedFunction)
+            }
+        }
+
+        if functions.Count == originalCount {
+            return declaredMember
+        }
+
+        return NSharpMethodGroupInfoFactory.FromFunctions(functions)
+    }
+
+    // CLR signature identity ignores reference-nullability on object.Equals's parameter. Strip that
+    // top-level annotation only (a nullable value type remains a different signature), then use
+    // semantic TypeInfo identity to compare source aliases and metadata spellings.
+    static func SourceAndReflectedParameterSignaturesMatch(sourceMethod: FunctionTypeInfo, reflectedMethod: MethodInfo): bool {
+        sourceTypes := sourceMethod.ParameterTypes
+        reflectedParameters := reflectedMethod.GetParameters()
+        if sourceTypes == null || sourceTypes.Count != reflectedParameters.Length {
+            return false
+        }
+
+        sourceModifiers := sourceMethod.ParameterModifiers
+        if sourceModifiers == null || sourceModifiers.Count != sourceTypes.Count {
+            return false
+        }
+
+        index := 0
+        while index < sourceTypes.Count {
+            // CLR overload identity includes by-ref shape. An interface declaration such as
+            // `Equals(ref other: object)` is a different signature from object.Equals(object),
+            // even though their element types match.
+            if sourceModifiers[index] != Ast.ParameterModifier.None || reflectedParameters[index].ParameterType.IsByRef {
+                return false
+            }
+
+            reflectedType := NullabilityMetadataReflection.ConvertParameter(reflectedParameters[index])
+            sourceSignatureType := sourceTypes[index]
+            sourceNullable := sourceSignatureType as NullableTypeInfo
+            if sourceNullable != null && NullabilityMetadataCore.CanCarryReferenceNullability(sourceNullable.InnerType) {
+                sourceSignatureType = sourceNullable.InnerType
+            }
+            reflectedNullable := reflectedType as NullableTypeInfo
+            if reflectedNullable != null && NullabilityMetadataCore.CanCarryReferenceNullability(reflectedNullable.InnerType) {
+                reflectedType = reflectedNullable.InnerType
+            }
+
+            if !TypeInfoIdentityFacts.AreEqual(sourceSignatureType, reflectedType) {
+                return false
+            }
+
+            index += 1
+        }
+
+        return true
     }
 
     // SAME ARITY AND SAME PARAMETER TYPES BY NAME. By NAME because an interface read through a

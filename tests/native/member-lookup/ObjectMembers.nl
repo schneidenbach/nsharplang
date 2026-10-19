@@ -11,10 +11,22 @@ interface IShape {
     func Area(): int
 }
 
+interface IPrintable {
+    func ToString(format: string): string
+
+    func Equals(other: object): bool
+}
+
 class Square: IShape {
     func Area(): int => 4
 
     override func ToString(): string => "square"
+}
+
+class Printable: IPrintable {
+    func ToString(format: string): string => "formatted:" + format
+
+    func Equals(other: object): bool => other.ToString() == "match"
 }
 
 func listText(items: IList<int>): string? => items.ToString()
@@ -39,3 +51,9 @@ func constrainedTypeName<T>(items: T): string where T : IList<int> => items.GetT
 
 // The same lookup over an interface this project declares, which already answered.
 func shapeText(shape: IShape): string? => shape.ToString()
+
+func printableDefault(value: IPrintable): string? => value.ToString()
+
+func printableFormat(value: IPrintable): string => value.ToString("hex")
+
+func printableEquals(value: IPrintable, other: object): bool => value.Equals(other)

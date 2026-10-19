@@ -36,3 +36,11 @@ test "a type parameter constrained to an interface reaches object's members" {
 test "a source interface keeps answering object's members" {
     assert shapeText(new Square()) == "square"
 }
+
+test "a source interface's different-signature ToString overload keeps object.ToString" {
+    value: IPrintable = new Printable()
+    assert (printableDefault(value) ?? "").Contains("Printable")
+    assert printableFormat(value) == "formatted:hex"
+    assert printableEquals(value, "match")
+    assert !printableEquals(value, "different")
+}

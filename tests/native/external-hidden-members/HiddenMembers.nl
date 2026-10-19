@@ -32,3 +32,10 @@ func contextFromHiddenOptions(): bool {
     db := new Db(builder.Options)
     return db != null
 }
+
+func modelDescription(): string {
+    builder := new DbContextOptionsBuilder<Db>()
+    builder.UseInMemoryDatabase("hidden-members")
+    db := new Db(builder.Options)
+    return db.Model.ToString() ?? ""
+}
