@@ -38,6 +38,14 @@ class Registry {
     }
 }
 
+class PublicDefaultConstructorSource {
+    Value: int
+
+    constructor() {
+        Value = 19
+    }
+}
+
 // ─── 1. INFERRED TYPE ARGUMENT, OMITTED OPTIONAL PARAMETER ────────────────────────────────────────
 
 test "an inferred type argument with an omitted optional parameter binds: int" {
@@ -57,6 +65,13 @@ test "control: the optional argument supplied and the type argument written stil
     o := new JsonSerializerOptions()
     assert JsonSerializer.Serialize(5, o) == "5"
     assert JsonSerializer.Serialize<int>(5) == "5"
+}
+
+test "a source class with a public parameterless constructor satisfies an external new constraint" {
+    created := Activator.CreateInstance<PublicDefaultConstructorSource>()
+    assert created != null
+    assert created.Value == 19
+    assert Activator.CreateInstance<int>() == 0
 }
 
 // ─── 2. INFERRED TYPE ARGUMENT, PARAMS TAIL ───────────────────────────────────────────────────────

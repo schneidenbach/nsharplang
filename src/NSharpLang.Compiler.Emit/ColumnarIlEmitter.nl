@@ -3982,7 +3982,7 @@ sealed class ColumnarIlEmitter {
     // to score with, so it binds only when the name leaves exactly ONE closed candidate at this
     // arity — an ambiguity is refused rather than guessed.
     private func SelectExplicitGenericExternalCall(callIdx: int, lookupType: Type, memberName: string, typeArguments: Type[], argCount: int, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
-        unique := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(lookupType, memberName, typeArguments, argCount, expectedStatic)
+        unique := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(lookupType, memberName, typeArguments, argCount, expectedStatic, _structRegistry.Values)
         if (unique.IsSelected) {
             return unique
         }
@@ -3991,7 +3991,7 @@ sealed class ColumnarIlEmitter {
         if (ArgumentsCarryLambda(callIdx, argCount)) {
             applicable := 0
             let chosen: NSharpLang.Compiler.Columnar.ColumnarExplicitGenericCallSelection? = null
-            for closed in ColumnarExplicitRuntimeGenericMethodResolver.Candidates(lookupType, memberName, typeArguments, argCount, expectedStatic) {
+            for closed in ColumnarExplicitRuntimeGenericMethodResolver.Candidates(lookupType, memberName, typeArguments, argCount, expectedStatic, _structRegistry.Values) {
                 fits := true
                 for a := 0; a < argCount; a++ {
                     if (!CanLambdaOrValueArgumentFit(Child(callIdx, 1 + a), closed.ParameterTypes[a])) {
@@ -4023,7 +4023,9 @@ sealed class ColumnarIlEmitter {
             }
             argumentTypes[a] = argType
         }
-        return ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, memberName, typeArguments, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
+        argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argCount)
+        argumentFacts.SourceTypeDefinitions = _structRegistry.Values
+        return ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, memberName, typeArguments, argumentTypes, argumentFacts, expectedStatic, _structRegistry.Values)
     }
 
     // The arguments, then the instruction. The receiver (if any) is already on the stack.
@@ -18610,7 +18612,9 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        if (typedEveryArgument && scope.TryResolveExplicitExtensionMethod(receiverType, member, typeArguments, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), argCount, out scored)) {
+        argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argCount)
+        argumentFacts.SourceTypeDefinitions = _structRegistry.Values
+        if (typedEveryArgument && scope.TryResolveExplicitExtensionMethod(receiverType, member, typeArguments, argumentTypes, argumentFacts, argCount, out scored, _structRegistry.Values)) {
             selection = scored
             return true
         }
@@ -18626,7 +18630,7 @@ sealed class ColumnarIlEmitter {
         }
 
         let unique: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodSelection? = null
-        if (scope.TryResolveExplicitExtensionMethod(receiverType, member, typeArguments, null, null, argCount, out unique)) {
+        if (scope.TryResolveExplicitExtensionMethod(receiverType, member, typeArguments, null, null, argCount, out unique, _structRegistry.Values)) {
             selection = unique
             return true
         }
@@ -18648,7 +18652,7 @@ sealed class ColumnarIlEmitter {
             if (indexed == null || indexed.ParameterTypes.Length - 1 < argCount) {
                 continue
             }
-            closed := ColumnarExtensionMethodResolver.CloseExplicitOrNull(indexed, receiverType, typeArguments)
+            closed := ColumnarExtensionMethodResolver.CloseExplicitOrNull(indexed, receiverType, typeArguments, _structRegistry.Values)
             if (closed == null || !ColumnarExtensionMethodResolver.TrailingDefaultsFillable(closed.Method, closed.ParameterTypes, 1 + argCount)) {
                 continue
             }

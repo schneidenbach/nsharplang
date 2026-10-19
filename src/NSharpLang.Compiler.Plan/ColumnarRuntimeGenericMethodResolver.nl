@@ -140,7 +140,7 @@ class ColumnarRuntimeGenericMethodResolver {
                 }
             }
             selected := tied[winner]
-            closedCandidate := CloseForSelectedCandidateOrNull(selected.Definition, selected.TypeArguments, selected.ParameterTypes)
+            closedCandidate := CloseForSelectedCandidateOrNull(selected.Definition, selected.TypeArguments, selected.ParameterTypes, argumentFacts.SourceTypeDefinitions)
             if closedCandidate != null {
                 return SelectedClosed(lookupType, closedCandidate.Method, closedCandidate.ParameterTypes, closedCandidate.ReturnType, expectedStatic)
             }
@@ -497,7 +497,7 @@ class ColumnarRuntimeGenericMethodResolver {
         if inferred == null {
             return null
         }
-        return CloseInferredSubstitutedOrNull(candidate, inferred)
+        return CloseInferredSubstitutedOrNull(candidate, inferred, argumentFacts.SourceTypeDefinitions)
     }
 
     // Extension inference supplies its receiver as the first declared slot. Consume that leading
@@ -529,7 +529,7 @@ class ColumnarRuntimeGenericMethodResolver {
             if inferred == null {
                 return null
             }
-            return CloseInferredSubstitutedOrNull(candidate, inferred)
+            return CloseInferredSubstitutedOrNull(candidate, inferred, argumentFacts.SourceTypeDefinitions)
         }
 
         slots := ArgumentSlotTypesOrNull(declaredParameterTypes, 0, explicitCount + 1, expanded)
@@ -554,14 +554,14 @@ class ColumnarRuntimeGenericMethodResolver {
         if inferred == null {
             return null
         }
-        return CloseInferredSubstitutedOrNull(candidate, inferred)
+        return CloseInferredSubstitutedOrNull(candidate, inferred, argumentFacts.SourceTypeDefinitions)
     }
 
     // Every inferred candidate goes through the same final admission: all method parameters must be
     // bound to usable types, the declaration's constraints must hold, and its closed signature must be
     // substituted from the definition. Extension inference supplies its receiver-aware bindings to
     // this helper too.
-    static func CloseInferredSubstitutedOrNull(definition: MethodInfo, inferred: Type[]): ColumnarClosedGenericMethod? {
+    static func CloseInferredSubstitutedOrNull(definition: MethodInfo, inferred: Type[], sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): ColumnarClosedGenericMethod? {
         if definition == null || inferred == null {
             return null
         }
@@ -572,27 +572,27 @@ class ColumnarRuntimeGenericMethodResolver {
             }
         }
 
-        return CloseSubstituted(definition, inferred)
+        return CloseSubstituted(definition, inferred, sourceTypeDefinitions)
     }
 
     // The definition closed over `typeArguments`, or null when a declared constraint refuses them or a
     // closed signature type has no call shape. `CloseOrNull` is the constraint arbiter.
-    static func CloseSubstituted(definition: MethodInfo, typeArguments: Type[]): ColumnarClosedGenericMethod? {
+    static func CloseSubstituted(definition: MethodInfo, typeArguments: Type[], sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): ColumnarClosedGenericMethod? {
         closedParameters := ClosedParameterTypesOrNull(definition, typeArguments)
         if closedParameters == null {
             return null
         }
-        return CloseForSelectedCandidateOrNull(definition, typeArguments, closedParameters)
+        return CloseForSelectedCandidateOrNull(definition, typeArguments, closedParameters, sourceTypeDefinitions)
     }
 
     // Candidate scoring needs only substituted parameter types. Delay MakeGenericMethod and return
     // substitution until a candidate can beat the best score, because those operations allocate
     // Reflection.Emit wrappers for every applicable overload during whole-workspace scans.
-    static func CloseForSelectedCandidateOrNull(definition: MethodInfo, typeArguments: Type[], parameterTypes: Type[]): ColumnarClosedGenericMethod? {
+    static func CloseForSelectedCandidateOrNull(definition: MethodInfo, typeArguments: Type[], parameterTypes: Type[], sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): ColumnarClosedGenericMethod? {
         if definition == null || typeArguments == null || parameterTypes == null {
             return null
         }
-        closed := CloseOrNull(definition, typeArguments)
+        closed := CloseOrNull(definition, typeArguments, sourceTypeDefinitions)
         if closed == null {
             return null
         }
@@ -916,9 +916,9 @@ class ColumnarRuntimeGenericMethodResolver {
     // TypeBuilder-bound argument while this compilation is still writing that type, so a source
     // `struct` could otherwise close `where T : class` and emit unverifiable IL. Check the declared
     // constraints structurally for every closure before asking Reflection to construct the handle.
-    static func CloseOrNull(candidate: MethodInfo, typeArguments: Type[]): MethodInfo? {
+    static func CloseOrNull(candidate: MethodInfo, typeArguments: Type[], sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): MethodInfo? {
         try {
-            if !SatisfiesConstraints(candidate, typeArguments) {
+            if !SatisfiesConstraints(candidate, typeArguments, sourceTypeDefinitions) {
                 return null
             }
             return candidate.MakeGenericMethod(typeArguments)
@@ -938,7 +938,7 @@ class ColumnarRuntimeGenericMethodResolver {
     // THE DECLARED CONSTRAINTS OF EVERY TYPE PARAMETER AGAINST ITS ARGUMENT: `class`, `struct` (a
     // non-nullable value type) and `new()` from the parameter's attributes, then each constraint type
     // (substituted, since one may name another type parameter) by assignability.
-    static func SatisfiesConstraints(definition: MethodInfo, typeArguments: Type[]): bool {
+    static func SatisfiesConstraints(definition: MethodInfo, typeArguments: Type[], sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): bool {
         parameters := definition.GetGenericArguments()
         if parameters.Length != typeArguments.Length {
             return false
@@ -957,7 +957,7 @@ class ColumnarRuntimeGenericMethodResolver {
             if (attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != GenericParameterAttributes.None && !HasNonNullableValueTypeGuarantee(argument) {
                 return false
             }
-            if (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != GenericParameterAttributes.None && !HasPublicParameterlessConstructorGuarantee(argument) {
+            if (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != GenericParameterAttributes.None && !HasPublicParameterlessConstructorGuarantee(argument, sourceTypeDefinitions) {
                 return false
             }
             for constraint in parameters[index].GetGenericParameterConstraints() {
@@ -1003,7 +1003,7 @@ class ColumnarRuntimeGenericMethodResolver {
         return argument.IsValueType && !IsNullableValueType(argument)
     }
 
-    static func HasPublicParameterlessConstructorGuarantee(argument: Type): bool {
+    static func HasPublicParameterlessConstructorGuarantee(argument: Type, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): bool {
         if argument.IsGenericParameter {
             attributes := argument.GenericParameterAttributes
             return (attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != GenericParameterAttributes.None || (attributes & GenericParameterAttributes.DefaultConstructorConstraint) != GenericParameterAttributes.None
@@ -1014,10 +1014,11 @@ class ColumnarRuntimeGenericMethodResolver {
         if argument.IsAbstract || argument.IsInterface {
             return false
         }
+        if HasSourcePublicParameterlessConstructor(argument, sourceTypeDefinitions) {
+            return true
+        }
         if argument is TypeBuilder {
-            // Reflection.Emit does not expose constructors on an incomplete TypeBuilder. Without
-            // evidence of a public parameterless constructor, accepting `new()` could emit a
-            // MethodSpec the CLR rejects when the source type is created.
+            // An unregistered TypeBuilder has no constructor fact that can prove the promise.
             return false
         }
         try {
@@ -1037,6 +1038,46 @@ class ColumnarRuntimeGenericMethodResolver {
         } catch ex: NotImplementedException {
             return false
         }
+    }
+
+    static func HasSourcePublicParameterlessConstructor(argument: Type, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>?): bool {
+        if argument == null || sourceTypeDefinitions == null {
+            return false
+        }
+
+        sourceBuilder := argument as TypeBuilder
+        if sourceBuilder == null {
+            try {
+                if argument.IsGenericType {
+                    sourceBuilder = argument.GetGenericTypeDefinition() as TypeBuilder
+                }
+            } catch ex: NotSupportedException {
+                return false
+            } catch ex: NotImplementedException {
+                return false
+            }
+        }
+        if sourceBuilder == null {
+            return false
+        }
+
+        sourceDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(sourceTypeDefinitions, sourceBuilder)
+        if sourceDefinition == null {
+            return false
+        }
+        if sourceDefinition.DefaultCtor != null && ConstructorHasPublicParameterlessShape(sourceDefinition.DefaultCtor, new Type[](0)) {
+            return true
+        }
+        for constructor in sourceDefinition.Constructors {
+            if constructor != null && ConstructorHasPublicParameterlessShape(constructor.Builder, constructor.ParamTypes) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func ConstructorHasPublicParameterlessShape(constructor: ConstructorBuilder, parameterTypes: Type[]): bool {
+        return constructor != null && parameterTypes != null && parameterTypes.Length == 0 && (constructor.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public
     }
 
     static func IsNullableValueType(candidate: Type): bool {
@@ -1060,7 +1101,7 @@ class ColumnarRuntimeGenericMethodResolver {
         // An open argument satisfies a type constraint only when one of its declared constraints
         // entails it. `U : Stream` can satisfy `T : IDisposable`; an unconstrained `U` cannot.
         if argument.IsGenericParameter {
-            for argumentConstraint in argument.GetGenericParameterConstraints() {
+            for argumentConstraint in GenericParameterConstraintsOrEmpty(argument) {
                 if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(constraint, argumentConstraint) || ConstraintAccepts(constraint, argumentConstraint) {
                     return true
                 }
@@ -1085,6 +1126,19 @@ class ColumnarRuntimeGenericMethodResolver {
             current = BaseTypeOrNull(current)
         }
         return false
+    }
+
+    static func GenericParameterConstraintsOrEmpty(argument: Type): Type[] {
+        try {
+            constraints := argument.GetGenericParameterConstraints()
+            return constraints ?? new Type[](0)
+        } catch ex: NotSupportedException {
+            return new Type[](0)
+        } catch ex: NotImplementedException {
+            return new Type[](0)
+        } catch ex: InvalidOperationException {
+            return new Type[](0)
+        }
     }
 
     // The interfaces a type implements: reflection's answer, or the guarded sweep for a type still being
@@ -1522,11 +1576,11 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
     // The unique candidate for a site whose ARGUMENT TYPES are not all knowable ahead of emission — a
     // lambda argument has no type until it is bound against the parameter it is passed to. A name
     // that leaves more than one closed candidate at this arity is left to the scored overload below.
-    static func Resolve(lookupType: Type, memberName: string, typeArguments: Type[], argumentCount: int, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
+    static func Resolve(lookupType: Type, memberName: string, typeArguments: Type[], argumentCount: int, expectedStatic: bool, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): ColumnarExplicitGenericCallSelection {
         candidates := new List<MethodInfo>()
         candidateParameters := new List<Type[]>()
         candidateReturns := new List<Type>()
-        if !TryCollect(lookupType, memberName, typeArguments, argumentCount, expectedStatic, candidates, candidateParameters, candidateReturns) {
+        if !TryCollect(lookupType, memberName, typeArguments, argumentCount, expectedStatic, candidates, candidateParameters, candidateReturns, sourceTypeDefinitions) {
             return ColumnarExplicitGenericCallSelection.None(lookupType)
         }
 
@@ -1539,12 +1593,12 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
 
     // EVERY closed candidate the site admits, for a caller that chooses among them by something this
     // resolver cannot see — a lambda argument's arity against each candidate's delegate parameter.
-    static func Candidates(lookupType: Type, memberName: string, typeArguments: Type[], argumentCount: int, expectedStatic: bool): List<ColumnarExplicitGenericCallSelection> {
+    static func Candidates(lookupType: Type, memberName: string, typeArguments: Type[], argumentCount: int, expectedStatic: bool, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): List<ColumnarExplicitGenericCallSelection> {
         selections := new List<ColumnarExplicitGenericCallSelection>()
         candidates := new List<MethodInfo>()
         candidateParameters := new List<Type[]>()
         candidateReturns := new List<Type>()
-        if !TryCollect(lookupType, memberName, typeArguments, argumentCount, expectedStatic, candidates, candidateParameters, candidateReturns) {
+        if !TryCollect(lookupType, memberName, typeArguments, argumentCount, expectedStatic, candidates, candidateParameters, candidateReturns, sourceTypeDefinitions) {
             return selections
         }
 
@@ -1559,7 +1613,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
     // The same candidate set, ranked by the argument-flow scorer every other call selection uses. A
     // site whose arguments all type ahead of emission gets ordinary overload resolution; a tie is
     // refused rather than guessed.
-    static func ResolveWithFacts(lookupType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
+    static func ResolveWithFacts(lookupType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): ColumnarExplicitGenericCallSelection {
         if argumentTypes == null {
             throw new InvalidOperationException("Explicit generic method resolution inputs cannot be null.")
         }
@@ -1568,7 +1622,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
         candidates := new List<MethodInfo>()
         candidateParameters := new List<Type[]>()
         candidateReturns := new List<Type>()
-        if !TryCollect(lookupType, memberName, typeArguments, argumentTypes.Length, expectedStatic, candidates, candidateParameters, candidateReturns) {
+        if !TryCollect(lookupType, memberName, typeArguments, argumentTypes.Length, expectedStatic, candidates, candidateParameters, candidateReturns, sourceTypeDefinitions ?? argumentFacts.SourceTypeDefinitions) {
             return ColumnarExplicitGenericCallSelection.None(lookupType)
         }
 
@@ -1607,7 +1661,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
     // count admit this site, closed over the written type arguments. A candidate whose declared
     // constraints or substituted signature refuse the closure is dropped here, which makes that a
     // "no such call" answer rather than an exception at emit.
-    static func TryCollect(lookupType: Type, memberName: string, typeArguments: Type[], argumentCount: int, expectedStatic: bool, candidates: List<MethodInfo>, candidateParameters: List<Type[]>, candidateReturns: List<Type>): bool {
+    static func TryCollect(lookupType: Type, memberName: string, typeArguments: Type[], argumentCount: int, expectedStatic: bool, candidates: List<MethodInfo>, candidateParameters: List<Type[]>, candidateReturns: List<Type>, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): bool {
         if lookupType == null || memberName == null || typeArguments == null || typeArguments.Length == 0 || argumentCount < 0 {
             throw new InvalidOperationException("Explicit generic method resolution inputs cannot be null.")
         }
@@ -1630,7 +1684,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
         for candidate in declared {
             parameters := AdmittedParameters(candidate, lookupType, memberName, typeArguments.Length, argumentCount, expectedStatic)
             if parameters != null {
-                closed := ColumnarRuntimeGenericMethodResolver.CloseSubstituted(candidate, typeArguments)
+                closed := ColumnarRuntimeGenericMethodResolver.CloseSubstituted(candidate, typeArguments, sourceTypeDefinitions)
                 if closed != null && TailFillable(parameters, closed.ParameterTypes, argumentCount) {
                     candidates.Add(closed.Method)
                     candidateParameters.Add(closed.ParameterTypes)

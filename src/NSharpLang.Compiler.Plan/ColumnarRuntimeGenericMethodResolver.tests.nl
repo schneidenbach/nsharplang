@@ -437,6 +437,24 @@ func ConstraintProbeSourceClassWithoutPublicParameterlessConstructor(): Type {
     return owner.CreateType()
 }
 
+func ConstraintProbeSourceDefinition(identity: string, constructorAttributes: MethodAttributes): ColumnarStructDef {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    builder := module.DefineType(identity + ".Shape", TypeAttributes.Public, typeof(object))
+    constructor := builder.DefineConstructor(constructorAttributes, CallingConventions.Standard, Type.EmptyTypes)
+    constructorIl := constructor.GetILGenerator()
+    objectConstructor := typeof(object).GetConstructor(Type.EmptyTypes)
+    if objectConstructor == null {
+        throw new InvalidOperationException("Object constructor not found")
+    }
+    constructorIl.Emit(OpCodes.Ldarg_0)
+    constructorIl.Emit(OpCodes.Call, objectConstructor)
+    constructorIl.Emit(OpCodes.Ret)
+    definition := new ColumnarStructDef(builder, new string[](0), new Dictionary<string, FieldBuilder>(), true)
+    definition.Constructors.Add(new ColumnarConstructorDef(constructor, new Type[](0), new int[](0), new string[](0)))
+    return definition
+}
+
 func ConstraintProbeSourceMemoryStreamSubtype(): Type {
     identity := "ConstraintProbeMemoryStreamSource" + Guid.NewGuid().ToString("N")
     assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
@@ -472,6 +490,35 @@ test "a new() constraint refuses a type with no public parameterless constructor
     assert !ConstraintProbeClosable("NeedsNew", ConstraintProbeSourceClassWithoutPublicParameterlessConstructor()), "a source class with only a private constructor does not satisfy new()"
     assert !ConstraintProbeClosable("NeedsNew", typeof(Stream)), "abstract classes do not satisfy new()"
     assert !ConstraintProbeClosable("NeedsNew", typeof(string)), "string has no public parameterless constructor"
+}
+
+test "a source public parameterless constructor proves an external new constraint" {
+    publicDefinition := ConstraintProbeSourceDefinition("ConstraintProbePublicNew", MethodAttributes.Public)
+    privateDefinition := ConstraintProbeSourceDefinition("ConstraintProbePrivateNew", MethodAttributes.Private)
+    publicDefinitions := new List<ColumnarStructDef>()
+    publicDefinitions.Add(publicDefinition)
+    privateDefinitions := new List<ColumnarStructDef>()
+    privateDefinitions.Add(privateDefinition)
+
+    assert ColumnarRuntimeGenericMethodResolver.HasPublicParameterlessConstructorGuarantee(publicDefinition.Builder, publicDefinitions), "the public constructor fact must satisfy new() before TypeBuilder is baked"
+    assert !ColumnarRuntimeGenericMethodResolver.HasPublicParameterlessConstructorGuarantee(privateDefinition.Builder, privateDefinitions), "a private constructor does not prove new()"
+
+    method := ConstraintProbeMethod("NeedsNew")
+    argumentTypes := GenericMethodTypes1(publicDefinition.Builder)
+    argumentFacts := ColumnarDirectCallArgumentFacts.Empty(1)
+    argumentFacts.SourceTypeDefinitions = publicDefinitions
+    inferred := ColumnarRuntimeGenericMethodResolver.InferAndClose(method, argumentTypes, argumentFacts, false)
+    assert inferred != null, "inferred generic closure must carry the source constructor facts"
+
+    runtimeType := publicDefinition.Builder.CreateType()
+    instance := Activator.CreateInstance(runtimeType)
+    assert instance != null
+    runtimeMethod := method.MakeGenericMethod(GenericMethodTypes1(runtimeType))
+    runtimeArguments := new object?[](1)
+    runtimeArguments[0] = instance
+    runtimeValue := runtimeMethod.Invoke(null, runtimeArguments)
+    assert Object.ReferenceEquals(runtimeValue, instance), "the closed external method must return the same runtime source instance"
+    assert runtimeValue.GetType() == runtimeType, "the runtime value must have the newly baked source type"
 }
 
 test "a type constraint refuses an argument that does not derive from or implement it" {

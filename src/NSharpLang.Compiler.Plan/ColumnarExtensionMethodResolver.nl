@@ -626,7 +626,7 @@ class ColumnarExtensionMethodResolver {
     //
     // This collects the NORMAL-FORM candidates: every slot past the supplied arguments fills from its
     // metadata default. `CollectExplicitExpanded` collects the same closures in their packed form.
-    static func CollectExplicit(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, selected: List<ColumnarExtensionMethodCandidate>): bool {
+    static func CollectExplicit(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, selected: List<ColumnarExtensionMethodCandidate>, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): bool {
         candidates := new List<ColumnarExtensionMethodCandidate>()
         if selected == null || !TryGetExplicitCandidates(index, receiverType, memberName, typeArguments, argumentCount, out candidates) {
             return false
@@ -634,7 +634,7 @@ class ColumnarExtensionMethodResolver {
 
         for indexed in candidates {
             if indexed != null && indexed.ParameterTypes.Length - 1 >= argumentCount {
-                closed := CloseExplicitOrNull(indexed, receiverType, typeArguments)
+                closed := CloseExplicitOrNull(indexed, receiverType, typeArguments, sourceTypeDefinitions)
                 if closed != null && TrailingDefaultsFillable(indexed.Method, closed.ParameterTypes, 1 + argumentCount) {
                     selected.Add(closed)
                 }
@@ -649,7 +649,7 @@ class ColumnarExtensionMethodResolver {
     // `app.UseMiddleware<Stamp>()` closes `UseMiddleware<TMiddleware>(this IApplicationBuilder,
     // params object?[] args)` from what the site wrote and packs its zero trailing arguments into an
     // empty `object?[]`, exactly as C# does.
-    static func CollectExplicitExpanded(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, selected: List<ColumnarExtensionMethodCandidate>): bool {
+    static func CollectExplicitExpanded(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, selected: List<ColumnarExtensionMethodCandidate>, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): bool {
         candidates := new List<ColumnarExtensionMethodCandidate>()
         if selected == null || !TryGetExplicitCandidates(index, receiverType, memberName, typeArguments, argumentCount, out candidates) {
             return false
@@ -662,7 +662,7 @@ class ColumnarExtensionMethodResolver {
             }
 
             if parameters != null {
-                closed := CloseExplicitOrNull(indexed, receiverType, typeArguments)
+                closed := CloseExplicitOrNull(indexed, receiverType, typeArguments, sourceTypeDefinitions)
                 if closed != null && ExplicitExpandedParameterTypesOrNull(parameters, closed.ParameterTypes, argumentCount) != null {
                     selected.Add(closed)
                 }
@@ -696,12 +696,12 @@ class ColumnarExtensionMethodResolver {
     // One generic definition of the written arity, closed over the written type arguments, or null
     // when the arity differs, a declared constraint fails, Reflection cannot close the method, or the
     // closed receiver slot does not accept the receiver.
-    static func CloseExplicitOrNull(indexed: ColumnarExtensionMethodCandidate, receiverType: Type, typeArguments: Type[]): ColumnarExtensionMethodCandidate? {
+    static func CloseExplicitOrNull(indexed: ColumnarExtensionMethodCandidate, receiverType: Type, typeArguments: Type[], sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): ColumnarExtensionMethodCandidate? {
         if !indexed.Method.IsGenericMethodDefinition || indexed.Method.GetGenericArguments().Length != typeArguments.Length {
             return null
         }
 
-        closed := ColumnarRuntimeGenericMethodResolver.CloseSubstituted(indexed.Method, typeArguments)
+        closed := ColumnarRuntimeGenericMethodResolver.CloseSubstituted(indexed.Method, typeArguments, sourceTypeDefinitions)
         if closed == null || !ReferenceAssignableFrom(closed.ParameterTypes[0], receiverType) {
             return null
         }
@@ -713,9 +713,9 @@ class ColumnarExtensionMethodResolver {
     // written at an explicitly-closed extension call. More than one surviving candidate is a decline,
     // because the argument types are exactly what would have chosen between them. The expanded form
     // is asked only when NO candidate exists in normal form, for the reason `Resolve` states.
-    static func ResolveExplicitUnique(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int): ColumnarExtensionMethodSelection {
+    static func ResolveExplicitUnique(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>? = null): ColumnarExtensionMethodSelection {
         candidates := new List<ColumnarExtensionMethodCandidate>()
-        if CollectExplicit(index, receiverType, memberName, typeArguments, argumentCount, candidates) {
+        if CollectExplicit(index, receiverType, memberName, typeArguments, argumentCount, candidates, sourceTypeDefinitions) {
             if candidates.Count != 1 {
                 return ColumnarExtensionMethodSelection.None()
             }
@@ -725,7 +725,7 @@ class ColumnarExtensionMethodResolver {
         }
 
         expanded := new List<ColumnarExtensionMethodCandidate>()
-        if !CollectExplicitExpanded(index, receiverType, memberName, typeArguments, argumentCount, expanded) || expanded.Count != 1 {
+        if !CollectExplicitExpanded(index, receiverType, memberName, typeArguments, argumentCount, expanded, sourceTypeDefinitions) || expanded.Count != 1 {
             return ColumnarExtensionMethodSelection.None()
         }
 
@@ -740,7 +740,7 @@ class ColumnarExtensionMethodResolver {
 
         explicitCount := argumentTypes.Length
         candidates := new List<ColumnarExtensionMethodCandidate>()
-        if CollectExplicit(index, receiverType, memberName, typeArguments, explicitCount, candidates) {
+        if CollectExplicit(index, receiverType, memberName, typeArguments, explicitCount, candidates, argumentFacts.SourceTypeDefinitions) {
             bestScore := -1
             bestParameterCount := 0
             bestCount := 0
@@ -785,7 +785,7 @@ class ColumnarExtensionMethodResolver {
     static func ResolveExplicitExpanded(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarExtensionMethodSelection {
         explicitCount := argumentTypes.Length
         candidates := new List<ColumnarExtensionMethodCandidate>()
-        if !CollectExplicitExpanded(index, receiverType, memberName, typeArguments, explicitCount, candidates) {
+        if !CollectExplicitExpanded(index, receiverType, memberName, typeArguments, explicitCount, candidates, argumentFacts.SourceTypeDefinitions) {
             return ColumnarExtensionMethodSelection.None()
         }
 
