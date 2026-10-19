@@ -96,6 +96,12 @@ sealed class ColumnarIlEmitter {
     private readonly _il: ILGenerator
     private readonly _modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger
     private readonly _codePlan: ColumnarCodePlan
+    // A raw type query can reach the same nested expression through the lifted-operator probe and
+    // the ordinary binary probe. Keep one memo for the duration of the outermost query so a
+    // left-associated expression is walked once instead of re-expanded at every parent.
+    private readonly _preflightRawTypeCache: Dictionary<int, (Success: bool, Type: Type?)>
+    private readonly _preflightRawTypeInProgress: HashSet<int>
+    private _preflightRawTypeDepth: int
     private readonly _siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
     private _siblingCallFacts: Dictionary<string, ColumnarSiblingCallFacts>?
     // The null-conditional chains in flight: the node whose wrapper is open, and the stack of labels the
@@ -562,6 +568,9 @@ sealed class ColumnarIlEmitter {
         _preserveNullableNode = -1
         _neverReturningCallStatements = new HashSet<int>()
         _codePlan = new ColumnarCodePlan()
+        _preflightRawTypeCache = new Dictionary<int, (Success: bool, Type: Type?)>()
+        _preflightRawTypeInProgress = new HashSet<int>()
+        _preflightRawTypeDepth = 0
         _locals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
         _loopLabels = new Stack<(Break: Label, Continue: Label, ProtectedDepth: int, FinallyDepth: int)>()
         _bodyRoot = -1
@@ -23856,6 +23865,39 @@ sealed class ColumnarIlEmitter {
     private func TryGetPreflightExpressionTypeRaw(node: int, out columnarResolvedType: Type): bool {
         node = UnwrapParenthesizedNode(node)
         columnarResolvedType = null
+        isRootWalk := _preflightRawTypeDepth == 0
+        if (isRootWalk) {
+            _preflightRawTypeCache.Clear()
+            _preflightRawTypeInProgress.Clear()
+        }
+
+        let cached: (Success: bool, Type: Type?) = (Success: false, Type: null)
+        if (_preflightRawTypeCache.TryGetValue(node, out cached)) {
+            columnarResolvedType = cached.Type
+            return cached.Success
+        }
+        if (!_preflightRawTypeInProgress.Add(node)) {
+            return false
+        }
+
+        _preflightRawTypeDepth++
+        let resolvedType: System.Type? = null
+        success := TryGetPreflightExpressionTypeRawUncached(node, out resolvedType)
+        _preflightRawTypeDepth--
+        _preflightRawTypeInProgress.Remove(node)
+        _preflightRawTypeCache[node] = (Success: success, Type: resolvedType)
+        columnarResolvedType = resolvedType
+
+        if (isRootWalk) {
+            _preflightRawTypeCache.Clear()
+            _preflightRawTypeInProgress.Clear()
+        }
+        return success
+    }
+
+    private func TryGetPreflightExpressionTypeRawUncached(node: int, out columnarResolvedType: Type): bool {
+        node = UnwrapParenthesizedNode(node)
+        columnarResolvedType = null
         // A `?.` CHAIN'S TYPE IS DECIDED AT ITS ROOT, exactly as its VALUE is: the resolvers below
         // answer for the access itself, and the chain lifts what they answered. Without this arm a
         // preflight of `map?.TryGetValue(k, out v)` answered nothing at all — the guard node in the
@@ -24471,6 +24513,11 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
+        op := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%" && op != "&" && op != "|" && op != "^" && op != "<<" && op != ">>" && op != "<" && op != ">" && op != "<=" && op != ">=") {
+            return false
+        }
+
         leftNode := Child(node, 0)
         rightNode := Child(node, 1)
         let leftDeclaredType: System.Type? = null
@@ -24487,10 +24534,6 @@ sealed class ColumnarIlEmitter {
         }
         leftElement := leftNarrowedType != null ? leftNarrowedType : (leftLifted ? leftDeclaredType.GetGenericArguments()[0] : leftDeclaredType)
         rightElement := rightNarrowedType != null ? rightNarrowedType : (rightLifted ? rightDeclaredType.GetGenericArguments()[0] : rightDeclaredType)
-        op := ColumnarNodeTextFacts.Text(_nodes, _source, node)
-        if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%" && op != "&" && op != "|" && op != "^" && op != "<<" && op != ">>" && op != "<" && op != ">" && op != "<=" && op != ">=") {
-            return false
-        }
 
         let leftParameter: System.Type? = null
         let rightParameter: System.Type? = null
