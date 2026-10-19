@@ -1808,6 +1808,37 @@ shapes could not, and neither was about capture analysis:
   inference shifts the lambda's ordinals by one inside an instance body, which is what the real
   lowering already does; only the TYPE it computes outlives the plan.
 
+**A LAMBDA'S SYNTHESIZED METHOD CARRIES ITS SOURCE PARAMETER NAMES** (2026-10-17, issue #216). No
+lambda lowering wrote `Param` rows, so `handler.Method.GetParameters()[0].Name` was null and every
+ASP.NET Core Minimal-API handler with a parameter failed at request time ("Encountered a parameter of
+type 'System.Int32' without a name"). `ColumnarLambdaSignature.ParameterNames` keeps the written
+names in declaration order and `ColumnarLambdaPlacementPlanner.DefineSourceParameterNames` writes one
+row per user parameter (sequence = ordinal + 1, no flags) for every shape a lambda lowers to: the
+program/lexical-owner static helper, the `this`-bound instance method, the display-class `<Lambda>`
+(whose receiver is `this`, so the sequence never shifts), the inferred `:=` method (named after
+`SetParameters`, the only order `DefineParameter` accepts) and the generator-body lambda in
+`ColumnarIteratorPlanner.AppendLambda`. That is Roslyn's `SynthesizedClosureMethod` rule.
+
+Two defects in the `MapGet`/`MapPost` route-handler residual surfaced with it. It built EVERY
+one-parameter lambda as `Func<HttpContext, R>` regardless of the written parameter type, so
+`(id: int) => …` was a delegate over a method it does not match (ilverify: "Unrecognized arguments
+for delegate .ctor"); `TrySelectAspNetLambdaHandlerDelegate` now picks the NATURAL delegate over the
+written types, as C# does for a lambda converted to `System.Delegate`, and `TryEmitLambdaLiteral`
+declines (`emit.lambda.parameter-type-mismatch`) a written parameter type the target delegate cannot
+bind — anything but the delegate's own type or a reference type its reference parameter converts to
+(`(value: object) => …` as a `Func<string, int>` stays legal; the rule is
+`ColumnarLambdaPlacementPlanner.IsBindableLambdaParameterType`). And it emitted the route string
+BEFORE learning the handler was not a shape it lowers (`f as Delegate`, `(Delegate)f`), so the
+extension tier re-emitted the arguments and the receiver was lost — `InvalidProgramException` at
+startup. `TryPlanAspNetRouteHandler` now decides the handler once, before anything is emitted, and
+`TryEmitPlannedAspNetRouteHandler` consumes that plan.
+
+This residual is the ONLY place a lambda literal converts to `System.Delegate`: `WebApplication`'s
+`MapGet`/`MapPost`. `MapPut`, `MapDelete`, a `RouteGroupBuilder`'s `MapGet` and a source method
+taking `Delegate` still decline a lambda literal at emit (a typed `Func<>` local works for all of
+them); the general natural-function-type conversion is open work.
+`tests/native/lambda-parameter-names` pins both through the real route table.
+
 **A FREE FUNCTION'S VISIBILITY WORD NOW REACHES METADATA** (2026-09-13, stream ACCESS). The word was
 parsed into `ColumnarFunctionInput.VisibilityModifierFlags` and read by free-function identity, but
 `ColumnarDeclarationPlan.BuildMethods` passed only `ModifierFlags` — which carries
