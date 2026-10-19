@@ -799,6 +799,10 @@ class ColumnarExtensionMethodResolver {
             return candidate
         }
 
+        if candidate.ParameterTypes.Length < explicitCount + 1 || !CanInferExtensionReceiverShape(candidate.ReceiverParameterType, receiverType) {
+            return null
+        }
+
         return InferExtensionCandidate(candidate, receiverType, argumentTypes, argumentFacts, explicitCount, false)
     }
 
@@ -810,8 +814,62 @@ class ColumnarExtensionMethodResolver {
         if parameters == null || parameters.Length != candidate.ParameterTypes.Length || parameters.Length < 2 || !IsParamsParameter(parameters[parameters.Length - 1]) {
             return null
         }
+        if !CanInferExtensionReceiverShape(candidate.ReceiverParameterType, receiverType) {
+            return null
+        }
 
         return InferExtensionCandidate(candidate, receiverType, argumentTypes, argumentFacts, argumentTypes.Length, true)
+    }
+
+    // Generic extensions are indexed across every referenced assembly. Most same-named candidates
+    // have a receiver shape that cannot bind from this call. Reject those shapes before allocating
+    // the receiver-plus-arguments arrays and the inference dictionary used by the full loop.
+    // This mirrors `Unify(..., allowInferenceWidening: false)`: generic definitions and method type
+    // parameters must line up structurally; ordinary assignability is checked after closure.
+    static func CanInferExtensionReceiverShape(pattern: Type, actual: Type): bool {
+        if pattern == null || actual == null {
+            return false
+        }
+        if !pattern.ContainsGenericParameters || pattern.IsGenericParameter {
+            return true
+        }
+        if pattern.IsByRef {
+            return false
+        }
+        if pattern.IsArray {
+            if !actual.IsArray || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(pattern) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(actual) {
+                return false
+            }
+            patternElement := pattern.GetElementType()
+            actualElement := actual.GetElementType()
+            return patternElement != null && actualElement != null && CanInferExtensionReceiverShape(patternElement, actualElement)
+        }
+        if !pattern.IsGenericType {
+            return true
+        }
+
+        try {
+            if !ColumnarRuntimeGenericMethodResolver.IsInstantiationOf(pattern.GetGenericTypeDefinition(), actual) {
+                return false
+            }
+            patternArguments := pattern.GetGenericArguments()
+            actualArguments := actual.GetGenericArguments()
+            if patternArguments.Length != actualArguments.Length {
+                return false
+            }
+            index := 0
+            while index < patternArguments.Length {
+                if !CanInferExtensionReceiverShape(patternArguments[index], actualArguments[index]) {
+                    return false
+                }
+                index = index + 1
+            }
+            return true
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
     }
 
     // The one inference loop both shapes share: the receiver unifies with slot 0, then each supplied
@@ -822,21 +880,19 @@ class ColumnarExtensionMethodResolver {
         if argumentTypes == null || argumentFacts == null || explicitCount < 0 || explicitCount > argumentTypes.Length {
             return null
         }
-        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
-
-        callTypes := new Type[](explicitCount + 1)
-        callTypes[0] = receiverType
-        callFacts := ColumnarDirectCallArgumentFacts.Empty(explicitCount + 1)
-        argumentIndex := 0
-        while argumentIndex < explicitCount {
-            callTypes[argumentIndex + 1] = argumentTypes[argumentIndex]
-            callFacts.IsNullLiteral[argumentIndex + 1] = argumentFacts.IsNullLiteral[argumentIndex]
-            argumentIndex = argumentIndex + 1
-        }
 
         // The shared infer-close-substitute helper enforces complete inference and declared
         // constraints, then substitutes both parameters and the return type from the definition.
-        closed := ColumnarRuntimeGenericMethodResolver.InferAndClose(candidate.Method, callTypes, callFacts, expanded, false)
+        closed := ColumnarRuntimeGenericMethodResolver.InferAndCloseWithLeadingArgument(
+            candidate.Method,
+            candidate.ParameterTypes,
+            receiverType,
+            argumentTypes,
+            argumentFacts,
+            explicitCount,
+            expanded,
+            false
+        )
         if closed == null {
             return null
         }

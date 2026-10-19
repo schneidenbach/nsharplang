@@ -137,12 +137,56 @@ class ColumnarRuntimeOptionalCallSelection {
 // deliberately reuses source-call argument scores so source and runtime calls cannot disagree
 // about identity, numeric, reference, and boxing preference tiers.
 class ColumnarOrdinaryRuntimeDirectCallResolver {
+    private static readonly EmptyGenericMethodCandidates: MethodInfo[] = new MethodInfo[](0)
+    private static readonly EmptyParameterModifierKindsByCount: int[][] = BuildEmptyParameterModifierKindsByCount()
+
+    static func BuildEmptyParameterModifierKindsByCount(): int[][] {
+        columns := new int[][](129)
+        count := 0
+        while count < columns.Length {
+            columns[count] = new int[](count)
+            count = count + 1
+        }
+        return columns
+    }
+
     static func Resolve(lookupType: Type, memberName: string, argumentTypes: Type[], expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         return ResolveWithFacts(lookupType, memberName, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length), expectedStatic)
     }
 
     static func ResolveWithFacts(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, false)
+    }
+
+    // The planner's generic tier consumes this same reflected candidate table when its overload
+    // comparison is needed. Returning it unfiltered keeps generic-shape inspection off the common
+    // identity-call path and avoids a second GetMember/GetMethods pass.
+    static func ResolveWithCandidateMethods(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, out candidateMethods: MethodInfo[]): ColumnarOrdinaryRuntimeDirectCallSelection {
+        candidateMethods = EmptyGenericMethodCandidates
+        ValidateInputs(lookupType, memberName, argumentTypes)
+        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
+
+        genericDefinition := typeof(object)
+        closedArguments := new Type[](0)
+        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
+            return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, false)
+        }
+
+        try {
+            candidates := CandidateMethods(lookupType, false)
+            if candidates == null {
+                throw new InvalidOperationException("Runtime method enumeration returned null.")
+            }
+
+            candidateMethods = candidates
+            return ResolveFromCandidatesCore(lookupType, lookupType, new Type[](0), memberName, argumentTypes, argumentFacts, expectedStatic, candidates, false)
+        } catch ex: NotSupportedException {
+            candidateMethods = EmptyGenericMethodCandidates
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        } catch ex: InvalidOperationException {
+            candidateMethods = EmptyGenericMethodCandidates
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        }
     }
 
     // THE SAME RESOLUTION, WITH THE BASE'S `protected` SURFACE IN THE CANDIDATE SET.
@@ -1068,6 +1112,20 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // 5 `in`, and 6 `ref readonly`. Metadata distinguishes all four and the planner/emitter share this
     // column so a bare argument cannot be mistaken for writable storage. See ReflectedParameterDirection.
     static func ReflectedModifierKinds(parameters: ParameterInfo[]): int[] {
+        hasByRefParameter := false
+        for parameter in parameters {
+            if parameter.ParameterType.IsByRef {
+                hasByRefParameter = true
+                break
+            }
+        }
+        if !hasByRefParameter {
+            if parameters.Length < EmptyParameterModifierKindsByCount.Length {
+                return EmptyParameterModifierKindsByCount[parameters.Length]
+            }
+            return new int[](parameters.Length)
+        }
+
         kinds := new int[](parameters.Length)
         index := 0
         while index < parameters.Length {
@@ -1312,7 +1370,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     if !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) && OptionalTailFillable(parameters, parameterTypes, argumentCount) && CanDispatch(candidate, lookupType, expectedStatic) {
                         leading := LeadingParameterTypes(parameterTypes, argumentCount)
                         leadingKinds := new int[](argumentCount)
-                        Array.Copy(ReflectedModifierKinds(parameters), leadingKinds, argumentCount)
+                        modifierKinds := ReflectedModifierKinds(parameters)
+                        if modifierKinds.Length > 0 {
+                            Array.Copy(modifierKinds, leadingKinds, argumentCount)
+                        }
                         score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts, leadingKinds)
                         if score >= 0 {
                             parameterCount := parameters.Length
