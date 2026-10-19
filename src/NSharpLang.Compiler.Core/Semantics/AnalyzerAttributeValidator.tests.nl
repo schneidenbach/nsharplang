@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Reflection.Emit
 import NSharpLang.Compiler.Ast
 
 
@@ -1115,6 +1116,60 @@ test "a member the attribute does not declare is not settable" {
 test "a GET-ONLY property is not a settable named member" {
     memberType: Type = typeof(object)
     assert !AnalyzerAttributeValidator.TryGetSettableAttributeNamedMemberType(AttrObsolete(), "Message", out memberType)
+}
+
+func AvDefineSettableProperty(owner: TypeBuilder, name: string, propertyType: Type) {
+    field := owner.DefineField("_" + name, propertyType, FieldAttributes.Private)
+    getter := owner.DefineMethod("get_" + name, MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig, propertyType, Type.EmptyTypes)
+    getterIl := getter.GetILGenerator()
+    getterIl.Emit(OpCodes.Ldarg_0)
+    getterIl.Emit(OpCodes.Ldfld, field)
+    getterIl.Emit(OpCodes.Ret)
+
+    setter := owner.DefineMethod("set_" + name, MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig, typeof(void), [propertyType])
+    setterIl := setter.GetILGenerator()
+    setterIl.Emit(OpCodes.Ldarg_0)
+    setterIl.Emit(OpCodes.Ldarg_1)
+    setterIl.Emit(OpCodes.Stfld, field)
+    setterIl.Emit(OpCodes.Ret)
+
+    property := owner.DefineProperty(name, PropertyAttributes.None, propertyType, Type.EmptyTypes)
+    property.SetGetMethod(getter)
+    property.SetSetMethod(setter)
+}
+
+func AvHiddenAttributeType(): Type {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("AttributeValidatorHidden" + Guid.NewGuid().ToString("N")), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("Fixture")
+    baseBuilder := module.DefineType("BaseAttribute", TypeAttributes.Public | TypeAttributes.Class, typeof(Attribute))
+    baseBuilder.DefineDefaultConstructor(MethodAttributes.Public)
+    AvDefineSettableProperty(baseBuilder, "Marker", typeof(object))
+    baseType := baseBuilder.CreateType() ?? typeof(Attribute)
+    derivedBuilder := module.DefineType("DerivedAttribute", TypeAttributes.Public | TypeAttributes.Class, baseType)
+    derivedBuilder.DefineDefaultConstructor(MethodAttributes.Public)
+    AvDefineSettableProperty(derivedBuilder, "Marker", typeof(string))
+    return derivedBuilder.CreateType() ?? typeof(Attribute)
+}
+
+test "a named attribute argument resolves the most-derived hidden property and writes its runtime value" {
+    attributeType := AvHiddenAttributeType()
+    lookupOutcome := "no exception"
+    try {
+        attributeType.GetProperty("Marker", BindingFlags.Public | BindingFlags.Instance)
+    } catch ex: AmbiguousMatchException {
+        lookupOutcome = "ambiguous"
+    }
+    assert lookupOutcome == "ambiguous"
+
+    memberType := typeof(object)
+    assert AnalyzerAttributeValidator.TryGetSettableAttributeNamedMemberType(attributeType, "Marker", out memberType)
+    assert memberType == typeof(string)
+
+    instance := Activator.CreateInstance(attributeType)
+    property := ReflectedMemberLookup.FindProperty(attributeType, "Marker", BindingFlags.Public | BindingFlags.Instance)
+    assert property != null
+    property.SetValue(instance, "derived")
+    assert property.GetValue(instance).ToString() == "derived"
 }
 
 test "the constructor question is answered by arity and by argument types" {

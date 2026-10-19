@@ -508,7 +508,7 @@ class ColumnarSourceAttributeBinder {
         }
 
         instanceFlags := BindingFlags.Public | BindingFlags.Instance
-        property := attributeType.GetProperty(memberName, instanceFlags)
+        property := ReflectedMemberLookup.FindProperty(attributeType, memberName, instanceFlags)
         if property != null {
             setter := property.SetMethod
             if setter != null && setter.IsPublic && property.GetIndexParameters().Length == 0 {

@@ -1882,7 +1882,7 @@ class AnalyzerAttributeValidator {
     // the index.
     static func TryGetSettableAttributeNamedMemberType(attributeType: Type, memberName: string, out memberType: Type): bool {
         instanceFlags := BindingFlags.Public | BindingFlags.Instance
-        property := attributeType.GetProperty(memberName, instanceFlags)
+        property := ReflectedMemberLookup.FindProperty(attributeType, memberName, instanceFlags)
         if property != null {
             setter := property.SetMethod
             if setter != null && setter.IsPublic && property.GetIndexParameters().Length == 0 {
