@@ -905,18 +905,36 @@ an owner decision about the ratchet (or a sidebar that is not JavaScript).
   PRELOADED -- it is a warm start and keeps the bare-name scan's answers stable, no longer the limit of
   what a project sees. When the references already carry `System.Runtime.dll` (`dotnet build` passes
   the whole reference pack) the on-demand loads stand down
-  (`AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface`). The index is persisted per runtime
-  directory at `<LocalApplicationData>/nsharp/framework-index/<runtime version>-<djb2 of path>.txt`
-  (stamp = runtime dir + FrameworkList.xml paths and last-write times; any read/write failure is a
-  miss), so a cold `nlc` pays ~0 ms for it after the first run (~9-14 ms to build). Two consequences
-  the gate found: (1) an incremental analysis now REPLAYS a reused file's import loads
-  (`MultiFileCompiler.AnalyzeAllFiles`, serial and after the parallel pass) so the back end finds every
-  import-named framework assembly in the shared context -- otherwise `TryAttachSharedMetadata` fails
-  and the scan reopens the references (agent-loop `small / body check / cold` went 8 -> 12 reference
-  images); (2) a workspace `nlc check` releases each project's analyzer after saving its result
-  (`MultiFileCompiler.ReleaseReferenceMetadata`): holding ~250 metadata load contexts open had the
-  repository-root check at ~10k descriptors, macOS .NET's limit, and the extra framework files tipped
-  it into "Too many open files". `AnalyzerImports.BuildAssemblyMappings`
+  (`AnalyzerMetadataLoadPolicy.ReferencesSupplyFrameworkSurface`) -- recognised by the pack's own
+  `data/FrameworkList.xml` naming Microsoft.NETCore.App two levels above `ref/<tfm>/System.Runtime.dll`,
+  NOT by the file name: a netstandard1.x package graph (`System.IO 4.1.0` ->
+  `system.runtime/4.1.0/ref/netstandard1.5/System.Runtime.dll`) used to switch the framework off. The
+  index lives in memory per process (no disk cache: 9-14 ms cold; the daemon and LSP keep it).
+- **Determinism.** Every on-demand framework load is MARKED (`FrameworkOnDemandLoads`) and answers
+  only through its namespace: the bare-name scans (`AnalyzerExternalTypeProbe` exported-name index,
+  `ExternalQualifiedTypeResolver.TryResolveBareName`, the any-namespace extension scan, the back
+  end's `ExternalAssemblyScan.FindFirstVisibleType` via `IsOnDemandFramework`) skip marked assemblies,
+  so a bare name binds through the file's own imports plus the eager set only -- independent of worker
+  count, file order, incremental reuse and a retained (daemon/LSP) analyzer's history. Before analysis
+  `MultiFileCompiler.AnalyzeAllFiles` preloads, for every file (analysed or reused), the framework
+  namespaces its TEXT spells (`FrameworkNamespaceIndex.SpelledNamespaces`: imports, qualified chains,
+  namespace aliases; over-approximating is harmless because marked loads change no answer), so the
+  shared context the back end attaches to is a pure function of the sources. Reused files also replay
+  their import walks (table rows). Recorded names on `SharedReferenceMetadata` are sorted.
+- **Type fidelity.** With a reference pack, the importable namespaces are the pack's own and a public
+  runtime type the pack does not declare is not nameable (`FrameworkNamespaceIndex.IsOnCompileSurface`
+  / `IsImplementationOnlyType`, asked by `InternalsVisibleToGrants.IsNameableType` and
+  `AnalyzerImports.AssemblyExportsNamespace`; the pack's type names are read per namespace on first
+  question). Without a pack (runtime-only machine) the runtime is the surface and that gap stays.
+- **ASP.NET Core.** `AnalyzerImports.MappedAssemblies` answers the `Microsoft.AspNetCore.*`,
+  `Microsoft.Extensions.DependencyInjection` and `Microsoft.Extensions.Hosting` rows only when the
+  project references `Microsoft.AspNetCore.App` (`AnalyzerMetadataLoadPolicy.ReferencesAspNetCore`:
+  Web SDK or a `framework:` entry). The AspNetCore shared directory stays on the resolver's search path
+  for dependency resolution only.
+- **Lifecycle fixes the gate found:** a workspace `nlc check` releases each project's analyzer after
+  saving its result (`MultiFileCompiler.ReleaseReferenceMetadata`): the repository-root check held
+  ~10,000 descriptors before this change (macOS .NET's limit) and ~1,100 after.
+  `AnalyzerImports.BuildAssemblyMappings`
   keeps only the ASP.NET Core / EF Core rows. Issue #215's repro (IServiceProvider + ClaimsIdentity,
   no dependencies) is pinned in `tests/native/reference-resolution/DefaultFrameworkReferences.tests.nl`;
   the docs table between `default-framework-namespaces` markers is checked against the index by

@@ -209,14 +209,19 @@ Every N# program also gets the N# runtime library (`NSharpLang.Runtime`).
 ASP.NET Core framework, so `nlc` does not either. A project that wants ASP.NET Core under one of
 them, or under `Microsoft.NET.Sdk`, adds `- framework: Microsoft.AspNetCore.App`.
 
-### How fast is the whole framework?
+### Which types, exactly
 
-`nlc` loads an assembly's types only when your code imports one of its namespaces or spells one of
-its types fully qualified, so a project pays for the parts of the framework it uses, not for all of
-it. Which namespaces each `Microsoft.NETCore.App` assembly defines is read once per installed .NET
-runtime and kept in a small file in your per-user data directory (`nsharp/framework-index` under
-`~/Library/Application Support` on macOS, `~/.local/share` on Linux, `%LOCALAPPDATA%` on Windows).
-Deleting it is always safe: the next `nlc` command writes it again.
+The types you can name are the reference pack's: a type that a .NET runtime assembly makes public but
+the reference pack does not declare (for example `TreeSet<T>` or `ZLibException`) is reported as
+`NL201 Type '…' not found`, as `dotnet build` reports it. If the machine has a .NET runtime but no
+SDK, and so no reference pack, `nlc` uses the runtime's assemblies as the description of the
+framework, and those implementation-only types are then accepted.
+
+A simple name such as `BigInteger` is found through the file's own imports (`import System.Numerics`).
+Writing the type fully qualified in another file does not make the simple name work here.
+
+`nlc` loads an assembly only when your code imports one of its namespaces or spells one of its types
+fully qualified, so a project pays for the parts of the framework it uses, not for all of it.
 
 ### ASP.NET Core projects
 
@@ -228,6 +233,10 @@ sdk: Microsoft.NET.Sdk.Web
 
 Writing `- framework: Microsoft.AspNetCore.App` as well, as the `nsharp-webapi` template does, is
 harmless: `nlc` reads it once and `dotnet build` does not see it twice.
+
+A project that is not a Web SDK project and does not list `Microsoft.AspNetCore.App` cannot import
+`Microsoft.AspNetCore.*` namespaces; `import Microsoft.AspNetCore.Builder` reports `NL704`, as under
+`dotnet build`.
 
 Libraries and console programs that use `Microsoft.Extensions.*` packages that ship in ASP.NET Core
 (dependency injection, hosting, configuration, logging) need `framework: Microsoft.AspNetCore.App`,
