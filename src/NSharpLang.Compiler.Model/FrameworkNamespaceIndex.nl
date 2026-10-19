@@ -70,6 +70,11 @@ class FrameworkNamespaceIndex {
     // index is built; a namespace's type names are read from them the first time a type in it is
     // asked about. Null when no reference pack is installed.
     private referenceFilesByNamespace: Dictionary<string, List<string>>?
+
+    // The namespaces where the runtime defines MORE public types than the reference pack: the only
+    // ones a type can be implementation-only in. The pack is a subset of the runtime it describes, so
+    // equal counts mean equal sets and no name ever has to be read for the rest.
+    private implementationOnlyNamespaces: HashSet<string>
     private referenceTypeNames: Dictionary<string, HashSet<string>>
     private referenceGate: object
 
@@ -88,6 +93,7 @@ class FrameworkNamespaceIndex {
         CompileAssemblyNames = compileAssemblyNames
         assembliesByNamespace = namespaces
         referenceFilesByNamespace = null
+        implementationOnlyNamespaces = new HashSet<string>(StringComparer.Ordinal)
         referenceTypeNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
         referenceGate = new object()
         roots = new HashSet<string>(StringComparer.Ordinal)
@@ -350,7 +356,34 @@ class FrameworkNamespaceIndex {
 
         index := new FrameworkNamespaceIndex(runtimeDirectory, source, compileNames, BuildNamespaceMapFor(rows, new HashSet<string>(filesByNamespace.Keys, StringComparer.Ordinal)))
         index.referenceFilesByNamespace = filesByNamespace
+        index.implementationOnlyNamespaces = ImplementationOnlyNamespaces(rows, referenceRows)
         return index
+    }
+
+    static func ImplementationOnlyNamespaces(runtimeRows: List<FrameworkNamespaceRow>, referenceRows: List<FrameworkNamespaceRow>): HashSet<string> {
+        runtimeCounts := PublicTypeCounts(runtimeRows)
+        referenceCounts := PublicTypeCounts(referenceRows)
+        result := new HashSet<string>(StringComparer.Ordinal)
+        for entry in runtimeCounts {
+            referenceCount := 0
+            referenceCounts.TryGetValue(entry.Key, out referenceCount)
+            if referenceCount > 0 && entry.Value > referenceCount {
+                result.Add(entry.Key)
+            }
+        }
+
+        return result
+    }
+
+    static func PublicTypeCounts(rows: List<FrameworkNamespaceRow>): Dictionary<string, int> {
+        counts := new Dictionary<string, int>(StringComparer.Ordinal)
+        for row in rows {
+            current := 0
+            counts.TryGetValue(row.NamespaceName, out current)
+            counts[row.NamespaceName] = current + row.PublicTypeCount
+        }
+
+        return counts
     }
 
     // `<pack>/data/FrameworkList.xml` -> `<pack>/ref/net<major>.<minor>`, the folder MSBuild compiles
@@ -389,6 +422,14 @@ class FrameworkNamespaceIndex {
     func IsOnCompileSurface(namespaceName: string, name: string): bool {
         files := referenceFilesByNamespace
         if files == null {
+            return true
+        }
+
+        if !files.ContainsKey(namespaceName) {
+            return false
+        }
+
+        if !implementationOnlyNamespaces.Contains(namespaceName) {
             return true
         }
 
@@ -721,8 +762,11 @@ class FrameworkNamespaceIndex {
                     continue
                 }
 
-                if DefinesPublicType(reader, namespaceDefinition) {
-                    rows.Add(new FrameworkNamespaceRow(assemblyName, namespaceName, true))
+                publicTypes := PublicTypeCount(reader, namespaceDefinition)
+                if publicTypes > 0 {
+                    row := new FrameworkNamespaceRow(assemblyName, namespaceName, true)
+                    row.PublicTypeCount = publicTypes
+                    rows.Add(row)
                 } else if ForwardsType(reader, namespaceDefinition) {
                     rows.Add(new FrameworkNamespaceRow(assemblyName, namespaceName, false))
                 }
@@ -740,16 +784,19 @@ class FrameworkNamespaceIndex {
         }
     }
 
-    static func DefinesPublicType(reader: MetadataReader, namespaceDefinition: NamespaceDefinition): bool {
+    // How many PUBLIC top-level types the file defines in this namespace: attribute reads only, no
+    // name is decoded.
+    static func PublicTypeCount(reader: MetadataReader, namespaceDefinition: NamespaceDefinition): int {
+        count := 0
         for typeHandle in namespaceDefinition.TypeDefinitions {
             definition := reader.GetTypeDefinition(typeHandle)
             visibility := (int)definition.Attributes & (int)TypeAttributes.VisibilityMask
             if visibility == (int)TypeAttributes.Public && definition.GetDeclaringType().IsNil {
-                return true
+                count = count + 1
             }
         }
 
-        return false
+        return count
     }
 
     static func ForwardsType(reader: MetadataReader, namespaceDefinition: NamespaceDefinition): bool {
@@ -770,9 +817,13 @@ class FrameworkNamespaceRow {
     NamespaceName: string
     Defines: bool
 
+    // The public top-level types the assembly defines in the namespace (zero for a forwarder row).
+    PublicTypeCount: int
+
     constructor(assemblyName: string, namespaceName: string, defines: bool) {
         AssemblyName = assemblyName
         NamespaceName = namespaceName
         Defines = defines
+        PublicTypeCount = 0
     }
 }

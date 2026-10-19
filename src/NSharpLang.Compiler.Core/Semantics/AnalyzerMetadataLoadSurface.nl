@@ -111,6 +111,11 @@ class AnalyzerMetadataLoadSurface {
     // every miss under an imported namespace asks -- costs one set probe.
     loadedFrameworkNamespaces: HashSet<string>
 
+    // The fully-qualified spellings whose framework namespace was already looked up. A miss is asked
+    // again on every probe of the same spelling; the second ask must cost one set probe, not a walk
+    // of the spelling's prefixes.
+    triedFrameworkTypeNames: HashSet<string>
+
     constructor(loadedAssemblies: List<Assembly>, referenceLoadFailures: Dictionary<string, string>) {
         Context = null
         assemblies = loadedAssemblies
@@ -124,6 +129,7 @@ class AnalyzerMetadataLoadSurface {
         gate = new object()
         FrameworkSuppliedByReferences = false
         loadedFrameworkNamespaces = new HashSet<string>(StringComparer.Ordinal)
+        triedFrameworkTypeNames = new HashSet<string>(StringComparer.Ordinal)
     }
 
     // A NEW RESOLVER IS BEING BUILT, which means a new load context is beginning. The directories
@@ -160,6 +166,7 @@ class AnalyzerMetadataLoadSurface {
     // mechanism and is here.
     func Open() {
         loadedFrameworkNamespaces.Clear()
+        triedFrameworkTypeNames.Clear()
         images := new ReferenceImageSnapshotStore(gate)
         ReferenceImages = images
         resolver := new AnalyzerMetadataAssemblyResolver(
@@ -201,6 +208,7 @@ class AnalyzerMetadataLoadSurface {
     // own, and `Close` leaves the context to its owner.
     func Attach(shared: SharedReferenceMetadata) {
         loadedFrameworkNamespaces.Clear()
+        triedFrameworkTypeNames.Clear()
         Context = shared.Context
         ReferenceImages = shared.ReferenceImages
         gate = shared.Gate
@@ -252,6 +260,7 @@ class AnalyzerMetadataLoadSurface {
         ReferenceImages = null
         ownsContext = false
         loadedFrameworkNamespaces.Clear()
+        triedFrameworkTypeNames.Clear()
     }
 
     // EVERY `int`, `string` and `object` A REFERENCED ASSEMBLY NAMES resolves through the context's
@@ -467,7 +476,7 @@ class AnalyzerMetadataLoadSurface {
     // and some of its assemblies are not loaded yet, they are loaded now; the answer says whether the
     // assembly list grew, so a caller that missed knows a retry can answer differently.
     func LoadFrameworkNamespaceOfType(fullName: string): bool {
-        if FrameworkSuppliedByReferences || Context == null {
+        if FrameworkSuppliedByReferences || Context == null || !triedFrameworkTypeNames.Add(fullName) {
             return false
         }
 
