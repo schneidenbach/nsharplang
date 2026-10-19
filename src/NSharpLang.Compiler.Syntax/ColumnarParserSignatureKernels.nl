@@ -462,11 +462,13 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
 // THE CONSTANT SHAPES A PARAMETER DEFAULT IS CAPTURED IN, shared by every parameter list the
 // columnar parser reads (functions and methods, constructors, primary constructors): one literal or
 // keyword token — `null`, `true`, `false`, `default`, an integer, floating, character or string
-// literal — or a sign followed by a numeric literal (`-1`, `-2.5`). Answers the default's kind, the
-// literal's own token kind for a signed one, or -1 for any other shape (a dotted member name is the
-// callers' other shape). The value itself is decided against the parameter's type in the back end.
+// literal — or a sign followed by a numeric literal (`-1`, `-2.5`), each answered as the literal's
+// own token kind; or a constant EXPRESSION over literals and dotted member names (`2 * 3`,
+// `(1 << 4) - 1`, `Options.A | Options.B`), answered as `ParameterDefaultConstantExpressionKind`
+// and folded in the back end. -1 is any other shape; a lone dotted member name is the callers' other
+// shape. The value itself is decided against the parameter's type in the back end.
 func ParameterDefaultConstantKind(kinds: int[], startIndex: int, endIndex: int): int {
-    if startIndex < 0 || endIndex > kinds.Length {
+    if startIndex < 0 || endIndex > kinds.Length || endIndex <= startIndex {
         return -1
     }
 
@@ -479,7 +481,28 @@ func ParameterDefaultConstantKind(kinds: int[], startIndex: int, endIndex: int):
         return kinds[startIndex + 1]
     }
 
-    return -1
+    hasOperator := false
+    index := startIndex
+    while index < endIndex {
+        kind := kinds[index]
+        if ParameterDefaultExpressionOperatorKind(kind) || kind == 127 || kind == 128 {
+            hasOperator = true
+        } else if kind != 0 && kind != 124 && kind != 1 && kind != 2 && kind != 3 && kind != 4 && kind != 44 && kind != 45 {
+            return -1
+        }
+        index = index + 1
+    }
+
+    return hasOperator ? ParameterDefaultConstantExpressionKind() : -1
+}
+
+func ParameterDefaultConstantExpressionKind(): int {
+    return 1002
+}
+
+// `+ - * / %`, the comparisons, `&& || !`, `& | ^ ~` and the two shifts.
+func ParameterDefaultExpressionOperatorKind(kind: int): bool {
+    return (kind >= 88 && kind <= 92) || (kind >= 98 && kind <= 112)
 }
 
 func ParameterDefaultSingleTokenKindSupported(kind: int): bool {

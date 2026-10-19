@@ -7,6 +7,12 @@ enum Tone {
     Loud
 }
 
+enum Rights {
+    None = 0,
+    Read = 1,
+    Write = 2
+}
+
 // Every constant kind a parameter default can hold, compiled into a SEPARATE assembly, so a call that
 // omits the argument reads the default back out of metadata rather than out of source.
 class ReflectedDefaults {
@@ -67,6 +73,18 @@ class ReflectedDefaults {
     }
 
     static func ToneDefault(value: Tone = default): Tone {
+        return value
+    }
+
+    static func Mask(value: long = (1L << 40) - 1): long {
+        return value
+    }
+
+    static func Both(value: Rights = Rights.Read | Rights.Write): Rights {
+        return value
+    }
+
+    static func Scaled(value: decimal = 10m * 1.5m): decimal {
         return value
     }
 

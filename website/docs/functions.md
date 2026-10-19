@@ -291,6 +291,31 @@ A literal follows the same rule as any other assignment, so `size: byte = 50` is
 — `DateTime.MinValue`, `TimeSpan.Zero`, a call — is not a constant and is
 [NL410](./errors/NL410.md); `= default` is the constant spelling of a struct's zero value.
 
+A default may also be a **constant expression** — arithmetic, shifts and bitwise operators over
+literals, and `|`, `&`, `^` and `~` over members of the parameter's own enum. The compiler folds it
+to one value exactly as C# does, so integer arithmetic happens in the operands' type and is checked:
+
+```n#
+enum Access {
+    None = 0,
+    Read = 1,
+    Write = 2
+}
+
+func open(path: string, access: Access = Access.Read | Access.Write, buffer: int = 4 * 1024): string {
+    return $"{path}:{access}:{buffer}"
+}
+
+func window(mask: long = (1L << 40) - 1): long {
+    return mask
+}
+```
+
+A default whose value cannot be computed — `limit: long = 2147483647 + 1` overflows `int` before it
+ever becomes a `long`, `7 / 0` divides by zero, `Access.Read + Access.Write` adds two enum members —
+is [NL410](./errors/NL410.md), with the reason. The expression's type is the operands' type, as for a
+local's initializer: `size: byte = 2 + 3` is a type mismatch, so write `size: byte = 5`.
+
 C# and every other .NET consumer see these defaults: each one is written as the `Constant` row C#
 writes for it (`[Optional]` plus `[DecimalConstant]` for a `decimal`), so a C# caller can omit the
 argument too.

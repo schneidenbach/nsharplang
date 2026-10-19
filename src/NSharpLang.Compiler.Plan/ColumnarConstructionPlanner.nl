@@ -2885,6 +2885,23 @@ class ColumnarConstructionPlanner {
         if ColumnarParameterDefaultValue.IsSourceLiteralKind(defaultKind) {
             return ColumnarParameterDefaultValue.FromSource(defaultKind, defaultText, expectedType)
         }
+        if defaultKind == ColumnarParameterDefaultValue.ConstantExpressionKind {
+            names := ColumnarParameterDefaultValue.ExpressionMemberNames(defaultText)
+            if names == null {
+                return null
+            }
+
+            memberValues := new Dictionary<string, int>(StringComparer.Ordinal)
+            enumType := ColumnarParameterDefaultValue.EnumTargetOf(expectedType)
+            for name in names {
+                value := 0
+                if enumType == null || !TryResolveNumericEnumDefault(nodes, enumType, name, bindings, out value) {
+                    return null
+                }
+                memberValues[name] = value
+            }
+            return ColumnarParameterDefaultValue.FromExpression(defaultText, expectedType, memberValues)
+        }
         if defaultKind != 1000 {
             return null
         }
@@ -2894,7 +2911,8 @@ class ColumnarConstructionPlanner {
             return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, expectedType, stringValue)
         }
         intValue := 0
-        if TryResolveNumericEnumDefault(nodes, expectedType, defaultText, bindings, out intValue) {
+        enumType := ColumnarParameterDefaultValue.EnumTargetOf(expectedType) ?? expectedType
+        if TryResolveNumericEnumDefault(nodes, enumType, defaultText, bindings, out intValue) {
             return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, expectedType, intValue)
         }
         return null

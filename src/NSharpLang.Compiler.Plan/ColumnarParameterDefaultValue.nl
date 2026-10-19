@@ -19,8 +19,10 @@ import NSharpLang.Compiler
 // a value of the parameter's own type, or that it is not a default this type can hold.
 //
 // Enum MEMBER defaults (`c: Color = Color.Red`) resolve through the enum registries their callers
-// hold and stay with those callers; everything else — the null reference, `default`, and every
-// boolean, character, string, integral, floating and decimal literal, signed or not — is here.
+// hold and stay with those callers — including the members a constant expression names, which the
+// caller resolves before `FromExpression` folds it. Everything else — the null reference,
+// `default`, every literal, and the arithmetic over them — is here, and the arithmetic itself is
+// `ConstantFolder`'s, the same folder the analyzer reports from.
 class ColumnarParameterDefaultValue {
 
     // `null` for a reference type: `ldnull`, and a null `Constant` row.
@@ -43,6 +45,9 @@ class ColumnarParameterDefaultValue {
     static TrueKind: int => 44
     static FalseKind: int => 45
     static NullKind: int => 46
+    // A default the parameter-list parser captured as a whole constant EXPRESSION (`2 * 3`,
+    // `Options.A | Options.B`): its source text, folded here by `ConstantFolder`.
+    static ConstantExpressionKind: int => 1002
 
     Form: int
     ParameterType: Type
@@ -63,10 +68,9 @@ class ColumnarParameterDefaultValue {
     // ------------------------------------------------------------------------------------------
 
     // A SOURCE DEFAULT. `text` is the default as written, a leading sign included (`-3`, `- 2.5`).
-    // A literal is held to the rule the analyzer typed it by: an unsuffixed integer adopts any
-    // integral (or `char`) target it fits in, and any floating or decimal one; a suffixed integer,
-    // a floating literal and a character keep their own type and convert only where that type
-    // widens implicitly. Anything else answers null, and the caller declines rather than guesses.
+    // What a literal is worth is `ConstantFolder`'s; whether that value is a default of THIS
+    // parameter is `FromConstant`'s. Anything else answers null, and the caller declines rather
+    // than guesses.
     static func FromSource(kind: int, text: string?, parameterType: Type): ColumnarParameterDefaultValue? {
         if parameterType == null || parameterType.IsByRef {
             return null
@@ -80,59 +84,249 @@ class ColumnarParameterDefaultValue {
             return DefaultOf(parameterType)
         }
 
+        if kind == ColumnarParameterDefaultValue.TrueKind || kind == ColumnarParameterDefaultValue.FalseKind {
+            spelling := "false"
+            if kind == ColumnarParameterDefaultValue.TrueKind {
+                spelling = "true"
+            }
+            return FromConstant(ConstantFolder.Fold(ConstantTerm.Literal(kind, spelling)).Value, parameterType)
+        }
+
+        if text == null || !IsLiteralKind(kind) {
+            return null
+        }
+
+        // A signed literal arrives as one text, `-3` or `- 2.5`; it folds as the negation of the
+        // literal, which is how `-2147483648` stays an `int`.
+        body := text.Trim()
+        negated := false
+        if (kind == ColumnarParameterDefaultValue.IntLiteralKind || kind == ColumnarParameterDefaultValue.FloatLiteralKind) && body.Length > 0 && (body[0] == '-' || body[0] == '+') {
+            negated = body[0] == '-'
+            body = body.Substring(1).Trim()
+        }
+
+        term := ConstantTerm.Literal(kind, body)
+        if negated {
+            term = ConstantTerm.Unary("-", term)
+        }
+        return FromConstant(ConstantFolder.Fold(term).Value, parameterType)
+    }
+
+    static func IsLiteralKind(kind: int): bool {
+        return kind == ColumnarParameterDefaultValue.IntLiteralKind || kind == ColumnarParameterDefaultValue.FloatLiteralKind || kind == ColumnarParameterDefaultValue.CharLiteralKind || kind == ColumnarParameterDefaultValue.StringLiteralKind
+    }
+
+    // A CONSTANT EXPRESSION DEFAULT. The text is re-read with the same expression kernels as a
+    // body; its enum members were resolved by the caller, in the caller's scope, into
+    // `memberValues` (keyed by the member's text as written — see `ExpressionMemberNames`).
+    static func FromExpression(text: string?, parameterType: Type, memberValues: Dictionary<string, int>): ColumnarParameterDefaultValue? {
+        if text == null || parameterType == null || parameterType.IsByRef {
+            return null
+        }
+
+        nodes: ColumnarNodeTable = null
+        root := -1
+        if !ColumnarProgramInputBuilder.TryBuildExpressionNodeTable(text, out nodes, out root) {
+            return null
+        }
+
+        enumType := EnumTargetOf(parameterType)
+        term := TermOf(nodes, text, root, enumType, memberValues)
+        if term == null {
+            return null
+        }
+        return FromConstant(ConstantFolder.Fold(term).Value, parameterType)
+    }
+
+    // The dotted member names a constant expression mentions, in the spelling `FromExpression`
+    // looks them up by, or null when the text is not an expression the kernels can read.
+    static func ExpressionMemberNames(text: string?): List<string>? {
+        if text == null {
+            return null
+        }
+
+        nodes: ColumnarNodeTable = null
+        root := -1
+        if !ColumnarProgramInputBuilder.TryBuildExpressionNodeTable(text, out nodes, out root) {
+            return null
+        }
+
+        names := new List<string>()
+        CollectMemberNames(nodes, text, root, names)
+        return names
+    }
+
+    static func CollectMemberNames(nodes: ColumnarNodeTable, source: string, node: int, names: List<string>) {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.MemberAccessExpression {
+            names.Add(MemberText(nodes, source, node))
+            return
+        }
+
+        child := 0
+        while child < nodes.ChildCount(node) {
+            CollectMemberNames(nodes, source, nodes.Child(node, child), names)
+            child = child + 1
+        }
+    }
+
+    static func MemberText(nodes: ColumnarNodeTable, source: string, node: int): string {
+        return source.Substring(nodes.SpanStart(node), nodes.SpanLength(node)).Replace(" ", "")
+    }
+
+    // THE TERM THE FOLDER READS, from the node table. Only constant shapes have a term; anything
+    // else — a call, a bare name, an index — answers null, and the default declines.
+    static func TermOf(nodes: ColumnarNodeTable, source: string, node: int, enumType: Type?, memberValues: Dictionary<string, int>): ConstantTerm? {
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression {
+            return ConstantTerm.Literal(ColumnarParameterDefaultValue.IntLiteralKind, nodes.Text(source, node))
+        }
+        if kind == ColumnarExpressionNodeKind.FloatLiteralExpression {
+            return ConstantTerm.Literal(ColumnarParameterDefaultValue.FloatLiteralKind, nodes.Text(source, node))
+        }
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression {
+            return ConstantTerm.Literal(ColumnarParameterDefaultValue.CharLiteralKind, nodes.Text(source, node))
+        }
+        if kind == ColumnarExpressionNodeKind.StringLiteralExpression {
+            return ConstantTerm.Literal(ColumnarParameterDefaultValue.StringLiteralKind, nodes.Text(source, node))
+        }
+        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression {
+            boolKind := ColumnarParameterDefaultValue.FalseKind
+            if nodes.Text(source, node) == "true" {
+                boolKind = ColumnarParameterDefaultValue.TrueKind
+            }
+            return ConstantTerm.Literal(boolKind, nodes.Text(source, node))
+        }
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(node) == 1 {
+            return TermOf(nodes, source, nodes.Child(node, 0), enumType, memberValues)
+        }
+        if kind == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 {
+            operand := TermOf(nodes, source, nodes.Child(node, 0), enumType, memberValues)
+            if operand == null {
+                return null
+            }
+            return ConstantTerm.Unary(nodes.Text(source, node), operand)
+        }
+        if kind == ColumnarExpressionNodeKind.BinaryExpression && nodes.ChildCount(node) == 2 {
+            left := TermOf(nodes, source, nodes.Child(node, 0), enumType, memberValues)
+            right := TermOf(nodes, source, nodes.Child(node, 1), enumType, memberValues)
+            if left == null || right == null {
+                return null
+            }
+            return ConstantTerm.Binary(nodes.Text(source, node), left, right)
+        }
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression && enumType != null {
+            value := 0
+            if memberValues.TryGetValue(MemberText(nodes, source, node), out value) {
+                return ConstantTerm.EnumMember(enumType.FullName ?? enumType.Name, value)
+            }
+        }
+        return null
+    }
+
+    // THE FOLDED CONSTANT, AS A DEFAULT OF THIS PARAMETER'S TYPE. The constant converts the way an
+    // assignment would: to its own type; widened along C#'s implicit numeric conversions; an `int`
+    // constant to any narrower or unsigned integral type it fits (C#'s implicit constant
+    // conversion), and an unsuffixed integer LITERAL to any integral or `char` type it fits (N#'s
+    // literal rule); an enum constant only to its own enum, and the literal `0` to any enum.
+    static func FromConstant(folded: ConstantValue?, parameterType: Type): ColumnarParameterDefaultValue? {
+        if folded == null {
+            return null
+        }
+
         constantType := ConstantTargetOf(parameterType)
         if constantType == null {
             return null
         }
 
         targetName := constantType.FullName ?? ""
-        if kind == ColumnarParameterDefaultValue.TrueKind || kind == ColumnarParameterDefaultValue.FalseKind {
-            if targetName != "System.Boolean" {
+        sourceName := folded.TypeName
+        if EnumTargetOf(parameterType) != null {
+            isZeroLiteral := folded.IsAdoptableLiteral && folded.IntegralValue() == 0m
+            if folded.EnumIdentity == null && !isZeroLiteral {
                 return null
             }
-
-            boolValue: object = kind == ColumnarParameterDefaultValue.TrueKind
-            return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, parameterType, boolValue)
+            return ConstantDefault(parameterType, ConstantFolder.BoxIntegral(targetName, folded.IntegralValue()))
         }
 
-        if text == null {
+        if folded.EnumIdentity != null {
             return null
         }
 
-        if kind == ColumnarParameterDefaultValue.StringLiteralKind {
-            if targetName != "System.String" {
-                return null
+        if sourceName == targetName {
+            return ConstantDefault(parameterType, folded.Value)
+        }
+
+        isIntegralSource := ConstantFolder.IsIntegralName(sourceName) || sourceName == "System.Char"
+        if isIntegralSource && (ConstantFolder.IsIntegralName(targetName) || targetName == "System.Char") {
+            if folded.IsAdoptableLiteral || WidensIntegral(sourceName, targetName) || ConvertsAsConstant(folded, targetName) {
+                return ConstantDefault(parameterType, ConstantFolder.BoxIntegral(targetName, folded.IntegralValue()))
             }
-
-            stringValue: object = StringLiteralDecoder.Decode(text, false)
-            return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, parameterType, stringValue)
-        }
-
-        if kind == ColumnarParameterDefaultValue.CharLiteralKind {
-            return FromCharacter(text.Trim(), targetName, parameterType)
-        }
-
-        if kind != ColumnarParameterDefaultValue.IntLiteralKind && kind != ColumnarParameterDefaultValue.FloatLiteralKind {
             return null
         }
 
-        negative := false
-        body := text.Trim()
-        if body.Length > 0 && (body[0] == '-' || body[0] == '+') {
-            negative = body[0] == '-'
-            body = body.Substring(1).Trim()
+        if isIntegralSource && targetName == "System.Decimal" {
+            return ConstantDefault(parameterType, folded.IntegralValue())
         }
+        if (isIntegralSource || sourceName == "System.Single") && targetName == "System.Double" {
+            return ConstantDefault(parameterType, folded.FloatingValue())
+        }
+        if isIntegralSource && targetName == "System.Single" {
+            return ConstantDefault(parameterType, (float)folded.FloatingValue())
+        }
+        return null
+    }
 
-        if body.Length == 0 {
+    static func ConstantDefault(parameterType: Type, value: object?): ColumnarParameterDefaultValue? {
+        if value == null {
             return null
         }
+        return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, parameterType, value)
+    }
 
-        boxed: object? = null
-        if !TryDecodeNumber(kind, body, negative, targetName, out boxed) || boxed == null {
+    // C#'s implicit numeric conversions between integral types (and from `char`).
+    static func WidensIntegral(sourceName: string, targetName: string): bool {
+        if sourceName == "System.SByte" {
+            return targetName == "System.Int16" || targetName == "System.Int32" || targetName == "System.Int64"
+        }
+        if sourceName == "System.Byte" {
+            return targetName == "System.Int16" || targetName == "System.UInt16" || targetName == "System.Int32" || targetName == "System.UInt32" || targetName == "System.Int64" || targetName == "System.UInt64"
+        }
+        if sourceName == "System.Int16" {
+            return targetName == "System.Int32" || targetName == "System.Int64"
+        }
+        if sourceName == "System.UInt16" || sourceName == "System.Char" {
+            return targetName == "System.Int32" || targetName == "System.UInt32" || targetName == "System.Int64" || targetName == "System.UInt64" || (sourceName == "System.Char" && targetName == "System.UInt16")
+        }
+        if sourceName == "System.Int32" {
+            return targetName == "System.Int64"
+        }
+        if sourceName == "System.UInt32" {
+            return targetName == "System.Int64" || targetName == "System.UInt64"
+        }
+        return false
+    }
+
+    // C#'s implicit CONSTANT conversions: an `int` constant to `sbyte`, `byte`, `short`, `ushort`,
+    // `uint` or `ulong`, and a `long` constant to `ulong`, each only when the value fits (the fit is
+    // `BoxIntegral`'s to check).
+    static func ConvertsAsConstant(folded: ConstantValue, targetName: string): bool {
+        if folded.TypeName == "System.Int32" {
+            return targetName == "System.SByte" || targetName == "System.Byte" || targetName == "System.Int16" || targetName == "System.UInt16" || targetName == "System.UInt32" || targetName == "System.UInt64"
+        }
+        return folded.TypeName == "System.Int64" && targetName == "System.UInt64"
+    }
+
+    // The enum a constant for this parameter must be a member of — the parameter's own type, or
+    // the `T` of a `Nullable<T>` — or null when the parameter is not an enum.
+    static func EnumTargetOf(parameterType: Type): Type? {
+        target := parameterType
+        if IsNullableValueType(target) {
+            target = target.GetGenericArguments()[0]
+        }
+        if !target.IsEnum {
             return null
         }
-
-        return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, parameterType, boxed)
+        return target
     }
 
     // A METADATA DEFAULT, read off a referenced method's parameter. The `Constant` row the CLR
@@ -307,9 +501,8 @@ class ColumnarParameterDefaultValue {
         if name == "System.Decimal" {
             return 0m
         }
-        zero: object? = null
-        if IsIntegralName(name) && TryBoxIntegral(name, false, 0UL, out zero) {
-            return zero
+        if IsIntegralName(name) {
+            return ConstantFolder.BoxIntegral(name, 0m)
         }
         return null
     }
@@ -410,247 +603,6 @@ class ColumnarParameterDefaultValue {
         }
 
         word = Int32Bits(Convert.ToUInt32(known, CultureInfo.InvariantCulture))
-        return true
-    }
-
-    static func FromCharacter(text: string, targetName: string, parameterType: Type): ColumnarParameterDefaultValue? {
-        if text.Length < 2 || text[0] != '\'' || text[text.Length - 1] != '\'' {
-            return null
-        }
-
-        decoded := StringLiteralDecoder.DecodeCharacterBody(text.Substring(1, text.Length - 2))
-        if decoded < 0 {
-            return null
-        }
-
-        // `char` widens to `ushort` and every wider integral, floating and decimal type.
-        boxed: object? = null
-        if targetName == "System.Char" {
-            boxed = (char)decoded
-        } else if targetName == "System.UInt16" || targetName == "System.Int32" || targetName == "System.UInt32" || targetName == "System.Int64" || targetName == "System.UInt64" {
-            TryBoxIntegral(targetName, false, (ulong)decoded, out boxed)
-        } else {
-            TryBoxWidened(targetName, false, (ulong)decoded, out boxed)
-        }
-
-        if boxed == null {
-            return null
-        }
-
-        return new ColumnarParameterDefaultValue(ColumnarParameterDefaultValue.ConstantForm, parameterType, boxed)
-    }
-
-    // A NUMERIC LITERAL, its sign already split off. The suffix decides the literal's own type —
-    // `m` decimal, `f` float, `d` (or a floating literal with none) double, and `u`/`l`/`ul` the
-    // suffixed integers — and the target decides whether that type reaches it. A hex or binary
-    // literal's trailing `d`/`f` is a digit, not a suffix.
-    static func TryDecodeNumber(kind: int, body: string, negative: bool, targetName: string, out boxed: object?): bool {
-        boxed = null
-        last := body[body.Length - 1]
-        isRadixInteger := body.Length > 1 && body[0] == '0' && (body[1] == 'x' || body[1] == 'X' || body[1] == 'b' || body[1] == 'B')
-        if last == 'm' || last == 'M' {
-            return TryDecodeDecimal(body.Substring(0, body.Length - 1), negative, targetName, out boxed)
-        }
-
-        if !isRadixInteger && (last == 'f' || last == 'F') {
-            return TryDecodeSingle(body.Substring(0, body.Length - 1), negative, targetName, out boxed)
-        }
-
-        if !isRadixInteger && (last == 'd' || last == 'D') {
-            return TryDecodeDouble(body.Substring(0, body.Length - 1), negative, targetName, out boxed)
-        }
-
-        if kind == ColumnarParameterDefaultValue.FloatLiteralKind {
-            return TryDecodeDouble(body, negative, targetName, out boxed)
-        }
-
-        literalKind := 0
-        magnitude := 0UL
-        if !NumericLiteralFacts.TryParseIntegerLiteral(body, out literalKind, out magnitude) {
-            return false
-        }
-
-        // 0 unsuffixed, 1 `L`, 2 `UL`, 3 `U` — `NumericLiteralFacts.TryParseIntegerLiteral`'s kinds.
-        if literalKind == 0 {
-            if IsIntegralName(targetName) || targetName == "System.Char" {
-                return TryBoxIntegral(targetName, negative, magnitude, out boxed)
-            }
-            return TryBoxWidened(targetName, negative, magnitude, out boxed)
-        }
-
-        if negative && literalKind != 1 {
-            return false
-        }
-
-        ownName := "System.UInt32"
-        if literalKind == 1 {
-            ownName = "System.Int64"
-        } else if literalKind == 2 {
-            ownName = "System.UInt64"
-        }
-
-        if targetName == ownName || (literalKind == 3 && (targetName == "System.Int64" || targetName == "System.UInt64")) {
-            return TryBoxIntegral(targetName, negative, magnitude, out boxed)
-        }
-
-        return TryBoxWidened(targetName, negative, magnitude, out boxed)
-    }
-
-    // An integer constant into a floating or decimal target, which every integral type reaches.
-    static func TryBoxWidened(targetName: string, negative: bool, magnitude: ulong, out boxed: object?): bool {
-        boxed = null
-        value := (decimal)magnitude
-        if negative {
-            value = -value
-        }
-
-        if targetName == "System.Single" {
-            boxed = (float)value
-            return true
-        }
-        if targetName == "System.Double" {
-            boxed = (double)value
-            return true
-        }
-        if targetName == "System.Decimal" {
-            boxed = value
-            return true
-        }
-        return false
-    }
-
-    // An integer constant into an integral (or `char`) target, refused when it does not fit.
-    static func TryBoxIntegral(targetName: string, negative: bool, magnitude: ulong, out boxed: object?): bool {
-        boxed = null
-        if negative && magnitude != 0UL {
-            maxMagnitude := 0UL
-            if !NumericLiteralFacts.TryGetNegativeIntegerLiteralMaxMagnitude(ShortName(targetName), out maxMagnitude) || magnitude > maxMagnitude {
-                return false
-            }
-
-            // `-(long)(magnitude - 1) - 1` reaches `long.MinValue` without overflowing.
-            signed := -(long)(magnitude - 1UL) - 1L
-            if targetName == "System.SByte" {
-                boxed = (sbyte)signed
-            } else if targetName == "System.Int16" {
-                boxed = (short)signed
-            } else if targetName == "System.Int32" {
-                boxed = (int)signed
-            } else if targetName == "System.Int64" {
-                boxed = signed
-            } else {
-                return false
-            }
-            return true
-        }
-
-        maxValue := 0UL
-        if !NumericLiteralFacts.TryGetUnsignedIntegerLiteralMaxValue(ShortName(targetName), out maxValue) || magnitude > maxValue {
-            return false
-        }
-
-        if targetName == "System.SByte" {
-            boxed = (sbyte)(long)magnitude
-        } else if targetName == "System.Byte" {
-            boxed = (byte)magnitude
-        } else if targetName == "System.Int16" {
-            boxed = (short)(long)magnitude
-        } else if targetName == "System.UInt16" {
-            boxed = (ushort)magnitude
-        } else if targetName == "System.Char" {
-            boxed = (char)magnitude
-        } else if targetName == "System.Int32" {
-            boxed = (int)(long)magnitude
-        } else if targetName == "System.UInt32" {
-            boxed = (uint)magnitude
-        } else if targetName == "System.Int64" {
-            boxed = (long)magnitude
-        } else if targetName == "System.UInt64" {
-            boxed = magnitude
-        } else {
-            return false
-        }
-        return true
-    }
-
-    // The built-in spelling `NumericLiteralFacts`' range tables are keyed by.
-    static func ShortName(fullName: string): string {
-        if fullName == "System.SByte" {
-            return "sbyte"
-        }
-        if fullName == "System.Byte" {
-            return "byte"
-        }
-        if fullName == "System.Int16" {
-            return "short"
-        }
-        if fullName == "System.UInt16" {
-            return "ushort"
-        }
-        if fullName == "System.Char" {
-            return "char"
-        }
-        if fullName == "System.Int32" {
-            return "int"
-        }
-        if fullName == "System.UInt32" {
-            return "uint"
-        }
-        if fullName == "System.Int64" {
-            return "long"
-        }
-        if fullName == "System.UInt64" {
-            return "ulong"
-        }
-        return ""
-    }
-
-    static func TryDecodeSingle(body: string, negative: bool, targetName: string, out boxed: object?): bool {
-        boxed = null
-        value := 0.0f
-        if !Single.TryParse(body.Replace("_", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out value) {
-            return false
-        }
-        if negative {
-            value = -value
-        }
-
-        if targetName == "System.Single" {
-            boxed = value
-            return true
-        }
-        if targetName == "System.Double" {
-            boxed = (double)value
-            return true
-        }
-        return false
-    }
-
-    static func TryDecodeDouble(body: string, negative: bool, targetName: string, out boxed: object?): bool {
-        boxed = null
-        value := 0.0
-        if targetName != "System.Double" || !Double.TryParse(body.Replace("_", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out value) {
-            return false
-        }
-        if negative {
-            value = -value
-        }
-
-        boxed = value
-        return true
-    }
-
-    static func TryDecodeDecimal(body: string, negative: bool, targetName: string, out boxed: object?): bool {
-        boxed = null
-        value := 0m
-        if targetName != "System.Decimal" || !Decimal.TryParse(body.Replace("_", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out value) {
-            return false
-        }
-        if negative {
-            value = -value
-        }
-
-        boxed = value
         return true
     }
 
