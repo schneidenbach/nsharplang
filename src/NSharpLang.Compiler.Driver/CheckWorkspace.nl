@@ -69,15 +69,10 @@ class CheckWorkspaceProjectResult {
         CheckDiagnosticsJson = null
     }
 
-    // Workspace checks keep a compiler only long enough to save the final text-mode result. Every
-    // other result has already copied its diagnostics and systems report, so close the compiler's
-    // metadata context and drop the compiler instead of retaining one reference closure per member.
+    // SaveCheckResult closes a one-shot compiler after its member cache is saved. The workspace
+    // keeps its compiler reference only until aggregate text output is ready.
     func ReleaseCompiler(): void {
-        compiler := CheckCompiler
         CheckCompiler = null
-        if compiler != null {
-            compiler.ReleaseWorkspaceCheckResources()
-        }
     }
 
     Succeeded: bool => ErrorMessage == null && Summary.Errors == 0

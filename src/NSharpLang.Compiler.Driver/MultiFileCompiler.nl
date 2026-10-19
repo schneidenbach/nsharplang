@@ -129,6 +129,7 @@ class MultiFileCompiler {
     private _checkStateSeededFromStamp: bool
     private _persistedCheckPartial: bool
     private _incrementalState: IncrementalCompilationState?
+    private _incrementalStateWasInjected: bool
     private _incrementalPlan: IncrementalCompilationPlan?
     private readonly _pendingRecords: Dictionary<string, IncrementalFileRecord>
     // The texts the incremental plan was made from: every later read of a source in the same
@@ -334,7 +335,11 @@ class MultiFileCompiler {
     // Persists a complete versioned result after diagnostics and backend validation are final. The
     // diagnostics JSON is always retained even when the selected user-facing mode is text.
     func SaveCheckResult(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int): bool {
-        return SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
+        try {
+            return SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
+        } finally {
+            ReleaseOneShotCheckResources()
+        }
     }
 
     private func SaveCheckResultCore(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int, hasDiagnostics: bool): bool {
@@ -347,12 +352,22 @@ class MultiFileCompiler {
 
         entries := new List<IncrementalInputEntry>()
         if capture != null {
-            capture.CaptureFileImports(_projectRoot, _compilationUnits)
             analyzer := _sharedAnalyzerValue
             if analyzer != null {
+                capture.CaptureFileImports(_projectRoot, _compilationUnits)
                 capture.CaptureMetadataInputs(analyzer.MetadataInputAssemblyPaths(), analyzer.MetadataSearchDirectories())
+                entries = capture.Entries
+                _checkStampEntries = entries
+            } else if storedEntries != null {
+                // Text-mode workspace checks first persist each member's result, then replace the
+                // owning member's cache output with the aggregate. Its analyzer has already been
+                // released, so preserve the complete inputs captured on the first save.
+                entries = storedEntries
+            } else {
+                capture.CaptureFileImports(_projectRoot, _compilationUnits)
+                entries = capture.Entries
+                _checkStampEntries = entries
             }
-            entries = capture.Entries
         } else {
             entries = storedEntries ?? new List<IncrementalInputEntry>()
         }
@@ -595,6 +610,7 @@ class MultiFileCompiler {
         }
         set {
             _incrementalState = value
+            _incrementalStateWasInjected = value != null
         }
     }
 
@@ -694,6 +710,7 @@ class MultiFileCompiler {
         _checkStateSeededFromStamp = false
         _persistedCheckPartial = false
         _incrementalState = null
+        _incrementalStateWasInjected = false
         _incrementalPlan = null
         _pendingRecords = new Dictionary<string, IncrementalFileRecord>(StringComparer.OrdinalIgnoreCase)
         _plannedTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -739,17 +756,21 @@ class MultiFileCompiler {
         return analyzer
     }
 
-    // A workspace `nlc check` has copied the completed diagnostics and systems report out of this
-    // one-shot compiler. Unlike a warm incremental compilation, it does not share its analyzer with
-    // a later request, so close the metadata context now instead of leaving one open per workspace
-    // member until the process exits.
-    internal func ReleaseWorkspaceCheckResources(): void {
-        if _incrementalState != null {
+    // One-shot check commands have copied their diagnostics and saved the check inputs. A warm
+    // workspace-server compilation owns its state beyond the command, so leave its analyzer attached.
+    // SaveCheckResult may run before aggregate workspace text is finalized; _checkStampEntries keeps
+    // the complete metadata inputs for that later save.
+    private func ReleaseOneShotCheckResources(): void {
+        if _incrementalStateWasInjected {
             return
         }
 
         analyzer := _sharedAnalyzerValue
         if analyzer != null {
+            state := _incrementalState
+            if state != null {
+                state.RetainedAnalyzer = null
+            }
             analyzer.Dispose()
             _sharedAnalyzerValue = null
         }
