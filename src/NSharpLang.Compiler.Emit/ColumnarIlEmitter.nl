@@ -96,10 +96,10 @@ sealed class ColumnarIlEmitter {
     private readonly _il: ILGenerator
     private readonly _modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger
     private readonly _codePlan: ColumnarCodePlan
-    // A raw type query can reach the same nested expression through the lifted-operator probe and
-    // the ordinary binary probe. Keep one memo for the duration of the outermost query so a
-    // left-associated expression is walked once instead of re-expanded at every parent.
-    private readonly _preflightRawTypeCache: Dictionary<int, (Success: bool, Type: Type?)>
+    // Successful string-concatenation nodes have a context-independent raw result. Memoize them
+    // within one outer query so a left-associated chain is walked once instead of re-expanded at
+    // every parent. Other raw queries can depend on scoped flow or receiver facts and stay uncached.
+    private readonly _preflightRawTypeCache: Dictionary<int, Type>
     private readonly _preflightRawTypeInProgress: HashSet<int>
     private _preflightRawTypeDepth: int
     private readonly _siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
@@ -568,7 +568,7 @@ sealed class ColumnarIlEmitter {
         _preserveNullableNode = -1
         _neverReturningCallStatements = new HashSet<int>()
         _codePlan = new ColumnarCodePlan()
-        _preflightRawTypeCache = new Dictionary<int, (Success: bool, Type: Type?)>()
+        _preflightRawTypeCache = new Dictionary<int, Type>()
         _preflightRawTypeInProgress = new HashSet<int>()
         _preflightRawTypeDepth = 0
         _locals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
@@ -23865,18 +23865,19 @@ sealed class ColumnarIlEmitter {
     private func TryGetPreflightExpressionTypeRaw(node: int, out columnarResolvedType: Type): bool {
         node = UnwrapParenthesizedNode(node)
         columnarResolvedType = null
+        memoizeStringConcat := _nodes.Kind(node) == ColumnarExpressionNodeKind.BinaryExpression && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "+"
         isRootWalk := _preflightRawTypeDepth == 0
         if (isRootWalk) {
             _preflightRawTypeCache.Clear()
             _preflightRawTypeInProgress.Clear()
         }
 
-        let cached: (Success: bool, Type: Type?) = (Success: false, Type: null)
-        if (_preflightRawTypeCache.TryGetValue(node, out cached)) {
-            columnarResolvedType = cached.Type
-            return cached.Success
+        let cachedType: System.Type? = null
+        if (memoizeStringConcat && _preflightRawTypeCache.TryGetValue(node, out cachedType) && cachedType != null) {
+            columnarResolvedType = cachedType
+            return true
         }
-        if (!_preflightRawTypeInProgress.Add(node)) {
+        if (memoizeStringConcat && !_preflightRawTypeInProgress.Add(node)) {
             return false
         }
 
@@ -23884,8 +23885,12 @@ sealed class ColumnarIlEmitter {
         let resolvedType: System.Type? = null
         success := TryGetPreflightExpressionTypeRawUncached(node, out resolvedType)
         _preflightRawTypeDepth--
-        _preflightRawTypeInProgress.Remove(node)
-        _preflightRawTypeCache[node] = (Success: success, Type: resolvedType)
+        if (memoizeStringConcat && success && resolvedType == typeof(string)) {
+            _preflightRawTypeCache[node] = resolvedType
+        }
+        if (memoizeStringConcat) {
+            _preflightRawTypeInProgress.Remove(node)
+        }
         columnarResolvedType = resolvedType
 
         if (isRootWalk) {
