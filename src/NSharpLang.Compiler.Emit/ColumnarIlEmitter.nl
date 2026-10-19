@@ -3488,6 +3488,30 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // Resolve a generic call's STATIC receiver only when its syntax denotes a type. The printed callee
+    // can contain an expression receiver (`Source.Mixed().OfType<string>`); passing that receiver text
+    // to the canonical type resolver treats call punctuation as type syntax and can throw before the
+    // ordinary expression receiver path gets a chance to type it.
+    private func TryGetExplicitGenericStaticOwnerCanonical(receiver: int, out canonical: string): bool {
+        canonical = ""
+        if (receiver < 0) {
+            return false
+        }
+        if (TryResolveGenericTypeReceiverCanonical(receiver, out canonical)) {
+            return true
+        }
+        let dottedTypeName: string? = null
+        if (TryClassifyDottedTypeNameReceiver(receiver, out dottedTypeName)) {
+            canonical = dottedTypeName ?? ""
+            return canonical.Length > 0
+        }
+        if (IsBareTypeNameReceiver(receiver)) {
+            canonical = ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+            return canonical.Length > 0
+        }
+        return false
+    }
+
     // The written type arguments of an explicit generic callee, resolved in the body's own scope.
     private func TryResolveWrittenTypeArguments(callee: int, expectedCount: int, out binding: Type[]): bool {
         binding = null
@@ -3739,12 +3763,16 @@ sealed class ColumnarIlEmitter {
         let writtenOwnerType: System.Type? = null
         let writtenOwnerDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
         let writtenOwnerArguments: System.Type[]? = null
-        if (TryResolveBodyType(receiverText, out writtenOwnerType) && TryGetClosedReceiverDef(writtenOwnerType, out writtenOwnerDef, out writtenOwnerArguments)) {
+        let staticOwnerCanonical: string = ""
+        if (!TryGetExplicitGenericStaticOwnerCanonical(expressionReceiverNode, out staticOwnerCanonical)) {
+            return false
+        }
+        if (TryResolveBodyType(staticOwnerCanonical, out writtenOwnerType) && TryGetClosedReceiverDef(writtenOwnerType, out writtenOwnerDef, out writtenOwnerArguments)) {
             staticOwner = writtenOwnerDef
             constructedStaticOwner = writtenOwnerType
             constructedStaticArguments = writtenOwnerArguments
         } else {
-            if (!_typeResolutionStructs.TryGetValue(receiverText, out staticOwner)) {
+            if (!_typeResolutionStructs.TryGetValue(staticOwnerCanonical, out staticOwner)) {
                 return false
             }
         }
@@ -3839,8 +3867,12 @@ sealed class ColumnarIlEmitter {
         if (_locals.ContainsKey(receiverText) || _liftedLocals.ContainsKey(receiverText) || _paramOrdinals.ContainsKey(receiverText)) {
             return false
         }
+        let staticOwnerCanonical: string = ""
+        if (!TryGetExplicitGenericStaticOwnerCanonical(expressionReceiverNode, out staticOwnerCanonical)) {
+            return false
+        }
         let ownerType: System.Type? = null
-        if (!TryResolveBodyType(receiverText, out ownerType) || ownerType == null) {
+        if (!TryResolveBodyType(staticOwnerCanonical, out ownerType) || ownerType == null) {
             return false
         }
         staticSelection := SelectExplicitGenericExternalCall(callIdx, ownerType, memberName, typeArguments, argCount, true)
@@ -18304,8 +18336,8 @@ sealed class ColumnarIlEmitter {
         if (scope == null || receiverNode < 0 || typeArgCount <= 0) {
             return false
         }
-        let staticReceiverTypeName: string? = null
-        let dottedTypeReceiver: bool = TryClassifyDottedTypeNameReceiver(receiverNode, out staticReceiverTypeName)
+        let staticOwnerCanonical: string = ""
+        let hasStaticTypeReceiver: bool = TryGetExplicitGenericStaticOwnerCanonical(receiverNode, out staticOwnerCanonical)
         let typeArguments: System.Type[]? = null
         if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out typeArguments)) {
             return false
@@ -18321,16 +18353,19 @@ sealed class ColumnarIlEmitter {
         // not be the ARGUMENT of any call that picks an overload from its arguments
         // (`Encoding.UTF8.GetBytes(JsonSerializer.Serialize<string[]>(d))`). The binding fence and the
         // selection are emission's own.
-        staticOwnerText := dottedTypeReceiver ? (staticReceiverTypeName ?? "") : ColumnarNodeTextFacts.Text(_nodes, _source, receiverNode)
+        staticOwnerText := hasStaticTypeReceiver ? staticOwnerCanonical : ""
         let staticOwnerType: System.Type? = null
-        if (staticOwnerText.Length > 0 && !ColumnarClosureBindingPlanner.IsVisibleBindingName(staticOwnerText, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames) && !_typeResolutionStructs.ContainsKey(staticOwnerText) && TryResolveBodyType(staticOwnerText, out staticOwnerType) && staticOwnerType != null && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(staticOwnerType)) {
+        // Only a type-name receiver gets text. An expression receiver such as `Source.Mixed()` can be
+        // a synthetic node with no source-value span, and its value is determined by the ordinary
+        // expression path below.
+        if (hasStaticTypeReceiver && !ColumnarClosureBindingPlanner.IsVisibleBindingName(staticOwnerText, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames) && !_typeResolutionStructs.ContainsKey(staticOwnerText) && TryResolveBodyType(staticOwnerText, out staticOwnerType) && staticOwnerType != null && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(staticOwnerType)) {
             staticSelection := SelectExplicitGenericExternalCall(callNode, staticOwnerType, member, typeArguments, argCount, true)
             if (staticSelection.IsSelected) {
                 columnarResolvedType = staticSelection.ReturnType
                 return columnarResolvedType != null
             }
         }
-        if (dottedTypeReceiver) {
+        if (hasStaticTypeReceiver) {
             return false
         }
         let receiverType: System.Type? = null
