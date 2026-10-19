@@ -1,5 +1,24 @@
 namespace Census.Nullability
 
+import System.Collections.Generic
+
+// These external types let the init-only regression exercise N#-emitted
+// `modreq(IsExternalInit)` signatures without adding a framework reference to
+// the native test project.
+class ExternalInitMeterOptions {
+    Name: string
+    init Scope: string
+
+    constructor(name: string) {
+        Name = name
+        Scope = ""
+    }
+}
+
+class ExternalInitInstrumentAdvice<T> {
+    init HistogramBucketBoundaries: IReadOnlyList<T>
+}
+
 // THE SIGNATURES `tests/native/census-external-nullability` REACHES FROM ANOTHER ASSEMBLY.
 //
 // Every position here states its nullability in source, and the emitter writes it into metadata as
