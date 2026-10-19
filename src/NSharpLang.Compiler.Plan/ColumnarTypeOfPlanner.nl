@@ -1285,15 +1285,12 @@ class ColumnarTypeOfPlanner {
         if IsClosedSourceGeneric(valueType) {
             return true
         }
-        // A CLOSED NON-GENERIC EXTERNAL STRUCT such as `Guid` or `DateTime` is an element like the same
-        // struct declared here: `stelem <type>` and `ldelem <type>` use the element handle, not a
-        // per-type opcode table. Tuples and source generics have their own owners above; arbitrary
-        // external generic structs and decimal remain outside this array-element surface. A by-ref-like
-        // struct may not be an element of anything.
+        // A small number of external structs have an explicit array-element contract. `Guid` is
+        // representable with the same element-handle opcodes as a source struct. The broader catalog
+        // value surface is not an array-element surface: DateTime and JSON value structs remain outside
+        // it, as do generic and by-ref-like structs.
         if IsValueTypeSafely(valueType) {
-            if (RuntimeTypeShapeFacts.IsByRefLike(valueType) || valueType.IsGenericType || valueType == typeof(decimal)) {
-                return false
-            }
+            return valueType == typeof(Guid) && IsSupportedCatalogType(valueType)
         }
         return IsSupportedCatalogType(valueType)
     }

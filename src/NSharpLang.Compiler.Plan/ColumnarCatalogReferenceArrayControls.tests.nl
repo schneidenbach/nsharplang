@@ -176,10 +176,11 @@ test "a tuple is an array's element type, and a foreign value-type generic still
     assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(System.Numerics.Vector<int>))
 }
 
-test "closed catalog structs are array elements while byref-like structs stay excluded" {
+test "Guid is an external struct array element while other value shapes stay excluded" {
     assert ColumnarTypeOfPlanner.IsSupportedElementType(typeof(Guid))
-    assert ColumnarTypeOfPlanner.IsSupportedElementType(typeof(DateTime))
     assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Guid[]))
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(DateTime))
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(System.Text.Json.JsonElement))
     assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(Span<int>))
     assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(System.Numerics.Vector<int>))
 }
