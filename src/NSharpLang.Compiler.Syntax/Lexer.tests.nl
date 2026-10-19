@@ -28,10 +28,10 @@ import System.Collections.Generic
 // deleted file could have left it off.
 //
 // HOW THE SUCCESSOR IS STRICTLY STRONGER. The deleted file SAMPLED the keyword table: sixteen
-// `[Fact]`s, one per keyword someone had once been burned by. This file CROSSES it. All 85
+// `[Fact]`s, one per keyword someone had once been burned by. This file CROSSES it. All 83
 // keywords are lexed, and each is proved to answer its own `TokenType`, its own text and nothing
-// else; all 85 are crossed through `KeywordTypeForText` and back through `KeywordTextForType`; all
-// 63 remaining `TokenType` members are proved to be reserved by NEITHER; and the two tables are
+// else; all 83 are crossed through `KeywordTypeForText` and back through `KeywordTextForType`; all
+// 65 remaining `TokenType` members are proved absent from the keyword table; and the two tables are
 // proved to partition the whole 148-member enum, so a keyword added to the lexer without a row
 // here fails the partition rather than passing unnoticed.
 //

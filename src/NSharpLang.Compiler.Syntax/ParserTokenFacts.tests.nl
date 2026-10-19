@@ -217,6 +217,9 @@ func ParserTokenAllTokenTypes(): TokenType[] {
 func ParserTokenCanStartExpressionSet(): TokenType[] {
     return [
         TokenType.Identifier,
+        TokenType.Out,
+        TokenType.Explicit,
+        TokenType.Partial,
         TokenType.IntLiteral,
         TokenType.FloatLiteral,
         TokenType.CharLiteral,
@@ -257,6 +260,9 @@ func ParserTokenCanStartExpressionSet(): TokenType[] {
 func ParserTokenIsExpressionStartSet(): TokenType[] {
     return [
         TokenType.Identifier,
+        TokenType.Out,
+        TokenType.Explicit,
+        TokenType.Partial,
         TokenType.IntLiteral,
         TokenType.FloatLiteral,
         TokenType.CharLiteral,
@@ -296,6 +302,9 @@ func ParserTokenIsExpressionStartSet(): TokenType[] {
 func ParserTokenIsCastOperandStartSet(): TokenType[] {
     return [
         TokenType.Identifier,
+        TokenType.Out,
+        TokenType.Explicit,
+        TokenType.Partial,
         TokenType.IntLiteral,
         TokenType.FloatLiteral,
         TokenType.CharLiteral,
@@ -750,8 +759,9 @@ func ParserTokenIsOperatorSet(): TokenType[] {
     ]
 }
 
-// The 27 that are neither: the seven literal kinds, the eleven delimiters, and the nine tokens the
-// lexer produces that are not code at all. `Test` is here because no lexer arm produces it.
+// The 29 that are neither: the identifier and six literal kinds, eleven delimiters, and eleven
+// special/control tokens. `Test` is here because no lexer arm produces it; `Type` and `File` remain
+// ordinal members even though their spellings are no longer reserved keywords.
 func ParserTokenNonCodeSet(): TokenType[] {
     return [
         TokenType.Identifier,
@@ -875,4 +885,45 @@ test "parser token facts make every assignment operator an operator" {
 
         index = index + 1
     }
+}
+
+test "expression continuation after a line break is driven by shared token facts" {
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.Arrow)
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.Plus)
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.ColonAssign)
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.AndKeyword)
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.NotKeyword)
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.Is)
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.Not)
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.BitwiseNot)
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.QuestionDot)
+    assert ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.QuestionBracket)
+    assert !ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.Identifier)
+    assert !ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.Func)
+    assert !ParserTokenFacts.ContinuesExpressionAfterLineBreak(TokenType.Increment)
+
+    assert ParserTokenFacts.ContinuesExpressionFromLineBreak(TokenType.Dot)
+    assert ParserTokenFacts.ContinuesExpressionFromLineBreak(TokenType.QuestionDot)
+    assert !ParserTokenFacts.ContinuesExpressionFromLineBreak(TokenType.Identifier)
+
+    assert ParserTokenFacts.ContinuesExpressionAcrossLineBreak(TokenType.Arrow, TokenType.StringLiteral)
+    assert ParserTokenFacts.ContinuesExpressionAcrossLineBreak(TokenType.Plus, TokenType.StringLiteral)
+    assert ParserTokenFacts.ContinuesExpressionAcrossLineBreak(TokenType.Identifier, TokenType.Dot)
+    assert !ParserTokenFacts.ContinuesExpressionAcrossLineBreak(TokenType.Identifier, TokenType.Func)
+}
+
+test "name-like reserved words derive from the lexer table without changing expression starts" {
+    all := ParserTokenAllTokenTypes()
+    index := 0
+    while index < all.Length {
+        tokenType := all[index]
+        isReserved := Lexer.IsReservedKeyword(tokenType)
+        assert ParserTokenFacts.IsNameLikeReservedWord(tokenType) == isReserved
+        index = index + 1
+    }
+}
+
+test "reserved name-binding lookahead does not mistake a conditional colon for a type annotation" {
+    assert ParserTokenFacts.IsReservedWordNameBindingStart(TokenType.Out, TokenType.ColonAssign)
+    assert !ParserTokenFacts.IsReservedWordNameBindingStart(TokenType.Null, TokenType.Colon)
 }

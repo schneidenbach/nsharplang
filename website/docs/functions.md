@@ -2169,6 +2169,11 @@ func getFullName(first: string, last: string): string =>
 func isEven(n: int): bool => n % 2 == 0
 ```
 
+An expression continues across a line break after `=>` or an operator that takes a right-hand side,
+or before a leading `.` or `?.`. The rule applies uniformly to top-level and local functions,
+methods, expression-bodied properties, and statement expressions; the continued line must remain
+part of the expression.
+
 A `void` expression body **performs** its expression rather than returning it, so the expression
 must itself produce nothing:
 
@@ -2240,8 +2245,7 @@ func report(values: List<int>, label: string): string {
 }
 ```
 
-The body ends where the expression ends, so it may continue on the next line, and a `static` local
-function may use one too.
+A `static` local function may use an expression body too.
 
 ### Async Local Functions
 

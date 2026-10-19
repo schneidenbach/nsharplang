@@ -134,8 +134,9 @@ class ConstructionState {
 // twice in its own voice (a case the union does not declare, a property the case does not declare)
 // and twice more through `AnalyzerMemberAccess`'s published rendering (an absent initializer member,
 // on the open type and on the constructed one), **NL321** (a sized array that also passes
-// constructor arguments), **NL402** twice (a SoA table constructed with the wrong argument count, or
-// with a name that is not `capacity`), **NL309** (a readonly field written by an initializer),
+// constructor arguments, or a C#-style array initializer), **NL402** twice (a SoA table
+// constructed with the wrong argument count, or with a name that is not `capacity`), **NL309**
+// (a readonly field written by an initializer),
 // **NL301** twice for SoA table initializer shapes and once for a SoA table member written directly,
 // and **NL202** four times — a non-`int` array length, an element that does not fit its array or
 // collection target, and the two initializer-value mismatches this owner exists to catch.
@@ -1447,6 +1448,7 @@ class AnalyzerConstruction {
     // escape on the length is a MORE useful diagnostic than the generic mismatch, so it suppresses it
     // — and the two escape questions short-circuit exactly as the C#'s `||` did.
     func NextArrayLengthStep(state: ConstructionState, node: NewExpression): ConstructionRequest? {
+        ReportArrayInitializerIfNeeded(node)
         if node.ArrayLengthExpression == null {
             return null
         }
@@ -1462,6 +1464,26 @@ class AnalyzerConstruction {
 
         state.Phase = 2
         return new ConstructionRequest(1, node.ArrayLengthExpression, null)
+    }
+
+    // `new byte[] { 1, 2 }` AND `new byte[2] { 1, 2 }` — C#'s array initializer. N# has no such form: an
+    // array's elements are written as the list literal `[1, 2]`, and `new T[n]` allocates `n` zeroed
+    // ones. The parser accepts the braces as a collection initializer, and the backend then declines
+    // the WHOLE enclosing function without saying which construct it refused, so the refusal is
+    // made here, on the `{` that opens the initializer. A `new` of any other type keeps its braces.
+    func ReportArrayInitializerIfNeeded(node: NewExpression) {
+        initializer := node.Initializer
+        if initializer == null {
+            return
+        }
+
+        arrayType := node.Type as ArrayTypeReference
+        isArrayCreation := node.ArrayLengthExpression != null || arrayType != null
+        if !isArrayCreation {
+            return
+        }
+
+        diagnosticsValue.Report(ErrorCode.InvalidSizedArrayConstructorArguments, "N# has no array initializer syntax; write the elements as a list, '[1, 2]'", initializer.Line, initializer.Column, "'new T[] { ... }' is C# syntax. Write the elements as a list — 'values := [1, 2]' — or use 'new T[n]' for a zero-initialized array of length n.", 1)
     }
 
     func ArrayLengthAnswered(state: ConstructionState, lengthType: TypeInfo) {
