@@ -1135,6 +1135,18 @@ test "combined normal and expanded candidates compare conversions before params 
     assert Convert.ToString(builtArrayRuntimeValue) == "m+n", "the normal-form array control retains its runtime result"
 }
 
+test "combined generic inference declines external assignability for an unbaked source shape" {
+    sourceTag := TypeOfCreateBuilder("GenericMethodJoinTag", "ColumnarRuntimeGenericMethodTests.GenericJoinTag", 0)
+    listDefinition := typeof(List<int>).GetGenericTypeDefinition()
+    listOfSourceTag := listDefinition.MakeGenericType(GenericMethodTypes1(sourceTag))
+    argumentTypes := GenericMethodTypes2(typeof(string), listOfSourceTag)
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+    owner := typeof(string)
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
+    combined := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Join", argumentTypes, facts, true, candidates)
+    assert combined.IsSelected, "the source List<T> shape supplies a unique IEnumerable<T> bound without reflection assignability"
+}
+
 test "repeated generic parameters accumulate lower bounds and preserve invariant conflicts" {
     enumerableObject := typeof(IEnumerable<object>)
     containsArguments := new Type[](2)

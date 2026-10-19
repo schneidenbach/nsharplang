@@ -1609,6 +1609,15 @@ class ColumnarSourceDirectCallResolver {
     // arm above already asked, so nothing is lost by refusing the metadata question here — the same
     // rule the built-in reference flow states one branch up.
     static func HasExternalImplicitConversion(actualType: Type, expectedType: Type): bool {
+        // A constructed runtime type that contains an unbaked source declaration is not safe to
+        // hand to reflection's assignability walk: TypeBuilderInstantiation.GetInterfaces throws.
+        // Source-declared conversions have already been checked against the compilation registry,
+        // and built-in reference flow has its own structural path, so external operator discovery
+        // cannot add a valid answer for this shape.
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(actualType) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(expectedType) {
+            return false
+        }
+
         if ColumnarReferenceConversionFacts.IsDynamicDeclarationType(actualType) {
             return false
         }
