@@ -219,7 +219,7 @@ class AnalyzerIdentifierResolution {
         }
 
         resolved: TypeInfo = BuiltInTypes.Unknown
-        if TryResolveBindingTarget(name, line, column, out resolved, out source, out namesType, reportMissingAsFunction, checkMemberFunctionAmbiguity) {
+        if TryResolveBindingTarget(name, line, column, out resolved, out source, out namesType, reportMissingAsFunction, checkMemberFunctionAmbiguity, typeArgumentCount) {
             if node == null || !IsErrorTupleResultUseSuppressed(node) {
                 ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
             }
@@ -343,6 +343,10 @@ class AnalyzerIdentifierResolution {
     // `protected` is in scope here exactly as a source base's is.
     private func ResolveEnclosingMember(currentType: TypeInfo, name: string): TypeInfo {
         return memberResolutionValue.ResolveMember(currentType, name, true, ambientValue.CurrentTypeName, false, true)
+    }
+
+    private func ResolveEnclosingMemberForGenericCall(currentType: TypeInfo, name: string, writtenTypeArgumentCount: int): TypeInfo {
+        return memberResolutionValue.ResolveMember(currentType, name, true, ambientValue.CurrentTypeName, false, true, writtenTypeArgumentCount)
     }
 
     // Whether an enclosing member is the provisional binding after `ReportMemberFunctionAmbiguityIfNeeded`
@@ -502,6 +506,10 @@ class AnalyzerIdentifierResolution {
     }
 
     private func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource, out namesType: bool, preferProjectFunctions: bool, checkMemberFunctionAmbiguity: bool): bool {
+        return TryResolveBindingTarget(name, line, column, out resolvedType, out source, out namesType, preferProjectFunctions, checkMemberFunctionAmbiguity, 0)
+    }
+
+    private func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource, out namesType: bool, preferProjectFunctions: bool, checkMemberFunctionAmbiguity: bool, writtenTypeArgumentCount: int): bool {
         source = BareNameSource.Other
         namesType = false
         // 1. Local symbols first, then local types. A symbol declared OUTSIDE the enclosing type — the
@@ -525,16 +533,19 @@ class AnalyzerIdentifierResolution {
             }
 
             resolvedType = AugmentSameNamespaceFreeFunctionOverloads(name, scopeBinding)
-            if symbolScopeIndex >= 0 && symbolScopeIndex == typeScopeIndex {
-                source = BareNameSource.Member
-                if checkMemberFunctionAmbiguity && ReportMemberFunctionAmbiguityIfNeeded(name, line, column, scopesValue.CurrentTypeScope(), resolvedType, preferProjectFunctions) {
-                    resolvedType = BuiltInTypes.Unknown
+            skipSourceGroupForInheritedArity := symbolScopeIndex >= 0 && symbolScopeIndex == typeScopeIndex && writtenTypeArgumentCount > 0 && AnalyzerCallableReferenceFacts.IsInvocableMemberType(resolvedType) && !AnalyzerMemberResolution.MethodGroupHasArity(resolvedType, writtenTypeArgumentCount)
+            if !skipSourceGroupForInheritedArity {
+                if symbolScopeIndex >= 0 && symbolScopeIndex == typeScopeIndex {
+                    source = BareNameSource.Member
+                    if checkMemberFunctionAmbiguity && ReportMemberFunctionAmbiguityIfNeeded(name, line, column, scopesValue.CurrentTypeScope(), resolvedType, preferProjectFunctions) {
+                        resolvedType = BuiltInTypes.Unknown
+                    }
+                } else if symbolScopeIndex >= 0 {
+                    source = BareNameSource.Value
                 }
-            } else if symbolScopeIndex >= 0 {
-                source = BareNameSource.Value
-            }
 
-            return true
+                return true
+            }
         }
 
         // 2. The enclosing type's members, static ones included.
@@ -546,7 +557,7 @@ class AnalyzerIdentifierResolution {
         // base declares has no source position and records nothing.
         currentType := scopesValue.CurrentTypeScope()
         if currentType != null {
-            memberType := ResolveEnclosingMember(currentType, name)
+            memberType := ResolveEnclosingMemberForGenericCall(currentType, name, writtenTypeArgumentCount)
             if !BuiltInTypes.IsUnknown(memberType) {
                 if preferProjectFunctions && !AnalyzerCallableReferenceFacts.IsInvocableMemberType(memberType) {
                     freeFunction: TypeInfo = BuiltInTypes.Unknown

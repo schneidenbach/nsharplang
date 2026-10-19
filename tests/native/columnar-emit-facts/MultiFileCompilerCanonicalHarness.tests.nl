@@ -890,49 +890,18 @@ class Dice: Random {
     assert trace.Contains("decline site=emit.", StringComparison.Ordinal), trace
 }
 
-// A source method of the same NAME hides the inherited ones, at every arity: N# does not fall through to
-// the base's overloads the way C# overload resolution does, so writing type arguments against a name
-// the subclass also declares is refused by the analyzer as a call on a non-generic method.
-test "a same-named source method hides an inherited generic method" {
-    captured := EmitterCanonicalCompileWithDeclineLog(
-        "InheritedGenericHidden",
-        "library",
+test "a derived method with another generic arity leaves inherited generic lookup available" {
+    EmitterCanonicalAssertProgramTrimmed(
+        "InheritedGenericArityLookup",
         """
 import System
 
-class Reshuffler: Random {
-    func Shuffle(times: int): int {
-        return times
-    }
-
-    func Run(items: int[]) {
-        Shuffle<int>(items)
-    }
-}
-"""
-    )
-    try {
-        assert !captured.Compilation.Succeeded
-        assert EmitterCanonicalDiagnostics(captured.Compilation).Contains("is not generic", StringComparison.Ordinal), EmitterCanonicalDiagnostics(captured.Compilation)
-    } finally {
-        EmitterCanonicalCleanup(captured.Compilation)
-    }
-}
-
-// The exact arity mismatch in the DbContext report: a derived non-generic Set(int) sits beside the
-// inherited generic Set<T>(), then the call writes Set<Person>(). The generic call must not bind a
-// different source overload based only on its name.
-test "a derived Set int method does not resolve the inherited Set Person call" {
-    captured := EmitterCanonicalCompileWithDeclineLog(
-        "InheritedSetHiddenByArity",
-        "library",
-        """
 class Person {
 }
 
 class ContextBase {
     public func Set<T>(): int {
-        return 1
+        return 31
     }
 }
 
@@ -945,20 +914,20 @@ class DerivedContext: ContextBase {
         return Set<Person>()
     }
 }
-"""
+
+func main() {
+    context := new DerivedContext()
+    print context.ReadPeople().ToString()
+    print context.Set(9).ToString()
+}
+""",
+        "31\n9"
     )
-    try {
-        assert !captured.Compilation.Succeeded
-        assert EmitterCanonicalDiagnostics(captured.Compilation).Contains("is not generic", StringComparison.Ordinal), EmitterCanonicalDiagnostics(captured.Compilation)
-    } finally {
-        EmitterCanonicalCleanup(captured.Compilation)
-    }
 }
 
-test "a source method hides an external inherited generic method at another arity" {
-    captured := EmitterCanonicalCompileWithDeclineLog(
-        "ExternalGenericHiddenByArity",
-        "library",
+test "a derived overload at another arity leaves inherited List.ConvertAll available" {
+    EmitterCanonicalAssertProgramTrimmed(
+        "ExternalGenericArityLookup",
         """
 import System
 import System.Collections.Generic
@@ -973,46 +942,21 @@ class Names: List<string> {
         return ConvertAll<int>(measure).Count
     }
 }
-"""
-    )
-    try {
-        diagnostics := EmitterCanonicalDiagnostics(captured.Compilation)
-        assert !captured.Compilation.Succeeded, diagnostics
-        namesTheHiddenMember := diagnostics.Contains("ConvertAll", StringComparison.Ordinal) ||
-            captured.DeclineTrace.Contains("ConvertAll", StringComparison.Ordinal)
-        assert namesTheHiddenMember, diagnostics + captured.DeclineTrace
-    } finally {
-        EmitterCanonicalCleanup(captured.Compilation)
-    }
-}
 
-test "a source method hides an external inherited generic method through a receiver" {
-    captured := EmitterCanonicalCompileWithDeclineLog(
-        "ExternalGenericReceiverHiddenByArity",
-        "library",
-        """
-import System
-import System.Collections.Generic
-
-class Names: List<string> {
-    public func ConvertAll(count: int): int {
-        return count
-    }
-}
-
-func Lengths(names: Names): int {
+func ReadLengths(names: Names): int {
     measure: Converter<string, int> = value => value.Length
     return names.ConvertAll<int>(measure).Count
 }
-"""
+
+func main() {
+    names := new Names()
+    names.Add("a")
+    names.Add("long")
+    print names.Lengths().ToString()
+    print ReadLengths(names).ToString()
+    print names.ConvertAll(9).ToString()
+}
+""",
+        "2\n2\n9"
     )
-    try {
-        diagnostics := EmitterCanonicalDiagnostics(captured.Compilation)
-        assert !captured.Compilation.Succeeded, diagnostics
-        namesTheHiddenMember := diagnostics.Contains("ConvertAll", StringComparison.Ordinal) ||
-            captured.DeclineTrace.Contains("ConvertAll", StringComparison.Ordinal)
-        assert namesTheHiddenMember, diagnostics + captured.DeclineTrace
-    } finally {
-        EmitterCanonicalCleanup(captured.Compilation)
-    }
 }

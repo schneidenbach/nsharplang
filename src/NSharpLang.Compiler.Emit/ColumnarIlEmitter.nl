@@ -3832,7 +3832,7 @@ sealed class ColumnarIlEmitter {
         if (TryGetNamedValueBindingType(receiverText, out receiverType) && receiverType != null) {
             instanceSelection := SelectExplicitGenericExternalCall(callIdx, receiverType, memberName, typeArguments, argCount, false)
             if (!instanceSelection.IsSelected) {
-                if (SourceInstanceDeclarationOnReceiver(receiverType, memberName)) {
+                if (SourceInstanceDeclarationOnReceiver(receiverType, memberName, typeArgCount)) {
                     return false
                 }
                 // The member may be one the receiver INHERITS from a base this compilation did not
@@ -3867,7 +3867,7 @@ sealed class ColumnarIlEmitter {
             if (TryGetPreflightExpressionType(expressionReceiverNode, out expressionReceiverType) && expressionReceiverType != null && !expressionReceiverType.IsValueType && ColumnarTypeOfPlanner.IsSupportedType(expressionReceiverType)) {
                 expressionSelection := SelectExplicitGenericExternalCall(callIdx, expressionReceiverType, memberName, typeArguments, argCount, false)
                 if (!expressionSelection.IsSelected) {
-                    if (SourceInstanceDeclarationOnReceiver(expressionReceiverType, memberName)) {
+                    if (SourceInstanceDeclarationOnReceiver(expressionReceiverType, memberName, typeArgCount)) {
                         return false
                     }
                     // The member may be INHERITED from an external base, as the named receiver above
@@ -3923,10 +3923,10 @@ sealed class ColumnarIlEmitter {
         if (member.Length == 0 || member.IndexOf('.') >= 0) {
             return false
         }
-        // A source declaration with this name owns the lookup even when it cannot take the written
-        // type arguments. Do not fall through to a same-named generic method on the external base;
-        // this is the same hiding boundary the source direct-call resolver uses for extension lookup.
-        if (_currentStruct != null && SourceInstanceDeclarationOnReceiver(_currentStruct.Builder, member)) {
+        // Source members of another generic arity are not candidates for this call. Preserve the
+        // external-base path when the source hierarchy only declares (for example) `Set(int)` and
+        // the written call is `Set<Person>()`.
+        if (_currentStruct != null && SourceInstanceDeclarationOnReceiver(_currentStruct.Builder, member, typeArgCount)) {
             return false
         }
         argCount := _nodes.ChildCount(callIdx) - 1
@@ -3956,10 +3956,9 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
-    // Whether a source receiver or one of its source bases already declares this instance method
-    // name. The external-base fallback is available only when the source hierarchy leaves the name
-    // open; otherwise a non-generic declaration at another arity must not leak through reflection.
-    private func SourceInstanceDeclarationOnReceiver(receiverType: Type, memberName: string): bool {
+    // Whether a source receiver or one of its source bases declares this instance method at the
+    // written generic arity. Source declarations of another arity do not hide inherited candidates.
+    private func SourceInstanceDeclarationOnReceiver(receiverType: Type, memberName: string, genericArity: int): bool {
         if (receiverType == null || memberName == null || memberName.Length == 0) {
             return false
         }
@@ -3975,7 +3974,7 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        return sourceDefinition != null && ColumnarSourceDirectCallResolver.HasInstanceDeclaration(sourceDefinition, memberName)
+        return sourceDefinition != null && ColumnarSourceDirectCallResolver.HasInstanceDeclarationAtGenericArity(sourceDefinition, memberName, genericArity)
     }
 
     // The member this call site selects. A site whose arguments all type ahead of emission gets

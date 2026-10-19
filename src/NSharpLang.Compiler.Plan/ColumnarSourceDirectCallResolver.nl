@@ -200,6 +200,19 @@ class ColumnarSourceDirectCallResolver {
         return HasInstanceDeclarationInChain(root, memberName, argumentCount)
     }
 
+    // Explicit generic lookup asks whether the source hierarchy declares this name at the WRITTEN
+    // generic arity. A non-generic `Set(int)` does not hide an inherited `Set<T>()` from
+    // `Set<Person>()`; the member lookup filters candidates by method arity before overload binding.
+    static func HasInstanceDeclarationAtGenericArity(root: ColumnarStructDef, memberName: string, genericArity: int): bool {
+        ValidateDeclarationQuery(root, memberName, 0)
+        ValidateDefinitionGraph(root)
+        if memberName.Length == 0 || genericArity < 0 {
+            return false
+        }
+
+        return HasInstanceDeclarationAtGenericArityInChain(root, memberName, genericArity)
+    }
+
     // Extension fallback remains available only when the source hierarchy has no declaration
     // with this name. A same-named source declaration at another arity still owns the lookup
     // tier and must not leak into runtime/extension binding.
@@ -889,6 +902,39 @@ class ColumnarSourceDirectCallResolver {
         baseDefinition := current.BaseDef
         if baseDefinition != null {
             return HasInstanceDeclarationInChain(baseDefinition, memberName)
+        }
+
+        return false
+    }
+
+    static func HasInstanceDeclarationAtGenericArityInChain(current: ColumnarStructDef, memberName: string, genericArity: int): bool {
+        overloads := new List<ColumnarInstanceMethodDef>()
+        if current.MethodOverloads.TryGetValue(memberName, out overloads) {
+            if overloads == null {
+                throw new InvalidOperationException("Source instance-method overload facts cannot be null.")
+            }
+
+            for candidate in overloads {
+                ValidateInstanceMethodFact(current, memberName, candidate)
+                generics := candidate.Generics
+                candidateArity := generics == null ? 0 : generics.TypeParams.Length
+                if candidateArity == genericArity {
+                    return true
+                }
+            }
+        }
+
+        if current.IsInterface {
+            for interfaceBase2 in current.InterfaceBases {
+                if HasInstanceDeclarationAtGenericArityInChain(interfaceBase2, memberName, genericArity) {
+                    return true
+                }
+            }
+        }
+
+        baseDefinition := current.BaseDef
+        if baseDefinition != null {
+            return HasInstanceDeclarationAtGenericArityInChain(baseDefinition, memberName, genericArity)
         }
 
         return false

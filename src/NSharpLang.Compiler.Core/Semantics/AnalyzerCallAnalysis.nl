@@ -1756,7 +1756,8 @@ class AnalyzerCallAnalysis {
             return null
         }
 
-        state.CalleeFrame = ambient.EnterCallCallee(call.Callee)
+        writtenTypeArgumentCount := call.TypeArguments == null ? 0 : call.TypeArguments.Count
+        state.CalleeFrame = ambient.EnterCallCallee(call.Callee, writtenTypeArgumentCount)
         state.Pending = 2
         request := new CallAnalysisRequest(6)
         request.Node = call.Callee

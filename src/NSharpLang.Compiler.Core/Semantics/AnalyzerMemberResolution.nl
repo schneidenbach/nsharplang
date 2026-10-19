@@ -168,11 +168,11 @@ class AnalyzerMemberResolution {
     // WHAT A MEMBER NAME RESOLVES TO, read as a VALUE. Every caller that is not the callee of a call
     // asks this question.
     func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?): TypeInfo {
-        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, false, false)
+        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, false, false, 0)
     }
 
     func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool): TypeInfo {
-        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, false)
+        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, false, 0)
     }
 
     // WHAT A MEMBER NAME RESOLVES TO. `unknown` is the "no such member" answer; every arm that can
@@ -199,6 +199,13 @@ class AnalyzerMemberResolution {
     // combinations, never `private`, and never `assembly`, because the member lives in another
     // assembly and N# models no `InternalsVisibleTo`.
     func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool, inheritedProtectedAccess: bool): TypeInfo {
+        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, 0)
+    }
+
+    // An explicit generic invocation filters each source type's declared method group by arity before
+    // deciding whether that declaration hides the inherited group. Zero means that no explicit
+    // arity was supplied and keeps the ordinary member read unchanged.
+    func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool, inheritedProtectedAccess: bool, writtenTypeArgumentCount: int): TypeInfo {
         current: TypeInfo = objectType
 
         oblivious := current as ObliviousTypeInfo
@@ -497,7 +504,9 @@ class AnalyzerMemberResolution {
 
             declaredFunctionMember := ResolveDeclaredFunctionMember(sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, sourceShape.Owner)
             if declaredFunctionMember != null {
-                return declaredFunctionMember
+                if writtenTypeArgumentCount == 0 || MethodGroupHasArity(declaredFunctionMember, writtenTypeArgumentCount) {
+                    return declaredFunctionMember
+                }
             }
 
             if !includeStaticMembers && sourceShape.SupportsPrimaryParameters {
@@ -648,6 +657,55 @@ class AnalyzerMemberResolution {
         }
 
         return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
+    }
+
+    static func MethodGroupHasArity(member: TypeInfo, arity: int): bool {
+        function := member as FunctionTypeInfo
+        if function != null {
+            return FunctionHasArity(function, arity)
+        }
+
+        sourceGroup := member as NSharpMethodGroupInfo
+        if sourceGroup != null {
+            for candidate in NSharpMethodGroupInfoFactory.GetFunctions(sourceGroup) {
+                if FunctionHasArity(candidate, arity) {
+                    return true
+                }
+            }
+        }
+
+        reflectedMethod := member as ReflectionMethodInfo
+        if reflectedMethod != null {
+            return ReflectionMethodHasArity(reflectedMethod.Method, arity)
+        }
+
+        reflectedGroup := member as ReflectionMethodGroupInfo
+        if reflectedGroup != null {
+            for candidate in reflectedGroup.Methods {
+                if ReflectionMethodHasArity(candidate, arity) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    static func FunctionHasArity(function: FunctionTypeInfo, arity: int): bool {
+        if function == null || arity < 0 {
+            return false
+        }
+        return (function.TypeParameters?.Count ?? 0) == arity
+    }
+
+    static func ReflectionMethodHasArity(method: MethodInfo, arity: int): bool {
+        if method == null || arity < 0 {
+            return false
+        }
+        if !method.IsGenericMethodDefinition {
+            return arity == 0
+        }
+        return method.GetGenericArguments().Length == arity
     }
 
     // THE WORD A DIAGNOSTIC USES FOR A VALUE MEMBER — `field`, `property`, `event`, `constructor
