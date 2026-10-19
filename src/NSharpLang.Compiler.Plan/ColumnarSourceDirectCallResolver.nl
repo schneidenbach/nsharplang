@@ -1114,15 +1114,58 @@ class ColumnarSourceDirectCallResolver {
             actualType := actual[index]
             index += 1
 
-            verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
-                RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(leftType, actualType),
-                RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(rightType, actualType),
-                ArgumentFlowScore(rightType, leftType, argumentFacts.SourceTypeDefinitions) >= 0,
-                ArgumentFlowScore(leftType, rightType, argumentFacts.SourceTypeDefinitions) >= 0
-            ))
+            leftIdentity := RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(leftType, actualType)
+            rightIdentity := RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(rightType, actualType)
+            comparison := 0
+            if !argumentFacts.IsNullLiteral[index - 1] {
+                leftQuality := ImplicitConversionQuality(actualType, leftType, argumentFacts.SourceTypeDefinitions)
+                rightQuality := ImplicitConversionQuality(actualType, rightType, argumentFacts.SourceTypeDefinitions)
+                if leftQuality >= 0 && rightQuality >= 0 && leftQuality != rightQuality {
+                    comparison = leftQuality < rightQuality ? AnalyzerOverloadSpecificity.LeftIsBetter : AnalyzerOverloadSpecificity.RightIsBetter
+                }
+            }
+            if comparison == 0 {
+                comparison = AnalyzerOverloadSpecificity.CompareConversionTargets(
+                    leftIdentity,
+                    rightIdentity,
+                    ArgumentFlowScore(rightType, leftType, argumentFacts.SourceTypeDefinitions) >= 0,
+                    ArgumentFlowScore(leftType, rightType, argumentFacts.SourceTypeDefinitions) >= 0
+                )
+            }
+            verdicts.Add(comparison)
         }
 
         return AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
+    }
+
+    // Better-conversion-from-expression first prefers an identity conversion, then compares the
+    // conversion kinds before falling back to better-conversion-target. In particular, a standard
+    // reference conversion beats a user-defined conversion even when their target types are
+    // otherwise unrelated (`Task<int>[]` to `IEnumerable<Task<int>>` beats the operator conversion
+    // to `ReadOnlySpan<Task>`). The numeric score used for applicability intentionally merges these
+    // categories, so overload ranking needs this separate semantic classification.
+    static func ImplicitConversionQuality(actualType: Type, expectedType: Type, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): int {
+        if actualType == null || expectedType == null || sourceTypeDefinitions == null {
+            return -1
+        }
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualType, expectedType) {
+            return 0
+        }
+        if actualType.IsByRef || expectedType.IsByRef {
+            return -1
+        }
+        if IsImplicitNumericFlow(actualType, expectedType) || ColumnarNullableArgumentLowering.CanLiftValue(actualType, expectedType) || ColumnarDirectCallConstructedConversions.CanConvert(expectedType, actualType) {
+            return 1
+        }
+        referenceFlow := ColumnarDirectCallArgumentFlow.None
+        if TryClassifyBuiltInReferenceFlow(expectedType, actualType, sourceTypeDefinitions, out referenceFlow) {
+            return 1
+        }
+        sourceConversion := ColumnarSourceImplicitConversionResolver.ResolveExact(actualType, expectedType, sourceTypeDefinitions)
+        if sourceConversion.IsSelected || HasExternalImplicitConversion(actualType, expectedType) {
+            return 2
+        }
+        return -1
     }
 
     static func ArgumentsScore(expected: Type[], actual: Type[]): int {

@@ -2657,8 +2657,9 @@ parameter types. For extension calls, the reduced receiver is argument zero and 
 candidate's `this` parameter participates in the same comparison as every written argument. If the
 receiver and an explicit argument favor different candidates, they are incomparable; an aggregate
 conversion score cannot decide between them. A strictly better parameter list wins. When effective
-parameter types and applicable parameter counts tie, the non-generic method wins. Incomparable lists,
-or several equally best candidates within either family, remain ambiguous. Optional candidates with
+parameter types and applicable parameter counts tie, the non-generic method wins. All applicable generic
+and non-generic candidates are compared together: incomparable candidates remain ambiguous only when no
+other candidate is better than each of them. Optional candidates with
 identical supplied parameter types but different numbers of declared parameters also remain ambiguous,
 matching C#'s optional-parameter tie-break. Runtime-value coverage checks that `Task.WhenAll(first, second)`
 over two `Task<int>` values returns `Task<int[]>`, that `WhenAny` keeps its typed result, that

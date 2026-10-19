@@ -4097,14 +4097,18 @@ sealed class ColumnarIlEmitter {
             }
         }
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argCount)
+        runtimeCandidates := new MethodInfo[](0)
         if (allArgumentsTyped) {
-            scored := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(lookupType, member, argumentTypes, argumentFacts, expectedStatic)
-            // Generic definitions are excluded from the ordinary score set until their arguments are
-            // inferred. Compare both viable sets here, including when the non-generic arity lookup
-            // found exactly one declaration: `Array.IndexOf(ints, 3)` takes
-            // `IndexOf<int>(int[], int)` over `IndexOf(Array, object)` by parameter specificity.
-            generic := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, member, argumentTypes, argumentFacts, expectedStatic)
-            normal := ColumnarRuntimeGenericMethodResolver.BetterSelection(scored, generic, argumentTypes, argumentFacts)
+            scored := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithCandidateMethods(lookupType, member, argumentTypes, argumentFacts, expectedStatic, out runtimeCandidates)
+            // Compare every closed generic and non-generic candidate together. A family-level
+            // ambiguity does not survive when a third candidate is better than every member of it.
+            normal := scored
+            if runtimeCandidates.Length > 0 {
+                normal = ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(lookupType, member, argumentTypes, argumentFacts, expectedStatic, runtimeCandidates)
+            }
+            if (normal.IsAmbiguous) {
+                return normal
+            }
             if (normal.IsSelected) {
                 return normal
             }
@@ -4142,15 +4146,15 @@ sealed class ColumnarIlEmitter {
         // THE LAST TIER: A `params` TAIL PACKED AT THE CALL SITE. It runs after every tier above,
         // each of which binds a candidate applicable in its NORMAL form.
         if (allArgumentsTyped) {
-            // The generic definition's packed form competes with the non-generic one by
-            // better-function-member rules: `Task.WhenAll(first, second)` over two `Task<int>` is
-            // `WhenAll<int>`.
-            expanded := ColumnarRuntimeGenericMethodResolver.BetterSelection(
-                ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(lookupType, member, argumentTypes, argumentFacts, expectedStatic),
-                ColumnarRuntimeGenericMethodResolver.ResolveExpanded(lookupType, member, argumentTypes, argumentFacts, expectedStatic),
-                argumentTypes,
-                argumentFacts
-            )
+            expanded := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(lookupType, member, argumentTypes, argumentFacts, expectedStatic)
+            if runtimeCandidates.Length > 0 {
+                combinedExpanded := ColumnarRuntimeGenericMethodResolver.ResolveCombinedExpandedWithMethodCandidates(lookupType, member, argumentTypes, argumentFacts, expectedStatic, runtimeCandidates)
+                if (combinedExpanded.IsSelected || combinedExpanded.IsAmbiguous) {
+                    expanded = combinedExpanded
+                }
+            }
+            // `Task.WhenAll(first, second)` over two `Task<int>` values is one member set: the
+            // inference-closed `WhenAll<int>` beats the broader `WhenAll(Task[])`.
             if (expanded.IsSelected) {
                 return expanded
             }
@@ -4244,7 +4248,22 @@ sealed class ColumnarIlEmitter {
         if (parameters == null) {
             return false
         }
-        return CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes, ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters))
+        modifierKinds := ColumnarOrdinaryRuntimeDirectCallResolver.ReflectedModifierKinds(parameters)
+        if (selection.IsOptionalFill) {
+            writtenCount := selection.FixedArgumentCount
+            if (_nodes.ChildCount(callIdx) - 1 != writtenCount || parameters.Length != selection.ParameterTypes.Length || !ColumnarOrdinaryRuntimeDirectCallResolver.OptionalTailFillable(parameters, selection.ParameterTypes, writtenCount)) {
+                return false
+            }
+            leadingTypes := ColumnarOrdinaryRuntimeDirectCallResolver.LeadingParameterTypes(selection.ParameterTypes, writtenCount)
+            leadingModifiers := new int[](writtenCount)
+            for index := 0; index < writtenCount; index++ {
+                if (index < modifierKinds.Length) {
+                    leadingModifiers[index] = modifierKinds[index]
+                }
+            }
+            return CanEmitOrdinaryRuntimeCallArguments(callIdx, leadingTypes, leadingModifiers)
+        }
+        return CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes, modifierKinds)
     }
 
     private func CanEmitOrdinaryRuntimeCallArguments(callIdx: int, parameterTypes: Type[], modifierKinds: int[]): bool {
@@ -4282,7 +4301,8 @@ sealed class ColumnarIlEmitter {
         // to right, which is where a C# call site evaluates them too.
         elementType := selection.ExpandedElementType
         fixedCount := selection.FixedArgumentCount
-        for a := 0; a < parameterTypes.Length; a++ {
+        writtenArgumentCount := selection.IsOptionalFill ? selection.FixedArgumentCount : parameterTypes.Length
+        for a := 0; a < writtenArgumentCount; a++ {
             if (elementType != null && a == fixedCount) {
                 ColumnarParamsExpansion.EmitArrayHeader(_il, elementType, parameterTypes.Length - fixedCount)
             }
@@ -4301,6 +4321,15 @@ sealed class ColumnarIlEmitter {
         // the `params` overload hands over a zero-length `object[]`.
         if (elementType != null && parameterTypes.Length == fixedCount) {
             ColumnarParamsExpansion.EmitArrayHeader(_il, elementType, 0)
+        }
+        if (selection.IsOptionalFill) {
+            filled := selection.FixedArgumentCount
+            while (filled < parameterTypes.Length) {
+                if (!ColumnarExtensionMethodResolver.TryEmitOptionalDefault(_il, optionalParameters[filled], parameterTypes[filled])) {
+                    return false
+                }
+                filled += 1
+            }
         }
         ordinaryCallOpcode := match selection.UsesCallVirtual {
             true => OpCodes.Callvirt,

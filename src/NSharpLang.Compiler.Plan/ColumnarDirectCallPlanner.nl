@@ -2981,21 +2981,16 @@ class ColumnarDirectCallPlanner {
 
             runtimeCandidates := new MethodInfo[](0)
             ordinary := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithCandidateMethods(lookupType, memberName, argumentTypes, argumentFacts, true, out runtimeCandidates)
-            genericCandidates := new MethodInfo[](0)
-            if runtimeCandidates.Length > 0 && ShouldCompareRuntimeGenericCandidates(nodes, ordinary.IsSelected, ordinary.ParameterTypes, argumentTypes, argumentFacts) {
-                genericCandidates = runtimeCandidates
-            }
 
-            // A GENERIC method definition is an excluded shape for the ordinary tier, because its
-            // signature still mentions its own type parameters. Close it by inference from the
-            // arguments and it becomes an ordinary MethodInfo the same append path emits. It competes
-            // with the non-generic candidate by better-function-member rules (`Array.Sort(int[])`
-            // takes `Sort<int>(int[])`, whose parameter is more specific than `Sort(Array)`);
-            // identical parameter lists prefer the non-generic member.
+            // Resolve every reflected declaration as an individual candidate before reducing the
+            // complete applicable set. An ambiguous generic family can still contain members that
+            // a non-generic overload beats, and vice versa.
             normalStatic := ordinary
-            if genericCandidates.Length > 0 {
-                genericStatic := ColumnarRuntimeGenericMethodResolver.ResolveWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, genericCandidates)
-                normalStatic = ColumnarRuntimeGenericMethodResolver.BetterSelection(ordinary, genericStatic, argumentTypes, argumentFacts)
+            if runtimeCandidates.Length > 0 {
+                combinedStatic := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, runtimeCandidates)
+                if combinedStatic.IsSelected || combinedStatic.IsAmbiguous {
+                    normalStatic = combinedStatic
+                }
             }
 
             if normalStatic.IsAmbiguous {
@@ -3026,9 +3021,11 @@ class ColumnarDirectCallPlanner {
             // INFER: `JsonSerializer.Serialize(value)` omits `options = null`, which cannot bind a type
             // parameter and is filled after inference closes the method.
             chosenOptionalStatic := optionalStatic
-            if genericCandidates.Length > 0 {
-                genericOptionalStatic := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFillWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, genericCandidates)
-                chosenOptionalStatic = ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(optionalStatic, genericOptionalStatic, argumentTypes, argumentFacts)
+            if runtimeCandidates.Length > 0 {
+                combinedOptionalStatic := ColumnarRuntimeGenericMethodResolver.ResolveCombinedOptionalFillWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, runtimeCandidates)
+                if combinedOptionalStatic.IsSelected || combinedOptionalStatic.IsAmbiguous {
+                    chosenOptionalStatic = combinedOptionalStatic
+                }
             }
 
             if chosenOptionalStatic.IsAmbiguous {
@@ -3056,9 +3053,11 @@ class ColumnarDirectCallPlanner {
             // over two `Task<int>` takes `WhenAll<int>(params Task<int>[])`, not
             // `WhenAll(params Task[])`.
             expandedStatic := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(lookupType, memberName, argumentTypes, argumentFacts, true)
-            if genericCandidates.Length > 0 {
-                expandedGenericStatic := ColumnarRuntimeGenericMethodResolver.ResolveExpandedWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, genericCandidates)
-                expandedStatic = ColumnarRuntimeGenericMethodResolver.BetterSelection(expandedStatic, expandedGenericStatic, argumentTypes, argumentFacts)
+            if runtimeCandidates.Length > 0 {
+                combinedExpandedStatic := ColumnarRuntimeGenericMethodResolver.ResolveCombinedExpandedWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, runtimeCandidates)
+                if combinedExpandedStatic.IsSelected || combinedExpandedStatic.IsAmbiguous {
+                    expandedStatic = combinedExpandedStatic
+                }
             }
 
             if expandedStatic.IsAmbiguous {
@@ -3089,42 +3088,6 @@ class ColumnarDirectCallPlanner {
         }
 
         return TryAppendValueReceiverMemberCall(nodes, source, callNode, receiverNode, memberName, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
-    }
-
-    // A non-generic candidate with identity conversions for every written argument cannot be beaten
-    // by a generic candidate: identity is the best conversion, and when the parameter lists are the
-    // same C# prefers the non-generic member. Preserve the full comparison whenever a target-typed or
-    // syntax-sensitive argument could change applicability, and whenever the ordinary candidate
-    // needs any conversion. This keeps generic lookup off the common identity-call path without
-    // changing overload selection.
-    static func ShouldCompareRuntimeGenericCandidates(nodes: ColumnarNodeTable, nonGenericSelected: bool, parameterTypes: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
-        if !nonGenericSelected {
-            return true
-        }
-        if nodes == null || parameterTypes == null || argumentTypes == null || argumentFacts == null || parameterTypes.Length != argumentTypes.Length {
-            return true
-        }
-
-        index := 0
-        while index < argumentTypes.Length {
-            if argumentFacts.IsNullLiteral[index] || argumentFacts.IsContextualGenericUnionConstruction[index] {
-                return true
-            }
-
-            argumentNode := argumentFacts.ArgumentNodes[index]
-            if argumentNode >= 0 {
-                unwrapped := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
-                if unwrapped >= 0 && ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(unwrapped)) {
-                    return true
-                }
-            }
-
-            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(parameterTypes[index], argumentTypes[index]) {
-                return true
-            }
-            index = index + 1
-        }
-        return false
     }
 
     // THE RECEIVER-IS-A-VALUE HALF of a member call, reached both by an ordinary `value.Member(...)`
@@ -3249,20 +3212,17 @@ class ColumnarDirectCallPlanner {
 
         runtimeCandidates := new MethodInfo[](0)
         ordinaryInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithCandidateMethods(receiverType, memberName, argumentTypes, argumentFacts, false, out runtimeCandidates)
-        genericCandidates := new MethodInfo[](0)
-        if runtimeCandidates.Length > 0 && ShouldCompareRuntimeGenericCandidates(nodes, ordinaryInstance.IsSelected, ordinaryInstance.ParameterTypes, argumentTypes, argumentFacts) {
-            genericCandidates = runtimeCandidates
-        }
 
         // A GENERIC instance method definition, closed by inference from the arguments, before the
         // fallbacks below: it is an ordinary member of the receiver's own type and must win against an
-        // extension of the same name exactly as a non-generic instance member does. It competes with
-        // the non-generic candidate by better-function-member rules; identical parameter lists prefer
-        // the non-generic member.
+        // extension of the same name exactly as a non-generic instance member does. Generic and
+        // non-generic methods are ranked together after each applicable declaration has been closed.
         normalInstance := ordinaryInstance
-        if genericCandidates.Length > 0 {
-            genericInstance := ColumnarRuntimeGenericMethodResolver.ResolveWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, genericCandidates)
-            normalInstance = ColumnarRuntimeGenericMethodResolver.BetterSelection(ordinaryInstance, genericInstance, argumentTypes, argumentFacts)
+        if runtimeCandidates.Length > 0 {
+            combinedInstance := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, runtimeCandidates)
+            if combinedInstance.IsSelected || combinedInstance.IsAmbiguous {
+                normalInstance = combinedInstance
+            }
         }
 
         if normalInstance.IsAmbiguous {
@@ -3297,9 +3257,11 @@ class ColumnarDirectCallPlanner {
         // gate: an extension may only be reached when the receiver has no matching instance method.
         optionalInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(receiverType, memberName, argumentTypes, argumentFacts, false)
         chosenOptionalInstance := optionalInstance
-        if genericCandidates.Length > 0 {
-            genericOptionalInstance := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFillWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, genericCandidates)
-            chosenOptionalInstance = ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(optionalInstance, genericOptionalInstance, argumentTypes, argumentFacts)
+        if runtimeCandidates.Length > 0 {
+            combinedOptionalInstance := ColumnarRuntimeGenericMethodResolver.ResolveCombinedOptionalFillWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, runtimeCandidates)
+            if combinedOptionalInstance.IsSelected || combinedOptionalInstance.IsAmbiguous {
+                chosenOptionalInstance = combinedOptionalInstance
+            }
         }
 
         if chosenOptionalInstance.IsAmbiguous {
@@ -3340,9 +3302,11 @@ class ColumnarDirectCallPlanner {
         // receiver's own type does not declare, and preferring a packed instance call to it would
         // change which member a written call reaches.
         expandedInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
-        if genericCandidates.Length > 0 {
-            expandedGenericInstance := ColumnarRuntimeGenericMethodResolver.ResolveExpandedWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, genericCandidates)
-            expandedInstance = ColumnarRuntimeGenericMethodResolver.BetterSelection(expandedInstance, expandedGenericInstance, argumentTypes, argumentFacts)
+        if runtimeCandidates.Length > 0 {
+            combinedExpandedInstance := ColumnarRuntimeGenericMethodResolver.ResolveCombinedExpandedWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, runtimeCandidates)
+            if combinedExpandedInstance.IsSelected || combinedExpandedInstance.IsAmbiguous {
+                expandedInstance = combinedExpandedInstance
+            }
         }
 
         if expandedInstance.IsAmbiguous {
@@ -3499,6 +3463,11 @@ class ColumnarDirectCallPlanner {
         if !selection.IsSelected || method == null {
             resultType = typeof(int)
             return false
+        }
+
+        if selection.IsOptionalFill {
+            optionalSelection := ColumnarRuntimeOptionalCallSelection.Selected(selection.LookupType, method, selection.ParameterTypes, selection.ReturnType, selection.FixedArgumentCount, selection.IsStatic)
+            return AppendOptionalFillRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, inferredArgumentTypes, argumentFacts, optionalSelection, out resultType)
         }
 
         // AN EXPANDED SELECTION WRITES TWO DIFFERENT SIGNATURES AND MUST KEEP THEM APART. The method

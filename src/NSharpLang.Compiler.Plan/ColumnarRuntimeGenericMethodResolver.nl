@@ -165,6 +165,306 @@ class ColumnarRuntimeGenericMethodResolver {
         return Unselected(lookupType, expectedStatic)
     }
 
+    // C# removes worse members from the complete applicable set, not once per the generic and
+    // non-generic families. Resolve each reflected declaration independently so an ambiguous subset
+    // remains available for comparison with a better candidate from the other family.
+    static func ResolveCombinedWithMethodCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidateMethods: MethodInfo[]): ColumnarOrdinaryRuntimeDirectCallSelection {
+        if lookupType == null || memberName == null || argumentTypes == null || candidateMethods == null {
+            throw new InvalidOperationException("Combined runtime generic method resolution inputs cannot be null.")
+        }
+        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
+
+        applicable := new List<ColumnarOrdinaryRuntimeDirectCallSelection>()
+        for candidate in candidateMethods {
+            if candidate == null {
+                continue
+            }
+            oneCandidate := OneMethodCandidate(candidate)
+            selection := ColumnarOrdinaryRuntimeDirectCallResolver.Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+            if candidate.IsGenericMethodDefinition {
+                selection = ResolveWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
+            } else if !candidate.IsGenericMethod {
+                selection = ColumnarOrdinaryRuntimeDirectCallResolver.ResolveFromCandidatesWithFacts(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
+            }
+            if selection.IsSelected && !selection.IsExpanded {
+                AddCombinedSelectionUnlessHidden(applicable, selection)
+            }
+
+            // Optional parameters are still normal-form candidates. Compare them in the same set as
+            // exact-arity candidates: a better exact conversion must beat an optional overload, and
+            // an optional overload with the better conversion must beat a merely applicable exact
+            // overload.
+            optional := ColumnarRuntimeOptionalCallSelection.None(lookupType)
+            if candidate.IsGenericMethodDefinition {
+                optional = ResolveOptionalFillWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
+            } else if !candidate.IsGenericMethod {
+                optional = ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFillWithCandidateMethods(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
+            }
+            if optional.IsSelected && optional.Method != null {
+                optionalCandidate := ColumnarOrdinaryRuntimeDirectCallResolver.SelectedOptionalFill(lookupType, optional.Method, optional.ParameterTypes, optional.ReturnType, optional.ExplicitArgumentCount, expectedStatic)
+                AddCombinedSelectionUnlessHidden(applicable, optionalCandidate)
+            }
+        }
+
+        if applicable.Count == 0 {
+            return Unselected(lookupType, expectedStatic)
+        }
+
+        parameterLists := new List<Type[]>()
+        methods := new List<MethodInfo>()
+        for selection in applicable {
+            parameterLists.Add(selection.ParameterTypes)
+            method := selection.Method
+            if method == null {
+                return Unselected(lookupType, expectedStatic)
+            }
+            methods.Add(method)
+        }
+        selectedIndex := SelectCombinedExpandedCandidateIndex(applicable, methods, parameterLists, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return Ambiguous(lookupType, expectedStatic)
+        }
+        return applicable[selectedIndex]
+    }
+
+    static func ResolveCombinedOptionalFillWithMethodCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidateMethods: MethodInfo[]): ColumnarRuntimeOptionalCallSelection {
+        if lookupType == null || memberName == null || argumentTypes == null || candidateMethods == null {
+            throw new InvalidOperationException("Combined optional runtime method resolution inputs cannot be null.")
+        }
+        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
+
+        applicable := new List<ColumnarRuntimeOptionalCallSelection>()
+        for candidate in candidateMethods {
+            if candidate == null {
+                continue
+            }
+            oneCandidate := OneMethodCandidate(candidate)
+            selection := ColumnarRuntimeOptionalCallSelection.None(lookupType)
+            if candidate.IsGenericMethodDefinition {
+                selection = ResolveOptionalFillWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
+            } else if !candidate.IsGenericMethod {
+                selection = ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFillWithCandidateMethods(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
+            }
+            if selection.IsSelected {
+                applicable.Add(selection)
+            }
+        }
+
+        if applicable.Count == 0 {
+            return ColumnarRuntimeOptionalCallSelection.None(lookupType)
+        }
+
+        parameterLists := new List<Type[]>()
+        methods := new List<MethodInfo>()
+        for selection in applicable {
+            parameterLists.Add(selection.ParameterTypes)
+            method := selection.Method
+            if method == null {
+                return ColumnarRuntimeOptionalCallSelection.None(lookupType)
+            }
+            methods.Add(method)
+        }
+        selectedIndex := SelectCombinedOptionalCandidateIndex(methods, parameterLists, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return ColumnarRuntimeOptionalCallSelection.Ambiguous(lookupType, expectedStatic)
+        }
+        return applicable[selectedIndex]
+    }
+
+    static func ResolveCombinedExpandedWithMethodCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidateMethods: MethodInfo[]): ColumnarOrdinaryRuntimeDirectCallSelection {
+        if lookupType == null || memberName == null || argumentTypes == null || candidateMethods == null {
+            throw new InvalidOperationException("Combined expanded runtime method resolution inputs cannot be null.")
+        }
+        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
+
+        applicable := new List<ColumnarOrdinaryRuntimeDirectCallSelection>()
+        for candidate in candidateMethods {
+            if candidate == null {
+                continue
+            }
+            oneCandidate := OneMethodCandidate(candidate)
+            selection := ColumnarOrdinaryRuntimeDirectCallResolver.Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+            if candidate.IsGenericMethodDefinition {
+                selection = ResolveExpandedWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
+            } else if !candidate.IsGenericMethod {
+                selection = ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedFromCandidates(lookupType, lookupType, new Type[](0), memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate, false, false)
+            }
+            if selection.IsSelected {
+                AddCombinedSelectionUnlessHidden(applicable, selection)
+            }
+        }
+
+        if applicable.Count == 0 {
+            return Unselected(lookupType, expectedStatic)
+        }
+
+        parameterLists := new List<Type[]>()
+        methods := new List<MethodInfo>()
+        for selection in applicable {
+            parameterLists.Add(selection.ParameterTypes)
+            method := selection.Method
+            if method == null {
+                return Unselected(lookupType, expectedStatic)
+            }
+            methods.Add(method)
+        }
+        selectedIndex := SelectCombinedExpandedCandidateIndex(applicable, methods, parameterLists, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return Ambiguous(lookupType, expectedStatic)
+        }
+        return applicable[selectedIndex]
+    }
+
+    static func OneMethodCandidate(candidate: MethodInfo): MethodInfo[] {
+        result := new MethodInfo[](1)
+        result[0] = candidate
+        return result
+    }
+
+    static func AddCombinedSelectionUnlessHidden(selections: List<ColumnarOrdinaryRuntimeDirectCallSelection>, candidate: ColumnarOrdinaryRuntimeDirectCallSelection) {
+        candidateMethod := candidate.Method
+        if candidateMethod == null {
+            return
+        }
+        candidateParameters := candidateMethod.GetParameters()
+        for index := 0; index < selections.Count; index += 1 {
+            existing := selections[index]
+            existingMethod := existing.Method
+            if existingMethod == null {
+                continue
+            }
+            existingParameters := existingMethod.GetParameters()
+            if ColumnarOrdinaryRuntimeDirectCallResolver.SameCallSignature(existingMethod, existingParameters, candidateMethod, candidateParameters) {
+                if ColumnarOrdinaryRuntimeDirectCallResolver.HidesDeclaration(candidateMethod, existingMethod) {
+                    selections[index] = candidate
+                }
+                if ColumnarOrdinaryRuntimeDirectCallResolver.HidesDeclaration(existingMethod, candidateMethod) {
+                    return
+                }
+            }
+        }
+        selections.Add(candidate)
+    }
+
+    static func MaximalCandidateIndexes(parameterLists: List<Type[]>, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): List<int> {
+        result := new List<int>()
+        count := parameterLists.Count
+        if count == 0 {
+            return result
+        }
+        comparisons := new int[count * count]
+        for row := 0; row < count; row += 1 {
+            for column := 0; column < count; column += 1 {
+                if row != column {
+                    comparisons[row * count + column] = ColumnarSourceDirectCallResolver.CompareParameterSpecificity(parameterLists[row], parameterLists[column], argumentTypes, argumentFacts)
+                }
+            }
+        }
+        return AnalyzerOverloadSpecificity.FindMaximalIndexes(comparisons, count)
+    }
+
+    static func SelectCombinedOptionalCandidateIndex(methods: List<MethodInfo>, parameterLists: List<Type[]>, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        maximal := MaximalCandidateIndexes(parameterLists, argumentTypes, argumentFacts)
+        if maximal.Count == 1 {
+            return maximal[0]
+        }
+        if maximal.Count < 2 {
+            return -1
+        }
+
+        declaredCount := parameterLists[maximal[0]].Length
+        for index in maximal {
+            if parameterLists[index].Length != declaredCount {
+                return -1
+            }
+        }
+        return NonGenericCandidateTieBreak(methods, parameterLists, maximal, argumentTypes.Length)
+    }
+
+    static func SelectCombinedExpandedCandidateIndex(selections: List<ColumnarOrdinaryRuntimeDirectCallSelection>, methods: List<MethodInfo>, parameterLists: List<Type[]>, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        maximal := MaximalCandidateIndexes(parameterLists, argumentTypes, argumentFacts)
+        if maximal.Count == 1 {
+            return maximal[0]
+        }
+        if maximal.Count < 2 {
+            return -1
+        }
+
+        expansionShape: bool? = null
+        sameExpansionShape := true
+        for index in maximal {
+            if expansionShape == null {
+                expansionShape = selections[index].IsExpanded
+            } else if expansionShape != selections[index].IsExpanded {
+                sameExpansionShape = false
+            }
+        }
+        if !sameExpansionShape {
+            normalCandidates := new List<int>()
+            for index in maximal {
+                if !selections[index].IsExpanded {
+                    normalCandidates.Add(index)
+                }
+            }
+            if normalCandidates.Count == 0 {
+                return -1
+            }
+            maximal = normalCandidates
+        }
+
+        allEffectiveTypesEqual := true
+        first := maximal[0]
+        for index in maximal {
+            if !EquivalentParameterTypes(parameterLists[first], parameterLists[index], argumentTypes.Length) {
+                allEffectiveTypesEqual = false
+                break
+            }
+        }
+        if !allEffectiveTypesEqual {
+            return -1
+        }
+
+        sameUsage := true
+        firstUsage := ParametersUsedIncludingExpansion(selections[first], argumentTypes.Length)
+        for index in maximal {
+            if ParametersUsedIncludingExpansion(selections[index], argumentTypes.Length) != firstUsage {
+                sameUsage = false
+                break
+            }
+        }
+        if !sameUsage {
+            exactUsageIndex := -1
+            for index in maximal {
+                if ParametersUsedIncludingExpansion(selections[index], argumentTypes.Length) == argumentTypes.Length {
+                    if exactUsageIndex >= 0 {
+                        return -1
+                    }
+                    exactUsageIndex = index
+                }
+            }
+            return exactUsageIndex
+        }
+
+        return NonGenericCandidateTieBreak(methods, parameterLists, maximal, argumentTypes.Length)
+    }
+
+    static func NonGenericCandidateTieBreak(methods: List<MethodInfo>, parameterLists: List<Type[]>, maximal: List<int>, suppliedCount: int): int {
+        nonGenericIndex := -1
+        first := maximal[0]
+        for index in maximal {
+            if !EquivalentParameterTypes(parameterLists[first], parameterLists[index], suppliedCount) {
+                return -1
+            }
+            if !methods[index].IsGenericMethod {
+                if nonGenericIndex >= 0 {
+                    return -1
+                }
+                nonGenericIndex = index
+            }
+        }
+        return nonGenericIndex
+    }
+
     // Most inferred generic methods have no by-reference parameters. Their overload score needs no
     // modifier column, so avoid allocating a zero-filled array for each candidate; the selected call
     // recomputes the full column when it is appended to the plan.
@@ -175,81 +475,6 @@ class ColumnarRuntimeGenericMethodResolver {
             }
         }
         return EmptyGenericModifierKinds
-    }
-
-    // BETTER FUNCTION MEMBER, ACROSS THE GENERIC / NON-GENERIC SPLIT. The two resolvers see disjoint
-    // candidate sets, so each answers its own best. Compare their parameter lists by the same
-    // per-argument better-conversion rule used by the source overload resolver; a more-specific
-    // parameter type wins (`IEnumerable<string>` over `object`). Identical parameter lists prefer the
-    // non-generic candidate. Incomparable lists are ambiguous, as C# reports; the planner must not
-    // let a later call tier erase that result.
-    static func BetterSelection(nonGeneric: ColumnarOrdinaryRuntimeDirectCallSelection, generic: ColumnarOrdinaryRuntimeDirectCallSelection, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarOrdinaryRuntimeDirectCallSelection {
-        if nonGeneric.IsAmbiguous || generic.IsAmbiguous {
-            return Ambiguous(nonGeneric.LookupType, generic.IsAmbiguous ? generic.IsStatic : nonGeneric.IsStatic)
-        }
-        if !generic.IsSelected {
-            return nonGeneric
-        }
-        if !nonGeneric.IsSelected {
-            return generic
-        }
-
-        specificity := MoreSpecificParameterList(generic.ParameterTypes, nonGeneric.ParameterTypes, argumentTypes, argumentFacts)
-        if specificity > 0 {
-            return generic
-        }
-        if specificity < 0 {
-            return nonGeneric
-        }
-        if !EquivalentParameterTypes(generic.ParameterTypes, nonGeneric.ParameterTypes, argumentTypes.Length) {
-            return Ambiguous(nonGeneric.LookupType, nonGeneric.IsStatic)
-        }
-
-        nonGenericParametersUsed := ParametersUsedIncludingExpansion(nonGeneric, argumentTypes.Length)
-        genericParametersUsed := ParametersUsedIncludingExpansion(generic, argumentTypes.Length)
-        if nonGenericParametersUsed != genericParametersUsed {
-            if nonGeneric.IsExpanded != generic.IsExpanded {
-                return nonGeneric.IsExpanded ? generic : nonGeneric
-            }
-            if nonGenericParametersUsed == argumentTypes.Length {
-                return nonGeneric
-            }
-            if genericParametersUsed == argumentTypes.Length {
-                return generic
-            }
-            return Ambiguous(nonGeneric.LookupType, nonGeneric.IsStatic)
-        }
-
-        // Roslyn applies the non-generic tie-break before normal-versus-expanded and declared
-        // parameter-count preferences when the supplied parameter type sequences are identical.
-        return nonGeneric
-    }
-
-    static func BetterOptionalSelection(nonGeneric: ColumnarRuntimeOptionalCallSelection, generic: ColumnarRuntimeOptionalCallSelection, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarRuntimeOptionalCallSelection {
-        if nonGeneric.IsAmbiguous || generic.IsAmbiguous {
-            return ColumnarRuntimeOptionalCallSelection.Ambiguous(nonGeneric.LookupType, generic.IsAmbiguous ? generic.IsStatic : nonGeneric.IsStatic)
-        }
-        if !generic.IsSelected {
-            return nonGeneric
-        }
-        if !nonGeneric.IsSelected {
-            return generic
-        }
-
-        specificity := MoreSpecificParameterList(generic.ParameterTypes, nonGeneric.ParameterTypes, argumentTypes, argumentFacts)
-        if specificity > 0 {
-            return generic
-        }
-        if specificity < 0 {
-            return nonGeneric
-        }
-        if EquivalentParameterTypes(generic.ParameterTypes, nonGeneric.ParameterTypes, argumentTypes.Length) {
-            if generic.ParameterTypes.Length == nonGeneric.ParameterTypes.Length {
-                return nonGeneric
-            }
-            return ColumnarRuntimeOptionalCallSelection.Ambiguous(nonGeneric.LookupType, nonGeneric.IsStatic)
-        }
-        return ColumnarRuntimeOptionalCallSelection.Ambiguous(nonGeneric.LookupType, nonGeneric.IsStatic)
     }
 
     static func EquivalentParameterTypes(left: Type[], right: Type[], suppliedCount: int): bool {
@@ -277,22 +502,6 @@ class ColumnarRuntimeGenericMethodResolver {
             return selection.DeclaredParameterTypes.Length - 1
         }
         return suppliedCount
-    }
-
-    // Parameter arrays are in call-site order: expanded `params` candidates repeat their element type
-    // once per packed argument, while optional selections retain their omitted suffix. The shared
-    // specificity owner considers every argument's better conversion and returns a winner only when
-    // one parameter list is maximal.
-    static func MoreSpecificParameterList(left: Type[], right: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
-        if left == null || right == null || argumentTypes == null || left.Length < argumentTypes.Length || right.Length < argumentTypes.Length {
-            return 0
-        }
-
-        parameterLists := new List<Type[]>()
-        parameterLists.Add(left)
-        parameterLists.Add(right)
-        selected := ColumnarSourceDirectCallResolver.SelectMostSpecificParameters(parameterLists, argumentTypes, argumentFacts)
-        return selected == 0 ? 1 : (selected == 1 ? -1 : 0)
     }
 
     // The selection a closed generic handle answers with, for a call written in its normal form.

@@ -7,6 +7,7 @@ import System.Linq
 import System.Numerics
 import System.Reflection
 import System.Reflection.Emit
+import System.Threading.Tasks
 
 class RuntimeGenericInProbe {
     static func Echo<T>(in value: T): T {
@@ -698,6 +699,9 @@ interface CrossTierRightTarget {
 class CrossTierBothTargets: CrossTierLeftTarget, CrossTierRightTarget {
 }
 
+class CrossTierOnlyLeftTarget: CrossTierLeftTarget {
+}
+
 class CrossTierIncomparableProbe {
     static func Choose<T>(_value: CrossTierLeftTarget, _witness: T): int {
         return 1
@@ -705,6 +709,20 @@ class CrossTierIncomparableProbe {
 
     static func Choose(_value: CrossTierRightTarget, _witness: string): int {
         return 2
+    }
+}
+
+class CrossTierDominatingCandidateProbe {
+    static func Pick<T>(_value: CrossTierLeftTarget, _witness: T): int {
+        return 1
+    }
+
+    static func Pick<T>(_value: CrossTierRightTarget, _witness: T): int {
+        return 2
+    }
+
+    static func Pick(_value: CrossTierBothTargets, _witness: object): int {
+        return 3
     }
 }
 
@@ -805,40 +823,16 @@ func CrossTierMethodOrThrow(method: MethodInfo?): MethodInfo {
     return method
 }
 
-// The ordinary resolver deliberately defers a weaker conversion when a generic candidate of the
-// same arity is present. These rows isolate the cross-tier better-member reducer, so construct its
-// non-generic tier result from the reflected declaration after the test has established that the
-// supplied argument converts to it.
-func CrossTierNonGenericSelection(owner: Type, memberName: string, parameterCount: int): ColumnarOrdinaryRuntimeDirectCallSelection {
-    for candidate in owner.GetMethods() {
-        if candidate.Name == memberName && candidate.IsStatic && !candidate.IsGenericMethod {
-            parameters := candidate.GetParameters()
-            if parameters != null && parameters.Length == parameterCount {
-                parameterTypes := new Type[](parameters.Length)
-                index := 0
-                while index < parameters.Length {
-                    parameterTypes[index] = parameters[index].ParameterType
-                    index = index + 1
-                }
-                return ColumnarOrdinaryRuntimeDirectCallResolver.Selected(owner, candidate, parameterTypes, true)
-            }
-        }
-    }
-
-    throw new InvalidOperationException("Non-generic cross-tier probe method not found: " + memberName)
-}
-
 test "more-specific generic parameter types win normal and optional cross-tier comparisons" {
     owner := typeof(CrossTierOverloadProbe)
     argumentTypes := new Type[](1)
     argumentTypes[0] = typeof(List<string>)
     facts := ColumnarDirectCallArgumentFacts.Empty(1)
 
-    normalNonGeneric := CrossTierNonGenericSelection(owner, "Choose", 1)
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
     normalGeneric := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "Choose", argumentTypes, facts, true)
-    assert normalNonGeneric.IsSelected, "object overload should be viable"
     assert normalGeneric.IsSelected, "the generic interface overload should infer string from List<string>"
-    normalBest := ColumnarRuntimeGenericMethodResolver.BetterSelection(normalNonGeneric, normalGeneric, argumentTypes, facts)
+    normalBest := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Choose", argumentTypes, facts, true, candidates)
     assert CrossTierMethodOrThrow(normalBest.Method).IsGenericMethod, "the more-specific IEnumerable<string> parameter should win"
     runtimeArguments := new object?[](1)
     runtimeArguments[0] = new List<string>()
@@ -849,7 +843,7 @@ test "more-specific generic parameter types win normal and optional cross-tier c
     optionalGeneric := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(owner, "Optional", argumentTypes, facts, true)
     assert optionalNonGeneric.IsSelected, "object optional overload should be viable"
     assert optionalGeneric.IsSelected, "generic interface optional overload should infer string"
-    optionalBest := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(optionalNonGeneric, optionalGeneric, argumentTypes, facts)
+    optionalBest := ColumnarRuntimeGenericMethodResolver.ResolveCombinedOptionalFillWithMethodCandidates(owner, "Optional", argumentTypes, facts, true, candidates)
     assert CrossTierMethodOrThrow(optionalBest.Method).IsGenericMethod, "the more-specific optional parameter should win"
     optionalRuntimeArguments := new object?[](2)
     optionalRuntimeArguments[0] = new List<string>()
@@ -861,9 +855,8 @@ test "more-specific generic parameter types win normal and optional cross-tier c
     tieArguments[0] = typeof(object)
     tieFacts := ColumnarDirectCallArgumentFacts.Empty(1)
     tieOwner := typeof(CrossTierOptionalIdenticalProbe)
-    tiedNonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(tieOwner, "Optional", tieArguments, tieFacts, true)
-    tiedGeneric := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(tieOwner, "Optional", tieArguments, tieFacts, true)
-    tiedBest := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(tiedNonGeneric, tiedGeneric, tieArguments, tieFacts)
+    tiedCandidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(tieOwner)
+    tiedBest := ColumnarRuntimeGenericMethodResolver.ResolveCombinedOptionalFillWithMethodCandidates(tieOwner, "Optional", tieArguments, tieFacts, true, tiedCandidates)
     tiedMethod := CrossTierMethodOrThrow(tiedBest.Method)
     assert !tiedMethod.IsGenericMethod, "identical optional parameter lists prefer the non-generic method"
     tiedRuntimeArguments := new object?[](2)
@@ -879,11 +872,8 @@ test "optional cross-tier candidates with differing omitted-tail lengths are amb
     argumentTypes[0] = typeof(object)
     facts := ColumnarDirectCallArgumentFacts.Empty(1)
 
-    nonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(owner, "Optional", argumentTypes, facts, true)
-    generic := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(owner, "Optional", argumentTypes, facts, true)
-    assert nonGeneric.IsSelected
-    assert generic.IsSelected
-    best := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(nonGeneric, generic, argumentTypes, facts)
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
+    best := ColumnarRuntimeGenericMethodResolver.ResolveCombinedOptionalFillWithMethodCandidates(owner, "Optional", argumentTypes, facts, true, candidates)
     assert best.IsAmbiguous, "different optional parameter counts do not satisfy the non-generic tie-break"
 }
 
@@ -894,13 +884,14 @@ test "expanded cross-tier ties apply the non-generic preference before declared 
     argumentTypes[1] = typeof(object)
     facts := ColumnarDirectCallArgumentFacts.Empty(2)
 
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
     nonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(owner, "Expanded", argumentTypes, facts, true)
     generic := ColumnarRuntimeGenericMethodResolver.ResolveExpanded(owner, "Expanded", argumentTypes, facts, true)
     assert nonGeneric.IsSelected, "the non-generic params method should be selected by the expanded resolver"
     assert nonGeneric.IsExpanded, "the non-generic params method should apply in expanded form"
     assert generic.IsSelected, "the generic params method should be selected by the expanded resolver"
     assert generic.IsExpanded, "the generic params method should apply in expanded form"
-    best := ColumnarRuntimeGenericMethodResolver.BetterSelection(nonGeneric, generic, argumentTypes, facts)
+    best := ColumnarRuntimeGenericMethodResolver.ResolveCombinedExpandedWithMethodCandidates(owner, "Expanded", argumentTypes, facts, true, candidates)
     method := CrossTierMethodOrThrow(best.Method)
     assert !method.IsGenericMethod, "with identical supplied parameter types and usage counts, C# prefers the non-generic member before declared parameter count"
 
@@ -918,11 +909,12 @@ test "generic optional-family ambiguity remains ambiguous across the non-generic
     argumentTypes[1] = typeof(int)
     facts := ColumnarDirectCallArgumentFacts.Empty(2)
 
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
     nonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(owner, "OptionalChoose", argumentTypes, facts, true)
     generic := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(owner, "OptionalChoose", argumentTypes, facts, true)
     assert nonGeneric.IsSelected, "the non-generic fallback should be viable"
     assert generic.IsAmbiguous, "the incomparable generic pair should retain its ambiguity state"
-    best := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(nonGeneric, generic, argumentTypes, facts)
+    best := ColumnarRuntimeGenericMethodResolver.ResolveCombinedOptionalFillWithMethodCandidates(owner, "OptionalChoose", argumentTypes, facts, true, candidates)
     assert best.IsAmbiguous, "an applicable non-generic candidate must not erase the generic-family ambiguity"
 }
 
@@ -936,7 +928,8 @@ test "identical closed parameter lists prefer the non-generic candidate" {
     generic := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "Identical", argumentTypes, facts, true)
     assert nonGeneric.IsSelected, "the non-generic overload should be viable"
     assert generic.IsSelected, "the generic overload should be viable"
-    best := ColumnarRuntimeGenericMethodResolver.BetterSelection(nonGeneric, generic, argumentTypes, facts)
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
+    best := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Identical", argumentTypes, facts, true, candidates)
     method := CrossTierMethodOrThrow(best.Method)
     assert !method.IsGenericMethod, "identical effective parameter lists prefer the non-generic member"
     runtimeArguments := new object?[](1)
@@ -952,12 +945,88 @@ test "incomparable generic and non-generic candidates remain ambiguous" {
     argumentTypes[1] = typeof(string)
     facts := ColumnarDirectCallArgumentFacts.Empty(2)
 
-    nonGeneric := CrossTierNonGenericSelection(owner, "Choose", 2)
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
+    nonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(owner, "Choose", argumentTypes, facts, true)
     generic := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "Choose", argumentTypes, facts, true)
-    assert nonGeneric.IsSelected
     assert generic.IsSelected
-    best := ColumnarRuntimeGenericMethodResolver.BetterSelection(nonGeneric, generic, argumentTypes, facts)
+    best := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Choose", argumentTypes, facts, true, candidates)
     assert best.IsAmbiguous, "C# reports this cross-tier pair as ambiguous"
+}
+
+test "a better non-generic member removes an ambiguous generic subset" {
+    owner := typeof(CrossTierDominatingCandidateProbe)
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
+    argumentTypes := new Type[](2)
+    argumentTypes[0] = typeof(CrossTierBothTargets)
+    argumentTypes[1] = typeof(object)
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+
+    genericOnly := ColumnarRuntimeGenericMethodResolver.ResolveWithMethodCandidates(owner, "Pick", argumentTypes, facts, true, candidates)
+    assert genericOnly.IsAmbiguous, "the two interface overloads are incomparable when considered alone"
+    genericCandidates := new List<MethodInfo>()
+    for candidate in candidates {
+        if candidate.IsGenericMethodDefinition {
+            genericCandidates.Add(candidate)
+        }
+    }
+    genericCombined := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Pick", argumentTypes, facts, true, genericCandidates.ToArray())
+    assert genericCombined.IsAmbiguous, "without the concrete candidate, the combined applicable set remains ambiguous"
+
+    combined := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Pick", argumentTypes, facts, true, candidates)
+    assert combined.IsSelected, "the concrete overload is better than both generic candidates"
+    selectedMethod := CrossTierMethodOrThrow(combined.Method)
+    runtimeArguments := new object?[](2)
+    runtimeArguments[0] = new CrossTierBothTargets()
+    runtimeArguments[1] = new object()
+    runtimeValue := selectedMethod.Invoke(null, runtimeArguments)
+    assert Convert.ToInt32(runtimeValue) == 3, "the maximal non-generic candidate must reach its runtime body"
+
+    // Remove the concrete target from the receiver shape. Only the left generic candidate then
+    // applies, while a call with the original both-interface type and only the generic family is
+    // still ambiguous. These controls prove that the combined set filters applicability before
+    // reducing it.
+    leftArgumentTypes := new Type[](2)
+    leftArgumentTypes[0] = typeof(CrossTierOnlyLeftTarget)
+    leftArgumentTypes[1] = typeof(object)
+    leftOnly := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Pick", leftArgumentTypes, facts, true, candidates)
+    assert leftOnly.IsSelected
+    leftMethod := CrossTierMethodOrThrow(leftOnly.Method)
+    leftRuntimeArguments := new object?[](2)
+    leftRuntimeArguments[0] = new CrossTierOnlyLeftTarget()
+    leftRuntimeArguments[1] = new object()
+    leftValue := leftMethod.Invoke(null, leftRuntimeArguments)
+    assert Convert.ToInt32(leftValue) == 1, "the remaining applicable generic overload must retain its runtime result"
+}
+
+test "combined Task.WhenAll candidates retain the typed array overload and runtime values" {
+    owner := typeof(Task)
+    argumentTypes := GenericMethodTypes1(typeof(Task<int>[]))
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    candidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
+    genericSelection := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "WhenAll", argumentTypes, facts, true)
+    assert genericSelection.IsSelected, "the generic-only resolver should close Task.WhenAll for Task<int>[]"
+    genericCandidates := new List<MethodInfo>()
+    for candidate in candidates {
+        if candidate.IsGenericMethodDefinition {
+            genericCandidates.Add(candidate)
+        }
+    }
+    genericCombined := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "WhenAll", argumentTypes, facts, true, genericCandidates.ToArray())
+    assert genericCombined.IsSelected, "generic combined status: " + Convert.ToString(genericCombined.Status)
+    selection := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "WhenAll", argumentTypes, facts, true, candidates)
+    assert selection.IsSelected, "combined selection status: " + Convert.ToString(selection.Status)
+    method := CrossTierMethodOrThrow(selection.Method)
+    assert method.IsGenericMethod, "the typed Task<T>[] argument must prefer the generic method"
+    runtimeArguments := new object?[](1)
+    tasks: Task<int>[] = [Task.FromResult(4), Task.FromResult(5)]
+    runtimeArguments[0] = tasks
+    runtimeTask := method.Invoke(null, runtimeArguments) as Task<int[]>
+    assert runtimeTask != null, "the selected overload returns Task<int[]>"
+    assert runtimeTask.Result.Length == 2 && runtimeTask.Result[1] == 5, "the selected overload returns both typed results"
+
+    controlTypes := GenericMethodTypes1(typeof(Task[]))
+    control := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "WhenAll", controlTypes, facts, true, candidates)
+    assert control.IsSelected && !CrossTierMethodOrThrow(control.Method).IsGenericMethod, "an untyped Task[] remains on the non-generic overload"
 }
 
 test "repeated generic parameters accumulate lower bounds and preserve invariant conflicts" {
@@ -1068,22 +1137,19 @@ test "generic Array overloads beat the broader non-generic overloads" {
     sortArguments := new Type[](1)
     sortArguments[0] = typeof(int[])
 
-    sortNonGeneric := CrossTierNonGenericSelection(owner, "Sort", 1)
     sortGeneric := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "Sort", sortArguments, facts, true)
-    assert sortNonGeneric.IsSelected, "Array.Sort(Array) should be viable"
     assert sortGeneric.IsSelected, "Array.Sort<T>(T[]) should be viable"
-    sortBest := ColumnarRuntimeGenericMethodResolver.BetterSelection(sortNonGeneric, sortGeneric, sortArguments, facts)
+    sortCandidates := ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner)
+    sortBest := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Sort", sortArguments, facts, true, sortCandidates)
     assert CrossTierMethodOrThrow(sortBest.Method).IsGenericMethod, "int[] is more specific than Array"
 
     indexArguments := new Type[](2)
     indexArguments[0] = typeof(int[])
     indexArguments[1] = typeof(int)
     indexFacts := ColumnarDirectCallArgumentFacts.Empty(2)
-    indexNonGeneric := CrossTierNonGenericSelection(owner, "IndexOf", 2)
     indexGeneric := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(owner, "IndexOf", indexArguments, indexFacts, true)
-    assert indexNonGeneric.IsSelected, "Array.IndexOf(Array, object) should be viable"
     assert indexGeneric.IsSelected, "Array.IndexOf<T>(T[], T) should be viable"
-    indexBest := ColumnarRuntimeGenericMethodResolver.BetterSelection(indexNonGeneric, indexGeneric, indexArguments, indexFacts)
+    indexBest := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "IndexOf", indexArguments, indexFacts, true, sortCandidates)
     assert CrossTierMethodOrThrow(indexBest.Method).IsGenericMethod, "int[] and int are more specific than Array and object"
 }
 

@@ -39,9 +39,12 @@ class ColumnarOrdinaryRuntimeDirectCallSelection {
     // the packing starts.
     ExpandedElementType: Type?
     DeclaredParameterTypes: Type[]
+    // The `params` packing start for expanded calls, or the first omitted optional slot for
+    // optional-fill calls. Negative for ordinary normal-form calls.
     FixedArgumentCount: int
 
     IsExpanded: bool => ExpandedElementType != null
+    IsOptionalFill: bool => ExpandedElementType == null && FixedArgumentCount >= 0
     IsSelected: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Selected
     IsAmbiguous: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous
     IsOwnedRejected: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected || Status == ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous
@@ -77,6 +80,9 @@ class ColumnarOrdinaryRuntimeDirectCallSelection {
         FixedArgumentCount = fixedArgumentCount
         if expandedElementType != null && (fixedArgumentCount < 0 || fixedArgumentCount > parameterTypes.Length || declaredParameterTypes == null) {
             throw new InvalidOperationException("An expanded ordinary runtime direct call requires its declared signature and the slot the packing starts at.")
+        }
+        if (IsOptionalFill && (status != ColumnarOrdinaryRuntimeDirectCallStatus.Selected || fixedArgumentCount >= parameterTypes.Length)) {
+            throw new InvalidOperationException("An optional-fill ordinary runtime direct call requires a selected normal-form signature with at least one omitted parameter.")
         }
     }
 }
@@ -1314,6 +1320,19 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, method, lookupType, declaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, method.IsAbstract, null, parameterTypes, -1)
     }
 
+    static func SelectedOptionalFill(lookupType: Type, method: MethodInfo, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        if method == null || parameterTypes == null || returnType == null || explicitArgumentCount < 0 || explicitArgumentCount >= parameterTypes.Length {
+            throw new InvalidOperationException("A selected ordinary optional-fill call requires a method and at least one omitted parameter.")
+        }
+        declaringType := method.DeclaringType
+        if declaringType == null {
+            throw new InvalidOperationException("A selected ordinary optional-fill call requires a declaring type.")
+        }
+        receiverIsReference := !expectedStatic && !lookupType.IsValueType
+        kind := receiverIsReference ? ColumnarExternalCallKind.CallVirtual : ColumnarExternalCallKind.Call
+        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, method, lookupType, declaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, method.IsAbstract, null, parameterTypes, explicitArgumentCount)
+    }
+
     static func SelectedBuilderBound(lookupType: Type, genericDefinition: Type, method: MethodInfo, parameterTypes: Type[], returnType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         declaringType := method.DeclaringType
         if declaringType == null {
@@ -1377,7 +1396,31 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         candidates := CandidatesOrEmpty(lookupType)
+        return ResolveOptionalFillFromCandidates(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, candidates)
+    }
+
+    // The same optional-fill admission over a caller-supplied method set. The combined runtime
+    // overload resolver uses this with one method at a time so it can compare generic and
+    // non-generic applicable members only after both families have retained their candidates.
+    static func ResolveOptionalFillWithCandidateMethods(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[]): ColumnarRuntimeOptionalCallSelection {
+        ValidateInputs(lookupType, memberName, argumentTypes)
+        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
+        if candidates == null {
+            throw new InvalidOperationException("Ordinary optional-call candidates cannot be null.")
+        }
+
+        genericDefinition := typeof(object)
+        closedArguments := new Type[](0)
+        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
+            return ColumnarRuntimeOptionalCallSelection.None(lookupType)
+        }
+
+        return ResolveOptionalFillFromCandidates(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, candidates)
+    }
+
+    static func ResolveOptionalFillFromCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[]): ColumnarRuntimeOptionalCallSelection {
         argumentCount := argumentTypes.Length
+        closedArguments := new Type[](0)
         bestScore := -1
         bestParameterCount := 0
         bestCount := 0
