@@ -68,12 +68,12 @@ func StampedByAssignment(flag: bool, utc: DateTime): Stamped {
 
 // An implicit tuple conversion converts element by element.
 func LiftedTuple(): (string?, int?) {
-    t: (string, int) = ("a", 1)
+    let t: (string, int) = ("a", 1)
     return t
 }
 
 func LiftedTupleLocal(name: string, count: int): (string?, int?) {
-    pair: (string?, int?) = (name, count)
+    let pair: (string?, int?) = (name, count)
     return pair
 }
 
@@ -177,21 +177,26 @@ func LiftConditional(flag: bool, n: short): float? {
 
 // ---- tuples ----
 func TupleNullElement(): (string?, int?) {
-    t: (string?, int) = (null, 1)
+    let t: (string?, int) = (null, 1)
     return t
 }
 
 func TupleWidening(): (long?, string) {
-    t: (int, string) = (7, "x")
+    let t: (int, string) = (7, "x")
     return t
 }
 
 func TupleNested(): ((int, string?), int?) {
-    t: ((int, string), int) = ((1, "n"), 2)
+    let t: ((int, string), int) = ((1, "n"), 2)
     return t
 }
 
 func TupleNestedWidened(): ((long?, string?), int?) {
-    t: ((int, string), int) = ((3, "m"), 4)
+    let t: ((int, string), int) = ((3, "m"), 4)
+    return t
+}
+
+func TupleNullableWidened(): (long?, int?) {
+    let t: (int, int) = (5, 6)
     return t
 }

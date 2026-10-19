@@ -20488,7 +20488,11 @@ sealed class ColumnarIlEmitter {
             elementFieldName := "Item" + (i + 1).ToString()
             let elementField: System.Reflection.FieldInfo? = null
             if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(source)) {
-                elementField = TypeBuilder.GetField(source, source.GetGenericTypeDefinition().GetField(elementFieldName))
+                let genericElementField: System.Reflection.FieldInfo? = source.GetGenericTypeDefinition().GetField(elementFieldName)
+                if (genericElementField == null) {
+                    return false
+                }
+                elementField = TypeBuilder.GetField(source, genericElementField)
             } else {
                 elementField = source.GetField(elementFieldName)
             }
@@ -22098,10 +22102,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         let conditionType: System.Type? = null
-        if (!TryGetPreflightExpressionType(Child(node, 0), out conditionType) || conditionType != typeof(bool)) {
-            return false
-        }
-        return (thenThrows || CanEmitConditionalArmAsType(thenNode, target)) && (elseThrows || CanEmitConditionalArmAsType(elseNode, target))
+        return TryGetPreflightExpressionType(Child(node, 0), out conditionType) && conditionType == typeof(bool) && (thenThrows || CanEmitConditionalArmAsType(thenNode, target)) && (elseThrows || CanEmitConditionalArmAsType(elseNode, target))
     }
 
     // The predicate half of `EmitConditionalArmAsType`, door for door.
@@ -22145,7 +22146,7 @@ sealed class ColumnarIlEmitter {
         if (!TryGetPreflightExpressionType(node, out liftedArmType)) {
             return false
         }
-        return (TypesEquivalent(liftedArmType, target) || TypesEquivalent(liftedArmType, element) || CanEmitLiftedImplicitConversion(liftedArmType, target))
+        return TypesEquivalent(liftedArmType, target) || TypesEquivalent(liftedArmType, element) || CanEmitLiftedImplicitConversion(liftedArmType, target)
     }
 
     // THE TWO KEYWORD LITERALS THAT SPELL A TARGET TYPE'S ZERO VALUE, in the one place that knows the
@@ -23875,6 +23876,31 @@ sealed class ColumnarIlEmitter {
         if (ColumnarNameOfPlanner.TryGetType(_nodes, _source, node, _codePlan, out columnarResolvedType)) {
             return true
         }
+        // A bare current-instance value may be flow-narrowed later in this walk. Answer its declared
+        // member type first so a null comparison can preserve `T?` while the present conditional arm
+        // still sees `T` through TryGetPreflightExpressionType.
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, node)) {
+            preflightIdentifierName := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            if (!ColumnarClosureBindingPlanner.IsVisibleBindingName(preflightIdentifierName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames) && !_siblings.ContainsKey(preflightIdentifierName) && !_visibleLocalFuncs.Contains(preflightIdentifierName) && _currentStruct != null) {
+                let preflightInstanceField: System.Reflection.Emit.FieldBuilder? = null
+                if ((_currentStruct.IsReference || _isConstructorBody) && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, preflightIdentifierName, out preflightInstanceField) && preflightInstanceField != null && !preflightInstanceField.IsStatic) {
+                    columnarResolvedType = preflightInstanceField.FieldType
+                    return true
+                }
+                let preflightInstanceProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (_currentStruct.IsReference && TryFindPropertyOnChain(_currentStruct, preflightIdentifierName, out preflightInstanceProperty) && preflightInstanceProperty != null && !preflightInstanceProperty.Getter.IsStatic) {
+                    columnarResolvedType = preflightInstanceProperty.PropertyType
+                    return true
+                }
+            }
+        }
+        // The primitive planner cannot type an operand whose effective type differs from its raw
+        // declared type: a nullable binary is lifted, while a flow-narrowed nullable path is read
+        // as its element type. Resolve those cases before the planner claims the binary, using the
+        // same unlifted operator selector as the emitter.
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.BinaryExpression && TryGetPreflightNullableBinaryType(node, out columnarResolvedType)) {
+            return true
+        }
         let nsharpOwned: bool = false
         let legacyWholeSubtreePlanning: bool = false
         if (ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
@@ -24395,7 +24421,7 @@ sealed class ColumnarIlEmitter {
             }
             if (nullComparisonOperand >= 0) {
                 let nullComparedType: System.Type? = null
-                if (!TryGetPreflightExpressionType(nullComparisonOperand, out nullComparedType) || nullComparedType == null || (nullComparedType.IsValueType && !ColumnarTypeOfPlanner.IsSupportedNullable(nullComparedType))) {
+                if (!TryGetPreflightExpressionTypeRaw(nullComparisonOperand, out nullComparedType) || nullComparedType == null || (nullComparedType.IsValueType && !ColumnarTypeOfPlanner.IsSupportedNullable(nullComparedType))) {
                     return false
                 }
                 columnarResolvedType = typeof(bool)
@@ -24433,6 +24459,63 @@ sealed class ColumnarIlEmitter {
         }
 
         return false
+    }
+
+    // A nullable operand makes the operator lifted; a flow-narrowed operand arrives as its element
+    // type. Preflight selects the same unlifted operation that `TryEmitLiftedNullableBinary` selects
+    // after `EmitExpression` reads its operands, then restores Nullable<T> only if a nullable operand
+    // still arrives at the operator. Every other binary stays with its existing planner or residual.
+    private func TryGetPreflightNullableBinaryType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_nodes.ChildCount(node) != 2) {
+            return false
+        }
+
+        leftNode := Child(node, 0)
+        rightNode := Child(node, 1)
+        let leftDeclaredType: System.Type? = null
+        let rightDeclaredType: System.Type? = null
+        if (!TryGetPreflightExpressionTypeRaw(leftNode, out leftDeclaredType) || leftDeclaredType == null || !TryGetPreflightExpressionTypeRaw(rightNode, out rightDeclaredType) || rightDeclaredType == null) {
+            return false
+        }
+        leftNarrowedType := NarrowedNullableElement(leftNode, leftDeclaredType)
+        rightNarrowedType := NarrowedNullableElement(rightNode, rightDeclaredType)
+        leftLifted := ColumnarTypeOfPlanner.IsSupportedNullable(leftDeclaredType) && leftNarrowedType == null
+        rightLifted := ColumnarTypeOfPlanner.IsSupportedNullable(rightDeclaredType) && rightNarrowedType == null
+        if (!leftLifted && !rightLifted && leftNarrowedType == null && rightNarrowedType == null) {
+            return false
+        }
+        leftElement := leftNarrowedType != null ? leftNarrowedType : (leftLifted ? leftDeclaredType.GetGenericArguments()[0] : leftDeclaredType)
+        rightElement := rightNarrowedType != null ? rightNarrowedType : (rightLifted ? rightDeclaredType.GetGenericArguments()[0] : rightDeclaredType)
+        op := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%" && op != "&" && op != "|" && op != "^" && op != "<<" && op != ">>" && op != "<" && op != ">" && op != "<=" && op != ">=") {
+            return false
+        }
+
+        let leftParameter: System.Type? = null
+        let rightParameter: System.Type? = null
+        let operatorMethod: System.Reflection.MethodInfo? = null
+        let elementResult: System.Type? = null
+        if (!TrySelectLiftedElementBinary(op, leftElement, rightElement, out leftParameter, out rightParameter, out operatorMethod, out elementResult) || elementResult == null) {
+            return false
+        }
+        if (leftLifted || rightLifted) {
+            relational := IsLiftedRelationalOperator(op)
+            if (relational) {
+                if (!TypesEquivalent(elementResult, typeof(bool))) {
+                    return false
+                }
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (!ColumnarTypeOfPlanner.IsLiftableNullableElement(elementResult)) {
+                return false
+            }
+            columnarResolvedType = ColumnarTypeOfPlanner.RequiredNullableDefinition().MakeGenericType([elementResult])
+            return true
+        }
+        columnarResolvedType = elementResult
+        return true
     }
 
     // THE RESULT TYPE OF `??`, WITH EACH C# CONVERSION TESTED BEFORE A CALLER SELECTS AN EMIT ROUTE.

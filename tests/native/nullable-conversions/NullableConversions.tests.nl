@@ -186,4 +186,8 @@ test "a tuple converts element by element through null, widening and nesting" {
     assert nestedWidened.Item1.Item1 == 3L
     assert nestedWidened.Item1.Item2 == "m"
     assert nestedWidened.Item2 == 4
+
+    lifted := TupleNullableWidened()
+    assert lifted.Item1 == 5L
+    assert lifted.Item2 == 6
 }

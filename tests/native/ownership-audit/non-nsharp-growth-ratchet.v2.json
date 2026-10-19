@@ -4,7 +4,7 @@
   "codeEpochFileCount": 227,
   "codeEpochPathFingerprint": "pathset-v2:97fe77313c04eb7e",
   "codeEpochFactFingerprint": "epochfacts-v2:4c440f3312742657",
-  "reviewedHeadFingerprint": "head-v2:0ccbd6caeaee395a",
+  "reviewedHeadFingerprint": "head-v2:419e8ac13d4bd670",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":446,"currentNonBlankLines":391,"currentBytes":0,"currentFingerprint":"text-v1:c4fff4cafe6f3d2a"},
@@ -170,7 +170,7 @@
     {"path":"scripts/ci-test-shards.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":502,"currentNonBlankLines":441,"currentBytes":0,"currentFingerprint":"text-v1:3c3f5168a4976242"},
     {"path":"scripts/dev.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":662,"currentNonBlankLines":623,"currentBytes":0,"currentFingerprint":"text-v1:324b0347284da272"},
     {"path":"scripts/ilverify-baseline.txt","language":"policy-data","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":15,"currentNonBlankLines":15,"currentBytes":0,"currentFingerprint":"text-v1:42b7513e33bc7934"},
-    {"path":"scripts/ilverify.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":497,"currentNonBlankLines":453,"currentBytes":0,"currentFingerprint":"text-v1:d4d2506ea0ce3f1e"},
+    {"path":"scripts/ilverify.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":499,"currentNonBlankLines":455,"currentBytes":0,"currentFingerprint":"text-v1:d3e3e87ca450f626"},
     {"path":"scripts/install.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":559,"currentNonBlankLines":486,"currentBytes":0,"currentFingerprint":"text-v1:772a796e22edef11"},
     {"path":"scripts/lib/common.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":108,"currentNonBlankLines":93,"currentBytes":0,"currentFingerprint":"text-v1:a4ca388edc986d78"},
     {"path":"scripts/lib/packages.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":158,"currentNonBlankLines":134,"currentBytes":0,"currentFingerprint":"text-v1:1409836618009c7d"},

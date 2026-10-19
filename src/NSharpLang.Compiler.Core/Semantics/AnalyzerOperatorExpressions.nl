@@ -136,9 +136,10 @@ class OperatorExpressionState {
 //     admits only the primitive numerics;
 //   * that `&&` and `||` are booleans whatever their operands were, and that they still SAY so when
 //     an operand is not one;
-//   * that `??` follows C#'s conversions: the right side can convert to the nullable left or its
-//     underlying type, or the present left value can convert to the right side; a `throw` right side
-//     leaves the left side with its nullability removed, and a left side that cannot be null is told so;
+//   * that `??` follows C#'s ordered conversions: for `T?`, a right side convertible to `T` yields
+//     `T`; otherwise one convertible to `T?` keeps `T?`; otherwise `T` converts to the right type.
+//     A `null` right side keeps `T?`, a `throw` removes the left side's nullability, and a left side
+//     that cannot be null is told so;
 //   * that `..` is `System.Range` and `^n` is `System.Index`;
 //   * that NEGATION, COMPLEMENT and `!` each have their own promotion rule, that a negated integer
 //     literal reads the target-typing slot so `value: byte = -1` is refused for the right reason,

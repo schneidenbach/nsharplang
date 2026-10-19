@@ -249,11 +249,7 @@ class AnalyzerAssignability {
             return AreTupleElementsAssignable(targetTuple, sourceTuple)
         }
 
-        if target is SimpleTypeInfo && source is SimpleTypeInfo &&
-            (BuiltInTypes.Is(target, BuiltInTypes.Int) || BuiltInTypes.Is(target, BuiltInTypes.Long) ||
-                BuiltInTypes.Is(target, BuiltInTypes.Float) || BuiltInTypes.Is(target, BuiltInTypes.Double) ||
-                BuiltInTypes.Is(target, BuiltInTypes.Decimal)) &&
-            !BuiltInTypes.Is(source, BuiltInTypes.UInt) && !BuiltInTypes.Is(source, BuiltInTypes.ULong) {
+        if target is SimpleTypeInfo && source is SimpleTypeInfo && (BuiltInTypes.Is(target, BuiltInTypes.Int) || BuiltInTypes.Is(target, BuiltInTypes.Long) || BuiltInTypes.Is(target, BuiltInTypes.Float) || BuiltInTypes.Is(target, BuiltInTypes.Double) || BuiltInTypes.Is(target, BuiltInTypes.Decimal)) && !BuiltInTypes.Is(source, BuiltInTypes.UInt) && !BuiltInTypes.Is(source, BuiltInTypes.ULong) {
             return IsAssignableCore(target, source)
         }
 

@@ -63,7 +63,6 @@ class ColumnarRecordValueMemberPlanner {
                             ColumnarCodePlanExecutor.Execute(hashPlan, hashIl)
                         }
                     }
-
                 }
 
                 // Only a reference record carries the public clone wrapper used by `with`. Generic
