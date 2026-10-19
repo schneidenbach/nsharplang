@@ -322,6 +322,23 @@ test "EVERY VALIDATION REFUSES WITH ITS OWN SENTENCE, AND THE DELETED FILE REACH
     Directory.Delete(directory, true)
 }
 
+test "a dependency entry with two kinds, an unknown key, a stray version or a nested value is refused" {
+    directory := PfpTempDirectory("malformed-dependency")
+    tail := ". Each entry names exactly one of nuget, framework, project or dll, and a nuget entry may also give a version."
+
+    assert PfpOutcomeOf(directory, "name: Bad\ndependencies:\n  - nuget: Serilog\n    dll: libs/Serilog.dll\n") == "InvalidOperationException|Invalid dependencies entry 1: it names more than one kind ('nuget' and 'dll')" + tail
+    // A typo is the row's ONLY key, so it carries no value; it is refused, not silently dropped.
+    assert PfpOutcomeOf(directory, "name: Bad\ndependencies:\n  - Newtonsoft.Json@13.0.3\n  - nugget: Serilog\n") == "InvalidOperationException|Invalid dependencies entry 2: 'nugget' is not a dependency key" + tail
+    assert PfpOutcomeOf(directory, "name: Bad\ndependencies:\n  - framework: Microsoft.AspNetCore.App\n    version: 10.0.0\n") == "InvalidOperationException|Invalid dependencies entry 1: 'version' belongs only to a nuget entry" + tail
+    assert PfpOutcomeOf(directory, "name: Bad\ndependencies:\n  - nuget: Serilog\n    privateAssets:\n      - all\n") == "InvalidOperationException|Invalid dependencies entry 1: 'privateAssets' has a nested value, but it must be a single value" + tail
+    assert PfpOutcomeOf(directory, "name: Bad\ntestDependencies:\n  - nuget: xunit\n    Version: 2.9.2\n    include: all\n") == "InvalidOperationException|Invalid testDependencies entry 1: 'include' is not a dependency key" + tail
+
+    // The controls: keys are case-insensitive, and every well-formed spelling still parses.
+    assert PfpOutcomeOf(directory, "name: Good\ndependencies:\n  - Serilog@3.1.1\n  - nuget: Newtonsoft.Json@13.0.3\n  - NuGet: YamlDotNet\n    Version: 16.3.0\n  - framework: Microsoft.AspNetCore.App\n") == "<parsed:Good>"
+
+    Directory.Delete(directory, true)
+}
+
 test "THE FILE-NOT-FOUND FAMILY, WHICH NO C# ASSERTION EVER PRODUCED" {
     directory := PfpTempDirectory("missing")
 

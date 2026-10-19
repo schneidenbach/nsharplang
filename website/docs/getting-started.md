@@ -109,7 +109,8 @@ Hello, World!
 
 ## Project Configuration
 
-All configuration lives in `project.yml` — never add build settings to a `.csproj`.
+All configuration lives in `project.yml` — never add build settings to a `.csproj`. The
+[project.yml reference](./project-yml.md) lists every key and every dependency kind.
 
 ```yaml
 name: MyApp
@@ -138,6 +139,13 @@ dependencies:
   - nuget: Newtonsoft.Json
     version: 13.0.3
 ```
+
+Dependencies can also be shared frameworks (`framework:`), other N# projects (`project:`) and
+prebuilt assemblies (`dll:`); see [Dependencies](./project-yml.md#dependencies). Without any
+dependencies, `nlc` compiles against a fixed set of .NET assemblies rather than all of
+`Microsoft.NETCore.App`. If a .NET type such as `IServiceProvider` or `ClaimsIdentity` is reported as
+not found, add `- framework: Microsoft.NETCore.App`; see
+[What a project can see without any dependencies](./project-yml.md#what-a-project-can-see-without-any-dependencies).
 
 Then use it in your code:
 

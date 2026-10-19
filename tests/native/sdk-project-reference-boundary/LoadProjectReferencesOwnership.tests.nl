@@ -21,25 +21,27 @@ test "the SDK reference task has one N# production owner and its exact MSBuild s
     assert owner.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly).Length == 0
 
     properties := owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
-    assert properties.Length == 5
+    assert properties.Length == 6
     itemArrayType := EmitTaskRequiredType("Microsoft.Build.Framework.ITaskItem, Microsoft.Build.Framework").MakeArrayType()
     projectFile := EmitTaskRequiredProperty(owner, "ProjectFile")
     packageReferences := EmitTaskRequiredProperty(owner, "PackageReferences")
     frameworkReferences := EmitTaskRequiredProperty(owner, "FrameworkReferences")
     existingProjectReferences := EmitTaskRequiredProperty(owner, "ExistingProjectReferences")
     projectReferences := EmitTaskRequiredProperty(owner, "ProjectReferences")
+    dllReferences := EmitTaskRequiredProperty(owner, "DllReferences")
     assert projectFile.get_PropertyType() == typeof(string)
     assert packageReferences.get_PropertyType() == itemArrayType
     assert frameworkReferences.get_PropertyType() == typeof(string[])
     assert existingProjectReferences.get_PropertyType() == typeof(string[])
     assert projectReferences.get_PropertyType() == typeof(string[])
+    assert dllReferences.get_PropertyType() == typeof(string[])
 
     outputType := EmitTaskRequiredType("Microsoft.Build.Framework.OutputAttribute, Microsoft.Build.Framework")
     propertyIndex := 0
     while propertyIndex < properties.Length {
         property := properties[propertyIndex]
         outputCount := property.GetCustomAttributes(outputType, false).Length
-        isOutput := property.get_Name() == "PackageReferences" || property.get_Name() == "FrameworkReferences" || property.get_Name() == "ProjectReferences"
+        isOutput := property.get_Name() == "PackageReferences" || property.get_Name() == "FrameworkReferences" || property.get_Name() == "ProjectReferences" || property.get_Name() == "DllReferences"
         assert outputCount == (isOutput ? 1 : 0), property.get_Name()
         propertyIndex = propertyIndex + 1
     }
@@ -68,12 +70,15 @@ test "the SDK reference task has one N# production owner and its exact MSBuild s
     frameworkValues := EmitTaskOptionalObjectProperty(task, "FrameworkReferences") as Array
     existingValues := EmitTaskOptionalObjectProperty(task, "ExistingProjectReferences") as Array
     projectValues := EmitTaskOptionalObjectProperty(task, "ProjectReferences") as Array
+    dllValues := EmitTaskOptionalObjectProperty(task, "DllReferences") as Array
     assert packageValues != null
     assert frameworkValues != null
     assert existingValues != null
     assert projectValues != null
+    assert dllValues != null
     assert EmitTaskArrayLength(packageValues) == 0
     assert EmitTaskArrayLength(frameworkValues) == 0
     assert EmitTaskArrayLength(existingValues) == 0
     assert EmitTaskArrayLength(projectValues) == 0
+    assert EmitTaskArrayLength(dllValues) == 0
 }
