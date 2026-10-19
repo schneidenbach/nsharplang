@@ -168,3 +168,31 @@ test "the reference pack's assembly folder is the runtime's own target framework
         Directory.Delete(root, true)
     }
 }
+
+test "a reference-pack file that cannot be read allows its namespace instead of refusing every type in it" {
+    files := new Dictionary<string, List<string>>(StringComparer.Ordinal)
+    missing := new List<string>()
+    missing.Add(Path.Combine(Path.GetTempPath(), "nsharp-missing-ref-" + Guid.NewGuid().ToString("N") + ".dll"))
+    files["System.Collections.Generic"] = missing
+    assert FrameworkNamespaceIndex.ReadReferenceTypeNames(files, "System.Collections.Generic") == null
+
+    index := FniSpellingIndex()
+    index.UseReferenceSurface(files, new HashSet<string>(["System.Collections.Generic"], StringComparer.Ordinal))
+    assert index.HasReferenceSurface
+    assert index.IsOnCompileSurface("System.Collections.Generic", "List`1")
+    assert index.IsOnCompileSurface("System.Collections.Generic", "TreeSet`1")
+    // A namespace the pack does not carry at all is still not on the surface.
+    assert !index.IsOnCompileSurface("System.Linq.Expressions.Interpreter", "LightLambda")
+}
+
+test "a chain written relative to the file's namespace or an import spells the namespace it reaches" {
+    relative := new List<string>()
+    relative.Add("System.Foo")
+    relative.Add("System")
+    text := "namespace System.Foo\n\nfunc Seed(): Numerics.BigInteger {\n    return items.Count\n}\n"
+    // `namespace System.Foo` itself reaches only `System`; `Numerics.BigInteger` reaches `System.Numerics`
+    // under `System`; `items.Count` reaches nothing longer than a prefix.
+    spelled := FniSpellingIndex().SpelledNamespaces(text, null, relative)
+    assert spelled.Contains("System.Numerics"), string.Join("|", spelled)
+    assert !spelled.Contains("System.Foo")
+}

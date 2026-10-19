@@ -76,6 +76,11 @@ class FrameworkNamespaceIndex {
     // equal counts mean equal sets and no name ever has to be read for the rest.
     private implementationOnlyNamespaces: HashSet<string>
     private referenceTypeNames: Dictionary<string, HashSet<string>>
+
+    // Namespaces at least one of whose reference files could not be read. Their types are ALLOWED:
+    // an unreadable pack is no evidence that a type is implementation-only, and refusing would turn a
+    // damaged install into "type not found" for real framework types.
+    private unreadableReferenceNamespaces: HashSet<string>
     private referenceGate: object
 
     private static runtimeAssemblyMarks: ConditionalWeakTable<Assembly, object> = new ConditionalWeakTable<Assembly, object>()
@@ -95,6 +100,7 @@ class FrameworkNamespaceIndex {
         referenceFilesByNamespace = null
         implementationOnlyNamespaces = new HashSet<string>(StringComparer.Ordinal)
         referenceTypeNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+        unreadableReferenceNamespaces = new HashSet<string>(StringComparer.Ordinal)
         referenceGate = new object()
         roots = new HashSet<string>(StringComparer.Ordinal)
         for namespaceName in namespaces.Keys {
@@ -156,6 +162,15 @@ class FrameworkNamespaceIndex {
     // in a comment or a string counts -- because a load it adds is only ever reached through its own
     // namespace (`FrameworkOnDemandLoads`), so an extra one costs time and never changes an answer.
     func SpelledNamespaces(text: string, aliases: IReadOnlyDictionary<string, string>?): List<string> {
+        return SpelledNamespaces(text, aliases, null)
+    }
+
+    // `relativeTo` are the namespaces a chain may be written RELATIVE to: the file's own namespace and
+    // each one enclosing it, and its imported namespaces. `Numerics.BigInteger` inside
+    // `namespace System.Foo` names `System.Numerics`, so the chain counts under every such prefix whose
+    // expansion reaches a framework namespace longer than the prefix itself -- a plain member access
+    // (`items.Count` under `System`) reaches no further than `System` and adds nothing.
+    func SpelledNamespaces(text: string, aliases: IReadOnlyDictionary<string, string>?, relativeTo: IEnumerable<string>?): List<string> {
         found := new List<string>()
         seen := new HashSet<string>(StringComparer.Ordinal)
         if text == null {
@@ -184,6 +199,15 @@ class FrameworkNamespaceIndex {
             rootEnd := chain.IndexOf('.')
             root := chain.Substring(0, rootEnd)
             expanded := chain
+            if relativeTo != null {
+                for prefix in relativeTo {
+                    relative := LongestNamespacePrefix(prefix + "." + chain)
+                    if relative != null && relative.Length > prefix.Length && seen.Add(relative) {
+                        found.Add(relative)
+                    }
+                }
+            }
+
             aliasTarget := ""
             if aliases != null && aliases.TryGetValue(root, out aliasTarget) {
                 expanded = aliasTarget + chain.Substring(rootEnd)
@@ -434,17 +458,35 @@ class FrameworkNamespaceIndex {
         }
 
         lock referenceGate {
+            if unreadableReferenceNamespaces.Contains(namespaceName) {
+                return true
+            }
+
             names: HashSet<string>? = null
             if !referenceTypeNames.TryGetValue(namespaceName, out names) || names == null {
-                names = ReadReferenceTypeNames(files, namespaceName)
-                referenceTypeNames[namespaceName] = names
+                read := ReadReferenceTypeNames(files, namespaceName)
+                if read == null {
+                    unreadableReferenceNamespaces.Add(namespaceName)
+                    return true
+                }
+
+                names = read
+                referenceTypeNames[namespaceName] = read
             }
 
             return names.Contains(name)
         }
     }
 
-    static func ReadReferenceTypeNames(filesByNamespace: Dictionary<string, List<string>>, namespaceName: string): HashSet<string> {
+    // FOR A CALLER THAT ALREADY HAS THE REFERENCE PACK'S SHAPE (the estate): which files carry each
+    // namespace and which namespaces the runtime defines more public types in.
+    func UseReferenceSurface(filesByNamespace: Dictionary<string, List<string>>, implementationOnly: HashSet<string>) {
+        referenceFilesByNamespace = filesByNamespace
+        implementationOnlyNamespaces = implementationOnly
+    }
+
+    // Null when any file that carries the namespace cannot be read.
+    static func ReadReferenceTypeNames(filesByNamespace: Dictionary<string, List<string>>, namespaceName: string): HashSet<string>? {
         names := new HashSet<string>(StringComparer.Ordinal)
         paths: List<string>? = null
         if !filesByNamespace.TryGetValue(namespaceName, out paths) || paths == null {
@@ -452,21 +494,23 @@ class FrameworkNamespaceIndex {
         }
 
         for path in paths {
-            ReadTopLevelNamesInNamespace(path, namespaceName, names)
+            if !ReadTopLevelNamesInNamespace(path, namespaceName, names) {
+                return null
+            }
         }
 
         return names
     }
 
     // The public top-level type definitions and the forwarders one file carries in one namespace.
-    static func ReadTopLevelNamesInNamespace(path: string, namespaceName: string, names: HashSet<string>) {
+    static func ReadTopLevelNamesInNamespace(path: string, namespaceName: string, names: HashSet<string>): bool {
         stream: Stream? = null
         pe: PEReader? = null
         try {
             stream = File.OpenRead(path)
             pe = new PEReader(stream)
             if !pe.HasMetadata {
-                return
+                return false
             }
 
             reader := pe.GetMetadataReader()
@@ -482,7 +526,7 @@ class FrameworkNamespaceIndex {
                 }
 
                 if !found {
-                    return
+                    return true
                 }
             }
 
@@ -500,9 +544,11 @@ class FrameworkNamespaceIndex {
                     names.Add(reader.GetString(exported.Name))
                 }
             }
+
+            return true
         } catch {
-            // An unreadable reference file contributes no name; the type is then not on the surface.
-            return
+            // An unreadable reference file: the caller allows the namespace rather than refuse it.
+            return false
         } finally {
             if pe != null {
                 pe.Dispose()

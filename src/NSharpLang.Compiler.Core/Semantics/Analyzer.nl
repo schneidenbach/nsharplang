@@ -853,7 +853,25 @@ class Analyzer: IDisposable {
             }
         }
 
-        for namespaceName in FrameworkNamespaceIndex.ForHostRuntime().SpelledNamespaces(text, aliases) {
+        relativeTo := new List<string>()
+        declared := unit.Namespace
+        if declared != null {
+            current := declared.Name
+            while current.Length > 0 {
+                relativeTo.Add(current)
+                separator := current.LastIndexOf('.')
+                if separator < 0 {
+                    current = ""
+                } else {
+                    current = current.Substring(0, separator)
+                }
+            }
+        }
+        for importDirective in unit.Imports {
+            relativeTo.Add(importDirective.Namespace)
+        }
+
+        for namespaceName in FrameworkNamespaceIndex.ForHostRuntime().SpelledNamespaces(text, aliases, relativeTo) {
             MetadataLoadSurface.LoadFrameworkNamespace(namespaceName)
         }
     }

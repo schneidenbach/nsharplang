@@ -295,3 +295,91 @@ func DefaultRefsForgetPersistedCheck(root: string) {
         }
     }
 }
+
+// A CONSOLE PROJECT REACHES THE `Microsoft.Extensions.*` PACKAGES IT DEPENDS ON WITHOUT ASP.NET CORE.
+// The ASP.NET Core import-table rows stand down for a project that does not reference
+// Microsoft.AspNetCore.App; a `nuget:` reference to the package is what makes its namespace
+// importable, exactly as under `dotnet build`. The packages are copied from the machine's cache into a
+// throwaway one so the row never downloads; a machine without them cached skips the row.
+test "a console project uses Microsoft.Extensions.DependencyInjection from its nuget reference" {
+    root := ResolverNewTempDirectory("default-refs-di")
+    try {
+        packagesRoot := Path.Combine(root, "packages")
+        if DefaultRefsSeedPackage(packagesRoot, "microsoft.extensions.dependencyinjection", "10.0.5") && DefaultRefsSeedPackage(packagesRoot, "microsoft.extensions.dependencyinjection.abstractions", "10.0.5") {
+            assert DefaultRefsRunDiConsole(Path.Combine(root, "app"), packagesRoot) == "hello from DI"
+        } else {
+            print "skipped: Microsoft.Extensions.DependencyInjection 10.0.5 is not in the local NuGet cache"
+        }
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+// Builds and runs the DI console program against `packagesRoot` only, answering its output.
+func DefaultRefsRunDiConsole(projectRoot: string, packagesRoot: string): string {
+    source := new List<string>()
+    source.Add("import Microsoft.Extensions.DependencyInjection")
+    source.Add("")
+    source.Add("class Greeter {")
+    source.Add("    func Hello(): string {")
+    source.Add("        return \"hello from DI\"")
+    source.Add("    }")
+    source.Add("}")
+    source.Add("")
+    source.Add("func main() {")
+    source.Add("    services := new ServiceCollection()")
+    source.Add("    services.AddSingleton<Greeter>()")
+    source.Add("    provider := services.BuildServiceProvider()")
+    source.Add("    print provider.GetRequiredService<Greeter>().Hello()")
+    source.Add("}")
+    DefaultRefsProject(projectRoot, DefaultRefsConsoleYml("DiConsole", "dependencies:\n  - nuget: Microsoft.Extensions.DependencyInjection\n    version: 10.0.5\n"), string.Join("\n", source) + "\n")
+    output := Path.Combine(projectRoot, "out")
+    build := ResolverRunCliInCache("build --project " + ResolverQuote(projectRoot) + " -o " + ResolverQuote(output), projectRoot, packagesRoot)
+    assert build.ExitCode == 0, build.Stdout + build.Stderr
+    run := ResolverRunProcess("dotnet", ResolverQuote(Path.Combine(output, "DiConsole.dll")), output)
+    assert run.ExitCode == 0, run.Stdout + run.Stderr
+    return run.Stdout.Trim()
+}
+
+// Copies `<id>/<version>` from the first local cache that has it; false when none does.
+func DefaultRefsSeedPackage(destinationRoot: string, id: string, version: string): bool {
+    for candidateRoot in ResolverCandidatePackagesRoots() {
+        candidate := Path.Combine(Path.Combine(candidateRoot, id), version)
+        if Directory.Exists(candidate) && !candidate.StartsWith(destinationRoot, StringComparison.Ordinal) {
+            ResolverCopyDirectory(candidate, Path.Combine(Path.Combine(destinationRoot, id), version))
+            return true
+        }
+    }
+
+    return false
+}
+
+// A FILE WRITTEN RELATIVE TO ITS OWN NAMESPACE, REUSED BY AN INCREMENTAL CHECK. `S.nl` sits in
+// `namespace System.Foo` and spells `Numerics.BigInteger`, which names `System.Numerics` without the
+// words `System.Numerics` appearing anywhere. When only `Program.nl` changes, `S.nl`'s analysis is
+// reused, so the load its own analysis would make never happens in that process; the spelled-namespace
+// preload has to read the relative spelling so the IL back end still finds `System.Runtime.Numerics`
+// when it validates `Program.nl`, whose call returns that type.
+test "a reused file's namespace-relative framework spelling still reaches the emitter" {
+    root := ResolverNewTempDirectory("default-refs-relative")
+    try {
+        ResolverWrite(Path.Combine(root, "project.yml"), DefaultRefsConsoleYml("RelativeProbe", ""))
+        ResolverWrite(Path.Combine(root, "S.nl"), "namespace System.Foo\n\nfunc Seed(): Numerics.BigInteger {\n    return Numerics.BigInteger.One\n}\n")
+        ResolverWrite(Path.Combine(root, "Program.nl"), "namespace System.Foo\n\nfunc main() {\n    print Seed().ToString()\n}\n")
+        prime := ResolverRunCli("check --project " + ResolverQuote(root) + " --json", root)
+        assert prime.ExitCode == 0, prime.Stdout + prime.Stderr
+
+        ResolverWrite(Path.Combine(root, "Program.nl"), "namespace System.Foo\n\nfunc main() {\n    print (Seed() + Seed()).ToString()\n}\n")
+        statsPath := Path.Combine(root, "stats.json")
+        reused := ResolverRunCli("check --project " + ResolverQuote(root) + " --json --stats=" + ResolverQuote(statsPath), root)
+        assert reused.ExitCode == 0, reused.Stdout + reused.Stderr
+        stats := JsonDocument.Parse(File.ReadAllText(statsPath))
+        analyzed := stats.RootElement.GetProperty("counters").GetProperty("filesAnalyzed").GetInt64()
+        stats.Dispose()
+        assert analyzed == 1, "expected S.nl's analysis to be reused; analysed " + analyzed.ToString()
+
+        assert DefaultRefsBuildAndRun(root, "RelativeProbe") == "2"
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
