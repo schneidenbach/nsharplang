@@ -1356,6 +1356,28 @@ class CompilationReferenceResolverKernels {
             return 1
         }
 
+        // A PLATFORM-QUALIFIED FRAMEWORK (`net8.0-android34.0`) IS COMPATIBLE ONLY WITH A TARGET THAT
+        // NAMES THE SAME PLATFORM. NuGet's FrameworkReducer never reduces `net10.0` to
+        // `net8.0-android`: scored as plain `net8.0`, the Android group of
+        // Microsoft.EntityFrameworkCore.Sqlite's closure won over the portable one and the app
+        // shipped `SQLitePCLRaw.lib.e_sqlite3.android`.
+        assetPlatformDash := FrameworkPlatformDash(assetFramework, assetStart, assetEnd)
+        if assetPlatformDash >= 0 {
+            targetPlatformDash := FrameworkPlatformDash(targetFramework, targetStart, targetEnd)
+            if targetPlatformDash < 0 || !FrameworkPlatformNamesEqual(assetFramework, assetPlatformDash, assetEnd, targetFramework, targetPlatformDash, targetEnd) {
+                result[0] = -1
+                return 1
+            }
+
+            // The asset's platform version must not exceed the target's: `android35.0` code cannot run
+            // on `android34.0`. A target that names no version is `windows7.0` for Windows (the SDK's
+            // default) and 0.0 for every other platform, as NuGet normalises it.
+            if FrameworkPlatformVersion(assetFramework, assetPlatformDash, assetEnd) > FrameworkTargetPlatformVersion(targetFramework, targetPlatformDash, targetEnd) {
+                result[0] = -1
+                return 1
+            }
+        }
+
         if !FrameworkParseVersionInto(assetFramework, assetStart, assetEnd, result, 1) {
             result[0] = -1
             return 1
@@ -1371,6 +1393,12 @@ class CompilationReferenceResolverKernels {
         targetMajor := result[3]
 
         if FrameworkNormalizedStartsWith(assetFramework, assetStart, assetEnd, "netstandard") {
+            // .NET Standard ends at 2.1; a higher version is not a framework.
+            if (assetMajor * 100) + assetMinor > 201 {
+                result[0] = -1
+                return 1
+            }
+
             result[0] = 4000 + (assetMajor * 100) + assetMinor
             return 1
         }
@@ -1390,6 +1418,10 @@ class CompilationReferenceResolverKernels {
                 if targetMajor >= 5 {
                     if assetMajor <= targetMajor {
                         result[0] = 8000 + (assetMajor * 100) + assetMinor
+                        // The same platform beats the portable folder of the same version, never a newer one.
+                        if assetPlatformDash >= 0 {
+                            result[0] = result[0] + 50
+                        }
                     } else {
                         result[0] = -1
                     }
@@ -1401,6 +1433,83 @@ class CompilationReferenceResolverKernels {
 
         result[0] = -1
         return 1
+    }
+
+    // The index of the `-` that starts a framework's platform (`net8.0-android34.0`), or -1.
+    static func FrameworkPlatformDash(text: string, start: int, end: int): int {
+        index := start
+        while index < end {
+            if text[index] == '-' {
+                return index
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
+    // The platform NAME after the dash, ignoring its version: `android34.0` and `android` are one.
+    static func FrameworkPlatformNameEnd(text: string, dash: int, end: int): int {
+        index := dash + 1
+        while index < end {
+            if TargetFrameworkIsDigit(text[index]) || text[index] == '.' {
+                break
+            }
+
+            index = index + 1
+        }
+
+        return index
+    }
+
+    // The platform version after the name as major * 100 + minor (`android34.0` -> 3400), 0 for none.
+    static func FrameworkPlatformVersion(text: string, dash: int, end: int): int {
+        index := FrameworkPlatformNameEnd(text, dash, end)
+        major := 0
+        while index < end && TargetFrameworkIsDigit(text[index]) {
+            major = major * 10 + (text[index] - '0')
+            index = index + 1
+        }
+
+        minor := 0
+        if index < end && text[index] == '.' {
+            index = index + 1
+            while index < end && TargetFrameworkIsDigit(text[index]) {
+                minor = minor * 10 + (text[index] - '0')
+                index = index + 1
+            }
+        }
+
+        return major * 100 + minor
+    }
+
+    static func FrameworkTargetPlatformVersion(text: string, dash: int, end: int): int {
+        version := FrameworkPlatformVersion(text, dash, end)
+        if version == 0 && string.Equals(text.Substring(dash + 1, FrameworkPlatformNameEnd(text, dash, end) - dash - 1), "windows", StringComparison.OrdinalIgnoreCase) {
+            return 700
+        }
+
+        return version
+    }
+
+    static func FrameworkPlatformNamesEqual(left: string, leftDash: int, leftEnd: int, right: string, rightDash: int, rightEnd: int): bool {
+        leftNameEnd := FrameworkPlatformNameEnd(left, leftDash, leftEnd)
+        rightNameEnd := FrameworkPlatformNameEnd(right, rightDash, rightEnd)
+        if leftNameEnd - leftDash != rightNameEnd - rightDash {
+            return false
+        }
+
+        offset := 1
+        while leftDash + offset < leftNameEnd {
+            if FrameworkAsciiLower(left[leftDash + offset]) != FrameworkAsciiLower(right[rightDash + offset]) {
+                return false
+            }
+
+            offset = offset + 1
+        }
+
+        return true
     }
 
     static func FrameworkTrimStart(text: string): int {
@@ -1766,6 +1875,263 @@ class CompilationReferenceResolverKernels {
         }
 
         return false
+    }
+
+    // A project whose package closure includes Microsoft.AspNetCore.Mvc.Testing hosts an application
+    // in-process, and `WebApplicationFactory` requires that application's `deps.json` beside the test
+    // assembly. The package's own MSBuild targets copy the file; the closure is the signal here.
+    static func FlowsReferencedDependencyManifest(selectedVersions: Dictionary<string, string>): bool {
+        return selectedVersions.ContainsKey(NormalizeNuGetPackageId("Microsoft.AspNetCore.Mvc.Testing"))
+    }
+
+    // ── RUNTIME IDENTIFIERS AND PACKAGE RUNTIME FILES ───────────────────────────
+
+    // THE RID GRAPH FALLBACK, MOST SPECIFIC FIRST. A package ships `runtimes/<rid>/native/*` for a
+    // handful of portable RIDs (`osx`, `linux-x64`, `win-arm64`) and the host's own RID is far more
+    // specific (`osx.14-arm64`, `ubuntu.22.04-x64`, `linux-musl-arm64`). Walking this list and taking
+    // the first RID a package ships is the runtime-identifier graph's rule, flattened: the exact RID,
+    // its versionless form, the operating system on this architecture, the bare operating system, its
+    // family (a distribution is `linux`, Alpine is `linux-musl` then `linux`), `unix` for everything
+    // that is not Windows, and finally `any`.
+    static func GetRuntimeIdentifierFallbacks(runtimeIdentifier: string): string[] {
+        result := new List<string>()
+        seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        AddUniqueText(result, seen, runtimeIdentifier)
+
+        architecture := ""
+        operatingSystem := runtimeIdentifier
+        dash := runtimeIdentifier.LastIndexOf('-')
+        if dash > 0 && dash < runtimeIdentifier.Length - 1 {
+            candidate := runtimeIdentifier.Substring(dash + 1)
+            if IsKnownArchitecture(candidate) {
+                architecture = candidate
+                operatingSystem = runtimeIdentifier.Substring(0, dash)
+            }
+        }
+
+        AddUniqueText(result, seen, operatingSystem)
+
+        baseSystem := operatingSystem
+        dot := operatingSystem.IndexOf('.')
+        if dot > 0 {
+            baseSystem = operatingSystem.Substring(0, dot)
+        }
+
+        if baseSystem.StartsWith("win", StringComparison.OrdinalIgnoreCase) {
+            baseSystem = "win"
+        }
+
+        family := new List<string>()
+        if string.Equals(baseSystem, "win", StringComparison.OrdinalIgnoreCase) {
+            // win11 -> win10 -> win81 -> win8 -> win7 -> win: each older Windows is a fallback.
+            versionName := operatingSystem
+            while versionName.Length > 0 {
+                family.Add(versionName)
+                versionName = GetWindowsRuntimeIdentifierParent(versionName)
+            }
+
+            family.Add("win")
+        } else {
+            current := baseSystem
+            guard := 0
+            while current.Length > 0 && guard < 8 {
+                family.Add(current)
+                current = GetLinuxRuntimeIdentifierParent(current)
+                guard = guard + 1
+            }
+        }
+
+        for osName in family {
+            rhelVersion := ""
+            if string.Equals(osName, baseSystem, StringComparison.OrdinalIgnoreCase) && !string.Equals(baseSystem, "rhel", StringComparison.OrdinalIgnoreCase) {
+                rhelVersion = GetRedHatRuntimeIdentifierVersion(baseSystem, operatingSystem)
+            }
+
+            if architecture.Length > 0 {
+                AddUniqueText(result, seen, osName + "-" + architecture)
+            }
+
+            // Rocky, CentOS, and Oracle Linux RIDs import the same-version RHEL RID after their
+            // architecture-specific RID and before their generic RID (e.g. rocky.9-x64 imports
+            // rocky.9, rocky-x64, rhel.9-x64, rocky, rhel.9, rhel-x64, rhel).
+            if rhelVersion.Length > 0 && architecture.Length > 0 {
+                AddUniqueText(result, seen, "rhel." + rhelVersion + "-" + architecture)
+            }
+
+            AddUniqueText(result, seen, osName)
+
+            if rhelVersion.Length > 0 {
+                AddUniqueText(result, seen, "rhel." + rhelVersion)
+            }
+        }
+
+        if !string.Equals(baseSystem, "win", StringComparison.OrdinalIgnoreCase) {
+            if architecture.Length > 0 {
+                AddUniqueText(result, seen, "unix-" + architecture)
+            }
+
+            AddUniqueText(result, seen, "unix")
+        }
+
+        AddUniqueText(result, seen, "any")
+        return result.ToArray()
+    }
+
+    private static func GetRedHatRuntimeIdentifierVersion(baseSystem: string, operatingSystem: string): string {
+        if !string.Equals(baseSystem, "rocky", StringComparison.OrdinalIgnoreCase) && !string.Equals(baseSystem, "centos", StringComparison.OrdinalIgnoreCase) && !string.Equals(baseSystem, "ol", StringComparison.OrdinalIgnoreCase) {
+            return ""
+        }
+
+        dot := operatingSystem.IndexOf('.')
+        if dot < 0 || dot + 1 >= operatingSystem.Length {
+            return ""
+        }
+
+        return operatingSystem.Substring(dot + 1)
+    }
+
+    static func IsKnownArchitecture(candidate: string): bool {
+        known := ["x64", "x86", "arm", "arm64", "armel", "armv6", "s390x", "ppc64le", "loongarch64", "riscv64", "mips64", "wasm"]
+        for architecture in known {
+            if string.Equals(candidate, architecture, StringComparison.OrdinalIgnoreCase) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // The parent a Linux RID falls back to in the runtime identifier graph: a derivative names its
+    // base distribution, every distribution names `linux`, and Alpine names `linux-musl`. Empty for
+    // a RID with no parent (`osx`, `freebsd`, `linux`).
+    static func GetLinuxRuntimeIdentifierParent(systemName: string): string {
+        derived := ["linuxmint:ubuntu", "pop:ubuntu", "elementary:ubuntu", "kali:debian", "raspbian:debian", "ubuntu:debian", "debian:linux", "centos:rhel", "ol:rhel", "rocky:rhel", "rhel:linux", "fedora:linux", "sles:linux", "opensuse:linux", "arch:linux", "gentoo:linux", "tizen:linux", "alpine:linux-musl", "linux-musl:linux"]
+        for entry in derived {
+            separator := entry.IndexOf(':')
+            if string.Equals(entry.Substring(0, separator), systemName, StringComparison.OrdinalIgnoreCase) {
+                return entry.Substring(separator + 1)
+            }
+        }
+
+        return ""
+    }
+
+    static func GetWindowsRuntimeIdentifierParent(systemName: string): string {
+        if string.Equals(systemName, "win11", StringComparison.OrdinalIgnoreCase) {
+            return "win10"
+        }
+
+        if string.Equals(systemName, "win10", StringComparison.OrdinalIgnoreCase) {
+            return "win81"
+        }
+
+        if string.Equals(systemName, "win81", StringComparison.OrdinalIgnoreCase) {
+            return "win8"
+        }
+
+        if string.Equals(systemName, "win8", StringComparison.OrdinalIgnoreCase) {
+            return "win7"
+        }
+
+        return ""
+    }
+
+    // A package file's path from its version directory, with `/` separators on every platform: the
+    // form a `deps.json` row and the copied `runtimes/<rid>/...` layout both use.
+    static func GetPackageRelativePath(versionDirectory: string, filePath: string): string {
+        return Path.GetRelativePath(versionDirectory, filePath).Replace('\\', '/')
+    }
+
+    // NuGet writes `_._` into a folder that must exist but must not contribute a file.
+    static func IsPackagePlaceholderFile(filePath: string): bool {
+        return string.Equals(Path.GetFileName(filePath), "_._", StringComparison.Ordinal)
+    }
+
+    // A runtime deps manifest belongs to a .NET 5+ application target, e.g.
+    // `net10.0` -> `.NETCoreApp,Version=v10.0`. Libraries targeting .NET Standard, .NET Framework,
+    // or pre-.NET 5 .NET Core do not have an application runtime target to write here.
+    static func SupportsDependencyManifestTarget(targetFramework: string): bool {
+        if string.IsNullOrWhiteSpace(targetFramework) {
+            return false
+        }
+
+        moniker := targetFramework
+        platformDash := moniker.IndexOf('-')
+        if platformDash >= 0 {
+            moniker = moniker.Substring(0, platformDash)
+        }
+
+        if !moniker.StartsWith("net", StringComparison.OrdinalIgnoreCase) || moniker.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase) || moniker.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase) {
+            return false
+        }
+
+        version := moniker.Substring(3)
+        if version.Length == 0 {
+            return false
+        }
+
+        // Compact `net48` is .NET Framework 4.8; `net10` is modern shorthand for .NET 10.
+        if version.IndexOf('.') < 0 && version.Length >= 2 && version[0] >= '1' && version[0] <= '4' && version != "10" {
+            return false
+        }
+
+        majorEnd := version.IndexOf('.')
+        if majorEnd < 0 {
+            majorEnd = version.Length
+        }
+
+        major := 0
+        if !int.TryParse(version.Substring(0, majorEnd), out major) {
+            return false
+        }
+
+        return major >= 5
+    }
+
+    static func GetDependencyManifestTargetName(targetFramework: string): string {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework)
+        if !SupportsDependencyManifestTarget(targetFramework) {
+            throw new ArgumentException("Dependency manifests require a .NET 5.0 or later target framework.")
+        }
+
+        moniker := targetFramework
+        platformDash := moniker.IndexOf('-')
+        if platformDash >= 0 {
+            moniker = moniker.Substring(0, platformDash)
+        }
+
+        version := moniker
+        version = moniker.Substring(3)
+
+        if version.IndexOf('.') < 0 {
+            version = version + ".0"
+        }
+
+        return ".NETCoreApp,Version=v" + version
+    }
+
+    // The file names an unmanaged library name can mean on one operating system, in the order the
+    // runtime itself tries them: the name as written, then with the platform's prefix and suffix.
+    static func GetNativeLibraryFileNames(libraryName: string, isWindows: bool, isMacOS: bool): string[] {
+        names := new List<string>()
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        suffix := ".so"
+        prefix := "lib"
+        if isWindows {
+            suffix = ".dll"
+            prefix = ""
+        } else if isMacOS {
+            suffix = ".dylib"
+        }
+
+        AddUniqueText(names, seen, libraryName)
+        if !libraryName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) {
+            AddUniqueText(names, seen, libraryName + suffix)
+            AddUniqueText(names, seen, prefix + libraryName + suffix)
+            AddUniqueText(names, seen, prefix + libraryName)
+        }
+
+        return names.ToArray()
     }
 
     static func AddSharedRootCandidate(candidates: List<string>, yielded: HashSet<string>, candidate: string) {

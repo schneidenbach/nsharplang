@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Runtime.InteropServices
 import System.Runtime.Loader
 import System.Text
 import System.Threading
@@ -398,6 +399,7 @@ static class XunitTestRunner {
         // so the `finally` below removes the same instance that was added.
         resolvingSubscription := on AssemblyLoadContext.Default.Resolving (context, assemblyName) => XunitTestRunner.ResolveTestDependency(context, assemblyName, probeDirectory, frameworkDirectories)
         appDomainSubscription := on AppDomain.CurrentDomain.AssemblyResolve (sender, eventArgs) => XunitTestRunner.ResolveTestDependency(AssemblyLoadContext.Default, new AssemblyName(eventArgs.Name), probeDirectory, frameworkDirectories)
+        nativeSubscription := on AssemblyLoadContext.Default.ResolvingUnmanagedDll (requestingAssembly, libraryName) => XunitTestRunner.ResolveTestNativeLibrary(libraryName, probeDirectory)
         try {
             using diagnosticSink := new NullMessageSink()
             using controller := new XunitFrontController(
@@ -472,6 +474,7 @@ static class XunitTestRunner {
 
             off resolvingSubscription
             off appDomainSubscription
+            off nativeSubscription
         }
     }
 
@@ -517,6 +520,17 @@ static class XunitTestRunner {
         }
 
         return null
+    }
+
+    // A native library a test's package ships (`runtimes/<rid>/native/*`) is found in the test output
+    // directory by the host's RID fallback order; the CLI's own host knows only its own directory.
+    static func ResolveTestNativeLibrary(libraryName: string, assemblyDirectory: string): IntPtr {
+        libraryPath := TestCommandKernels.FindNativeLibraryPath(assemblyDirectory, libraryName, RuntimeInformation.RuntimeIdentifier)
+        if libraryPath == null {
+            return IntPtr.Zero
+        }
+
+        return NativeLibrary.Load(libraryPath)
     }
 
     // The `[Trait("NSharpDescription", "…")]` row an N# `test "…"` declaration emits is what supplies

@@ -228,3 +228,165 @@ test "a package nlc build installed is one dotnet restore can resolve with no so
         Directory.Delete(scratch, true)
     }
 }
+
+// A PACKAGE THAT SHIPS NATIVE ASSETS, built by hand so the row needs no network and no real
+// native library. The host reads the application's `deps.json` to build `NATIVE_DLL_SEARCH_DIRECTORIES`
+// from its `runtimeTargets` rows for the RID it runs on, so the directory appearing there is the
+// host's own witness that the manifest resolves `runtimes/<rid>/native/*` -- which is what the
+// `e_sqlite3` of Microsoft.EntityFrameworkCore.Sqlite needs and `DllNotFoundException` said was missing.
+test "nlc build copies a package's native assets and writes the deps.json the host resolves them through" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("native-assets")
+    try {
+        cache := Path.Combine(scratch, "packages")
+        Directory.CreateDirectory(cache)
+        leaf := ResolutionBuildLeaf(cli, scratch, "1.0.0", "leaf-1")
+        packageDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Native", "1.0.0")
+        ResolutionWriteNuspec(packageDirectory, "NlcResolution.Native", "1.0.0", ResolutionNoDependencies())
+        ResolutionInstallLibrary(packageDirectory, leaf)
+        nativeFiles := [
+            "osx-arm64/native/libfake.dylib",
+            "osx-x64/native/libfake.dylib",
+            "linux-x64/native/libfake.so",
+            "linux-arm64/native/libfake.so",
+            "linux-musl-x64/native/libfake.so",
+            "win-x64/native/fake.dll",
+            "win-arm64/native/fake.dll",
+            "android-arm64/native/libfake.so"
+        ]
+        for nativeFile in nativeFiles {
+            path := Path.Combine(Path.Combine(packageDirectory, "runtimes"), nativeFile)
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? "")
+            File.WriteAllText(path, "not a real library")
+        }
+
+        appDirectory := Path.Combine(scratch, "app")
+        source := "namespace ResolutionApp\n\nimport System\nimport ResolutionLeaf\n\nfunc main() {\n    print LeafMarker.Name()\n    print AppContext.GetData(\"NATIVE_DLL_SEARCH_DIRECTORIES\")\n}\n"
+        ResolutionWriteProject(appDirectory, ResolutionAppProjectYml(ResolutionDependency("NlcResolution.Native", "1.0.0")), "Program.nl", source)
+        build := ResolutionRunInCache(ResolutionQuote(cli) + " build", appDirectory, cache)
+        ResolutionRequireSuccess(build, "nlc build of the native-assets sample")
+
+        output := ResolutionOutputDirectory(appDirectory)
+        assert File.Exists(Path.Combine(output, "ResolutionLeaf.dll"))
+        assert File.Exists(Path.Combine(output, "runtimes/osx-arm64/native/libfake.dylib"))
+        assert File.Exists(Path.Combine(output, "runtimes/linux-x64/native/libfake.so"))
+        assert File.Exists(Path.Combine(output, "runtimes/win-x64/native/fake.dll"))
+        manifest := File.ReadAllText(Path.Combine(output, "ResolutionApp.deps.json"))
+        assert manifest.Contains("\"NlcResolution.Native/1.0.0\""), manifest
+        assert manifest.Contains("\"runtimes/linux-x64/native/libfake.so\""), manifest
+
+        run := ResolutionRunDotnet(ResolutionQuote(Path.Combine(output, "ResolutionApp.dll")), appDirectory)
+        ResolutionRequireSuccess(run, "running the native-assets sample")
+        assert run.Stdout.Contains("leaf-1"), run.Output()
+        assert run.Stdout.Contains("runtimes"), "the host did not resolve a runtimes/<rid>/native directory from deps.json: " + run.Output()
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
+// THE PACKAGE ONLY THE REFERENCED PROJECT DECLARES. `Maker.Make()` returns a type of a package the
+// consuming project never lists; before the package flowed through the `project:` reference, naming
+// or touching a member of that type declined emission with 'Could not load file or assembly'.
+test "a project reference flows its package so the consumer can use the package's types" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("package-flow")
+    try {
+        cache := Path.Combine(scratch, "packages")
+        Directory.CreateDirectory(cache)
+        leafDirectory := Path.Combine(scratch, "leaf")
+        ResolutionWriteProject(
+            leafDirectory,
+            "name: FlowLeaf\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n",
+            "Leaf.nl",
+            "namespace FlowLeaf\n\nclass Marker {\n    func Describe(): string {\n        return \"from the package\"\n    }\n}\n"
+        )
+        build := ResolutionRunDotnet(ResolutionQuote(cli) + " build", leafDirectory)
+        ResolutionRequireSuccess(build, "nlc build of the flow leaf")
+        packageDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Flow", "1.0.0")
+        ResolutionWriteNuspec(packageDirectory, "NlcResolution.Flow", "1.0.0", ResolutionNoDependencies())
+        ResolutionInstallLibrary(packageDirectory, Path.Combine(ResolutionOutputDirectory(leafDirectory), "FlowLeaf.dll"))
+
+        ResolutionWriteProject(
+            Path.Combine(scratch, "lib"),
+            "name: FlowLib\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n" + ResolutionDependency("NlcResolution.Flow", "1.0.0"),
+            "Lib.nl",
+            "namespace FlowLib\n\nimport FlowLeaf\n\nclass Maker {\n    static func Make(): Marker {\n        return new Marker()\n    }\n}\n"
+        )
+        appDirectory := Path.Combine(scratch, "app")
+        ResolutionWriteProject(
+            appDirectory,
+            "name: FlowApp\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - project: ../lib/project.yml\n",
+            "Program.nl",
+            "namespace FlowApp\n\nimport FlowLib\n\nfunc main() {\n    marker := Maker.Make()\n    print marker.Describe()\n}\n"
+        )
+        appBuild := ResolutionRunInCache(ResolutionQuote(cli) + " build", appDirectory, cache)
+        ResolutionRequireSuccess(appBuild, "nlc build of the project that only references the library")
+        output := ResolutionOutputDirectory(appDirectory)
+        assert File.Exists(Path.Combine(output, "FlowLeaf.dll")), "the package's assembly was not copied beside the consumer"
+        run := ResolutionRunDotnet(ResolutionQuote(Path.Combine(output, "FlowApp.dll")), appDirectory)
+        ResolutionRequireSuccess(run, "running the project that only references the library")
+        assert run.Stdout.Trim() == "from the package", run.Output()
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
+// THE ISSUE #247 PACKAGE, restored by this native project so the regression stays offline after the
+// gate has populated NUGET_PACKAGES. B alone declares HtmlAgilityPack; A imports its namespace,
+// annotates a parameter with HtmlDocument, and reads Maker.Make().DocumentNode.InnerText.
+test "HtmlAgilityPack flows through a project reference for nlc test and build" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("html-agility-flow")
+    try {
+        cache := Path.Combine(scratch, "packages")
+        Directory.CreateDirectory(cache)
+        restoredPackages := Environment.GetEnvironmentVariable("NUGET_PACKAGES") ?? ""
+        restoredAssembly := Path.Combine(
+            Path.Combine(Path.Combine(Path.Combine(restoredPackages, "htmlagilitypack"), "1.12.4"), "lib/netstandard2.0"),
+            "HtmlAgilityPack.dll"
+        )
+        assert File.Exists(restoredAssembly), "HtmlAgilityPack 1.12.4 must be restored with the native test project's dependencies."
+
+        packageDirectory := ResolutionPackageDirectory(cache, "HtmlAgilityPack", "1.12.4")
+        ResolutionWriteNuspec(packageDirectory, "HtmlAgilityPack", "1.12.4", ResolutionNoDependencies())
+        packageLibrary := Path.Combine(packageDirectory, "lib/netstandard2.0")
+        Directory.CreateDirectory(packageLibrary)
+        File.Copy(restoredAssembly, Path.Combine(packageLibrary, "HtmlAgilityPack.dll"), true)
+
+        libDirectory := Path.Combine(scratch, "lib")
+        ResolutionWriteProject(
+            libDirectory,
+            "name: FlowLib\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n" + ResolutionDependency("HtmlAgilityPack", "1.12.4"),
+            "Lib.nl",
+            "namespace FlowLib\n\nimport HtmlAgilityPack\n\nclass Maker {\n    static func Make(): HtmlDocument {\n        d := new HtmlDocument()\n        d.LoadHtml(\"<p>hi</p>\")\n        return d\n    }\n}\n"
+        )
+
+        appDirectory := Path.Combine(scratch, "app")
+        ResolutionWriteProject(
+            appDirectory,
+            "name: FlowApp\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - project: ../lib/project.yml\n",
+            "Program.nl",
+            "namespace FlowApp\n\nimport FlowLib\nimport HtmlAgilityPack\n\nfunc DocumentText(document: HtmlDocument): string {\n    return document.DocumentNode.InnerText\n}\n\nfunc main() {\n    print Maker.Make().DocumentNode.InnerText\n    print DocumentText(Maker.Make())\n}\n"
+        )
+        appBuild := ResolutionRunInCache(ResolutionQuote(cli) + " build", appDirectory, cache)
+        ResolutionRequireSuccess(appBuild, "nlc build of the project that only references the library")
+        appOutput := ResolutionOutputDirectory(appDirectory)
+        assert File.Exists(Path.Combine(appOutput, "HtmlAgilityPack.dll")), "the package assembly was not copied beside the consumer"
+        appRun := ResolutionRunDotnet(ResolutionQuote(Path.Combine(appOutput, "FlowApp.dll")), appDirectory)
+        ResolutionRequireSuccess(appRun, "running the project that only references the library")
+        assert appRun.Stdout.Trim() == "hi\nhi", appRun.Output()
+
+        testDirectory := Path.Combine(scratch, "tests")
+        ResolutionWriteProject(
+            testDirectory,
+            "name: FlowTests\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../lib/project.yml\n",
+            "Flow.tests.nl",
+            "namespace FlowTests\n\nimport FlowLib\nimport HtmlAgilityPack\n\nfunc DocumentText(document: HtmlDocument): string {\n    return document.DocumentNode.InnerText\n}\n\ntest \"a test can use the package type returned by a project reference\" {\n    assert DocumentText(Maker.Make()) == \"hi\"\n}\n"
+        )
+        testRun := ResolutionRunInCache(ResolutionQuote(cli) + " test", testDirectory, cache)
+        ResolutionRequireSuccess(testRun, "nlc test of the project that only references the library")
+        assert testRun.Stdout.Contains("Passed: 1, Failed: 0"), testRun.Output()
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}

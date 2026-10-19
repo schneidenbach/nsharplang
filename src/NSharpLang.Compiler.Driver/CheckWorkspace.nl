@@ -69,6 +69,12 @@ class CheckWorkspaceProjectResult {
         CheckDiagnosticsJson = null
     }
 
+    // SaveCheckResult closes a one-shot compiler after its member cache is saved. The workspace
+    // keeps its compiler reference only until aggregate text output is ready.
+    func ReleaseCompiler(): void {
+        CheckCompiler = null
+    }
+
     Succeeded: bool => ErrorMessage == null && Summary.Errors == 0
 }
 

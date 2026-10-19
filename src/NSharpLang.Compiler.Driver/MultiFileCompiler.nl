@@ -366,7 +366,11 @@ class MultiFileCompiler {
     }
 
     func SaveCheckResult(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int): bool {
-        return SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
+        try {
+            return SaveCheckResultCore(output, diagnosticsJson, outputToStandardError, exitCode, CheckJsonHasDiagnostics(diagnosticsJson))
+        } finally {
+            ReleaseReferenceMetadata()
+        }
     }
 
     private func SaveCheckResultCore(output: string, diagnosticsJson: string, outputToStandardError: bool, exitCode: int, hasDiagnostics: bool): bool {
@@ -379,12 +383,22 @@ class MultiFileCompiler {
 
         entries := new List<IncrementalInputEntry>()
         if capture != null {
-            capture.CaptureFileImports(_projectRoot, _compilationUnits)
             analyzer := _sharedAnalyzerValue
             if analyzer != null {
+                capture.CaptureFileImports(_projectRoot, _compilationUnits)
                 capture.CaptureMetadataInputs(analyzer.MetadataInputAssemblyPaths(), analyzer.MetadataSearchDirectories())
+                entries = capture.Entries
+                _checkStampEntries = entries
+            } else if storedEntries != null {
+                // Text-mode workspace checks first persist each member's result, then replace the
+                // owning member's cache output with the aggregate. Its analyzer has already been
+                // released, so preserve the complete inputs captured on the first save.
+                entries = storedEntries
+            } else {
+                capture.CaptureFileImports(_projectRoot, _compilationUnits)
+                entries = capture.Entries
+                _checkStampEntries = entries
             }
-            entries = capture.Entries
         } else {
             entries = storedEntries ?? new List<IncrementalInputEntry>()
         }
