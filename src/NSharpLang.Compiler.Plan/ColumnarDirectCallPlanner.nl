@@ -2998,6 +2998,12 @@ class ColumnarDirectCallPlanner {
                 normalStatic = ColumnarRuntimeGenericMethodResolver.BetterSelection(ordinary, genericStatic, argumentTypes, argumentFacts)
             }
 
+            if normalStatic.IsAmbiguous {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                plan.Rollback(checkpoint)
+                return false
+            }
+
             if normalStatic.IsSelected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
                 if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, normalStatic, out resultType) {
@@ -3025,6 +3031,12 @@ class ColumnarDirectCallPlanner {
                 chosenOptionalStatic = ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(optionalStatic, genericOptionalStatic, argumentTypes, argumentFacts)
             }
 
+            if chosenOptionalStatic.IsAmbiguous {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                plan.Rollback(checkpoint)
+                return false
+            }
+
             if chosenOptionalStatic.IsSelected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
                 if !AppendOptionalFillRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, chosenOptionalStatic, out resultType) {
@@ -3047,6 +3059,12 @@ class ColumnarDirectCallPlanner {
             if genericCandidates.Length > 0 {
                 expandedGenericStatic := ColumnarRuntimeGenericMethodResolver.ResolveExpandedWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, true, genericCandidates)
                 expandedStatic = ColumnarRuntimeGenericMethodResolver.BetterSelection(expandedStatic, expandedGenericStatic, argumentTypes, argumentFacts)
+            }
+
+            if expandedStatic.IsAmbiguous {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                plan.Rollback(checkpoint)
+                return false
             }
 
             if expandedStatic.IsSelected {
@@ -3247,6 +3265,12 @@ class ColumnarDirectCallPlanner {
             normalInstance = ColumnarRuntimeGenericMethodResolver.BetterSelection(ordinaryInstance, genericInstance, argumentTypes, argumentFacts)
         }
 
+        if normalInstance.IsAmbiguous {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            plan.Rollback(checkpoint)
+            return false
+        }
+
         if normalInstance.IsSelected {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, normalInstance, out resultType) {
@@ -3276,6 +3300,12 @@ class ColumnarDirectCallPlanner {
         if genericCandidates.Length > 0 {
             genericOptionalInstance := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFillWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, genericCandidates)
             chosenOptionalInstance = ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(optionalInstance, genericOptionalInstance, argumentTypes, argumentFacts)
+        }
+
+        if chosenOptionalInstance.IsAmbiguous {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            plan.Rollback(checkpoint)
+            return false
         }
 
         if chosenOptionalInstance.IsSelected {
@@ -3313,6 +3343,12 @@ class ColumnarDirectCallPlanner {
         if genericCandidates.Length > 0 {
             expandedGenericInstance := ColumnarRuntimeGenericMethodResolver.ResolveExpandedWithMethodCandidates(receiverType, memberName, argumentTypes, argumentFacts, false, genericCandidates)
             expandedInstance = ColumnarRuntimeGenericMethodResolver.BetterSelection(expandedInstance, expandedGenericInstance, argumentTypes, argumentFacts)
+        }
+
+        if expandedInstance.IsAmbiguous {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            plan.Rollback(checkpoint)
+            return false
         }
 
         if expandedInstance.IsSelected {

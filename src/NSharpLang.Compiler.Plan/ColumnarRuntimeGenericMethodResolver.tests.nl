@@ -667,6 +667,55 @@ class CrossTierOptionalArityProbe {
     }
 }
 
+class CrossTierOptionalIdenticalProbe {
+    static func Optional<T>(_value: T, _mode: string? = null): int {
+        return 1
+    }
+
+    static func Optional(_value: object, _mode: string? = null): int {
+        return 2
+    }
+}
+
+func CrossTierExpandedArityProbeType(): Type {
+    identity := "CrossTierExpandedArityProbe" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+    paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+    if paramArrayConstructor == null {
+        throw new InvalidOperationException("ParamArrayAttribute constructor not found")
+    }
+
+    generic := owner.DefineMethod("Expanded", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard)
+    methodTypeParameter := generic.DefineGenericParameters(["T"])[0]
+    generic.SetReturnType(typeof(int))
+    generic.SetParameters(GenericMethodTypes3(methodTypeParameter, methodTypeParameter, typeof(object[])))
+    generic.DefineParameter(1, ParameterAttributes.None, "first")
+    generic.DefineParameter(2, ParameterAttributes.None, "second")
+    genericTail := generic.DefineParameter(3, ParameterAttributes.None, "rest")
+    genericTail.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+    genericIl := generic.GetILGenerator()
+    genericIl.Emit(OpCodes.Ldc_I4_1)
+    genericIl.Emit(OpCodes.Ret)
+
+    nonGeneric := owner.DefineMethod("Expanded", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard)
+    nonGeneric.SetReturnType(typeof(int))
+    nonGeneric.SetParameters(GenericMethodTypes2(typeof(object), typeof(object[])))
+    nonGeneric.DefineParameter(1, ParameterAttributes.None, "first")
+    nonGenericTail := nonGeneric.DefineParameter(2, ParameterAttributes.None, "rest")
+    nonGenericTail.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+    nonGenericIl := nonGeneric.GetILGenerator()
+    nonGenericIl.Emit(OpCodes.Ldc_I4_2)
+    nonGenericIl.Emit(OpCodes.Ret)
+
+    createdOwner := owner.CreateType()
+    if createdOwner == null {
+        throw new InvalidOperationException("Expanded cross-tier probe type was not created")
+    }
+    return createdOwner
+}
+
 class CrossTierGenericAmbiguityProbe {
     static func OptionalChoose<T>(_value: IComparable<T>, _witness: T, _mode: string? = null): int {
         return 1
@@ -723,6 +772,10 @@ test "more-specific generic parameter types win normal and optional cross-tier c
     assert normalGeneric.IsSelected, "the generic interface overload should infer string from List<string>"
     normalBest := ColumnarRuntimeGenericMethodResolver.BetterSelection(normalNonGeneric, normalGeneric, argumentTypes, facts)
     assert CrossTierMethodOrThrow(normalBest.Method).IsGenericMethod, "the more-specific IEnumerable<string> parameter should win"
+    runtimeArguments := new object?[](1)
+    runtimeArguments[0] = new List<string>()
+    runtimeValue := CrossTierMethodOrThrow(normalBest.Method).Invoke(null, runtimeArguments)
+    assert Convert.ToInt32(runtimeValue) == 1, "the selected generic overload must produce its runtime marker"
 
     optionalNonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(owner, "Optional", argumentTypes, facts, true)
     optionalGeneric := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(owner, "Optional", argumentTypes, facts, true)
@@ -730,9 +783,29 @@ test "more-specific generic parameter types win normal and optional cross-tier c
     assert optionalGeneric.IsSelected, "generic interface optional overload should infer string"
     optionalBest := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(optionalNonGeneric, optionalGeneric, argumentTypes, facts)
     assert CrossTierMethodOrThrow(optionalBest.Method).IsGenericMethod, "the more-specific optional parameter should win"
+    optionalRuntimeArguments := new object?[](2)
+    optionalRuntimeArguments[0] = new List<string>()
+    optionalRuntimeArguments[1] = null
+    optionalRuntimeValue := CrossTierMethodOrThrow(optionalBest.Method).Invoke(null, optionalRuntimeArguments)
+    assert Convert.ToInt32(optionalRuntimeValue) == 1, "the selected generic optional overload must produce its runtime marker"
+
+    tieArguments := new Type[](1)
+    tieArguments[0] = typeof(object)
+    tieFacts := ColumnarDirectCallArgumentFacts.Empty(1)
+    tieOwner := typeof(CrossTierOptionalIdenticalProbe)
+    tiedNonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(tieOwner, "Optional", tieArguments, tieFacts, true)
+    tiedGeneric := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(tieOwner, "Optional", tieArguments, tieFacts, true)
+    tiedBest := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(tiedNonGeneric, tiedGeneric, tieArguments, tieFacts)
+    tiedMethod := CrossTierMethodOrThrow(tiedBest.Method)
+    assert !tiedMethod.IsGenericMethod, "identical optional parameter lists prefer the non-generic method"
+    tiedRuntimeArguments := new object?[](2)
+    tiedRuntimeArguments[0] = new object()
+    tiedRuntimeArguments[1] = null
+    tiedRuntimeValue := tiedMethod.Invoke(null, tiedRuntimeArguments)
+    assert Convert.ToInt32(tiedRuntimeValue) == 2, "the non-generic optional tie-break must reach its runtime body"
 }
 
-test "optional cross-tier fallback ignores differing omitted-tail lengths" {
+test "optional cross-tier candidates with differing omitted-tail lengths are ambiguous" {
     owner := typeof(CrossTierOptionalArityProbe)
     argumentTypes := new Type[](1)
     argumentTypes[0] = typeof(object)
@@ -743,12 +816,34 @@ test "optional cross-tier fallback ignores differing omitted-tail lengths" {
     assert nonGeneric.IsSelected
     assert generic.IsSelected
     best := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(nonGeneric, generic, argumentTypes, facts)
-    assert best.IsSelected
-    assert !CrossTierMethodOrThrow(best.Method).IsGenericMethod
-    assert best.ParameterTypes.Length == 3
+    assert best.IsAmbiguous, "different optional parameter counts do not satisfy the non-generic tie-break"
 }
 
-test "generic optional-family ambiguity falls through to the viable non-generic candidate" {
+test "expanded cross-tier ties apply the non-generic preference before declared parameter count" {
+    owner := CrossTierExpandedArityProbeType()
+    argumentTypes := new Type[](2)
+    argumentTypes[0] = typeof(object)
+    argumentTypes[1] = typeof(object)
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+
+    nonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(owner, "Expanded", argumentTypes, facts, true)
+    generic := ColumnarRuntimeGenericMethodResolver.ResolveExpanded(owner, "Expanded", argumentTypes, facts, true)
+    assert nonGeneric.IsSelected, "the non-generic params method should be selected by the expanded resolver"
+    assert nonGeneric.IsExpanded, "the non-generic params method should apply in expanded form"
+    assert generic.IsSelected, "the generic params method should be selected by the expanded resolver"
+    assert generic.IsExpanded, "the generic params method should apply in expanded form"
+    best := ColumnarRuntimeGenericMethodResolver.BetterSelection(nonGeneric, generic, argumentTypes, facts)
+    method := CrossTierMethodOrThrow(best.Method)
+    assert !method.IsGenericMethod, "with identical supplied parameter types and usage counts, C# prefers the non-generic member before declared parameter count"
+
+    runtimeArguments := new object?[](2)
+    runtimeArguments[0] = new object()
+    runtimeArguments[1] = new object[](1)
+    runtimeValue := method.Invoke(null, runtimeArguments)
+    assert Convert.ToInt32(runtimeValue) == 2, "the non-generic overload must produce its runtime marker"
+}
+
+test "generic optional-family ambiguity remains ambiguous across the non-generic tier" {
     owner := typeof(CrossTierGenericAmbiguityProbe)
     argumentTypes := new Type[](2)
     argumentTypes[0] = typeof(int)
@@ -758,10 +853,9 @@ test "generic optional-family ambiguity falls through to the viable non-generic 
     nonGeneric := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(owner, "OptionalChoose", argumentTypes, facts, true)
     generic := ColumnarRuntimeGenericMethodResolver.ResolveOptionalFill(owner, "OptionalChoose", argumentTypes, facts, true)
     assert nonGeneric.IsSelected, "the non-generic fallback should be viable"
-    assert !generic.IsSelected, "the incomparable generic pair should remain ambiguous"
+    assert generic.IsAmbiguous, "the incomparable generic pair should retain its ambiguity state"
     best := ColumnarRuntimeGenericMethodResolver.BetterOptionalSelection(nonGeneric, generic, argumentTypes, facts)
-    assert best.IsSelected, "a viable non-generic candidate should survive generic-family ambiguity"
-    assert !CrossTierMethodOrThrow(best.Method).IsGenericMethod, "generic-family ambiguity should fall through to the non-generic candidate"
+    assert best.IsAmbiguous, "an applicable non-generic candidate must not erase the generic-family ambiguity"
 }
 
 test "identical closed parameter lists prefer the non-generic candidate" {
@@ -775,10 +869,15 @@ test "identical closed parameter lists prefer the non-generic candidate" {
     assert nonGeneric.IsSelected, "the non-generic overload should be viable"
     assert generic.IsSelected, "the generic overload should be viable"
     best := ColumnarRuntimeGenericMethodResolver.BetterSelection(nonGeneric, generic, argumentTypes, facts)
-    assert !CrossTierMethodOrThrow(best.Method).IsGenericMethod, "incomparable parameter targets should keep the documented non-generic fallback"
+    method := CrossTierMethodOrThrow(best.Method)
+    assert !method.IsGenericMethod, "identical effective parameter lists prefer the non-generic member"
+    runtimeArguments := new object?[](1)
+    runtimeArguments[0] = new object()
+    runtimeValue := method.Invoke(null, runtimeArguments)
+    assert Convert.ToInt32(runtimeValue) == 2, "the selected non-generic method must produce its runtime marker"
 }
 
-test "incomparable generic and non-generic candidates keep the documented non-generic fallback" {
+test "incomparable generic and non-generic candidates remain ambiguous" {
     owner := typeof(CrossTierIncomparableProbe)
     argumentTypes := new Type[](2)
     argumentTypes[0] = typeof(CrossTierBothTargets)
@@ -790,7 +889,7 @@ test "incomparable generic and non-generic candidates keep the documented non-ge
     assert nonGeneric.IsSelected
     assert generic.IsSelected
     best := ColumnarRuntimeGenericMethodResolver.BetterSelection(nonGeneric, generic, argumentTypes, facts)
-    assert !CrossTierMethodOrThrow(best.Method).IsGenericMethod
+    assert best.IsAmbiguous, "C# reports this cross-tier pair as ambiguous"
 }
 
 test "generic Array overloads beat the broader non-generic overloads" {

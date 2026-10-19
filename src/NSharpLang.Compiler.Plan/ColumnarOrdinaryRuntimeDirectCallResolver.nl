@@ -14,6 +14,7 @@ enum ColumnarOrdinaryRuntimeDirectCallStatus {
     NotFound,
     Excluded,
     Rejected,
+    Ambiguous,
     Selected
 }
 
@@ -42,7 +43,8 @@ class ColumnarOrdinaryRuntimeDirectCallSelection {
 
     IsExpanded: bool => ExpandedElementType != null
     IsSelected: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Selected
-    IsOwnedRejected: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected
+    IsAmbiguous: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous
+    IsOwnedRejected: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected || Status == ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous
     IsExcluded: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Excluded
     IsNotFound: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.NotFound
     UsesCallVirtual: bool => Kind == ColumnarExternalCallKind.CallVirtual
@@ -84,6 +86,7 @@ class ColumnarOrdinaryRuntimeDirectCallSelection {
 // metadata default. This is the shape `app.Run()` needs (`WebApplication.Run(string url = null)`).
 class ColumnarRuntimeOptionalCallSelection {
     IsSelected: bool
+    IsAmbiguous: bool
     Method: MethodInfo?
     LookupType: Type
     DeclaringType: Type
@@ -94,16 +97,20 @@ class ColumnarRuntimeOptionalCallSelection {
     ReceiverIsReference: bool
     UsesCallVirtual: bool
 
-    constructor(isSelected: bool, method: MethodInfo?, lookupType: Type, declaringType: Type, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int, isStatic: bool, receiverIsReference: bool) {
+    constructor(isSelected: bool, isAmbiguous: bool, method: MethodInfo?, lookupType: Type, declaringType: Type, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int, isStatic: bool, receiverIsReference: bool) {
         if lookupType == null || declaringType == null || parameterTypes == null || returnType == null {
             throw new InvalidOperationException("Runtime optional-call selection facts cannot be null.")
         }
 
-        if isSelected && (method == null || explicitArgumentCount < 0 || explicitArgumentCount >= parameterTypes.Length) {
+        if isSelected && (isAmbiguous || method == null || explicitArgumentCount < 0 || explicitArgumentCount >= parameterTypes.Length) {
             throw new InvalidOperationException("A selected trailing-optional runtime call requires an exact handle and at least one filled default.")
+        }
+        if isAmbiguous && (isSelected || method != null || parameterTypes.Length != 0) {
+            throw new InvalidOperationException("An ambiguous trailing-optional runtime call cannot carry executable method facts.")
         }
 
         IsSelected = isSelected
+        IsAmbiguous = isAmbiguous
         Method = method
         LookupType = lookupType
         DeclaringType = declaringType
@@ -116,7 +123,11 @@ class ColumnarRuntimeOptionalCallSelection {
     }
 
     static func None(lookupType: Type): ColumnarRuntimeOptionalCallSelection {
-        return new ColumnarRuntimeOptionalCallSelection(false, null, lookupType, lookupType, new Type[](0), typeof(object), 0, false, false)
+        return new ColumnarRuntimeOptionalCallSelection(false, false, null, lookupType, lookupType, new Type[](0), typeof(object), 0, false, false)
+    }
+
+    static func Ambiguous(lookupType: Type, expectedStatic: bool): ColumnarRuntimeOptionalCallSelection {
+        return new ColumnarRuntimeOptionalCallSelection(false, true, null, lookupType, lookupType, new Type[](0), typeof(object), 0, expectedStatic, !expectedStatic && !lookupType.IsValueType)
     }
 
     static func Selected(lookupType: Type, method: MethodInfo, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int, expectedStatic: bool): ColumnarRuntimeOptionalCallSelection {
@@ -126,7 +137,7 @@ class ColumnarRuntimeOptionalCallSelection {
         }
 
         receiverIsReference := !expectedStatic && !lookupType.IsValueType
-        return new ColumnarRuntimeOptionalCallSelection(true, method, lookupType, declaringType, parameterTypes, returnType, explicitArgumentCount, expectedStatic, receiverIsReference)
+        return new ColumnarRuntimeOptionalCallSelection(true, false, method, lookupType, declaringType, parameterTypes, returnType, explicitArgumentCount, expectedStatic, receiverIsReference)
     }
 }
 
@@ -580,7 +591,11 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         }
 
-        if bestCount > 1 || hadFixedArity {
+        if bestCount > 1 {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous, lookupType, expectedStatic)
+        }
+
+        if hadFixedArity {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Rejected, lookupType, expectedStatic)
         }
 
@@ -639,7 +654,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         // before any packing is considered, is what keeps ECMA-334 §12.6.4.2 true; without it the
         // `object?[]` tail would pack the array itself and join its ToString().
         normalForm := ResolveParamsNormalForm(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected, identityOnly)
-        if normalForm.IsSelected {
+        if normalForm.IsSelected || normalForm.IsAmbiguous {
             return normalForm
         }
 
@@ -682,6 +697,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     }
                 }
             }
+        }
+
+        if bestCount > 1 {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous, lookupType, expectedStatic)
         }
 
         if bestCount != 1 || selected == null || selectedElement == null || bestScore < 0 {
@@ -731,6 +750,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     }
                 }
             }
+        }
+
+        if bestCount > 1 {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Ambiguous, lookupType, expectedStatic)
         }
 
         if bestCount != 1 || selected == null || bestScore < 0 || closedArguments.Length > 0 {
@@ -1395,6 +1418,9 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
         if bestCount == 1 && selected != null {
             return ColumnarRuntimeOptionalCallSelection.Selected(lookupType, selected, selectedParameters, selectedReturnType, argumentCount, expectedStatic)
+        }
+        if bestCount > 1 {
+            return ColumnarRuntimeOptionalCallSelection.Ambiguous(lookupType, expectedStatic)
         }
 
         return ColumnarRuntimeOptionalCallSelection.None(lookupType)
