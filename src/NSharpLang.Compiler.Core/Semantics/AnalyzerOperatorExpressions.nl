@@ -136,8 +136,10 @@ class OperatorExpressionState {
 //     admits only the primitive numerics;
 //   * that `&&` and `||` are booleans whatever their operands were, and that they still SAY so when
 //     an operand is not one;
-//   * that `??` is worth its RIGHT side, except when that side is a `throw`, in which case it is the
-//     left side with its nullability removed — and that a left side which cannot be null is told so;
+//   * that `??` follows C#'s ordered conversions: for `T?`, a right side convertible to `T` yields
+//     `T`; otherwise one convertible to `T?` keeps `T?`; otherwise `T` converts to the right type.
+//     A `null` right side keeps `T?`, a `throw` removes the left side's nullability, and a left side
+//     that cannot be null is told so;
 //   * that `..` is `System.Range` and `^n` is `System.Index`;
 //   * that NEGATION, COMPLEMENT and `!` each have their own promotion rule, that a negated integer
 //     literal reads the target-typing slot so `value: byte = -1` is refused for the right reason,
@@ -554,9 +556,17 @@ class AnalyzerOperatorExpressions {
         return leftRow || rightRow || leftColumn || rightColumn
     }
 
-    // `??` IS WORTH ITS RIGHT SIDE — the fallback is what the expression evaluates to when the left
-    // was null, and in N# `T? ?? T` is `T`. The one exception is a `throw` on the right: nothing
-    // comes back from it, so the expression is worth the left side with its nullability removed.
+    // `a ?? b` FOLLOWS C#'S TYPING RULE (ECMA-334 §12.15), with A the left type and A0 its underlying
+    // type when A is a `Nullable<T>`:
+    //   1. A is a value-nullable and `b` converts to A0            -> A0   (`int? ?? 0` is `int`)
+    //   2. `b` converts to A (`b` is `null` or an `A`)             -> A    (`int? ?? int?` is `int?`)
+    //   3. `b` has type B and A0 (or A) converts to B              -> B    (`int? ?? long` is `long`)
+    // For a REFERENCE left the same conversions apply with reference nullability erased for the
+    // present-value comparison: `string? ?? string` is `string`, `Base? ?? Derived` is `Base`, and a
+    // bare `null` keeps the left side nullable. An unknown operand keeps recovery quiet because its
+    // diagnostic was already reported. No other failed conversion is guessed: it is an operator
+    // mismatch. A `throw` right side has no value to convert, so it leaves the left side with its
+    // nullability removed.
     func NullCoalesceResult(leftType: TypeInfo, rightType: TypeInfo, expression: BinaryExpression): TypeInfo {
         ReportNullCoalesceLeftOperandIfNeeded(expression, leftType)
 
@@ -566,7 +576,55 @@ class AnalyzerOperatorExpressions {
             return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(leftType, result)
         }
 
-        return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(rightType, rightType)
+        resolvedLeft := declarationsValue.ResolveDeclaredAlias(leftType)
+        resolvedRight := declarationsValue.ResolveDeclaredAlias(rightType)
+        if BuiltInTypes.IsUnknown(resolvedLeft) || BuiltInTypes.IsUnknown(resolvedRight) {
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(rightType, rightType)
+        }
+
+        if !(resolvedLeft is NullableTypeInfo) && !AnalyzerConversionFacts.IsReferenceType(resolvedLeft) {
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(rightType, rightType)
+        }
+
+        present := NonNullable(leftType)
+        if BuiltInTypes.Is(resolvedRight, BuiltInTypes.Null) {
+            return leftType
+        }
+        rightConstant := ConstantOperandFacts.FromExpression(expression.Right)
+
+        // For a value nullable, `present` is T. For a reference `?`, it is the same CLR type without
+        // the annotation, so this same conversion test selects the non-null reference result.
+        if assignabilityValue.IsAssignableWithConstant(present, rightType, rightConstant) {
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(leftType, present)
+        }
+
+        if assignabilityValue.IsAssignableWithConstant(leftType, rightType, rightConstant) {
+            return leftType
+        }
+
+        // C#'s third rule: the present value may widen to the right operand's type. This is what makes
+        // `int? ?? long` and `Derived? ?? Base` produce the wider right type.
+        if assignabilityValue.IsAssignable(rightType, present) {
+            return NullabilityMetadataCore.TransferReferencedNullabilityOrigins(rightType, rightType)
+        }
+
+        ReportNullCoalesceOperandMismatch(expression, leftType, rightType, present)
+        return BuiltInTypes.Unknown
+    }
+
+    // A `??` pair is invalid only after all three C# conversions have failed. Report at the operator,
+    // where the incompatible pair is visible together, and leave the result unknown so later checks do
+    // not manufacture a second type mismatch from a guessed operand type.
+    func ReportNullCoalesceOperandMismatch(expression: BinaryExpression, leftType: TypeInfo, rightType: TypeInfo, presentType: TypeInfo) {
+        span := AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expression)
+        diagnosticsValue.Report(
+            ErrorCode.TypeMismatch,
+            "The '??' operator cannot combine '" + TypeText(leftType) + "' and '" + TypeText(rightType) + "' — neither side converts to the type the other side needs",
+            span.Line,
+            span.Column,
+            "Make the right side convertible to '" + TypeText(leftType) + "' or '" + TypeText(presentType) + "', or convert the present left value to '" + TypeText(rightType) + "'.",
+            span.Length
+        )
     }
 
     // A LEFT SIDE THAT CANNOT BE NULL IS TOLD SO, because `??` on it is dead code the programmer

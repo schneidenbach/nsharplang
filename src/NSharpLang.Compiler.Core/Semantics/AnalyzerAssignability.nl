@@ -159,11 +159,15 @@ class AnalyzerAssignability {
     // needs against a declared `(string?, string, IsConstructor: bool)`, and without this arm the whole
     // tuple was compared by identity and reported NL202 against a literal the writer spelled correctly.
     //
-    // A REPRESENTATION-CHANGING element conversion is deliberately NOT admitted. C# converts
-    // `(string, string)` to `(object, object)` and `(int, int)` to `(long, long)` by taking the tuple
-    // apart and building a new one; N# emits no such per-element conversion, so accepting it here would
-    // hand the emitter a shape it can only decline. A `Nullable<int>` is a real CLR type and stays a
-    // difference from `int` for the same reason.
+    // THE ONLY REPRESENTATION-CHANGING ELEMENT CONVERSIONS ADMITTED ARE THE NULLABLE WRAP AND THE
+    // WIDENING UNDER IT. `(string, int)` fits `(string?, int?)` and `(int, int)` fits `(long?, double?)`:
+    // the `string` is the same CLR type, and the `int` becomes `Nullable<int>`,
+    // which the emitter does by taking the tuple apart and building the target tuple (C#'s implicit
+    // tuple conversion over the implicit nullable conversion). Every OTHER conversion that changes
+    // representation stays refused -- C# converts `(string, string)` to `(object, object)` and
+    // `(int, int)` to `(long, long)` the same way, but N# emits no such per-element conversion, so
+    // accepting them here would hand the emitter a shape it can only decline. A `Nullable<int>` is a
+    // real CLR type and stays a difference from a source `int` in every direction but that wrap.
     func AreTupleElementsAssignable(target: TupleTypeInfo, source: TupleTypeInfo): bool {
         if target.Elements.Count != source.Elements.Count {
             return false
@@ -192,6 +196,19 @@ class AnalyzerAssignability {
             return AnalyzerConversionFacts.AcceptsNull(resolvedTarget)
         }
 
+        // `T` -> `U?` AND `T?` -> `U?` OVER A VALUE TYPE: the nullable wrap, with the element converted
+        // first when it only widens (`int` fits `long?`). Exactly the set the emitter rebuilds.
+        valueNullableTarget := resolvedTarget as NullableTypeInfo
+        if valueNullableTarget != null && ReferenceNullableInnerType(valueNullableTarget) == null {
+            liftedSource := resolvedSource
+            sourceNullable := resolvedSource as NullableTypeInfo
+            if sourceNullable != null {
+                liftedSource = declarationContext.ResolveDeclaredAlias(sourceNullable.InnerType)
+            }
+
+            return IsLiftedTupleElement(declarationContext.ResolveDeclaredAlias(valueNullableTarget.InnerType), liftedSource)
+        }
+
         // Nested tuples compare the same way, at any depth.
         nestedTarget := resolvedTarget as TupleTypeInfo
         nestedSource := resolvedSource as TupleTypeInfo
@@ -214,6 +231,29 @@ class AnalyzerAssignability {
         }
 
         return IsTupleElementCompatible(targetInner, sourceInner)
+    }
+
+    // The element conversions under a nullable wrap that the emitter performs: identity, another
+    // tuple conversion, or its supported numeric widening. Its numeric target set is `int`, `long`,
+    // `float`, `double` and `decimal`; sources are the int-promotable scalars plus `long` and `float`.
+    // It does not emit the CLR's `byte` → `short` / `uint` / `ulong` conversions, or conversions from
+    // `uint` / `ulong`, so this tuple rule must not admit them.
+    func IsLiftedTupleElement(target: TypeInfo, source: TypeInfo): bool {
+        if TypeInfoIdentityFacts.AreEqual(target, source) {
+            return true
+        }
+
+        targetTuple := target as TupleTypeInfo
+        sourceTuple := source as TupleTypeInfo
+        if targetTuple != null && sourceTuple != null {
+            return AreTupleElementsAssignable(targetTuple, sourceTuple)
+        }
+
+        if target is SimpleTypeInfo && source is SimpleTypeInfo && (BuiltInTypes.Is(target, BuiltInTypes.Int) || BuiltInTypes.Is(target, BuiltInTypes.Long) || BuiltInTypes.Is(target, BuiltInTypes.Float) || BuiltInTypes.Is(target, BuiltInTypes.Double) || BuiltInTypes.Is(target, BuiltInTypes.Decimal)) && !BuiltInTypes.Is(source, BuiltInTypes.UInt) && !BuiltInTypes.Is(source, BuiltInTypes.ULong) {
+            return IsAssignableCore(target, source)
+        }
+
+        return false
     }
 
     // The inner type of a nullable annotation over a REFERENCE type — the one nullable spelling that is

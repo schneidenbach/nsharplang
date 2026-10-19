@@ -727,7 +727,7 @@ test "&& AND || ANSWER bool EVEN WHEN THEY REPORT" {
     assert harness.Errors[0].Message == "Both sides of '&&' must be booleans, but the left side is 'int'"
 }
 
-test "?? IS ITS RIGHT SIDE, EXCEPT OVER A throw" {
+test "?? LEAVES A THROWING RIGHT SIDE AT THE NON-NULL LEFT TYPE" {
     harness := OperatorDefault()
     nullableString: TypeInfo = new NullableTypeInfo(BuiltInTypes.String)
 
@@ -745,6 +745,90 @@ test "?? IS ITS RIGHT SIDE, EXCEPT OVER A throw" {
     // removed rather than the right side's `never`.
     assert OperatorTypeText(harness.Operators.Result(thrown)) == "string"
     assert harness.Errors.Count == 0
+}
+
+func CoalesceTypeText(harness: OperatorHarness, left: TypeInfo, right: TypeInfo): string {
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.NullCoalesce))
+    OperatorRun(harness, state, OperatorAnswers(left, right))
+    assert harness.Errors.Count == 0
+    return OperatorTypeText(harness.Operators.Result(state))
+}
+
+test "?? FOLLOWS C#'S TYPING RULE OVER A NULLABLE VALUE LEFT" {
+    harness := OperatorDefault()
+    nullableInt: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
+    nullableLong: TypeInfo = new NullableTypeInfo(BuiltInTypes.Long)
+
+    // Rule 1: a right side the underlying type absorbs is worth the underlying type.
+    assert CoalesceTypeText(harness, nullableInt, BuiltInTypes.Int) == "int"
+    assert CoalesceTypeText(harness, nullableLong, BuiltInTypes.Int) == "long"
+    // Rule 2: a `null` or same-nullable right side keeps the result nullable.
+    assert CoalesceTypeText(harness, nullableInt, BuiltInTypes.Null) == "int?"
+    assert CoalesceTypeText(harness, nullableInt, nullableInt) == "int?"
+    // A narrower nullable right side is still absorbed by the wider nullable.
+    assert CoalesceTypeText(harness, nullableLong, nullableInt) == "long?"
+    // Rule 3: the underlying type converts to the right side's type, which the expression is worth.
+    assert CoalesceTypeText(harness, nullableInt, BuiltInTypes.Long) == "long"
+    assert CoalesceTypeText(harness, nullableInt, nullableLong) == "long?"
+    assert CoalesceTypeText(harness, nullableInt, BuiltInTypes.Double) == "double"
+}
+
+test "?? FOLLOWS C#'S TYPING RULE OVER A REFERENCE LEFT" {
+    harness := OperatorDefault()
+    nullableString: TypeInfo = new NullableTypeInfo(BuiltInTypes.String)
+    nullableObject: TypeInfo = new NullableTypeInfo(BuiltInTypes.Object)
+
+    // A not-null right side makes the expression not-null; a `null` keeps the left side nullable.
+    assert CoalesceTypeText(harness, nullableString, BuiltInTypes.String) == "string"
+    assert CoalesceTypeText(harness, nullableString, BuiltInTypes.Null) == "string?"
+    assert CoalesceTypeText(harness, nullableString, nullableString) == "string?"
+    // A right side that converts to the left side is worth the left side.
+    assert CoalesceTypeText(harness, nullableObject, BuiltInTypes.String) == "object"
+    assert CoalesceTypeText(harness, nullableObject, BuiltInTypes.Int) == "object"
+    assert CoalesceTypeText(harness, new NullableTypeInfo(BuiltInTypes.Int), BuiltInTypes.Object) == "object"
+
+    // The present reference value and the right side can also convert in either direction along a
+    // declared base chain; the result follows the same C# preference order as nullable values.
+    hierarchy := OperatorSourceErrors(CoalesceNarrowingSource("func BaseLeft(a: A?, b: B): A {\n    return a ?? b\n}\nfunc DerivedLeft(a: B?, b: A): A {\n    return a ?? b\n}\n"))
+    assert hierarchy.Count == 0, String.Join(" | ", hierarchy)
+}
+
+test "THE TUPLE AND NULLABLE CONVERSIONS THE EMITTER REBUILDS ARE ACCEPTED, AND NARROWING STILL IS NOT" {
+    widening := OperatorSourceErrors("func F(a: int, b: char, c: short, d: long): (long?, int?, float?, double?) {\n    return (a, b, c, d)\n}\nfunc G(t: (int, int)): (long?, int?) {\n    return t\n}\nfunc H(t: (string, int)): (string?, int?) {\n    return t\n}\nfunc I(a: int?): long? {\n    return a\n}\n")
+    assert widening.Count == 0, String.Join(" | ", widening)
+    nestedWidening := OperatorSourceErrors("func F(t: ((int, string), int)): ((long?, string?), int?) {\n    return t\n}\n")
+    assert nestedWidening.Count == 0, String.Join(" | ", nestedWidening)
+
+    // Narrowing and representation changes that are NOT a wrap stay NL202 (TypeMismatch).
+    longSource := "func F(a: long): int? {\n    return a\n}\n"
+    longToInt := OperatorSourceErrors(longSource)
+    assert longToInt.Count == 1, String.Join(" | ", longToInt)
+    longCodes := OperatorSourceErrorCodes(longSource)
+    assert longCodes.Count == 1 && longCodes[0] == ErrorCode.TypeMismatch
+    doubleSource := "func F(a: double): float? {\n    return a\n}\n"
+    doubleToFloat := OperatorSourceErrors(doubleSource)
+    assert doubleToFloat.Count == 1, String.Join(" | ", doubleToFloat)
+    doubleCodes := OperatorSourceErrorCodes(doubleSource)
+    assert doubleCodes.Count == 1 && doubleCodes[0] == ErrorCode.TypeMismatch
+    tupleSource := "func F(t: (int, int)): (long, long) {\n    return t\n}\n"
+    tupleWidening := OperatorSourceErrors(tupleSource)
+    assert tupleWidening.Count == 1, String.Join(" | ", tupleWidening)
+    tupleCodes := OperatorSourceErrorCodes(tupleSource)
+    assert tupleCodes.Count == 1 && tupleCodes[0] == ErrorCode.TypeMismatch
+    tupleNarrowing := OperatorSourceErrors("func F(t: (long, int)): (int?, int?) {\n    return t\n}\n")
+    assert tupleNarrowing.Count == 1, String.Join(" | ", tupleNarrowing)
+    unsupportedTupleTargets := OperatorSourceErrors("func F(t: (byte, byte)): (short?, int?) {\n    return t\n}\n")
+    assert unsupportedTupleTargets.Count == 1, String.Join(" | ", unsupportedTupleTargets)
+    unsupportedUnsignedTupleTarget := OperatorSourceErrors("func F(t: (byte, byte)): (int?, uint?) {\n    return t\n}\n")
+    assert unsupportedUnsignedTupleTarget.Count == 1, String.Join(" | ", unsupportedUnsignedTupleTarget)
+    inRangeCoalesceConstant := OperatorSourceErrors("func F(a: byte?): byte {\n    return a ?? 1\n}\n")
+    assert inRangeCoalesceConstant.Count == 0, String.Join(" | ", inRangeCoalesceConstant)
+    underscoredCoalesceConstant := OperatorSourceErrors("func F(a: byte?): byte {\n    return a ?? 1_0\n}\n")
+    assert underscoredCoalesceConstant.Count == 0, String.Join(" | ", underscoredCoalesceConstant)
+    outOfRangeCoalesceConstant := OperatorSourceErrors("func F(a: byte?): int {\n    return a ?? 256\n}\n")
+    assert outOfRangeCoalesceConstant.Count == 0, String.Join(" | ", outOfRangeCoalesceConstant)
+    incompatibleCoalesce := OperatorSourceErrors("func F(a: int?): string {\n    return a ?? \"fallback\"\n}\n")
+    assert incompatibleCoalesce.Count == 1, String.Join(" | ", incompatibleCoalesce)
 }
 
 test "A ?? LEFT SIDE THAT CANNOT BE NULL IS TOLD SO" {
@@ -1561,6 +1645,31 @@ func OperatorSourceErrors(source: string): List<string> {
     }
 
     return messages
+}
+
+func OperatorSourceErrorCodes(source: string): List<ErrorCode> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-operator-codes-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    codes := new List<ErrorCode>()
+    analyzer := new Analyzer()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                codes.Add(error.Code)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return codes
 }
 
 test "TWO VALUES OF THE SAME OPEN TYPE PARAMETER COMPARE, `?` OR NOT" {
