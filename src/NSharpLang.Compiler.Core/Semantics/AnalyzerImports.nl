@@ -136,6 +136,10 @@ class AnalyzerImports {
     typeDeclarationFiles: Dictionary<string, string>
     referencedPackageNames: HashSet<string>
 
+    // Whether the project references `Microsoft.AspNetCore.App` -- under `sdk: Microsoft.NET.Sdk.Web`
+    // or through a `framework:` entry -- and so may import its namespaces (`SetAspNetCoreReferenced`).
+    aspNetCoreReferenced: bool
+
     // This owner's own per-analysis state.
     importedSymbols: Dictionary<string, List<ImportedSymbolReference>>
     importedSymbolOrder: List<string>
@@ -174,6 +178,17 @@ class AnalyzerImports {
         bindingMap = null
         assemblyMappings = BuildAssemblyMappings()
         importUsageCredit = null
+        aspNetCoreReferenced = true
+    }
+
+    // A PROJECT SEES ASP.NET CORE ONLY WHEN IT REFERENCES IT, as under `dotnet build`. The ASP.NET
+    // Core rows of the table load their assemblies BY NAME from the shared-framework directories the
+    // metadata resolver searches, so without this a console project's `import Microsoft.AspNetCore.Builder`
+    // resolved in `nlc` and failed in `dotnet build`. The Entity Framework row is a package's, not the
+    // framework's, and stays. An analysis with NO project behind it -- nothing ever calls
+    // `LoadFromProjectConfig` -- has no reference set to mirror and keeps the rows.
+    func SetAspNetCoreReferenced(referenced: bool) {
+        aspNetCoreReferenced = referenced
     }
 
     func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
@@ -482,7 +497,7 @@ class AnalyzerImports {
         exported := assembly.GetExportedTypes()
         for exportedType in exported {
             exportedNamespace := exportedType.Namespace
-            if string.Equals(exportedNamespace, namespaceName, StringComparison.Ordinal) {
+            if string.Equals(exportedNamespace, namespaceName, StringComparison.Ordinal) && !FrameworkNamespaceIndex.IsImplementationOnlyType(exportedType) {
                 return true
             }
         }
@@ -946,10 +961,18 @@ class AnalyzerImports {
     func MappedAssemblies(namespaceName: string): string[]? {
         names := new string[](0)
         if assemblyMappings.TryGetValue(namespaceName, out names) {
+            if !aspNetCoreReferenced && IsAspNetCoreFrameworkRow(namespaceName) {
+                return null
+            }
+
             return names
         }
 
         return null
+    }
+
+    static func IsAspNetCoreFrameworkRow(namespaceName: string): bool {
+        return namespaceName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal) || namespaceName == "Microsoft.Extensions.DependencyInjection" || namespaceName == "Microsoft.Extensions.Hosting"
     }
 
     // The `Microsoft.NETCore.App` assemblies that define this namespace, or null when the base

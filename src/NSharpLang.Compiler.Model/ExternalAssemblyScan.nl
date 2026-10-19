@@ -39,6 +39,10 @@ class ExternalAssemblyCatalogEntry {
     RuntimeAssembly: Assembly?
     IsInspectable: bool
 
+    // A `Microsoft.NETCore.App` assembly the program's namespaces loaded on demand: it answers through
+    // those namespaces and never through the bare-name scan (`FrameworkOnDemandLoads`).
+    IsOnDemandFramework: bool
+
     constructor(identityName: AssemblyName?, identity: string, metadataPath: string, runtimeAssembly: Assembly?, isInspectable: bool) {
         IdentityName = identityName
         Identity = identity
@@ -46,6 +50,7 @@ class ExternalAssemblyCatalogEntry {
         MetadataAssembly = null
         RuntimeAssembly = runtimeAssembly
         IsInspectable = isInspectable
+        IsOnDemandFramework = false
     }
 
     func AttachRuntimeAssembly(runtimeAssembly: Assembly?) {
@@ -54,6 +59,10 @@ class ExternalAssemblyCatalogEntry {
 
     func AttachMetadataAssembly(metadataAssembly: Assembly) {
         MetadataAssembly = metadataAssembly
+    }
+
+    func MarkOnDemandFramework() {
+        IsOnDemandFramework = true
     }
 
     func MarkUninspectable() {
@@ -685,6 +694,8 @@ class ExternalAssemblyScan {
                     identityName := runtimeAssembly.GetName()
                     if FindSemanticIdentity(entries, identityName) < 0 {
                         AddSemanticEntry(entries, identityName, identityName.FullName, CommonAssemblyMetadataPath(searchDirectories, frameworkName), runtimeAssembly)
+                        added := entries[entries.Count - 1]
+                        added.MarkOnDemandFramework()
                     }
                 } catch {
                     // A framework assembly the host cannot load is one the analyzer could not have
@@ -1857,6 +1868,10 @@ class ExternalAssemblyScan {
         }
 
         for entry in scan.Entries {
+            if entry != null && entry.IsOnDemandFramework {
+                continue
+            }
+
             if entry == null || !entry.IsInspectable || entry.MetadataAssembly == null {
                 return UnknownResolution()
             }
@@ -2233,8 +2248,10 @@ class ExternalAssemblyScan {
     // against all of `Microsoft.NETCore.App`, as under `dotnet build`; the rest of the framework is
     // loaded per namespace a file names (`FrameworkNamespaceIndex`, `FrameworkAssemblyNamesFor`).
     // These 33 are loaded up front because nearly every program uses them, and because the
-    // exported-name scan a bare unimported spelling falls back to has always answered from them --
-    // shrinking the table would change which type such a spelling binds to.
+    // exported-name scan a bare unimported spelling falls back to answers from them (and the project's
+    // own references) ONLY -- an assembly loaded on demand for a namespace never joins that scan
+    // (`FrameworkOnDemandLoads`), so `import System` loading `System.ComponentModel.TypeConverter`
+    // makes no bare name resolve. Shrinking the table would change which type such a spelling binds to.
     static func CommonAssemblyNames(): string[] {
         names := new string[](33)
         names[0] = "System.Runtime"

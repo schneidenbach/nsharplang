@@ -44,8 +44,8 @@ class SharedReferenceMetadata {
     PinnedPackageVersions: Dictionary<string, string>
     ResolverFailures: Dictionary<string, string>
 
-    // THE `Microsoft.NETCore.App` ASSEMBLIES THIS COMPILATION'S ANALYSIS LOADED ON DEMAND, in load
-    // order (`FrameworkNamespaceIndex`). A namespace import or a fully-qualified spelling loads them
+    // THE `Microsoft.NETCore.App` ASSEMBLIES THIS COMPILATION'S ANALYSIS LOADED ON DEMAND
+    // (`FrameworkNamespaceIndex`). A namespace import or a fully-qualified spelling loads them
     // into the analyzer; the IL back end's scan reads this list so it binds against the same
     // framework assemblies the analysis resolved against. Written and read under `Gate`.
     private frameworkAssemblyNames: List<string>
@@ -73,9 +73,13 @@ class SharedReferenceMetadata {
         }
     }
 
+    // Ordinal by name, not in load order: parallel analysis workers record into this list in whatever
+    // order they reach their files, and the back end's scan must not depend on that.
     func FrameworkAssemblyNames(): string[] {
         lock Gate {
-            return frameworkAssemblyNames.ToArray()
+            names := frameworkAssemblyNames.ToArray()
+            Array.Sort(names, StringComparer.Ordinal)
+            return names
         }
     }
 

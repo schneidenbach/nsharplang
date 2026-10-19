@@ -1347,6 +1347,14 @@ class MultiFileCompiler {
             workerCount = Math.Min(_workers, Math.Max(filesToAnalyze, 1))
         }
         sharedAnalyzer := SharedAnalyzer()
+        spelledIndex := 0
+        while spelledIndex < files.Count {
+            spelledText: string? = null
+            if _sourceTexts.TryGetValue(Path.GetFullPath(files[spelledIndex]), out spelledText) && spelledText != null {
+                sharedAnalyzer.PreloadSpelledFrameworkNamespaces(units[spelledIndex], spelledText)
+            }
+            spelledIndex = spelledIndex + 1
+        }
         analyzerTimer := Stopwatch.StartNew()
         if workerCount <= 1 {
             sharedAnalyzer.SetProjectSourceTexts(_sourceTexts)
@@ -1367,12 +1375,6 @@ class MultiFileCompiler {
             }
         } else {
             AnalyzeFilesInParallel(sharedAnalyzer, files, units, reused, outcomes, workerCount)
-            // The workers loaded through the shared context, but only up to the last file one of them
-            // analysed; a reused file after it never had its imports walked. Replaying every file's
-            // imports here completes the context the IL back end reads, as the serial loop does.
-            for unit in units {
-                sharedAnalyzer.PreloadImportedAssemblies(unit)
-            }
         }
         analyzerTimer.Stop()
 

@@ -486,14 +486,28 @@ class AnalyzerMetadataLoadSurface {
         FrameworkSuppliedByReferences = supplied
     }
 
+    // Loaded by name like any other, and MARKED as on demand before it is registered, so no
+    // bare-name scan ever indexes it (`FrameworkOnDemandLoads`).
     func LoadFrameworkAssembly(simpleName: string) {
-        if IsSimpleNameLoaded(simpleName) {
+        loadContext := Context
+        if loadContext == null || IsSimpleNameLoaded(simpleName) {
             return
         }
 
-        LoadByName(simpleName)
+        loaded := false
+        lock gate {
+            try {
+                assembly := loadContext.LoadFromAssemblyName(simpleName)
+                FrameworkOnDemandLoads.Mark(assembly)
+                Register(assembly)
+                loaded = true
+            } catch error: Exception {
+                RecordExceptionFailure(simpleName, error)
+            }
+        }
+
         shared := ReferenceMetadata
-        if shared != null && IsSimpleNameLoaded(simpleName) {
+        if shared != null && loaded {
             shared.RecordFrameworkAssembly(simpleName)
         }
     }

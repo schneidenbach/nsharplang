@@ -426,6 +426,8 @@ class Analyzer: IDisposable {
         MetadataLoadSurface = new AnalyzerMetadataLoadSurface(MlcAssemblies, ReferenceLoadFailures)
         ReferenceLoadOrchestration = new AnalyzerReferenceLoadOrchestration(MetadataLoadSurface, ReferencedPackageNames)
         ExternalTypeProbe.SetFrameworkLoads(MetadataLoadSurface)
+        surface := MetadataLoadSurface
+        FrameworkOnDemandLoads.RegisterLoader(MlcAssemblies, fullName => surface.LoadFrameworkNamespaceOfType(fullName))
 
         // The three name-resolution owners are built once and never rebuilt, so the import-usage
         // ledger is handed to them here. `ExtensionMethodResolution` IS rebuilt, and takes it in its
@@ -824,6 +826,35 @@ class Analyzer: IDisposable {
             if namespaceImport != null {
                 LoadImportMappedAssemblies(namespaceImport.Namespace)
             }
+        }
+    }
+
+    // THE FRAMEWORK NAMESPACES A FILE'S TEXT SPELLS, LOADED BEFORE ANY FILE IS ANALYSED
+    // (`FrameworkNamespaceIndex.SpelledNamespaces`). A compilation calls this for every source file,
+    // analysed or reused, so its shared metadata context -- which the IL back end reads -- holds every
+    // `Microsoft.NETCore.App` assembly any file names, as a pure function of the source texts. The
+    // loads are on demand (`FrameworkOnDemandLoads`): they answer only through their own namespaces, so
+    // loading them early changes no file's answers.
+    func PreloadSpelledFrameworkNamespaces(unit: CompilationUnit, text: string) {
+        aliases := new Dictionary<string, string>(StringComparer.Ordinal)
+        for importDirective in unit.Imports {
+            alias := importDirective.Alias
+            if alias != null {
+                aliases[alias] = importDirective.Namespace
+            }
+        }
+        for statement in unit.FileImports {
+            namespaceImport := statement as NamespaceImport
+            if namespaceImport != null {
+                namespaceAlias := namespaceImport.Alias
+                if namespaceAlias != null {
+                    aliases[namespaceAlias] = namespaceImport.Namespace
+                }
+            }
+        }
+
+        for namespaceName in FrameworkNamespaceIndex.ForHostRuntime().SpelledNamespaces(text, aliases) {
+            MetadataLoadSurface.LoadFrameworkNamespace(namespaceName)
         }
     }
 
@@ -2445,6 +2476,7 @@ class Analyzer: IDisposable {
         ApplyLanguageSettings(config)
         directory := projectDirectory ?? Environment.CurrentDirectory
         ProjectDefaultNamespaces.Clear()
+        Imports.SetAspNetCoreReferenced(AnalyzerMetadataLoadPolicy.ReferencesAspNetCore(config.Sdk, config.Dependencies))
         if AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies(config.Sdk) {
             // Match the Web SDK's implicit hosting namespace so extension calls such as
             // `environment.IsDevelopment()` use the same reference surface as their project.

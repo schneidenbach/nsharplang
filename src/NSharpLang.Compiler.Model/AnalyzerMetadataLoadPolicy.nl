@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import System.Xml.Linq
 
 
 // EVERY DECISION THE ANALYZER'S METADATA-LOADING SURFACE MAKES, and none of the mechanics that
@@ -66,11 +67,20 @@ class AnalyzerMetadataLoadPolicy {
     }
 
     // A REFERENCE SET THAT ALREADY CARRIES THE FRAMEWORK'S COMPILE SURFACE SUPPLIES IT ITSELF.
-    // `dotnet build` hands the compiler every assembly of the reference pack as a reference, and
-    // `System.Runtime` is the root every one of them names; when the project's own references hold
-    // it, the framework is already loaded from them and the on-demand `Microsoft.NETCore.App` loads
-    // (`FrameworkNamespaceIndex`) stand down rather than load a second, runtime copy of what the
-    // reference pack declares.
+    // `dotnet build` hands the compiler every assembly of the `Microsoft.NETCore.App` reference pack
+    // as a reference; when the project's references hold that pack, the framework is already loaded
+    // from them and the on-demand loads (`FrameworkNamespaceIndex`) stand down rather than load a
+    // second, runtime copy of what the pack declares.
+    //
+    // THE PACK IS RECOGNISED BY WHAT IT SAYS IT IS, NOT BY A FILE NAME. A file named
+    // `System.Runtime.dll` is not enough: an old NuGet package graph (`System.IO 4.1.0` pulls
+    // `system.runtime/4.1.0/ref/netstandard1.5/System.Runtime.dll`) carries one too, and treating it
+    // as the framework switched every on-demand load off. A reference pack -- installed under
+    // `packs/Microsoft.NETCore.App.Ref/<version>/` or restored as the `microsoft.netcore.app.ref`
+    // package -- has `ref/<tfm>/System.Runtime.dll` with `data/FrameworkList.xml` two levels up
+    // naming `FrameworkName="Microsoft.NETCore.App"`, the file MSBuild itself resolves the pack from.
+    // That self-description is the test, so no SDK-to-compiler signal is needed and any caller that
+    // passes a real pack gets the same answer.
     static func ReferencesSupplyFrameworkSurface(referencePaths: IEnumerable<string>?): bool {
         if referencePaths == null {
             return false
@@ -78,6 +88,61 @@ class AnalyzerMetadataLoadPolicy {
 
         for referencePath in referencePaths {
             if referencePath != null && string.Equals(Path.GetFileName(referencePath), "System.Runtime.dll", StringComparison.OrdinalIgnoreCase) {
+                frameworkList := ReferencePackFrameworkListFor(referencePath)
+                if frameworkList != null && File.Exists(frameworkList) && IsBaseFrameworkList(File.ReadAllText(frameworkList)) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    // `<pack>/ref/<tfm>/System.Runtime.dll` -> `<pack>/data/FrameworkList.xml`; null when the path is
+    // not that deep.
+    static func ReferencePackFrameworkListFor(systemRuntimePath: string): string? {
+        tfmDirectory := Path.GetDirectoryName(Path.GetFullPath(systemRuntimePath))
+        if tfmDirectory == null {
+            return null
+        }
+
+        refDirectory := Path.GetDirectoryName(tfmDirectory)
+        if refDirectory == null || !string.Equals(Path.GetFileName(refDirectory), "ref", StringComparison.OrdinalIgnoreCase) {
+            return null
+        }
+
+        packDirectory := Path.GetDirectoryName(refDirectory)
+        if packDirectory == null {
+            return null
+        }
+
+        return Path.Combine(Path.Combine(packDirectory, "data"), "FrameworkList.xml")
+    }
+
+    // Whether a `FrameworkList.xml` describes `Microsoft.NETCore.App` (its root's `FrameworkName`).
+    static func IsBaseFrameworkList(xmlText: string): bool {
+        try {
+            root := XDocument.Parse(xmlText).Root
+            if root == null {
+                return false
+            }
+
+            name := root.Attribute(XName.Get("FrameworkName"))
+            return name != null && string.Equals(name.Value, "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
+        } catch {
+            return false
+        }
+    }
+
+    // Whether a project references `Microsoft.AspNetCore.App` at all: implied by its SDK, or named
+    // in a `framework:` entry.
+    static func ReferencesAspNetCore(sdk: string?, dependencies: IEnumerable<Reference>): bool {
+        if RequiresAspNetCoreAssemblies(sdk) {
+            return true
+        }
+
+        for dependency in dependencies {
+            if dependency.Type == ReferenceType.Framework && string.Equals(dependency.Framework ?? "", "Microsoft.AspNetCore.App", StringComparison.OrdinalIgnoreCase) {
                 return true
             }
         }

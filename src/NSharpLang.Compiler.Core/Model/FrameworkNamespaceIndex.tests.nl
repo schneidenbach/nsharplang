@@ -113,37 +113,58 @@ test "the host index is read once per runtime directory" {
     assert Object.ReferenceEquals(first, second)
 }
 
-// ── the on-disk copy ──────────────────────────────────────────────────────────────────────────
+// ── the spelled namespaces and the reference pack's type surface ─────────────────────────────
 
-func FniSampleIndex(): FrameworkNamespaceIndex {
+func FniSpellingIndex(): FrameworkNamespaceIndex {
     namespaces := new Dictionary<string, string[]>(StringComparer.Ordinal)
-    namespaces["System"] = ["System.ComponentModel", "System.Private.CoreLib"]
+    namespaces["System"] = ["System.Private.CoreLib"]
+    namespaces["System.Numerics"] = ["System.Runtime.Numerics"]
     namespaces["System.Security.Claims"] = ["System.Security.Claims"]
-    return new FrameworkNamespaceIndex("/runtime/10.0.7", "/packs/FrameworkList.xml", FniNames(["System.Runtime", "System.Security.Claims"]), namespaces)
+    return new FrameworkNamespaceIndex("/runtime", "", FniNames(["System.Runtime"]), namespaces)
 }
 
-test "a cached index reads back exactly as it was written" {
-    text := FrameworkNamespaceIndex.SerializeCache(FniSampleIndex(), "stamp-1")
-    read := FrameworkNamespaceIndex.ParseCache(text, "stamp-1", "/runtime/10.0.7")
-    assert read != null
-    assert read.CompileSurfaceSource == "/packs/FrameworkList.xml"
-    assert read.CompileAssemblyNames.Count == 2
-    assert read.CompileAssemblyNames.Contains("System.Security.Claims")
-    assert string.Join("|", must read.AssembliesForNamespace("System")) == "System.ComponentModel|System.Private.CoreLib"
-    assert string.Join("|", must read.AssembliesForNamespace("System.Security.Claims")) == "System.Security.Claims"
-    assert read.AssembliesForNamespace("System.Xml") == null
+test "a text's spelled framework namespaces are its imports and its qualified names, each once" {
+    text := "import System.Security.Claims\n\nfunc f(): System.Numerics.BigInteger {\n    return System.Numerics.BigInteger.One\n}\n"
+    assert string.Join("|", FniSpellingIndex().SpelledNamespaces(text, null)) == "System.Security.Claims|System.Numerics"
 }
 
-test "a cached index written for another stamp or format is a miss, never an answer" {
-    text := FrameworkNamespaceIndex.SerializeCache(FniSampleIndex(), "stamp-1")
-    assert FrameworkNamespaceIndex.ParseCache(text, "stamp-2", "/runtime/10.0.7") == null
-    assert FrameworkNamespaceIndex.ParseCache(text.Replace("/1\n", "/0\n"), "stamp-1", "/runtime/10.0.7") == null
-    assert FrameworkNamespaceIndex.ParseCache("", "stamp-1", "/runtime/10.0.7") == null
-    assert FrameworkNamespaceIndex.ParseCache(FrameworkNamespaceIndex.CacheFormat() + "\nstamp-1\n\nSystem.Runtime\nbroken line\n", "stamp-1", "/runtime/10.0.7") == null
+test "a chain that does not start at a framework root, or follows a member access, spells nothing" {
+    text := "func f() {\n    x := order.System.Numerics\n    y := Contoso.Orders.Order\n    z := SystemX.Numerics.Value\n}\n"
+    assert FniSpellingIndex().SpelledNamespaces(text, null).Count == 0
 }
 
-test "the cache file name is the same in every process" {
-    assert FrameworkNamespaceIndex.StableHash("/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.7") == FrameworkNamespaceIndex.StableHash("/usr/share/dotnet/shared/Microsoft.NETCore.App/10.0.7")
-    assert FrameworkNamespaceIndex.StableHash("a") == "0002b606"
-    assert FrameworkNamespaceIndex.StableHash("/a") != FrameworkNamespaceIndex.StableHash("/b")
+test "a namespace alias spells the namespace it stands for" {
+    aliases := new Dictionary<string, string>(StringComparer.Ordinal)
+    aliases["N"] = "System.Numerics"
+    assert string.Join("|", FniSpellingIndex().SpelledNamespaces("x := N.BigInteger.One\n", aliases)) == "System.Numerics"
+}
+
+test "without a reference pack every runtime type is on the compile surface" {
+    index := FniSpellingIndex()
+    assert !index.HasReferenceSurface
+    assert index.IsOnCompileSurface("System.Collections.Generic", "TreeSet`1")
+}
+
+test "the host's reference pack hides the implementation-only namespaces and types" {
+    index := FrameworkNamespaceIndex.ForHostRuntime()
+    if index.HasReferenceSurface {
+        assert index.AssembliesForNamespace("System.Linq.Expressions.Interpreter") == null
+        assert index.IsOnCompileSurface("System.Collections.Generic", "List`1")
+        assert !index.IsOnCompileSurface("System.Collections.Generic", "TreeSet`1")
+        assert !index.IsOnCompileSurface("System.IO.Compression", "ZLibException")
+        assert index.IsOnCompileSurface("System", "IServiceProvider")
+    }
+}
+
+test "the reference pack's assembly folder is the runtime's own target framework" {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-fni-pack-" + Guid.NewGuid().ToString("N"))
+    try {
+        refDirectory := Path.Combine(Path.Combine(root, "ref"), "net10.0")
+        Directory.CreateDirectory(refDirectory)
+        frameworkList := Path.Combine(Path.Combine(root, "data"), "FrameworkList.xml")
+        assert FrameworkNamespaceIndex.ReferencePackAssemblyDirectory(frameworkList, "10.0.7") == refDirectory
+        assert FrameworkNamespaceIndex.ReferencePackAssemblyDirectory(frameworkList, "11.0.0") == null
+    } finally {
+        Directory.Delete(root, true)
+    }
 }

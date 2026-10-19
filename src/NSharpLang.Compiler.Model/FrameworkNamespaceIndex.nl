@@ -6,8 +6,8 @@ import System.IO
 import System.Reflection
 import System.Reflection.Metadata
 import System.Reflection.PortableExecutable
+import System.Runtime.CompilerServices
 import System.Runtime.InteropServices
-import System.Text
 import System.Xml.Linq
 
 
@@ -62,6 +62,21 @@ class FrameworkNamespaceIndex {
     // ordinally by assembly name so the load order never depends on the file system's.
     private assembliesByNamespace: Dictionary<string, string[]>
 
+    // The first segment of every importable namespace: where a spelled chain can start.
+    private roots: HashSet<string>
+
+    // THE REFERENCE PACK'S OWN TYPE NAMES, for the types a runtime implementation makes public and the
+    // pack does not (`IsOnCompileSurface`). The files that carry each namespace are found when the
+    // index is built; a namespace's type names are read from them the first time a type in it is
+    // asked about. Null when no reference pack is installed.
+    private referenceFilesByNamespace: Dictionary<string, List<string>>?
+    private referenceTypeNames: Dictionary<string, HashSet<string>>
+    private referenceGate: object
+
+    private static runtimeAssemblyMarks: ConditionalWeakTable<Assembly, object> = new ConditionalWeakTable<Assembly, object>()
+    private static runtimeMarker: object = new object()
+    private static otherMarker: object = new object()
+
     private static gate: object = new object()
     private static byRuntimeDirectory: Dictionary<string, FrameworkNamespaceIndex> = new Dictionary<string, FrameworkNamespaceIndex>(StringComparer.Ordinal)
     private static registered: bool = false
@@ -72,6 +87,18 @@ class FrameworkNamespaceIndex {
         CompileSurfaceSource = compileSurfaceSource
         CompileAssemblyNames = compileAssemblyNames
         assembliesByNamespace = namespaces
+        referenceFilesByNamespace = null
+        referenceTypeNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+        referenceGate = new object()
+        roots = new HashSet<string>(StringComparer.Ordinal)
+        for namespaceName in namespaces.Keys {
+            separator := namespaceName.IndexOf('.')
+            if separator < 0 {
+                roots.Add(namespaceName)
+            } else {
+                roots.Add(namespaceName.Substring(0, separator))
+            }
+        }
     }
 
     NamespaceCount: int => assembliesByNamespace.Count
@@ -114,6 +141,77 @@ class FrameworkNamespaceIndex {
         return null
     }
 
+    // THE FRAMEWORK NAMESPACES A SOURCE TEXT SPELLS, imports and qualified names alike: every
+    // dotted identifier chain whose first segment is a framework root namespace (`System`,
+    // `Microsoft`, ...) or one of the file's namespace aliases, read as the longest prefix that is a
+    // framework namespace. It is a pure function of the text, so a compilation's on-demand loads are
+    // the same whichever worker analyses which file, whether a file's analysis was reused, and what
+    // an earlier compilation in the same process loaded. It over-approximates on purpose -- a chain
+    // in a comment or a string counts -- because a load it adds is only ever reached through its own
+    // namespace (`FrameworkOnDemandLoads`), so an extra one costs time and never changes an answer.
+    func SpelledNamespaces(text: string, aliases: IReadOnlyDictionary<string, string>?): List<string> {
+        found := new List<string>()
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        if text == null {
+            return found
+        }
+
+        index := 0
+        length := text.Length
+        while index < length {
+            character := text[index]
+            if !IsIdentifierStart(character) || (index > 0 && (IsIdentifierPart(text[index - 1]) || text[index - 1] == '.')) {
+                index = index + 1
+                continue
+            }
+
+            start := index
+            while index < length && (IsIdentifierPart(text[index]) || (text[index] == '.' && index + 1 < length && IsIdentifierStart(text[index + 1]))) {
+                index = index + 1
+            }
+
+            chain := text.Substring(start, index - start)
+            if chain.IndexOf('.') < 0 {
+                continue
+            }
+
+            rootEnd := chain.IndexOf('.')
+            root := chain.Substring(0, rootEnd)
+            expanded := chain
+            aliasTarget := ""
+            if aliases != null && aliases.TryGetValue(root, out aliasTarget) {
+                expanded = aliasTarget + chain.Substring(rootEnd)
+            } else if !roots.Contains(root) {
+                continue
+            }
+
+            namespaceName := LongestNamespacePrefix(expanded)
+            if namespaceName != null && seen.Add(namespaceName) {
+                found.Add(namespaceName)
+            }
+        }
+
+        return found
+    }
+
+    // The chain itself when it is a framework namespace (an import line), else its longest proper
+    // prefix that is one.
+    func LongestNamespacePrefix(chain: string): string? {
+        if assembliesByNamespace.ContainsKey(chain) {
+            return chain
+        }
+
+        return NamespaceOfTypeName(chain)
+    }
+
+    static func IsIdentifierStart(character: char): bool {
+        return char.IsLetter(character) || character == '_'
+    }
+
+    static func IsIdentifierPart(character: char): bool {
+        return char.IsLetterOrDigit(character) || character == '_'
+    }
+
     // ── THE ONE INDEX PER RUNTIME ─────────────────────────────────────────────────────────────────
 
     // The index for the runtime this compiler runs on, which is the runtime its analyzer resolves
@@ -146,7 +244,7 @@ class FrameworkNamespaceIndex {
         }
 
         mark := CompilerPhaseTimings.Begin("Microsoft.NETCore.App", "framework-namespace-index")
-        built := LoadOrBuild(key)
+        built := Build(key)
         CompilerPhaseTimings.End(mark)
         lock FrameworkNamespaceIndex.gate {
             FrameworkNamespaceIndex.byRuntimeDirectory[key] = built
@@ -181,171 +279,6 @@ class FrameworkNamespaceIndex {
             FrameworkNamespaceIndex.byRuntimeDirectory.Clear()
             FrameworkNamespaceIndex.host = null
         }
-    }
-
-    // ── THE ON-DISK COPY ──────────────────────────────────────────────────────────────────────────
-    //
-    // A one-shot `nlc check` is a new process, and reading ~170 type tables (and compiling the code
-    // that reads them) is most of what the index costs it. The answer is a function of two immutable
-    // installed things -- the runtime directory and the reference pack's list -- so it is written
-    // once to the per-user cache and read back as one small text file. The STAMP is both paths and
-    // their last-write times: a repaired or reinstalled runtime, or a different pack, is a different
-    // stamp and the index is rebuilt. Every failure to read or write the cache is a miss, never an
-    // error: the cache can only make the index cheaper, not different.
-    static func LoadOrBuild(runtimeDirectory: string): FrameworkNamespaceIndex {
-        frameworkList := FindReferencePackFrameworkList(runtimeDirectory)
-        stamp := CacheStamp(runtimeDirectory, frameworkList)
-        cachePath := CacheFilePath(runtimeDirectory)
-        if cachePath == null || stamp == null {
-            return Build(runtimeDirectory, frameworkList)
-        }
-
-        cached := TryReadCache(cachePath, stamp, runtimeDirectory)
-        if cached != null {
-            return cached
-        }
-
-        built := Build(runtimeDirectory, frameworkList)
-        TryWriteCache(cachePath, stamp, built)
-        return built
-    }
-
-    // The cached index, or null: an absent, unreadable, stale or malformed file is a miss.
-    static func TryReadCache(cachePath: string, stamp: string, runtimeDirectory: string): FrameworkNamespaceIndex? {
-        try {
-            if !File.Exists(cachePath) {
-                return null
-            }
-
-            return ParseCache(File.ReadAllText(cachePath), stamp, runtimeDirectory)
-        } catch {
-            return null
-        }
-    }
-
-    // Written beside its final name and moved over it, so a concurrent reader sees the old file or
-    // the new one and never half of one. False when the cache cannot be written; the next process
-    // then builds the index again.
-    static func TryWriteCache(cachePath: string, stamp: string, index: FrameworkNamespaceIndex): bool {
-        try {
-            directory := Path.GetDirectoryName(cachePath)
-            if directory != null {
-                Directory.CreateDirectory(directory)
-            }
-
-            temporary := cachePath + "." + Environment.ProcessId.ToString() + ".tmp"
-            File.WriteAllText(temporary, SerializeCache(index, stamp))
-            File.Move(temporary, cachePath, true)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    static func CacheFormat(): string {
-        return "nsharp-framework-namespace-index/1"
-    }
-
-    static func CacheStamp(runtimeDirectory: string, frameworkList: string?): string? {
-        try {
-            if !Directory.Exists(runtimeDirectory) {
-                return null
-            }
-
-            stamp := runtimeDirectory + "|" + Directory.GetLastWriteTimeUtc(runtimeDirectory).Ticks.ToString()
-            if frameworkList != null {
-                stamp = stamp + "|" + frameworkList + "|" + File.GetLastWriteTimeUtc(frameworkList).Ticks.ToString()
-            }
-
-            return stamp
-        } catch {
-            return null
-        }
-    }
-
-    // `<local application data>/nsharp/framework-index/<runtime version>-<path hash>.txt`; null when
-    // the machine has no per-user data directory.
-    static func CacheFilePath(runtimeDirectory: string): string? {
-        root := Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-        if string.IsNullOrEmpty(root) {
-            return null
-        }
-
-        version := Path.GetFileName(Path.TrimEndingDirectorySeparator(runtimeDirectory)) ?? "runtime"
-        fileName := version + "-" + StableHash(runtimeDirectory) + ".txt"
-        return Path.Combine(Path.Combine(Path.Combine(root, "nsharp"), "framework-index"), fileName)
-    }
-
-    // djb2 over the path's characters, kept to 32 bits: `string.GetHashCode` is randomized per
-    // process, and the file name has to be the same in every process that asks.
-    static func StableHash(text: string): string {
-        hash := 5381L
-        index := 0
-        while index < text.Length {
-            code: int = text[index]
-            hash = (hash * 33L + code) % 4294967296L
-            index = index + 1
-        }
-
-        return hash.ToString("x8")
-    }
-
-    static func SerializeCache(index: FrameworkNamespaceIndex, stamp: string): string {
-        builder := new StringBuilder()
-        builder.Append(CacheFormat()).Append('\n')
-        builder.Append(stamp).Append('\n')
-        builder.Append(index.CompileSurfaceSource).Append('\n')
-        compileNames := new List<string>(index.CompileAssemblyNames)
-        compileNames.Sort(StringComparer.Ordinal)
-        builder.Append(string.Join("|", compileNames)).Append('\n')
-        namespaces := new List<string>(index.assembliesByNamespace.Keys)
-        namespaces.Sort(StringComparer.Ordinal)
-        for namespaceName in namespaces {
-            builder.Append(namespaceName).Append('\t').Append(string.Join("|", index.assembliesByNamespace[namespaceName])).Append('\n')
-        }
-
-        return builder.ToString()
-    }
-
-    // The index a cache file records, or null when it is another format, another stamp, or malformed.
-    static func ParseCache(text: string, stamp: string, runtimeDirectory: string): FrameworkNamespaceIndex? {
-        lines := text.Split('\n')
-        if lines.Length < 4 || lines[0] != CacheFormat() || lines[1] != stamp {
-            return null
-        }
-
-        compileNames := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        if lines[3].Length > 0 {
-            for compileName in lines[3].Split('|') {
-                compileNames.Add(compileName)
-            }
-        }
-        if compileNames.Count == 0 {
-            return null
-        }
-
-        namespaces := new Dictionary<string, string[]>(StringComparer.Ordinal)
-        lineIndex := 4
-        while lineIndex < lines.Length {
-            line := lines[lineIndex]
-            lineIndex = lineIndex + 1
-            if line.Length == 0 {
-                continue
-            }
-
-            tab := line.IndexOf('\t')
-            if tab <= 0 || tab == line.Length - 1 {
-                return null
-            }
-
-            namespaces[line.Substring(0, tab)] = line.Substring(tab + 1).Split('|')
-        }
-
-        if namespaces.Count == 0 {
-            return null
-        }
-
-        return new FrameworkNamespaceIndex(runtimeDirectory, lines[2], compileNames, namespaces)
     }
 
     static func Build(runtimeDirectory: string): FrameworkNamespaceIndex {
@@ -385,7 +318,211 @@ class FrameworkNamespaceIndex {
             ReadNamespaceRows(runtimeAssemblyPath, rows)
         }
 
-        return new FrameworkNamespaceIndex(runtimeDirectory, source, compileNames, BuildNamespaceMap(rows, compileNames))
+        // WITH A REFERENCE PACK, ITS OWN NAMESPACES ARE THE IMPORTABLE ONES and its own type names
+        // the nameable ones: `dotnet build` compiles against the pack, so a namespace or type only an
+        // implementation carries (`System.Linq.Expressions.Interpreter`, `TreeSet<T>`) is not part of
+        // the framework a project sees.
+        referenceDirectory: string? = null
+        if frameworkList != null && source.Length > 0 {
+            referenceDirectory = ReferencePackAssemblyDirectory(frameworkList, Path.GetFileName(Path.TrimEndingDirectorySeparator(runtimeDirectory)) ?? "")
+        }
+
+        if referenceDirectory == null {
+            return new FrameworkNamespaceIndex(runtimeDirectory, source, compileNames, BuildNamespaceMap(rows, compileNames))
+        }
+
+        referenceRows := new List<FrameworkNamespaceRow>()
+        referencePaths := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        for referencePath in Directory.GetFiles(referenceDirectory, "*.dll", SearchOption.TopDirectoryOnly) {
+            referencePaths[Path.GetFileNameWithoutExtension(referencePath)] = referencePath
+            ReadNamespaceRows(referencePath, referenceRows)
+        }
+
+        filesByNamespace := new Dictionary<string, List<string>>(StringComparer.Ordinal)
+        for referenceRow in referenceRows {
+            files: List<string>? = null
+            if !filesByNamespace.TryGetValue(referenceRow.NamespaceName, out files) || files == null {
+                files = new List<string>()
+                filesByNamespace[referenceRow.NamespaceName] = files
+            }
+            files.Add(referencePaths[referenceRow.AssemblyName])
+        }
+
+        index := new FrameworkNamespaceIndex(runtimeDirectory, source, compileNames, BuildNamespaceMapFor(rows, new HashSet<string>(filesByNamespace.Keys, StringComparer.Ordinal)))
+        index.referenceFilesByNamespace = filesByNamespace
+        return index
+    }
+
+    // `<pack>/data/FrameworkList.xml` -> `<pack>/ref/net<major>.<minor>`, the folder MSBuild compiles
+    // against; null when the pack carries no such folder.
+    static func ReferencePackAssemblyDirectory(frameworkList: string, runtimeVersion: string): string? {
+        dataDirectory := Path.GetDirectoryName(frameworkList)
+        if dataDirectory == null {
+            return null
+        }
+
+        packDirectory := Path.GetDirectoryName(dataDirectory)
+        if packDirectory == null {
+            return null
+        }
+
+        parts := runtimeVersion.Split('.')
+        if parts.Length < 2 {
+            return null
+        }
+
+        candidate := Path.Combine(Path.Combine(packDirectory, "ref"), "net" + parts[0] + "." + parts[1])
+        if Directory.Exists(candidate) {
+            return candidate
+        }
+
+        return null
+    }
+
+    // ── WHAT THE REFERENCE PACK NAMES ─────────────────────────────────────────────────────────────
+
+    HasReferenceSurface: bool => referenceFilesByNamespace != null
+
+    // Whether the reference pack declares (or forwards) the top-level type `namespaceName.name`, in
+    // metadata spelling (`TreeSet``1`). True for everything when no pack is installed: the runtime is
+    // then the only description of the framework there is.
+    func IsOnCompileSurface(namespaceName: string, name: string): bool {
+        files := referenceFilesByNamespace
+        if files == null {
+            return true
+        }
+
+        lock referenceGate {
+            names: HashSet<string>? = null
+            if !referenceTypeNames.TryGetValue(namespaceName, out names) || names == null {
+                names = ReadReferenceTypeNames(files, namespaceName)
+                referenceTypeNames[namespaceName] = names
+            }
+
+            return names.Contains(name)
+        }
+    }
+
+    static func ReadReferenceTypeNames(filesByNamespace: Dictionary<string, List<string>>, namespaceName: string): HashSet<string> {
+        names := new HashSet<string>(StringComparer.Ordinal)
+        paths: List<string>? = null
+        if !filesByNamespace.TryGetValue(namespaceName, out paths) || paths == null {
+            return names
+        }
+
+        for path in paths {
+            ReadTopLevelNamesInNamespace(path, namespaceName, names)
+        }
+
+        return names
+    }
+
+    // The public top-level type definitions and the forwarders one file carries in one namespace.
+    static func ReadTopLevelNamesInNamespace(path: string, namespaceName: string, names: HashSet<string>) {
+        stream: Stream? = null
+        pe: PEReader? = null
+        try {
+            stream = File.OpenRead(path)
+            pe = new PEReader(stream)
+            if !pe.HasMetadata {
+                return
+            }
+
+            reader := pe.GetMetadataReader()
+            current := reader.GetNamespaceDefinitionRoot()
+            for segment in namespaceName.Split('.') {
+                found := false
+                for childHandle in current.NamespaceDefinitions {
+                    child := reader.GetNamespaceDefinition(childHandle)
+                    if !found && reader.GetString(child.Name) == segment {
+                        current = child
+                        found = true
+                    }
+                }
+
+                if !found {
+                    return
+                }
+            }
+
+            for typeHandle in current.TypeDefinitions {
+                definition := reader.GetTypeDefinition(typeHandle)
+                visibility := (int)definition.Attributes & (int)TypeAttributes.VisibilityMask
+                if visibility == (int)TypeAttributes.Public && definition.GetDeclaringType().IsNil {
+                    names.Add(reader.GetString(definition.Name))
+                }
+            }
+
+            for exportedHandle in current.ExportedTypes {
+                exported := reader.GetExportedType(exportedHandle)
+                if exported.IsForwarder {
+                    names.Add(reader.GetString(exported.Name))
+                }
+            }
+        } catch {
+            // An unreadable reference file contributes no name; the type is then not on the surface.
+            return
+        } finally {
+            if pe != null {
+                pe.Dispose()
+            }
+            if stream != null {
+                stream.Dispose()
+            }
+        }
+    }
+
+    // A PUBLIC TYPE ONLY AN IMPLEMENTATION CARRIES: declared by an assembly of the runtime directory
+    // the analyzer reads, in a namespace or under a name the reference pack does not have. It is
+    // public in metadata and not nameable from a project, exactly as `dotnet build` (which compiles
+    // against the pack) refuses it. `InternalsVisibleToGrants.IsNameableType` asks this.
+    static func IsImplementationOnlyType(candidate: Type): bool {
+        top := candidate
+        while top.IsNested {
+            declaring := top.DeclaringType
+            if declaring == null {
+                return false
+            }
+            top = declaring
+        }
+
+        if !IsHostRuntimeAssembly(top.Assembly) {
+            return false
+        }
+
+        index := ForHostRuntime()
+        if !index.HasReferenceSurface {
+            return false
+        }
+
+        return !index.IsOnCompileSurface(top.Namespace ?? "", top.Name)
+    }
+
+    static func IsHostRuntimeAssembly(assembly: Assembly): bool {
+        cached: object? = null
+        if FrameworkNamespaceIndex.runtimeAssemblyMarks.TryGetValue(assembly, out cached) {
+            return Object.ReferenceEquals(cached, FrameworkNamespaceIndex.runtimeMarker)
+        }
+
+        isRuntime := false
+        try {
+            if !assembly.IsDynamic {
+                location := ReferenceImageSnapshotStore.OriginalPathOf(assembly) ?? ""
+                if location.Length > 0 {
+                    directory := Path.GetDirectoryName(Path.GetFullPath(location)) ?? ""
+                    isRuntime = string.Equals(Path.TrimEndingDirectorySeparator(directory), ForHostRuntime().RuntimeDirectory, StringComparison.Ordinal)
+                }
+            }
+        } catch {
+            isRuntime = false
+        }
+
+        marker := FrameworkNamespaceIndex.otherMarker
+        if isRuntime {
+            marker = FrameworkNamespaceIndex.runtimeMarker
+        }
+        FrameworkNamespaceIndex.runtimeAssemblyMarks.AddOrUpdate(assembly, marker)
+        return isRuntime
     }
 
     // ── THE PURE HALF: every decision above, with no file opened ──────────────────────────────────
@@ -502,12 +639,20 @@ class FrameworkNamespaceIndex {
     // defines it. A namespace only a `System.Private.*` assembly carries (`Internal`) is not importable.
     static func BuildNamespaceMap(rows: List<FrameworkNamespaceRow>, compileAssemblyNames: HashSet<string>): Dictionary<string, string[]> {
         visible := new HashSet<string>(StringComparer.Ordinal)
-        definers := new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal)
         for row in rows {
             if compileAssemblyNames.Contains(row.AssemblyName) {
                 visible.Add(row.NamespaceName)
             }
+        }
 
+        return BuildNamespaceMapFor(rows, visible)
+    }
+
+    // The map over a namespace set already decided: the reference pack's own, or the one the
+    // compile-surface assemblies of the runtime directory carry.
+    static func BuildNamespaceMapFor(rows: List<FrameworkNamespaceRow>, visible: HashSet<string>): Dictionary<string, string[]> {
+        definers := new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal)
+        for row in rows {
             if row.Defines {
                 existing: SortedSet<string>? = null
                 if definers.TryGetValue(row.NamespaceName, out existing) && existing != null {

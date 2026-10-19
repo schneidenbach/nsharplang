@@ -180,9 +180,7 @@ class AnalyzerExternalTypeProbe {
         return false
     }
 
-    // For a resolver that sweeps the analyzer's assembly list itself (`ExternalQualifiedTypeResolver`):
-    // load the spelling's framework namespace first, so the sweep sees what this probe would.
-    func LoadFrameworkNamespaceOf(fullName: string): bool {
+    private func LoadFrameworkNamespaceOf(fullName: string): bool {
         loads := frameworkLoads
         if loads == null {
             return false
@@ -351,6 +349,11 @@ class AnalyzerExternalTypeProbe {
                 scanned := assembly.GetExportedTypes()
                 if grants.GrantsAccess(assembly) {
                     scanned = assembly.GetTypes()
+                }
+                // A FRAMEWORK ASSEMBLY LOADED ON DEMAND ANSWERS NO BARE NAME (`FrameworkOnDemandLoads`):
+                // it is reached through the namespace that loaded it, never through this scan.
+                if FrameworkOnDemandLoads.IsOnDemand(assembly) {
+                    scanned = Type.EmptyTypes
                 }
 
                 exportedIndex := 0
