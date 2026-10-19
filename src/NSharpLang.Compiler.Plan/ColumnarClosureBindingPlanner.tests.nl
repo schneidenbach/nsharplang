@@ -417,7 +417,7 @@ test "closure lift candidates retain prior state, exclude structural writes, and
 
     opaqueBuilder := new ColumnarRangePlannerNodeBuilder()
     opaque := opaqueBuilder.AddNode(
-        ColumnarExpressionNodeKind.ObjectInitializerExpression,
+        ColumnarExpressionNodeKind.MatchExpression,
         -1,
         0,
         0,
@@ -426,6 +426,32 @@ test "closure lift candidates retain prior state, exclude structural writes, and
     )
     opaqueTree := opaqueBuilder.Build(opaque)
     assert ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(opaqueTree.Nodes, opaqueTree.Root)
+    // An object initializer is ordinary expressions (type root, then name/value pairs), not a pattern.
+    initializerBuilder := new ColumnarRangePlannerNodeBuilder()
+    initializer := initializerBuilder.AddNode(
+        ColumnarExpressionNodeKind.ObjectInitializerExpression,
+        -1,
+        0,
+        0,
+        0,
+        new int[](0)
+    )
+    initializerTree := initializerBuilder.Build(initializer)
+    assert !ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(initializerTree.Nodes, initializerTree.Root)
+    assert !ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(initializerTree.Nodes, initializerTree.Root, 0)
+    assert ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(initializerTree.Nodes, initializerTree.Root, 1)
+    anonymousBuilder := new ColumnarRangePlannerNodeBuilder()
+    anonymous := anonymousBuilder.AddNode(
+        ColumnarExpressionNodeKind.AnonymousObjectInitializer,
+        -1,
+        0,
+        0,
+        0,
+        new int[](0)
+    )
+    anonymousTree := anonymousBuilder.Build(anonymous)
+    assert ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(anonymousTree.Nodes, anonymousTree.Root, 0)
+    assert !ColumnarClosureBindingPlanner.IsInitializerMemberNameChild(anonymousTree.Nodes, anonymousTree.Root, 1)
     simple := ClosureBindingControlsIdentifierTree("plain")
     assert !ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(simple.Nodes, simple.Root)
 }

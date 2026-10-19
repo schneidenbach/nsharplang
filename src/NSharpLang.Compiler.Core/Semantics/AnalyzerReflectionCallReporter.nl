@@ -402,6 +402,10 @@ class AnalyzerReflectionCallReporter {
             return false
         }
 
+        if expectedType != null && assignabilityFacts.CanBindCallableReferenceToBroadDelegate(expectedType, candidate) {
+            return false
+        }
+
         resolvedType := declarationContext.ResolveDeclaredAlias(candidate)
         return AnalyzerCallableReferenceFacts.IsCallableReferenceType(resolvedType)
     }

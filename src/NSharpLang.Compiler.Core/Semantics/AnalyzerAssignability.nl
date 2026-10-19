@@ -512,8 +512,18 @@ class AnalyzerAssignability {
             sourceIsDeclaredFunction = AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(sourceFunction)
         }
 
+        // `Delegate` and `MulticastDelegate` have no Invoke signature. A lone method group is converted
+        // by its natural Func/Action signature, but ambiguous or unsupported groups remain callable
+        // references and are rejected at their use site instead of being treated as ordinary values.
+        if assignabilityFacts.CanBindCallableReferenceToBroadDelegate(resolvedTarget, resolvedSource) {
+            return true
+        }
+        if assignabilityFacts.CanDeferUnresolvedLambdaToBroadDelegate(resolvedTarget, resolvedSource) {
+            return true
+        }
+
         if sourceFunction != null && sourceIsDeclaredFunction {
-            if !assignabilityFacts.CanBindCallableReferenceToExpectedType(resolvedTarget) {
+            if !assignabilityFacts.CanBindCallableReferenceToExpectedType(resolvedTarget) && !assignabilityFacts.CanBindCallableReferenceToBroadDelegate(resolvedTarget, sourceFunction) {
                 return false
             }
 

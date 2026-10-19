@@ -314,6 +314,14 @@ THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the
   direction. Before this arm existed, a tuple whose declared type differed from
   the literal's only by a nullable annotation reported NL202 against source the writer had spelled
   correctly.
+- A SOURCE method group with exactly one candidate also binds to the two abstract roots `System.Delegate`
+  and `System.MulticastDelegate` (`CanBindCallableReferenceToExpectedType` answers by name through
+  `IsBroadDelegateRoot`): C# 10's natural function type converts to them by reference, and the emitter
+  builds that `Func`/`Action` from the one signature (`TryGetNaturalMethodGroupDelegateType`). An
+  overloaded group has no natural type and still reports NL411/NL202. Reflected groups (an external
+  `Delegate` parameter) are NOT scored for the roots, so a concrete delegate overload keeps winning;
+  the emitter's contextual candidate selection applies C#'s better-conversion rule
+  (`CompareContextualConversionTargets`) for the same reason.
 - The CALLABLE-REFERENCE arms come before `object`. A bare method group is not a value, so it is NOT
   assignable to `object` — that single exception is what forces the whole ordering, and it composes:
   a union with a method-group arm is not assignable to `object` either. A method group WITH A

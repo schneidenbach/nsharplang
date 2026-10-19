@@ -2000,3 +2000,58 @@ test "a ref of a struct's bare member is a field's address, and accepted" {
     source := "namespace Probe\n\nimport System.Threading\n\nstruct Tally {\n    Count: int\n\n    func Bump() {\n        Interlocked.Increment(ref Count)\n    }\n}\n"
     assert RefOutPropertyHints(source) == ""
 }
+
+test "one natural method group converts to either abstract delegate root" {
+    source := "namespace Probe\n\nimport System\n\nfunc Single(value: int): int => value\n\nfunc Run() {\n    handler: Delegate = Single\n    multicast: MulticastDelegate = Single\n    framework: Delegate = Guid.NewGuid\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 0, TypeCalleeReports(source)
+}
+
+test "NL411 rejects overloaded or unsupported groups assigned to a broad delegate at each name" {
+    source := "namespace Probe\n\nimport System\n\nfunc Overloaded(value: int): int => value\nfunc Overloaded(value: string): string => value\nfunc Generic<T>(value: T): T => value\nfunc ByRef(ref value: int): int => value\nfunc ByOut(out value: int): int {\n    value = 0\n    return value\n}\nfunc TooWide(a1: int, a2: int, a3: int, a4: int, a5: int, a6: int, a7: int, a8: int, a9: int, a10: int, a11: int, a12: int, a13: int, a14: int, a15: int, a16: int, a17: int): int => a1\nfunc Filtered(value: int): int => value\nfunc Filtered<T>(value: T): T => value\n\nfunc Run() {\n    first: Delegate = Overloaded\n    second: Delegate = Generic\n    third: Delegate = ByRef\n    fourth: Delegate = TooWide\n    fifth: Delegate = Filtered\n    sixth: Delegate = ByOut\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 6, TypeCalleeReports(source)
+    expectedNames := ["Overloaded", "Generic", "ByRef", "TooWide", "Filtered", "ByOut"]
+    expectedLines := [18, 19, 20, 21, 22, 23]
+    expectedColumns := [23, 24, 23, 24, 23, 23]
+    expectedLengths := [10, 7, 5, 7, 8, 5]
+    index := 0
+    while index < errors.Count {
+        assert errors[index].Code == ErrorCode.MethodGroupUsedAsValue, TypeCalleeReports(source)
+        assert errors[index].Line == expectedLines[index], TypeCalleeReports(source)
+        assert errors[index].Column == expectedColumns[index], TypeCalleeReports(source)
+        assert errors[index].Length == expectedLengths[index], TypeCalleeReports(source)
+        assert errors[index].Message.Contains(expectedNames[index]), TypeCalleeReports(source)
+        index += 1
+    }
+}
+
+test "an untyped lambda cannot invent a signature for a broad delegate" {
+    source := "namespace Probe\n\nimport System\n\nfunc Run() {\n    handler: Delegate = value => value\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 1, TypeCalleeReports(source)
+    assert errors[0].Code == ErrorCode.CannotInferType, TypeCalleeReports(source)
+    assert errors[0].Line == 6, TypeCalleeReports(source)
+    assert errors[0].Column == 25, TypeCalleeReports(source)
+    assert errors[0].Length == 5, TypeCalleeReports(source)
+}
+
+test "Delegate and MulticastDelegate remain invalid event handler types" {
+    source := "namespace Probe\n\nimport System\n\nclass Signal {\n    event Changed: Delegate\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 1, TypeCalleeReports(source)
+    assert errors[0].Code == ErrorCode.EventRequiresDelegateType, TypeCalleeReports(source)
+    assert errors[0].Line == 6, TypeCalleeReports(source)
+    assert errors[0].Column == 11, TypeCalleeReports(source)
+    assert errors[0].Length == 7, TypeCalleeReports(source)
+}
+
+test "a nested loop cannot shadow an enclosing counter name" {
+    source := "namespace Probe\n\nfunc Run() {\n    for i := 1; i < 3; i++ {\n        for i := 10; i < 20; i += 10 {\n        }\n    }\n}\n"
+    errors := TypeCalleeErrors(source)
+    assert errors.Count == 1, TypeCalleeReports(source)
+    assert errors[0].Code == ErrorCode.ShadowedDeclaration, TypeCalleeReports(source)
+    assert errors[0].Line == 5, TypeCalleeReports(source)
+    assert errors[0].Column == 13, TypeCalleeReports(source)
+    assert errors[0].Length == 1, TypeCalleeReports(source)
+}

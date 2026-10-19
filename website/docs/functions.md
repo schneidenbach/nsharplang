@@ -1202,6 +1202,13 @@ longEnough: Predicate<string> = value => value.Length > 2
 first := words.Find(longEnough)
 ```
 
+A method group with exactly one signature also converts to a parameter typed `Delegate` or
+`MulticastDelegate`, which name no signature of their own. It takes its **natural function type**, the
+`Func`/`Action` its method spells (as in C# 10): `Register(Handlers.Twice)` passes a
+`Func<int, int>`. An overloaded name has no natural type, and a call that has a concrete delegate
+overload (such as `RequestDelegate`) still prefers it. `x as Delegate` is an ordinary reference
+conversion.
+
 A method group converts at exactly the same positions, by the same rule. N# has no `delegate`
 declaration of its own: write `Func<...>` / `Action<...>` for a signature you name yourself, and use a
 referenced assembly's delegate types where they are part of an API you are calling.
@@ -2472,6 +2479,19 @@ for i := 0; i < 3; i++ {
     adders.Add(() => step)                    // 0, 10, 20 — not 20, 20, 20
 }
 ```
+
+**Loop variables.** A `for x in xs` variable is declared afresh on every iteration, so each closure
+sees its own value. A classic `for i := 0; i < n; i++` variable is ONE variable for the whole loop,
+exactly as in C#: closures created in the loop all see its current (finally, the last) value.
+
+```n#
+fs := new List<Func<int>>()
+for x in [1, 2, 3] { fs.Add(() => x) }        // 1, 2, 3
+for i := 0; i < 3; i++ { fs.Add(() => i) }    // 3, 3, 3 once the loop has finished
+```
+
+An object initializer inside a capturing lambda reads captures like any other expression:
+`f: Func<string, Opts> = key => new Opts { N: limit }`.
 
 ## Function Overloading
 
