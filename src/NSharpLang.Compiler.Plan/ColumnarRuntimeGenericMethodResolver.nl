@@ -186,14 +186,16 @@ class ColumnarRuntimeGenericMethodResolver {
             } else if !candidate.IsGenericMethod {
                 selection = ColumnarOrdinaryRuntimeDirectCallResolver.ResolveFromCandidatesWithFacts(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
             }
-            if selection.IsSelected && !selection.IsExpanded {
+            if selection.IsSelected {
                 AddCombinedSelectionUnlessHidden(applicable, selection)
+                continue
             }
 
-            // Optional parameters are still normal-form candidates. Compare them in the same set as
-            // exact-arity candidates: a better exact conversion must beat an optional overload, and
-            // an optional overload with the better conversion must beat a merely applicable exact
-            // overload.
+            // Each declaration contributes exactly the first form in which it is applicable:
+            // normal form (including a params array passed as an array), then omitted optional
+            // parameters, then expanded params. Roslyn compares those per-member results together;
+            // deciding the whole call at the first applicable form would incorrectly let a generic
+            // IEnumerable<char> overload beat String.Join(string, params string[]) for a string.
             optional := ColumnarRuntimeOptionalCallSelection.None(lookupType)
             if candidate.IsGenericMethodDefinition {
                 optional = ResolveOptionalFillWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
@@ -203,6 +205,17 @@ class ColumnarRuntimeGenericMethodResolver {
             if optional.IsSelected && optional.Method != null {
                 optionalCandidate := ColumnarOrdinaryRuntimeDirectCallResolver.SelectedOptionalFill(lookupType, optional.Method, optional.ParameterTypes, optional.ReturnType, optional.ExplicitArgumentCount, expectedStatic)
                 AddCombinedSelectionUnlessHidden(applicable, optionalCandidate)
+                continue
+            }
+
+            expanded := ColumnarOrdinaryRuntimeDirectCallResolver.Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+            if candidate.IsGenericMethodDefinition {
+                expanded = ResolveExpandedWithMethodCandidates(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate)
+            } else if !candidate.IsGenericMethod {
+                expanded = ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedFromCandidates(lookupType, lookupType, new Type[](0), memberName, argumentTypes, argumentFacts, expectedStatic, oneCandidate, false, false)
+            }
+            if expanded.IsSelected {
+                AddCombinedSelectionUnlessHidden(applicable, expanded)
             }
         }
 
@@ -390,30 +403,43 @@ class ColumnarRuntimeGenericMethodResolver {
             return -1
         }
 
-        expansionShape: bool? = null
-        sameExpansionShape := true
+        first := maximal[0]
+        sameUsage := true
+        firstUsage := ParametersUsedIncludingExpansion(selections[first], argumentTypes.Length)
         for index in maximal {
-            if expansionShape == null {
-                expansionShape = selections[index].IsExpanded
-            } else if expansionShape != selections[index].IsExpanded {
-                sameExpansionShape = false
+            if ParametersUsedIncludingExpansion(selections[index], argumentTypes.Length) != firstUsage {
+                sameUsage = false
+                break
             }
         }
-        if !sameExpansionShape {
-            normalCandidates := new List<int>()
+        if !sameUsage {
+            normalForm := new List<int>()
+            hasExpandedForm := false
             for index in maximal {
-                if !selections[index].IsExpanded {
-                    normalCandidates.Add(index)
+                if selections[index].IsExpanded {
+                    hasExpandedForm = true
+                } else {
+                    normalForm.Add(index)
                 }
             }
-            if normalCandidates.Count == 0 {
-                return -1
+            if hasExpandedForm && normalForm.Count > 0 {
+                maximal = normalForm
+            } else {
+                exactUsage := new List<int>()
+                for index in maximal {
+                    if ParametersUsedIncludingExpansion(selections[index], argumentTypes.Length) == argumentTypes.Length {
+                        exactUsage.Add(index)
+                    }
+                }
+                if exactUsage.Count == 0 {
+                    return -1
+                }
+                maximal = exactUsage
             }
-            maximal = normalCandidates
         }
 
         allEffectiveTypesEqual := true
-        first := maximal[0]
+        first = maximal[0]
         for index in maximal {
             if !EquivalentParameterTypes(parameterLists[first], parameterLists[index], argumentTypes.Length) {
                 allEffectiveTypesEqual = false
@@ -424,28 +450,33 @@ class ColumnarRuntimeGenericMethodResolver {
             return -1
         }
 
-        sameUsage := true
-        firstUsage := ParametersUsedIncludingExpansion(selections[first], argumentTypes.Length)
-        for index in maximal {
-            if ParametersUsedIncludingExpansion(selections[index], argumentTypes.Length) != firstUsage {
-                sameUsage = false
-                break
-            }
-        }
-        if !sameUsage {
-            exactUsage := new List<int>()
-            for index in maximal {
-                if ParametersUsedIncludingExpansion(selections[index], argumentTypes.Length) == argumentTypes.Length {
-                    exactUsage.Add(index)
-                }
-            }
-            if exactUsage.Count == 0 {
-                return -1
-            }
-            maximal = exactUsage
+        nonGeneric := NonGenericCandidateTieBreak(methods, parameterLists, maximal, argumentTypes.Length)
+        if nonGeneric >= 0 {
+            return nonGeneric
         }
 
-        return NonGenericCandidateTieBreak(methods, parameterLists, maximal, argumentTypes.Length)
+        normalForm := new List<int>()
+        for index in maximal {
+            if !selections[index].IsExpanded {
+                normalForm.Add(index)
+            }
+        }
+        if normalForm.Count > 0 {
+            return normalForm.Count == 1 ? normalForm[0] : -1
+        }
+
+        greatestDeclaredCount := -1
+        greatestDeclaredIndex := -1
+        for index in maximal {
+            declaredCount := selections[index].DeclaredParameterTypes.Length
+            if declaredCount > greatestDeclaredCount {
+                greatestDeclaredCount = declaredCount
+                greatestDeclaredIndex = index
+            } else if declaredCount == greatestDeclaredCount {
+                greatestDeclaredIndex = -1
+            }
+        }
+        return greatestDeclaredIndex
     }
 
     static func NonGenericCandidateTieBreak(methods: List<MethodInfo>, parameterLists: List<Type[]>, maximal: List<int>, suppliedCount: int): int {

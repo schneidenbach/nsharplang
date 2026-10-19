@@ -2999,7 +2999,7 @@ class ColumnarDirectCallPlanner {
                 return false
             }
 
-            if normalStatic.IsSelected {
+            if normalStatic.IsSelected && !normalStatic.IsExpanded {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
                 if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, normalStatic, out resultType) {
                     plan.Rollback(checkpoint)
@@ -3231,7 +3231,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if normalInstance.IsSelected {
+        if normalInstance.IsSelected && !normalInstance.IsExpanded {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, normalInstance, out resultType) {
                 plan.Rollback(checkpoint)

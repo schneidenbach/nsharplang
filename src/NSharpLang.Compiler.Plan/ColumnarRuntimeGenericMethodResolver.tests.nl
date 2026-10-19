@@ -1085,6 +1085,56 @@ test "combined exact-arity member outranks optional generic member and keeps run
     assert Convert.ToInt32(runtimeValue) == 2, "the exact-arity winner reaches its runtime body"
 }
 
+test "combined normal and expanded candidates compare conversions before params form" {
+    owner := typeof(string)
+    factsOne := ColumnarDirectCallArgumentFacts.Empty(2)
+    oneArgumentTypes := GenericMethodTypes2(typeof(string), typeof(string))
+    oneSelection := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Join", oneArgumentTypes, factsOne, true, ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner))
+    assert oneSelection.IsSelected, "the one-value Join candidates have an applicable member"
+    oneMethod := CrossTierMethodOrThrow(oneSelection.Method)
+    assert !oneMethod.IsGenericMethod && oneSelection.IsExpanded, "the identity conversion to the string params element beats the generic IEnumerable<char> conversion"
+    oneRuntimeArguments := new object?[](2)
+    oneRuntimeArguments[0] = "|"
+    oneValues := new string[](1)
+    oneValues[0] = "only"
+    oneRuntimeArguments[1] = oneValues
+    oneRuntimeValue := oneMethod.Invoke(null, oneRuntimeArguments)
+    assert Convert.ToString(oneRuntimeValue) == "only", "the expanded string params overload returns the single string unchanged"
+
+    packedTypes := new Type[](4)
+    packedTypes[0] = typeof(string)
+    packedTypes[1] = typeof(string)
+    packedTypes[2] = typeof(string)
+    packedTypes[3] = typeof(string)
+    factsPacked := ColumnarDirectCallArgumentFacts.Empty(4)
+    packedSelection := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Join", packedTypes, factsPacked, true, ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner))
+    assert packedSelection.IsSelected && packedSelection.IsExpanded, "a multi-value call selects an expanded params candidate"
+    packedMethod := CrossTierMethodOrThrow(packedSelection.Method)
+    assert !packedMethod.IsGenericMethod && packedMethod.GetParameters()[1].ParameterType == typeof(string[]), "the packed overload keeps its declared string array"
+    packedRuntimeArguments := new object?[](2)
+    packedRuntimeArguments[0] = ","
+    packedValues := new string[](3)
+    packedValues[0] = "x"
+    packedValues[1] = "y"
+    packedValues[2] = "z"
+    packedRuntimeArguments[1] = packedValues
+    packedRuntimeValue := packedMethod.Invoke(null, packedRuntimeArguments)
+    assert Convert.ToString(packedRuntimeValue) == "x,y,z", "the params array reaches the runtime method in order"
+
+    builtArrayTypes := GenericMethodTypes2(typeof(string), typeof(string[]))
+    builtArray := ColumnarRuntimeGenericMethodResolver.ResolveCombinedWithMethodCandidates(owner, "Join", builtArrayTypes, ColumnarDirectCallArgumentFacts.Empty(2), true, ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(owner))
+    assert builtArray.IsSelected && !builtArray.IsExpanded, "an existing array remains a normal-form argument"
+    builtArrayMethod := CrossTierMethodOrThrow(builtArray.Method)
+    builtArrayRuntimeArguments := new object?[](2)
+    builtArrayRuntimeArguments[0] = "+"
+    builtArrayValues := new string[](2)
+    builtArrayValues[0] = "m"
+    builtArrayValues[1] = "n"
+    builtArrayRuntimeArguments[1] = builtArrayValues
+    builtArrayRuntimeValue := builtArrayMethod.Invoke(null, builtArrayRuntimeArguments)
+    assert Convert.ToString(builtArrayRuntimeValue) == "m+n", "the normal-form array control retains its runtime result"
+}
+
 test "repeated generic parameters accumulate lower bounds and preserve invariant conflicts" {
     enumerableObject := typeof(IEnumerable<object>)
     containsArguments := new Type[](2)
