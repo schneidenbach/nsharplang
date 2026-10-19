@@ -1,0 +1,198 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Collections.Generic
+import System.IO
+import System.Runtime.InteropServices
+
+// THE CONTRACT FOR WHAT `Microsoft.NETCore.App` LETS A PROJECT NAME (`FrameworkNamespaceIndex`).
+//
+// The pure half -- the reference pack's list, the fallback without one, the namespace map -- is
+// asserted on literals. The host half is asserted against the runtime these tests run on, which is
+// the runtime the compiler's analyzer resolves from, so the issue #215 namespaces are pinned where
+// they actually matter.
+func FniRows(): List<FrameworkNamespaceRow> {
+    return new List<FrameworkNamespaceRow>()
+}
+
+func FniNames(values: string[]): HashSet<string> {
+    return new HashSet<string>(values, StringComparer.OrdinalIgnoreCase)
+}
+
+test "the reference pack's compile surface is its Managed rows, not its analyzers" {
+    rows := new List<string>()
+    rows.Add("<FileList FrameworkName=\"Microsoft.NETCore.App\">")
+    rows.Add("  <File Type=\"Analyzer\" Path=\"analyzers/dotnet/cs/System.Text.Json.SourceGeneration.dll\" AssemblyName=\"System.Text.Json.SourceGeneration\" />")
+    rows.Add("  <File Type=\"Managed\" Path=\"ref/net10.0/System.Runtime.dll\" AssemblyName=\"System.Runtime\" />")
+    rows.Add("  <File Type=\"Managed\" Path=\"ref/net10.0/System.Security.Claims.dll\" AssemblyName=\"System.Security.Claims\" />")
+    rows.Add("</FileList>")
+    xml := string.Join("\n", rows)
+    names := FrameworkNamespaceIndex.ParseFrameworkListAssemblyNames(xml)
+    assert names.Count == 2
+    assert names.Contains("System.Runtime")
+    assert names.Contains("system.security.claims")
+    assert !names.Contains("System.Text.Json.SourceGeneration")
+}
+
+test "without a reference pack the runtime directory minus System.Private.* is the compile surface" {
+    names := FrameworkNamespaceIndex.RuntimeCompileAssemblyNames(["System.Runtime", "System.Private.CoreLib", "System.Private.Xml", "System.Xml.ReaderWriter"])
+    assert names.Count == 2
+    assert names.Contains("System.Runtime")
+    assert names.Contains("System.Xml.ReaderWriter")
+}
+
+test "a namespace is importable through a compile-surface assembly and loads the assemblies that define it" {
+    rows := FniRows()
+    rows.Add(new FrameworkNamespaceRow("System.Xml.ReaderWriter", "System.Xml", false))
+    rows.Add(new FrameworkNamespaceRow("System.Private.Xml", "System.Xml", true))
+    rows.Add(new FrameworkNamespaceRow("System.Private.CoreLib", "Internal", true))
+    rows.Add(new FrameworkNamespaceRow("System.Security.Claims", "System.Security.Claims", true))
+    rows.Add(new FrameworkNamespaceRow("System.ComponentModel", "System", true))
+    rows.Add(new FrameworkNamespaceRow("System.Console", "System", true))
+    map := FrameworkNamespaceIndex.BuildNamespaceMap(rows, FniNames(["System.Xml.ReaderWriter", "System.Security.Claims", "System.ComponentModel", "System.Console"]))
+
+    assert string.Join("|", map["System.Xml"]) == "System.Private.Xml"
+    assert string.Join("|", map["System.Security.Claims"]) == "System.Security.Claims"
+    // Ordinal by assembly name, whatever order the directory listed them in.
+    assert string.Join("|", map["System"]) == "System.ComponentModel|System.Console"
+    // Carried only by an implementation assembly, so not a namespace a program can import.
+    assert !map.ContainsKey("Internal")
+}
+
+test "a fully-qualified spelling answers its longest framework-namespace prefix" {
+    namespaces := new Dictionary<string, string[]>(StringComparer.Ordinal)
+    namespaces["System"] = ["System.Private.CoreLib"]
+    namespaces["System.Numerics"] = ["System.Runtime.Numerics"]
+    index := new FrameworkNamespaceIndex("/runtime", "", FniNames(["System.Runtime"]), namespaces)
+    assert index.NamespaceOfTypeName("System.Numerics.BigInteger") == "System.Numerics"
+    assert index.NamespaceOfTypeName("System.Environment.SpecialFolder") == "System"
+    assert index.NamespaceOfTypeName("Contoso.Orders.Order") == null
+    assert index.NamespaceOfTypeName("BigInteger") == null
+}
+
+test "the reference pack of the runtime's own version is preferred, then the highest of its major" {
+    assert FrameworkNamespaceIndex.SelectReferencePackVersion(["10.0.5", "10.0.7", "9.0.3"], "10.0.7") == 1
+    assert FrameworkNamespaceIndex.SelectReferencePackVersion(["9.0.3", "10.0.5", "10.0.2"], "10.0.7") == 1
+    assert FrameworkNamespaceIndex.SelectReferencePackVersion(new string[](0), "10.0.7") == -1
+}
+
+test "the reference pack root sits beside shared/ under the dotnet root" {
+    runtime := Path.Combine(Path.Combine(Path.Combine(Path.Combine("/opt", "dotnet"), "shared"), "Microsoft.NETCore.App"), "10.0.7")
+    expected := Path.Combine(Path.Combine(Path.Combine("/opt", "dotnet"), "packs"), "Microsoft.NETCore.App.Ref")
+    assert FrameworkNamespaceIndex.ReferencePackRoot(runtime) == expected
+    assert FrameworkNamespaceIndex.ReferencePackRoot(Path.Combine(Path.Combine("/opt", "app"), "bin")) == null
+}
+
+// ── the host runtime: issue #215's namespaces are the framework's ─────────────────────────────
+
+test "the host index answers every namespace issue #215 found missing" {
+    index := FrameworkNamespaceIndex.ForHostRuntime()
+    assert index.CompileAssemblyNames.Contains("System.Runtime")
+    assert !index.CompileAssemblyNames.Contains("System.Private.CoreLib")
+
+    expectations := new Dictionary<string, string>(StringComparer.Ordinal)
+    expectations["System"] = "System.ComponentModel"
+    expectations["System.Security.Claims"] = "System.Security.Claims"
+    expectations["System.Xml"] = "System.Private.Xml"
+    expectations["System.Numerics"] = "System.Runtime.Numerics"
+    expectations["System.Collections.Immutable"] = "System.Collections.Immutable"
+    expectations["System.Threading.Channels"] = "System.Threading.Channels"
+    expectations["System.Diagnostics.Metrics"] = "System.Diagnostics.DiagnosticSource"
+    expectations["System.ComponentModel"] = "System.ComponentModel.TypeConverter"
+    expectations["System.Data"] = "System.Data.Common"
+    for expectation in expectations {
+        assemblies := index.AssembliesForNamespace(expectation.Key)
+        assert assemblies != null, expectation.Key + " is not a framework namespace"
+        assert Array.IndexOf(assemblies, expectation.Value) >= 0, expectation.Key + " does not load " + expectation.Value
+    }
+}
+
+test "the host index is read once per runtime directory" {
+    first := FrameworkNamespaceIndex.ForHostRuntime()
+    second := FrameworkNamespaceIndex.ForRuntimeDirectory(RuntimeEnvironment.GetRuntimeDirectory())
+    assert Object.ReferenceEquals(first, second)
+}
+
+// ── the spelled namespaces and the reference pack's type surface ─────────────────────────────
+
+func FniSpellingIndex(): FrameworkNamespaceIndex {
+    namespaces := new Dictionary<string, string[]>(StringComparer.Ordinal)
+    namespaces["System"] = ["System.Private.CoreLib"]
+    namespaces["System.Numerics"] = ["System.Runtime.Numerics"]
+    namespaces["System.Security.Claims"] = ["System.Security.Claims"]
+    return new FrameworkNamespaceIndex("/runtime", "", FniNames(["System.Runtime"]), namespaces)
+}
+
+test "a text's spelled framework namespaces are its imports and its qualified names, each once" {
+    text := "import System.Security.Claims\n\nfunc f(): System.Numerics.BigInteger {\n    return System.Numerics.BigInteger.One\n}\n"
+    assert string.Join("|", FniSpellingIndex().SpelledNamespaces(text, null)) == "System.Security.Claims|System.Numerics"
+}
+
+test "a chain that does not start at a framework root, or follows a member access, spells nothing" {
+    text := "func f() {\n    x := order.System.Numerics\n    y := Contoso.Orders.Order\n    z := SystemX.Numerics.Value\n}\n"
+    assert FniSpellingIndex().SpelledNamespaces(text, null).Count == 0
+}
+
+test "a namespace alias spells the namespace it stands for" {
+    aliases := new Dictionary<string, string>(StringComparer.Ordinal)
+    aliases["N"] = "System.Numerics"
+    assert string.Join("|", FniSpellingIndex().SpelledNamespaces("x := N.BigInteger.One\n", aliases)) == "System.Numerics"
+}
+
+test "without a reference pack every runtime type is on the compile surface" {
+    index := FniSpellingIndex()
+    assert !index.HasReferenceSurface
+    assert index.IsOnCompileSurface("System.Collections.Generic", "TreeSet`1")
+}
+
+test "the host's reference pack hides the implementation-only namespaces and types" {
+    index := FrameworkNamespaceIndex.ForHostRuntime()
+    if index.HasReferenceSurface {
+        assert index.AssembliesForNamespace("System.Linq.Expressions.Interpreter") == null
+        assert index.IsOnCompileSurface("System.Collections.Generic", "List`1")
+        assert !index.IsOnCompileSurface("System.Collections.Generic", "TreeSet`1")
+        assert !index.IsOnCompileSurface("System.IO.Compression", "ZLibException")
+        assert index.IsOnCompileSurface("System", "IServiceProvider")
+    }
+}
+
+test "the reference pack's assembly folder is the runtime's own target framework" {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-fni-pack-" + Guid.NewGuid().ToString("N"))
+    try {
+        refDirectory := Path.Combine(Path.Combine(root, "ref"), "net10.0")
+        Directory.CreateDirectory(refDirectory)
+        frameworkList := Path.Combine(Path.Combine(root, "data"), "FrameworkList.xml")
+        assert FrameworkNamespaceIndex.ReferencePackAssemblyDirectory(frameworkList, "10.0.7") == refDirectory
+        assert FrameworkNamespaceIndex.ReferencePackAssemblyDirectory(frameworkList, "11.0.0") == null
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a reference-pack file that cannot be read allows its namespace instead of refusing every type in it" {
+    files := new Dictionary<string, List<string>>(StringComparer.Ordinal)
+    missing := new List<string>()
+    missing.Add(Path.Combine(Path.GetTempPath(), "nsharp-missing-ref-" + Guid.NewGuid().ToString("N") + ".dll"))
+    files["System.Collections.Generic"] = missing
+    assert FrameworkNamespaceIndex.ReadReferenceTypeNames(files, "System.Collections.Generic") == null
+
+    index := FniSpellingIndex()
+    index.UseReferenceSurface(files, new HashSet<string>(["System.Collections.Generic"], StringComparer.Ordinal))
+    assert index.HasReferenceSurface
+    assert index.IsOnCompileSurface("System.Collections.Generic", "List`1")
+    assert index.IsOnCompileSurface("System.Collections.Generic", "TreeSet`1")
+    // A namespace the pack does not carry at all is still not on the surface.
+    assert !index.IsOnCompileSurface("System.Linq.Expressions.Interpreter", "LightLambda")
+}
+
+test "a chain written relative to the file's namespace or an import spells the namespace it reaches" {
+    relative := new List<string>()
+    relative.Add("System.Foo")
+    relative.Add("System")
+    text := "namespace System.Foo\n\nfunc Seed(): Numerics.BigInteger {\n    return items.Count\n}\n"
+    // `namespace System.Foo` itself reaches only `System`; `Numerics.BigInteger` reaches `System.Numerics`
+    // under `System`; `items.Count` reaches nothing longer than a prefix.
+    spelled := FniSpellingIndex().SpelledNamespaces(text, null, relative)
+    assert spelled.Contains("System.Numerics"), string.Join("|", spelled)
+    assert !spelled.Contains("System.Foo")
+}

@@ -319,11 +319,19 @@ class CompilationReferenceResolverKernels {
         return Path.Combine(projectRoot, projectReference)
     }
 
+    // THE SHARED FRAMEWORKS WHOSE EVERY ASSEMBLY BECOMES A COMPILE REFERENCE: the ones the project's
+    // SDK implies under MSBuild (`IsMsBuildImplicitFramework`), then each `framework:` entry, once.
+    // `Microsoft.NETCore.App` is never one of them. Every project compiles against it -- MSBuild
+    // references it in every .NETCoreApp project -- and its assemblies reach the compiler on demand,
+    // per namespace a file names (`FrameworkNamespaceIndex`), instead of as 160-odd references every
+    // compilation would sweep. So an explicit `framework: Microsoft.NETCore.App` is legal and adds
+    // nothing.
     static func GetFrameworkReferenceNames(sdk: string, references: IEnumerable<Reference>): string[] {
         names := new List<string>()
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        seen.Add(BaseSharedFrameworkName())
 
-        if sdk.Contains("Web", StringComparison.OrdinalIgnoreCase) {
+        if IsMsBuildImplicitFramework(sdk, "Microsoft.AspNetCore.App") {
             AddUniqueText(names, seen, "Microsoft.AspNetCore.App")
         }
 
@@ -336,13 +344,17 @@ class CompilationReferenceResolverKernels {
         return names.ToArray()
     }
 
+    static func BaseSharedFrameworkName(): string {
+        return "Microsoft.NETCore.App"
+    }
+
     // THE SHARED FRAMEWORKS MSBUILD REFERENCES WITHOUT BEING ASKED, measured against the .NET 10 SDK
     // rather than inferred from SDK names. `Microsoft.NET.Sdk` adds `Microsoft.NETCore.App` to every
     // .NETCoreApp project, and `Microsoft.NET.Sdk.Web` alone adds `Microsoft.AspNetCore.App`
     // (`Sdks/Microsoft.NET.Sdk.Web/Targets/Sdk.Server.props`). Other SDKs whose ids contain `Web`
     // -- `Microsoft.NET.Sdk.BlazorWebAssembly`, `Microsoft.NET.Sdk.WebAssembly` -- add no framework,
-    // so this is an exact, case-insensitive id match, not the substring test `nlc` uses to decide
-    // what it references itself. An explicit `FrameworkReference` to one of these draws NETSDK1086,
+    // so this is an exact, case-insensitive id match; `nlc` decides what it references by this same
+    // rule (`GetFrameworkReferenceNames`). An explicit `FrameworkReference` to one of these draws NETSDK1086,
     // which is why the SDK projection leaves them out.
     static func IsMsBuildImplicitFramework(sdk: string, frameworkName: string): bool {
         if string.Equals(frameworkName, "Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase) {

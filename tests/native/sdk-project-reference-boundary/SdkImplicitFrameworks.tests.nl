@@ -4,12 +4,11 @@ import System.IO
 
 // A FRAMEWORK MSBUILD ALREADY REFERENCES IS NOT REFERENCED TWICE.
 //
-// `nlc` sees only the shared frameworks project.yml names, so a web project writes
-// `framework: Microsoft.AspNetCore.App` (as the `nsharp-webapi` template does) and, to see the whole
-// base framework, `framework: Microsoft.NETCore.App` (as the docs advise). Under `dotnet build` the
-// .NET SDK already references both -- the first from `Microsoft.NET.Sdk.Web` -- and the projection
-// used to hand them to MSBuild again: every build
-// printed NETSDK1086 once per entry. The row builds that exact project through the SDK and reads the
+// A project may still name a framework its SDK already implies -- the `nsharp-webapi` template writes
+// `framework: Microsoft.AspNetCore.App`, and older projects wrote `framework: Microsoft.NETCore.App`
+// back when `nlc` needed it to see the whole base framework. Under `dotnet build` the .NET SDK already
+// references both -- the first from `Microsoft.NET.Sdk.Web` -- and the projection used to hand them to
+// MSBuild again: every build printed NETSDK1086 once per entry. The row builds that exact project through the SDK and reads the
 // build's own output for the warning, then runs the program.
 test "a web project naming both shared frameworks builds through the SDK without NETSDK1086" {
     root := SdkBoundaryRepositoryRoot()

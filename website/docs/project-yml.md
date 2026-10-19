@@ -1,7 +1,6 @@
 ---
 sidebar_label: project.yml Reference
 title: project.yml Reference
-displayed_sidebar: docsSidebar
 ---
 
 # project.yml Reference
@@ -22,7 +21,6 @@ targetFramework: net10.0
 dependencies:
   - nuget: Serilog
     version: 3.1.1
-  - framework: Microsoft.NETCore.App
   - project: ../Orders.Domain/project.yml
   - dll: libs/Vendor.Pricing.dll
 ```
@@ -36,7 +34,7 @@ dependencies:
 | `entry` | path | none | The file that holds `main`. If you set it, the file must exist. |
 | `outputType` | `exe`, `library` | `exe` | Whether the build makes a program or a library. Only these two lowercase spellings are accepted. |
 | `targetFramework` | `net10.0`, … | `net10.0` | The target framework moniker. It decides which shared-framework version and which NuGet assets are used. |
-| `sdk` | MSBuild SDK id | `Microsoft.NET.Sdk` | The base MSBuild SDK `dotnet build` uses. Under `nlc`, an id that contains `Web` also references `Microsoft.AspNetCore.App`; under `dotnet build`, only `Microsoft.NET.Sdk.Web` does. See [Shared frameworks](#shared-frameworks-framework). |
+| `sdk` | MSBuild SDK id | `Microsoft.NET.Sdk` | The base MSBuild SDK `dotnet build` uses. `Microsoft.NET.Sdk.Web` also references `Microsoft.AspNetCore.App`, under both `nlc` and `dotnet build`; no other SDK id does. See [What a project can see](#what-a-project-can-see). |
 | `backend` | `il` | `il` | The code generator. `il` is the only value. |
 | `dependencies` | list | empty | Packages, frameworks, projects and DLLs. See [Dependencies](#dependencies). |
 | `testDependencies` | list of NuGet entries | empty | Packages that only test builds (`nlc test`) see. |
@@ -102,16 +100,19 @@ dependencies:
   - framework: Microsoft.AspNetCore.App
 ```
 
-A `framework:` entry names a .NET shared framework: `Microsoft.NETCore.App`,
-`Microsoft.AspNetCore.App`, or another one installed under `<dotnet>/shared/`. The project can then
-see every assembly in that framework, using the installed version that matches `targetFramework`.
-`nlc` stops with an error if no matching version is installed. `sdk: Microsoft.NET.Sdk.Web` adds
-`Microsoft.AspNetCore.App` for you.
+A `framework:` entry names a .NET shared framework installed under `<dotnet>/shared/`, such as
+`Microsoft.AspNetCore.App`. The project can then use every assembly in that framework, from the
+installed version that matches `targetFramework`. `nlc` stops with an error if no matching version is
+installed.
 
-`dotnet build` already references `Microsoft.NETCore.App` in every project, and
-`Microsoft.AspNetCore.App` in a `sdk: Microsoft.NET.Sdk.Web` project. The SDK does not pass those
-entries on to MSBuild again, so writing them in project.yml (which `nlc` needs) causes no NETSDK1086
-warning.
+You only need an entry for a framework **beyond what the project already gets**. Every project gets
+all of `Microsoft.NETCore.App`, and a `sdk: Microsoft.NET.Sdk.Web` project also gets
+`Microsoft.AspNetCore.App` (see [What a project can see](#what-a-project-can-see)). The usual reason
+to write one is a library or console program that uses ASP.NET Core without the Web SDK.
+
+Writing a framework the project already gets is harmless: `- framework: Microsoft.NETCore.App` adds
+nothing, and neither does `- framework: Microsoft.AspNetCore.App` in a Web SDK project. The SDK does
+not pass these entries on to MSBuild, so they cause no NETSDK1086 warning under `dotnet build`.
 
 ### Other N# projects (`project`)
 
@@ -156,79 +157,34 @@ two build commands handle them differently: `nlc build` swaps a NuGet-style `ref
 matching `lib/<tfm>/` implementation when one exists, while `dotnet build` compiles against and copies
 exactly the file you named, and .NET refuses to load a reference assembly at run time.
 
-## What a project can see without any dependencies
+## What a project can see
 
-If a project has no `dependencies:`, `nlc` compiles it against a **fixed set of assemblies** from the
-.NET runtime it runs on. That is **not** all of `Microsoft.NETCore.App`. The set is:
+Every project compiles against the same shared frameworks under `nlc` (`build`, `run`, `check`,
+`test`, the editor) as under `dotnet build`:
 
-<!-- implicit-assemblies:start -->
-- `System.Runtime`
-- `System.Console`
-- `System.Collections`
-- `System.Linq`
-- `System.Linq.Queryable`
-- `System.Net.Http`
-- `System.Text.Json`
-- `System.Threading`
-- `System.Threading.Tasks`
-- `System.IO.FileSystem`
-- `System.Text.RegularExpressions`
-- `System.ComponentModel.Annotations`
-- `System.Collections.Concurrent`
-- `System.Diagnostics.Debug`
-- `System.Diagnostics.Process`
-- `System.Runtime.InteropServices`
-- `System.ObjectModel`
-- `System.Linq.Expressions`
-- `System.Memory`
-- `System.IO.Pipes`
-- `System.Net.Primitives`
-- `System.Net.Sockets`
-- `System.Security.Cryptography`
-- `System.Text.Encoding.Extensions`
-- `System.Xml.ReaderWriter`
-- `System.Private.CoreLib`
-- `System.Private.Xml.Linq`
-- `System.Reflection.Metadata`
-- `System.IO.FileSystem.Watcher`
-- `System.IO.Compression`
-- `System.IO.Compression.ZipFile`
-- `System.Reflection.Emit`
-- `System.IO.Pipelines`
-<!-- implicit-assemblies:end -->
+| `sdk:` | Shared frameworks the project sees without a `framework:` entry |
+|--------|------------------------------------------------------------------|
+| `Microsoft.NET.Sdk` (the default) | `Microsoft.NETCore.App` |
+| `Microsoft.NET.Sdk.Web` | `Microsoft.NETCore.App` and `Microsoft.AspNetCore.App` |
+| any other SDK id | `Microsoft.NETCore.App` |
 
-Together these cover the everyday library: primitive types, collections, LINQ, `Task`, files and
-streams, `Stopwatch`, `ArrayPool<T>`, regular expressions, `HttpClient`, `System.Text.Json`,
-`SHA256` and so on. Every N# program also
-gets the N# runtime library (`NSharpLang.Runtime`).
+`Microsoft.NETCore.App` is the whole base library: every assembly in its reference pack (the
+`packs/Microsoft.NETCore.App.Ref` directory of your .NET installation), the same list `dotnet build`
+compiles against. So a project with no `dependencies:` can use, for example:
 
-Types in other `Microsoft.NETCore.App` assemblies are **not** visible by default. Using one gives
-`NL201 Type '…' not found`, and importing its namespace gives `NL704 I can't find namespace`.
-Common examples:
-
-| Type or namespace | Assembly it lives in |
-|-------------------|----------------------|
-| `System.IServiceProvider` | `System.ComponentModel` |
-| `System.Security.Claims` (`ClaimsIdentity`, `ClaimsPrincipal`) | `System.Security.Claims` |
-| `System.Xml` (`XmlDocument`) | `System.Private.Xml` |
-| `System.Numerics.BigInteger` | `System.Runtime.Numerics` |
-| `System.Collections.Immutable` | `System.Collections.Immutable` |
-| `System.Threading.Channels` | `System.Threading.Channels` |
-| `System.Diagnostics.Activity`, `System.Diagnostics.Metrics` | `System.Diagnostics.DiagnosticSource` |
-| `System.ComponentModel.TypeConverter` | `System.ComponentModel.TypeConverter` |
-| `System.Data` (`DataTable`) | `System.Data.Common` |
-
-### Seeing all of Microsoft.NETCore.App
-
-To compile against the whole base framework, add it as a framework dependency:
-
-```yaml
-dependencies:
-  - framework: Microsoft.NETCore.App
-```
-
-For example, this program fails on a project with no dependencies and builds once the entry above is
-added:
+<!-- default-framework-namespaces:start -->
+| Type or namespace | Import |
+|-------------------|--------|
+| `IServiceProvider` | `System` |
+| `ClaimsIdentity`, `ClaimsPrincipal` | `System.Security.Claims` |
+| `XmlDocument` | `System.Xml` |
+| `BigInteger` | `System.Numerics` |
+| `ImmutableArray<T>`, `ImmutableDictionary<K, V>` | `System.Collections.Immutable` |
+| `Channel<T>` | `System.Threading.Channels` |
+| `Meter`, `Counter<T>` | `System.Diagnostics.Metrics` |
+| `TypeConverter` | `System.ComponentModel` |
+| `DataTable` | `System.Data` |
+<!-- default-framework-namespaces:end -->
 
 ```n#
 import System
@@ -242,34 +198,44 @@ func main() {
 }
 ```
 
-Without the entry, `nlc build` reports:
+A fully-qualified name works without an import too, as it does in C#:
+`total := System.Numerics.BigInteger.Parse("123456789012345678901234567890")`.
 
-```text
-error NL704: I can't find namespace 'System.Security.Claims' — check the spelling and make sure the assembly is referenced
-error NL201: Type 'IServiceProvider' not found
-error NL201: Type 'ClaimsIdentity' not found
-```
+Every N# program also gets the N# runtime library (`NSharpLang.Runtime`).
 
-`dotnet build` already references `Microsoft.NETCore.App` implicitly, as every .NET SDK project
-does, so it compiles this program even without the entry. Add the entry anyway so that `nlc build`,
-`nlc check` and the editor agree with `dotnet build`. The SDK does not pass this entry on to MSBuild,
-so it does not cause the NETSDK1086 warning.
+`sdk:` is matched exactly, as MSBuild matches it. `Microsoft.NET.Sdk.BlazorWebAssembly` and
+`Microsoft.NET.Sdk.WebAssembly` contain `Web` in their names, but `dotnet build` gives them no
+ASP.NET Core framework, so `nlc` does not either. A project that wants ASP.NET Core under one of
+them, or under `Microsoft.NET.Sdk`, adds `- framework: Microsoft.AspNetCore.App`.
+
+### Which types, exactly
+
+The types you can name are the reference pack's: a type that a .NET runtime assembly makes public but
+the reference pack does not declare (for example `TreeSet<T>` or `ZLibException`) is reported as
+`NL201 Type '…' not found`, as `dotnet build` reports it. If the machine has a .NET runtime but no
+SDK, and so no reference pack, `nlc` uses the runtime's assemblies as the description of the
+framework, and those implementation-only types are then accepted.
+
+A simple name such as `BigInteger` is found through the file's own imports (`import System.Numerics`).
+Writing the type fully qualified in another file does not make the simple name work here.
+
+`nlc` loads an assembly only when your code imports one of its namespaces or spells one of its types
+fully qualified, so a project pays for the parts of the framework it uses, not for all of it.
 
 ### ASP.NET Core projects
 
-`Microsoft.AspNetCore.App` adds the ASP.NET Core assemblies only. **It does not include the rest of
-Microsoft.NETCore.App** under `nlc`. An ASP.NET Core project that uses `IServiceProvider`, claims or
-any other type from the table above needs both frameworks:
+A `sdk: Microsoft.NET.Sdk.Web` project sees both frameworks with no `dependencies:` at all:
 
 ```yaml
-sdk: Microsoft.NET.Sdk.Web          # implies framework: Microsoft.AspNetCore.App
-
-dependencies:
-  - framework: Microsoft.NETCore.App
+sdk: Microsoft.NET.Sdk.Web
 ```
 
 Writing `- framework: Microsoft.AspNetCore.App` as well, as the `nsharp-webapi` template does, is
 harmless: `nlc` reads it once and `dotnet build` does not see it twice.
+
+A project that is not a Web SDK project and does not list `Microsoft.AspNetCore.App` cannot import
+`Microsoft.AspNetCore.*` namespaces; `import Microsoft.AspNetCore.Builder` reports `NL704`, as under
+`dotnet build`.
 
 Libraries and console programs that use `Microsoft.Extensions.*` packages that ship in ASP.NET Core
 (dependency injection, hosting, configuration, logging) need `framework: Microsoft.AspNetCore.App`,
@@ -279,11 +245,10 @@ or `sdk: Microsoft.NET.Sdk.Web`, or the matching `nuget:` packages.
 
 | | `nlc build` / `nlc check` / editor | `dotnet build` (NSharpLang.Sdk) |
 |---|---|---|
-| No dependencies | The fixed set of assemblies listed above | All of `Microsoft.NETCore.App` |
+| No dependencies | All of `Microsoft.NETCore.App`, plus `Microsoft.AspNetCore.App` under `sdk: Microsoft.NET.Sdk.Web` | The same |
 | `nuget:` | Restored and resolved by `nlc` | `PackageReference` |
-| `framework:` | Every assembly in the shared framework | `FrameworkReference`, except a framework MSBuild already references (`Microsoft.NETCore.App`; `Microsoft.AspNetCore.App` under `sdk: Microsoft.NET.Sdk.Web`) |
+| `framework:` | Every assembly in the shared framework; a framework the project already gets adds nothing | `FrameworkReference`, except a framework MSBuild already references (`Microsoft.NETCore.App`; `Microsoft.AspNetCore.App` under `sdk: Microsoft.NET.Sdk.Web`) |
 | `project:` | Builds the referenced N# project | `ProjectReference` to the referenced `.csproj` |
 | `dll:` | Compile reference, copied to the output | `Reference`, copied to the output and listed in `.deps.json` |
 
-Unless you add `framework: Microsoft.NETCore.App`, the first row is the only difference between the
-two. With that entry in place, both commands compile your code against the same set of assemblies.
+Both commands compile your code against the same set of assemblies.

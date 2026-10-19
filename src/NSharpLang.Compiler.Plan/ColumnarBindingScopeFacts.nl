@@ -208,11 +208,35 @@ class ColumnarExternalTypeCatalog {
         // implementation is admitted up front, and KEEP it: owner lookup stays lazy and cached,
         // but it now reads this scan instead of rebuilding an identical one per cache miss.
         previousScan := preparedScan
-        preparedScan = ExternalAssemblyScan.OpenWithReferences(this.referenceAssemblyPaths, referenceMetadata)
+        preparedScan = ExternalAssemblyScan.OpenWithReferences(this.referenceAssemblyPaths, referenceMetadata, FrameworkAssemblyNames(sourceFactsById, referenceMetadata))
         if previousScan != null {
             previousScan.Dispose()
         }
         IsPrepared = true
+    }
+
+    // The base-framework assemblies this program names beyond the common table: the namespaces its
+    // files import, in file and import order, and whatever the analysis loaded on demand.
+    func FrameworkAssemblyNames(sourceFactsById: Dictionary<int, ColumnarSourceBindingFacts>, referenceMetadata: SharedReferenceMetadata?): List<string> {
+        namespaces := new List<string>()
+        fileIds := new List<int>(sourceFactsById.Keys)
+        fileIds.Sort()
+        for fileId in fileIds {
+            facts := sourceFactsById[fileId]
+            for importedNamespace in facts.UnaliasedNamespaceImports {
+                namespaces.Add(importedNamespace)
+            }
+            for aliasTarget in facts.NamespaceAliasTargets.Values {
+                namespaces.Add(aliasTarget)
+            }
+        }
+
+        recorded: string[]? = null
+        if referenceMetadata != null {
+            recorded = referenceMetadata.FrameworkAssemblyNames()
+        }
+
+        return ExternalAssemblyScan.FrameworkAssemblyNamesFor(namespaces, recorded, this.referenceAssemblyPaths, FrameworkNamespaceIndex.ForHostRuntime())
     }
 
     func TryGet(sourceFileId: int, ownerName: string, out resolution: ExternalAssemblyTypeResolution): bool {

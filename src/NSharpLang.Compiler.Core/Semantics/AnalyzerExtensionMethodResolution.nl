@@ -354,7 +354,9 @@ class AnalyzerExtensionMethodResolution {
         methods := new List<MethodInfo>()
         for candidate in extensionHosts {
             hostType := candidate.HostType
-            if IsNameableHost(hostType) {
+            // A host in an on-demand framework assembly is offered only through an import of its
+            // namespace (`FrameworkOnDemandLoads`), so this any-namespace question never sees it.
+            if IsNameableHost(hostType) && !FrameworkOnDemandLoads.IsOnDemand(hostType.Assembly) {
                 CollectExtensionMethods(hostType, HostMemberFlags(hostType), methodName, targetClrType, methods, friendGrants)
             }
         }
