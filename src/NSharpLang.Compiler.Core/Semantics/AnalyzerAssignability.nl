@@ -233,15 +233,27 @@ class AnalyzerAssignability {
         return IsTupleElementCompatible(targetInner, sourceInner)
     }
 
-    // The element conversions under a nullable wrap that the emitter performs: identity, or the
-    // implicit numeric widening of the scalar set it knows how to emit (a `uint` or `ulong` source
-    // is not in it, nor is a user-defined conversion). Anything else keeps the tuple unconvertible.
+    // The element conversions under a nullable wrap that the emitter performs: identity, another
+    // tuple conversion, or its supported numeric widening. Its numeric target set is `int`, `long`,
+    // `float`, `double` and `decimal`; sources are the int-promotable scalars plus `long` and `float`.
+    // It does not emit the CLR's `byte` → `short` / `uint` / `ulong` conversions, or conversions from
+    // `uint` / `ulong`, so this tuple rule must not admit them.
     func IsLiftedTupleElement(target: TypeInfo, source: TypeInfo): bool {
         if TypeInfoIdentityFacts.AreEqual(target, source) {
             return true
         }
 
-        if target is SimpleTypeInfo && source is SimpleTypeInfo && !BuiltInTypes.Is(source, BuiltInTypes.UInt) && !BuiltInTypes.Is(source, BuiltInTypes.ULong) {
+        targetTuple := target as TupleTypeInfo
+        sourceTuple := source as TupleTypeInfo
+        if targetTuple != null && sourceTuple != null {
+            return AreTupleElementsAssignable(targetTuple, sourceTuple)
+        }
+
+        if target is SimpleTypeInfo && source is SimpleTypeInfo &&
+            (BuiltInTypes.Is(target, BuiltInTypes.Int) || BuiltInTypes.Is(target, BuiltInTypes.Long) ||
+                BuiltInTypes.Is(target, BuiltInTypes.Float) || BuiltInTypes.Is(target, BuiltInTypes.Double) ||
+                BuiltInTypes.Is(target, BuiltInTypes.Decimal)) &&
+            !BuiltInTypes.Is(source, BuiltInTypes.UInt) && !BuiltInTypes.Is(source, BuiltInTypes.ULong) {
             return IsAssignableCore(target, source)
         }
 

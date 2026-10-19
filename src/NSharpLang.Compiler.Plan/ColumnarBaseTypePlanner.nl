@@ -98,13 +98,13 @@ class ColumnarBaseTypePlanner {
         if !def.IsReference {
             return ColumnarBaseTypeApplyOutcome.Reject
         }
-        if def.IsRecord {
-            return ColumnarBaseTypeApplyOutcome.Reject
-        }
         if !baseDef.IsReference || Object.ReferenceEquals(baseDef, def) {
             return ColumnarBaseTypeApplyOutcome.Reject
         }
-        if baseDef.IsRecord {
+        // Record classes follow C#'s record inheritance boundary: records derive only from records,
+        // while ordinary classes derive only from ordinary classes. The reference checks above
+        // exclude record structs and structs from either side.
+        if def.IsRecord != baseDef.IsRecord {
             return ColumnarBaseTypeApplyOutcome.Reject
         }
         if def.BaseDef != null {
@@ -116,9 +116,11 @@ class ColumnarBaseTypePlanner {
     }
 
     // An external runtime class (for example ControllerBase) is a legitimate parent for a source
-    // class. Value types, records, and multi-parent shapes reject; anything that is not an
-    // inheritable, verifiable external class is unresolvable. Constructor chaining is validated later,
-    // when the constructor planner knows whether this source type needs an implicit base call.
+    // class. A reference record may instead extend a referenced N# record, identified by the public
+    // self-returning `<Clone>$` contract emitted by N#. Value types and record/class mismatches reject;
+    // anything that is not an inheritable, verifiable external class is unresolvable. Constructor
+    // chaining is validated later, when the constructor planner knows whether this source type needs
+    // an implicit base call.
     func ApplyExternalBase(resolvedBaseType: Type, classificationType: Type): ColumnarBaseTypeApplyOutcome {
         if !IsInheritableExternalClass(classificationType) {
             return ColumnarBaseTypeApplyOutcome.Unresolvable
@@ -126,7 +128,7 @@ class ColumnarBaseTypePlanner {
         if !def.IsReference {
             return ColumnarBaseTypeApplyOutcome.Reject
         }
-        if def.IsRecord {
+        if def.IsRecord != IsExternalRecordClass(classificationType) {
             return ColumnarBaseTypeApplyOutcome.Reject
         }
         if def.BaseDef != null || def.ExactBaseType != null {
@@ -250,5 +252,23 @@ class ColumnarBaseTypePlanner {
             return false
         }
         return true
+    }
+
+    // N# records publish this public instance method as their reference-copy contract. C# records use
+    // a protected clone method and are intentionally not classified by this interop boundary; their
+    // metadata contract is not yet supported by N# record `with`.
+    static func IsExternalRecordClass(valueType: Type): bool {
+        if valueType is TypeBuilder || valueType.IsGenericParameter {
+            return false
+        }
+        clone := valueType.GetMethod("<Clone>$", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
+        if clone == null || !clone.IsPublic || clone.IsStatic || clone.IsAbstract {
+            return false
+        }
+        if valueType.IsGenericTypeDefinition {
+            cloneReturnType := clone.ReturnType
+            return cloneReturnType.IsGenericType && cloneReturnType.GetGenericTypeDefinition() == valueType
+        }
+        return ColumnarTypeEquivalenceFacts.TypesEquivalent(clone.ReturnType, valueType)
     }
 }

@@ -1133,9 +1133,13 @@ older := person with { Age: 31 }
 
 A `with` member is written like an object-initializer member, so `null`, a plain value for a `T?`
 member, `a ?? b` over nullable values and `flag ? v : null` are all valid replacements. `with` also
-works on a record declared in another N# project (a `project:` dependency), a C# project or a NuGet
-package: the copy is made through the record's compiler-reserved `<Clone>$` method (or by value for a
-record struct) and the named members are written through their public setters (`init` ones included) or public fields. A class that is not a record is refused with a message naming it.
+works on a record declared in another N# project (a `project:` dependency), including a closed generic
+N# record: a reference record is copied through its public `<Clone>$` method, while a record struct is
+copied by value. A reference record may inherit from another reference record; an ordinary class and a
+record class cannot inherit from each other. The named members are written through public setters
+(including `init` setters) or public fields. A class without a public `<Clone>$` method gets a positioned NL202 diagnostic such as
+`'Plain' is not a record: it has no '<Clone>$' copy method for 'with' to call`.
+The repository has no C#-compiled record fixture, so C# record interoperability has not been verified.
 
 ### Record Structs
 
@@ -2776,12 +2780,20 @@ flag := true
 when: DateTime? = flag ? DateTime.UtcNow : null   // the null arm takes the DateTime? type
 ```
 
-`a ?? b` follows C#'s typing: it is nullable when `b` is (`double? ?? double?` is a `double?`, so
-`c: double? = a ?? b` compiles), unwraps to `double` for a `double` right side, and is worth the right
-side's type when the left side only converts to it (`int? ?? long` is a `long`). A `(string, int)` tuple converts to
-`(string?, int?)` element by element; the only element conversion a tuple admits that changes
-representation is this wrap and the numeric widening under it (`(int, int)` converts to `(long?, int?)`,
-but still does not convert to `(long, long)`).
+`a ?? b` follows C#'s conversion order. With a `T?` left side, a right value convertible to `T` makes
+the result `T` (`int? ?? 0`); otherwise a right value convertible to `T?` keeps the result `T?`
+(`long? ?? int?` is `long?`); otherwise, when `T` converts to the right side, the result has the
+right side's type (`int? ?? long` is `long`, and `int? ?? long?` is `long?`). A `null` right side
+keeps the left side nullable. Reference operands use the corresponding conversions with reference
+nullability erased for the present value (`Base? ?? Derived` is `Base`, `Derived? ?? Base` is `Base`).
+Integer constants use value-sensitive conversion: `byte? ?? 1` is `byte` when the value fits, while
+`byte? ?? 256` is `int`.
+Lifted `decimal` conversion cases are outside this backend path's verified conversion matrix.
+
+A `(string, int)` tuple converts to `(string?, int?)` element by element; tuple element conversions
+that change representation are limited to a nullable wrap and numeric widening under it (`(int, int)`
+converts to `(long?, int?)`, but still does not convert to `(long, long)`). The emitter rebuilds up to
+seven top-level tuple elements; tuples with eight or more top-level elements remain unsupported.
 
 `Nullable<T>`'s own surface comes with it, also whatever `T` is — `HasValue`, `Value` and both
 `GetValueOrDefault` overloads:

@@ -127,10 +127,25 @@ test "a nullable left coalesces with a wider right operand to the wider type" {
     assert CoalesceWidenToNullableRight(null, null) == null
     assert CoalesceWidenToNullableRight(null, 6L) == 6L
     assert CoalesceWidenToNullableRight(4, 6L) == 4L
+    assert CoalesceNullableRightWidensToLeft(null, 6) == 6L
+    assert CoalesceNullableRightWidensToLeft(4L, 6) == 4L
+    assert CoalesceByteConstant(null) == 1
+    assert CoalesceByteConstant(5) == 5
+    assert CoalesceByteUnderscoredConstant(null) == 10
+    assert CoalesceByteUnderscoredConstant(5) == 5
+    assert CoalesceByteConstantWidens(null) == 256
+    assert CoalesceByteConstantWidens(5) == 5
+    assert CoalesceNullableToObject(null, "fallback").Equals("fallback")
+    assert CoalesceNullableToObject(4, "fallback").Equals(4)
+    assert CoalesceObjectToBoxedValue(null, 5).Equals(5)
+    value := new object()
+    assert Object.ReferenceEquals(CoalesceObjectToBoxedValue(value, 5), value)
     assert CoalesceRightWidens(null, 3) == 3L
     assert CoalesceRightWidens(8L, 3) == 8L
     assert CoalesceDoubleRight(null, 2) == 2.0
     assert CoalesceDoubleRight(1.5, 2) == 1.5
+    assert CoalesceIntToDouble(null, 2.5) == 2.5
+    assert CoalesceIntToDouble(7, 2.5) == 7.0
 }
 
 test "a reference coalesce converts whichever side is the derived one" {
@@ -149,6 +164,8 @@ test "widening under the nullable wrap covers char, int, short and long" {
     assert LiftLong(9000000000L) == 9000000000.0
     assert LiftNullableInt(null) == null
     assert LiftNullableInt(4) == 4.0
+    assert LiftConditional(true, -3) == -3.0f
+    assert LiftConditional(false, 5) == null
 }
 
 test "a tuple converts element by element through null, widening and nesting" {
@@ -164,4 +181,9 @@ test "a tuple converts element by element through null, widening and nesting" {
     assert nested.Item1.Item1 == 1
     assert nested.Item1.Item2 == "n"
     assert nested.Item2 == 2
+
+    nestedWidened := TupleNestedWidened()
+    assert nestedWidened.Item1.Item1 == 3L
+    assert nestedWidened.Item1.Item2 == "m"
+    assert nestedWidened.Item2 == 4
 }

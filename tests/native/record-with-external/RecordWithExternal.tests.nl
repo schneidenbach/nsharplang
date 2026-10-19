@@ -64,3 +64,32 @@ test "a with over a record from another project writes a public field and an ini
     assert slot.size == 1
     assert slot.Label == "a"
 }
+
+test "a with over a derived record from another project preserves its derived members" {
+    original := new DetailedStatus { State: "ready", Gate: "A1", Revision: 4 }
+    changed := original with { Revision: 5 }
+    assert changed.State == "ready"
+    assert changed.Gate == "A1"
+    assert changed.Revision == 5
+    assert changed.GetType().Name == "DetailedStatus"
+    assert original.Revision == 4
+}
+
+test "a with through a base-typed reference preserves the referenced derived runtime type" {
+    derived := new DetailedStatus { State: "ready", Gate: "A1", Revision: 4 }
+    original: Status = derived
+    changed := original with { State: "late" }
+    assert changed.State == "late"
+    assert changed.Gate == "A1"
+    assert changed.GetType().Name == "DetailedStatus"
+    assert original.State == "ready"
+}
+
+test "a with over a generic record from another project copies its constructed value" {
+    original := new Box<int> { Value: 5, Label: "count" }
+    changed := original with { Value: 9 }
+    assert changed.Value == 9
+    assert changed.Label == "count"
+    assert original.Value == 5
+    assert !Object.ReferenceEquals(original, changed)
+}

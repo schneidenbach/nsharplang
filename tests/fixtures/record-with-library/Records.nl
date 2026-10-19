@@ -7,6 +7,11 @@ record Status {
     Gate: string?
 }
 
+record Box<T> {
+    Value: T
+    Label: string
+}
+
 record Reading {
     Latitude: double?
     Name: string
@@ -22,4 +27,9 @@ record struct Pair {
 record Slot {
     size: int
     init Label: string
+}
+
+// A referenced non-record class is the negative control for record-only `with`.
+class Plain {
+    Value: int
 }

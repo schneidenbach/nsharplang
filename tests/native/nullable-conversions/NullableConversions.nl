@@ -113,9 +113,25 @@ func CoalesceWidenToRight(a: int?, b: long): long => a ?? b
 
 func CoalesceWidenToNullableRight(a: int?, b: long?): long? => a ?? b
 
+func CoalesceNullableToObject(a: int?, fallback: object): object => a ?? fallback
+
+func CoalesceObjectToBoxedValue(a: object?, fallback: int): object => a ?? fallback
+
+// The right nullable value converts to the left nullable type, so the result stays `long?`.
+func CoalesceNullableRightWidensToLeft(a: long?, b: int?): long? => a ?? b
+
+// Integer constants take C#'s value-sensitive conversion path when they fit the underlying type.
+func CoalesceByteConstant(a: byte?): byte => a ?? 1
+
+func CoalesceByteUnderscoredConstant(a: byte?): byte => a ?? 1_0
+
+func CoalesceByteConstantWidens(a: byte?): int => a ?? 256
+
 func CoalesceRightWidens(a: long?, b: int): long => a ?? b
 
 func CoalesceDoubleRight(a: double?, b: int): double => a ?? b
+
+func CoalesceIntToDouble(a: int?, b: double): double => a ?? b
 
 class Animal {
     Name: string = "animal"
@@ -154,6 +170,11 @@ func LiftNullableInt(n: int?): double? {
     return r
 }
 
+func LiftConditional(flag: bool, n: short): float? {
+    result: float? = flag ? n : null
+    return result
+}
+
 // ---- tuples ----
 func TupleNullElement(): (string?, int?) {
     t: (string?, int) = (null, 1)
@@ -167,5 +188,10 @@ func TupleWidening(): (long?, string) {
 
 func TupleNested(): ((int, string?), int?) {
     t: ((int, string), int) = ((1, "n"), 2)
+    return t
+}
+
+func TupleNestedWidened(): ((long?, string?), int?) {
+    t: ((int, string), int) = ((3, "m"), 4)
     return t
 }

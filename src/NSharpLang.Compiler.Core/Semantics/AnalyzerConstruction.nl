@@ -1833,6 +1833,93 @@ class AnalyzerConstruction {
 
         state.ConstructedType = targetType
         state.ResultType = targetType
+        if ReportNonRecordWithTargetIfNeeded(node.Target, targetType) {
+            // This is a conclusive target-shape error. Stop before walking replacement members so
+            // their diagnostics cannot cascade from a `with` that has no record copy operation.
+            state.ConstructedType = BuiltInTypes.Unknown
+            state.ResultType = BuiltInTypes.Unknown
+            state.Phase = 99
+        }
+    }
+
+    // REFERENCE `with` REQUIRES A RECORD COPY CONTRACT. Source records have their own TypeInfo
+    // shape; a referenced N# record exposes its public `<Clone>$()` method in metadata. Ordinary
+    // classes and reflected reference types without that method are rejected here, before emission,
+    // so users see the actionable reason at the receiver instead of a generic backend decline.
+    func ReportNonRecordWithTargetIfNeeded(target: Expression, targetType: TypeInfo): bool {
+        if !IsKnownNonRecordWithReferenceType(targetType) {
+            return false
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(NonNullableType(targetType))
+        span := spansValue.GetExpressionDiagnosticSpan(target)
+        diagnosticsValue.Report(
+            ErrorCode.TypeMismatch,
+            "'" + TypeText(resolved) + "' is not a record: it has no '<Clone>$' copy method for 'with' to call",
+            span.Line,
+            span.Column,
+            "Use a record or record struct for this `with` expression, or construct a separate value with an object initializer.",
+            span.Length
+        )
+        return true
+    }
+
+    // This predicate is deliberately conservative for type shapes the analyzer cannot classify. A
+    // source class is known not to be a record, a source record keeps its dedicated model, and a
+    // reflected/generic reference type is a record for this emitter only when its public metadata
+    // supplies the same clone contract the emitter calls.
+    func IsKnownNonRecordWithReferenceType(candidate: TypeInfo): bool {
+        if candidate == null || BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(NonNullableType(candidate))
+        if resolved as RecordTypeInfo != null || resolved as StructTypeInfo != null {
+            return false
+        }
+
+        if resolved as ClassTypeInfo != null {
+            return true
+        }
+
+        generic := resolved as GenericTypeInfo
+        if generic != null {
+            if generic.GenericDefinition == null {
+                return false
+            }
+
+            return IsKnownNonRecordWithReferenceType(generic.GenericDefinition)
+        }
+
+        reflection := resolved as ReflectionTypeInfo
+        if reflection != null {
+            receiverType := reflection.Type
+            if receiverType == null || receiverType.IsValueType || receiverType.IsGenericParameter {
+                return false
+            }
+
+            for method in receiverType.GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+                if method.Name != "<Clone>$" || method.GetParameters().Length != 0 {
+                    continue
+                }
+
+                if method.ReturnType == receiverType {
+                    return false
+                }
+
+                if receiverType.IsGenericType && method.ReturnType.IsGenericType && method.ReturnType.GetGenericTypeDefinition() == receiverType.GetGenericTypeDefinition() {
+                    return false
+                }
+            }
+
+            return true
+        }
+
+        if BuiltInTypes.Is(resolved, BuiltInTypes.String) || BuiltInTypes.Is(resolved, BuiltInTypes.Object) {
+            return true
+        }
+
+        return false
     }
 
     func WithIndexAnswered(state: ConstructionState, indexType: TypeInfo) {

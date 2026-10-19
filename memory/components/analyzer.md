@@ -5828,10 +5828,39 @@ them, which is a different gap from this one.
 existed: `ColumnarIlEmitter.TryGetPreflightBinaryExpressionType` typed both operands of a `??` and then
 fell off the end, so `census.IndexOf("returnLifetime=" + (value ?? ""), StringComparison.Ordinal)` had
 an untypable first argument and the table's emit-then-decide arm was the only thing that could bind it.
-The emit arm has always known the rule — a REFERENCE left yields the left's own type, a `Nullable<T>`
-left yields its ELEMENT — and the preflight now states the same one. A widening, a derived reference
-and a `throw` right-hand side stay un-typed rather than guessed: those are the shapes the emit arm
-decides WHILE emitting.
+That preflight has since moved to `TryGetPreflightNullCoalesceResult` and follows the same conversion
+order as the emitter, including null and throw right sides, nullable widening, and reference upcasts.
+It declines before an overload or emission route is selected when none of those conversions applies.
+
+## Coalesce result typing and lifted tuple conversions (nullable-with, 2026-10-18)
+
+`AnalyzerOperatorExpressions.NullCoalesceResult` checks C#'s nullable-left conversions in order:
+
+1. If the right side converts to the underlying `T`, `T? ?? right` is `T`. This includes an
+   in-range integer constant conversion (`byte? ?? 1` is `byte`); an out-of-range constant takes the
+   later rules (`byte? ?? 256` is `int`).
+2. Otherwise, if the right side converts to `T?`, the result is `T?`.
+3. Otherwise, if `T` converts to the right side's type, the result is that right-side type.
+
+The reference case applies those same conversions to the present left value with reference nullability
+removed. A bare `null` right side keeps the left nullable. When every conversion fails, the analyzer
+reports NL202 at the operator instead of guessing the right type and leaving the emitter to decline.
+An unknown operand stays in recovery without a second diagnostic; a `throw` right side has no value to
+convert and leaves the non-null left type as the result.
+
+`AnalyzerAssignability.AreTupleElementsAssignable` mirrors the emitter's lifted element set: identity,
+a recursive nested-tuple conversion, or an implicit numeric widening under the nullable wrap. It does
+not accept a non-nullable tuple widening such as `(int, int)` to `(long, long)`. Focused contracts live in
+`AnalyzerOperatorExpressions.tests.nl`, `tests/native/nullable-conversions`, and
+`tests/native/record-with-external`. The current emitter limit is seven top-level tuple elements;
+lifted `decimal` conversion cases remain outside this slice's verified matrix.
+
+`AnalyzerConstruction.WithTargetAnswered` also rejects a known ordinary reference class before it
+walks replacement members. Source records keep their `RecordTypeInfo`; referenced N# records are
+recognized through the public `<Clone>$()` method the emitter calls. The NL202 diagnostic is positioned
+on the receiver and names the missing record copy contract, so a plain class such as the referenced
+`Plain` fixture does not surface as a generic emission failure. The repository has no C#-compiled
+record fixture; protected C# clone methods are not asserted as compatible here.
 
 ## `nameof` names something; it does not read it (census 2026-09-14, SELFHOST)
 

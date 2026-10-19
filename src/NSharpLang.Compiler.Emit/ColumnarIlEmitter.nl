@@ -5274,8 +5274,9 @@ sealed class ColumnarIlEmitter {
 
         // PASS 0a' (base/interface lists): resolve each colon-list name. Any interface becomes a directly
         // implemented interface (and contributes its inherited interfaces to metadata); at most one class may
-        // become the parent, and only for a CLASS. A base on a value type, record inheritance, a record
-        // base, an unknown/non-type name, multiple class bases, and inheritance
+        // become the parent. Reference records may inherit reference records; ordinary classes may
+        // inherit ordinary classes. A base on a value type, a record/class mismatch, an unknown/non-type
+        // name, multiple class bases, and inheritance
         // cycles all decline rather than silently changing type identity or emitting unloadable IL.
         for s := 0; s < structs.Count; s++ {
             def := structDefsInOrder[s]
@@ -6400,7 +6401,7 @@ sealed class ColumnarIlEmitter {
         structDefaultCtorJobs := constructorDeclaration.DefaultConstructorJobs
 
         // PASS 0e (record value members): synthesize Equals(object) / GetHashCode() / `<Clone>$` on each
-        // NON-GENERIC records get a `<Clone>$` wrapper for `with`. Equals/GetHashCode are synthesized only
+        // Every reference record gets a `<Clone>$` wrapper for `with`. Equals/GetHashCode are synthesized only
         // when every field type is a baked runtime type: EqualityComparer<T>.Default cannot be reflected over
         // emitted builders at emit time. Classes get NONE of these: a class `.Equals` is the pipeline's NL103
         // (probe-pinned) — parity by rejection. A USER method already named Equals/GetHashCode keeps ownership
@@ -9414,7 +9415,12 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(retNode, _returnType, out retType)) {
                             } else {
                                 // target-typed array literal return.
-                                if (TryEmitConditionalAsType(retNode, _returnType, out retType)) {
+                                if (CanEmitConditionalAsType(retNode, _returnType)) {
+                                    if (!TryEmitConditionalAsType(retNode, _returnType, out retType)) {
+                                        return Decline("emit.return.conditional", "target-typed conditional return could not be emitted", retNode)
+                                    }
+                                } else if (IsTargetTypedConditionalNode(retNode)) {
+                                    return Decline("emit.return.conditional-preflight", "target-typed conditional return has no supported conversion to the declared return type", retNode)
                                 } else if (TryEmitZeroLiteralAsType(retNode, _returnType, out retType)) {
                                 } else {
                                     // `return flag ? value : null` — a conditional with a typeless arm
@@ -9612,7 +9618,12 @@ sealed class ColumnarIlEmitter {
                                 } else {
                                     // `values: T[] = [a, b]` — the target array type owns the element type.
                                     let columnarDiscard11: System.Type = null
-                                    if (TryEmitConditionalAsType(declaredInit, declaredType, out columnarDiscard11)) {
+                                    if (CanEmitConditionalAsType(declaredInit, declaredType)) {
+                                        if (!TryEmitConditionalAsType(declaredInit, declaredType, out columnarDiscard11)) {
+                                            return Decline("emit.typed-local.conditional-initializer", "typed local conditional initializer could not be emitted for '" + declaredName + "'", declaredInit)
+                                        }
+                                    } else if (IsTargetTypedConditionalNode(declaredInit)) {
+                                        return Decline("emit.typed-local.conditional-preflight", "target-typed conditional initializer has no supported conversion to the declared type for '" + declaredName + "'", declaredInit)
                                     } else if (TryEmitZeroLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
                                     } else {
                                         // `s: string? = null` (a `?`-annotated reference resolves to its element type).
@@ -10552,7 +10563,12 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(Child(expr, 1), assignTarget.LocalType, out valueType)) {
                             } else {
                                 // target-typed array literal re-store.
-                                if (TryEmitConditionalAsType(Child(expr, 1), assignTarget.LocalType, out valueType)) {
+                                if (CanEmitConditionalAsType(Child(expr, 1), assignTarget.LocalType)) {
+                                    if (!TryEmitConditionalAsType(Child(expr, 1), assignTarget.LocalType, out valueType)) {
+                                        return Decline("emit.assignment.conditional", "target-typed conditional assignment could not be emitted", Child(expr, 1))
+                                    }
+                                } else if (IsTargetTypedConditionalNode(Child(expr, 1))) {
+                                    return Decline("emit.assignment.conditional-preflight", "target-typed conditional assignment has no supported conversion to the destination", Child(expr, 1))
                                 } else if (TryEmitZeroLiteralAsType(Child(expr, 1), assignTarget.LocalType, out valueType)) {
                                 } else {
                                     // `local = flag ? value : null` — the local's type decides a
@@ -13957,8 +13973,9 @@ sealed class ColumnarIlEmitter {
 
             if (op == "??") {
                 // `a ?? b` — REFERENCE left: `<a>; dup; brtrue end; pop; <b>; end:`. NULLABLE<T>
-                // left (N2): `tmp = a; tmp.HasValue ? tmp.GetValueOrDefault() : <b as T>` — both the
-                // exact nullable lowerings. The Nullable form's RESULT is the ELEMENT type.
+                // left (N2): test a saved `T?`, then either preserve it when the right converts to
+                // `T?`, or unwrap and convert the present value when the result follows the right.
+                // A right value convertible to `T` takes precedence and keeps the result at `T`.
                 let coalesceLeft: System.Type? = null
                 if (!EmitExpressionPreservingNullable(Child(idx, 0), out coalesceLeft)) {
                     return false
@@ -13993,16 +14010,34 @@ sealed class ColumnarIlEmitter {
                         columnarResolvedType = coalesceLeft
                         return true
                     }
+                    // C#'s second nullable-value rule also keeps the left type when the right converts
+                    // to it. For example, `long? ?? int?` is `long?`: the present branch is already in
+                    // that type and the absent branch converts the narrower nullable value.
+                    if (coalesceRightKnown && !CanConvertValueElement(coalesceRightPreflight, coalesceElement) && !IsThrowExpressionNode(coalesceRightNode) && CanConvertValueElement(coalesceRightPreflight, coalesceLeft)) {
+                        _il.Emit(OpCodes.Ldloca, nullableLocal)
+                        _il.Emit(OpCodes.Call, ResolveNullableGetter(coalesceLeft, "HasValue"))
+                        _il.Emit(OpCodes.Brfalse, elseLabel2)
+                        _il.Emit(OpCodes.Ldloc, nullableLocal)
+                        _il.Emit(OpCodes.Br, endLabel2)
+                        _il.MarkLabel(elseLabel2)
+                        let coalesceConvertedNullableRightType: System.Type? = null
+                        if (!TryEmitValueAsNullable(coalesceRightNode, coalesceLeft, out coalesceConvertedNullableRightType)) {
+                            return false
+                        }
+                        _il.MarkLabel(endLabel2)
+                        columnarResolvedType = coalesceLeft
+                        return true
+                    }
                     // C# 12.15's third rule: a right operand the element does NOT absorb, but which the
                     // element converts to (`int? ?? long` is a `long`, `int? ?? long?` a `long?`), makes the
                     // expression worth the RIGHT operand's type. The present branch unwraps and converts.
-                    if (coalesceRightKnown && !TypesEquivalent(coalesceRightPreflight, coalesceElement) && !CanUseImplicitNumericWidening(coalesceRightPreflight, coalesceElement) && !CanAdoptIntLiteralAsType(coalesceRightNode, coalesceElement) && !IsThrowExpressionNode(coalesceRightNode) && CanConvertValueElement(coalesceElement, coalesceRightPreflight)) {
+                    if (coalesceRightKnown && !TypesEquivalent(coalesceRightPreflight, coalesceElement) && !CanUseImplicitNumericWidening(coalesceRightPreflight, coalesceElement) && !CanAdoptIntLiteralAsType(coalesceRightNode, coalesceElement) && !IsThrowExpressionNode(coalesceRightNode) && CanConvertNullableCoalescePresentValue(coalesceElement, coalesceRightPreflight)) {
                         _il.Emit(OpCodes.Ldloca, nullableLocal)
                         _il.Emit(OpCodes.Call, ResolveNullableGetter(coalesceLeft, "HasValue"))
                         _il.Emit(OpCodes.Brfalse, elseLabel2)
                         _il.Emit(OpCodes.Ldloca, nullableLocal)
                         _il.Emit(OpCodes.Call, ResolveNullableMethod(coalesceLeft, "GetValueOrDefault", Type.EmptyTypes))
-                        if (!EmitValueElementConversion(coalesceElement, coalesceRightPreflight)) {
+                        if (!EmitNullableCoalescePresentValueConversion(coalesceElement, coalesceRightPreflight)) {
                             return false
                         }
                         _il.Emit(OpCodes.Br, endLabel2)
@@ -14041,7 +14076,7 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                         // The right operand converts to the element (`double? ?? int`): C#'s first rule.
-                        if (!TypesEquivalent(coalesceRightType, coalesceElement) && !TryEmitNumericWidening(coalesceRightType, coalesceElement)) {
+                        if (!TypesEquivalent(coalesceRightType, coalesceElement) && !EmitValueElementConversion(coalesceRightType, coalesceElement)) {
                             return false
                         }
                     }
@@ -16058,8 +16093,9 @@ sealed class ColumnarIlEmitter {
             // the recursive sub-emitter and applies the plan's exact opcode shape: a reference record
             // clones through `<Clone>$` then ldloc; stfld per field; a value record copies into a
             // local and writes through its address (ldloca; stfld — the verifiable value-type `with`
-            // shape). Zero pairs is a pure copy. Generic records still decline (a constructed generic
-            // receiver is not a raw TypeBuilder, so no definition resolves).
+            // shape). Zero pairs is a pure copy. A generic record declared in this compilation still
+            // declines because its receiver is a TypeBuilderInstantiation; a closed generic record
+            // from a built dependency uses the referenced `<Clone>$` path below.
             if ((_nodes.ChildCount(idx) & 1) == 0) {
                 return Decline("emit.with.shape", "with expression has an unsupported shape", idx)
             }
@@ -16094,10 +16130,10 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 if (!withReceiverType.IsValueType && withReceiverType.IsGenericType && withTb == null && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(withReceiverType) && ReferencedRecordCloneMethod(withReceiverType) == null) {
-                    return Decline("emit.with.plan", "'" + withReceiverType.Name + "' has no '<Clone>$' copy method for 'with' to call. A generic record declared in N# does not get one yet, so build the changed copy with an object initializer", Child(idx, 0))
+                    return Decline("emit.with.plan", "'" + withReceiverType.Name + "' has no '<Clone>$' copy method for 'with' to call. Make sure the referenced type is a record with a generated clone method, or build the changed copy with an object initializer", Child(idx, 0))
                 }
                 if (!withReceiverType.IsValueType && !ReceiverIsRecordType(withReceiverType, withTb)) {
-                    return Decline("emit.with.plan", "'" + withReceiverType.Name + "' is not a record, so 'with' has no copy to make: a record carries the compiler-generated '<Clone>$' method that 'with' calls. Declare it as a 'record' (or 'record struct'), or build the changed copy with an object initializer", Child(idx, 0))
+                    return Decline("emit.with.plan", "'" + withReceiverType.Name + "' is not a record: it has no '<Clone>$' copy method for 'with' to call. Declare it as a 'record' (or 'record struct'), or build the changed copy with an object initializer", Child(idx, 0))
                 }
                 return Decline("emit.with.plan", "with expression receiver type is not a modeled record whose named members admit a verifiable copy", Child(idx, 0))
             }
@@ -20230,15 +20266,7 @@ sealed class ColumnarIlEmitter {
     // every reference already is one, so neither arm needs a cast this emitter would have to prove
     // over types that may still be unbaked builders. Any other left type keeps the exact-match rule.
     private func TryEmitCoalesceFallbackConversion(fallbackType: Type, leftType: Type): bool {
-        if (leftType != typeof(object)) {
-            return false
-        }
-        // `System.Void` is a value type and would otherwise be BOXED. It is spelled by name because
-        // `typeof(void)` is not a shape this emitter's own backend models.
-        if (fallbackType.FullName == "System.Void") {
-            return false
-        }
-        if (fallbackType.IsByRef || fallbackType.IsPointer) {
+        if (!CanEmitCoalesceFallbackConversion(fallbackType, leftType)) {
             return false
         }
         if (fallbackType.IsValueType || fallbackType.IsGenericParameter) {
@@ -20247,6 +20275,17 @@ sealed class ColumnarIlEmitter {
         }
 
         return true
+    }
+
+    private func CanEmitCoalesceFallbackConversion(fallbackType: Type, leftType: Type): bool {
+        if (fallbackType == null || leftType != typeof(object)) {
+            return false
+        }
+        // `System.Void` is spelled by name because `typeof(void)` is not a backend type shape.
+        if (fallbackType.FullName == "System.Void") {
+            return false
+        }
+        return !fallbackType.IsByRef && !fallbackType.IsPointer
     }
 
     private func TryEmitStringCharConcat(leftType: Type, rightType: Type, out resolvedClrType: Type): bool {
@@ -20367,7 +20406,8 @@ sealed class ColumnarIlEmitter {
         }
         sourceElements := source.GetGenericArguments()
         targetElements := target.GetGenericArguments()
-        // Seven elements is the longest tuple with no `TRest`; the nested form is not rebuilt.
+        // Seven elements is the longest flat tuple with no `TRest`. Element conversion recurses,
+        // so nested tuples are supported while an eight-or-more-element top-level tuple is not.
         if (sourceElements.Length != targetElements.Length || targetElements.Length > 7) {
             return false
         }
@@ -20384,6 +20424,13 @@ sealed class ColumnarIlEmitter {
     }
 
     private func CanConvertValueElement(source: Type, target: Type): bool => TypesEquivalent(source, target) || CanUseImplicitNumericWidening(source, target) || CanEmitLiftedImplicitConversion(source, target)
+
+    // The present value of `Nullable<T>` can also take boxing conversions such as `int` to `object`
+    // or to an implemented interface. Keep preflight and emission paired so the directional `??`
+    // rule does not select a result the backend cannot construct.
+    private func CanConvertNullableCoalescePresentValue(sourceType: Type, targetType: Type): bool => CanConvertValueElement(sourceType, targetType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(sourceType, targetType, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(sourceType, targetType, _structRegistry)
+
+    private func EmitNullableCoalescePresentValueConversion(sourceType: Type, targetType: Type): bool => EmitValueElementConversion(sourceType, targetType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(sourceType, targetType, _structRegistry, _il)
 
     // The value is on the stack as `source`; it leaves as `target`. Only called after the predicate.
     private func EmitValueElementConversion(source: Type, target: Type): bool {
@@ -21919,8 +21966,10 @@ sealed class ColumnarIlEmitter {
     // THE ROUTE IS CHOSEN BEFORE ANYTHING IS EMITTED, because emit-then-check abandons the program: a
     // conditional whose arms both carry types keeps the unification arm and its IL, and only one with a
     // `null`, a `default` or a `throw` arm comes here. `CanEmitConditionalAsType` is asked first and
-    // answers with the very rules `EmitConditionalArmAsType` applies, so a FALSE return means nothing
-    // was emitted and the caller may try the next door.
+    // verifies that the condition is a plannable `bool` and that each value arm's type and conversion
+    // is supported by the same rules `EmitConditionalArmAsType` applies. A conditional the preflight
+    // cannot emit is refused before anything is written, so the caller may safely try its next door;
+    // if a selected emission route still fails, its caller stops instead of trying another door.
     //
     // A THROWING ARM EMITS NO BRANCH TO THE MERGE. The exception ends that path, so a `br` after it
     // would be unreachable IL over an empty stack — the merge label is reached only from the arm that
@@ -21988,6 +22037,13 @@ sealed class ColumnarIlEmitter {
         return IsTypelessConditionalArm(Child(node, 1)) || IsTypelessConditionalArm(Child(node, 2))
     }
 
+    // A conditional with a null/default/throw arm needs a target type. If that target's exact preflight
+    // fails, do not send the same node through an untargeted emitter that may write only part of it.
+    private func IsTargetTypedConditionalNode(node: int): bool {
+        node = UnwrapParenthesizedNode(node)
+        return _nodes.Kind(node) == ColumnarExpressionNodeKind.TernaryExpression && IsTypelessConditionalArm(node)
+    }
+
     // ONE ARM AS THE TARGET TYPE, through the same three doors the return and typed-local ladders use
     // for a value written where a type is already known: the lifted conversion when the target is a
     // `Nullable<T>` (which is what makes the `int` arm of `flag ? n : null` a `Nullable<int>`), the
@@ -22041,6 +22097,10 @@ sealed class ColumnarIlEmitter {
         if (thenThrows && elseThrows) {
             return false
         }
+        let conditionType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(node, 0), out conditionType) || conditionType != typeof(bool)) {
+            return false
+        }
         return (thenThrows || CanEmitConditionalArmAsType(thenNode, target)) && (elseThrows || CanEmitConditionalArmAsType(elseNode, target))
     }
 
@@ -22082,7 +22142,10 @@ sealed class ColumnarIlEmitter {
             return true
         }
         let liftedArmType: System.Type? = null
-        return TryGetPreflightExpressionType(node, out liftedArmType) && (TypesEquivalent(liftedArmType, target) || TypesEquivalent(liftedArmType, element) || CanEmitLiftedImplicitConversion(liftedArmType, target))
+        if (!TryGetPreflightExpressionType(node, out liftedArmType)) {
+            return false
+        }
+        return (TypesEquivalent(liftedArmType, target) || TypesEquivalent(liftedArmType, element) || CanEmitLiftedImplicitConversion(liftedArmType, target))
     }
 
     // THE TWO KEYWORD LITERALS THAT SPELL A TARGET TYPE'S ZERO VALUE, in the one place that knows the
@@ -24339,6 +24402,9 @@ sealed class ColumnarIlEmitter {
                 return true
             }
         }
+        if (op == "??") {
+            return TryGetPreflightNullCoalesceResult(node, out columnarResolvedType)
+        }
         // Short-circuit `&&`/`||` has NO preflight residual (task 007): N# types every plannable `&&`/`||` at
         // the front door, and a residual one is only ever EMITTED (case-12 arm), never preflight-typed, so the
         // old `&&`/`||` sub-arm here was dead and is deleted, not fenced.
@@ -24357,52 +24423,6 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        // `a ?? b` PRODUCES WHAT THE PRESENT VALUE IS, AND PREFLIGHT COULD NOT SAY SO.
-        //
-        // The emit arm has always known the rule — a REFERENCE left yields the left's own type, a
-        // `Nullable<T>` left yields its ELEMENT — but the preflight typed both operands and then fell
-        // off the end, so every reader that asks what an expression PRODUCES stopped at a coalesce.
-        // `census.IndexOf("returnLifetime=" + (value ?? ""), StringComparison.Ordinal)` is what that
-        // cost: the concat could not be typed, so the call's overload could not be chosen from its
-        // arguments and the site fell through to a per-API residual.
-        //
-        // The right operand must land on the same type the present value has. A widening, a derived
-        // reference and a `throw` right-hand side are all left un-typed here rather than guessed —
-        // they are exactly the shapes the emit arm decides WHILE emitting, and a preflight that
-        // answered differently from that arm would be worse than one that declines.
-        if (op == "??") {
-            if (ColumnarTypeOfPlanner.IsSupportedNullable(leftType)) {
-                // A NULLABLE right operand keeps the result nullable (`double? ?? double?` is `double?`).
-                if (TypesEquivalent(rightType, leftType)) {
-                    columnarResolvedType = leftType
-                    return true
-                }
-                coalesceElementType := leftType.GetGenericArguments()[0]
-                if (TypesEquivalent(rightType, coalesceElementType) || CanUseImplicitNumericWidening(rightType, coalesceElementType)) {
-                    columnarResolvedType = coalesceElementType
-                    return true
-                }
-                // The element converts to the right operand's type (`int? ?? long` is a `long`).
-                if (!CanConvertValueElement(coalesceElementType, rightType)) {
-                    return false
-                }
-                columnarResolvedType = rightType
-                return true
-            }
-            if (leftType.IsValueType) {
-                return false
-            }
-            if (TypesEquivalent(leftType, rightType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(rightType, leftType)) {
-                columnarResolvedType = leftType
-                return true
-            }
-            if (!ColumnarReferenceConversionFacts.TryEmitReferenceConversion(leftType, rightType)) {
-                return false
-            }
-            columnarResolvedType = rightType
-            return true
-        }
-
         if ((op == "==" || op == "!=") && TypesEquivalent(leftType, rightType) && (leftType == typeof(string) || leftType == typeof(Type) || IsSupportedInterpolationEqualityType(leftType))) {
             columnarResolvedType = typeof(bool)
             return true
@@ -24412,6 +24432,82 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        return false
+    }
+
+    // THE RESULT TYPE OF `??`, WITH EACH C# CONVERSION TESTED BEFORE A CALLER SELECTS AN EMIT ROUTE.
+    // A bare null and a throw have no ordinary right type, so their target/result is derived from the
+    // left operand first. For Nullable<T>, the conversions are deliberately ordered: right-to-T yields
+    // T; right-to-T? yields T?; then T-to-right yields the right type. Reference values use the same
+    // two directional conversions after nullable annotations have been erased by the CLR type reader.
+    private func TryGetPreflightNullCoalesceResult(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let leftType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(node, 0), out leftType) || leftType == null) {
+            return false
+        }
+
+        rightNode := UnwrapParenthesizedNode(Child(node, 1))
+        if (IsThrowExpressionNode(rightNode)) {
+            if (ColumnarTypeOfPlanner.IsSupportedNullable(leftType)) {
+                columnarResolvedType = leftType.GetGenericArguments()[0]
+                return true
+            }
+            if (!leftType.IsValueType || leftType.IsGenericParameter) {
+                columnarResolvedType = leftType
+                return true
+            }
+            return false
+        }
+
+        if (_nodes.Kind(rightNode) == ColumnarExpressionNodeKind.NullLiteralExpression) {
+            if (ColumnarTypeOfPlanner.IsSupportedNullable(leftType) || !leftType.IsValueType || leftType.IsGenericParameter) {
+                columnarResolvedType = leftType
+                return true
+            }
+            return false
+        }
+
+        let rightType: System.Type? = null
+        if (!TryGetPreflightExpressionType(rightNode, out rightType) || rightType == null) {
+            return false
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(leftType)) {
+            elementType := leftType.GetGenericArguments()[0]
+            if (CanAdoptIntLiteralAsType(rightNode, elementType) || CanConvertValueElement(rightType, elementType)) {
+                columnarResolvedType = elementType
+                return true
+            }
+            if (CanConvertValueElement(rightType, leftType)) {
+                columnarResolvedType = leftType
+                return true
+            }
+            if (CanConvertNullableCoalescePresentValue(elementType, rightType)) {
+                columnarResolvedType = rightType
+                return true
+            }
+            return false
+        }
+
+        if (leftType.IsGenericParameter) {
+            if (TypesEquivalent(leftType, rightType)) {
+                columnarResolvedType = leftType
+                return true
+            }
+            return false
+        }
+        if (leftType.IsValueType) {
+            return false
+        }
+        if (TypesEquivalent(leftType, rightType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(rightType, leftType) || CanEmitCoalesceFallbackConversion(rightType, leftType)) {
+            columnarResolvedType = leftType
+            return true
+        }
+        if (ColumnarReferenceConversionFacts.TryEmitReferenceConversion(leftType, rightType)) {
+            columnarResolvedType = rightType
+            return true
+        }
         return false
     }
 
@@ -25067,6 +25163,8 @@ sealed class ColumnarIlEmitter {
     }
 
     private func CanAdoptIntLiteralAsType(node: int, target: Type): bool {
+        // Mirror `TryEmitIntLiteralAsType` through the shared facts, including radix, separators,
+        // suffixes and enum-zero conversion, without writing IL.
         negative := false
         if (_nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "-") {
             negative = true
@@ -25076,28 +25174,11 @@ sealed class ColumnarIlEmitter {
             return false
         }
         text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
-        if (text.Length == 0 || text[^1] == 'u' || text[^1] == 'U' || text[^1] == 'l' || text[^1] == 'L' || text[^1] == 'm' || text[^1] == 'M') {
-            return false
+        if (RuntimeTypeShapeFacts.IsEnumType(target)) {
+            return ConstantConversionFacts.IsLiteralZero(text, negative)
         }
-        let value: ulong = 0UL
-        if (!UInt64.TryParse(text, out value)) {
-            return false
-        }
-        if (negative) {
-            if (target == typeof(byte) || target == typeof(ushort) || target == typeof(uint) || target == typeof(ulong)) {
-                return false
-            }
-            min := target == typeof(sbyte) ? (ulong)sbyte.MaxValue : target == typeof(short) ? (ulong)short.MaxValue : (ulong)int.MaxValue
-            return value <= min && (target == typeof(sbyte) || target == typeof(short) || target == typeof(int) || target == typeof(long))
-        }
-        if (target == typeof(byte) || target == typeof(sbyte) || target == typeof(short) || target == typeof(ushort) || target == typeof(uint)) {
-            max := target == typeof(byte) ? (ulong)byte.MaxValue : target == typeof(sbyte) ? (ulong)sbyte.MaxValue : target == typeof(short) ? (ulong)short.MaxValue : target == typeof(ushort) ? (ulong)ushort.MaxValue : (ulong)int.MaxValue
-            return value <= max
-        }
-        if (target == typeof(long) || target == typeof(ulong)) {
-            return value <= (ulong)int.MaxValue
-        }
-        return false
+        let value: long = 0L
+        return ConstantConversionFacts.TryGetInRangeIntegralConstant(target, text, negative, out value)
     }
 
     // Maps a CLOSED user-generic receiver (Box<int>) back to its OPEN definition's registry entry.
@@ -26315,7 +26396,8 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // The public `<Clone>$()` a referenced record class is copied through, or null for a class that is not one.
+    // The public `<Clone>$()` method a referenced record class is copied through, or null when the
+    // referenced type does not expose the clone contract this emitter can call.
     private func ReferencedRecordCloneMethod(receiverType: Type): System.Reflection.MethodInfo? {
         if (receiverType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType)) {
             return null
@@ -26345,11 +26427,12 @@ sealed class ColumnarIlEmitter {
     //
     //   * A VALUE type is copied by value (the copy is the temp the members are written into) -- C#
     //     allows `with` over any struct, record or not.
-    //   * A REFERENCE type is a record when it carries the compiler-reserved public instance method
-    //     `<Clone>$()` returning its own type. That is what C# emits for a record class and what N#
-    //     emits for one (`ColumnarRecordValueMemberPlanner`), so a record from another N# project, from
-    //     a C# project or from a NuGet package is cloned the same way. A class without it is not a
-    //     record and the expression is refused.
+    //   * A REFERENCE type is a record for this path when it carries the public instance method
+    //     `<Clone>$()` returning its own type. N# emits that contract for a record class
+    //     (`ColumnarRecordValueMemberPlanner`), so a record from another N# project is cloned the same
+    //     way. A class without this public method is not accepted by this path and the expression is
+    //     refused. C#-compiled records have no fixture in this repository, so their compatibility is
+    //     not asserted here.
     //
     // The named members are then written through the object-initializer seam: a public setter (an
     // `init` one included, whose modifier the emitted reference keeps) or a public non-readonly field.
@@ -28578,12 +28661,22 @@ sealed class ColumnarIlEmitter {
     // `string.Compare`, ...) had no such door, so a `null` arm survived only through the untargeted
     // unification arm, which knows `null` and not `default`.
     private func EmitArg(callIdx: int, argPosition: int, expected: Type): bool {
+        argumentNode := Child(callIdx, argPosition)
         let argType: System.Type? = null
-        if (IsAdoptableUnionConstruction(Child(callIdx, argPosition), expected)) {
-            if (!EmitAdoptedUnionConstruction(Child(callIdx, argPosition), expected, out argType)) {
+        if (IsAdoptableUnionConstruction(argumentNode, expected)) {
+            if (!EmitAdoptedUnionConstruction(argumentNode, expected, out argType)) {
                 return false
             }
-        } else if (!(TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitCollectionLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitArrayLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitZeroLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitConditionalAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitIntLiteralAsType(Child(callIdx, argPosition), expected, out argType) || EmitExpression(Child(callIdx, argPosition), out argType))) {
+        } else if (CanEmitConditionalAsType(argumentNode, expected)) {
+            // Once the conditional preflight selects this route, any emission failure is a hard
+            // refusal. Letting the argument ladder try an untargeted expression would reuse IL the
+            // conditional already wrote.
+            if (!TryEmitConditionalAsType(argumentNode, expected, out argType)) {
+                return false
+            }
+        } else if (IsTargetTypedConditionalNode(argumentNode)) {
+            return false
+        } else if (!(TryEmitTargetTypedNewAsType(argumentNode, expected, out argType) || TryEmitCollectionLiteralAsType(argumentNode, expected, out argType) || TryEmitArrayLiteralAsType(argumentNode, expected, out argType) || TryEmitZeroLiteralAsType(argumentNode, expected, out argType) || TryEmitIntLiteralAsType(argumentNode, expected, out argType) || EmitExpression(argumentNode, out argType))) {
             return false
         }
 
@@ -28630,9 +28723,14 @@ sealed class ColumnarIlEmitter {
         if (TryEmitZeroLiteralAsType(argNode, expectedParamType, out ignoredNullType)) {
             return true
         }
-        let ignoredConditionalType: System.Type? = null
-        if (TryEmitConditionalAsType(argNode, expectedParamType, out ignoredConditionalType)) {
-            return true
+        if (CanEmitConditionalAsType(argNode, expectedParamType)) {
+            let ignoredConditionalType: System.Type? = null
+            // The preflight chose this route; do not let a failed conditional fall through to a
+            // nullable or untargeted argument emitter after it has written branch IL.
+            return TryEmitConditionalAsType(argNode, expectedParamType, out ignoredConditionalType)
+        }
+        if (IsTargetTypedConditionalNode(argNode)) {
+            return false
         }
         if (ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)) {
             let ignoredNullableType: System.Type? = null
@@ -30390,7 +30488,15 @@ sealed class ColumnarIlEmitter {
                         if (TryEmitArrayLiteralAsType(valueNode, targetType, out valueType)) {
                         } else {
                             // target-typed array literal.
-                            if (TryEmitConditionalAsType(valueNode, targetType, out valueType)) {
+                            if (CanEmitConditionalAsType(valueNode, targetType)) {
+                                // A selected conditional route owns the value position. If emission
+                                // fails, do not try a second door with the condition or first arm
+                                // already on the stack.
+                                if (!TryEmitConditionalAsType(valueNode, targetType, out valueType)) {
+                                    return false
+                                }
+                            } else if (IsTargetTypedConditionalNode(valueNode)) {
+                                return false
                             } else if (TryEmitZeroLiteralAsType(valueNode, targetType, out valueType)) {
                             } else {
                                 // `flag ? value : null` takes the storage type; `null` is adopted by a
