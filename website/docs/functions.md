@@ -2669,8 +2669,10 @@ an overload is considered. A source class with a declared public parameterless c
 argument must bind that type parameter.
 
 Generic inference accumulates exact, lower, and upper bounds, then fixes a type argument that satisfies
-all bounds and their implicit conversions. For example, `Enumerable.Contains` can infer `object` from
-`IEnumerable<object>` and a `string` value. Invariant positions still require matching exact bounds.
+all bounds and their implicit conversions. A value type and its nullable lift fix to the nullable type,
+including when the value type is a source enum still being emitted. For example,
+`Enumerable.Contains` can infer `object` from `IEnumerable<object>` and a `string` value. Invariant
+positions still require matching exact bounds.
 
 ### Written type arguments with a lambda
 

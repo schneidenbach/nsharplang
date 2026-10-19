@@ -783,6 +783,17 @@ class InferenceBoundsProbe {
     }
 }
 
+class NullableInferenceProbe {
+    static func Last<T>(left: T, right: T): T {
+        return right
+    }
+}
+
+enum InferenceLevel {
+    Low,
+    High
+}
+
 func CrossTierMethodOrThrow(method: MethodInfo?): MethodInfo {
     if method == null {
         throw new InvalidOperationException("A selected cross-tier candidate did not carry a method")
@@ -968,6 +979,83 @@ test "repeated generic parameters accumulate lower bounds and preserve invariant
     invariantArguments[1] = typeof(List<string>)
     invariant := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(typeof(InferenceBoundsProbe), "Invariant", invariantArguments, facts, true)
     assert !invariant.IsSelected, "invariant List<T> positions cannot merge distinct exact type bounds"
+}
+
+test "nullable lifted bounds fix a repeated type parameter to the nullable type" {
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+    plainFirstTypes := GenericMethodTypes2(typeof(int), typeof(int?))
+    plainFirst := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(
+        typeof(NullableInferenceProbe),
+        "Last",
+        plainFirstTypes,
+        facts,
+        true
+    )
+    assert plainFirst.IsSelected, "int and int? must fix T to int?"
+    plainFirstMethod := CrossTierMethodOrThrow(plainFirst.Method)
+    assert plainFirstMethod.GetGenericArguments()[0] == typeof(int?)
+    plainFirstArguments := new object?[](2)
+    plainFirstArguments[0] = 7
+    plainFirstArguments[1] = null
+    assert plainFirstMethod.Invoke(null, plainFirstArguments) == null, "the selected Nullable<int> method must carry a null value"
+
+    liftedFirstTypes := GenericMethodTypes2(typeof(int?), typeof(int))
+    liftedFirst := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(
+        typeof(NullableInferenceProbe),
+        "Last",
+        liftedFirstTypes,
+        facts,
+        true
+    )
+    assert liftedFirst.IsSelected, "the reversed bound order must also fix T to int?"
+    liftedFirstMethod := CrossTierMethodOrThrow(liftedFirst.Method)
+    assert liftedFirstMethod.GetGenericArguments()[0] == typeof(int?)
+    liftedFirstArguments := new object?[](2)
+    liftedFirstArguments[0] = null
+    liftedFirstArguments[1] = 9
+    assert Convert.ToInt32(liftedFirstMethod.Invoke(null, liftedFirstArguments)) == 9
+
+    enumTypes := GenericMethodTypes2(typeof(InferenceLevel), typeof(InferenceLevel?))
+    enumSelection := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(
+        typeof(NullableInferenceProbe),
+        "Last",
+        enumTypes,
+        facts,
+        true
+    )
+    assert enumSelection.IsSelected, "an enum and Nullable<enum> must fix T to Nullable<enum>"
+    enumMethod := CrossTierMethodOrThrow(enumSelection.Method)
+    assert enumMethod.GetGenericArguments()[0] == typeof(InferenceLevel?)
+    enumArguments := new object?[](2)
+    enumArguments[0] = InferenceLevel.High
+    enumArguments[1] = null
+    assert enumMethod.Invoke(null, enumArguments) == null
+
+    sourceEnum := AdmissibilityEnumBuilder()
+    sourceNullableEnum := typeof(Nullable<int>).GetGenericTypeDefinition().MakeGenericType(GenericMethodTypes1(sourceEnum))
+    sourceTypes := GenericMethodTypes2(sourceEnum, sourceNullableEnum)
+    sourceSelection := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(
+        typeof(NullableInferenceProbe),
+        "Last",
+        sourceTypes,
+        facts,
+        true
+    )
+    assert sourceSelection.IsSelected, "a source enum and Nullable<source enum> must preserve the nullable-lift bound"
+    sourceMethod := CrossTierMethodOrThrow(sourceSelection.Method)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
+        sourceMethod.GetGenericArguments()[0],
+        sourceNullableEnum
+    )
+
+    invalid := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(
+        typeof(NullableInferenceProbe),
+        "Last",
+        GenericMethodTypes2(typeof(int), typeof(string)),
+        facts,
+        true
+    )
+    assert !invalid.IsSelected
 }
 
 test "generic Array overloads beat the broader non-generic overloads" {

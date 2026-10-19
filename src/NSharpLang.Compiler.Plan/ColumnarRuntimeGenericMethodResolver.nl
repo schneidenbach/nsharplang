@@ -996,6 +996,9 @@ class ColumnarRuntimeGenericMethodResolver {
         if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(targetType, sourceType) {
             return true
         }
+        if ColumnarTypeEquivalenceFacts.IsNullableLiftOf(targetType, sourceType) {
+            return true
+        }
         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(targetType) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(sourceType) {
             return ConstraintAccepts(targetType, sourceType)
         }
