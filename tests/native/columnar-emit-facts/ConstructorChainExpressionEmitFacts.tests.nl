@@ -202,13 +202,16 @@ test "constructor chain argument exceptions occur before the target constructor 
 
 test "constructor chain emission rejects ambiguous targets and pre-chain current-instance access" {
     ambiguous := "class ChainAmbiguousBase {\n    constructor(value: string) {}\n    constructor(value: object) {}\n}\nclass ChainAmbiguousDerived: ChainAmbiguousBase {\n    constructor(): base(null) {}\n}\n"
-    assert ConstructorChainExpressionEmitOutcome(ambiguous) == "emit.ctor.chain-target|ChainAmbiguousDerived.constructor"
+    ambiguousOutcome := ConstructorChainExpressionEmitOutcome(ambiguous)
+    assert ambiguousOutcome == "emit.ctor.chain-target|ChainAmbiguousDerived.constructor", ambiguousOutcome
 
     wrongArgument := "class ChainWrongBase { constructor(value: int) {} }\nclass ChainWrongDerived: ChainWrongBase {\n    constructor(): base(\"wrong\") {}\n}\n"
-    assert ConstructorChainExpressionEmitOutcome(wrongArgument) == "emit.ctor.chain-argument|ChainWrongDerived.constructor"
+    wrongArgumentOutcome := ConstructorChainExpressionEmitOutcome(wrongArgument)
+    assert wrongArgumentOutcome == "emit.ctor.chain-argument|ChainWrongDerived.constructor", wrongArgumentOutcome
 
     explicitThis := "class ChainThisBase { constructor(value: int) {} }\nclass ChainThisDerived: ChainThisBase {\n    Value: int\n    constructor(): base(this.Value) {}\n}\n"
-    assert ConstructorChainExpressionEmitOutcome(explicitThis) == "emit.ctor.chain-instance|ChainThisDerived.constructor"
+    explicitThisOutcome := ConstructorChainExpressionEmitOutcome(explicitThis)
+    assert explicitThisOutcome == "emit.ctor.chain-instance|ChainThisDerived.constructor", explicitThisOutcome
 
     // `base.Member` USED TO BE A PARSE DECLINE because `base.` did not parse at all. It parses now,
     // and it is rejected for the SAME reason `this.Value` above is: `base` is the same reference
@@ -216,16 +219,20 @@ test "constructor chain emission rejects ambiguous targets and pre-chain current
     // not exist yet (C# reports the CS0027 family here). The outcome moves from `parse.struct` to
     // the current-instance decline, which is the correct one.
     explicitBase := "class ChainExplicitBase {\n    Value: int\n    constructor(value: int) { Value = value }\n}\nclass ChainExplicitBaseDerived: ChainExplicitBase {\n    constructor(): base(base.Value) {}\n}\n"
-    assert ConstructorChainExpressionEmitOutcome(explicitBase) == "emit.ctor.chain-instance|ChainExplicitBaseDerived.constructor"
+    explicitBaseOutcome := ConstructorChainExpressionEmitOutcome(explicitBase)
+    assert explicitBaseOutcome == "emit.ctor.chain-instance|ChainExplicitBaseDerived.constructor", explicitBaseOutcome
 
     explicitBaseCall := "class ChainExplicitBaseCall {\n    constructor(value: int) {}\n    func Read(): int { return 1 }\n}\nclass ChainExplicitBaseCallDerived: ChainExplicitBaseCall {\n    constructor(): base(base.Read()) {}\n}\n"
-    assert ConstructorChainExpressionEmitOutcome(explicitBaseCall) == "emit.ctor.chain-instance|ChainExplicitBaseCallDerived.constructor"
+    explicitBaseCallOutcome := ConstructorChainExpressionEmitOutcome(explicitBaseCall)
+    assert explicitBaseCallOutcome == "emit.ctor.chain-instance|ChainExplicitBaseCallDerived.constructor", explicitBaseCallOutcome
 
     implicitField := "class ChainFieldBase { constructor(value: int) {} }\nclass ChainFieldDerived: ChainFieldBase {\n    Value: int\n    constructor(): base(Value) {}\n}\n"
-    assert ConstructorChainExpressionEmitOutcome(implicitField) == "emit.ctor.chain-instance|ChainFieldDerived.constructor"
+    implicitFieldOutcome := ConstructorChainExpressionEmitOutcome(implicitField)
+    assert implicitFieldOutcome == "emit.ctor.chain-instance|ChainFieldDerived.constructor", implicitFieldOutcome
 
     instanceCall := "class ChainCallBase { constructor(value: int) {} }\nclass ChainCallDerived: ChainCallBase {\n    constructor(): base(Read()) {}\n    private func Read(): int { return 1 }\n}\n"
-    assert ConstructorChainExpressionEmitOutcome(instanceCall) == "emit.ctor.chain-instance|ChainCallDerived.constructor"
+    instanceCallOutcome := ConstructorChainExpressionEmitOutcome(instanceCall)
+    assert instanceCallOutcome == "emit.ctor.chain-instance|ChainCallDerived.constructor", instanceCallOutcome
 
     // A BARE `this` IN A CHAIN ARGUMENT USED TO BE A PARSE DECLINE, because a `this` standing alone
     // reached no columnar node kind at all. It parses now (expression kind 82), and it is rejected for
@@ -234,8 +241,13 @@ test "constructor chain emission rejects ambiguous targets and pre-chain current
     // The outcome moves from `parse.struct` to the current-instance decline, which is the correct one
     // and is what C# reports here too (CS0027, `this` is not available in the current context).
     bareThis := "class ChainBareThis {\n    constructor(value: object) {}\n    constructor(): this(this) {}\n}\n"
-    assert ConstructorChainExpressionEmitOutcome(bareThis) == "emit.ctor.chain-instance|ChainBareThis.constructor"
+    bareThisOutcome := ConstructorChainExpressionEmitOutcome(bareThis)
+    assert bareThisOutcome == "emit.ctor.chain-instance|ChainBareThis.constructor", bareThisOutcome
 
+    // A bare reserved `base` in the constructor argument is retained as an identifier-shaped
+    // recovery node. Parsing the construct lets the diagnostic pass report NL109 at the word,
+    // rather than declining the whole class before diagnostics can be produced.
     bareBase := "class ChainBareBase { constructor(value: object) {} }\nclass ChainBareBaseDerived: ChainBareBase {\n    constructor(): base(base) {}\n}\n"
-    assert ConstructorChainExpressionParseOutcome(bareBase) == "parse.struct"
+    bareBaseOutcome := ConstructorChainExpressionParseOutcome(bareBase)
+    assert bareBaseOutcome == "success", bareBaseOutcome
 }
