@@ -31,6 +31,7 @@ const sidebars = {
       collapsed: false,
       items: [
         'cli-reference',
+        'project-yml',
         'debugging',
         'ci-cd',
       ],

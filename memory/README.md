@@ -31,6 +31,8 @@ The owner decision of 2026-10-07 records exactly three permanent production C# b
 They may shrink, never grow, and must not take on compiler/tooling logic. `editors/visualstudio`
 remains a separate low-priority IDE host. The ownership policy rejects any other active production
 C# path; see [the boundary decision and ratchet](architecture.md#permanent-production-csharp-boundaries).
+The docs website is not deletion debt: `website/` pages, sidebars, site config, scripts and styles
+grow normally, and the ratchet does not track them (owner decision 2026-10-18).
 
 Compiler-service kernels are statically compiled through `NSharpLang.Compiler.Core`;
 product paths must not use `Assembly.Load`/delegate reflection for N# compiler services. Because

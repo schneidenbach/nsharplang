@@ -768,7 +768,12 @@ source paths above, while all other active production C# paths fail policy valid
 any drift is reported (`OWN005`) and a new delivery file is admitted only by adding its row in a
 reviewed repin. On 2026-10-12, E2 admitted the four isolated VS Code visual-scenario TypeScript
 test-harness files at their reviewed current sizes; every prior code ceiling remains unchanged, and
-the scenario shell runner is recorded as a reviewed delivery row. `tasks/README.md` is the ordered
+the scenario shell runner is recorded as a reviewed delivery row. On 2026-10-18, E3 took the docs
+website out of the ratchet (owner decision: deletion debt means non-N# compiler and tooling code, not
+the website): web-content files under `website/` (JS/TS, CSS, HTML, JSON, YAML, `.gitignore`,
+`.nojekyll`) are not audited and grow freely, so its ten JavaScript code rows and five delivery rows
+were dropped; C#, binaries (the published playground WASM), MSBuild, shell and every other
+implementation language placed under `website/` stay audited. `tasks/README.md` is the ordered
 vertical ownership queue and `systems-language-closeout/STATUS.md` is its cursor/evidence ledger.
 
 ## Build And Test Commands

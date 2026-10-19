@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
   "phase": "growth-ratchet",
-  "codeEpochFileCount": 227,
-  "codeEpochPathFingerprint": "pathset-v2:97fe77313c04eb7e",
-  "codeEpochFactFingerprint": "epochfacts-v2:4c440f3312742657",
-  "reviewedHeadFingerprint": "head-v2:1dfbf89868de24e9",
+  "codeEpochFileCount": 217,
+  "codeEpochPathFingerprint": "pathset-v2:8753f45f767649bf",
+  "codeEpochFactFingerprint": "epochfacts-v2:bbd44c5fc149a36c",
+  "reviewedHeadFingerprint": "head-v2:e01aafcc1fa9856e",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":446,"currentNonBlankLines":391,"currentBytes":0,"currentFingerprint":"text-v1:c4fff4cafe6f3d2a"},
@@ -424,21 +424,6 @@
     {"path":"tests/scripts/test-release-workflows.py","language":"python","surface":"gate-infrastructure","campaignScope":"closeout","state":"existing-debt","epochLines":131,"currentLines":131,"epochNonBlankLines":125,"currentNonBlankLines":125,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:8a6af33ac5a05009"},
     {"path":"tests/scripts/test-vscode-headless.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":36,"currentNonBlankLines":27,"currentBytes":0,"currentFingerprint":"text-v1:f217a977a4dcd017"},
     {"path":"tests/scripts/test-vscode-integration.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":261,"currentNonBlankLines":223,"currentBytes":0,"currentFingerprint":"text-v1:8818a727f799d42c"},
-    {"path":"tests/xunit.runner.json","language":"json-config","surface":"compiler-tests","campaignScope":"closeout","state":"removed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
-    {"path":"website/.gitignore","language":"product-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":20,"currentNonBlankLines":16,"currentBytes":0,"currentFingerprint":"text-v1:af8f2727150dbef0"},
-    {"path":"website/docusaurus.config.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":118,"currentLines":118,"epochNonBlankLines":108,"currentNonBlankLines":108,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:5ea86b1ae9061454"},
-    {"path":"website/package-lock.json","language":"json-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":18504,"currentNonBlankLines":18504,"currentBytes":0,"currentFingerprint":"text-v1:dc3df6a928c4bfb2"},
-    {"path":"website/package.json","language":"json-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":48,"currentNonBlankLines":48,"currentBytes":0,"currentFingerprint":"text-v1:58e6306e3b1a4a1a"},
-    {"path":"website/sidebars.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":57,"currentLines":57,"epochNonBlankLines":55,"currentNonBlankLines":55,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:98d789085844dfd0"},
-    {"path":"website/src/css/custom.css","language":"product-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":1174,"currentNonBlankLines":1011,"currentBytes":0,"currentFingerprint":"text-v1:24c9342caae4033a"},
-    {"path":"website/src/lib/tutorialValidation.mjs","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":35,"currentLines":35,"epochNonBlankLines":29,"currentNonBlankLines":29,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:fbf67ce22028c315"},
-    {"path":"website/src/lib/tutorialValidation.test.mjs","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":65,"currentLines":65,"epochNonBlankLines":57,"currentNonBlankLines":57,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:f86501c2e2b2b25a"},
-    {"path":"website/src/pages/examples.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":532,"currentLines":532,"epochNonBlankLines":474,"currentNonBlankLines":474,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:798eb232dbe95575"},
-    {"path":"website/src/pages/index.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":334,"currentLines":334,"epochNonBlankLines":306,"currentNonBlankLines":306,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:3875937ebdfbfc81"},
-    {"path":"website/src/pages/playground.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":1191,"currentLines":1191,"epochNonBlankLines":1081,"currentNonBlankLines":1081,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:d2a0cd709b54d438"},
-    {"path":"website/src/pages/tutorial.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":6,"currentLines":6,"epochNonBlankLines":5,"currentNonBlankLines":5,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:061f01c87067b62b"},
-    {"path":"website/src/theme/prism-include-languages.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":81,"currentLines":81,"epochNonBlankLines":77,"currentNonBlankLines":77,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:e96bb2f7b0f6993f"},
-    {"path":"website/static/.nojekyll","language":"product-config","surface":"playground-web","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
-    {"path":"website/static/playground/nsharp-playground.js","language":"javascript","surface":"playground-web","campaignScope":"closeout","state":"existing-debt","epochLines":37,"currentLines":37,"epochNonBlankLines":32,"currentNonBlankLines":32,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:c702397e90b87618"}
+    {"path":"tests/xunit.runner.json","language":"json-config","surface":"compiler-tests","campaignScope":"closeout","state":"removed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"}
   ]
 }

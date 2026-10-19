@@ -333,3 +333,27 @@ test "workspace NuGet asset cache keys include target framework and selected pac
     assert net10 != net8
     assert net10 != otherClosure
 }
+
+// ── the shared frameworks expanded into compile references ────────────────────
+test "a Web SDK project expands ASP.NET Core and a plain one expands nothing" {
+    none := new Reference[](0)
+    assert string.Join("|", CompilationReferenceResolverKernels.GetFrameworkReferenceNames("Microsoft.NET.Sdk.Web", none)) == "Microsoft.AspNetCore.App"
+    assert CompilationReferenceResolverKernels.GetFrameworkReferenceNames("Microsoft.NET.Sdk", none).Length == 0
+}
+
+test "an SDK id that merely contains Web implies no framework, as under MSBuild" {
+    none := new Reference[](0)
+    assert CompilationReferenceResolverKernels.GetFrameworkReferenceNames("Microsoft.NET.Sdk.BlazorWebAssembly", none).Length == 0
+    assert CompilationReferenceResolverKernels.GetFrameworkReferenceNames("Microsoft.NET.Sdk.WebAssembly", none).Length == 0
+}
+
+test "an explicit Microsoft.NETCore.App entry is legal and expands nothing, and other entries add once" {
+    references := [
+        new Reference { Framework: "Microsoft.NETCore.App" },
+        new Reference { Framework: "microsoft.aspnetcore.app" },
+        new Reference { Framework: "Microsoft.WindowsDesktop.App" }
+    ]
+
+    assert string.Join("|", CompilationReferenceResolverKernels.GetFrameworkReferenceNames("Microsoft.NET.Sdk", references)) == "microsoft.aspnetcore.app|Microsoft.WindowsDesktop.App"
+    assert string.Join("|", CompilationReferenceResolverKernels.GetFrameworkReferenceNames("Microsoft.NET.Sdk.Web", references)) == "Microsoft.AspNetCore.App|Microsoft.WindowsDesktop.App"
+}
