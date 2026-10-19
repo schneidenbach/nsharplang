@@ -127,29 +127,20 @@ class CompilationReferenceResolverKernels {
         return Path.GetFileName(versionDirectory) ?? ""
     }
 
-    // ── DIRECT WINS, THEN HIGHEST WINS — MEASURED AGAINST `dotnet restore`, NOT RECALLED ──────
+    // ── DIRECT WINS, THEN HIGHEST APPLICABLE COUSIN VERSION ──────────────────────────────────
     //
-    // A `nuget:` list is a set of ROOTS, not an ordered search path. Resolving each root's closure
-    // in turn and keeping the first version reached makes the ORDER of the list decide: measured,
-    // `Microsoft.Extensions.Logging 9.0.0` written after `OmniSharp.Extensions.LanguageServer`
-    // bound OmniSharp's transitive 6.0.0 through `nlc build` while `dotnet build` bound the pin.
-    //
-    // THE RULE IS NOT PLAIN NEAREST-WINS, AND THAT COST A BROKEN TEMPLATE TO LEARN. Selecting the
-    // occurrence closest to the project resolved `Microsoft.OpenApi 1.6.17` for the `nsharp-webapi`
-    // template, because `Microsoft.AspNetCore.OpenApi 9.0.0` names it one level nearer than
-    // `Swashbuckle.AspNetCore -> Swashbuckle.AspNetCore.Swagger` does. `dotnet restore` of the same
-    // two references resolves **1.6.22** — the FURTHER, higher one. A dependency version is a
-    // minimum bound, so satisfying every edge means taking the highest of them; distance only
-    // decides when a DIRECT reference overrides the graph, and NuGet reports that as NU1605 rather
-    // than resolving it by version:
+    // A `nuget:` list is a set of ROOTS, not an ordered search path. This comparison helper is used
+    // only after the graph walk has applied nearest-wins within each root subgraph. Across cousin
+    // subgraphs, NuGet's lowest-applicable rule chooses the lowest version satisfying all lower
+    // bounds, which is the highest requested minimum. A project-level direct reference overrides
+    // any transitive occurrence, including a downgrade, and NuGet reports that as NU1605:
     //
     //   | graph | `dotnet restore` resolves |
     //   | Swashbuckle 7.2.0 (-> 1.6.22 at depth 3) + AspNetCore.OpenApi 9.0.0 (-> 1.6.17 at depth 2) | 1.6.22 |
     //   | the same, plus a DIRECT `Microsoft.OpenApi 1.6.17` | 1.6.17, with NU1605 |
     //
-    // So: a direct reference beats every transitive occurrence however the list is written, and
-    // among transitive occurrences the HIGHEST version wins whatever their distance. Distance
-    // beyond direct-or-not is not consulted, because it is not what NuGet consults.
+    // The resolver recomputes the closure after choosing these candidates. The chosen version's
+    // dependencies replace the losing version's edges before the next cousin set is considered.
     //
     // `NormalizeNuGetDependencyVersion` collapses a declared range to its minimum, so an EXACT
     // range (`[1.0.0]`) is indistinguishable here from a lower bound. NuGet would report that

@@ -87,10 +87,10 @@ sealed class CompilationReferenceResolver {
             options.IncludeTests
         )
         // THE VERSION OF EVERY PACKAGE IN THE CLOSURE IS DECIDED BEFORE ANY ASSET IS TAKEN.
-        // Walking each root's closure and keeping whatever version was reached first makes the
-        // order of the `nuget:` list decide the answer; NuGet's rule is direct-then-highest
-        // (`CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate`), so the
-        // selection is a level-order pass of its own and the asset walk below reads its result.
+        // Project-level direct references win first. Each root subgraph then applies nearest-wins;
+        // cousin requests are unified by their highest minimum version. The selection repeats from
+        // the roots until stable, so losing package versions cannot leave their dependencies in the
+        // map consumed by the asset walk below.
         selectedVersions := SelectNuGetPackageVersions(packageReferences, config.TargetFramework, context.PackagesRoot)
         selectedVersionsKey := SelectedNuGetVersionsCacheKey(selectedVersions)
 
@@ -463,77 +463,180 @@ sealed class CompilationReferenceResolver {
         return directories
     }
 
-    // ── LEVEL-ORDER SELECTION ─────────────────────────────────────────────────────────────────
+    // ── PACKAGE GRAPH SELECTION ─────────────────────────────────────────────────────────────────
     //
-    // Every declared `nuget:` entry enters at depth 0 and every dependency a selected package
-    // declares enters one level further out, so the queue is drained nearest-first and every
-    // DIRECT reference is settled before any transitive occurrence is looked at.
-    // `ShouldSelectNuGetPackageCandidate` carries the rule and says why it is direct-then-highest
-    // rather than plain nearest. The walk terminates because a win requires either a direct
-    // reference — only depth 0, each declared once — or a strictly higher version of the same id,
-    // and the versions reachable for an id are a finite set the nuspecs fix.
+    // NuGet resolves direct project references first, nearest occurrences inside each root
+    // subgraph next, then cousin requests across subgraphs to the lowest version satisfying their
+    // lower bounds (the highest requested lower bound here). Each pass walks only the edges of the
+    // selected package versions. Repeating from the roots matters: when a cousin winner replaces a
+    // package, dependencies declared only by its losing version must disappear before the next
+    // package's cousin set is computed.
     private static func SelectNuGetPackageVersions(
         packageReferences: List<Reference>,
         targetFramework: string,
         packagesRoot: string
     ): Dictionary<string, string> {
-        selectedVersions := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        selectedDirect := new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
-        pending := new List<PackageResolutionNode>()
-
+        directVersions := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         for rootReference in packageReferences {
             rootName := rootReference.Nuget
-            if rootName != null {
-                pending.Add(new PackageResolutionNode(rootName, rootReference.Version, 0))
-            }
-        }
-
-        cursor := 0
-        while cursor < pending.Count {
-            node := pending[cursor]
-            cursor = cursor + 1
-
-            normalizedId := CompilationReferenceResolverKernels.NormalizeNuGetPackageId(node.Id)
-            versionDirectory := EnsurePackageAvailable(packagesRoot, node.Id, node.Version)
-            candidateVersion := CompilationReferenceResolverKernels.GetInstalledNuGetPackageVersion(
-                versionDirectory
-            )
-
-            let selectedVersion: string = ""
-            hasSelection := selectedVersions.TryGetValue(normalizedId, out selectedVersion)
-            selectedIsDirect := false
-            if hasSelection {
-                let existingDirect: bool = false
-                if selectedDirect.TryGetValue(normalizedId, out existingDirect) {
-                    selectedIsDirect = existingDirect
-                }
-            }
-
-            if !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(
-                hasSelection,
-                selectedVersion,
-                selectedIsDirect,
-                candidateVersion,
-                node.Depth == 0
-            ) {
+            if rootName == null {
                 continue
             }
 
-            selectedVersions[normalizedId] = candidateVersion
-            selectedDirect[normalizedId] = node.Depth == 0
-
-            dependencies := ReadPackageDependencies(versionDirectory, targetFramework)
-            dependencyIndex := 0
-            while dependencyIndex < dependencies.Count {
-                dependency := dependencies[dependencyIndex]
-                pending.Add(
-                    new PackageResolutionNode(dependency.Id, dependency.Version, node.Depth + 1)
-                )
-                dependencyIndex = dependencyIndex + 1
+            normalizedId := CompilationReferenceResolverKernels.NormalizeNuGetPackageId(rootName ?? "")
+            versionDirectory := EnsurePackageAvailable(packagesRoot, rootName ?? "", rootReference.Version)
+            candidateVersion := CompilationReferenceResolverKernels.GetInstalledNuGetPackageVersion(versionDirectory)
+            let selectedVersion: string = ""
+            hasSelection := directVersions.TryGetValue(normalizedId, out selectedVersion)
+            if CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(
+                hasSelection,
+                selectedVersion,
+                hasSelection,
+                candidateVersion,
+                true
+            ) {
+                directVersions[normalizedId] = candidateVersion
             }
         }
 
-        return selectedVersions
+        selectedVersions := new Dictionary<string, string>(directVersions, StringComparer.OrdinalIgnoreCase)
+        seenClosures := new HashSet<string>(StringComparer.Ordinal)
+        closureKey := SelectedNuGetVersionsCacheKey(selectedVersions)
+        seenClosures.Add(closureKey)
+        while true {
+            nextVersions := new Dictionary<string, string>(directVersions, StringComparer.OrdinalIgnoreCase)
+            for rootReference in packageReferences {
+                rootName := rootReference.Nuget
+                if rootName == null {
+                    continue
+                }
+
+                branchVersions := SelectNuGetPackageBranch(
+                    rootName ?? "",
+                    rootReference.Version,
+                    targetFramework,
+                    packagesRoot,
+                    selectedVersions,
+                    directVersions
+                )
+                for branchEntry in branchVersions {
+                    if directVersions.ContainsKey(branchEntry.Key) {
+                        continue
+                    }
+
+                    let selectedVersion: string = ""
+                    hasSelection := nextVersions.TryGetValue(branchEntry.Key, out selectedVersion)
+                    if CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(
+                        hasSelection,
+                        selectedVersion,
+                        false,
+                        branchEntry.Value,
+                        false
+                    ) {
+                        nextVersions[branchEntry.Key] = branchEntry.Value
+                    }
+                }
+            }
+
+            nextKey := SelectedNuGetVersionsCacheKey(nextVersions)
+            if nextKey == closureKey {
+                return nextVersions
+            }
+            if !seenClosures.Add(nextKey) {
+                throw new InvalidOperationException("NuGet package dependency selection did not converge after recomputing the winning package closure.")
+            }
+
+            selectedVersions = nextVersions
+            closureKey = nextKey
+        }
+    }
+
+    private static func SelectNuGetPackageBranch(
+        rootPackageName: string,
+        rootVersion: string?,
+        targetFramework: string,
+        packagesRoot: string,
+        selectedVersions: Dictionary<string, string>,
+        directVersions: Dictionary<string, string>
+    ): Dictionary<string, string> {
+        branchVersions := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        pending := new List<PackageResolutionNode>()
+        pending.Add(new PackageResolutionNode(rootPackageName, rootVersion, 0))
+        cursor := 0
+
+        while cursor < pending.Count {
+            depth := pending[cursor].Depth
+            layerEnd := cursor
+            while layerEnd < pending.Count && pending[layerEnd].Depth == depth {
+                layerEnd = layerEnd + 1
+            }
+
+            layerNodes := new Dictionary<string, PackageResolutionNode>(StringComparer.OrdinalIgnoreCase)
+            layerVersions := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            nodeIndex := cursor
+            while nodeIndex < layerEnd {
+                node := pending[nodeIndex]
+                nodeIndex = nodeIndex + 1
+                normalizedId := CompilationReferenceResolverKernels.NormalizeNuGetPackageId(node.Id)
+                if branchVersions.ContainsKey(normalizedId) {
+                    continue
+                }
+
+                candidateDirectory := EnsurePackageAvailable(packagesRoot, node.Id, node.Version)
+                candidateVersion := CompilationReferenceResolverKernels.GetInstalledNuGetPackageVersion(candidateDirectory)
+                let selectedLayerVersion: string = ""
+                if layerVersions.TryGetValue(normalizedId, out selectedLayerVersion) {
+                    if CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(
+                        true,
+                        selectedLayerVersion,
+                        false,
+                        candidateVersion,
+                        false
+                    ) {
+                        layerVersions[normalizedId] = candidateVersion
+                        layerNodes[normalizedId] = node
+                    }
+                } else {
+                    layerVersions[normalizedId] = candidateVersion
+                    layerNodes[normalizedId] = node
+                }
+            }
+
+            nextLayer := new List<PackageResolutionNode>()
+            for layerEntry in layerNodes {
+                normalizedId := layerEntry.Key
+                branchVersions[normalizedId] = layerVersions[normalizedId]
+
+                expansionVersion := layerVersions[normalizedId]
+                let directVersion: string = ""
+                if directVersions.TryGetValue(normalizedId, out directVersion) {
+                    expansionVersion = directVersion
+                } else {
+                    let selectedVersion: string = ""
+                    if selectedVersions.TryGetValue(normalizedId, out selectedVersion) &&
+                        !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(
+                            true,
+                            selectedVersion,
+                            false,
+                            expansionVersion,
+                            false
+                        ) {
+                        expansionVersion = selectedVersion
+                    }
+                }
+
+                versionDirectory := EnsurePackageAvailable(packagesRoot, layerEntry.Value.Id, expansionVersion)
+                dependencies := ReadPackageDependencies(versionDirectory, targetFramework)
+                for dependency in dependencies {
+                    nextLayer.Add(new PackageResolutionNode(dependency.Id, dependency.Version, depth + 1))
+                }
+            }
+
+            pending.AddRange(nextLayer)
+            cursor = layerEnd
+        }
+
+        return branchVersions
     }
 
     private static func ResolveNuGetPackage(

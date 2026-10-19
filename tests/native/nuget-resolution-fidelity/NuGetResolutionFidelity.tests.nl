@@ -62,14 +62,18 @@ func ResolutionInstallLeaves(cli: string, scratch: string, cache: string) {
     ResolutionInstallLibrary(leafTwoDirectory, leafTwo)
 }
 
+func ResolutionWriteCarrierVersion(cache: string, packageId: string, version: string, dependenciesXml: string) {
+    ResolutionWriteNuspec(ResolutionPackageDirectory(cache, packageId, version), packageId, version, dependenciesXml)
+}
+
 func ResolutionWriteCarrier(cache: string, packageId: string, dependenciesXml: string) {
-    ResolutionWriteNuspec(ResolutionPackageDirectory(cache, packageId, "1.0.0"), packageId, "1.0.0", dependenciesXml)
+    ResolutionWriteCarrierVersion(cache, packageId, "1.0.0", dependenciesXml)
 }
 
 // The answer to "which version did the COMPILER bind", read out of the emitted assembly, plus the
 // program's own answer as a second, independent witness that the binding is usable.
-func ResolutionBoundLeaf(cli: string, scratch: string, cache: string, dependencies: string, contextName: string): ResolutionRun {
-    appDirectory := Path.Combine(scratch, "app")
+func ResolutionBoundLeaf(cli: string, scratch: string, cache: string, dependencies: string, contextName: string, appDirectoryName: string = "app"): ResolutionRun {
+    appDirectory := Path.Combine(scratch, appDirectoryName)
     ResolutionWriteProject(appDirectory, ResolutionAppProjectYml(dependencies), "Program.nl", ResolutionAppSource())
     build := ResolutionRunInCache(ResolutionQuote(cli) + " build", appDirectory, cache)
     ResolutionRequireSuccess(build, "nlc build of the resolution sample")
@@ -168,6 +172,49 @@ test "two transitive occurrences unify on the higher version whatever their dist
         answer := ResolutionBoundLeaf(cli, scratch, cache, dependencies, "resolution-transitive")
         assert answer.Stdout.StartsWith("ResolutionLeaf, Version=2.0.0.0", StringComparison.Ordinal), "the build bound " + answer.Stdout
         assert answer.Stderr == "leaf-2", answer.Stderr
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
+test "losing package versions drop their dependency edges, while a winning parent's edge remains" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("losing-package-branch")
+    try {
+        cache := Path.Combine(scratch, "packages")
+        Directory.CreateDirectory(cache)
+        ResolutionInstallLeaves(cli, scratch, cache)
+
+        leafNine := ResolutionBuildLeaf(cli, scratch, "9.0.0", "leaf-9")
+        leafNineDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Leaf", "9.0.0")
+        ResolutionWriteNuspec(leafNineDirectory, "NlcResolution.Leaf", "9.0.0", ResolutionNoDependencies())
+        ResolutionInstallLibrary(leafNineDirectory, leafNine)
+
+        // Near and Deep are cousin subgraphs. Shared 2 wins their conflict even though Near's
+        // version is closer; Leaf 9 belongs only to Shared 1, so that edge must disappear when
+        // the winning Shared version is used to recompute the closure. Other still contributes
+        // Leaf 1, which is then the only applicable Leaf request.
+        ResolutionWriteCarrier(cache, "NlcResolution.Near", ResolutionDependsOn("NlcResolution.Shared", "1.0.0"))
+        ResolutionWriteCarrier(cache, "NlcResolution.Shared", ResolutionDependsOn("NlcResolution.Leaf", "9.0.0"))
+        ResolutionWriteCarrierVersion(cache, "NlcResolution.Shared", "2.0.0", ResolutionNoDependencies())
+        ResolutionWriteCarrier(cache, "NlcResolution.Deep", ResolutionDependsOn("NlcResolution.Bridge", "1.0.0"))
+        ResolutionWriteCarrier(cache, "NlcResolution.Bridge", ResolutionDependsOn("NlcResolution.Shared", "2.0.0"))
+        ResolutionWriteCarrier(cache, "NlcResolution.Other", ResolutionDependsOn("NlcResolution.Leaf", "1.0.0"))
+
+        winningDependencies := ResolutionDependency("NlcResolution.Near", "1.0.0") +
+            ResolutionDependency("NlcResolution.Deep", "1.0.0") +
+            ResolutionDependency("NlcResolution.Other", "1.0.0")
+        winningAnswer := ResolutionBoundLeaf(cli, scratch, cache, winningDependencies, "nuget-losing-branch", "winning-app")
+        assert winningAnswer.Stdout.StartsWith("ResolutionLeaf, Version=1.0.0.0", StringComparison.Ordinal), "the build bound " + winningAnswer.Stdout
+        assert winningAnswer.Stderr == "leaf-1", winningAnswer.Stderr
+
+        // Control: without Deep's Shared 2 request, Shared 1 still wins and Leaf 9 remains in
+        // the closure. Recomputing must not drop edges just because another cousin asks for less.
+        retainedDependencies := ResolutionDependency("NlcResolution.Near", "1.0.0") +
+            ResolutionDependency("NlcResolution.Other", "1.0.0")
+        retainedAnswer := ResolutionBoundLeaf(cli, scratch, cache, retainedDependencies, "nuget-retained-branch", "retained-app")
+        assert retainedAnswer.Stdout.StartsWith("ResolutionLeaf, Version=9.0.0.0", StringComparison.Ordinal), "the control bound " + retainedAnswer.Stdout
+        assert retainedAnswer.Stderr == "leaf-9", retainedAnswer.Stderr
     } finally {
         Directory.Delete(scratch, true)
     }
