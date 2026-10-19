@@ -2653,12 +2653,14 @@ func shapes(set: DbSet<Person>, name: string) {
 A call whose array argument is already built passes it through unpacked, and a type parameter that only
 an omitted parameter mentions cannot be inferred (write it). When generic and non-generic overloads
 both apply, the compiler compares each supplied argument's conversion to the candidates' effective
-parameter types. For extension calls, this comparison includes the receiver's conversion to each
-candidate's `this` parameter. A strictly better parameter list wins. When effective parameter types
-and applicable parameter counts tie, the non-generic method wins. Incomparable lists, or several
-equally best candidates within either family, remain ambiguous. Optional candidates with identical
-supplied parameter types but different numbers of declared parameters also remain ambiguous, matching
-C#'s optional-parameter tie-break. Runtime-value coverage checks that `Task.WhenAll(first, second)`
+parameter types. For extension calls, the reduced receiver is argument zero and its conversion to each
+candidate's `this` parameter participates in the same comparison as every written argument. If the
+receiver and an explicit argument favor different candidates, they are incomparable; an aggregate
+conversion score cannot decide between them. A strictly better parameter list wins. When effective
+parameter types and applicable parameter counts tie, the non-generic method wins. Incomparable lists,
+or several equally best candidates within either family, remain ambiguous. Optional candidates with
+identical supplied parameter types but different numbers of declared parameters also remain ambiguous,
+matching C#'s optional-parameter tie-break. Runtime-value coverage checks that `Task.WhenAll(first, second)`
 over two `Task<int>` values returns `Task<int[]>`, that `WhenAny` keeps its typed result, that
 `Array.Sort(int[])` and `Array.IndexOf` choose the generic overloads, and that
 `Encoding.UTF8.GetBytes(JsonSerializer.Serialize(values))` produces the expected JSON bytes.

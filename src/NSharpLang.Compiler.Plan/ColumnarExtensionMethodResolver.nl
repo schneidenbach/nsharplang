@@ -433,11 +433,8 @@ class ColumnarExtensionMethodResolver {
         }
 
         explicitCount := argumentTypes.Length
-        bestScore := -1
-        bestParameterCount := 0
-        bestIsGeneric := false
-        bestCount := 0
-        selected: ColumnarExtensionMethodCandidate? = null
+        applicable := new List<ColumnarExtensionMethodCandidate>()
+        effectiveParameters := new List<Type[]>()
         for indexed in candidates {
             candidate: ColumnarExtensionMethodCandidate? = null
             if indexed != null {
@@ -450,23 +447,14 @@ class ColumnarExtensionMethodResolver {
                     leading := ExplicitParameterTypes(parameterTypes, explicitCount)
                     score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
                     if score >= 0 {
-                        parameterCount := parameterTypes.Length
-                        candidateIsGeneric := candidate.Method.IsGenericMethod
-                        if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) || (score == bestScore && parameterCount == bestParameterCount && bestIsGeneric && !candidateIsGeneric) {
-                            bestScore = score
-                            bestParameterCount = parameterCount
-                            bestIsGeneric = candidateIsGeneric
-                            bestCount = 1
-                            selected = candidate
-                        } else if score == bestScore && parameterCount == bestParameterCount && bestIsGeneric == candidateIsGeneric {
-                            bestCount = bestCount + 1
-                        }
+                        applicable.Add(candidate)
+                        effectiveParameters.Add(ExpandedParametersWithReceiver(parameterTypes, leading))
                     }
                 }
             }
         }
 
-        if bestCount == 0 {
+        if applicable.Count == 0 {
             // NOTHING BOUND IN NORMAL FORM, so the `params` tails get their turn — and only now, which
             // is what keeps an ordinary overload preferred over a packed one. An AMBIGUITY in normal
             // form is not "nothing bound": it is two equally good answers, and it declines here as it
@@ -474,10 +462,12 @@ class ColumnarExtensionMethodResolver {
             return ResolveExpanded(candidates, receiverType, argumentTypes, argumentFacts)
         }
 
-        if bestCount != 1 || selected == null {
+        selectedIndex := SelectBestExtensionCandidate(applicable, effectiveParameters, receiverType, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
             return ColumnarExtensionMethodSelection.None()
         }
 
+        selected := applicable[selectedIndex]
         return new ColumnarExtensionMethodSelection(true, selected.Method, selected.DeclaringType, selected.ParameterTypes, selected.ReturnType, explicitCount, null)
     }
 
@@ -492,13 +482,8 @@ class ColumnarExtensionMethodResolver {
     // WRITES its type arguments has nothing to infer, and `ResolveExplicitExpanded` packs its tail.
     static func ResolveExpanded(candidates: List<ColumnarExtensionMethodCandidate>, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarExtensionMethodSelection {
         explicitCount := argumentTypes.Length
-        bestScore := -1
-        bestParameterCount := 0
-        bestCount := 0
-        bestElementType: Type? = null
-        selected: ColumnarExtensionMethodCandidate? = null
-        tiedCandidates := new List<ColumnarExtensionMethodCandidate>()
-        tiedParameters := new List<Type[]>()
+        applicable := new List<ColumnarExtensionMethodCandidate>()
+        effectiveParameters := new List<Type[]>()
         for indexed in candidates {
             // A generic definition is closed first, by inferring its type arguments from the receiver,
             // the fixed arguments and every PACKED argument; the closed candidate is then scored as
@@ -516,46 +501,32 @@ class ColumnarExtensionMethodResolver {
                     if expanded != null && elementType != null {
                         score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expanded, argumentTypes, argumentFacts)
                         if score >= 0 {
-                            parameterCount := candidate.ParameterTypes.Length
-                            if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {
-                                bestScore = score
-                                bestParameterCount = parameterCount
-                                bestCount = 1
-                                bestElementType = elementType
-                                selected = candidate
-                                tiedCandidates.Clear()
-                                tiedParameters.Clear()
-                                tiedCandidates.Add(candidate)
-                                tiedParameters.Add(ExpandedParametersWithReceiver(candidate.ParameterTypes, expanded))
-                            } else if score == bestScore && parameterCount == bestParameterCount {
-                                bestCount = bestCount + 1
-                                tiedCandidates.Add(candidate)
-                                tiedParameters.Add(ExpandedParametersWithReceiver(candidate.ParameterTypes, expanded))
-                            }
+                            applicable.Add(candidate)
+                            effectiveParameters.Add(ExpandedParametersWithReceiver(candidate.ParameterTypes, expanded))
                         }
                     }
                 }
             }
         }
 
-        if bestCount > 1 {
-            selectedIndex := SelectExpandedExtensionCandidate(tiedCandidates, tiedParameters, receiverType, argumentTypes, argumentFacts)
-            if selectedIndex < 0 {
-                return ColumnarExtensionMethodSelection.None()
-            }
-            selected = tiedCandidates[selectedIndex]
-            bestCount = 1
-            selectedMethodParameters := ParametersOrNull(selected.Method)
-            if selectedMethodParameters == null {
-                return ColumnarExtensionMethodSelection.None()
-            }
-            bestElementType = ColumnarParamsExpansion.ElementTypeOrNull(selectedMethodParameters, selected.ParameterTypes)
-        }
-
-        if bestCount != 1 || selected == null || bestElementType == null {
+        if applicable.Count == 0 {
             return ColumnarExtensionMethodSelection.None()
         }
 
+        selectedIndex := SelectBestExtensionCandidate(applicable, effectiveParameters, receiverType, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return ColumnarExtensionMethodSelection.None()
+        }
+
+        selected := applicable[selectedIndex]
+        selectedMethodParameters := ParametersOrNull(selected.Method)
+        if selectedMethodParameters == null {
+            return ColumnarExtensionMethodSelection.None()
+        }
+        bestElementType := ColumnarParamsExpansion.ElementTypeOrNull(selectedMethodParameters, selected.ParameterTypes)
+        if bestElementType == null {
+            return ColumnarExtensionMethodSelection.None()
+        }
         return new ColumnarExtensionMethodSelection(true, selected.Method, selected.DeclaringType, selected.ParameterTypes, selected.ReturnType, explicitCount, bestElementType)
     }
 
@@ -566,23 +537,66 @@ class ColumnarExtensionMethodResolver {
         return result
     }
 
-    // An extension's receiver is its first argument. Compare it alongside the explicit arguments so
-    // a better conversion to IEnumerable<T> can beat a conversion to object.
-    static func SelectExpandedExtensionCandidate(candidates: List<ColumnarExtensionMethodCandidate>, parameterLists: List<Type[]>, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+    // An extension invocation is reduced syntax over the declared static method: the receiver is
+    // argument zero and participates in the same better-function-member comparison as every written
+    // argument. Conversion scores establish applicability only; they cannot rank candidates because
+    // they lose the per-argument trade-offs that make a candidate set ambiguous.
+    static func SelectBestExtensionCandidate(candidates: List<ColumnarExtensionMethodCandidate>, parameterLists: List<Type[]>, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        if candidates == null || parameterLists == null || candidates.Count == 0 || candidates.Count != parameterLists.Count || receiverType == null || argumentTypes == null || argumentFacts == null {
+            return -1
+        }
+        if candidates.Count == 1 {
+            return 0
+        }
+
         actual := new Type[](argumentTypes.Length + 1)
         actual[0] = receiverType
         Array.Copy(argumentTypes, 0, actual, 1, argumentTypes.Length)
-        comparisonFacts := ColumnarDirectCallArgumentFacts.Empty(actual.Length)
-        comparisonFacts.SourceTypeDefinitions = argumentFacts.SourceTypeDefinitions
+        comparisonFacts := PrependReceiverFacts(argumentFacts)
 
-        selected := ColumnarSourceDirectCallResolver.SelectMostSpecificParameters(parameterLists, actual, comparisonFacts)
-        if selected >= 0 {
-            return selected
+        count := candidates.Count
+        comparisons := new int[count * count]
+        row := 0
+        while row < count {
+            column := 0
+            while column < count {
+                if row != column {
+                    comparisons[row * count + column] = ColumnarSourceDirectCallResolver.CompareParameterSpecificity(parameterLists[row], parameterLists[column], actual, comparisonFacts)
+                }
+                column += 1
+            }
+            row += 1
+        }
+        maximal := AnalyzerOverloadSpecificity.FindMaximalIndexes(comparisons, count)
+        if maximal.Count == 1 {
+            return maximal[0]
+        }
+        if maximal.Count == 0 {
+            return -1
+        }
+
+        // Preserve the existing omitted-parameter tie-break, but only among candidates that no
+        // other applicable member beats. An earlier conversion-score pass must not discard an
+        // incomparable maximal candidate before the receiver and arguments are compared together.
+        minimumParameterCount := int.MaxValue
+        for index in maximal {
+            if candidates[index].ParameterTypes.Length < minimumParameterCount {
+                minimumParameterCount = candidates[index].ParameterTypes.Length
+            }
+        }
+        tied := new List<int>()
+        for index in maximal {
+            if candidates[index].ParameterTypes.Length == minimumParameterCount {
+                tied.Add(index)
+            }
+        }
+        if tied.Count == 1 {
+            return tied[0]
         }
 
         // The less-generic tie-break is available only when every effective parameter type ties.
         nonGenericIndex := -1
-        for index := 0; index < candidates.Count; index++ {
+        for index in tied {
             if !candidates[index].Method.IsGenericMethod {
                 if nonGenericIndex >= 0 {
                     return -1
@@ -593,12 +607,37 @@ class ColumnarExtensionMethodResolver {
         if nonGenericIndex < 0 {
             return -1
         }
-        for index := 0; index < parameterLists.Count; index++ {
-            if !EquivalentParameterLists(parameterLists[nonGenericIndex], parameterLists[index]) {
+        for index in tied {
+            if !EquivalentParameterLists(candidates[nonGenericIndex].ParameterTypes, candidates[index].ParameterTypes) {
                 return -1
             }
         }
         return nonGenericIndex
+    }
+
+    static func PrependReceiverFacts(argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarDirectCallArgumentFacts {
+        count := argumentFacts.IsNullLiteral.Length
+        result := ColumnarDirectCallArgumentFacts.Empty(count + 1)
+        result.SourceTypeDefinitions = argumentFacts.SourceTypeDefinitions
+        result.RequiresReorder = argumentFacts.RequiresReorder
+        result.RequiresEmitterByRefRvalue = argumentFacts.RequiresEmitterByRefRvalue
+        for index := 0; index < count; index += 1 {
+            target := index + 1
+            result.IsUnsuffixedIntegerLiteral[target] = argumentFacts.IsUnsuffixedIntegerLiteral[index]
+            result.IsNegativeIntegerLiteral[target] = argumentFacts.IsNegativeIntegerLiteral[index]
+            result.IntegerLiteralValues[target] = argumentFacts.IntegerLiteralValues[index]
+            result.IsNullLiteral[target] = argumentFacts.IsNullLiteral[index]
+            result.IsByRefArgument[target] = argumentFacts.IsByRefArgument[index]
+            result.IsInArgument[target] = argumentFacts.IsInArgument[index]
+            result.IsIntegerConstantArrayLiteral[target] = argumentFacts.IsIntegerConstantArrayLiteral[index]
+            result.ArrayLiteralMinimumValues[target] = argumentFacts.ArrayLiteralMinimumValues[index]
+            result.ArrayLiteralMaximumValues[target] = argumentFacts.ArrayLiteralMaximumValues[index]
+            result.IsContextualGenericUnionConstruction[target] = argumentFacts.IsContextualGenericUnionConstruction[index]
+            result.ContextualGenericUnionBases[target] = argumentFacts.ContextualGenericUnionBases[index]
+            result.ArgumentNodes[target] = argumentFacts.ArgumentNodes[index]
+            result.WrittenOrderSlots[target] = argumentFacts.WrittenOrderSlots[index] + 1
+        }
+        return result
     }
 
     static func EquivalentParameterLists(left: Type[], right: Type[]): bool {

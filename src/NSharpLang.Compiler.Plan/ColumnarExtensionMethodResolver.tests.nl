@@ -56,6 +56,89 @@ func MakeExtensionFixtureCandidate(method: MethodInfo): ColumnarExtensionMethodC
     return new ColumnarExtensionMethodCandidate(method, declaringType, parameterTypes, method.get_ReturnType())
 }
 
+func BuildReceiverRankedExtensionIndex(expanded: bool, includeGeneric: bool, includeNonGeneric: bool): ColumnarExtensionMethodIndex {
+    identity := "ReceiverRankedExtension" + Guid.NewGuid().ToString("N")
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(identity), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule(identity)
+    owner := module.DefineType(identity, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+
+    if includeGeneric {
+        generic := owner.DefineMethod("Rank", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+        typeParameter := generic.DefineGenericParameters(["T"])[0]
+        genericArgument := new Type[](1)
+        genericArgument[0] = typeParameter
+        receiver := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(genericArgument)
+        genericParameters := new Type[](expanded ? 3 : 2)
+        genericParameters[0] = receiver
+        genericParameters[1] = expanded ? typeof(long) : typeof(int)
+        if expanded {
+            genericParameters[2] = typeof(int[])
+        }
+        generic.SetReturnType(typeof(int))
+        generic.SetParameters(genericParameters)
+        generic.DefineParameter(1, ParameterAttributes.None, "receiver")
+        generic.DefineParameter(2, ParameterAttributes.None, "value")
+        if expanded {
+            paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+            if paramArrayConstructor == null {
+                throw new InvalidOperationException("ParamArrayAttribute constructor was not found.")
+            }
+            tail := generic.DefineParameter(3, ParameterAttributes.None, "rest")
+            tail.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+        }
+        genericBody := generic.GetILGenerator()
+        genericBody.Emit(OpCodes.Ldc_I4_1)
+        genericBody.Emit(OpCodes.Ret)
+    }
+
+    if includeNonGeneric {
+        ordinary := owner.DefineMethod("Rank", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, CallingConventions.Standard)
+        ordinaryParameters := new Type[](expanded ? 3 : 2)
+        ordinaryParameters[0] = typeof(object)
+        ordinaryParameters[1] = typeof(int)
+        if expanded {
+            ordinaryParameters[2] = typeof(int[])
+        }
+        ordinary.SetReturnType(typeof(int))
+        ordinary.SetParameters(ordinaryParameters)
+        ordinary.DefineParameter(1, ParameterAttributes.None, "receiver")
+        ordinary.DefineParameter(2, ParameterAttributes.None, "value")
+        if expanded {
+            paramArrayConstructor := typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)
+            if paramArrayConstructor == null {
+                throw new InvalidOperationException("ParamArrayAttribute constructor was not found.")
+            }
+            tail := ordinary.DefineParameter(3, ParameterAttributes.None, "rest")
+            tail.SetCustomAttribute(new CustomAttributeBuilder(paramArrayConstructor, new object[](0)))
+        }
+        ordinaryBody := ordinary.GetILGenerator()
+        ordinaryBody.Emit(OpCodes.Ldc_I4_2)
+        ordinaryBody.Emit(OpCodes.Ret)
+    }
+
+    createdOwner := owner.CreateType()
+    if createdOwner == null {
+        throw new InvalidOperationException("The receiver-ranked extension fixture type was not created.")
+    }
+
+    index := new ColumnarExtensionMethodIndex()
+    for method in createdOwner.GetMethods() {
+        isGeneric := method.IsGenericMethodDefinition
+        if method.Name == "Rank" && ((isGeneric && includeGeneric) || (!isGeneric && includeNonGeneric)) {
+            index.Add("Rank", MakeExtensionFixtureCandidate(method))
+        }
+    }
+    return index
+}
+
+func InvokeExtensionRank(selection: ColumnarExtensionMethodSelection, arguments: object?[]): int {
+    method := selection.Method
+    if !selection.IsSelected || method == null {
+        throw new InvalidOperationException("A selected extension ranking probe must carry its method.")
+    }
+    return Convert.ToInt32(method.Invoke(null, arguments))
+}
+
 func BuildLinqExtensionIndex(): ColumnarExtensionMethodIndex {
     linqAssembly := RequiredExtensionFixtureType("System.Linq.Enumerable, System.Linq").get_Assembly()
     entry := new ExternalAssemblyCatalogEntry(null, "linq", "", linqAssembly, true)
@@ -615,4 +698,69 @@ test "the extension index skips a host it cannot read and indexes everything it 
     selected := new List<ColumnarExtensionMethodCandidate>()
     assert index.TryGet("Count", out selected)
     assert selected.Count > 0
+}
+
+test "normal extension overload ranking compares the receiver with explicit arguments" {
+    index := BuildReceiverRankedExtensionIndex(false, true, true)
+    values := new List<string>()
+    values.Add("receiver")
+    argumentTypes := new Type[](1)
+    argumentTypes[0] = typeof(int)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+
+    selected := ColumnarExtensionMethodResolver.Resolve(index, typeof(List<string>), "Rank", argumentTypes, facts)
+    assert selected.IsSelected
+    assert selected.Method != null && selected.Method.IsGenericMethod
+    arguments := new object?[](2)
+    arguments[0] = values
+    arguments[1] = 9
+    assert InvokeExtensionRank(selected, arguments) == 1
+
+    // With only the object receiver candidate, that same call shape remains applicable and reaches
+    // its runtime body. This controls both the negative candidate filter and invocation setup.
+    objectIndex := BuildReceiverRankedExtensionIndex(false, false, true)
+    objectSelected := ColumnarExtensionMethodResolver.Resolve(objectIndex, typeof(object), "Rank", argumentTypes, facts)
+    assert objectSelected.IsSelected
+    assert objectSelected.Method != null && !objectSelected.Method.IsGenericMethod
+    objectArguments := new object?[](2)
+    objectArguments[0] = new object()
+    objectArguments[1] = 9
+    assert InvokeExtensionRank(objectSelected, objectArguments) == 2
+}
+
+test "expanded extension overload ranking preserves incomparable receiver and argument conversions" {
+    index := BuildReceiverRankedExtensionIndex(true, true, true)
+    argumentTypes := new Type[](1)
+    argumentTypes[0] = typeof(int)
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+
+    // The generic candidate converts the receiver better (IEnumerable<string> over object), while
+    // the non-generic candidate converts the explicit int better (identity over int-to-long).
+    // C# leaves this call ambiguous; scoring explicit arguments first must not choose either one.
+    ambiguous := ColumnarExtensionMethodResolver.Resolve(index, typeof(List<string>), "Rank", argumentTypes, facts)
+    assert !ambiguous.IsSelected
+
+    // Each shape remains callable in isolation and returns its own marker when invoked.
+    genericIndex := BuildReceiverRankedExtensionIndex(true, true, false)
+    values := new List<string>()
+    values.Add("receiver")
+    longArgumentTypes := new Type[](1)
+    longArgumentTypes[0] = typeof(long)
+    genericSelected := ColumnarExtensionMethodResolver.Resolve(genericIndex, typeof(List<string>), "Rank", longArgumentTypes, facts)
+    assert genericSelected.IsSelected
+    assert genericSelected.ParamsElementType == typeof(int)
+    genericArguments := new object?[](3)
+    genericArguments[0] = values
+    genericArguments[1] = 9L
+    genericArguments[2] = new int[](0)
+    assert InvokeExtensionRank(genericSelected, genericArguments) == 1
+
+    objectIndex := BuildReceiverRankedExtensionIndex(true, false, true)
+    objectSelected := ColumnarExtensionMethodResolver.Resolve(objectIndex, typeof(object), "Rank", argumentTypes, facts)
+    assert objectSelected.IsSelected
+    objectArguments := new object?[](3)
+    objectArguments[0] = new object()
+    objectArguments[1] = 9
+    objectArguments[2] = new int[](0)
+    assert InvokeExtensionRank(objectSelected, objectArguments) == 2
 }
