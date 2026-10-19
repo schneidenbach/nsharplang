@@ -29,7 +29,7 @@ class DaemonExecKernels {
     // Bumped whenever a frame's meaning changes. It is part of the build identity as well, so a
     // client never reads frames from a server that writes another version.
     static func GetExecProtocolVersion(): int {
-        return 1
+        return 2
     }
 
     // Client → server frames.

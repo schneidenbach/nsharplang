@@ -276,8 +276,12 @@ test "a frame header claiming more than the cap is corrupt, as is JSON read as a
 }
 
 test "a launch directive carries the dotnet arguments and the working directory" {
-    payload := DaemonExecWire.EncodeLaunch("\"/w/bin/App.dll\"", "/w")
-    assert DaemonExecWire.DecodeLaunchArguments(payload) == "\"/w/bin/App.dll\""
+    payload := DaemonExecWire.EncodeLaunch(["/w/bin/App.dll", "two words", "a\"b", "C:\\dir\\", ""], "/w")
+    decoded := DaemonExecWire.DecodeLaunchArguments(payload)
+    assert decoded.Length == 5
+    assert decoded[0] == "/w/bin/App.dll" && decoded[1] == "two words" && decoded[2] == "a\"b"
+    assert decoded[3] == "C:\\dir\\" && decoded[4] == ""
     assert DaemonExecWire.DecodeLaunchWorkingDirectory(payload) == "/w"
-    assert DaemonExecWire.DecodeLaunchWorkingDirectory(DaemonExecWire.EncodeLaunch("x", null)) == ""
+    assert DaemonExecWire.DecodeLaunchWorkingDirectory(DaemonExecWire.EncodeLaunch(["x"], null)) == ""
+    assert DaemonExecWire.DecodeLaunchArguments(DaemonExecWire.EncodeLaunch(new string[](0), null)).Length == 0
 }

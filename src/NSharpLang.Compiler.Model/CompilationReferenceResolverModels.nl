@@ -215,7 +215,7 @@ class ReferenceResolutionResult {
                 continue
             }
 
-            File.Copy(asset, destination, true)
+            AtomicFile.Copy(asset, destination)
         }
     }
 

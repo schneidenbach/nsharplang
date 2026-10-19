@@ -20,7 +20,7 @@ are maintained against the CLI command kernels.
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
 | `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--aot`, `--stats`, `--output`, `--define`, `--color` | `nlc build --timings` |
-| `nlc run [file]` | Build and run a project or single file | `--backend`, `--define`, `--color` | `nlc run` |
+| `nlc run [file]` | Build and run a project or single file; arguments after `--` go to the program | `--backend`, `--project`, `--define`, `--color` | `nlc run --project src/App -- --port 8080` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`, `systems-cli`, `systems-lib`), `--type` alias, `--systems` | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | `--name`, `--type`, `--force` | `nlc init --type library` |
 | `nlc test` | Run `.tests.nl` suites through the N# test runner | `--project`, `--filter`, `--verbose`, `--json`, `--timings` | `nlc test --filter "should add"` |
@@ -109,8 +109,10 @@ deleted, on `nlc daemon stop`, and on SIGTERM (requests in flight finish first).
 Ctrl-C and hang-up of the terminal it was started from. Its socket is `{workspace}/.nlc/daemon.sock`
 (or `{TMPDIR}/nlc-daemon/{sha256-16}/daemon.sock` when that path would exceed 100 bytes), created
 owner-only (`0600`, in an owner-only directory for the fallback), so no other user can reach it. Its
-log is `.nlc/daemon.log`, restarted with each server. `.nlc/` is runtime state and should not be
-committed; all shipped `dotnet new` templates ignore it.
+log is `.nlc/daemon.log`, restarted with each server. `.nlc/` is runtime state and is never
+committed: nlc writes a `.nlc/.gitignore` containing `*` when it creates the directory (and adds it
+to a `.nlc/` left by an older nlc), so `git status` stays clean in a repository that has no ignore
+rule for it. A `.gitignore` you put there yourself is never replaced.
 
 `nlc daemon start` starts the server explicitly and waits until it answers and has finished its
 warm-up compile, so the next command is answered warm (120-second deadline; an early exit or a timeout reports the elapsed time, the socket path, whether the child was

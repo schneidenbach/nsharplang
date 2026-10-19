@@ -13,7 +13,7 @@ test "with no scope open every reading is the process's own and nothing launches
     assert CliInvocationContext.IsStandardErrorRedirected() == Console.IsErrorRedirected
 
     exitCode := 99
-    assert !CliInvocationContext.TryLaunchPassthrough("app.dll", null, out exitCode)
+    assert !CliInvocationContext.TryLaunchPassthrough(["app.dll"], null, out exitCode)
     assert exitCode == 0
 
     // Cancellation and termination are no-ops outside a scope.
@@ -30,7 +30,7 @@ test "with no scope open every reading is the process's own and nothing launches
 test "an open scope answers with the client's command line, stderr state and launcher" {
     launched := ""
     CliInvocationContext.Begin(["/client/Cli.dll", "check", "--color=always"], !Console.IsErrorRedirected, (arguments, directory) => {
-        launched = arguments + "@" + (directory ?? "")
+        launched = String.Join("|", arguments) + "@" + (directory ?? "")
         return 42
     })
     try {
@@ -39,9 +39,9 @@ test "an open scope answers with the client's command line, stderr state and lau
         assert CliInvocationContext.IsStandardErrorRedirected() == !Console.IsErrorRedirected
 
         exitCode := 0
-        assert CliInvocationContext.TryLaunchPassthrough("\"app.dll\"", "/w", out exitCode)
+        assert CliInvocationContext.TryLaunchPassthrough(["app.dll", "two words"], "/w", out exitCode)
         assert exitCode == 42
-        assert launched == "\"app.dll\"@/w"
+        assert launched == "app.dll|two words@/w"
     } finally {
         CliInvocationContext.End()
     }
