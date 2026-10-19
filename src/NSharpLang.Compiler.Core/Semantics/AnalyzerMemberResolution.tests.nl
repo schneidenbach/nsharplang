@@ -657,6 +657,13 @@ func MemberResolutionSourceErrors(source: string): List<string> {
     return messages
 }
 
+test "an explicit generic arity miss keeps the method group for NL207 diagnostics" {
+    errors := MemberResolutionSourceErrors("namespace P\n\nclass Plain {\n    static func Pick<TFirst, TSecond>(a: TFirst, _b: TSecond): TFirst {\n        return a\n    }\n\n    static func Plainly(a: int): int {\n        return a\n    }\n}\n\nfunc Wrong(): int {\n    return Plain.Pick<int>(1, 2)\n}\n\nfunc AlsoWrong(): int {\n    return Plain.Plainly<int>(1)\n}\n")
+    assert errors.Count == 2
+    assert errors[0] == "Generic method 'Pick' takes 2 type argument(s), but 1 were provided"
+    assert errors[1] == "'Plainly' is not generic, but 1 type argument(s) were provided"
+}
+
 test "AN OVERRIDE'S ANNOTATION IS WHAT THE RECEIVER'S TYPE ANSWERS, AND A TYPE WITH NO OVERRIDE KEEPS object's" {
     declared := MemberResolutionSourceErrors("namespace P\n\nclass Labelled {\n    Name: string\n\n    constructor(name: string) {\n        Name = name\n    }\n\n    override func ToString(): string {\n        return Name\n    }\n}\n\nfunc Format(value: Labelled): string {\n    return value.ToString()\n}\n")
     assert declared.Count == 0

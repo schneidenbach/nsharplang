@@ -503,10 +503,17 @@ class AnalyzerMemberResolution {
             }
 
             declaredFunctionMember := ResolveDeclaredFunctionMember(sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, sourceShape.Owner)
+            mismatchedDeclaredFunctionMember: TypeInfo? = null
             if declaredFunctionMember != null {
                 if writtenTypeArgumentCount == 0 || MethodGroupHasArity(declaredFunctionMember, writtenTypeArgumentCount) {
                     return declaredFunctionMember
                 }
+
+                // Keep the unmatched group as the diagnostic fallback. A written type-argument
+                // count filters members while walking the base chain, but if no inherited method
+                // matches, the caller still needs the original group to report NL207 rather than
+                // turning a known method into an uncallable value (NL413).
+                mismatchedDeclaredFunctionMember = declaredFunctionMember
             }
 
             if !includeStaticMembers && sourceShape.SupportsPrimaryParameters {
@@ -525,7 +532,7 @@ class AnalyzerMemberResolution {
 
             declaredBaseType := sourceShape.BaseType
             if declaredBaseType != null {
-                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess)
+                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, writtenTypeArgumentCount)
                 if !BuiltInTypes.IsUnknown(baseMember) {
                     return baseMember
                 }
@@ -537,10 +544,14 @@ class AnalyzerMemberResolution {
             // walk is a full re-resolution per base, in written order, exactly as the base-class walk
             // above is, so generic substitution and the base's OWN bases are carried along.
             for baseInterface2 in sourceShape.BaseInterfaces {
-                baseInterfaceMember := ResolveMember(baseInterface2, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess)
+                baseInterfaceMember := ResolveMember(baseInterface2, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess, writtenTypeArgumentCount)
                 if !BuiltInTypes.IsUnknown(baseInterfaceMember) {
                     return baseInterfaceMember
                 }
+            }
+
+            if mismatchedDeclaredFunctionMember != null {
+                return mismatchedDeclaredFunctionMember
             }
 
             if !includeStaticMembers && sourceShape.SupportsObjectMembers {
