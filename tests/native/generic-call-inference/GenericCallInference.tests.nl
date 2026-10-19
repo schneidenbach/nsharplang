@@ -67,6 +67,19 @@ test "control: the optional argument supplied and the type argument written stil
     assert JsonSerializer.Serialize<int>(5) == "5"
 }
 
+test "an inferred type accepts lower bounds when one converts to the other" {
+    storage := new List<object>()
+    storage.Add("found")
+    objects: IEnumerable<object> = storage
+
+    assert Enumerable.Contains(objects, "found")
+    assert !Enumerable.Contains(objects, new object())
+
+    strings := new List<string>()
+    strings.Add("found")
+    assert Enumerable.Contains(strings, "found")
+}
+
 test "a source class with a public parameterless constructor satisfies an external new constraint" {
     created := Activator.CreateInstance<PublicDefaultConstructorSource>()
     assert created != null

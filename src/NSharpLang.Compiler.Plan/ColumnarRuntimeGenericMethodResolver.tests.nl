@@ -777,6 +777,12 @@ class CrossTierGenericAmbiguityProbe {
     }
 }
 
+class InferenceBoundsProbe {
+    static func Invariant<T>(left: List<T>, right: List<T>): bool {
+        return true
+    }
+}
+
 func CrossTierMethodOrThrow(method: MethodInfo?): MethodInfo {
     if method == null {
         throw new InvalidOperationException("A selected cross-tier candidate did not carry a method")
@@ -937,6 +943,31 @@ test "incomparable generic and non-generic candidates remain ambiguous" {
     assert generic.IsSelected
     best := ColumnarRuntimeGenericMethodResolver.BetterSelection(nonGeneric, generic, argumentTypes, facts)
     assert best.IsAmbiguous, "C# reports this cross-tier pair as ambiguous"
+}
+
+test "repeated generic parameters accumulate lower bounds and preserve invariant conflicts" {
+    enumerableObject := typeof(IEnumerable<object>)
+    containsArguments := new Type[](2)
+    containsArguments[0] = enumerableObject
+    containsArguments[1] = typeof(string)
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+
+    contains := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(typeof(Enumerable), "Contains", containsArguments, facts, true)
+    assert contains.IsSelected, "string is a lower bound that converts to the object bound from IEnumerable<object>"
+    containsMethod := CrossTierMethodOrThrow(contains.Method)
+    runtimeArguments := new object?[](2)
+    values := new List<object>()
+    values.Add("found")
+    runtimeArguments[0] = values
+    runtimeArguments[1] = "found"
+    runtimeValue := containsMethod.Invoke(null, runtimeArguments)
+    assert Convert.ToBoolean(runtimeValue), "the fixed TSource=object call must find the string value"
+
+    invariantArguments := new Type[](2)
+    invariantArguments[0] = typeof(List<object>)
+    invariantArguments[1] = typeof(List<string>)
+    invariant := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(typeof(InferenceBoundsProbe), "Invariant", invariantArguments, facts, true)
+    assert !invariant.IsSelected, "invariant List<T> positions cannot merge distinct exact type bounds"
 }
 
 test "generic Array overloads beat the broader non-generic overloads" {

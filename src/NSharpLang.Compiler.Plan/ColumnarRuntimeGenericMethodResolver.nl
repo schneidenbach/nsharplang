@@ -46,6 +46,22 @@ class ColumnarClosedGenericMethod {
     }
 }
 
+enum ColumnarGenericInferenceBoundKind {
+    Exact,
+    Lower,
+    Upper
+}
+
+class ColumnarGenericInferenceBound {
+    Type: Type
+    Kind: ColumnarGenericInferenceBoundKind
+
+    constructor(type: Type, kind: ColumnarGenericInferenceBoundKind) {
+        Type = type
+        Kind = kind
+    }
+}
+
 class ColumnarRuntimeGenericMethodCandidate {
     Definition: MethodInfo
     TypeArguments: Type[]
@@ -510,7 +526,7 @@ class ColumnarRuntimeGenericMethodResolver {
         }
         ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
 
-        bindings := new Dictionary<int, Type>()
+        bindings := new Dictionary<int, List<ColumnarGenericInferenceBound>>()
         if !expanded {
             if explicitCount + 1 > declaredParameterTypes.Length {
                 return null
@@ -525,7 +541,7 @@ class ColumnarRuntimeGenericMethodResolver {
                 }
                 index = index + 1
             }
-            inferred := BoundTypeArgumentsOrNull(candidate, bindings)
+            inferred := BoundTypeArgumentsOrNull(candidate, bindings, argumentFacts.SourceTypeDefinitions)
             if inferred == null {
                 return null
             }
@@ -550,7 +566,7 @@ class ColumnarRuntimeGenericMethodResolver {
             index = index + 1
         }
 
-        inferred := BoundTypeArgumentsOrNull(candidate, bindings)
+        inferred := BoundTypeArgumentsOrNull(candidate, bindings, argumentFacts.SourceTypeDefinitions)
         if inferred == null {
             return null
         }
@@ -795,7 +811,7 @@ class ColumnarRuntimeGenericMethodResolver {
     }
 
     static func InferTypeArgumentsWithParameters(candidate: MethodInfo, parameters: ParameterInfo[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expanded: bool, allowInferenceWidening: bool): Type[]? {
-        bindings := new Dictionary<int, Type>()
+        bindings := new Dictionary<int, List<ColumnarGenericInferenceBound>>()
         if !expanded {
             if argumentTypes.Length > parameters.Length {
                 return null
@@ -809,7 +825,7 @@ class ColumnarRuntimeGenericMethodResolver {
                 }
                 index = index + 1
             }
-            return BoundTypeArgumentsOrNull(candidate, bindings)
+            return BoundTypeArgumentsOrNull(candidate, bindings, argumentFacts.SourceTypeDefinitions)
         }
 
         declared := new Type[](parameters.Length)
@@ -844,7 +860,7 @@ class ColumnarRuntimeGenericMethodResolver {
             index = index + 1
         }
 
-        return BoundTypeArgumentsOrNull(candidate, bindings)
+        return BoundTypeArgumentsOrNull(candidate, bindings, argumentFacts.SourceTypeDefinitions)
     }
 
     // THE DECLARED PARAMETER TYPE EACH SUPPLIED ARGUMENT LANDS IN, for every inference owner to unify
@@ -891,20 +907,134 @@ class ColumnarRuntimeGenericMethodResolver {
         return slots
     }
 
-    static func BoundTypeArgumentsOrNull(candidate: MethodInfo, bindings: Dictionary<int, Type>): Type[]? {
+    static func BoundTypeArgumentsOrNull(candidate: MethodInfo, bindings: Dictionary<int, List<ColumnarGenericInferenceBound>>, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): Type[]? {
         genericParameters := candidate.GetGenericArguments()
         typeArguments := new Type[](genericParameters.Length)
         position := 0
         while position < genericParameters.Length {
-            bound := typeof(object)
-            if !bindings.TryGetValue(position, out bound) || bound == null {
+            bounds := new List<ColumnarGenericInferenceBound>()
+            if !bindings.TryGetValue(position, out bounds) || bounds == null || bounds.Count == 0 {
                 return null
             }
-            typeArguments[position] = bound
+            fixedType := FixInferenceBoundsOrNull(bounds, sourceTypeDefinitions)
+            if fixedType == null {
+                return null
+            }
+            typeArguments[position] = fixedType
             position = position + 1
         }
 
         return typeArguments
+    }
+
+    static func FixInferenceBoundsOrNull(bounds: List<ColumnarGenericInferenceBound>, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): Type? {
+        if bounds == null || bounds.Count == 0 || sourceTypeDefinitions == null {
+            return null
+        }
+
+        candidates := new List<Type>()
+        for bound in bounds {
+            if bound == null || bound.Type == null {
+                return null
+            }
+            AddInferenceCandidateClosure(candidates, bound.Type)
+        }
+        AddNumericInferenceCandidates(candidates)
+
+        viable := new List<Type>()
+        for candidate in candidates {
+            if SatisfiesInferenceBounds(candidate, bounds, sourceTypeDefinitions) {
+                viable.Add(candidate)
+            }
+        }
+        if viable.Count == 0 {
+            return null
+        }
+
+        best: Type? = null
+        for candidate in viable {
+            isUniqueBest := true
+            for other in viable {
+                if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidate, other) {
+                    continue
+                }
+                candidateToOther := InferenceBoundConversionExists(other, candidate, sourceTypeDefinitions)
+                otherToCandidate := InferenceBoundConversionExists(candidate, other, sourceTypeDefinitions)
+                if !candidateToOther || otherToCandidate {
+                    isUniqueBest = false
+                    break
+                }
+            }
+            if isUniqueBest {
+                if best != null && !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(best, candidate) {
+                    return null
+                }
+                best = candidate
+            }
+        }
+        return best
+    }
+
+    static func SatisfiesInferenceBounds(candidate: Type, bounds: List<ColumnarGenericInferenceBound>, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): bool {
+        for bound in bounds {
+            if bound.Kind == ColumnarGenericInferenceBoundKind.Exact {
+                if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidate, bound.Type) {
+                    return false
+                }
+            } else if bound.Kind == ColumnarGenericInferenceBoundKind.Lower {
+                if !InferenceBoundConversionExists(candidate, bound.Type, sourceTypeDefinitions) {
+                    return false
+                }
+            } else if !InferenceBoundConversionExists(bound.Type, candidate, sourceTypeDefinitions) {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func InferenceBoundConversionExists(targetType: Type, sourceType: Type, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): bool {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(targetType, sourceType) {
+            return true
+        }
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(targetType) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(sourceType) {
+            return ConstraintAccepts(targetType, sourceType)
+        }
+        return ColumnarSourceDirectCallResolver.ArgumentFlowScore(targetType, sourceType, sourceTypeDefinitions) >= 0
+    }
+
+    static func AddInferenceCandidateClosure(candidates: List<Type>, source: Type) {
+        current: Type? = source
+        while current != null {
+            AddDistinctInferenceCandidate(candidates, current)
+            current = BaseTypeOrNull(current)
+        }
+        for interfaceType in InterfaceListOrEmpty(source) {
+            AddDistinctInferenceCandidate(candidates, interfaceType)
+        }
+    }
+
+    static func AddDistinctInferenceCandidate(candidates: List<Type>, candidate: Type) {
+        for existing in candidates {
+            if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(existing, candidate) {
+                return
+            }
+        }
+        candidates.Add(candidate)
+    }
+
+    static func AddNumericInferenceCandidates(candidates: List<Type>) {
+        AddDistinctInferenceCandidate(candidates, typeof(byte))
+        AddDistinctInferenceCandidate(candidates, typeof(sbyte))
+        AddDistinctInferenceCandidate(candidates, typeof(short))
+        AddDistinctInferenceCandidate(candidates, typeof(ushort))
+        AddDistinctInferenceCandidate(candidates, typeof(int))
+        AddDistinctInferenceCandidate(candidates, typeof(uint))
+        AddDistinctInferenceCandidate(candidates, typeof(long))
+        AddDistinctInferenceCandidate(candidates, typeof(ulong))
+        AddDistinctInferenceCandidate(candidates, typeof(char))
+        AddDistinctInferenceCandidate(candidates, typeof(float))
+        AddDistinctInferenceCandidate(candidates, typeof(double))
+        AddDistinctInferenceCandidate(candidates, typeof(decimal))
     }
 
     // The candidate closed over those arguments, or null when the declared constraints refuse the
@@ -1157,7 +1287,11 @@ class ColumnarRuntimeGenericMethodResolver {
         return new Type[](0)
     }
 
-    static func Unify(parameterType: Type, argumentType: Type, bindings: Dictionary<int, Type>, allowInferenceWidening: bool): bool {
+    static func Unify(parameterType: Type, argumentType: Type, bindings: Dictionary<int, List<ColumnarGenericInferenceBound>>, allowInferenceWidening: bool): bool {
+        return Unify(parameterType, argumentType, bindings, allowInferenceWidening, ColumnarGenericInferenceBoundKind.Lower)
+    }
+
+    static func Unify(parameterType: Type, argumentType: Type, bindings: Dictionary<int, List<ColumnarGenericInferenceBound>>, allowInferenceWidening: bool, boundKind: ColumnarGenericInferenceBoundKind): bool {
         if parameterType == null || argumentType == null {
             return false
         }
@@ -1172,7 +1306,7 @@ class ColumnarRuntimeGenericMethodResolver {
             if element == null {
                 return false
             }
-            return Unify(element, StripByRef(argumentType), bindings, allowInferenceWidening)
+            return Unify(element, StripByRef(argumentType), bindings, allowInferenceWidening, ColumnarGenericInferenceBoundKind.Exact)
         }
 
         if parameterType.IsGenericParameter {
@@ -1185,31 +1319,12 @@ class ColumnarRuntimeGenericMethodResolver {
                 return false
             }
             position := parameterType.GenericParameterPosition
-            existing := typeof(object)
-            if bindings.TryGetValue(position, out existing) {
-                if existing == null {
-                    return false
-                }
-                // `X` AND `X?` ARE ONE BOUND, AND IT IS `X?`. Two positions that disagree only about
-                // the nullable lift do not contradict each other: `X` converts to `X?`, so the lifted
-                // one is the bound both arguments reach and the binding widens to it. Without this,
-                // `Assert.Equal(severity, maybeSeverity)` bound `T` from the first argument and then
-                // refused the second.
-                if ColumnarTypeEquivalenceFacts.IsNullableLiftOf(argumentType, existing) {
-                    if !allowInferenceWidening {
-                        return false
-                    }
-                    bindings[position] = argumentType
-                    return true
-                }
-
-                if ColumnarTypeEquivalenceFacts.IsNullableLiftOf(existing, argumentType) {
-                    return allowInferenceWidening
-                }
-
-                return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(existing, argumentType)
+            bounds := new List<ColumnarGenericInferenceBound>()
+            if !bindings.TryGetValue(position, out bounds) {
+                bounds = new List<ColumnarGenericInferenceBound>()
+                bindings.Add(position, bounds)
             }
-            bindings[position] = argumentType
+            bounds.Add(new ColumnarGenericInferenceBound(argumentType, boundKind))
             return true
         }
 
@@ -1225,7 +1340,7 @@ class ColumnarRuntimeGenericMethodResolver {
             if parameterElement == null || argumentElement == null {
                 return allowInferenceWidening
             }
-            return Unify(parameterElement, argumentElement, bindings, allowInferenceWidening)
+            return Unify(parameterElement, argumentElement, bindings, allowInferenceWidening, boundKind)
         }
 
         if !parameterType.IsGenericType || !parameterType.ContainsGenericParameters {
@@ -1247,18 +1362,37 @@ class ColumnarRuntimeGenericMethodResolver {
 
         parameterArguments := parameterType.GetGenericArguments()
         matchedArguments := matched.GetGenericArguments()
+        formalArguments := definition.GetGenericArguments()
         if parameterArguments.Length != matchedArguments.Length {
             return true
         }
 
         position := 0
         while position < parameterArguments.Length {
-            if !Unify(parameterArguments[position], matchedArguments[position], bindings, allowInferenceWidening) {
+            nestedBoundKind := BoundKindForVariance(boundKind, formalArguments[position].GenericParameterAttributes)
+            if !Unify(parameterArguments[position], matchedArguments[position], bindings, allowInferenceWidening, nestedBoundKind) {
                 return false
             }
             position = position + 1
         }
         return true
+    }
+
+    static func BoundKindForVariance(boundKind: ColumnarGenericInferenceBoundKind, attributes: GenericParameterAttributes): ColumnarGenericInferenceBoundKind {
+        if boundKind == ColumnarGenericInferenceBoundKind.Exact {
+            return ColumnarGenericInferenceBoundKind.Exact
+        }
+        variance := attributes & GenericParameterAttributes.VarianceMask
+        if variance == GenericParameterAttributes.None {
+            return ColumnarGenericInferenceBoundKind.Exact
+        }
+        if variance == GenericParameterAttributes.Covariant {
+            return boundKind
+        }
+        if boundKind == ColumnarGenericInferenceBoundKind.Lower {
+            return ColumnarGenericInferenceBoundKind.Upper
+        }
+        return ColumnarGenericInferenceBoundKind.Lower
     }
 
     // The instantiation of `definition` reachable from the argument type: the type itself, one of its
