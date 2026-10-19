@@ -3097,16 +3097,21 @@ mistyped local is NL202), plus `tests/native/census-lambda-inference/CensusExter
   of them on an interface, so `AnalyzerMemberResolution.ResolveMember`'s reflection arm joins `object`'s
   public instance methods of the name through `JoinInterfaceObjectMethods` (an interface group keeps
   its own, then `object`'s are added unless an interface method has the same parameter type names —
-  so `IFormattable` keeps `object.ToString()` beside `ToString(string, IFormatProvider)`), and the
-  surrogate arm does the same for `IList<SourceType>`. The emitter side is
-  `ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods`, which appends the same surface for an
-  interface lookup type after the inherited-interface walk; every runtime tier (unique-at-arity,
-  ordinary, `HasInstanceMethodAtArity`) reads that one list.
+  so `IFormattable` keeps `object.ToString()` beside `ToString(string, IFormatProvider)`). The
+  source-interface arm projects those methods into the source overload group and hides only identical
+  parameter signatures; the surrogate arm applies the same reflection merge to `IList<SourceType>`.
+  `tests/native/member-lookup` checks the BCL and source-interface runtime values, while
+  `tests/native/external-hidden-members` exercises `DbContext.Model.ToString()` through EF Core's
+  `IModel` interface.
+  `ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods` appends the same surface on the emit
+  side for an interface lookup type after the inherited-interface walk; every runtime tier
+  (unique-at-arity, ordinary, `HasInstanceMethodAtArity`) reads that one list.
 * **A property redeclared with `new`** (GitHub #239): `Type.GetProperty(name)` throws
   `AmbiguousMatchException` when a derived type hides a base property with a different type
-  (`DbContextOptionsBuilder<T>.Options`). Every property lookup by a source-written name goes through
-  `ReflectedMemberLookup.FindProperty` (Compiler.Model): the binder's own answer first, and only on
-  ambiguity a `DeclaredOnly` walk from the type outward where the most derived declaration wins.
+  (`DbContextOptionsBuilder<T>.Options`). `AnalyzerAttributeValidator.TryGetSettableAttributeNamedMemberType`
+  and `ColumnarSourceAttributeBinder.TryResolveMetadataNamedMember` both use
+  `ReflectedMemberLookup.FindProperty` (Compiler.Model). It accepts the binder's answer first, and
+  only on ambiguity walks `DeclaredOnly` properties from the type outward so the most derived wins.
   `ReflectedMemberLookup.tests.nl` constructs the ambiguous base/derived shape with the BCL
   `System.Reflection.Emit` API, without an EF dependency; `tests/native/external-hidden-members` then
   verifies the generic EF Core surface end-to-end. N# source cannot currently emit a same-name hidden
@@ -3116,6 +3121,7 @@ mistyped local is NL202), plus `tests/native/census-lambda-inference/CensusExter
   left on `GetProperty`. An uncaught exception from any such lookup still surfaces as
   `Error: Build failed: <message>` from the per-command `catch` in `CliIlBackend`, not as a positioned
   diagnostic; `InternalErrorBoundary` (NL924) wraps only the process entry point.
+  Both paths therefore select a derived attribute property before its hidden base property.
 * **Extension fallback** (GitHub #236, C# §12.8.10.2). `ResolveMember` returns the receiver's instance
   group whenever one has the name, so extensions were never candidates for such a call.
   `AnalyzerCallAnalysis.FailReflectionBind` now calls `TryBeginReflectionExtensionFallback` once, when
@@ -3129,17 +3135,25 @@ mistyped local is NL202), plus `tests/native/census-lambda-inference/CensusExter
   argument placement and the lambda's written parameter count/types before target-typing it, then
   retries source extension lookup when that shape rejects the instance signature. When one source
   extension remains applicable, it returns to ordinary argument analysis so the chosen lambda body is
-  checked against that signature. Other non-lambda argument mismatches on a single source instance
-  function still report against that method. The emitter's `LambdaParametersFitDelegate` requires the
+  checked against that signature. Non-lambda argument mismatches on a single source instance function
+  or overloaded source instance group now retry source extension binding after their arguments have
+  types; an applicable instance method still wins, and NL402 lists both sets when in-scope extensions
+  also reject the arguments. The
+  emitter's `LambdaParametersFitDelegate` requires the
   lambda to write the delegate's parameter COUNT and requires each written parameter type to equal
-  the delegate's. That lets the two `UseExtensions.Use` overloads and the instance `Use` be told apart.
+  the delegate's. Contextual preflight also checks calls through a lambda parameter against each
+  candidate's delegate signature, so `next()` selects `Func<Task>` while `next(ctx)` selects
+  `RequestDelegate` for an implicitly typed middleware lambda. Together these checks let the two
+  `UseExtensions.Use` overloads and the instance `Use` be told apart.
   `tests/native/member-lookup` pins a no-ASP.NET receiver-style extension pair and the applicable
   instance control, `tests/native/cli-command-contracts` pins extension signatures in NL402, and
-  `tests/native/aspnetcore-hosted-services` runs the typed inline middleware form against ASP.NET's
-  real `IApplicationBuilder.Use` extension overloads.
+  `tests/native/aspnetcore-hosted-services` runs the typed `Func<Task>` form, the untyped middleware
+  lambda, and the `RequestDelegate` overload against ASP.NET's real `IApplicationBuilder.Use`
+  extension methods.
 * **Bare calls with omitted defaults** (GitHub #238). `ColumnarDirectCallPlanner.TryAppendCall`'s entry
   gate now admits a bare name whose current-type declaration takes MORE parameters than written
-  (`HasBareDeclarationBeyondArity`), and `TryAppendSparseNamedBareMemberCall` places the written
+  (`HasBareDeclarationBeyondArity`), and `TryAppendSparseNamedBareMemberCall` compares exact-arity and
+  default-filled candidates together, placing the written
   arguments, evaluates them in written order through locals and fills the rest from the shared
   constructor-default owner — for the current type's instance methods (implicit receiver) and the
   enclosing type's statics. It runs in both the positional retry and the named-argument chain.
