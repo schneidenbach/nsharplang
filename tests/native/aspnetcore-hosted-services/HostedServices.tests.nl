@@ -87,3 +87,18 @@ test "inline middleware binds the Use extension although WebApplication declares
     seen := await WithinTenSeconds(RunInlineMiddleware())
     assert seen == "inline"
 }
+
+test "an untyped inline lambda binds the Func Task Use extension overload" {
+    seen := await WithinTenSeconds(RunInlineMiddlewareUntyped())
+    assert seen == "untyped"
+}
+
+test "the RequestDelegate inline middleware extension overload runs" {
+    seen := await WithinTenSeconds(RunInlineMiddlewareRequestDelegate())
+    assert seen == "request-delegate"
+}
+
+test "an untyped inline lambda selects the RequestDelegate Use extension overload" {
+    seen := await WithinTenSeconds(RunInlineMiddlewareRequestDelegateUntyped())
+    assert seen == "request-delegate-untyped"
+}

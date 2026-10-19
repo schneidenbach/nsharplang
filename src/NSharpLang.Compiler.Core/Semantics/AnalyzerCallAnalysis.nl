@@ -518,6 +518,10 @@ class AnalyzerCallAnalysis {
             return ResolveSourceInstanceExtensionFallback(state)
         }
 
+        if phase == 41 {
+            return ResolveSourceInstanceExtensionAfterTypedArguments(state)
+        }
+
         if phase >= 30 && phase <= 36 {
             return AdvanceReflectionBind(state, phase)
         }
@@ -2667,6 +2671,14 @@ class AnalyzerCallAnalysis {
         }
 
         if state.ArgumentIndex >= state.Call.Arguments.Count {
+            if ShouldRetrySourceInstanceExtensionAfterTypedArguments(functionType, state.Call) && syntheticCallWalk.GetCallMatchScore(functionType, state.Call, state.ArgTypes, state.ReceiverType) < 0 {
+                if state.ReceiverType != null {
+                    state.Phase = 41
+                    return null
+                }
+                return AcquireReceiver(state, true, 41)
+            }
+
             syntheticCallValidator.ValidateCall(functionType, state.Call, state.ArgTypes, state.ReceiverType)
             state.Phase = 16
             return null
@@ -2722,6 +2734,14 @@ class AnalyzerCallAnalysis {
         if phase == 19 {
             bound := syntheticCallWalk.BindNSharpCall(functions, state.Call, state.ArgTypes, state.ReceiverType)
             if bound == null {
+                if ShouldRetrySourceInstanceExtensionAfterGroup(functions, state.Call) {
+                    if state.ReceiverType != null {
+                        state.Phase = 42
+                        return null
+                    }
+                    return AcquireReceiver(state, true, 42)
+                }
+
                 syntheticCallValidator.ReportNoMatchingOverload(functions, state.Call, state.ArgTypes)
                 state.Result = BuiltInTypes.Unknown
                 state.Phase = 99
@@ -2736,6 +2756,10 @@ class AnalyzerCallAnalysis {
 
         if phase == 24 {
             return ReanalyzeContextualUnionCallArgument(state)
+        }
+
+        if phase == 42 {
+            return ResolveSourceInstanceExtensionAfterNoGroupMatch(state)
         }
 
         boundFunction := state.BoundFunction
@@ -2783,6 +2807,153 @@ class AnalyzerCallAnalysis {
 
         state.Phase = 3
         return null
+    }
+
+    // A non-lambda source instance call has ordinary argument types available only after the
+    // argument walk. If the instance signature rejects those types, offer source extensions before
+    // reporting its mismatch. The instance signature remains first choice because this probe runs
+    // only after its full applicability score is negative.
+    func ResolveSourceInstanceExtensionAfterTypedArguments(state: CallAnalysisState): CallAnalysisRequest? {
+        functionType := state.SyntheticFunctionType
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        receiverType := state.ReceiverType
+        if functionType == null || memberAccess == null || receiverType == null {
+            if functionType != null {
+                syntheticCallValidator.ValidateCall(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+            }
+            state.Phase = 16
+            return null
+        }
+
+        fallback := extensionMethodResolution.TryResolveExtensionMethod(receiverType, memberAccess.MemberName, ambient.CurrentTypeName)
+        functions := new List<FunctionTypeInfo>()
+        single := fallback as FunctionTypeInfo
+        if single != null {
+            functions.Add(single)
+        } else {
+            group := fallback as NSharpMethodGroupInfo
+            if group != null {
+                functions = NSharpMethodGroupInfoFactory.GetFunctions(group)
+            }
+        }
+
+        if functions.Count > 0 {
+            selected := syntheticCallWalk.BindNSharpCall(functions, state.Call, state.ArgTypes, receiverType)
+            if selected != null {
+                syntheticCallValidator.ValidateCall(selected, state.Call, state.ArgTypes, receiverType)
+                state.Result = syntheticCallValidator.ResolveReturnType(selected, state.Call, state.ArgTypes, receiverType)
+                state.Phase = 99
+                return null
+            }
+
+            available := new List<FunctionTypeInfo>()
+            available.Add(functionType)
+            for extensionFunction in functions {
+                available.Add(extensionFunction)
+            }
+            syntheticCallValidator.ReportNoMatchingOverload(available, state.Call, state.ArgTypes)
+            state.Result = BuiltInTypes.Unknown
+            state.Phase = 99
+            return null
+        }
+
+        // No source extension candidates are in scope. Preserve the ordinary instance diagnostic.
+        syntheticCallValidator.ValidateCall(functionType, state.Call, state.ArgTypes, state.ReceiverType)
+        state.Phase = 16
+        return null
+    }
+
+    // An overloaded source instance member takes the method-group route, unlike a single member.
+    // Once the group has no applicable candidate, ask the same extension owner with the receiver
+    // type; a final NL402 includes both groups when extensions were in scope but none applied.
+    func ResolveSourceInstanceExtensionAfterNoGroupMatch(state: CallAnalysisState): CallAnalysisRequest? {
+        functions := state.GroupFunctions
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        receiverType := state.ReceiverType
+        if functions == null || memberAccess == null || receiverType == null {
+            return ReportUnmatchedSourceInstanceGroup(state)
+        }
+
+        fallback := extensionMethodResolution.TryResolveExtensionMethod(receiverType, memberAccess.MemberName, ambient.CurrentTypeName)
+        extensionFunctions := new List<FunctionTypeInfo>()
+        single := fallback as FunctionTypeInfo
+        if single != null {
+            extensionFunctions.Add(single)
+        } else {
+            group := fallback as NSharpMethodGroupInfo
+            if group != null {
+                extensionFunctions = NSharpMethodGroupInfoFactory.GetFunctions(group)
+            }
+        }
+
+        if extensionFunctions.Count > 0 {
+            selected := syntheticCallWalk.BindNSharpCall(extensionFunctions, state.Call, state.ArgTypes, receiverType)
+            if selected != null {
+                state.BoundFunction = selected
+                state.ArgumentIndex = 0
+                state.Phase = 24
+                return null
+            }
+
+            return ReportUnmatchedSourceInstanceGroup(state, extensionFunctions)
+        }
+
+        return ReportUnmatchedSourceInstanceGroup(state)
+    }
+
+    func ReportUnmatchedSourceInstanceGroup(state: CallAnalysisState): CallAnalysisRequest? {
+        return ReportUnmatchedSourceInstanceGroup(state, new List<FunctionTypeInfo>())
+    }
+
+    func ReportUnmatchedSourceInstanceGroup(state: CallAnalysisState, extensionFunctions: IReadOnlyList<FunctionTypeInfo>): CallAnalysisRequest? {
+        functions := state.GroupFunctions
+        if functions != null {
+            available := new List<FunctionTypeInfo>()
+            for functionType in functions {
+                available.Add(functionType)
+            }
+            for extensionFunction in extensionFunctions {
+                available.Add(extensionFunction)
+            }
+            syntheticCallValidator.ReportNoMatchingOverload(available, state.Call, state.ArgTypes)
+        }
+        state.Result = BuiltInTypes.Unknown
+        state.Phase = 99
+        return null
+    }
+
+    static func ShouldRetrySourceInstanceExtensionAfterTypedArguments(functionType: FunctionTypeInfo, call: CallExpression): bool {
+        if string.IsNullOrEmpty(functionType.SourceContainingType) || functionType.SourceIsStatic || functionType.SourceHasReceiverParameter || call.Callee as MemberAccessExpression == null {
+            return false
+        }
+
+        for argument in call.Arguments {
+            if argument.Value as LambdaExpression != null {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    static func ShouldRetrySourceInstanceExtensionAfterGroup(functions: IReadOnlyList<FunctionTypeInfo>, call: CallExpression): bool {
+        if call.Callee as MemberAccessExpression == null || functions.Count == 0 {
+            return false
+        }
+
+        for argument in call.Arguments {
+            if argument.Value as LambdaExpression != null {
+                return false
+            }
+        }
+
+        for functionType in functions {
+            if string.IsNullOrEmpty(functionType.SourceContainingType) || functionType.SourceIsStatic || functionType.SourceHasReceiverParameter {
+                return false
+            }
+        }
+
+        return true
     }
 
     // When written lambda parameters leave exactly one source extension candidate applicable, keep

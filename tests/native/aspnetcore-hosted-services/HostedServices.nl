@@ -110,3 +110,54 @@ async func RunInlineMiddlewareCore(): Task<string> {
     await pipeline(context)
     return context.Items["seen"]?.ToString() ?? "missing"
 }
+
+func RunInlineMiddlewareUntyped(): Task<string> {
+    return RunInlineMiddlewareUntypedCore()
+}
+
+async func RunInlineMiddlewareUntypedCore(): Task<string> {
+    builder := WebApplication.CreateBuilder()
+    app := builder.Build()
+    app.Use(async (ctx, next) => {
+        ctx.Items["seen"] = "untyped"
+        await next()
+    })
+    pipeline := (app as IApplicationBuilder).Build()
+    context := new DefaultHttpContext()
+    await pipeline(context)
+    return context.Items["seen"]?.ToString() ?? "missing"
+}
+
+func RunInlineMiddlewareRequestDelegate(): Task<string> {
+    return RunInlineMiddlewareRequestDelegateCore()
+}
+
+async func RunInlineMiddlewareRequestDelegateCore(): Task<string> {
+    builder := WebApplication.CreateBuilder()
+    app := builder.Build()
+    app.Use(async (ctx: HttpContext, next: RequestDelegate) => {
+        ctx.Items["seen"] = "request-delegate"
+        await next(ctx)
+    })
+    pipeline := (app as IApplicationBuilder).Build()
+    context := new DefaultHttpContext()
+    await pipeline(context)
+    return context.Items["seen"]?.ToString() ?? "missing"
+}
+
+func RunInlineMiddlewareRequestDelegateUntyped(): Task<string> {
+    return RunInlineMiddlewareRequestDelegateUntypedCore()
+}
+
+async func RunInlineMiddlewareRequestDelegateUntypedCore(): Task<string> {
+    builder := WebApplication.CreateBuilder()
+    app := builder.Build()
+    app.Use(async (ctx, next) => {
+        ctx.Items["seen"] = "request-delegate-untyped"
+        await next(ctx)
+    })
+    pipeline := (app as IApplicationBuilder).Build()
+    context := new DefaultHttpContext()
+    await pipeline(context)
+    return context.Items["seen"]?.ToString() ?? "missing"
+}

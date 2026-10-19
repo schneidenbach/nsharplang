@@ -25219,6 +25219,14 @@ sealed class ColumnarIlEmitter {
         // may read one, and this is the only place a preflight can learn its type. The slots are the
         // caller's live handles — nothing is emitted here, so nothing stores through them.
         subEmitter.SeedPreflightFrame(_locals, _liftedLocals, _tupleNamesByVariable, _labeledTypeByVariable)
+        // A CONTEXTUALLY TYPED DELEGATE PARAMETER CAN BE INVOKED IN THE BODY, and its invocation
+        // shape is candidate-specific. `Use(async (ctx, next) => { await next(); })` must reject
+        // `Func<HttpContext, RequestDelegate, Task>` while accepting
+        // `Func<HttpContext, Func<Task>, Task>`; checking only the async block's returns makes both
+        // candidates look identical and leaves extension selection spuriously ambiguous.
+        if (!subEmitter.ContextualLambdaDelegateCallsAreApplicable(signature.BodyNode)) {
+            return false
+        }
         // AN `async` LAMBDA'S OWN TYPE IS A TASK OF WHAT ITS BODY ANSWERED, which is the same rule
         // `AnalyzerLambdaAnalysis.AsyncWrappedReturnType` states for the analyzer: the body produces
         // the task's RESULT, and what the lambda converts to is the task. Without it the contextual
@@ -25435,6 +25443,48 @@ sealed class ColumnarIlEmitter {
         }
         for childIndex := 0; childIndex < _nodes.ChildCount(node); childIndex++ {
             if (!CollectBlockReturnTypes(Child(node, childIndex), collected)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    // INVOCATIONS THROUGH A CONTEXTUAL LAMBDA PARAMETER ARE CHECKED AGAINST THAT CANDIDATE'S
+    // DELEGATE SIGNATURE. This is the part of lambda applicability that a return-type-only
+    // preflight cannot see: two overloads can both accept an implicitly typed lambda's parameter
+    // count and return shape while only one gives a callable type to a body parameter, as with
+    // `next()` for `Func<Task>` versus `RequestDelegate`.
+    private func ContextualLambdaDelegateCallsAreApplicable(node: int): bool {
+        kind := _nodes.Kind(node)
+        if (ColumnarLambdaNodeFacts.IsLambda(kind) || kind == ColumnarStatementNodeKind.LocalFunctionDeclaration) {
+            return true
+        }
+
+        if (kind == ColumnarExpressionNodeKind.CallExpression && _nodes.ChildCount(node) > 0) {
+            callee := UnwrapParenthesizedNode(Child(node, 0))
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression) {
+                name := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+                if (_paramOrdinals.ContainsKey(name)) {
+                    let delegateType: System.Type? = null
+                    if (_paramTypes.TryGetValue(name, out delegateType) && delegateType != null && IsInvocableDelegateType(delegateType)) {
+                        let invoke: System.Reflection.MethodInfo = null
+                        let invokeParameters: System.Type[] = null
+                        let invokeReturn: System.Type = null
+                        if (!TryResolveDelegateInvocation(delegateType, out invoke, out invokeParameters, out invokeReturn) || invoke == null || invokeParameters == null || invokeReturn == null || _nodes.ChildCount(node) - 1 != invokeParameters.Length) {
+                            return false
+                        }
+                        for argumentIndex := 0; argumentIndex < invokeParameters.Length; argumentIndex++ {
+                            if (!CanDeclaredCallArgumentMatch(Child(node, argumentIndex + 1), invokeParameters[argumentIndex], true)) {
+                                return false
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for childIndex := 0; childIndex < _nodes.ChildCount(node); childIndex++ {
+            if (!ContextualLambdaDelegateCallsAreApplicable(Child(node, childIndex))) {
                 return false
             }
         }

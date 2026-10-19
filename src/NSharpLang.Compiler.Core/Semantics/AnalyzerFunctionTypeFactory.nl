@@ -685,6 +685,7 @@ class AnalyzerFunctionTypeFactory {
         }
 
         parameterTypes := new List<TypeInfo>()
+        parameterNames := new List<string>()
         parameterModifiers := new List<Ast.ParameterModifier>()
         for parameter in parameters {
             // A FUNCTION TYPE CANNOT CARRY A DIRECTION, so a member with one is not convertible to
@@ -708,12 +709,14 @@ class AnalyzerFunctionTypeFactory {
             }
 
             parameterTypes.Add(converted)
+            parameterNames.Add(parameter.Name ?? "")
             parameterModifiers.Add(Ast.ParameterModifier.None)
         }
 
         signature := new FunctionTypeInfo()
         signature.SyntheticName = method.Name
         signature.SourceName = method.Name
+        signature.ParameterNames = parameterNames
         signature.ParameterTypes = parameterTypes
         signature.ParameterModifiers = parameterModifiers
         signature.ReturnType = returnType
