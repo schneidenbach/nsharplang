@@ -1361,6 +1361,16 @@ value from the body and N# wraps it in `Task<T>`. Explicit `Task` signatures
 are unit-returning async methods, so no `return` statement is required after the
 last `await`.
 
+The compiler emits a value-type state machine for each async method. Calling the method starts its
+body immediately; when an `await` sees an incomplete awaiter, the method stores its live locals and
+awaiter, registers a continuation, and returns its task. No thread stays parked while the operation
+is pending. When the awaiter completes, the state machine resumes, obtains the result, and continues
+from that point. A completed await stays on the current call, so an async method with no incomplete
+await can finish before returning its already-completed task. Exceptions before or after suspension
+fault the returned task; cancellation propagates through the task's canceled state. Task awaiters use
+the current `SynchronizationContext` by default, while `ConfigureAwait(false)` opts out when the
+awaitable provides that API. The synchronous CLR entry wrapper waits once for an async `main`.
+
 ```n#
 async func save(path: string, content: string): Task {
     await File.WriteAllTextAsync(path, content)

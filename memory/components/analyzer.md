@@ -5144,6 +5144,16 @@ call receivers and arguments, a binary's left operand, an indexed receiver, and 
 The expression owner stores these values on the machine and reloads them in written evaluation order
 after each await. Ordinary async functions and async iterators use the same spill and await core.
 
+Ordinary async functions and methods use the C#-shaped task state machine from
+`ColumnarIteratorRealization.EmitTask`: a synthesized value type implements `IAsyncStateMachine`,
+stores the state, builder, live parameters/locals/receiver and one awaiter field per awaiter type, and
+has `MoveNext` plus `SetStateMachine`. The kickoff constructs it, calls `builder.Start`, and returns
+`builder.Task`; it does not call `GetResult` to wait. Suspension uses `AwaitUnsafeOnCompleted` for
+critical awaiters and `AwaitOnCompleted` otherwise; completion and faults go through `SetResult` and
+`SetException`. The only synchronous task wait is the synthesized CLR entry wrapper for async `main`.
+Async iterator machines remain a separate consumer protocol, but their await core shares the same
+awaiter pattern and spill planner.
+
 ### Lambda captures in a generator
 
 A capture declared outside a loop remains a field of the generator state machine. For that common
