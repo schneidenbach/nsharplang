@@ -355,7 +355,7 @@ test "Web SDK framework resolution adds the runtime assemblies before analysis" 
     }
 }
 
-test "AOT project reference failure retains the source row and adds no child output" {
+test "AOT project reference builds a supported async iterator and records child output" {
     scratch := ResolverNewTempDirectory("aot-child")
     try {
         directRoot := Path.Combine(scratch, "direct")
@@ -364,17 +364,12 @@ test "AOT project reference failure retains the source row and adds no child out
         config := ResolverParseProject(directRoot)
         projectReference := config.Dependencies[0]
         options := new ReferenceResolutionOptions("Debug", false, true, false, true)
-        captured := ResolverCaptureReferenceResolutionFailure(directRoot, config, options)
-        if captured == null {
-            throw new InvalidOperationException("The AOT project reference unexpectedly succeeded.")
-        }
-        requiredFailure: Exception = captured
-        assert requiredFailure is InvalidOperationException
-        assert requiredFailure.Message.Contains("AOT builds require successful N# columnar emission", StringComparison.Ordinal)
-        assert ResolverContainsProjectIdentity(config, projectReference)
-        assert !ResolverContainsDll(config, "SharedLib.dll")
+        resolution := CompilationReferenceResolver.AddResolvedDllReferences(directRoot, config, options)
+        assert resolution != null
+        assert !ResolverContainsProjectIdentity(config, projectReference)
+        assert ResolverContainsDll(config, "SharedLib.dll")
         directOutput := Path.Combine(Path.Combine(Path.Combine(Path.Combine(directRoot, "Shared"), "bin"), "Debug/net10.0"), "SharedLib.dll")
-        assert !File.Exists(directOutput)
+        assert File.Exists(directOutput)
     } finally {
         Directory.Delete(scratch, true)
     }

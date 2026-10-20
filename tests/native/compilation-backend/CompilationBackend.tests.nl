@@ -340,17 +340,20 @@ test "nlc build accepts a single source file after the options and builds it wit
     }
 }
 
-test "nlc build of a single file fails when columnar emission declines the shape" {
+test "nlc build compiles an async iterator loop branch from a single file" {
     directory := NewTempDirectory()
     try {
         sourcePath := Path.Combine(directory, "Program.nl")
-        File.WriteAllText(sourcePath, DecliningSource())
+        File.WriteAllText(sourcePath, AsyncIteratorSource())
 
         outputDirectory := Path.Combine(directory, "dist")
         run := Nlc("build --backend il --output " + Quote(outputDirectory) + " " + Quote(sourcePath), directory)
 
-        assert run.ExitCode == 1
-        assert run.Stdout.Contains("Building")
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout.Contains("Build successful!"), run.Stdout
+        assert run.Stderr.Trim().Length == 0, run.Stderr
+        assert File.Exists(Path.Combine(outputDirectory, "Program.dll"))
+        assert File.Exists(Path.Combine(outputDirectory, "Program.runtimeconfig.json"))
     } finally {
         DeleteTempDirectory(directory)
     }
@@ -462,16 +465,17 @@ test "nlc run builds with the il backend and executes the project" {
     }
 }
 
-test "nlc run of a single file fails when columnar emission declines the shape" {
+test "nlc run executes an async iterator loop branch from a single file" {
     directory := NewTempDirectory()
     try {
         sourcePath := Path.Combine(directory, "Program.nl")
-        File.WriteAllText(sourcePath, DecliningSource())
+        File.WriteAllText(sourcePath, AsyncIteratorSource())
 
         run := Nlc("run --backend il " + Quote(sourcePath), directory)
 
-        assert run.ExitCode == 1
-        assert run.Stdout.Contains("Running")
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout.Contains("counted"), run.Stdout
+        assert run.Stderr.Trim().Length == 0, run.Stderr
     } finally {
         DeleteTempDirectory(directory)
     }
@@ -510,7 +514,7 @@ test "nlc test --coverage reports the unsupported error before any discovery run
 
         run := Nlc("test --project " + Quote(directory) + " --coverage --json", directory)
 
-        assert run.ExitCode == 1
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
         assert run.Stderr.Trim().Length == 0
 
         document := JsonDocument.Parse(run.Stdout)
@@ -639,7 +643,7 @@ test "a --backend il build resolves sdk project references and their runtime ass
     }
 }
 
-test "an aot build over a project reference reports a declined async iterator body" {
+test "an aot build compiles an async iterator loop branch over a project reference" {
     directory := NewTempDirectory()
     try {
         WriteSdkResolutionFiles(directory)
@@ -656,7 +660,10 @@ test "an aot build over a project reference reports a declined async iterator bo
         outputDirectory := Path.Combine(directory, "dist")
         run := Nlc("build --backend il --aot -o " + Quote(outputDirectory), directory)
 
-        assert run.ExitCode == 1
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stderr.Trim().Length == 0, run.Stderr
+        assert File.Exists(Path.Combine(outputDirectory, "App.dll"))
+        assert File.Exists(Path.Combine(outputDirectory, "SharedLib.dll"))
     } finally {
         DeleteTempDirectory(directory)
     }
