@@ -260,13 +260,13 @@ func RunGenericCallProgram(outputPath: string, workingDirectory: string): Extens
         throw new InvalidOperationException("The production dotnet runner returned no result.")
     }
     resultType := result.GetType()
-    exitCodeField := resultType.GetField("ExitCode")
-    stdoutField := resultType.GetField("Stdout")
-    if exitCodeField == null || stdoutField == null {
+    exitCodeProperty := resultType.GetProperty("ExitCode")
+    stdoutProperty := resultType.GetProperty("Stdout")
+    if exitCodeProperty == null || stdoutProperty == null {
         throw new InvalidOperationException("The production dotnet runner result contract was incomplete.")
     }
-    exitCodeValue := exitCodeField.GetValue(result)
-    stdoutValue := stdoutField.GetValue(result)
+    exitCodeValue := exitCodeProperty.GetValue(result)
+    stdoutValue := stdoutProperty.GetValue(result)
     if exitCodeValue == null || stdoutValue == null {
         throw new InvalidOperationException("The production dotnet runner result values were incomplete.")
     }

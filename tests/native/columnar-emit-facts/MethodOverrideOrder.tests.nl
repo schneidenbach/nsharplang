@@ -14,19 +14,28 @@ func PutOverrideFixtureArgument(values: object?[], index: int, value: object?) {
 func ReadOverrideFixtureField(target: object, name: string): object? {
     targetType := target.GetType()
     field := targetType.GetField(name)
-    if field == null {
-        throw new InvalidOperationException("Missing field " + name)
+    if field != null {
+        return field.GetValue(target)
     }
-    return field.GetValue(target)
+    property := targetType.GetProperty(name)
+    if property == null {
+        throw new InvalidOperationException("Missing member " + name)
+    }
+    return property.GetValue(target)
 }
 
 func WriteOverrideFixtureField(target: object, name: string, value: object?) {
     targetType := target.GetType()
     field := targetType.GetField(name)
-    if field == null {
-        throw new InvalidOperationException("Missing field " + name)
+    if field != null {
+        field.SetValue(target, value)
+        return
     }
-    field.SetValue(target, value)
+    property := targetType.GetProperty(name)
+    if property == null || property.SetMethod == null {
+        throw new InvalidOperationException("Missing writable member " + name)
+    }
+    property.SetValue(target, value)
 }
 
 func ReadOverrideDeclineProperty(target: object, name: string): string {
