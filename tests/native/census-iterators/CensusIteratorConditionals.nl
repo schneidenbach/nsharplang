@@ -94,6 +94,27 @@ async func* CoalescedAsync(names: string?[]): IAsyncEnumerable<string> {
     }
 }
 
+func CoalescedInput(): string?[] {
+    values := new string?[](2)
+    values[0] = "a"
+    values[1] = null
+    return values
+}
+
+func RequiredInput(): string?[] {
+    values := new string?[](2)
+    values[0] = "a"
+    values[1] = null
+    return values
+}
+
+func LabelledInput(): int[] {
+    values := new int[](2)
+    values[0] = 1
+    values[1] = -1
+    return values
+}
+
 async func* RequiredAsync(names: string?[]): IAsyncEnumerable<string> {
     for i := 0; i < names.Length; i += 1 {
         await Task.Delay(1)

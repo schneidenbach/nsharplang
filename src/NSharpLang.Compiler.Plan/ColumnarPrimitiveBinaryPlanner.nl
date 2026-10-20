@@ -131,6 +131,20 @@ class ColumnarPrimitiveBinaryPlanner {
             return false
         }
 
+        if IsEqualityOperator(nodes, source, candidate) {
+            left := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, nodes.Child(candidate, 0))
+            right := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, nodes.Child(candidate, 1))
+            leftIsNull := left >= 0 && nodes.Kind(left) == ColumnarExpressionNodeKind.NullLiteralExpression
+            rightIsNull := right >= 0 && nodes.Kind(right) == ColumnarExpressionNodeKind.NullLiteralExpression
+            if leftIsNull != rightIsNull {
+                valueNode := left
+                if leftIsNull {
+                    valueNode = right
+                }
+                return IsAdmittedOperandSyntax(nodes, source, valueNode, depth + 1)
+            }
+        }
+
         return IsAdmittedOperandSyntax(nodes, source, nodes.Child(candidate, 0), depth + 1) && IsAdmittedOperandSyntax(nodes, source, nodes.Child(candidate, 1), depth + 1)
     }
 
@@ -148,6 +162,9 @@ class ColumnarPrimitiveBinaryPlanner {
         checkpoint := plan.CreateCheckpoint()
         try {
             iteratorEmitter := bindings.IteratorMoveNextEmitter
+            if TryAppendNullEquality(nodes, source, candidate, bindings, handles, plan, parentFragment, depth, out resultType) {
+                return true
+            }
             spillLeftAcrossAwait := iteratorEmitter != null && nodes.ChildCount(candidate) == 2 && ColumnarIteratorPlanner.ContainsAwait(nodes, nodes.Child(candidate, 1))
             spillFieldName := ""
             if spillLeftAcrossAwait {
@@ -342,6 +359,89 @@ class ColumnarPrimitiveBinaryPlanner {
             plan.Rollback(checkpoint)
             throw ex
         }
+    }
+
+    // Null has no standalone runtime type, so ordinary operand planning cannot append it before
+    // overload selection. Type it from the other operand, preserve that operand's evaluation, then
+    // use the selected equality operator or reference comparison. The null literal has no side
+    // effects, so moving it after the value also leaves an empty evaluation stack at an await.
+    static func TryAppendNullEquality(nodes: ColumnarNodeTable, source: string, candidate: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, out resultType: Type): bool {
+        resultType = typeof(bool)
+        if !IsEqualityOperator(nodes, source, candidate) || nodes.ChildCount(candidate) != 2 {
+            return false
+        }
+
+        leftNode := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(candidate, 0))
+        rightNode := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(candidate, 1))
+        leftIsNull := leftNode >= 0 && nodes.Kind(leftNode) == ColumnarExpressionNodeKind.NullLiteralExpression
+        rightIsNull := rightNode >= 0 && nodes.Kind(rightNode) == ColumnarExpressionNodeKind.NullLiteralExpression
+        if leftIsNull == rightIsNull {
+            return false
+        }
+
+        valueNode := leftNode
+        nullNode := rightNode
+        if leftIsNull {
+            valueNode = rightNode
+            nullNode = leftNode
+        }
+
+        valueType := typeof(int)
+        nestedOwnership := ColumnarDirectCallOwnership.NotOwned
+        if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, valueNode, bindings, handles, depth + 1, true, plan.IsMethodBodySchema(), out valueType, out nestedOwnership) || valueType.IsValueType {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        valueOwnership := ColumnarDirectCallOwnership.NotOwned
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, valueNode, bindings, handles, plan, parentFragment, depth + 1, out valueType, out valueOwnership) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+        if !ColumnarNullableArgumentLowering.TryAppendNullArgument(plan, parentFragment, nodes.Kind(nullNode), nullNode, valueType) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        operatorText := OperatorText(nodes, source, candidate)
+        operatorMethodSelected := false
+        sourceSelection := ColumnarSourceOperatorResolver.ResolveBinary(operatorText, valueType, valueType, bindings.SourceTypeDefinitions)
+        if sourceSelection.Status == ColumnarSourceOperatorStatus.Selected {
+            if sourceSelection.Method == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceSelection.ParameterTypes[0], valueType) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceSelection.ParameterTypes[1], valueType) || sourceSelection.ReturnType != typeof(bool) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(sourceSelection.Method, sourceSelection.DeclaringType, sourceSelection.ParameterTypes, sourceSelection.ReturnType, true, false))
+            operatorMethodSelected = true
+        } else if sourceSelection.Status == ColumnarSourceOperatorStatus.Rejected && ColumnarSourceOperatorResolver.DeclaresBinaryOperator(operatorText, valueType, valueType, bindings.SourceTypeDefinitions) {
+            plan.Rollback(checkpoint)
+            return false
+        } else {
+            runtimeSelection := ColumnarRuntimeOperatorResolver.ResolveBinary(operatorText, valueType, valueType)
+            if runtimeSelection.Status == ColumnarRuntimeOperatorStatus.Selected {
+                if runtimeSelection.Method == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(runtimeSelection.ParameterTypes[0], valueType) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(runtimeSelection.ParameterTypes[1], valueType) || runtimeSelection.ReturnType != typeof(bool) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+                plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(runtimeSelection.Method, runtimeSelection.DeclaringType, runtimeSelection.ParameterTypes, runtimeSelection.ReturnType, true, false))
+                operatorMethodSelected = true
+            } else if runtimeSelection.Status == ColumnarRuntimeOperatorStatus.Rejected {
+                plan.Rollback(checkpoint)
+                return false
+            } else {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+            }
+        }
+
+        // A selected `op_Inequality` already implements `!=`; negate only the built-in `ceq`
+        // reference comparison. This matters for `string != null`, whose exact operator method
+        // returns the final result directly.
+        if !operatorMethodSelected && HasExactOperatorText(nodes, source, candidate, "!=") {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+        }
+        resultType = typeof(bool)
+        return true
     }
 
     // shl/shr/shr.un: an Int32/UInt32/Int64/UInt64 left operand shifted by an Int32 count. shr is the
@@ -628,8 +728,8 @@ class ColumnarPrimitiveBinaryPlanner {
         return true
     }
 
-    // ceq over the numeric surface (int-promotable, long, ulong, uint, double, float) and Boolean
-    // pairs; `!=` negates the ceq result. String, Type, enum, and user reference/record equality
+    // ceq over the numeric surface (int-promotable, long, ulong, uint, double, float), Boolean,
+    // and exact enum pairs; `!=` negates the ceq result. String, Type, and user reference/record equality
     // are intentionally excluded and remain whole-subtree exits for the legacy equality forms.
     static func TryAppendEquality(nodes: ColumnarNodeTable, source: string, candidate: int, opType: Type, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(bool)
@@ -656,7 +756,7 @@ class ColumnarPrimitiveBinaryPlanner {
             return true
         }
 
-        if !ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float) && opType != typeof(bool) {
+        if !ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float) && opType != typeof(bool) && !RuntimeTypeShapeFacts.IsEnumType(opType) {
             return false
         }
 

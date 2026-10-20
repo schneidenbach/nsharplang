@@ -1078,7 +1078,14 @@ class Analyzer: IDisposable {
 
         testDeclaration := declaration as TestDeclaration
         if testDeclaration != null {
-            DriveDeclarationWalk(DeclarationWalkers.BeginTest(testDeclaration, Assignability))
+            // Test bodies are async-capable: the test runner awaits a Task-returning test method,
+            // and existing test declarations use `await` without a separate `async` modifier.
+            testFrame := Ambient.EnterNestedBody(null, null, true)
+            try {
+                DriveDeclarationWalk(DeclarationWalkers.BeginTest(testDeclaration, Assignability))
+            } finally {
+                Ambient.ExitNestedBody(testFrame)
+            }
             return
         }
 
@@ -1371,6 +1378,19 @@ class Analyzer: IDisposable {
 
         localFunction := statement as LocalFunctionStatement
         if localFunction != null {
+            localDeclaration := localFunction.Function
+            enclosingFunction := Ambient.CurrentFunction
+            localFunctionIsGeneric := localDeclaration.TypeParameters != null && localDeclaration.TypeParameters.Count > 0
+            if Ambient.CurrentFunctionIsAsync && AnalyzerAmbientContext.HasModifier(localDeclaration, Modifiers.Async) && (Ambient.CurrentFunctionIsGeneric || Ambient.CurrentTypeIsGeneric || localFunctionIsGeneric) {
+                Diagnostics.Report(
+                    ErrorCode.AsyncLocalFunctionInGenericAsyncOwner,
+                    "This async local function uses generic parameters that its state machine cannot preserve from this owner yet",
+                    localDeclaration.Line,
+                    localDeclaration.Column,
+                    "Move the async local function to a non-generic owner, or remove its type parameters when the owner is non-generic.",
+                    Math.Max(1, localDeclaration.Name.Length)
+                )
+            }
             // The enclosing function's byref parameters travel INTO the local function's walk, so a
             // read of one inside the body is reported at the read (NL331) rather than declining the
             // whole program at emission with nowhere to point.
@@ -2303,12 +2323,21 @@ class Analyzer: IDisposable {
     }
 
     private func DriveLambda(state: LambdaAnalysisState): FunctionTypeInfo {
+        if state.Lambda.IsAsync && state.ReportInferenceFailure && (Ambient.CurrentFunctionIsGeneric || Ambient.CurrentTypeIsGeneric) {
+            LambdaAnalysis.ReportAsyncLambdaInGenericOwnerIfNeeded(state)
+        }
+
         step := LambdaAnalysis.NextLambdaStep(state)
         while step != null {
             answer: TypeInfo? = null
             kind := step.Kind
             if kind == 1 {
-                answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
+                expressionFrame := Ambient.EnterNestedBody(null, step.ExpectedType, state.Lambda.IsAsync)
+                try {
+                    answer = AnalyzeExpressionWithExpectedType((must step.Node), step.ExpectedType, false)
+                } finally {
+                    Ambient.ExitNestedBody(expressionFrame)
+                }
             }
             if kind == 2 {
                 PushScope(new Scope(ScopeKind.Function), step.Line, step.Column)
@@ -2320,7 +2349,7 @@ class Analyzer: IDisposable {
                 Scopes.RecordVariable(SemanticModel, (must step.Name), step.CarriedType)
             }
             if kind == 5 {
-                bodyFrame := Ambient.EnterNestedBody(null, step.CarriedType)
+                bodyFrame := Ambient.EnterNestedBody(null, step.CarriedType, state.Lambda.IsAsync)
                 try {
                     AnalyzeStatement((must step.Body))
                 } finally {

@@ -3808,6 +3808,7 @@ test "schema v3 executor generalizes ceq while preserving its Boolean literal-ze
     ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(float), typeof(float), typeof(bool))
     ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(double), typeof(double), typeof(bool))
     ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(byte), typeof(short), typeof(bool))
+    ExecutorAssertBinaryValidates(ColumnarCodePlanContract.Ceq(), typeof(object), typeof(object), typeof(bool))
     ExecutorAssertBinaryRejected(ColumnarCodePlanContract.Ceq(), typeof(string), typeof(string), typeof(bool))
 
     boolZero := ExecutorV3CeqBoolZeroPlan()

@@ -7,8 +7,11 @@ import System.Threading.Tasks
 
 
 // EXECUTED PROOFS FOR A LAMBDA INSIDE A GENERATOR BODY.
-test "ordinary async lambda fallback remains intact when recursive await is disabled" {
-    assert await OrdinaryAsyncCallback(40)() == 40
+test "an ordinary async lambda uses the same state-machine lowering as generator lambdas" {
+    callback := OrdinaryAsyncCallback(40)
+    pending := callback()
+    actual := await pending
+    assert actual == 40
 }
 
 test "a lambda captures a hoisted local and a captured parameter" {
@@ -67,73 +70,120 @@ test "async lambdas inside a generator preserve capture await and task faults" {
     }
     assert callbacks.Count == 7
 
-    first := callbacks[0]()
-    firstDelegate: Delegate = callbacks[0]
-    assert firstDelegate.Method.ReturnType == typeof(Task<int>)
+    firstCallback := callbacks[0]
+    first := firstCallback()
     assert first.IsCompletedSuccessfully
-    assert await first == 41
+    firstValue := await first
+    assert firstValue == 41
 
-    second := callbacks[1]()
+    secondCallback := callbacks[1]
+    second := secondCallback()
     assert second.IsCompletedSuccessfully
-    assert await second == 42
+    secondValue := await second
+    assert secondValue == 42
 
-    faulted := callbacks[2]()
+    faultCallback := callbacks[2]
+    faulted := faultCallback()
     assert faulted.IsFaulted
-    failure := faulted.Exception
-    assert failure != null
-    assert failure.InnerException is InvalidOperationException
-    assert failure.InnerException.Message == "generator async lambda failure"
+    assert AsyncTaskFaultMatches(faulted, "generator async lambda failure")
 
-    blockResult := callbacks[3]()
-    assert await blockResult == 43
+    blockCallback := callbacks[3]
+    blockResult := blockCallback()
+    blockValue := await blockResult
+    assert blockValue == 43
 
     // These awaits are operands of a larger binary and a call. They still belong to the synthesized
     // lambda method and preserve ordinary expression evaluation; neither consumes an iterator state.
-    assert await callbacks[4]() == 42
-    assert await callbacks[5]() == 40
+    nestedBinaryCallback := callbacks[4]
+    nestedBinaryTask := nestedBinaryCallback()
+    nestedBinaryValue := await nestedBinaryTask
+    assert nestedBinaryValue == 42
+    nestedCallCallback := callbacks[5]
+    nestedCallTask := nestedCallCallback()
+    nestedCallValue := await nestedCallTask
+    assert nestedCallValue == 40
 
-    awaitedFault := callbacks[6]()
+    awaitedFaultCallback := callbacks[6]
+    awaitedFault := awaitedFaultCallback()
     assert awaitedFault.IsFaulted
-    assert awaitedFault.Exception != null
-    assert awaitedFault.Exception.InnerException is InvalidOperationException
-    assert awaitedFault.Exception.InnerException.Message == "awaited generator async lambda failure"
+    assert AsyncTaskFaultMatches(awaitedFault, "awaited generator async lambda failure")
+}
+
+test "an async lambda returned from a generator stays incomplete until its awaitable completes" {
+    gate := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    let callback: Func<Task<int>> = null
+    for candidate in GatedAsyncCallbacks(gate) {
+        callback = candidate
+    }
+    assert callback != null
+
+    pending := callback()
+    assert !pending.IsCompleted
+    gate.SetResult(73)
+    assert pending.Result == 73
 }
 
 test "generator async lambdas preserve all four task families" {
     taskLog := new List<string>()
     taskCallbacks := new List<Func<Task>>()
-    for callback in AsyncUnitCallbacks(taskLog) {
+    for taskCallbackFromGenerator in AsyncUnitCallbacks(taskLog) {
+        taskCallbacks.Add(taskCallbackFromGenerator)
+    }
+    taskCallbackAtZero := taskCallbacks[0]
+    task := taskCallbackAtZero()
+    await task
+    assert AsyncLogContains(taskLog, "task")
+
+    callbackIndex := 0
+    for valueTaskCallbackFromGenerator in AsyncValueTaskCallbacks(40) {
+        valueTaskResult := valueTaskCallbackFromGenerator()
+        if callbackIndex == 0 {
+            valueAtZero := await valueTaskResult
+            assert valueAtZero == 43
+        } else {
+            faultedValueTask := valueTaskResult.AsTask()
+            assert faultedValueTask.IsFaulted
+            assert AsyncTaskFaultMatches(faultedValueTask, "generator async lambda failure")
+        }
+        callbackIndex += 1
+    }
+
+    valueTaskLog := new List<string>()
+    for unitValueTaskCallbackFromGenerator in AsyncUnitValueTaskCallbacks(valueTaskLog) {
+        pendingValueTask := unitValueTaskCallbackFromGenerator()
+        await pendingValueTask
+    }
+    assert AsyncLogContains(valueTaskLog, "value task")
+}
+
+test "async lambdas expose their CLR task family in the delegate signature" {
+    taskCallbacks := new List<Func<Task<int>>>()
+    for callback in AsyncCallbacks(40) {
         taskCallbacks.Add(callback)
     }
-    task := taskCallbacks[0]()
-    taskCallback: Delegate = taskCallbacks[0]
-    assert taskCallback.Method.ReturnType == typeof(Task)
-    await task
-    assert taskLog.Count == 1
-    assert taskLog[0] == "task"
+    taskDelegate: Delegate = taskCallbacks[0]
+    assert taskDelegate.Method.ReturnType == typeof(Task<int>)
+
+    unitCallbacks := new List<Func<Task>>()
+    for callback in AsyncUnitCallbacks(new List<string>()) {
+        unitCallbacks.Add(callback)
+    }
+    unitDelegate: Delegate = unitCallbacks[0]
+    assert unitDelegate.Method.ReturnType == typeof(Task)
 
     valueCallbacks := new List<Func<ValueTask<int>>>()
     for callback in AsyncValueTaskCallbacks(40) {
         valueCallbacks.Add(callback)
     }
-    assert await valueCallbacks[0]() == 43
-    valueCallback: Delegate = valueCallbacks[0]
-    assert valueCallback.Method.ReturnType == typeof(ValueTask<int>)
-    faultedValueTask := valueCallbacks[1]().AsTask()
-    assert faultedValueTask.IsFaulted
-    assert faultedValueTask.Exception != null
-    assert faultedValueTask.Exception.InnerException is InvalidOperationException
+    valueDelegate: Delegate = valueCallbacks[0]
+    assert valueDelegate.Method.ReturnType == typeof(ValueTask<int>)
 
-    valueTaskLog := new List<string>()
     unitValueCallbacks := new List<Func<ValueTask>>()
-    for callback in AsyncUnitValueTaskCallbacks(valueTaskLog) {
+    for callback in AsyncUnitValueTaskCallbacks(new List<string>()) {
         unitValueCallbacks.Add(callback)
     }
-    unitValueCallback: Delegate = unitValueCallbacks[0]
-    assert unitValueCallback.Method.ReturnType == typeof(ValueTask)
-    await unitValueCallbacks[0]()
-    assert valueTaskLog.Count == 1
-    assert valueTaskLog[0] == "value task"
+    unitValueDelegate: Delegate = unitValueCallbacks[0]
+    assert unitValueDelegate.Method.ReturnType == typeof(ValueTask)
 }
 
 test "a loop capture gets a fresh mutable cell per iteration and keeps outside captures shared" {
@@ -255,8 +305,10 @@ test "async generator lambdas preserve the selected iteration cells across await
         callbacks.Add(callback)
     }
     assert callbacks.Count == 2
-    first := await callbacks[0]()
-    second := await callbacks[1]()
+    firstCallback := callbacks[0]
+    first := await firstCallback()
+    secondCallback := callbacks[1]
+    second := await secondCallback()
     assert first == 113
     assert second == 114
     assert !Object.ReferenceEquals(callbacks[0].Target, callbacks[1].Target)
@@ -268,10 +320,14 @@ test "async iteration captures retain generic init metadata and awaited values" 
         callbacks.Add(callback)
     }
     assert callbacks.Count == 2
-    first := (await callbacks[0]()) as IteratorInitCaptureBox<int>
-    second := (await callbacks[1]()) as IteratorInitCaptureBox<int>
-    assert first != null
-    assert second != null
+    firstCallback := callbacks[0]
+    secondCallback := callbacks[1]
+    firstTask := firstCallback()
+    secondTask := secondCallback()
+    firstObject := await firstTask
+    secondObject := await secondTask
+    first := AsIteratorInitCaptureBox(firstObject)
+    second := AsIteratorInitCaptureBox(secondObject)
     assert first.Value == 113
     assert second.Value == 114
 }

@@ -1075,6 +1075,7 @@ test "A NON-SEQUENCE COLLECTION REPORTS ONCE AND STILL DECLARES THE VARIABLE AS 
 
 test "AN await foreach OVER A SYNCHRONOUS SEQUENCE REPORTS THE ASYNC WORDING FROM THE ARM" {
     harness := LoopDefault()
+    harness.Ambient.EnterNestedBody(null, BuiltInTypes.Void, true)
     state := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
 
     steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))

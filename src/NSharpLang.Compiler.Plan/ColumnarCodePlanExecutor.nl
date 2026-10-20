@@ -2157,7 +2157,7 @@ class ColumnarCodePlanExecutor {
             left := state.Pop()
             boolZero := !left.IsAddress && !right.IsAddress && left.ValueKind == ColumnarCodePlanStackValueKind.Exact() && left.ValueType == typeof(bool) && right.ValueKind == ColumnarCodePlanStackValueKind.LiteralI4() && right.LiteralKnown && right.LiteralValue == 0
             if !boolZero && !IsEqualityComparablePair(left, right) {
-                throw new InvalidOperationException(schemaName + " ceq requires exact Boolean and literal zero operands or an " + "Int32-promotable, Int64, UInt32, UInt64, Single, or Double pair.")
+                throw new InvalidOperationException(schemaName + " ceq requires exact Boolean and literal zero operands, an " + "Int32-promotable, Int64, UInt32, UInt64, Single, or Double pair, or an exact enum pair.")
             }
             state.Push(typeof(bool), false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.LdindRef() {
@@ -3058,11 +3058,16 @@ class ColumnarCodePlanExecutor {
         return IsExactPrimitivePair(left, right, typeof(uint)) || IsExactPrimitivePair(left, right, typeof(ulong))
     }
 
-    // ceq admits an Int32-promotable pair, an exact matching long/uint/ulong/float/double pair, or
-    // an exact Boolean pair (`a == b` over two Booleans compares their shared Int32 slot), in
-    // addition to the retained exact-Boolean-versus-literal-zero form.
+    // ceq admits an Int32-promotable pair, an exact matching long/uint/ulong/float/double pair, an
+    // exact enum pair, or an exact Boolean pair (`a == b` over two Booleans compares their shared
+    // Int32 slot), in addition to exact reference pairs, which include a target-typed null comparison.
     static func IsEqualityComparablePair(left: ColumnarCodePlanStackNode, right: ColumnarCodePlanStackNode): bool {
-        return IsIntPromotablePair(left, right) || IsExactPrimitivePair(left, right, typeof(long)) || IsExactPrimitivePair(left, right, typeof(uint)) || IsExactPrimitivePair(left, right, typeof(ulong)) || IsExactPrimitivePair(left, right, typeof(float)) || IsExactPrimitivePair(left, right, typeof(double)) || IsExactPrimitivePair(left, right, typeof(bool))
+        referencePair := !left.IsAddress && !right.IsAddress && left.ValueKind == ColumnarCodePlanStackValueKind.Exact() && right.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !left.ValueType.IsValueType && !right.ValueType.IsValueType && left.ValueType != typeof(string) && right.ValueType != typeof(string) && !left.ValueType.IsGenericParameter && !right.ValueType.IsGenericParameter && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(left.ValueType, right.ValueType)
+        return referencePair || IsIntPromotablePair(left, right) || IsExactPrimitivePair(left, right, typeof(long)) || IsExactPrimitivePair(left, right, typeof(uint)) || IsExactPrimitivePair(left, right, typeof(ulong)) || IsExactPrimitivePair(left, right, typeof(float)) || IsExactPrimitivePair(left, right, typeof(double)) || IsExactPrimitivePair(left, right, typeof(bool)) || IsExactEnumPair(left, right)
+    }
+
+    static func IsExactEnumPair(left: ColumnarCodePlanStackNode, right: ColumnarCodePlanStackNode): bool {
+        return !left.IsAddress && !right.IsAddress && left.ValueKind == ColumnarCodePlanStackValueKind.Exact() && right.ValueKind == ColumnarCodePlanStackValueKind.Exact() && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(left.ValueType, right.ValueType) && RuntimeTypeShapeFacts.IsEnumType(left.ValueType)
     }
 
     static func IsI8Destination(expectedType: Type): bool {

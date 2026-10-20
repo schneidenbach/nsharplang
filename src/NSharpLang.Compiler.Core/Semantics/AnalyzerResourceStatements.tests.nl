@@ -765,6 +765,7 @@ test "a clean declaration of a non-disposable type reports NL333 at the RESOURCE
 
 test "an `await using` of a type with only Dispose reports NL333 naming IAsyncDisposable" {
     harness := ResHarnessNew()
+    harness.Ambient.EnterNestedBody(null, BuiltInTypes.Void, true)
     harness.DeclaredResourceType = harness.Scopes.LookupType("Handle")
     statement := ResUsingWithDeclaration("handle", true)
     ResRun(harness, harness.Owner.BeginUsing(new UsingStatement(statement.Declaration, null, statement.Body, 7, 5, true), harness.Assignability))

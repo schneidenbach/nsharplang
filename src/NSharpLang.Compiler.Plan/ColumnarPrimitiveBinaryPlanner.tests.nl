@@ -1582,6 +1582,73 @@ test "primitive binary planner owns numeric and Boolean equality" {
     ) == "True"
 }
 
+test "primitive binary planner compares exact enum values" {
+    enumType := typeof(ColumnarRangePlannerProbeEnum)
+    one := Enum.ToObject(enumType, 1)
+    four := Enum.ToObject(enumType, 4)
+
+    equalPlan := PrimitiveBinaryPlan("left == right", PrimitiveBinaryParameterBindings(enumType))
+    assert PrimitiveBinaryExecuteParameters(
+        equalPlan,
+        typeof(bool),
+        enumType,
+        enumType,
+        one,
+        one
+    ) == "True"
+
+    notEqualPlan := PrimitiveBinaryPlan("left != right", PrimitiveBinaryParameterBindings(enumType))
+    assert PrimitiveBinaryExecuteParameters(
+        notEqualPlan,
+        typeof(bool),
+        enumType,
+        enumType,
+        one,
+        four
+    ) == "True"
+}
+
+test "primitive binary planner admits reference equality against null" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, typeof(object))
+
+    notNullPlan := PrimitiveBinaryPlan("value != null", bindings)
+    assert notNullPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryExecuteOneParameter(
+        notNullPlan,
+        typeof(bool),
+        typeof(object),
+        "present"
+    ) == "True"
+
+    nullPlan := PrimitiveBinaryPlan("value == null", bindings)
+    assert nullPlan.ResultType == typeof(bool)
+    assert PrimitiveBinaryExecuteOneParameter(
+        nullPlan,
+        typeof(bool),
+        typeof(object),
+        null
+    ) == "True"
+
+    stringBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(stringBindings, "value", 0, typeof(string))
+    stringNotNullPlan := PrimitiveBinaryPlan("value != null", stringBindings)
+    assert PrimitiveBinaryExecuteOneParameter(
+        stringNotNullPlan,
+        typeof(bool),
+        typeof(string),
+        "present"
+    ) == "True"
+
+    stringNullPlan := PrimitiveBinaryPlan("value == null", stringBindings)
+    assert PrimitiveBinaryExecuteOneParameter(
+        stringNullPlan,
+        typeof(bool),
+        typeof(string),
+        null
+    ) == "True"
+}
+
 // STRING EQUALITY IS VALUE EQUALITY, and the plan path had no arm for it at all: the pair declined,
 // and every consumer that PLANS rather than emitting directly went down with it — `name == "a"`
 // inside a `func*` reported `emit.iterator.unsupported-shape: an iterator body expression (node kind

@@ -2,11 +2,49 @@ namespace NSharpLang.AsyncTaskLike.Tests
 
 import System
 import System.Collections.Generic
+import System.Runtime.CompilerServices
 import System.Threading
 import System.Threading.Tasks
 
 async func AwaitValue(source: Task<int>): Task<int> {
     return await source
+}
+
+async func ReturnTaskValue(value: int): Task<int> {
+    await Task.CompletedTask
+    return value
+}
+
+func IdentityDouble(value: double): double {
+    return value
+}
+
+async func NegateCallAfterAwait(source: Task<double>): Task<double> {
+    value := await source
+    return -IdentityDouble(value)
+}
+
+async func AwaitTaskCallWithAwaitedArgument(source: Task<int>): Task<int> {
+    return await ReturnTaskValue(await source)
+}
+
+async func AwaitTaskCallWithAwaitedArgumentStored(source: Task<int>): Task<int> {
+    pending := ReturnTaskValue(await source)
+    return await pending
+}
+
+async func ReturnAfterBranch(skip: bool, gate: Task<int>): Task<int> {
+    if skip {
+        return 17
+    }
+    return await gate
+}
+
+async func ReturnFromUnitBranch(skip: bool, gate: Task): Task {
+    if skip {
+        return
+    }
+    await gate
 }
 
 async func GenericAwait<T>(source: Task<T>): Task<T> {
@@ -41,6 +79,28 @@ async func PropagateCancellation(source: Task<int>): Task<int> {
     return await source
 }
 
+async func SafeCastAfterAwait(value: object?, gate: Task): Task<string?> {
+    await gate
+    return value as string
+}
+
+async func SafeCastConditionAfterAwait(value: object?, gate: Task): Task<bool> {
+    await gate
+    castValue := value as string
+    return castValue != null
+}
+
+async func IsNonNullAfterAwait(value: object?, gate: Task): Task<bool> {
+    await gate
+    return value != null
+}
+
+async func SafeCastLocalAfterAwait(value: object?, gate: Task): Task<string?> {
+    await gate
+    castValue := value as string
+    return castValue
+}
+
 class AsyncService {
     Value: int
 
@@ -48,9 +108,44 @@ class AsyncService {
         Value = value
     }
 
-    async func Read(): Task<int> {
-        await Task.Yield()
+    public async func ClassRead(gate: Task): Task<int> {
+        await gate
         return Value
+    }
+}
+
+async func IsSourceReferenceNonNullAfterAwait(value: AsyncService?, gate: Task): Task<bool> {
+    await gate
+    return value != null
+}
+
+async func IsSafeCastNonNullAfterAwait(value: object?, gate: Task): Task<bool> {
+    await gate
+    return (value as AsyncService) != null
+}
+
+class AsyncGenericService {
+    async func Echo<T>(source: Task<T>): Task<T> {
+        await Task.Yield()
+        return await source
+    }
+}
+
+class AsyncGenericContainer<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    async func GetAfter(gate: Task): T {
+        await gate
+        return Value
+    }
+
+    async func Echo<U>(source: Task<U>): U {
+        await Task.Yield()
+        return await source
     }
 }
 
@@ -61,8 +156,8 @@ struct AsyncCounter {
         Value = value
     }
 
-    async func Read(): Task<int> {
-        await Task.Yield()
+    async func StructRead(gate: Task): Task<int> {
+        await gate
         return Value
     }
 }
@@ -248,4 +343,209 @@ async func NextTask(seed: int): Task<int> {
 async func SlowValue(): int {
     await Task.Delay(20)
     return 5
+}
+
+async func AwaitValueTask(source: ValueTask<int>): ValueTask<int> {
+    return await source
+}
+
+func SumThree(first: int, second: int, third: int): int {
+    return first + second + third
+}
+
+async func AwaitNestedArguments(first: Task<int>, second: Task<int>, third: Task<int>): Task<int> {
+    return SumThree(await first, await second, await third)
+}
+
+async func AwaitNestedBinary(first: Task<int>, second: Task<int>): Task<int> {
+    return (await first) + (await second)
+}
+
+async func AwaitIndexedValue(values: List<int>, index: Task<int>): Task<int> {
+    return values[await index]
+}
+
+async func AwaitLoop(gate: Task<int>): Task<int> {
+    total := 0
+    for i := 0; i < 3; i++ {
+        if i == 1 {
+            total = total + await gate
+        } else {
+            await Task.CompletedTask
+            total = total + i
+        }
+    }
+    return total
+}
+
+async func AwaitHandlers(source: Task<int>, catchGate: Task, finallyGate: Task, trace: List<string>): Task<int> {
+    try {
+        await source
+        throw new InvalidOperationException("enter catch")
+    } catch error: InvalidOperationException {
+        trace.Add("catch-start")
+        await catchGate
+        trace.Add("catch-end")
+        return 73
+    } finally {
+        trace.Add("finally-start")
+        await finallyGate
+        trace.Add("finally-end")
+    }
+}
+
+class AsyncReleaseResource: IAsyncDisposable {
+    Gate: Task
+    Trace: List<string>
+
+    constructor(gate: Task, trace: List<string>) {
+        Gate = gate
+        Trace = trace
+    }
+
+    async func DisposeAsync(): ValueTask {
+        await Gate
+        Trace.Add("disposed")
+    }
+}
+
+async func AwaitUsingResource(gate: Task, trace: List<string>): Task<int> {
+    await using resource := new AsyncReleaseResource(gate, trace) {
+        trace.Add("body")
+    }
+    trace.Add("tail")
+    return 31
+}
+
+class SyncReleaseResource: IDisposable {
+    Trace: List<string>
+
+    constructor(trace: List<string>) {
+        Trace = trace
+    }
+
+    func Dispose() {
+        Trace.Add("disposed")
+    }
+}
+
+async func AwaitInsideUsing(gate: Task<int>, trace: List<string>): Task<int> {
+    using resource := new SyncReleaseResource(trace) {
+        value := await gate
+        trace.Add("body")
+        return value
+    }
+}
+
+async func* WaitAndYield(gate: Task<int>): IAsyncEnumerable<int> {
+    value := await gate
+    yield value
+}
+
+async func ConsumeWaitAndYield(gate: Task<int>): Task<int> {
+    total := 0
+    await foreach value in WaitAndYield(gate) {
+        total = total + value
+    }
+    return total
+}
+
+async func ObserveConfiguredContext(gate: Task<int>, expected: SingleThreadTestContext): Task<bool> {
+    await gate.ConfigureAwait(false)
+    return !expected.IsCurrent()
+}
+
+class CriticalAwaitable {
+    Source: Task<int>
+    Trace: List<string>
+
+    constructor(source: Task<int>, trace: List<string>) {
+        Source = source
+        Trace = trace
+    }
+
+    func GetAwaiter(): CriticalAwaiter {
+        return new CriticalAwaiter(Source, Trace)
+    }
+}
+
+class CriticalAwaiter: ICriticalNotifyCompletion {
+    Source: Task<int>
+    Trace: List<string>
+
+    constructor(source: Task<int>, trace: List<string>) {
+        Source = source
+        Trace = trace
+    }
+
+    IsCompleted: bool {
+        get {
+            return Source.IsCompleted
+        }
+    }
+
+    func GetResult(): int {
+        return Source.GetAwaiter().GetResult()
+    }
+
+    func OnCompleted(continuation: Action) {
+        Trace.Add("safe")
+        Source.GetAwaiter().OnCompleted(continuation)
+    }
+
+    func UnsafeOnCompleted(continuation: Action) {
+        Trace.Add("unsafe")
+        Source.GetAwaiter().UnsafeOnCompleted(continuation)
+    }
+}
+
+async func AwaitCritical(source: CriticalAwaitable): Task<int> {
+    return await source
+}
+
+async func CaptureAsyncLambda(gate: Task): Task<int> {
+    captured := 3
+    read: Func<Task<int>> = async () => {
+        await gate
+        return captured
+    }
+    pending := read()
+    captured = 9
+    return await pending
+}
+
+async func CaptureAsyncLocalFunction(gate: Task): Task<int> {
+    captured := 4
+    async func ReadLocal(): Task<int> {
+        await gate
+        return captured
+    }
+    pending := ReadLocal()
+    captured = 10
+    return await pending
+}
+
+func StartCapturedAsyncLocalFunction(gate: Task): Task<int> {
+    captured := 4
+    async func ReadLocal(): Task<int> {
+        await gate
+        return captured
+    }
+    pending := ReadLocal()
+    captured = 10
+    return pending
+}
+
+func StartGenericAsyncLocalFunction(source: Task<string>): Task<string> {
+    async func EchoLocal<T>(value: Task<T>): Task<T> {
+        await Task.Yield()
+        return await value
+    }
+    return EchoLocal(source)
+}
+
+class AsyncIlShapes {
+    static async func ShapeRead(source: Task<int>): Task<int> {
+        return await source
+    }
 }

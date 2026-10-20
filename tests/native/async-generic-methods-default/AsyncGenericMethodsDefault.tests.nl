@@ -69,7 +69,8 @@ class Reader {
 class JsonReader {
     static async func Read<T>(text: string): T {
         await Task.Delay(1)
-        return must JsonSerializer.Deserialize<T>(text, new JsonSerializerOptions())
+        result := JsonSerializer.Deserialize<T>(text, new JsonSerializerOptions())
+        return must result
     }
 }
 

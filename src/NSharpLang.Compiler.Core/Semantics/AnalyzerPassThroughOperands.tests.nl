@@ -179,6 +179,13 @@ func OperandRun(harness: OperandHarness, state: PassThroughOperandState, answers
     return steps
 }
 
+func OperandRunInAsyncBody(harness: OperandHarness, state: PassThroughOperandState, answers: List<TypeInfo?>): List<OperandStep> {
+    saved := harness.Ambient.EnterNestedBody(null, null, true)
+    steps := OperandRun(harness, state, answers)
+    harness.Ambient.ExitNestedBody(saved)
+    return steps
+}
+
 func OperandOne(answer: TypeInfo?): List<TypeInfo?> {
     answers := new List<TypeInfo?>()
     answers.Add(answer)
@@ -308,7 +315,13 @@ test "EVERY FORM ASKS FOR KIND 1 AND NOTHING ELSE" {
     index := 0
     while index < nodes.Count {
         state := harness.Operands.Begin(nodes[index], harness.Reachability)
-        steps := OperandRun(harness, state, OperandOne(BuiltInTypes.Int))
+        awaitNode := nodes[index] as AwaitExpression
+        steps: List<OperandStep>
+        if awaitNode != null {
+            steps = OperandRunInAsyncBody(harness, state, OperandOne(BuiltInTypes.Int))
+        } else {
+            steps = OperandRun(harness, state, OperandOne(BuiltInTypes.Int))
+        }
         assert steps.Count == 1
         assert steps[0].Kind == 1
         index = index + 1
@@ -946,7 +959,7 @@ test "await OF A REFLECTED Task<T> IS ITS T" {
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("t", 2, 11), 2, 5), harness.Reachability)
 
-    OperandRun(harness, state, OperandOne(OperandReflected(typeof(Task<int>))))
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(Task<int>))))
 
     assert OperandTypeText(harness.Operands.Result(state)) == "int"
     assert harness.Errors.Count == 0
@@ -956,7 +969,7 @@ test "await OF A UNIT TASK IS void" {
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("t", 2, 11), 2, 5), harness.Reachability)
 
-    OperandRun(harness, state, OperandOne(OperandReflected(typeof(Task))))
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(Task))))
 
     assert OperandTypeText(harness.Operands.Result(state)) == "void"
     assert harness.Errors.Count == 0
@@ -966,7 +979,7 @@ test "await OF A NULLABLE TASK STILL FINDS THE AWAITER" {
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("t", 2, 11), 2, 5), harness.Reachability)
 
-    OperandRun(harness, state, OperandOne(OperandNullable(OperandReflected(typeof(Task<int>)))))
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandNullable(OperandReflected(typeof(Task<int>)))))
 
     assert OperandTypeText(harness.Operands.Result(state)) == "int"
     assert harness.Errors.Count == 0
@@ -978,9 +991,25 @@ test "await FINDS A DUCK-TYPED AWAITER THROUGH REFLECTION" {
 
     // A ValueTask<string> is not one of the source-known shapes when it arrives reflected under a
     // non-core context; the GetAwaiter()/GetResult() pattern is what answers for it either way.
-    OperandRun(harness, state, OperandOne(OperandReflected(typeof(ValueTask<string>))))
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(ValueTask<string>))))
 
     assert OperandTypeText(harness.Operands.Result(state)) == "string"
+    assert harness.Errors.Count == 0
+}
+
+test "await resolves the result type of a constructed reflected awaitable" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("v", 2, 11), 2, 5), harness.Reachability)
+    configuredMethod := typeof(Task<int>).GetMethod("ConfigureAwait", [typeof(bool)])
+    assert configuredMethod != null
+    configuredDefinition := configuredMethod.ReturnType.GetGenericTypeDefinition()
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.Int)
+    configuredType: TypeInfo = new GenericTypeInfo("ConfiguredTaskAwaitable", arguments, new ReflectionTypeInfo(configuredDefinition))
+
+    OperandRunInAsyncBody(harness, state, OperandOne(configuredType))
+
+    assert OperandTypeText(harness.Operands.Result(state)) == "int"
     assert harness.Errors.Count == 0
 }
 
@@ -988,7 +1017,7 @@ test "await OF A PLAIN VALUE IS ACCUSED AND ANSWERS unknown" {
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("n", 6, 15), 6, 9), harness.Reachability)
 
-    OperandRun(harness, state, OperandOne(BuiltInTypes.Int))
+    OperandRunInAsyncBody(harness, state, OperandOne(BuiltInTypes.Int))
 
     assert harness.Errors.Count == 1
     assert OperandErrorText(harness, 0) == "await expression needs an awaitable value, but this expression is 'int'|6:15:1"
@@ -1006,7 +1035,7 @@ test "await LEAVES A CLASS, STRUCT, RECORD AND INTERFACE ALONE" {
     index := 0
     while index < shapes.Count {
         state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("v", 2, 11), 2, 5), harness.Reachability)
-        OperandRun(harness, state, OperandOne(shapes[index]))
+        OperandRunInAsyncBody(harness, state, OperandOne(shapes[index]))
         assert OperandTypeText(harness.Operands.Result(state)) == "unknown"
         index = index + 1
     }
@@ -1018,7 +1047,7 @@ test "await OF unknown IS unknown IN SILENCE" {
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("v", 2, 11), 2, 5), harness.Reachability)
 
-    OperandRun(harness, state, OperandOne(BuiltInTypes.Unknown))
+    OperandRunInAsyncBody(harness, state, OperandOne(BuiltInTypes.Unknown))
 
     assert OperandTypeText(harness.Operands.Result(state)) == "unknown"
     assert harness.Errors.Count == 0
@@ -1028,7 +1057,7 @@ test "AN AWAITED ROW VIEW IS REFUSED AND THE AWAITABLE RULE IS NOT THEN ALSO APP
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("row", 2, 11), 2, 5), harness.Reachability)
 
-    OperandRun(harness, state, OperandOne(OperandRow("Points")))
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandRow("Points")))
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "SoA row views cannot be awaited; use the table and row index instead"

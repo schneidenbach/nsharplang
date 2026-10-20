@@ -72,6 +72,18 @@ class ErrorSuggestions {
             return "Keep the `when` expression synchronous; put awaited work in the selected `catch` body"
         }
 
+        if code == ErrorCode.AwaitOutsideAsync {
+            return "Add `async` to the enclosing function or lambda, or remove `await` and return the task directly"
+        }
+
+        if code == ErrorCode.AsyncLocalFunctionInGenericAsyncOwner {
+            return "Move the async local function to a non-generic owner, or remove its type parameters when the owner is non-generic"
+        }
+
+        if code == ErrorCode.AsyncLambdaInGenericOwner {
+            return "Move the async body to a non-generic helper and pass its required values explicitly"
+        }
+
         if code == ErrorCode.WrongArgumentCount {
             return "Check the function signature for required parameters"
         }

@@ -56,6 +56,10 @@ func AsyncFamilyFreeFunctionSource(): string {
     return "import System.Threading.Tasks\n\nasync func getUser(id: int): string {\n    await Task.Delay(1)\n    return \"user\" + id.ToString()\n}\n\nfunc probe(): Task<string> {\n    return getUser(1)\n}\n"
 }
 
+func AsyncFamilyGenericAsyncOwnerSource(): string {
+    return "import System.Threading.Tasks\n\nasync func genericOwner<T>(source: Task<T>): Task<T> {\n    async func readLocal(value: Task<T>): Task<T> {\n        return await value\n    }\n    return await readLocal(source)\n}\n\nasync func ownGenericLocal(source: Task<int>): Task<int> {\n    async func local<U>(value: Task<U>): Task<U> {\n        return await value\n    }\n    return await local(source)\n}\n\nclass GenericClass<T> {\n    async func ReadLocal(source: Task<T>): Task<T> {\n        async func local(value: Task<T>): Task<T> {\n            return await value\n        }\n        return await local(source)\n    }\n}\n\nstruct GenericStruct<T> {\n    async func ReadLocal(source: Task<T>): Task<T> {\n        async func local(value: Task<T>): Task<T> {\n            return await value\n        }\n        return await local(source)\n    }\n}\n"
+}
+
 test "an unannotated async function wraps in ValueTask until the project says Task" {
     analyzer := AsyncFamilyAnalyzer()
     try {
@@ -69,6 +73,35 @@ test "an unannotated async function wraps in ValueTask until the project says Ta
         assert analyzer.AsyncDefaultFamily == AsyncTaskFamily.Task
         task := AsyncFamilyErrors(analyzer, AsyncFamilyFreeFunctionSource())
         assert task.Count == 0, AsyncFamilyText(task)
+    } finally {
+        analyzer.Dispose()
+    }
+}
+
+test "async locals inside generic async owners get a positioned diagnostic before emit" {
+    analyzer := AsyncFamilyAnalyzer()
+    try {
+        errors := AsyncFamilyErrors(analyzer, AsyncFamilyGenericAsyncOwnerSource())
+        assert errors.Count == 4, AsyncFamilyText(errors)
+        for error in errors {
+            assert error.Code == ErrorCode.AsyncLocalFunctionInGenericAsyncOwner, AsyncFamilyText(errors)
+            assert error.Line > 0 && error.Column > 0 && error.Length > 0, AsyncFamilyText(errors)
+        }
+    } finally {
+        analyzer.Dispose()
+    }
+}
+
+test "async lambdas in generic methods and types receive a positioned diagnostic" {
+    analyzer := AsyncFamilyAnalyzer()
+    source := "import System\nimport System.Threading.Tasks\n\nasync func Read<T>(source: Task<T>): Task<T> {\n    read: Func<Task<T>> = async () => {\n        return await source\n    }\n    return await read()\n}\n\nclass Box<T> {\n    async func Read(source: Task<T>): Task<T> {\n        read: Func<Task<T>> = async () => {\n            return await source\n        }\n        return await read()\n    }\n}\n"
+    try {
+        errors := AsyncFamilyErrors(analyzer, source)
+        assert errors.Count == 2, AsyncFamilyText(errors)
+        for error in errors {
+            assert error.Code == ErrorCode.AsyncLambdaInGenericOwner, AsyncFamilyText(errors)
+            assert error.Line > 0 && error.Column > 0 && error.Length == 5, AsyncFamilyText(errors)
+        }
     } finally {
         analyzer.Dispose()
     }

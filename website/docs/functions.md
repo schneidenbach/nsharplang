@@ -1393,12 +1393,12 @@ async func work(x: int): Task {
 }
 ```
 
-### Generic async methods
+### Generic async functions and methods
 
-An `async` method on a type (static or instance) may declare its own type parameters. The result is
-the project's async family over the written result, as for any async function: `ValueTask<T>` by
-default, `Task<T>` under `language.asyncDefaultType: Task`, or whatever `Task<T>` / `ValueTask<T>` the
-signature writes. This matches C#, where `async Task<T> Read<T>()` carries `T` on the method:
+An `async func` or method may declare type parameters. The result is the project's async family over
+the written result: `ValueTask<T>` by default, `Task<T>` under `language.asyncDefaultType: Task`, or
+the `Task<T>` / `ValueTask<T>` family written in the signature. The state machine carries the
+function's generic parameters, as C# does:
 
 ```n#
 import System.Text.Json
@@ -1419,13 +1419,20 @@ func main() {
 
 Type arguments are inferred from arguments where they can be, a constraint (`where T : class`)
 applies, a `T` local may live across an `await`, and the result may be `T`, `T[]`, a tuple, or
-`Box<T>`. A generic **free** `async func` and a generic **local** `async` function are not supported
-yet; declare the generic async function as a method on a type instead.
+`Box<T>`. Generic async local functions also work when their enclosing function is synchronous.
+An async local function inside a generic async owner, or a generic async local function inside an
+async owner, cannot yet carry all of those type parameters into its state machine; these shapes report
+[`NL354`](./errors/NL354.md). Async lambdas inside generic methods or types report
+[`NL355`](./errors/NL355.md).
 
-### Async Void
+### No `async void`
+
+An async function always returns a task-like value. When its return type is omitted, N# uses the
+project's configured default (`ValueTask` unless `language.asyncDefaultType: Task` is set). An async
+lambda targeting a void-returning delegate is rejected by [`NL334`](./errors/NL334.md), so callers
+always have a task through which to observe completion or failure.
 
 ```n#
-// Only for event handlers
 async func onButtonClick() {
     await Task.Delay(1000)
     Console.WriteLine("Clicked!")
@@ -1498,8 +1505,8 @@ func loadAll(paths: string[]): int {
 
 Two diagnostics guard the keyword. Writing `async` where the target returns no task is
 [`NL335`'s mirror, `NL334`](./errors/NL334.md) — there is no `async void` lambda in N#, because
-`await` is lowered synchronously and the keyword would change nothing. Leaving it off when the target
-wants a task is [`NL335`](./errors/NL335.md).
+N# requires async work to return an observable task. Leaving it off when the target wants a task is
+[`NL335`](./errors/NL335.md); using `await` outside an async body is [`NL353`](./errors/NL353.md).
 
 ### Implicit Task Wrapping
 
@@ -1556,13 +1563,13 @@ The wrapper is chosen in this order:
      asyncDefaultType: Task   # or ValueTask, the default
    ```
 
-An N# `async func` has finished by the time it returns, because `await` is lowered synchronously.
-A `ValueTask` is therefore built straight from the result and the call allocates nothing, while a
-`Task<T>` costs one task object per call. The trade is that a `ValueTask` may be awaited only once:
-choose `Task` for a project whose async members are awaited more than once, stored, or handed to
-APIs that expect `Task`. There is no setting for pooled `ValueTask` builders, since a function that
-never suspends keeps no state to pool; a `language.pooledAsync` key in `project.yml` is reported as
-a configuration error.
+An N# `async func` runs until it reaches an incomplete await, then returns an incomplete task and
+resumes through its state machine when the awaiter completes. An already-completed await continues
+inline. Exceptions before or after suspension are recorded on the returned task. The process entry
+wrapper waits for a task-returning `main` once before exiting. A `ValueTask` may be awaited only
+once: choose `Task` for a project whose async members are awaited more than once, stored, or handed
+to APIs that expect `Task`. Pooled async builders are not currently configurable; a
+`language.pooledAsync` key in `project.yml` is reported as a configuration error.
 
 **APIs that find a method by name need the setting, not inference.** ASP.NET Core middleware is
 duck-typed: the framework looks up `Invoke`/`InvokeAsync` by name at startup and requires it to
@@ -2296,8 +2303,9 @@ func passThrough<T>(value: T): T {
 The compiler preserves the two owners in CLR metadata: a capture-free local copies enclosing
 parameters onto its synthesized static method, while a capturing local places them on its display
 type. Declaring a local parameter with the same name as an enclosing parameter is still NL316; use a
-distinct name such as `U`. An `async` generic local function is not supported yet; declare it as a method
-(see [Generic async methods](#generic-async-methods)).
+distinct name such as `U`. Generic async local functions work in synchronous owners. The generic
+async-local combinations that cannot yet preserve their owners' parameters report
+[`NL354`](./errors/NL354.md); see [generic async functions and methods](#generic-async-functions-and-methods).
 
 ### Scope: a local function is visible in its whole block
 

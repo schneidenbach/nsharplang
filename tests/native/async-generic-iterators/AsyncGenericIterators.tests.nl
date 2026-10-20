@@ -52,8 +52,8 @@ test "a generic enclosing type parameter flows through an async instance iterato
 
 test "generic async iterators are consumable across an assembly boundary" {
     joined := ""
-    await foreach value in CrossPending<string>("external") {
-        joined = joined + value
+    await foreach externalText in CrossPending<string>("external") {
+        joined = joined + externalText
     }
     assert joined == "externalexternal"
 
@@ -67,8 +67,8 @@ test "generic async iterators are consumable across an assembly boundary" {
 
     observed := false
     count := 0
-    await foreach value in genericMember {
-        observed = value
+    await foreach streamValue in genericMember {
+        observed = streamValue
         count = count + 1
     }
     assert observed

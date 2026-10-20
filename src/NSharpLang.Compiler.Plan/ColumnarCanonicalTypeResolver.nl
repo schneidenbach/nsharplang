@@ -983,6 +983,36 @@ class ColumnarCanonicalTypeResolver {
             return true
         }
 
+        // A tuple signature can contain parameters from this scope, for example `(T, int)` on a
+        // generic async method. The ordinary tuple arm cannot see this resolver's parameter map, so
+        // construct the same closed ValueTuple while resolving each element in the current scope.
+        if canonical.Length >= 2 && canonical[0] == '(' && canonical[canonical.Length - 1] == ')' {
+            tupleCanonical := ColumnarTypeCanonicalizer.StripTupleElementNames(canonical).Canonical
+            elementCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+                tupleCanonical.Substring(1, tupleCanonical.Length - 2)
+            )
+            tupleDefinition := ColumnarTypeOfPlanner.OpenValueTupleType(elementCanonicals.Count)
+            tupleElements := new ColumnarSelectedTypeReference[](0)
+            if tupleDefinition == null || !TrySelectTypeParameterCanonicalList(
+                elementCanonicals,
+                typeParams,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                out tupleElements
+            ) {
+                selected = ColumnarSelectedTypeReference.Missing(table)
+                return false
+            }
+            runtimeType := tupleDefinition.MakeGenericType(SelectedRuntimeTypes(tupleElements))
+            if !ColumnarTypeOfPlanner.IsSupportedValueTuple(runtimeType) {
+                selected = ColumnarSelectedTypeReference.RejectedWithRuntime(table, runtimeType)
+                return false
+            }
+            selected = ConstructedSelection(table, runtimeType, tupleDefinition, tupleElements)
+            return true
+        }
+
         elementParameter := typeof(object)
         if canonical.EndsWith("[]", StringComparison.Ordinal) && typeParams.TryGetValue(
             canonical.Substring(0, canonical.Length - 2),

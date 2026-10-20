@@ -3001,6 +3001,55 @@ test "async iterator planner classifies arguments before a later awaited argumen
     assert probe.Shape.AwaitResumeCount == 1
 }
 
+test "async expression walk ignores a source-less type row that shares the string literal kind" {
+    source := "object?"
+    nodes := new ColumnarNodeTable(
+        [ColumnarExpressionNodeKind.StringLiteralExpression],
+        [-1],
+        [0],
+        [0],
+        [0],
+        System.Array.Empty<int>(),
+        [0],
+        [source.Length]
+    )
+    literal := ""
+    parts := new List<ColumnarInterpolationPart>()
+    holeNodes := new ColumnarNodeTable[](0)
+    holeSources := new string[](0)
+    holeRoots := new int[](0)
+
+    assert !ColumnarIteratorPlanner.TryParseInterpolatedExpression(
+        nodes,
+        source,
+        0,
+        out literal,
+        out parts,
+        out holeNodes,
+        out holeSources,
+        out holeRoots
+    )
+    assert literal == ""
+}
+
+test "dictionary sequence inference closes nested key-value pair element arguments" {
+    sourceValueType := TypeOfCreateBuilder("IteratorDictionarySourceValue", "IteratorDictionarySourceValueAsm", 0)
+    dictionaryArguments := new Type[](2)
+    dictionaryArguments[0] = typeof(string)
+    dictionaryArguments[1] = sourceValueType
+    dictionaryType := typeof(Dictionary<string, object>).GetGenericTypeDefinition().MakeGenericType(dictionaryArguments)
+
+    elementType: Type? = null
+    assert ColumnarIteratorBodyPlanner.TryGetSequenceElementType(dictionaryType, out elementType)
+    assert elementType != null
+    assert !ColumnarTypeOfPlanner.ContainsOpenGenericParameters(elementType)
+    expectedArguments := new Type[](2)
+    expectedArguments[0] = typeof(string)
+    expectedArguments[1] = sourceValueType
+    expectedElementType := typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(expectedArguments)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(elementType, expectedElementType)
+}
+
 // `await` OUTSIDE AN ASYNC GENERATOR IS STILL AN ERROR, in both positions.
 test "a synchronous generator refuses await in either position" {
     unit := new ColumnarIteratorShapeProbe(

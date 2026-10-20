@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusIterators.Tests
 
 import System.Collections.Generic
+import System.Threading.Tasks
 
 
 // EXECUTED PROOFS FOR A BOUND `await` INSIDE AN ASYNC GENERATOR.
@@ -41,6 +42,21 @@ test "a ValueTask is awaited through its own awaiter" {
     }
     assert collected.Count == 1
     assert collected[0] == 11
+}
+
+test "nested awaits spill both values through an async iterator expression" {
+    first := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    second := new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously)
+    iterator := AwaitedBinaryExpression(first.Task, second.Task).GetAsyncEnumerator()
+    pending := iterator.MoveNextAsync()
+    assert !pending.IsCompleted
+
+    first.SetResult(17)
+    assert !pending.IsCompleted
+    second.SetResult(25)
+    assert pending.AsTask().Result
+    assert iterator.Current == 42
+    iterator.DisposeAsync().AsTask().Wait()
 }
 
 test "an awaited value converts into the binding it is assigned to" {

@@ -93,6 +93,10 @@ The task is `ValueTask` by default, or `Task` when `project.yml` sets
 member it replaces, and writing the task type (`: Task<string>`) always wins. See
 [Implicit Task Wrapping](./functions.md#implicit-task-wrapping) for the full rule.
 
+The compiler lowers async bodies to resumable state machines. An async call returns its task as soon
+as the body reaches an incomplete await, so independent operations can overlap. Use `await` only in
+an async function or lambda; `await` elsewhere is [`NL353`](./errors/NL353.md).
+
 ### Lambda Expressions
 
 N# supports lambda expressions for inline functions:

@@ -58,11 +58,6 @@ class ColumnarFragmentBindings {
     // Live checked/unchecked context routed mechanically from the emitter. Only checked integral
     // add/sub/mul select the overflow opcode variants; every other family ignores this flag.
     OverflowCheckingEnabled: bool
-    // A synthesized async-lambda method keeps the language's current blocking-await semantics, but
-    // its values still travel through the ordinary recursive expression planner. This capability is
-    // enabled only for that method scope; every other fragment binding set continues to reject kind
-    // 53, so an enclosing iterator's await remains owned by its suspension planner.
-    BlockingAwaitEnabled: bool
     // A `MoveNextCore` expression scope installs its active machine emitter only while appending one
     // source value. Recursive expression owners use it to lower an `await` at its written position
     // into a real state-machine suspension; ordinary method and lambda scopes leave it null.
@@ -110,7 +105,6 @@ class ColumnarFragmentBindings {
         StructuralTypeReferences = new ColumnarStructuralTypeReferenceTable()
         EnclosingTypeDefinition = null
         OverflowCheckingEnabled = false
-        BlockingAwaitEnabled = false
         IteratorMoveNextEmitter = null
         SourceUnionDefinitions = new List<ColumnarUnionDef>()
         TupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)

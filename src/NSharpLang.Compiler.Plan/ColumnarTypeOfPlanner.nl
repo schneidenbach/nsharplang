@@ -1825,7 +1825,7 @@ class ColumnarTypeOfPlanner {
                 continue
             }
             directSourceReference := argument is TypeBuilder && !RuntimeTypeShapeFacts.IsEnumBuilder(argument) && !argument.IsGenericTypeDefinition && !argument.IsValueType && !argument.IsInterface
-            if !directSourceReference && (RuntimeTypeShapeFacts.IsEnumType(argument) || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument)) {
+            if !argument.IsGenericParameter && !directSourceReference && (RuntimeTypeShapeFacts.IsEnumType(argument) || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument)) {
                 return false
             }
             i += 1

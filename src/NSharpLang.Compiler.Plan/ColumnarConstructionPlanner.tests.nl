@@ -1087,14 +1087,19 @@ test "construction planner defers contextual array shapes as whole subtrees" {
 
     nullableSized := ConstructionNullableSizedArrayTree("int", "2")
     ConstructionStampScope(nullableSized, "")
-    _nullablePlan := ConstructionRejected(
+    nullablePlan := ConstructionPlan(
         nullableSized,
-        ColumnarRangePlannerEmptyBindings(),
-        out ownership,
-        out legacy
+        ColumnarRangePlannerEmptyBindings()
     )
-    assert ownership == ColumnarDirectCallOwnership.NotOwned
-    assert legacy
+    assert nullablePlan.ResultType == typeof(Nullable<int>).MakeArrayType()
+
+    nullableReferenceSized := ConstructionNullableSizedArrayTree("object", "2")
+    ConstructionStampScope(nullableReferenceSized, "")
+    nullableReferencePlan := ConstructionPlan(
+        nullableReferenceSized,
+        ColumnarRangePlannerEmptyBindings()
+    )
+    assert nullableReferencePlan.ResultType == typeof(object[])
 
     consumer := ConstructionSourceDefinition(
         "ConstructionArrayConsumer",

@@ -16,7 +16,7 @@ error NL324: `Circle` does not implement 2 inherited abstract members: `Perimete
 Read more: https://schneidenbach.github.io/nsharplang/docs/errors/NL324
 ```
 
-There are seventy-nine **`NL` codes**, produced by the compiler and the linter, and nineteen **`NSYS`
+There are eighty **`NL` codes**, produced by the compiler and the linter, and nineteen **`NSYS`
 codes**, produced by the systems analyzer when a project opts into a systems policy. The compiler
 codes are grouped by the stage that reports them: the first digit tells you how far your program
 got before something went wrong.
@@ -139,6 +139,9 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL350`](./NL350.md) | A value returned from an iterator. |
 | [`NL351`](./NL351.md) | A `yield` or `await` inside a `lock` statement. |
 | [`NL352`](./NL352.md) | An `await` inside a catch filter. |
+| [`NL353`](./NL353.md) | An `await` outside an async function or lambda. |
+| [`NL354`](./NL354.md) | A generic async local function context the state machine cannot preserve yet. |
+| [`NL355`](./NL355.md) | An async lambda inside a generic method or type. |
 
 ## Calls — `NL4xx`
 

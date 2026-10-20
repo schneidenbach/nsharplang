@@ -27,6 +27,7 @@ class AmbientContextFrame {
     MemberIsStatic: bool
     CatchHandlerDepth: int
     RethrowTargetFinallyDepth: int
+    FunctionIsGeneric: bool
 
     constructor(returnType: TypeInfo?, declaration: FunctionDeclaration?, returnTypeWasOmitted: bool, isAsync: bool, inLoop: bool, finallyDepth: int, breakTargetFinallyDepth: int, continueTargetFinallyDepth: int, inConstructor: bool, memberIsStatic: bool, catchHandlerDepth: int, rethrowTargetFinallyDepth: int) {
         ReturnType = returnType
@@ -203,6 +204,7 @@ class AnalyzerAmbientContext {
 
     currentReturnTypeValue: TypeInfo?
     currentFunctionValue: FunctionDeclaration?
+    currentFunctionIsGenericValue: bool
     returnTypeWasOmittedValue: bool
     isAsyncValue: bool
     inLoopValue: bool
@@ -240,6 +242,7 @@ class AnalyzerAmbientContext {
     currentClassValue: ClassDeclaration?
     currentConstructorDeclaringClassValue: ClassDeclaration?
     currentTypeMembersValue: List<Declaration>?
+    currentTypeIsGenericValue: bool
     currentTypeNameValue: string?
     inConstructorValue: bool
     memberIsStaticValue: bool
@@ -259,6 +262,11 @@ class AnalyzerAmbientContext {
     // The enclosing function's DECLARATION, or `null` inside a lambda's block body (a lambda has no
     // declaration to name, so a diagnostic about it says "this function").
     CurrentFunction: FunctionDeclaration? => currentFunctionValue
+
+    // Whether the active function declaration owns method type parameters. Lambdas have no
+    // declaration of their own and inherit this fact from their enclosing function, so nested
+    // async lambdas can be diagnosed before the emitter sees an unsupported generic owner.
+    CurrentFunctionIsGeneric: bool => currentFunctionIsGenericValue
 
     // Whether the enclosing function's return type was OMITTED rather than written. Every
     // return-value diagnostic changes both its wording and its SPAN on this — an omitted return type
@@ -352,6 +360,8 @@ class AnalyzerAmbientContext {
     // the two always describe the SAME declaration.
     CurrentTypeMembers: List<Declaration>? => currentTypeMembersValue
 
+    CurrentTypeIsGeneric: bool => currentTypeIsGenericValue
+
     // THE NAME OF THE TYPE THE WALK IS INSIDE, or `null` at top level. This is what makes a member
     // declaration a MEMBER: the function walk records its function under it, the field walk records
     // its field under it, the property walk records both of its IDE tables under it, member resolution
@@ -443,6 +453,7 @@ class AnalyzerAmbientContext {
         declarationContextValue = declarationContext
         currentReturnTypeValue = null
         currentFunctionValue = null
+        currentFunctionIsGenericValue = false
         returnTypeWasOmittedValue = false
         isAsyncValue = false
         inLoopValue = false
@@ -462,6 +473,7 @@ class AnalyzerAmbientContext {
         currentClassValue = null
         currentConstructorDeclaringClassValue = null
         currentTypeMembersValue = null
+        currentTypeIsGenericValue = false
         currentTypeNameValue = null
         inConstructorValue = false
         memberIsStaticValue = false
@@ -484,6 +496,7 @@ class AnalyzerAmbientContext {
     func BeginAnalysis() {
         currentReturnTypeValue = null
         currentFunctionValue = null
+        currentFunctionIsGenericValue = false
         returnTypeWasOmittedValue = false
         isAsyncValue = false
         inLoopValue = false
@@ -623,7 +636,9 @@ class AnalyzerAmbientContext {
     // matching `Exit` restores exactly the subset ITS boundary is responsible for, and the doc on
     // each pair names that subset.
     func Snapshot(): AmbientContextFrame {
-        return new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue, inConstructorValue, memberIsStaticValue, catchHandlerDepthValue, rethrowTargetFinallyDepthValue)
+        frame := new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue, inConstructorValue, memberIsStaticValue, catchHandlerDepthValue, rethrowTargetFinallyDepthValue)
+        frame.FunctionIsGeneric = currentFunctionIsGenericValue
+        return frame
     }
 
     // A TOP-LEVEL FUNCTION DECLARATION'S BODY. Sets the whole function family and leaves the
@@ -633,6 +648,7 @@ class AnalyzerAmbientContext {
         saved := Snapshot()
         currentReturnTypeValue = returnType
         currentFunctionValue = declaration
+        currentFunctionIsGenericValue = declaration.TypeParameters != null && declaration.TypeParameters.Count > 0
         returnTypeWasOmittedValue = declaration.ReturnType == null
         isAsyncValue = HasModifier(declaration, Modifiers.Async)
         memberIsStaticValue = HasModifier(declaration, Modifiers.Static)
@@ -646,6 +662,7 @@ class AnalyzerAmbientContext {
     func ExitFunctionDeclaration(saved: AmbientContextFrame) {
         currentReturnTypeValue = null
         currentFunctionValue = saved.Function
+        currentFunctionIsGenericValue = saved.FunctionIsGeneric
         returnTypeWasOmittedValue = saved.ReturnTypeWasOmitted
         isAsyncValue = saved.IsAsync
         memberIsStaticValue = saved.MemberIsStatic
@@ -767,6 +784,16 @@ class AnalyzerAmbientContext {
         currentTypeMembersValue = saved
     }
 
+    func EnterTypeGenericity(isGeneric: bool): bool {
+        saved := currentTypeIsGenericValue
+        currentTypeIsGenericValue = isGeneric
+        return saved
+    }
+
+    func ExitTypeGenericity(saved: bool) {
+        currentTypeIsGenericValue = saved
+    }
+
     func EnterTypeName(name: string?): string? {
         saved := currentTypeNameValue
         currentTypeNameValue = name
@@ -796,11 +823,18 @@ class AnalyzerAmbientContext {
     // for the lambda's own return type. A LOCAL FUNCTION never infers: its return type is written or
     // it is `void`.
     func EnterNestedBody(declaration: FunctionDeclaration?, returnType: TypeInfo?): AmbientContextFrame {
+        return EnterNestedBody(declaration, returnType, false)
+    }
+
+    func EnterNestedBody(declaration: FunctionDeclaration?, returnType: TypeInfo?, asyncBody: bool): AmbientContextFrame {
         saved := Snapshot()
         currentReturnTypeValue = returnType
         currentFunctionValue = declaration
+        if declaration != null {
+            currentFunctionIsGenericValue = currentFunctionIsGenericValue || (declaration.TypeParameters != null && declaration.TypeParameters.Count > 0)
+        }
         returnTypeWasOmittedValue = DeclaresOmittedReturnType(declaration)
-        isAsyncValue = HasModifier(declaration, Modifiers.Async)
+        isAsyncValue = HasModifier(declaration, Modifiers.Async) || asyncBody
         inLoopValue = false
         finallyDepthValue = 0
         breakTargetFinallyDepthValue = 0
@@ -827,6 +861,7 @@ class AnalyzerAmbientContext {
 
         currentReturnTypeValue = saved.ReturnType
         currentFunctionValue = saved.Function
+        currentFunctionIsGenericValue = saved.FunctionIsGeneric
         returnTypeWasOmittedValue = saved.ReturnTypeWasOmitted
         isAsyncValue = saved.IsAsync
         inLoopValue = saved.InLoop
@@ -1010,6 +1045,10 @@ class AnalyzerAmbientContext {
     func ReportAwaitPlacementIfNeeded(line: int, column: int) {
         if catchFilterDepthValue > 0 {
             diagnosticsValue.Report(ErrorCode.AwaitInCatchFilter, "A catch filter cannot contain 'await'", line, column, "Keep the `when` expression synchronous. Put awaited work in the selected `catch` body.", 5)
+            return
+        }
+        if !isAsyncValue {
+            diagnosticsValue.Report(ErrorCode.AwaitOutsideAsync, "'await' can only be used inside an async function or lambda", line, column, "Add `async` to the enclosing function or lambda, or remove `await` and return the task directly.", 5)
             return
         }
         if lockDepthValue > 0 {

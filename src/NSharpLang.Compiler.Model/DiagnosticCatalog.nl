@@ -160,6 +160,9 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.IteratorReturnValue)
         AddCompiler(descriptors, ErrorCode.SuspensionInLock)
         AddCompiler(descriptors, ErrorCode.AwaitInCatchFilter)
+        AddCompiler(descriptors, ErrorCode.AwaitOutsideAsync)
+        AddCompiler(descriptors, ErrorCode.AsyncLocalFunctionInGenericAsyncOwner)
+        AddCompiler(descriptors, ErrorCode.AsyncLambdaInGenericOwner)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
@@ -231,6 +234,10 @@ class DiagnosticCatalog {
         }
 
         if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.ByRefParameterCapturedByLocalFunction) {
+            return DiagnosticCategory.Semantic
+        }
+
+        if value == Convert.ToInt32(ErrorCode.AwaitOutsideAsync) || value == Convert.ToInt32(ErrorCode.AsyncLocalFunctionInGenericAsyncOwner) || value == Convert.ToInt32(ErrorCode.AsyncLambdaInGenericOwner) {
             return DiagnosticCategory.Semantic
         }
 

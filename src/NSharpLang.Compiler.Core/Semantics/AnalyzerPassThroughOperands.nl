@@ -736,6 +736,18 @@ class AnalyzerPassThroughOperands {
             }
         }
 
+        constructed := resolved as GenericTypeInfo
+        if constructed != null {
+            definitionInfo := constructed.GenericDefinition as ReflectionTypeInfo
+            if definitionInfo != null {
+                constructedResult: TypeInfo = BuiltInTypes.Unknown
+                if TryReflectionGenericAwaitResultType(definitionInfo.Type, constructed.TypeArguments, out constructedResult) {
+                    resultType = constructedResult
+                    return true
+                }
+            }
+        }
+
         return false
     }
 
@@ -810,6 +822,40 @@ class AnalyzerPassThroughOperands {
 
         resultType = AnalyzerReflectionTypeConversion.ConvertReflectionType(returnType)
         return true
+    }
+
+    // A GENERIC AWAITABLE CAN BE INSPECTED FROM ITS OPEN DEFINITION. `ConfiguredTaskAwaitable<T>`
+    // arrives as a GenericTypeInfo whose definition lives in the metadata context, while the
+    // source argument `T` may be a runtime TypeInfo; closing those two Type objects together crosses
+    // load contexts. Read the pattern from the open definition and substitute its type parameters
+    // into `GetResult`'s return type instead.
+    static func TryReflectionGenericAwaitResultType(definition: Type, typeArguments: List<TypeInfo>, out resultType: TypeInfo): bool {
+        resultType = BuiltInTypes.Unknown
+        if definition == null || !definition.IsGenericTypeDefinition {
+            return false
+        }
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        getAwaiter := definition.GetMethod("GetAwaiter", flags, null, Type.EmptyTypes, null)
+        if getAwaiter == null {
+            return false
+        }
+        awaiterType := getAwaiter.ReturnType
+        getResult := awaiterType.GetMethod("GetResult", flags, null, Type.EmptyTypes, null)
+        if getResult == null {
+            return false
+        }
+        parameters := definition.GetGenericArguments()
+        if parameters.Length != typeArguments.Count {
+            return false
+        }
+        overrides := new Dictionary<Type, TypeInfo>()
+        index := 0
+        while index < parameters.Length {
+            overrides[parameters[index]] = typeArguments[index]
+            index += 1
+        }
+        resultType = AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(getResult.ReturnType, overrides, null)
+        return !BuiltInTypes.IsUnknown(resultType)
     }
 
     // A TYPE'S RENDERED TEXT, TAKEN THROUGH `object`. `Analyzer.cs` wrote `$"{type}"`; the columnar
