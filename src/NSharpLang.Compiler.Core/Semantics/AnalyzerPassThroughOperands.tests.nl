@@ -41,8 +41,9 @@ import NSharpLang.Compiler.Ast
 // FOR EACH ELEMENT and pushed for exactly as long as that element is being walked; the slot is read
 // at the top of the element and restored before the next one, and matching is by NAME first.
 //
-// (7) `await` LEAVES A CLASS, STRUCT, RECORD OR INTERFACE ALONE. Those shapes may carry a
-// `GetAwaiter` this analyzer has not bound yet; everything else cannot, and is told so.
+// (7) `await` leaves synthetic class, struct, record and interface shapes alone when they have no
+// source declaration to inspect. A declared or reflected awaiter is checked against the complete
+// pattern the emitter calls.
 class OperandStep {
     Kind: int
     NodeName: string
@@ -82,6 +83,24 @@ class OperandHarness {
         Model = model
         Errors = errors
         Diagnostics = diagnostics
+    }
+}
+
+class OperandIncompleteAwaitable {
+    func GetAwaiter(): OperandIncompleteAwaiter {
+        return new OperandIncompleteAwaiter()
+    }
+}
+
+class OperandIncompleteAwaiter {
+    IsCompleted: bool {
+        get {
+            return false
+        }
+    }
+
+    func GetResult(): int {
+        return 1
     }
 }
 
@@ -270,6 +289,16 @@ func OperandErrorText(harness: OperandHarness, index: int): string {
 func OperandReflected(clrType: Type): TypeInfo {
     reflected: TypeInfo = new ReflectionTypeInfo(clrType)
     return reflected
+}
+
+func OperandSourceNominalType(harness: OperandHarness): TypeInfo {
+    harness.Context.AddCompilationUnit(
+        OperandPath(),
+        new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, new List<Declaration>(), 1, 1)
+    )
+    shape := OperandClassType()
+    harness.Context.RegisterCanonicalType(OperandPath(), "Widget", shape)
+    return shape
 }
 
 func OperandNullable(inner: TypeInfo): TypeInfo {
@@ -997,6 +1026,19 @@ test "await FINDS A DUCK-TYPED AWAITER THROUGH REFLECTION" {
     assert harness.Errors.Count == 0
 }
 
+test "await rejects a reflected awaiter without OnCompleted at the awaited operand" {
+    harness := OperandDefault()
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    OperandRunInAsyncBody(harness, state, OperandOne(OperandReflected(typeof(OperandIncompleteAwaitable))))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("OnCompleted(Action)")
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+    assert OperandTypeText(harness.Operands.Result(state)) == "unknown"
+}
+
 test "await resolves the result type of a constructed reflected awaitable" {
     harness := OperandDefault()
     state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("v", 2, 11), 2, 5), harness.Reachability)
@@ -1024,7 +1066,7 @@ test "await OF A PLAIN VALUE IS ACCUSED AND ANSWERS unknown" {
     assert OperandTypeText(harness.Operands.Result(state)) == "unknown"
 }
 
-test "await LEAVES A CLASS, STRUCT, RECORD AND INTERFACE ALONE" {
+test "await leaves synthetic nominal types alone when no source declaration can be inspected" {
     harness := OperandDefault()
     shapes := new List<TypeInfo>()
     shapes.Add(OperandClassType())
@@ -1041,6 +1083,20 @@ test "await LEAVES A CLASS, STRUCT, RECORD AND INTERFACE ALONE" {
     }
 
     assert harness.Errors.Count == 0
+}
+
+test "await reports a source type with no GetAwaiter at the awaited operand" {
+    harness := OperandDefault()
+    awaitable := OperandSourceNominalType(harness)
+    state := harness.Operands.Begin(new AwaitExpression(OperandIdentifier("value", 6, 15), 6, 9), harness.Reachability)
+
+    OperandRunInAsyncBody(harness, state, OperandOne(awaitable))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message.Contains("GetAwaiter()")
+    assert OperandErrorText(harness, 0).Contains("6:15:")
+    assert OperandTypeText(harness.Operands.Result(state)) == "unknown"
 }
 
 test "await OF unknown IS unknown IN SILENCE" {

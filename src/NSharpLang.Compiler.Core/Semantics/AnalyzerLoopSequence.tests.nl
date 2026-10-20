@@ -932,6 +932,7 @@ test "A foreach ASKS FOR SIX STEPS IN ONE FIXED ORDER" {
 
 test "AN await foreach ASKS FOR THE SAME SIX STEPS — THE ARMS DIFFER ONLY IN A MODE FLAG" {
     harness := LoopDefault()
+    harness.Ambient.EnterNestedBody(null, BuiltInTypes.Void, true)
     state := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
 
     steps := LoopRun(harness, state, LoopGeneric("IAsyncEnumerable", BuiltInTypes.String))
@@ -1097,6 +1098,7 @@ test "A ROW-VIEW COLLECTION ESCAPES, COLLAPSES TO unknown, AND SPEAKS WITH THE A
 
     // The ASYNCHRONOUS arm, whose only difference is the action word.
     asyncHarness := LoopDefault()
+    asyncHarness.Ambient.EnterNestedBody(null, BuiltInTypes.Void, true)
     asyncState := asyncHarness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
     asyncSteps := LoopRun(asyncHarness, asyncState, LoopSoaRowType())
     assert asyncSteps[2].CarriedType == "unknown"
@@ -1116,6 +1118,7 @@ test "A DIRECT COLUMN COLLECTION ESCAPES ON SYNTAX, COLLAPSES, AND KEEPS THE ARM
     assert syncHarness.Errors[0].Message == "SoA table member 'x' cannot be used as a foreach collection directly"
 
     asyncHarness := LoopDefault()
+    asyncHarness.Ambient.EnterNestedBody(null, BuiltInTypes.Void, true)
     LoopDeclareSoaTable(asyncHarness)
     asyncState := asyncHarness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopSoaColumnRead(), LoopForeachBody()))
     asyncSteps := LoopRun(asyncHarness, asyncState, LoopArrayOf(BuiltInTypes.Int))
@@ -1138,6 +1141,7 @@ test "AN UNANSWERED COLLECTION WALK LEAVES THE TYPE unknown AND STAYS SILENT" {
 
 test "THE WALK'S STATE CARRIES THE OPERANDS, NOT THE NODE — THE TWO ARMS SHARE ONE STATE TYPE" {
     harness := LoopDefault()
+    harness.Ambient.EnterNestedBody(null, BuiltInTypes.Void, true)
     syncState := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
     asyncState := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
 
@@ -1374,6 +1378,7 @@ test "A DIRECT COLUMN READ IN A for CONDITION ESCAPES WITH THE for's ACTION WORD
 
 test "ONE STATE AND ONE DRIVER SERVE ALL FIVE STATEMENTS, AND Form IS THE ONLY THING THAT SEPARATES THEM" {
     harness := LoopDefault()
+    harness.Ambient.EnterNestedBody(null, BuiltInTypes.Void, true)
     iteration := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
     asyncIteration := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
     whileLoop := harness.Sequence.BeginWhile(LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)

@@ -7834,7 +7834,7 @@ class ColumnarIteratorBodyPlanner {
         let sourceDefinition: ColumnarStructDef? = null
         if ColumnarSourceDefinitionResolver.TryResolveStruct(owner, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
             let sourceMethod: ColumnarInstanceMethodDef? = null
-            if ColumnarSourceMemberChainResolver.TryFindMethodOnChain(sourceDefinition, name, out sourceMethod) && sourceMethod != null && sourceMethod.ParamTypes.Length == 0 && sourceMethod.Generics == null {
+            if ColumnarSourceMemberChainResolver.TryFindMethodOnChain(sourceDefinition, name, 0, out sourceMethod) && sourceMethod != null && sourceMethod.Generics == null {
                 return sourceMethod.Builder
             }
             return null
@@ -7852,7 +7852,7 @@ class ColumnarIteratorBodyPlanner {
         let sourceDefinition: ColumnarStructDef? = null
         if ColumnarSourceDefinitionResolver.TryResolveStruct(owner, emit.Context.RequiredScope().Facts.StructDefinitions, out sourceDefinition) && sourceDefinition != null {
             let sourceMethod: ColumnarInstanceMethodDef? = null
-            if ColumnarSourceMemberChainResolver.TryFindMethodOnChain(sourceDefinition, name, out sourceMethod) && sourceMethod != null && sourceMethod.ParamTypes.Length == 1 && sourceMethod.ParamTypes[0] == typeof(Action) && sourceMethod.Generics == null {
+            if ColumnarSourceMemberChainResolver.TryFindMethodOnChain(sourceDefinition, name, 1, out sourceMethod) && sourceMethod != null && sourceMethod.ParamTypes[0] == typeof(Action) && sourceMethod.Generics == null {
                 return sourceMethod.Builder
             }
             return null

@@ -268,6 +268,10 @@ class Immediate {
         Value = value
     }
 
+    func GetAwaiter(_unused: int): ImmediateAwaiter {
+        return new ImmediateAwaiter(Value)
+    }
+
     func GetAwaiter(): ImmediateAwaiter {
         return new ImmediateAwaiter(Value)
     }
@@ -288,6 +292,10 @@ class ImmediateAwaiter: System.Runtime.CompilerServices.INotifyCompletion {
 
     func OnCompleted(continuation: Action) {
         continuation()
+    }
+
+    func GetResult(_unused: int): int {
+        return Value
     }
 
     func GetResult(): int {
